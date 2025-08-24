@@ -441,7 +441,7 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
 	];
 	const sitStandButton = config.isSitting ?
 		createButton("🧍 Встать", `move_stand_${uniqueId}`) :
-		createButton("🪑 ССесть", `move_sit_${uniqueId}`);
+		createButton("🪑 Лох", `move_sit_${uniqueId}`);
 	const replyMarkup = {
 		inline_keyboard: [
 			[createButton("⬆️ Вперед", `move_forward_${uniqueId}`)],
