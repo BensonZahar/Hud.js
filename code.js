@@ -1536,13 +1536,14 @@ function initializeChatMonitor() {
 	}
 
 	window.OnChatAddMessage = function(e, i, t) {
+        console.log('Чат:', e, 'Цвет:', i, 'Тип:', t);
 		const msg = String(e);
 		const lowerCaseMessage = msg.toLowerCase();
 		const currentTime = Date.now();
 		const chatRadius = getChatRadius(i);
 
 		// Для отладки, выводим сообщения в консоль
-		// console.log(msg); все сообщения в чат
+		console.log(msg); // сооб в чат
 
 		if (msg.includes("Текущее время:") && config.afkSettings.active) {
 			handlePayDayTimeMessage();
