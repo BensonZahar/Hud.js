@@ -441,7 +441,7 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
 	];
 	const sitStandButton = config.isSitting ?
 		createButton("🧍 Встать", `move_stand_${uniqueId}`) :
-		createButton("🪑 Лох3", `move_sit_${uniqueId}`);
+		createButton("🪑 Сесть", `move_sit_${uniqueId}`);
 	const replyMarkup = {
 		inline_keyboard: [
 			[createButton("⬆️ Вперед", `move_forward_${uniqueId}`)],
@@ -1536,14 +1536,14 @@ function initializeChatMonitor() {
 	}
 
 	window.OnChatAddMessage = function(e, i, t) {
-        console.log('Чат:', e, 'Цвет:', i, 'Тип:', t);
+        // console.log('Чат:', e, 'Цвет:', i, 'Тип:', t);
 		const msg = String(e);
 		const lowerCaseMessage = msg.toLowerCase();
 		const currentTime = Date.now();
 		const chatRadius = getChatRadius(i);
 
 		// Для отладки, выводим сообщения в консоль
-		console.log(msg); // сооб в чат
+		// console.log(msg); // сооб в чат
 
 		if (msg.includes("Текущее время:") && config.afkSettings.active) {
 			handlePayDayTimeMessage();
@@ -1716,7 +1716,7 @@ function initializeChatMonitor() {
 		}
 	};
 
-	debugLog('Мониторинг успешно активированн');
+	debugLog('Мониторинг успешно активирован');
 
 	if (!config.initialized) {
 		trackNicknameAndServer();
