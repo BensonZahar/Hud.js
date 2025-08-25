@@ -61,7 +61,7 @@ function getChatRadius(color) {
 // КОНФИГУРАЦИЯ
 const userConfig = {
 	botToken: '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA',
-	chatIds: [''],
+	chatIds: ['1046461621'],
 	keywords: [],
 	clearDelay: 3000,
 	maxAttempts: 15,
