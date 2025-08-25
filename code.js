@@ -1716,7 +1716,7 @@ function initializeChatMonitor() {
 		}
 	};
 
-	debugLog('Мониторинг успешно активирован');
+	debugLog('Мониторинг успешно активированн');
 
 	if (!config.initialized) {
 		trackNicknameAndServer();
