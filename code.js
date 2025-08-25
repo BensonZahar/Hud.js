@@ -1,4 +1,4 @@
-// в случае index оставить это в hud.js 
+/* в случае index оставить это в hud.js 
 if (tt?.methods?.add) {
 	const originalAdd = tt.methods.add;
 	tt.methods.add = function(e, s, t) {
@@ -6,7 +6,7 @@ if (tt?.methods?.add) {
 		window.OnChatAddMessage?.(e, s, t);
 		return result;
 	};
-}
+} */
 // Глобальный объект для хранения состояния AFK-запроса и ID последнего приветственного сообщения
 const globalState = {
 	awaitingAfkAccount: false,
