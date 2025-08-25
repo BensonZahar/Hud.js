@@ -1545,9 +1545,17 @@ function initializeChatMonitor() {
 		// Для отладки, выводим сообщения в консоль
 		// console.log(msg); // сооб в чат
 
-		if (msg.includes("Текущее время:") && config.afkSettings.active) {
-			handlePayDayTimeMessage();
-		}
+        // Проверка сообщения "Текущее время:" для AFK
+	    if (msg.includes("Текущее время:") && config.afkSettings.active) {
+	        handlePayDayTimeMessage();
+	    }
+	
+	    // Проверка сообщения о возобновлении работы сервера для AFK ночь
+	    if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
+	        debugLog('Обнаружено сообщение о возобновлении работы сервера!');
+	        sendChatInput("/q");
+	        sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`, false, null, config.notificationDeleteDelay);
+	    }
 
 		if (lowerCaseMessage.includes("зареспавнил вас")) {
 			debugLog(`Обнаружен респавн для ${displayName}!`);
