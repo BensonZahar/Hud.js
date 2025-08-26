@@ -390,7 +390,7 @@ function showMestoOptionsMenu(chatId, messageId, uniqueIdParam) {
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
+function showGlobalAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
 	const replyMarkup = {
 		inline_keyboard: [
 			[
@@ -404,7 +404,21 @@ function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
+function showLocalAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
+	const replyMarkup = {
+		inline_keyboard: [
+			[
+				createButton("С паузами", `local_afk_n_with_pauses_${uniqueIdParam}`),
+				createButton("Без пауз", `local_afk_n_without_pauses_${uniqueIdParam}`)
+			],
+			[createButton("⬅️ Назад", `show_local_functions_${uniqueIdParam}`)]
+		]
+	};
+
+	editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
+function showGlobalAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
 	const replyMarkup = {
 		inline_keyboard: [
 			[
@@ -412,6 +426,20 @@ function showAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
 				createButton("Рандомное время", `afk_n_random_${uniqueIdParam}`)
 			],
 			[createButton("⬅️ Назад", `global_afk_n_${uniqueIdParam}`)]
+		]
+	};
+
+	editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
+function showLocalAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
+	const replyMarkup = {
+		inline_keyboard: [
+			[
+				createButton("5/5 минут", `local_afk_n_fixed_${uniqueIdParam}`),
+				createButton("Рандомное время", `local_afk_n_random_${uniqueIdParam}`)
+			],
+			[createButton("⬅️ Назад", `local_afk_n_${uniqueIdParam}`)]
 		]
 	};
 
@@ -859,12 +887,20 @@ function processUpdates(updates) {
 				callbackUniqueId = message.replace('global_afk_', '');
 			} else if (message.startsWith('afk_n_with_pauses_')) {
 				callbackUniqueId = message.replace('afk_n_with_pauses_', '');
+			} else if (message.startsWith('local_afk_n_with_pauses_')) {
+				callbackUniqueId = message.replace('local_afk_n_with_pauses_', '');
 			} else if (message.startsWith('afk_n_without_pauses_')) {
 				callbackUniqueId = message.replace('afk_n_without_pauses_', '');
+			} else if (message.startsWith('local_afk_n_without_pauses_')) {
+				callbackUniqueId = message.replace('local_afk_n_without_pauses_', '');
 			} else if (message.startsWith('afk_n_fixed_')) {
 				callbackUniqueId = message.replace('afk_n_fixed_', '');
+			} else if (message.startsWith('local_afk_n_fixed_')) {
+				callbackUniqueId = message.replace('local_afk_n_fixed_', '');
 			} else if (message.startsWith('afk_n_random_')) {
 				callbackUniqueId = message.replace('afk_n_random_', '');
+			} else if (message.startsWith('local_afk_n_random_')) {
+				callbackUniqueId = message.replace('local_afk_n_random_', '');
 			} else if (message.startsWith('show_payday_options_')) {
 				callbackUniqueId = message.replace('show_payday_options_', '');
 			} else if (message.startsWith('show_soob_options_')) {
@@ -937,12 +973,39 @@ function processUpdates(updates) {
 				sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_afk_n_`)) {
-				showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
+				showGlobalAFKNightModesMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`local_afk_n_`)) {
-				showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
+				showLocalAFKNightModesMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`afk_n_with_pauses_`)) {
-				showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
+				showGlobalAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`local_afk_n_with_pauses_`)) {
+				showLocalAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`afk_n_without_pauses_`)) {
+				if (config.afkSettings.active) {
+					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				} else {
+					const hudId = getPlayerIdFromHUD();
+					if (!hudId) {
+						sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+					} else {
+						const idFormats = [hudId];
+						if (hudId.includes('-')) {
+							idFormats.push(hudId.replace(/-/g, ''));
+						} else if (hudId.length === 3) {
+							idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+						}
+
+						config.afkSettings = {
+							id: hudId,
+							formats: idFormats,
+							active: true
+						};
+						config.afkCycle.mode = 'none';
+
+						sendToTelegram(`🔄 <b>AFK режим (без пауз) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null, config.notificationDeleteDelay);
+					}
+				}
+			} else if (message.startsWith(`local_afk_n_without_pauses_`)) {
 				if (config.afkSettings.active) {
 					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				} else {
@@ -993,7 +1056,59 @@ function processUpdates(updates) {
 						sendToTelegram(`🔄 <b>AFK режим (с паузами 5/5) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
 					}
 				}
+			} else if (message.startsWith(`local_afk_n_fixed_`)) {
+				if (config.afkSettings.active) {
+					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				} else {
+					const hudId = getPlayerIdFromHUD();
+					if (!hudId) {
+						sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+					} else {
+						const idFormats = [hudId];
+						if (hudId.includes('-')) {
+							idFormats.push(hudId.replace(/-/g, ''));
+						} else if (hudId.length === 3) {
+							idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+						}
+
+						config.afkSettings = {
+							id: hudId,
+							formats: idFormats,
+							active: true
+						};
+						config.afkCycle.mode = 'fixed';
+						startAFKCycle();
+
+						sendToTelegram(`🔄 <b>AFK режим (с паузами 5/5) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+					}
+				}
 			} else if (message.startsWith(`afk_n_random_`)) {
+				if (config.afkSettings.active) {
+					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				} else {
+					const hudId = getPlayerIdFromHUD();
+					if (!hudId) {
+						sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+					} else {
+						const idFormats = [hudId];
+						if (hudId.includes('-')) {
+							idFormats.push(hudId.replace(/-/g, ''));
+						} else if (hudId.length === 3) {
+							idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+						}
+
+						config.afkSettings = {
+							id: hudId,
+							formats: idFormats,
+							active: true
+						};
+						config.afkCycle.mode = 'random';
+						startAFKCycle();
+
+						sendToTelegram(`🔄 <b>AFK режим (с рандомными паузами) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+					}
+				}
+			} else if (message.startsWith(`local_afk_n_random_`)) {
 				if (config.afkSettings.active) {
 					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				} else {
@@ -1199,7 +1314,7 @@ function checkLocationRequest(msg, lowerCaseMessage) {
 	const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word));
 	const hasID = isTargetingPlayer(msg);
 
-	return hasRoleKeyword && (hasActionKeyword || hasID);
+	return hasRole && (hasActionKeyword || hasID);
 }
 
 function isTargetingPlayer(msg) {
