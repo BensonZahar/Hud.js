@@ -331,115 +331,115 @@ function showControlsMenu(chatId, messageId) {
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
+function showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId) {
 	const replyMarkup = {
 		inline_keyboard: [
-			[createButton("🔔 PayDay", `show_payday_options_${uniqueIdParam}`)],
-			[createButton("🏛️ Сообщ.", `show_soob_options_${uniqueIdParam}`)],
-			[createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
+			[createButton("🔔 PayDay", `show_payday_options_${callbackUniqueId}`)],
+			[createButton("🏛️ Сообщ.", `show_soob_options_${callbackUniqueId}`)],
+			[createButton("📍 Место", `show_mesto_options_${callbackUniqueId}`)],
 			[
-				createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
-				createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
+				createButton("🌙 AFK Ночь", `global_afk_n_${callbackUniqueId}`),
+				createButton("🔄 AFK", `global_afk_${callbackUniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_controls_${uniqueIdParam}`)]
+			[createButton("⬅️ Назад", `show_controls_${callbackUniqueId}`)]
 		]
 	};
 
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showPayDayOptionsMenu(chatId, messageId, uniqueIdParam) {
+function showPayDayOptionsMenu(chatId, messageId, callbackUniqueId) {
 	const replyMarkup = {
 		inline_keyboard: [
 			[
-				createButton("🔔 ВКЛ", `global_p_on_${uniqueIdParam}`),
-				createButton("🔕 ВЫКЛ", `global_p_off_${uniqueIdParam}`)
+				createButton("🔔 ВКЛ", `global_p_on_${callbackUniqueId}`),
+				createButton("🔕 ВЫКЛ", `global_p_off_${callbackUniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Назад", `show_global_functions_${callbackUniqueId}`)]
 		]
 	};
 
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showSoobOptionsMenu(chatId, messageId, uniqueIdParam) {
+function showSoobOptionsMenu(chatId, messageId, callbackUniqueId) {
 	const replyMarkup = {
 		inline_keyboard: [
 			[
-				createButton("🔔 ВКЛ", `global_soob_on_${uniqueIdParam}`),
-				createButton("🔕 ВЫКЛ", `global_soob_off_${uniqueIdParam}`)
+				createButton("🔔 ВКЛ", `global_soob_on_${callbackUniqueId}`),
+				createButton("🔕 ВЫКЛ", `global_soob_off_${callbackUniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Назад", `show_global_functions_${callbackUniqueId}`)]
 		]
 	};
 
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showMestoOptionsMenu(chatId, messageId, uniqueIdParam) {
+function showMestoOptionsMenu(chatId, messageId, callbackUniqueId) {
 	const replyMarkup = {
 		inline_keyboard: [
 			[
-				createButton("🔔 ВКЛ", `global_mesto_on_${uniqueIdParam}`),
-				createButton("🔕 ВЫКЛ", `global_mesto_off_${uniqueIdParam}`)
+				createButton("🔔 ВКЛ", `global_mesto_on_${callbackUniqueId}`),
+				createButton("🔕 ВЫКЛ", `global_mesto_off_${callbackUniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Назад", `show_global_functions_${callbackUniqueId}`)]
 		]
 	};
 
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showGlobalAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
+function showGlobalAFKNightModesMenu(chatId, messageId, callbackUniqueId) {
 	const replyMarkup = {
 		inline_keyboard: [
 			[
-				createButton("С паузами", `afk_n_with_pauses_${uniqueIdParam}`),
-				createButton("Без пауз", `afk_n_without_pauses_${uniqueIdParam}`)
+				createButton("С паузами", `afk_n_with_pauses_${callbackUniqueId}`),
+				createButton("Без пауз", `afk_n_without_pauses_${callbackUniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Назад", `show_global_functions_${callbackUniqueId}`)]
 		]
 	};
 
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showLocalAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
+function showLocalAFKNightModesMenu(chatId, messageId, callbackUniqueId) {
 	const replyMarkup = {
 		inline_keyboard: [
 			[
-				createButton("С паузами", `local_afk_n_with_pauses_${uniqueIdParam}`),
-				createButton("Без пауз", `local_afk_n_without_pauses_${uniqueIdParam}`)
+				createButton("С паузами", `local_afk_n_with_pauses_${callbackUniqueId}`),
+				createButton("Без пауз", `local_afk_n_without_pauses_${callbackUniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_local_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Назад", `show_local_functions_${callbackUniqueId}`)]
 		]
 	};
 
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showGlobalAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
+function showGlobalAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId) {
 	const replyMarkup = {
 		inline_keyboard: [
 			[
-				createButton("5/5 минут", `afk_n_fixed_${uniqueIdParam}`),
-				createButton("Рандомное время", `afk_n_random_${uniqueIdParam}`)
+				createButton("5/5 минут", `afk_n_fixed_${callbackUniqueId}`),
+				createButton("Рандомное время", `afk_n_random_${callbackUniqueId}`)
 			],
-			[createButton("⬅️ Назад", `global_afk_n_${uniqueIdParam}`)]
+			[createButton("⬅️ Назад", `global_afk_n_${callbackUniqueId}`)]
 		]
 	};
 
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
-function showLocalAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
+function showLocalAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId) {
 	const replyMarkup = {
 		inline_keyboard: [
 			[
-				createButton("5/5 минут", `local_afk_n_fixed_${uniqueIdParam}`),
-				createButton("Рандомное время", `local_afk_n_random_${uniqueIdParam}`)
+				createButton("5/5 минут", `local_afk_n_fixed_${callbackUniqueId}`),
+				createButton("Рандомное время", `local_afk_n_random_${callbackUniqueId}`)
 			],
-			[createButton("⬅️ Назад", `local_afk_n_${uniqueIdParam}`)]
+			[createButton("⬅️ Назад", `local_afk_n_${callbackUniqueId}`)]
 		]
 	};
 
@@ -828,87 +828,87 @@ function processUpdates(updates) {
 
 			let callbackUniqueId = null;
 			if (message.startsWith('show_controls_')) {
-			    callbackUniqueId = message.replace('show_controls_', '');
+				callbackUniqueId = message.replace('show_controls_', '');
 			} else if (message.startsWith('show_local_functions_')) {
-			    callbackUniqueId = message.replace('show_local_functions_', '');
+				callbackUniqueId = message.replace('show_local_functions_', '');
 			} else if (message.startsWith('show_movement_controls_')) {
-			    callbackUniqueId = message.replace('show_movement_controls_', '');
+				callbackUniqueId = message.replace('show_movement_controls_', '');
 			} else if (message.startsWith('show_movement_')) {
-			    callbackUniqueId = message.replace('show_movement_', '');
+				callbackUniqueId = message.replace('show_movement_', '');
 			} else if (message.startsWith('hide_controls_')) {
-			    callbackUniqueId = message.replace('hide_controls_', '');
+				callbackUniqueId = message.replace('hide_controls_', '');
 			} else if (message.startsWith('request_chat_message_')) {
-			    callbackUniqueId = message.replace('request_chat_message_', '');
+				callbackUniqueId = message.replace('request_chat_message_', '');
 			} else if (message.startsWith('local_soob_on_')) {
-			    callbackUniqueId = message.replace('local_soob_on_', '');
+				callbackUniqueId = message.replace('local_soob_on_', '');
 			} else if (message.startsWith('local_soob_off_')) {
-			    callbackUniqueId = message.replace('local_soob_off_', '');
+				callbackUniqueId = message.replace('local_soob_off_', '');
 			} else if (message.startsWith('local_mesto_on_')) {
-			    callbackUniqueId = message.replace('local_mesto_on_', '');
+				callbackUniqueId = message.replace('local_mesto_on_', '');
 			} else if (message.startsWith('local_mesto_off_')) {
-			    callbackUniqueId = message.replace('local_mesto_off_', '');
+				callbackUniqueId = message.replace('local_mesto_off_', '');
 			} else if (message.startsWith('move_forward_')) {
-			    callbackUniqueId = message.replace('move_forward_', '');
+				callbackUniqueId = message.replace('move_forward_', '');
 			} else if (message.startsWith('move_back_')) {
-			    callbackUniqueId = message.replace('move_back_', '');
+				callbackUniqueId = message.replace('move_back_', '');
 			} else if (message.startsWith('move_left_')) {
-			    callbackUniqueId = message.replace('move_left_', '');
+				callbackUniqueId = message.replace('move_left_', '');
 			} else if (message.startsWith('move_right_')) {
-			    callbackUniqueId = message.replace('move_right_', '');
+				callbackUniqueId = message.replace('move_right_', '');
 			} else if (message.startsWith('move_jump_')) {
-			    callbackUniqueId = message.replace('move_jump_', '');
+				callbackUniqueId = message.replace('move_jump_', '');
 			} else if (message.startsWith('move_sit_')) {
-			    callbackUniqueId = message.replace('move_sit_', '');
+				callbackUniqueId = message.replace('move_sit_', '');
 			} else if (message.startsWith('move_stand_')) {
-			    callbackUniqueId = message.replace('move_stand_', '');
+				callbackUniqueId = message.replace('move_stand_', '');
 			} else if (message.startsWith('admin_reply_')) {
-			    callbackUniqueId = message.replace('admin_reply_', '');
+				callbackUniqueId = message.replace('admin_reply_', '');
 			} else if (message.startsWith('show_local_soob_options_')) {
-			    callbackUniqueId = message.replace('show_local_soob_options_', '');
+				callbackUniqueId = message.replace('show_local_soob_options_', '');
 			} else if (message.startsWith('show_local_mesto_options_')) {
-			    callbackUniqueId = message.replace('show_local_mesto_options_', '');
+				callbackUniqueId = message.replace('show_local_mesto_options_', '');
 			} else if (message.startsWith('global_p_on_')) {
-			    callbackUniqueId = message.replace('global_p_on_', '');
+				callbackUniqueId = message.replace('global_p_on_', '');
 			} else if (message.startsWith('global_p_off_')) {
-			    callbackUniqueId = message.replace('global_p_off_', '');
+				callbackUniqueId = message.replace('global_p_off_', '');
 			} else if (message.startsWith('global_soob_on_')) {
-			    callbackUniqueId = message.replace('global_soob_on_', '');
+				callbackUniqueId = message.replace('global_soob_on_', '');
 			} else if (message.startsWith('global_soob_off_')) {
-			    callbackUniqueId = message.replace('global_soob_off_', '');
+				callbackUniqueId = message.replace('global_soob_off_', '');
 			} else if (message.startsWith('global_mesto_on_')) {
-			    callbackUniqueId = message.replace('global_mesto_on_', '');
+				callbackUniqueId = message.replace('global_mesto_on_', '');
 			} else if (message.startsWith('global_mesto_off_')) {
-			    callbackUniqueId = message.replace('global_mesto_off_', '');
+				callbackUniqueId = message.replace('global_mesto_off_', '');
 			} else if (message.startsWith('global_afk_n_')) {
-			    callbackUniqueId = message.replace('global_afk_n_', '');
+				callbackUniqueId = message.replace('global_afk_n_', '');
 			} else if (message.startsWith('global_afk_')) {
-			    callbackUniqueId = message.replace('global_afk_', '');
+				callbackUniqueId = message.replace('global_afk_', '');
 			} else if (message.startsWith('afk_n_with_pauses_')) {
-			    callbackUniqueId = message.replace('afk_n_with_pauses_', '');
+				callbackUniqueId = message.replace('afk_n_with_pauses_', '');
 			} else if (message.startsWith('afk_n_without_pauses_')) {
-			    callbackUniqueId = message.replace('afk_n_without_pauses_', '');
+				callbackUniqueId = message.replace('afk_n_without_pauses_', '');
 			} else if (message.startsWith('afk_n_fixed_')) {
-			    callbackUniqueId = message.replace('afk_n_fixed_', '');
+				callbackUniqueId = message.replace('afk_n_fixed_', '');
 			} else if (message.startsWith('afk_n_random_')) {
-			    callbackUniqueId = message.replace('afk_n_random_', '');
+				callbackUniqueId = message.replace('afk_n_random_', '');
 			} else if (message.startsWith('local_afk_n_with_pauses_')) {
-			    callbackUniqueId = message.replace('local_afk_n_with_pauses_', '');
+				callbackUniqueId = message.replace('local_afk_n_with_pauses_', '');
 			} else if (message.startsWith('local_afk_n_without_pauses_')) {
-			    callbackUniqueId = message.replace('local_afk_n_without_pauses_', '');
+				callbackUniqueId = message.replace('local_afk_n_without_pauses_', '');
 			} else if (message.startsWith('local_afk_n_fixed_')) {
-			    callbackUniqueId = message.replace('local_afk_n_fixed_', '');
+				callbackUniqueId = message.replace('local_afk_n_fixed_', '');
 			} else if (message.startsWith('local_afk_n_random_')) {
-			    callbackUniqueId = message.replace('local_afk_n_random_', '');
+				callbackUniqueId = message.replace('local_afk_n_random_', '');
 			} else if (message.startsWith('local_afk_n_')) {
-			    callbackUniqueId = message.replace('local_afk_n_', '');
+				callbackUniqueId = message.replace('local_afk_n_', '');
 			} else if (message.startsWith('show_payday_options_')) {
-			    callbackUniqueId = message.replace('show_payday_options_', '');
+				callbackUniqueId = message.replace('show_payday_options_', '');
 			} else if (message.startsWith('show_soob_options_')) {
-			    callbackUniqueId = message.replace('show_soob_options_', '');
+				callbackUniqueId = message.replace('show_soob_options_', '');
 			} else if (message.startsWith('show_mesto_options_')) {
-			    callbackUniqueId = message.replace('show_mesto_options_', '');
+				callbackUniqueId = message.replace('show_mesto_options_', '');
 			} else if (message.startsWith('show_global_functions_')) {
-			    callbackUniqueId = message.replace('show_global_functions_', '');
+				callbackUniqueId = message.replace('show_global_functions_', '');
 			}
 
 			// Проверяем, является ли команда локальной (только для текущего аккаунта)
@@ -1314,7 +1314,7 @@ function checkLocationRequest(msg, lowerCaseMessage) {
 	const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word));
 	const hasID = isTargetingPlayer(msg);
 
-	return hasRole && (hasActionKeyword || hasID);
+	return hasRoleKeyword && (hasActionKeyword || hasID);
 }
 
 function isTargetingPlayer(msg) {
