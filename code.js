@@ -428,6 +428,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
 			[createButton("🚶 Движение", `show_movement_controls_${uniqueId}`)],
 			[createButton("🏛️ Увед. правик", `show_local_soob_options_${uniqueId}`)],
 			[createButton("📍 Отслеживание", `show_local_mesto_options_${uniqueId}`)],
+			[createButton("🌙 AFK Ночь", `local_afk_n_${uniqueId}`)],
 			[createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
 			[createButton("⬅️ Назад", `show_controls_${uniqueId}`)]
 		]
@@ -716,6 +717,58 @@ function processUpdates(updates) {
 
 					sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
 				}
+			} else if (message === '/gafk_n1') {
+				if (config.afkSettings.active) {
+					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				} else {
+					const hudId = getPlayerIdFromHUD();
+					if (!hudId) {
+						sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+					} else {
+						const idFormats = [hudId];
+						if (hudId.includes('-')) {
+							idFormats.push(hudId.replace(/-/g, ''));
+						} else if (hudId.length === 3) {
+							idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+						}
+
+						config.afkSettings = {
+							id: hudId,
+							formats: idFormats,
+							active: true
+						};
+						config.afkCycle.mode = 'fixed';
+						startAFKCycle();
+
+						sendToTelegram(`🔄 <b>AFK режим (с паузами 5/5) активирован глобально для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+					}
+				}
+			} else if (message === '/gafk_n2') {
+				if (config.afkSettings.active) {
+					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				} else {
+					const hudId = getPlayerIdFromHUD();
+					if (!hudId) {
+						sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+					} else {
+						const idFormats = [hudId];
+						if (hudId.includes('-')) {
+							idFormats.push(hudId.replace(/-/g, ''));
+						} else if (hudId.length === 3) {
+							idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+						}
+
+						config.afkSettings = {
+							id: hudId,
+							formats: idFormats,
+							active: true
+						};
+						config.afkCycle.mode = 'random';
+						startAFKCycle();
+
+						sendToTelegram(`🔄 <b>AFK режим (с рандомными паузами) активирован глобально для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+					}
+				}
 			} else if (message.startsWith('/register ')) {
 				const parts = message.split(' ');
 				if (parts.length >= 2) {
@@ -800,6 +853,8 @@ function processUpdates(updates) {
 				callbackUniqueId = message.replace('global_mesto_off_', '');
 			} else if (message.startsWith('global_afk_n_')) {
 				callbackUniqueId = message.replace('global_afk_n_', '');
+			} else if (message.startsWith('local_afk_n_')) {
+				callbackUniqueId = message.replace('local_afk_n_', '');
 			} else if (message.startsWith('global_afk_')) {
 				callbackUniqueId = message.replace('global_afk_', '');
 			} else if (message.startsWith('afk_n_with_pauses_')) {
@@ -882,6 +937,8 @@ function processUpdates(updates) {
 				sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_afk_n_`)) {
+				showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`local_afk_n_`)) {
 				showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`afk_n_with_pauses_`)) {
 				showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
