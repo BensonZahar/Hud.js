@@ -828,87 +828,87 @@ function processUpdates(updates) {
 
 			let callbackUniqueId = null;
 			if (message.startsWith('show_controls_')) {
-				callbackUniqueId = message.replace('show_controls_', '');
+			    callbackUniqueId = message.replace('show_controls_', '');
 			} else if (message.startsWith('show_local_functions_')) {
-				callbackUniqueId = message.replace('show_local_functions_', '');
+			    callbackUniqueId = message.replace('show_local_functions_', '');
 			} else if (message.startsWith('show_movement_controls_')) {
-				callbackUniqueId = message.replace('show_movement_controls_', '');
+			    callbackUniqueId = message.replace('show_movement_controls_', '');
 			} else if (message.startsWith('show_movement_')) {
-				callbackUniqueId = message.replace('show_movement_', '');
+			    callbackUniqueId = message.replace('show_movement_', '');
 			} else if (message.startsWith('hide_controls_')) {
-				callbackUniqueId = message.replace('hide_controls_', '');
+			    callbackUniqueId = message.replace('hide_controls_', '');
 			} else if (message.startsWith('request_chat_message_')) {
-				callbackUniqueId = message.replace('request_chat_message_', '');
+			    callbackUniqueId = message.replace('request_chat_message_', '');
 			} else if (message.startsWith('local_soob_on_')) {
-				callbackUniqueId = message.replace('local_soob_on_', '');
+			    callbackUniqueId = message.replace('local_soob_on_', '');
 			} else if (message.startsWith('local_soob_off_')) {
-				callbackUniqueId = message.replace('local_soob_off_', '');
+			    callbackUniqueId = message.replace('local_soob_off_', '');
 			} else if (message.startsWith('local_mesto_on_')) {
-				callbackUniqueId = message.replace('local_mesto_on_', '');
+			    callbackUniqueId = message.replace('local_mesto_on_', '');
 			} else if (message.startsWith('local_mesto_off_')) {
-				callbackUniqueId = message.replace('local_mesto_off_', '');
+			    callbackUniqueId = message.replace('local_mesto_off_', '');
 			} else if (message.startsWith('move_forward_')) {
-				callbackUniqueId = message.replace('move_forward_', '');
+			    callbackUniqueId = message.replace('move_forward_', '');
 			} else if (message.startsWith('move_back_')) {
-				callbackUniqueId = message.replace('move_back_', '');
+			    callbackUniqueId = message.replace('move_back_', '');
 			} else if (message.startsWith('move_left_')) {
-				callbackUniqueId = message.replace('move_left_', '');
+			    callbackUniqueId = message.replace('move_left_', '');
 			} else if (message.startsWith('move_right_')) {
-				callbackUniqueId = message.replace('move_right_', '');
+			    callbackUniqueId = message.replace('move_right_', '');
 			} else if (message.startsWith('move_jump_')) {
-				callbackUniqueId = message.replace('move_jump_', '');
+			    callbackUniqueId = message.replace('move_jump_', '');
 			} else if (message.startsWith('move_sit_')) {
-				callbackUniqueId = message.replace('move_sit_', '');
+			    callbackUniqueId = message.replace('move_sit_', '');
 			} else if (message.startsWith('move_stand_')) {
-				callbackUniqueId = message.replace('move_stand_', '');
+			    callbackUniqueId = message.replace('move_stand_', '');
 			} else if (message.startsWith('admin_reply_')) {
-				callbackUniqueId = message.replace('admin_reply_', '');
+			    callbackUniqueId = message.replace('admin_reply_', '');
 			} else if (message.startsWith('show_local_soob_options_')) {
-				callbackUniqueId = message.replace('show_local_soob_options_', '');
+			    callbackUniqueId = message.replace('show_local_soob_options_', '');
 			} else if (message.startsWith('show_local_mesto_options_')) {
-				callbackUniqueId = message.replace('show_local_mesto_options_', '');
+			    callbackUniqueId = message.replace('show_local_mesto_options_', '');
 			} else if (message.startsWith('global_p_on_')) {
-				callbackUniqueId = message.replace('global_p_on_', '');
+			    callbackUniqueId = message.replace('global_p_on_', '');
 			} else if (message.startsWith('global_p_off_')) {
-				callbackUniqueId = message.replace('global_p_off_', '');
+			    callbackUniqueId = message.replace('global_p_off_', '');
 			} else if (message.startsWith('global_soob_on_')) {
-				callbackUniqueId = message.replace('global_soob_on_', '');
+			    callbackUniqueId = message.replace('global_soob_on_', '');
 			} else if (message.startsWith('global_soob_off_')) {
-				callbackUniqueId = message.replace('global_soob_off_', '');
+			    callbackUniqueId = message.replace('global_soob_off_', '');
 			} else if (message.startsWith('global_mesto_on_')) {
-				callbackUniqueId = message.replace('global_mesto_on_', '');
+			    callbackUniqueId = message.replace('global_mesto_on_', '');
 			} else if (message.startsWith('global_mesto_off_')) {
-				callbackUniqueId = message.replace('global_mesto_off_', '');
+			    callbackUniqueId = message.replace('global_mesto_off_', '');
 			} else if (message.startsWith('global_afk_n_')) {
-				callbackUniqueId = message.replace('global_afk_n_', '');
-			} else if (message.startsWith('local_afk_n_')) {
-				callbackUniqueId = message.replace('local_afk_n_', '');
+			    callbackUniqueId = message.replace('global_afk_n_', '');
 			} else if (message.startsWith('global_afk_')) {
-				callbackUniqueId = message.replace('global_afk_', '');
+			    callbackUniqueId = message.replace('global_afk_', '');
 			} else if (message.startsWith('afk_n_with_pauses_')) {
-				callbackUniqueId = message.replace('afk_n_with_pauses_', '');
-			} else if (message.startsWith('local_afk_n_with_pauses_')) {
-				callbackUniqueId = message.replace('local_afk_n_with_pauses_', '');
+			    callbackUniqueId = message.replace('afk_n_with_pauses_', '');
 			} else if (message.startsWith('afk_n_without_pauses_')) {
-				callbackUniqueId = message.replace('afk_n_without_pauses_', '');
-			} else if (message.startsWith('local_afk_n_without_pauses_')) {
-				callbackUniqueId = message.replace('local_afk_n_without_pauses_', '');
+			    callbackUniqueId = message.replace('afk_n_without_pauses_', '');
 			} else if (message.startsWith('afk_n_fixed_')) {
-				callbackUniqueId = message.replace('afk_n_fixed_', '');
-			} else if (message.startsWith('local_afk_n_fixed_')) {
-				callbackUniqueId = message.replace('local_afk_n_fixed_', '');
+			    callbackUniqueId = message.replace('afk_n_fixed_', '');
 			} else if (message.startsWith('afk_n_random_')) {
-				callbackUniqueId = message.replace('afk_n_random_', '');
+			    callbackUniqueId = message.replace('afk_n_random_', '');
+			} else if (message.startsWith('local_afk_n_with_pauses_')) {
+			    callbackUniqueId = message.replace('local_afk_n_with_pauses_', '');
+			} else if (message.startsWith('local_afk_n_without_pauses_')) {
+			    callbackUniqueId = message.replace('local_afk_n_without_pauses_', '');
+			} else if (message.startsWith('local_afk_n_fixed_')) {
+			    callbackUniqueId = message.replace('local_afk_n_fixed_', '');
 			} else if (message.startsWith('local_afk_n_random_')) {
-				callbackUniqueId = message.replace('local_afk_n_random_', '');
+			    callbackUniqueId = message.replace('local_afk_n_random_', '');
+			} else if (message.startsWith('local_afk_n_')) {
+			    callbackUniqueId = message.replace('local_afk_n_', '');
 			} else if (message.startsWith('show_payday_options_')) {
-				callbackUniqueId = message.replace('show_payday_options_', '');
+			    callbackUniqueId = message.replace('show_payday_options_', '');
 			} else if (message.startsWith('show_soob_options_')) {
-				callbackUniqueId = message.replace('show_soob_options_', '');
+			    callbackUniqueId = message.replace('show_soob_options_', '');
 			} else if (message.startsWith('show_mesto_options_')) {
-				callbackUniqueId = message.replace('show_mesto_options_', '');
+			    callbackUniqueId = message.replace('show_mesto_options_', '');
 			} else if (message.startsWith('show_global_functions_')) {
-				callbackUniqueId = message.replace('show_global_functions_', '');
+			    callbackUniqueId = message.replace('show_global_functions_', '');
 			}
 
 			// Проверяем, является ли команда локальной (только для текущего аккаунта)
