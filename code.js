@@ -1,4 +1,3 @@
-```javascript
 // в случае index оставить это в hud.js 
 if (tt?.methods?.add) {
 	const originalAdd = tt.methods.add;
@@ -1953,4 +1952,3 @@ if (!initializeChatMonitor()) {
 		}
 	}, config.checkInterval);
 }
-```
