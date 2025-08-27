@@ -567,7 +567,7 @@ function checkTelegramCommands() {
 
 function processUpdates(updates) {
 	for (const update of updates) {
-		config.lastUpdateId = update.update_id;
+		let handled = false;
 
 		if (update.message) {
 			const message = update.message.text ? update.message.text.trim() : '';
@@ -590,6 +590,7 @@ function processUpdates(updates) {
 							sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 						}
 					}
+					handled = true;
 					continue;
 				}
 
@@ -607,6 +608,7 @@ function processUpdates(updates) {
 							sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 						}
 					}
+					handled = true;
 					continue;
 				}
 
@@ -620,10 +622,12 @@ function processUpdates(updates) {
 						sendToTelegram(`✉️ Введите ID для активации AFK режима для ${displayName}:`, false, {
 							force_reply: true
 						});
+						handled = true;
 					} else {
 						sendToTelegram(`❌ <b>Ошибка:</b> Неверный ник аккаунта. Попробуйте снова.`, false, {
 							force_reply: true
 						}, config.notificationDeleteDelay);
+						handled = true;
 					}
 					continue;
 				}
@@ -649,6 +653,7 @@ function processUpdates(updates) {
 						globalState.afkTargetAccount = null;
 
 						sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null, config.notificationDeleteDelay);
+						handled = true;
 					}
 					continue;
 				}
@@ -659,26 +664,32 @@ function processUpdates(updates) {
 				config.paydayNotifications = false;
 				sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
+				handled = true;
 			} else if (message === '/p_on') {
 				config.paydayNotifications = true;
 				sendToTelegram(`🔔 <b>Уведомления о PayDay включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
+				handled = true;
 			} else if (message === '/soob_off') {
 				config.govMessagesEnabled = false;
 				sendToTelegram(`🔕 <b>Уведомления от сотрудников правительства отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
+				handled = true;
 			} else if (message === '/soob_on') {
 				config.govMessagesEnabled = true;
 				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
+				handled = true;
 			} else if (message === '/mesto_on') {
 				config.trackLocationRequests = true;
 				sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
+				handled = true;
 			} else if (message === '/mesto_off') {
 				config.trackLocationRequests = false;
 				sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
+				handled = true;
 			} else if (message.startsWith(`/chat${config.accountInfo.nickname}_${config.accountInfo.server} `)) {
 				const textToSend = message.replace(`/chat${config.accountInfo.nickname}_${config.accountInfo.server} `, '').trim();
 				debugLog(`[${displayName}] Получено сообщение: ${textToSend}`);
@@ -690,6 +701,7 @@ function processUpdates(updates) {
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
+				handled = true;
 			} else if (message.startsWith('/afk ')) {
 				const parts = message.split(' ');
 				if (parts.length >= 3) {
@@ -711,6 +723,7 @@ function processUpdates(updates) {
 						};
 
 						sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null, config.notificationDeleteDelay);
+						handled = true;
 					}
 				}
 			} else if (message.startsWith('/afk_n')) {
@@ -725,6 +738,7 @@ function processUpdates(updates) {
 					const hudId = getPlayerIdFromHUD();
 					if (!hudId) {
 						sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+						handled = true;
 						continue;
 					}
 
@@ -744,11 +758,13 @@ function processUpdates(updates) {
 					startAFKCycle();
 
 					sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+					handled = true;
 				}
 			} else if (message === '/g_afkn1') {
 				const hudId = getPlayerIdFromHUD();
 				if (!hudId) {
 					sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+					handled = true;
 				} else {
 					const idFormats = [hudId];
 					if (hudId.includes('-')) {
@@ -766,11 +782,13 @@ function processUpdates(updates) {
 					startAFKCycle();
 
 					sendToTelegram(`🔄 <b>AFK режим (с паузами 5/5) активирован для всех аккаунтов</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+					handled = true;
 				}
 			} else if (message === '/g_afkn2') {
 				const hudId = getPlayerIdFromHUD();
 				if (!hudId) {
 					sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+					handled = true;
 				} else {
 					const idFormats = [hudId];
 					if (hudId.includes('-')) {
@@ -788,6 +806,7 @@ function processUpdates(updates) {
 					startAFKCycle();
 
 					sendToTelegram(`🔄 <b>AFK режим (с рандомными паузами) активирован для всех аккаунтов</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+					handled = true;
 				}
 			} else if (message.startsWith('/register ')) {
 				const parts = message.split(' ');
@@ -795,6 +814,7 @@ function processUpdates(updates) {
 					const nickname = parts[1];
 					config.activeUsers[nickname] = config.accountInfo.nickname || `User_${nickname}`;
 					debugLog(`[${displayName}] Зарегистрирован пользователь: ${nickname} - ${config.accountInfo.nickname}`);
+					handled = true;
 				}
 			} else if (message === '/list') {
 				if (globalState.lastWelcomeMessageId) {
@@ -804,6 +824,7 @@ function processUpdates(updates) {
 					globalState.lastWelcomeMessageId = null;
 				}
 				sendWelcomeMessage();
+				handled = true;
 			}
 		} else if (update.callback_query) {
 			const message = update.callback_query.data;
@@ -917,59 +938,80 @@ function processUpdates(updates) {
 				continue;
 			}
 
+			handled = true;
+
 			// Обработка команд
 			if (message.startsWith(`show_controls_`)) {
+				debugLog(`Processing show_controls for ${displayName}`);
 				showControlsMenu(chatId, messageId);
 			} else if (message.startsWith(`show_global_functions_`)) {
+				debugLog(`Processing show_global_functions for ${displayName}`);
 				showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`show_local_functions_`)) {
+				debugLog(`Processing show_local_functions for ${displayName}`);
 				showLocalFunctionsMenu(chatId, messageId);
 			} else if (message.startsWith(`show_movement_controls_`)) {
+				debugLog(`Processing show_movement_controls for ${displayName}`);
 				showMovementControlsMenu(chatId, messageId);
 			} else if (message.startsWith("show_movement_")) {
+				debugLog(`Processing show_movement for ${displayName}`);
 				showMovementControlsMenu(chatId, messageId, true);
 			} else if (message.startsWith(`hide_controls_`)) {
+				debugLog(`Processing hide_controls for ${displayName}`);
 				hideControlsMenu(chatId, messageId);
 			} else if (message.startsWith(`request_chat_message_`)) {
+				debugLog(`Processing request_chat_message for ${displayName}`);
 				const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)`;
 				sendToTelegram(requestMsg, false, {
 					force_reply: true
 				});
 			} else if (message.startsWith(`show_payday_options_`)) {
+				debugLog(`Processing show_payday_options for ${displayName}`);
 				showPayDayOptionsMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`show_soob_options_`)) {
+				debugLog(`Processing show_soob_options for ${displayName}`);
 				showSoobOptionsMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`show_mesto_options_`)) {
+				debugLog(`Processing show_mesto_options for ${displayName}`);
 				showMestoOptionsMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`global_p_on_`)) {
+				debugLog(`Processing global_p_on for ${displayName}`);
 				config.paydayNotifications = true;
 				sendToTelegram(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_p_off_`)) {
+				debugLog(`Processing global_p_off for ${displayName}`);
 				config.paydayNotifications = false;
 				sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_soob_on_`)) {
+				debugLog(`Processing global_soob_on for ${displayName}`);
 				config.govMessagesEnabled = true;
 				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_soob_off_`)) {
+				debugLog(`Processing global_soob_off for ${displayName}`);
 				config.govMessagesEnabled = false;
 				sendToTelegram(`🔕 <b>Уведомления от сотрудников правительства отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_mesto_on_`)) {
+				debugLog(`Processing global_mesto_on for ${displayName}`);
 				config.trackLocationRequests = true;
 				sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_mesto_off_`)) {
+				debugLog(`Processing global_mesto_off for ${displayName}`);
 				config.trackLocationRequests = false;
 				sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_afk_n_`)) {
+				debugLog(`Processing global_afk_n for ${displayName}`);
 				showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`afk_n_with_pauses_`)) {
+				debugLog(`Processing afk_n_with_pauses for ${displayName}`);
 				showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`afk_n_without_pauses_`)) {
+				debugLog(`Processing afk_n_without_pauses for ${displayName}`);
 				if (config.afkCycle.active) {
 					sendToTelegram(`🔄 <b>AFK цикл уже запущен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 					return;
@@ -995,6 +1037,7 @@ function processUpdates(updates) {
 					sendToTelegram(`🔄 <b>AFK режим (без пауз) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith(`afk_n_fixed_`)) {
+				debugLog(`Processing afk_n_fixed for ${displayName}`);
 				if (config.afkCycle.active) {
 					sendToTelegram(`🔄 <b>AFK цикл уже запущен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 					return;
@@ -1020,6 +1063,7 @@ function processUpdates(updates) {
 					startAFKCycle();
 				}
 			} else if (message.startsWith(`afk_n_random_`)) {
+				debugLog(`Processing afk_n_random for ${displayName}`);
 				if (config.afkCycle.active) {
 					sendToTelegram(`🔄 <b>AFK цикл уже запущен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 					return;
@@ -1045,10 +1089,13 @@ function processUpdates(updates) {
 					startAFKCycle();
 				}
 			} else if (message.startsWith(`local_afk_n_`)) {
+				debugLog(`Processing local_afk_n for ${displayName}`);
 				showLocalAFKNightModesMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`local_afk_n_with_pauses_`)) {
+				debugLog(`Processing local_afk_n_with_pauses for ${displayName}`);
 				showLocalAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`local_afk_n_without_pauses_`)) {
+				debugLog(`Processing local_afk_n_without_pauses for ${displayName}`);
 				if (config.afkCycle.active) {
 					sendToTelegram(`🔄 <b>AFK цикл уже запущен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 					return;
@@ -1074,6 +1121,7 @@ function processUpdates(updates) {
 					sendToTelegram(`🔄 <b>AFK режим (без пауз) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith(`local_afk_n_fixed_`)) {
+				debugLog(`Processing local_afk_n_fixed for ${displayName}`);
 				if (config.afkCycle.active) {
 					sendToTelegram(`🔄 <b>AFK цикл уже запущен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 					return;
@@ -1099,6 +1147,7 @@ function processUpdates(updates) {
 					startAFKCycle();
 				}
 			} else if (message.startsWith(`local_afk_n_random_`)) {
+				debugLog(`Processing local_afk_n_random for ${displayName}`);
 				if (config.afkCycle.active) {
 					sendToTelegram(`🔄 <b>AFK цикл уже запущен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 					return;
@@ -1124,6 +1173,7 @@ function processUpdates(updates) {
 					startAFKCycle();
 				}
 			} else if (message.startsWith(`global_afk_`)) {
+				debugLog(`Processing global_afk for ${displayName}`);
 				if (!globalState.awaitingAfkAccount) {
 					globalState.awaitingAfkAccount = true;
 					const requestMsg = `✉️ Введите ник аккаунта для активации AFK режима:`;
@@ -1132,11 +1182,13 @@ function processUpdates(updates) {
 					});
 				}
 			} else if (message.startsWith("admin_reply_")) {
+				debugLog(`Processing admin_reply for ${displayName}`);
 				const requestMsg = `✉️ Введите ответ администратору для ${displayName}:`;
 				sendToTelegram(requestMsg, false, {
 					force_reply: true
 				});
 			} else if (message.startsWith("move_forward_")) {
+				debugLog(`Processing move_forward for ${displayName}`);
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
@@ -1150,6 +1202,7 @@ function processUpdates(updates) {
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_back_")) {
+				debugLog(`Processing move_back for ${displayName}`);
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
@@ -1163,6 +1216,7 @@ function processUpdates(updates) {
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_left_")) {
+				debugLog(`Processing move_left for ${displayName}`);
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
@@ -1176,6 +1230,7 @@ function processUpdates(updates) {
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_right_")) {
+				debugLog(`Processing move_right for ${displayName}`);
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
@@ -1189,6 +1244,7 @@ function processUpdates(updates) {
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_jump_")) {
+				debugLog(`Processing move_jump for ${displayName}`);
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/leftShift");
 					setTimeout(() => {
@@ -1201,6 +1257,7 @@ function processUpdates(updates) {
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_sit_")) {
+				debugLog(`Processing move_sit for ${displayName}`);
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/c");
 					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
@@ -1213,6 +1270,7 @@ function processUpdates(updates) {
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_stand_")) {
+				debugLog(`Processing move_stand for ${displayName}`);
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/c");
 					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
@@ -1225,26 +1283,35 @@ function processUpdates(updates) {
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("show_local_soob_options_")) {
+				debugLog(`Processing show_local_soob_options for ${displayName}`);
 				showLocalSoobOptionsMenu(chatId, messageId);
 			} else if (message.startsWith("show_local_mesto_options_")) {
+				debugLog(`Processing show_local_mesto_options for ${displayName}`);
 				showLocalMestoOptionsMenu(chatId, messageId);
 			} else if (message.startsWith("local_soob_on_")) {
+				debugLog(`Processing local_soob_on for ${displayName}`);
 				config.govMessagesEnabled = true;
 				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith("local_soob_off_")) {
+				debugLog(`Processing local_soob_off for ${displayName}`);
 				config.govMessagesEnabled = false;
 				sendToTelegram(`🔕 <b>Уведомления от сотрудников правительства отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith("local_mesto_on_")) {
+				debugLog(`Processing local_mesto_on for ${displayName}`);
 				config.trackLocationRequests = true;
 				sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith("local_mesto_off_")) {
+				debugLog(`Processing local_mesto_off for ${displayName}`);
 				config.trackLocationRequests = false;
 				sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			}
+		}
+		if (handled) {
+			config.lastUpdateId = update.update_id;
 		}
 	}
 }
@@ -1327,7 +1394,7 @@ function processSalaryAndBalance(msg) {
 		debugLog(`Обнаружена зарплата: ${salaryMatch[1]} руб`);
 	}
 
-	const balanceMatch = msg.match(/Текущий баланс счета: \{00CC00\}(\d+) руб/);
+	const balanceMatch = msg.match(/Текущий баланс счета: \{00CC00[\}\)](\d+) руб/);
 	if (balanceMatch) {
 		config.lastSalaryInfo = config.lastSalaryInfo || {};
 		config.lastSalaryInfo.balance = balanceMatch[1];
