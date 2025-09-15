@@ -79,6 +79,8 @@ const userConfig = {
 	govMessageKeywords: ["тут", "здесь"],
 	trackLocationRequests: false,
 	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
+	radioOfficialNotifications: true,
+	warningNotifications: true,
 	notificationDeleteDelay: 5000 // Задержка для удаления уведомлений об изменении настроек
 };
 
@@ -297,6 +299,8 @@ function sendWelcomeMessage() {
 		`🔔 <b>Текущие настройки:</b>\n` +
 		`├ Уведомления PayDay: ${config.paydayNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
 		`├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+		`├ Уведомления рация официалы: ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+		`├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
 		`└ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
 
 	const replyMarkup = {
@@ -337,6 +341,8 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
 			[createButton("🔔 PayDay", `show_payday_options_${uniqueIdParam}`)],
 			[createButton("🏛️ Сообщ.", `show_soob_options_${uniqueIdParam}`)],
 			[createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
+			[createButton("📡 Рация официалы", `show_radio_options_${uniqueIdParam}`)],
+			[createButton("⚠️ Выговоры", `show_warning_options_${uniqueIdParam}`)],
 			[
 				createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
 				createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
@@ -390,6 +396,34 @@ function showMestoOptionsMenu(chatId, messageId, uniqueIdParam) {
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
+function showRadioOptionsMenu(chatId, messageId, uniqueIdParam) {
+	const replyMarkup = {
+		inline_keyboard: [
+			[
+				createButton("🔔 ВКЛ", `global_radio_on_${uniqueIdParam}`),
+				createButton("🔕 ВЫКЛ", `global_radio_off_${uniqueIdParam}`)
+			],
+			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+		]
+	};
+
+	editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
+function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
+	const replyMarkup = {
+		inline_keyboard: [
+			[
+				createButton("🔔 ВКЛ", `global_warning_on_${uniqueIdParam}`),
+				createButton("🔕 ВЫКЛ", `global_warning_off_${uniqueIdParam}`)
+			],
+			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+		]
+	};
+
+	editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
 function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
 	const replyMarkup = {
 		inline_keyboard: [
@@ -428,6 +462,8 @@ function showLocalFunctionsMenu(chatId, messageId) {
 			[createButton("🚶 Движение", `show_movement_controls_${uniqueId}`)],
 			[createButton("🏛️ Увед. правик", `show_local_soob_options_${uniqueId}`)],
 			[createButton("📍 Отслеживание", `show_local_mesto_options_${uniqueId}`)],
+			[createButton("📡 Рация официалы", `show_local_radio_options_${uniqueId}`)],
+			[createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
 			[createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
 			[createButton("⬅️ Назад", `show_controls_${uniqueId}`)]
 		]
@@ -497,6 +533,42 @@ function showLocalMestoOptionsMenu(chatId, messageId) {
 	editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 
+function showLocalRadioOptionsMenu(chatId, messageId) {
+	if (!config.accountInfo.nickname) {
+		sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+		return;
+	}
+	const replyMarkup = {
+		inline_keyboard: [
+			[
+				createButton("🔔 ВКЛ", `local_radio_on_${uniqueId}`),
+				createButton("🔕 ВЫКЛ", `local_radio_off_${uniqueId}`)
+			],
+			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+		]
+	};
+
+	editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
+function showLocalWarningOptionsMenu(chatId, messageId) {
+	if (!config.accountInfo.nickname) {
+		sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+		return;
+	}
+	const replyMarkup = {
+		inline_keyboard: [
+			[
+				createButton("🔔 ВКЛ", `local_warning_on_${uniqueId}`),
+				createButton("🔕 ВЫКЛ", `local_warning_off_${uniqueId}`)
+			],
+			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+		]
+	};
+
+	editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
 function hideControlsMenu(chatId, messageId) {
 	if (!config.accountInfo.nickname) {
 		sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
@@ -554,7 +626,7 @@ function processUpdates(updates) {
 						debugLog(`[${displayName}] Отправка сообщения: ${textToSend}`);
 						try {
 							sendChatInput(textToSend);
-							sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '<')}</code>`, false, null, config.notificationDeleteDelay);
+							sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
 						} catch (err) {
 							const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`;
 							debugLog(errorMsg);
@@ -571,7 +643,7 @@ function processUpdates(updates) {
 						debugLog(`[${displayName}] Отправка ответа администратору: ${textToSend}`);
 						try {
 							sendChatInput(textToSend);
-							sendToTelegram(`✅ <b>Ответ администратору отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '<')}</code>`, false, null, config.notificationDeleteDelay);
+							sendToTelegram(`✅ <b>Ответ администратору отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
 						} catch (err) {
 							const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ответ\n<code>${err.message}</code>`;
 							debugLog(errorMsg);
@@ -655,7 +727,7 @@ function processUpdates(updates) {
 				debugLog(`[${displayName}] Получено сообщение: ${textToSend}`);
 				try {
 					sendChatInput(textToSend);
-					sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '<')}</code>`, false, null, config.notificationDeleteDelay);
+					sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
@@ -743,6 +815,8 @@ function processUpdates(updates) {
 				message.startsWith('show_payday_options_') ||
 				message.startsWith('show_soob_options_') ||
 				message.startsWith('show_mesto_options_') ||
+				message.startsWith('show_radio_options_') ||
+				message.startsWith('show_warning_options_') ||
 				message.startsWith('show_global_functions_');
 
 			let callbackUniqueId = null;
@@ -766,6 +840,14 @@ function processUpdates(updates) {
 				callbackUniqueId = message.replace('local_mesto_on_', '');
 			} else if (message.startsWith('local_mesto_off_')) {
 				callbackUniqueId = message.replace('local_mesto_off_', '');
+			} else if (message.startsWith('local_radio_on_')) {
+				callbackUniqueId = message.replace('local_radio_on_', '');
+			} else if (message.startsWith('local_radio_off_')) {
+				callbackUniqueId = message.replace('local_radio_off_', '');
+			} else if (message.startsWith('local_warning_on_')) {
+				callbackUniqueId = message.replace('local_warning_on_', '');
+			} else if (message.startsWith('local_warning_off_')) {
+				callbackUniqueId = message.replace('local_warning_off_', '');
 			} else if (message.startsWith('move_forward_')) {
 				callbackUniqueId = message.replace('move_forward_', '');
 			} else if (message.startsWith('move_back_')) {
@@ -786,6 +868,10 @@ function processUpdates(updates) {
 				callbackUniqueId = message.replace('show_local_soob_options_', '');
 			} else if (message.startsWith('show_local_mesto_options_')) {
 				callbackUniqueId = message.replace('show_local_mesto_options_', '');
+			} else if (message.startsWith('show_local_radio_options_')) {
+				callbackUniqueId = message.replace('show_local_radio_options_', '');
+			} else if (message.startsWith('show_local_warning_options_')) {
+				callbackUniqueId = message.replace('show_local_warning_options_', '');
 			} else if (message.startsWith('global_p_on_')) {
 				callbackUniqueId = message.replace('global_p_on_', '');
 			} else if (message.startsWith('global_p_off_')) {
@@ -798,6 +884,14 @@ function processUpdates(updates) {
 				callbackUniqueId = message.replace('global_mesto_on_', '');
 			} else if (message.startsWith('global_mesto_off_')) {
 				callbackUniqueId = message.replace('global_mesto_off_', '');
+			} else if (message.startsWith('global_radio_on_')) {
+				callbackUniqueId = message.replace('global_radio_on_', '');
+			} else if (message.startsWith('global_radio_off_')) {
+				callbackUniqueId = message.replace('global_radio_off_', '');
+			} else if (message.startsWith('global_warning_on_')) {
+				callbackUniqueId = message.replace('global_warning_on_', '');
+			} else if (message.startsWith('global_warning_off_')) {
+				callbackUniqueId = message.replace('global_warning_off_', '');
 			} else if (message.startsWith('global_afk_n_')) {
 				callbackUniqueId = message.replace('global_afk_n_', '');
 			} else if (message.startsWith('global_afk_')) {
@@ -816,6 +910,10 @@ function processUpdates(updates) {
 				callbackUniqueId = message.replace('show_soob_options_', '');
 			} else if (message.startsWith('show_mesto_options_')) {
 				callbackUniqueId = message.replace('show_mesto_options_', '');
+			} else if (message.startsWith('show_radio_options_')) {
+				callbackUniqueId = message.replace('show_radio_options_', '');
+			} else if (message.startsWith('show_warning_options_')) {
+				callbackUniqueId = message.replace('show_warning_options_', '');
 			} else if (message.startsWith('show_global_functions_')) {
 				callbackUniqueId = message.replace('show_global_functions_', '');
 			}
@@ -857,6 +955,10 @@ function processUpdates(updates) {
 				showSoobOptionsMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`show_mesto_options_`)) {
 				showMestoOptionsMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`show_radio_options_`)) {
+				showRadioOptionsMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`show_warning_options_`)) {
+				showWarningOptionsMenu(chatId, messageId, callbackUniqueId);
 			} else if (message.startsWith(`global_p_on_`)) {
 				config.paydayNotifications = true;
 				sendToTelegram(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
@@ -880,6 +982,22 @@ function processUpdates(updates) {
 			} else if (message.startsWith(`global_mesto_off_`)) {
 				config.trackLocationRequests = false;
 				sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_radio_on_`)) {
+				config.radioOfficialNotifications = true;
+				sendToTelegram(`🔔 <b>Уведомления с Рации включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_radio_off_`)) {
+				config.radioOfficialNotifications = false;
+				sendToTelegram(`🔕 <b>Уведомления с Рации отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_warning_on_`)) {
+				config.warningNotifications = true;
+				sendToTelegram(`🔔 <b>Уведомления о выговорах включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_warning_off_`)) {
+				config.warningNotifications = false;
+				sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_afk_n_`)) {
 				showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
@@ -1067,6 +1185,10 @@ function processUpdates(updates) {
 				showLocalSoobOptionsMenu(chatId, messageId);
 			} else if (message.startsWith("show_local_mesto_options_")) {
 				showLocalMestoOptionsMenu(chatId, messageId);
+			} else if (message.startsWith("show_local_radio_options_")) {
+				showLocalRadioOptionsMenu(chatId, messageId);
+			} else if (message.startsWith("show_local_warning_options_")) {
+				showLocalWarningOptionsMenu(chatId, messageId);
 			} else if (message.startsWith("local_soob_on_")) {
 				config.govMessagesEnabled = true;
 				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
@@ -1082,6 +1204,22 @@ function processUpdates(updates) {
 			} else if (message.startsWith("local_mesto_off_")) {
 				config.trackLocationRequests = false;
 				sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_radio_on_")) {
+				config.radioOfficialNotifications = true;
+				sendToTelegram(`🔔 <b>Уведомления с Рации включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_radio_off_")) {
+				config.radioOfficialNotifications = false;
+				sendToTelegram(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_warning_on_")) {
+				config.warningNotifications = true;
+				sendToTelegram(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_warning_off_")) {
+				config.warningNotifications = false;
+				sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			}
 		}
@@ -1615,7 +1753,7 @@ function initializeChatMonitor() {
 					]
 				]
 			};
-			sendToTelegram(`🔄 <b>Вас зареспавнили! (${displayName})</b>\n<code>${msg.replace(/</g, '<')}</code>`, false, replyMarkup);
+			sendToTelegram(`🔄 <b>Вас зареспавнили! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
 		}
 
@@ -1629,7 +1767,7 @@ function initializeChatMonitor() {
 					]
 				]
 			};
-			sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '<')}</code>`, false, replyMarkup);
+			sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
 		}
 
@@ -1660,7 +1798,7 @@ function initializeChatMonitor() {
 
 		if (config.keywords.some(kw => lowerCaseMessage.includes(kw.toLowerCase()))) {
 			debugLog('Найдено ключевое слово:', msg);
-			sendToTelegram(`🔔 <b>Обнаружено ключевое слово (${displayName}):</b>\n<code>${msg.replace(/</g, '<')}</code>`);
+			sendToTelegram(`🔔 <b>Обнаружено ключевое слово (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
 
 			setTimeout(() => {
 				try {
@@ -1691,7 +1829,7 @@ function initializeChatMonitor() {
 							]
 						]
 					};
-					sendToTelegram(`🚨 <b>Обнаружен подброс! (${displayName})</b>\n<code>${msg.replace(/</g, '<')}</code>`, false, replyMarkup);
+					sendToTelegram(`🚨 <b>Обнаружен подброс! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 					window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
 				}
 
@@ -1709,7 +1847,7 @@ function initializeChatMonitor() {
 						]
 					]
 				};
-				sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '<')}</code>`, false, replyMarkup);
+				sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 				window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
 			}
 		}
@@ -1726,7 +1864,7 @@ function initializeChatMonitor() {
 					lowerCaseMessage.indexOf("конф") !== -1)
 			) && (chatRadius === CHAT_RADIUS.RADIO)) {
 			debugLog('Обнаружен сбор/строй!');
-			sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '<')}</code>`);
+			sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
 			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
 
 			setTimeout(() => {
@@ -1748,7 +1886,7 @@ function initializeChatMonitor() {
 					]
 				]
 			};
-			sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '<')}</code>`, false, replyMarkup);
+			sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
 		}
 
@@ -1762,13 +1900,28 @@ function initializeChatMonitor() {
 					]
 				]
 			};
-			sendToTelegram(`📍 <b>Обнаружен запрос местоположения (${displayName}):</b>\n<code>${msg.replace(/</g, '<')}</code>`, false, replyMarkup);
+			sendToTelegram(`📍 <b>Обнаружен запрос местоположения (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 		}
 
 		if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
 			debugLog('Обнаружено AFK условие!');
 			sendChatInput("/q");
-			sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '<')}</code>`, false, null, config.notificationDeleteDelay);
+			sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
+		}
+
+		// Проверка сообщений с рации от официалов
+		if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications &&
+			(lowerCaseMessage.includes('губернатор') || lowerCaseMessage.includes('вице-губернатор') ||
+			 lowerCaseMessage.includes('депутат') || lowerCaseMessage.includes('адвокат') || lowerCaseMessage.includes('лицензёр'))) {
+			debugLog('Обнаружено сообщение с рации от официала!');
+			sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+		}
+
+		// Проверка выговоров
+		const warningMatch = msg.match(/(?:Губернатор|Вице-Губернатор)\s+([^[]+)\[(\d+)\]\s+выдал\s+Вам\s+Выговор\s+(\d+)\s+из\s+3\.\s+Причина:\s+(.*)/i);
+		if (warningMatch && config.warningNotifications) {
+			debugLog('Обнаружен выговор!');
+			sendToTelegram(`⚠️ <b>Получен выговор (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
 		}
 	};
 
