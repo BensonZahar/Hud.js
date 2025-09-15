@@ -1161,32 +1161,6 @@ function processSalaryAndBalance(msg) {
         debugLog('PayDay пропущен: уведомления выкл');
         return;
     }
-
-    // Проверка на новые тексты (отрицательные сценарии)
-    if (msg.includes("Для получения зарплаты необходимо находиться в игре минимум 25 минут")) {
-        debugLog(`Обнаружено предупреждение о 25 минутах`);
-        const message = `- PayDay | ${displayName}:\nДля получения зарплаты необходимо находиться в игре минимум 25 минут`;
-        sendToTelegram(message);
-        config.lastSalaryInfo = null; // Сброс, чтобы избежать конфликтов
-        return;
-    }
-
-    if (msg.includes("Вы не должны находиться на паузе для получения зарплаты")) {
-        debugLog(`Обнаружено предупреждение о паузе`);
-        const message = `- PayDay | ${displayName}:\nВы не должны находиться на паузе для получения зарплаты`;
-        sendToTelegram(message);
-        config.lastSalaryInfo = null; // Сброс
-        return;
-    }
-
-    if (msg.includes("Для получения опыта необходимо находиться в игре минимум 10 минут")) {
-        debugLog(`Обнаружено предупреждение о 10 минутах для опыта`);
-        const message = `- PayDay | ${displayName}:\nДля получения опыта необходимо находиться в игре минимум 10 минут`;
-        sendToTelegram(message);
-        config.lastSalaryInfo = null; // Сброс
-        return;
-    }
-
 	const salaryMatch = msg.match(/Зарплата: \{[\w]+\}(\d+) руб/);
 	if (salaryMatch) {
 		debugLog(`Зарплата спарсена: ${salaryMatch[1]}`);
