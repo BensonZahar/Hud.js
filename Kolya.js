@@ -61,7 +61,7 @@ function getChatRadius(color) {
 // КОНФИГУРАЦИЯ
 const userConfig = {
 	botToken: '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA',
-	chatIds: ['5515408606'],
+	chatIds: ['5515408606'], // 1046461621 - Zahar, 5515408606 = Kolya, 
 	keywords: [],
 	clearDelay: 3000,
 	maxAttempts: 15,
@@ -299,7 +299,7 @@ function sendWelcomeMessage() {
 		`🔔 <b>Текущие настройки:</b>\n` +
 		`├ Уведомления PayDay: ${config.paydayNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
 		`├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-		`├ Уведомления рация официалы: ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+		`├ Уведомления рации: ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
 		`├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
 		`└ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
 
@@ -341,7 +341,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
 			[createButton("🔔 PayDay", `show_payday_options_${uniqueIdParam}`)],
 			[createButton("🏛️ Сообщ.", `show_soob_options_${uniqueIdParam}`)],
 			[createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
-			[createButton("📡 Рация официалы", `show_radio_options_${uniqueIdParam}`)],
+			[createButton("📡 Рация", `show_radio_options_${uniqueIdParam}`)],
 			[createButton("⚠️ Выговоры", `show_warning_options_${uniqueIdParam}`)],
 			[
 				createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
@@ -462,7 +462,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
 			[createButton("🚶 Движение", `show_movement_controls_${uniqueId}`)],
 			[createButton("🏛️ Увед. правик", `show_local_soob_options_${uniqueId}`)],
 			[createButton("📍 Отслеживание", `show_local_mesto_options_${uniqueId}`)],
-			[createButton("📡 Рация официалы", `show_local_radio_options_${uniqueId}`)],
+			[createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
 			[createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
 			[createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
 			[createButton("⬅️ Назад", `show_controls_${uniqueId}`)]
@@ -1909,12 +1909,13 @@ function initializeChatMonitor() {
 			sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
 		}
 
-		// Проверка сообщений с рации от официалов
+		// Проверка сообщений с рации
 		if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications &&
-			(lowerCaseMessage.includes('губернатор') || lowerCaseMessage.includes('вице-губернатор') ||
-			 lowerCaseMessage.includes('депутат') || lowerCaseMessage.includes('адвокат') || lowerCaseMessage.includes('лицензёр'))) {
-			debugLog('Обнаружено сообщение с рации от официала!');
-			sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+		    (lowerCaseMessage.includes('губернатор') || lowerCaseMessage.includes('вице-губернатор') ||
+		     lowerCaseMessage.includes('депутат') || lowerCaseMessage.includes('адвокат') || lowerCaseMessage.includes('лицензёр')) &&
+		    !isNonRPMessage(msg)) {  // Добавляем проверку на non-RP сообщения
+		    debugLog('Обнаружено сообщение с рации!');
+		    sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
 		}
 
 		// Проверка выговоров
