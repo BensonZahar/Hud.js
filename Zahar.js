@@ -61,7 +61,7 @@ function getChatRadius(color) {
 // КОНФИГУРАЦИЯ
 const userConfig = {
 	botToken: '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA',
-	chatIds: ['1046461621'],
+	chatIds: ['1046461621'], // 1046461621 - Zahar, 5515408606 = Kolya, 
 	keywords: [],
 	clearDelay: 3000,
 	maxAttempts: 15,
