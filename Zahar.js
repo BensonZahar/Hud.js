@@ -65,7 +65,7 @@ const userConfig = {
 	keywords: [],
 	clearDelay: 3000,
 	maxAttempts: 15,
-	checkInterval: 1000,
+	checkInterval: 1500, // Увеличено для снижения нагрузки
 	debug: true,
 	podbrosCooldown: 30000,
 	afkSettings: {},
@@ -123,6 +123,16 @@ const autoLoginConfig = {
 	maxAttempts: 10, // Максимум попыток
 	attemptInterval: 1000 // Интервал между попытками (мс)
 };
+
+// Новая функция для shared lastUpdateId через localStorage
+function getSharedLastUpdateId() {
+	return parseInt(localStorage.getItem('tg_bot_last_update_id') || '0', 10);
+}
+
+function setSharedLastUpdateId(id) {
+	localStorage.setItem('tg_bot_last_update_id', id);
+	debugLog(`Обновлён shared lastUpdateId: ${id}`);
+}
 
 function debugLog(message) {
     if (config.debug) {
@@ -283,6 +293,26 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
 	};
 	xhr.onerror = function() {
 		debugLog(`Ошибка сети при редактировании в чате ${chatId}`);
+	};
+	xhr.send(JSON.stringify(payload));
+}
+
+// Новая функция для подтверждения callback_query
+function answerCallbackQuery(callbackQueryId) {
+	const url = `https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`;
+	const payload = {
+		callback_query_id: callbackQueryId
+	};
+
+	const xhr = new XMLHttpRequest();
+	xhr.open('POST', url, true);
+	xhr.setRequestHeader('Content-Type', 'application/json');
+	xhr.onload = function() {
+		if (xhr.status === 200) {
+			debugLog(`Callback_query ${callbackQueryId} подтверждён`);
+		} else {
+			debugLog(`Ошибка подтверждения callback_query ${callbackQueryId}: ${xhr.status}`);
+		}
 	};
 	xhr.send(JSON.stringify(payload));
 }
@@ -584,33 +614,39 @@ function hideControlsMenu(chatId, messageId) {
 }
 
 function checkTelegramCommands() {
-	const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}`;
+	// Случайная задержка 0-500 мс для снижения race condition
+	const randomDelay = Math.floor(Math.random() * 500);
+	setTimeout(() => {
+		config.lastUpdateId = getSharedLastUpdateId(); // Загружаем shared значение
+		const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}`;
 
-	const xhr = new XMLHttpRequest();
-	xhr.open('GET', url, true);
-	xhr.onload = function() {
-		if (xhr.status === 200) {
-			try {
-				const data = JSON.parse(xhr.responseText);
-				if (data.ok && data.result.length > 0) {
-					processUpdates(data.result);
+		const xhr = new XMLHttpRequest();
+		xhr.open('GET', url, true);
+		xhr.onload = function() {
+			if (xhr.status === 200) {
+				try {
+					const data = JSON.parse(xhr.responseText);
+					if (data.ok && data.result.length > 0) {
+						processUpdates(data.result);
+					}
+				} catch (e) {
+					debugLog('Ошибка парсинга ответа Telegram:', e);
 				}
-			} catch (e) {
-				debugLog('Ошибка парсинга ответа Telegram:', e);
 			}
-		}
-		setTimeout(checkTelegramCommands, 1000);
-	};
-	xhr.onerror = function(error) {
-		debugLog('Ошибка при проверке команд:', error);
-		setTimeout(checkTelegramCommands, 1000);
-	};
-	xhr.send();
+			setTimeout(checkTelegramCommands, config.checkInterval);
+		};
+		xhr.onerror = function(error) {
+			debugLog('Ошибка при проверке команд:', error);
+			setTimeout(checkTelegramCommands, config.checkInterval);
+		};
+		xhr.send();
+	}, randomDelay);
 }
 
 function processUpdates(updates) {
 	for (const update of updates) {
 		config.lastUpdateId = update.update_id;
+		setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
 
 		if (update.message) {
 			const message = update.message.text ? update.message.text.trim() : '';
@@ -808,6 +844,7 @@ function processUpdates(updates) {
 			const message = update.callback_query.data;
 			const chatId = update.callback_query.message.chat.id;
 			const messageId = update.callback_query.message.message_id;
+			const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
 
 			// Определяем глобальные команды, которые должны применяться ко всем аккаунтам
 			const isGlobalCommand = message.startsWith('global_') ||
@@ -928,6 +965,8 @@ function processUpdates(updates) {
 
 			if (!isForThisBot) {
 				debugLog(`Игнорируем callback_query, так как он не для этого бота (${displayName}): ${message}`);
+				// Всё равно подтверждаем, чтобы кнопка не висела
+				answerCallbackQuery(callbackQueryId);
 				continue;
 			}
 
@@ -1222,6 +1261,9 @@ function processUpdates(updates) {
 				sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			}
+
+			// Подтверждаем callback_query после обработки
+			answerCallbackQuery(callbackQueryId);
 		}
 	}
 }
