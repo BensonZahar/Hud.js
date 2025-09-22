@@ -171,9 +171,16 @@ function trackPlayerId() {
 	if (currentId && currentId !== config.lastPlayerId) {
 		debugLog(`Обнаружен новый ID (HUD): ${currentId}`);
 		config.lastPlayerId = currentId;
+		updateDisplayName(); // Обновляем displayName при изменении ID
 	}
 
 	setTimeout(trackPlayerId, config.idCheckInterval);
+}
+
+function updateDisplayName() {
+	const idPart = config.lastPlayerId ? `[${config.lastPlayerId}]` : '';
+	displayName = `${config.accountInfo.nickname || 'User'}${idPart} [S${config.accountInfo.server || 'Не указан'}]`;
+	debugLog(`Обновлён displayName: ${displayName}`);
 }
 
 function trackNicknameAndServer() {
@@ -185,7 +192,7 @@ function trackNicknameAndServer() {
 			config.nicknameLogged = true;
 			config.accountInfo.nickname = nickname;
 			config.accountInfo.server = serverId.toString();
-			displayName = `${config.accountInfo.nickname} [S${config.accountInfo.server}]`;
+			updateDisplayName(); // Обновляем displayName при получении ника
 			uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 			sendWelcomeMessage();
 			registerUser();
@@ -1817,7 +1824,7 @@ function initializeChatMonitor() {
 	        handlePayDayTimeMessage();
 	    }
 	
-	    // Проверка сообщения о возобновлении работы сервера для AFK ночь
+	    // Проверка сообщения о возобновлении работы сервера для AFK
 	    if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
 	        debugLog('Обнаружено сообщение о возобновлении работы сервера!');
 	        sendChatInput("/q");
@@ -1996,7 +2003,15 @@ function initializeChatMonitor() {
 		     lowerCaseMessage.includes('депутат') || lowerCaseMessage.includes('адвокат') || lowerCaseMessage.includes('лицензёр')) &&
 		    !isNonRPMessage(msg)) {  // Добавляем проверку на non-RP сообщения
 		    debugLog('Обнаружено сообщение с рации!');
-		    sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+		    const replyMarkup = {
+				inline_keyboard: [
+					[
+						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+						createButton("🚶 Движения", `show_movement_${uniqueId}`)
+					]
+				]
+			};
+		    sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 		}
 
 		// Проверка выговоров
