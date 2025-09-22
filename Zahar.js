@@ -65,7 +65,7 @@ const userConfig = {
 	keywords: [],
 	clearDelay: 3000,
 	maxAttempts: 15,
-	checkInterval: 1500, // Увеличено для снижения нагрузки
+	checkInterval: 1500,
 	debug: true,
 	podbrosCooldown: 30000,
 	afkSettings: {},
@@ -507,9 +507,9 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
 		sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
 		return;
 	}
-	const backButton = isNotification ? [] : [
-		[createButton("⬆️ Свернуть", `show_local_functions_${uniqueId}`)]
-	];
+	const backButton = isNotification ? 
+		[[createButton("⬅️ Назад", `back_to_notification_${uniqueId}`)]] : 
+		[[createButton("⬆️ Свернуть", `show_local_functions_${uniqueId}`)]];
 	const sitStandButton = config.isSitting ?
 		createButton("🧍 Встать", `move_stand_${uniqueId}`) :
 		createButton("🪑 Сесть", `move_sit_${uniqueId}`);
@@ -519,6 +519,7 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
 			[createButton("⬅️ Влево", `move_left_${uniqueId}`), createButton("➡️ Вправо", `move_right_${uniqueId}`)],
 			[createButton("⬇️ Назад", `move_back_${uniqueId}`)],
 			[createButton("🆙 Прыжок", `move_jump_${uniqueId}`)],
+			[createButton("👊 Удар", `move_punch_${uniqueId}`)],
 			[sitStandButton],
 			...backButton
 		]
@@ -895,12 +896,16 @@ function processUpdates(updates) {
 				callbackUniqueId = message.replace('move_right_', '');
 			} else if (message.startsWith('move_jump_')) {
 				callbackUniqueId = message.replace('move_jump_', '');
+			} else if (message.startsWith('move_punch_')) {
+				callbackUniqueId = message.replace('move_punch_', '');
 			} else if (message.startsWith('move_sit_')) {
 				callbackUniqueId = message.replace('move_sit_', '');
 			} else if (message.startsWith('move_stand_')) {
 				callbackUniqueId = message.replace('move_stand_', '');
 			} else if (message.startsWith('admin_reply_')) {
 				callbackUniqueId = message.replace('admin_reply_', '');
+			} else if (message.startsWith('back_to_notification_')) {
+				callbackUniqueId = message.replace('back_to_notification_', '');
 			} else if (message.startsWith('show_local_soob_options_')) {
 				callbackUniqueId = message.replace('show_local_soob_options_', '');
 			} else if (message.startsWith('show_local_mesto_options_')) {
@@ -1196,13 +1201,23 @@ function processUpdates(updates) {
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
+			} else if (message.startsWith("move_punch_")) {
+				try {
+					window.onScreenControlTouchStart("<Mouse>/leftButton");
+					setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+					sendToTelegram(`👊 <b>Удар выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать удар\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+				}
 			} else if (message.startsWith("move_sit_")) {
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/c");
 					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
 					config.isSitting = true;
 					sendToTelegram(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
-					showMovementControlsMenu(chatId, messageId, false);
+					showMovementControlsMenu(chatId, messageId, message.startsWith("move_sit_") && message.includes("notification")); // Сохраняем isNotification
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Сесть"\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
@@ -1214,12 +1229,22 @@ function processUpdates(updates) {
 					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
 					config.isSitting = false;
 					sendToTelegram(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
-					showMovementControlsMenu(chatId, messageId, false);
+					showMovementControlsMenu(chatId, messageId, message.startsWith("move_stand_") && message.includes("notification")); // Сохраняем isNotification
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Встать"\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
+			} else if (message.startsWith("back_to_notification_")) {
+				const replyMarkup = {
+					inline_keyboard: [
+						[
+							createButton("📝 Ответить", `admin_reply_${callbackUniqueId}`),
+							createButton("🚶 Движения", `show_movement_${callbackUniqueId}`)
+						]
+					]
+				};
+				editMessageReplyMarkup(chatId, messageId, replyMarkup);
 			} else if (message.startsWith("show_local_soob_options_")) {
 				showLocalSoobOptionsMenu(chatId, messageId);
 			} else if (message.startsWith("show_local_mesto_options_")) {
