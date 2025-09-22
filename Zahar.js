@@ -1,3 +1,4 @@
+```javascript
 // в случае index оставить это в hud.js 
 if (tt?.methods?.add) {
 	const originalAdd = tt.methods.add;
@@ -358,7 +359,7 @@ function showControlsMenu(chatId, messageId) {
 		inline_keyboard: [
 			[createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
 			[createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
-			[createButton("⬆️ Свернуть", `hide_controls_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
 		]
 	};
 
@@ -377,7 +378,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
 				createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_controls_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]
 		]
 	};
 
@@ -391,7 +392,7 @@ function showPayDayOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_p_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_p_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -405,7 +406,7 @@ function showSoobOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_soob_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_soob_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -419,7 +420,7 @@ function showMestoOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_mesto_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_mesto_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -433,7 +434,7 @@ function showRadioOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_radio_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_radio_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -447,7 +448,7 @@ function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_warning_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_warning_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -461,7 +462,7 @@ function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
 				createButton("С паузами", `afk_n_with_pauses_${uniqueIdParam}`),
 				createButton("Без пауз", `afk_n_without_pauses_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -475,7 +476,7 @@ function showAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
 				createButton("5/5 минут", `afk_n_fixed_${uniqueIdParam}`),
 				createButton("Рандомное время", `afk_n_random_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `global_afk_n_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `global_afk_n_${uniqueIdParam}`)]
 		]
 	};
 
@@ -495,7 +496,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
 			[createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
 			[createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
 			[createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
-			[createButton("⬅️ Назад", `show_controls_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
 		]
 	};
 
@@ -508,18 +509,18 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
 		return;
 	}
 	const backButton = isNotification ? 
-		[[createButton("⬅️ Назад", `back_to_notification_${uniqueId}`)]] : 
-		[[createButton("⬆️ Свернуть", `show_local_functions_${uniqueId}`)]];
+		[[createButton("⬅️ Вернуться назад", `back_to_notification_${uniqueId}`)]] : 
+		[[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]];
 	const sitStandButton = config.isSitting ?
-		createButton("🧍 Встать", `move_stand_${uniqueId}`) :
-		createButton("🪑 Сесть", `move_sit_${uniqueId}`);
+		createButton("🧍 Встать", `move_stand_${uniqueId}${isNotification ? '_notification' : ''}`) :
+		createButton("🪑 Сесть", `move_sit_${uniqueId}${isNotification ? '_notification' : ''}`);
 	const replyMarkup = {
 		inline_keyboard: [
-			[createButton("⬆️ Вперед", `move_forward_${uniqueId}`)],
-			[createButton("⬅️ Влево", `move_left_${uniqueId}`), createButton("➡️ Вправо", `move_right_${uniqueId}`)],
-			[createButton("⬇️ Назад", `move_back_${uniqueId}`)],
-			[createButton("🆙 Прыжок", `move_jump_${uniqueId}`)],
-			[createButton("👊 Удар", `move_punch_${uniqueId}`)],
+			[createButton("⬆️ Вперед", `move_forward_${uniqueId}${isNotification ? '_notification' : ''}`)],
+			[createButton("⬅️ Влево", `move_left_${uniqueId}${isNotification ? '_notification' : ''}`), createButton("➡️ Вправо", `move_right_${uniqueId}${isNotification ? '_notification' : ''}`)],
+			[createButton("⬇️ Назад", `move_back_${uniqueId}${isNotification ? '_notification' : ''}`)],
+			[createButton("🆙 Прыжок", `move_jump_${uniqueId}${isNotification ? '_notification' : ''}`)],
+			[createButton("👊 Удар", `move_punch_${uniqueId}${isNotification ? '_notification' : ''}`)],
 			[sitStandButton],
 			...backButton
 		]
@@ -539,7 +540,7 @@ function showLocalSoobOptionsMenu(chatId, messageId) {
 				createButton("🔔 ВКЛ", `local_soob_on_${uniqueId}`),
 				createButton("🔕 ВЫКЛ", `local_soob_off_${uniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
 		]
 	};
 
@@ -557,7 +558,7 @@ function showLocalMestoOptionsMenu(chatId, messageId) {
 				createButton("🔔 ВКЛ", `local_mesto_on_${uniqueId}`),
 				createButton("🔕 ВЫКЛ", `local_mesto_off_${uniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
 		]
 	};
 
@@ -575,7 +576,7 @@ function showLocalRadioOptionsMenu(chatId, messageId) {
 				createButton("🔔 ВКЛ", `local_radio_on_${uniqueId}`),
 				createButton("🔕 ВЫКЛ", `local_radio_off_${uniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
 		]
 	};
 
@@ -593,7 +594,7 @@ function showLocalWarningOptionsMenu(chatId, messageId) {
 				createButton("🔔 ВКЛ", `local_warning_on_${uniqueId}`),
 				createButton("🔕 ВЫКЛ", `local_warning_off_${uniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
 		]
 	};
 
@@ -864,7 +865,7 @@ function processUpdates(updates) {
 				callbackUniqueId = message.replace('show_local_functions_', '');
 			} else if (message.startsWith('show_movement_controls_')) {
 				callbackUniqueId = message.replace('show_movement_controls_', '');
-			} else if (message.startsWith('show_movement_')) {
+			} else if (message.startsWith("show_movement_")) {
 				callbackUniqueId = message.replace('show_movement_', '');
 			} else if (message.startsWith('hide_controls_')) {
 				callbackUniqueId = message.replace('hide_controls_', '');
@@ -887,21 +888,21 @@ function processUpdates(updates) {
 			} else if (message.startsWith('local_warning_off_')) {
 				callbackUniqueId = message.replace('local_warning_off_', '');
 			} else if (message.startsWith('move_forward_')) {
-				callbackUniqueId = message.replace('move_forward_', '');
+				callbackUniqueId = message.replace('move_forward_', '').replace('_notification', '');
 			} else if (message.startsWith('move_back_')) {
-				callbackUniqueId = message.replace('move_back_', '');
+				callbackUniqueId = message.replace('move_back_', '').replace('_notification', '');
 			} else if (message.startsWith('move_left_')) {
-				callbackUniqueId = message.replace('move_left_', '');
+				callbackUniqueId = message.replace('move_left_', '').replace('_notification', '');
 			} else if (message.startsWith('move_right_')) {
-				callbackUniqueId = message.replace('move_right_', '');
+				callbackUniqueId = message.replace('move_right_', '').replace('_notification', '');
 			} else if (message.startsWith('move_jump_')) {
-				callbackUniqueId = message.replace('move_jump_', '');
+				callbackUniqueId = message.replace('move_jump_', '').replace('_notification', '');
 			} else if (message.startsWith('move_punch_')) {
-				callbackUniqueId = message.replace('move_punch_', '');
+				callbackUniqueId = message.replace('move_punch_', '').replace('_notification', '');
 			} else if (message.startsWith('move_sit_')) {
-				callbackUniqueId = message.replace('move_sit_', '');
+				callbackUniqueId = message.replace('move_sit_', '').replace('_notification', '');
 			} else if (message.startsWith('move_stand_')) {
-				callbackUniqueId = message.replace('move_stand_', '');
+				callbackUniqueId = message.replace('move_stand_', '').replace('_notification', '');
 			} else if (message.startsWith('admin_reply_')) {
 				callbackUniqueId = message.replace('admin_reply_', '');
 			} else if (message.startsWith('back_to_notification_')) {
@@ -1138,6 +1139,7 @@ function processUpdates(updates) {
 					force_reply: true
 				});
 			} else if (message.startsWith("move_forward_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
@@ -1145,12 +1147,14 @@ function processUpdates(updates) {
 						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 					}, 500);
 					sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вперед\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_back_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
@@ -1158,12 +1162,14 @@ function processUpdates(updates) {
 						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 					}, 500);
 					sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение назад\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_left_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
@@ -1171,12 +1177,14 @@ function processUpdates(updates) {
 						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 					}, 500);
 					sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение влево\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_right_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
@@ -1184,52 +1192,59 @@ function processUpdates(updates) {
 						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 					}, 500);
 					sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вправо\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_jump_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/leftShift");
 					setTimeout(() => {
 						window.onScreenControlTouchEnd("<Keyboard>/leftShift");
 					}, 500);
 					sendToTelegram(`🆙 <b>Прыжок выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать прыжок\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_punch_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Mouse>/leftButton");
 					setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
 					sendToTelegram(`👊 <b>Удар выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать удар\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_sit_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/c");
 					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
 					config.isSitting = true;
 					sendToTelegram(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
-					showMovementControlsMenu(chatId, messageId, message.startsWith("move_sit_") && message.includes("notification")); // Сохраняем isNotification
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Сесть"\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_stand_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/c");
 					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
 					config.isSitting = false;
 					sendToTelegram(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
-					showMovementControlsMenu(chatId, messageId, message.startsWith("move_stand_") && message.includes("notification")); // Сохраняем isNotification
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Встать"\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
@@ -2028,3 +2043,4 @@ if (!initializeChatMonitor()) {
 		}
 	}, config.checkInterval);
 }
+```
