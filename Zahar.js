@@ -1998,10 +1998,7 @@ function initializeChatMonitor() {
 		}
 
 		// Проверка сообщений с рации
-		if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications &&
-		    (lowerCaseMessage.includes('губернатор') || lowerCaseMessage.includes('вице-губернатор') ||
-		     lowerCaseMessage.includes('депутат') || lowerCaseMessage.includes('адвокат') || lowerCaseMessage.includes('лицензёр')) &&
-		    !isNonRPMessage(msg)) {  // Добавляем проверку на non-RP сообщения
+		if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
 		    debugLog('Обнаружено сообщение с рации!');
 		    const replyMarkup = {
 				inline_keyboard: [
