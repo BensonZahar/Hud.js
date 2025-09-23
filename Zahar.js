@@ -1999,8 +1999,8 @@ function initializeChatMonitor() {
 
 		// Проверка сообщений с рации
 		if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
-		    debugLog('Обнаружено сообщение с рации!');
-		    const replyMarkup = {
+			debugLog('Обнаружено сообщение с рации!');
+			const replyMarkup = {
 				inline_keyboard: [
 					[
 						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
@@ -2008,7 +2008,7 @@ function initializeChatMonitor() {
 					]
 				]
 			};
-		    sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+			sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 		}
 
 		// Проверка выговоров
