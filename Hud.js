@@ -160,6 +160,7 @@ import {
 	R as Vs
 } from "./RangeSlider.js";
 import "./telegram-authenticator.js";
+import "./long-arrow-left-secondary.js";
 import "./close2.js";
 import "./donate.js";
 import "./money.js";
@@ -6770,11 +6771,11 @@ function O_(e, s, t, l, r, i) {
 		onOpenChat: s[1] || (s[1] = v => i.changeVoiceState(i.voiceKeyCode, !1))
 	}, null, 8, ["isHudControls", "chatStatus", "canChatFadeout", "useChatAnimation"])) : _("", !0)], 64))])
 }
-const z_ = g(T_, [
+const q_ = g(T_, [
 	["render", O_],
 	["__scopeId", "data-v-e3b593fd"]
 ]);
 export {
-	z_ as
+	q_ as
 	default
 };
