@@ -155,8 +155,7 @@ const factions = {
 
 // КОНФИГУРАЦИЯ
 const userConfig = {
-	botToken: '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA',
-	chatIds: ['1046461621'], // 1046461621 - Zahar, 5515408606 = Kolya, 
+	chatIds: ['-1003040555627'], // 1046461621 - Zahar, 5515408606 = Kolya, 
 	keywords: [],
 	clearDelay: 3000,
 	maxAttempts: 15,
@@ -211,6 +210,15 @@ const config = {
 	},
 	nicknameLogged: false
 };
+
+const serverTokens = {
+    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
+    '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
+    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
+    '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
+};
+
+const defaultToken = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
 
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
@@ -336,6 +344,8 @@ function trackNicknameAndServer() {
 			config.nicknameLogged = true;
 			config.accountInfo.nickname = nickname;
 			config.accountInfo.server = serverId.toString();
+			config.botToken = serverTokens[config.accountInfo.server] || defaultToken;
+			debugLog(`Установлен botToken для сервера ${config.accountInfo.server}: ${config.botToken}`);
 			updateDisplayName(); // Обновляем displayName при получении ника
 			uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 			sendWelcomeMessage();
