@@ -7,6 +7,22 @@ if (tt?.methods?.add) {
 		return result;
 	};
 } 
+
+// Перехват window.setPlayerSkinId для отслеживания изменений скина
+let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
+window.setPlayerSkinId = function(skinId) {
+    debugLog(`Перехвачен вызов setPlayerSkinId с Skin ID: ${skinId}`);
+    
+    // Сохраняем Skin ID
+    config.accountInfo.skinId = skinId;
+    updateFaction(); // Обновляем фракцию при изменении скина
+    
+    // Вызываем оригинал, если он существует
+    if (originalSetPlayerSkinId) {
+        return originalSetPlayerSkinId.call(this, skinId);
+    }
+};
+
 // Глобальный объект для хранения состояния AFK-запроса и ID последнего приветственного сообщения
 const globalState = {
 	awaitingAfkAccount: false,
@@ -58,6 +74,85 @@ function getChatRadius(color) {
 	}
 }
 
+// Определение фракций и их рангов (только 6-10 используются в текущем функционале, полный список для справки)
+const factions = {
+    government: {
+        skins: [57, 141, 147, 164, 165, 187, 208, 227],
+        ranks: {
+            1: 'водитель',
+            2: 'охранник',
+            3: 'нач. охраны',
+            4: 'секретарь',
+            5: 'старший секретарь',
+            6: 'лицензёр',
+            7: 'адвокат',
+            8: 'депутат',
+            9: 'вице-губернатор',
+            10: 'губернатор'
+        }
+    },
+    mz: {
+        skins: [276, 15381, 15382, 15383, 15384, 15385, 15386, 15387, 15388, 15389],
+        ranks: {
+            1: 'интерн',
+            2: 'фельдшер',
+            3: 'участковый врач',
+            4: 'терапевт',
+            5: 'проктолог',
+            6: 'нарколог',
+            7: 'хирург',
+            8: 'заведующий отделением',
+            9: 'заместитель глав врача',
+            10: 'глав врач'
+        }
+    },
+    trk: {
+        skins: [15438, 15439, 15440, 15441, 15442, 15443, 15444, 15445, 15446, 15447],
+        ranks: {
+            1: 'стажёр',
+            2: 'светотехник',
+            3: 'монтажёр',
+            4: 'оператор',
+            5: 'дизайнер',
+            6: 'репортер',
+            7: 'ведущий',
+            8: 'режиссёр',
+            9: 'редактор',
+            10: 'гл. редактор'
+        }
+    },
+    mo: {
+        skins: [30, 61, 179, 191, 253, 255, 287, 162, 218, 220],
+        ranks: {
+            1: 'рядовой',
+            2: 'ефрейтор',
+            3: 'сержант',
+            4: 'прапорщик',
+            5: 'лейтенант',
+            6: 'капитан',
+            7: 'майор',
+            8: 'подполковник',
+            9: 'полковник',
+            10: 'генерал'
+        }
+    },
+    mchs: {
+        skins: [15316, 15365, 15366, 15367, 15368, 15369, 15370, 15371, 15372, 15373, 15374, 15375, 15376, 15377, 15378, 15396, 15397],
+        ranks: {
+            1: 'рядовой',
+            2: 'сержант',
+            3: 'старшина',
+            4: 'прапорщик',
+            5: 'лейтенант',
+            6: 'капитан',
+            7: 'майор',
+            8: 'подполковник',
+            9: 'полковник',
+            10: 'генерал'
+        }
+    }
+};
+
 // КОНФИГУРАЦИЯ
 const userConfig = {
 	botToken: '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA',
@@ -81,7 +176,9 @@ const userConfig = {
 	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
 	radioOfficialNotifications: true,
 	warningNotifications: true,
-	notificationDeleteDelay: 5000 // Задержка для удаления уведомлений об изменении настроек
+	notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
+	trackSkinId: true, // Флаг отслеживания скина
+	skinCheckInterval: 5000 // Интервал проверки скина
 };
 
 const config = {
@@ -93,8 +190,10 @@ const config = {
 	initialized: false,
 	accountInfo: {
 		nickname: null,
-		server: null
+		server: null,
+		skinId: null // Добавлено поле для Skin ID
 	},
+	currentFaction: null, // Текущая фракция (government или mz)
 	lastPlayerId: null,
 	govMessageTrackers: {},
 	isSitting: false,
@@ -163,6 +262,51 @@ function getPlayerIdFromHUD() {
 	}
 }
 
+function getSkinIdFromStore() {
+	try {
+		const menuInterface = window.interface("Menu");
+		if (menuInterface && menuInterface.$store && menuInterface.$store.getters["player/skinId"] !== undefined) {
+			const skinId = menuInterface.$store.getters["player/skinId"];
+			return skinId;
+		}
+		return null;
+	} catch (e) {
+		debugLog(`Ошибка при получении Skin ID из store: ${e.message}`);
+		return null;
+	}
+}
+
+// Функция для обновления текущей фракции на основе скина
+function updateFaction() {
+    const skinId = Number(config.accountInfo.skinId); // Приводим к числу
+    if (!skinId) return;
+
+    for (const faction in factions) {
+        if (factions[faction].skins.includes(skinId)) {
+            if (config.currentFaction !== faction) {
+                config.currentFaction = faction;
+                debugLog(`Фракция обновлена: ${faction} (Skin ID: ${skinId})`);
+            }
+            return;
+        }
+    }
+    config.currentFaction = null;
+    debugLog(`Фракция не определена для Skin ID: ${skinId}`);
+}
+
+function trackSkinId() {
+	if (!config.trackSkinId) return;
+
+	const currentSkin = getSkinIdFromStore();
+	if (currentSkin !== null && currentSkin !== config.accountInfo.skinId) {
+		config.accountInfo.skinId = currentSkin;
+		debugLog(`Обнаружен новый Skin ID (поллинг): ${currentSkin}`);
+		updateFaction(); // Обновляем фракцию
+	}
+
+	setTimeout(trackSkinId, config.skinCheckInterval);
+}
+
 function trackPlayerId() {
 	if (!config.trackPlayerId) return;
 
@@ -196,6 +340,17 @@ function trackNicknameAndServer() {
 			uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 			sendWelcomeMessage();
 			registerUser();
+			
+			// Запуск отслеживания скина с задержкой 5с
+			setTimeout(() => {
+				const initialSkin = getSkinIdFromStore();
+				if (initialSkin !== null) {
+					config.accountInfo.skinId = initialSkin;
+					debugLog(`Initial Skin ID after login: ${initialSkin}`);
+					updateFaction(); // Обновляем фракцию
+				}
+				trackSkinId();
+			}, 5000);
 		} else if (!nickname || !serverId) {
 			debugLog(`Ник или сервер не получены: nickname=${nickname}, server=${serverId}`);
 		}
@@ -1333,13 +1488,14 @@ function checkIDFormats(message) {
 	return matches ? matches : [];
 }
 
+function getRankKeywords() {
+	if (!config.currentFaction || !factions[config.currentFaction]) return [];
+	return Object.values(factions[config.currentFaction].ranks).map(rank => rank.toLowerCase());
+}
+
 function checkRoleAndActionConditions(lowerCaseMessage) {
-	const hasRoleKeyword = (
-		lowerCaseMessage.indexOf("депутат") !== -1 ||
-		lowerCaseMessage.indexOf("вице-губернатор") !== -1 ||
-		lowerCaseMessage.indexOf("губернатор") !== -1 ||
-		lowerCaseMessage.indexOf("лицензёр") !== -1
-	);
+	const rankKeywords = getRankKeywords();
+	const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
 
 	const hasActionKeyword = (
 		lowerCaseMessage.indexOf("место") !== -1 ||
@@ -1364,8 +1520,9 @@ function checkLocationRequest(msg, lowerCaseMessage) {
 		return false;
 	}
 
-	const hasRoleKeyword = /(депутат|вице-губернатор|губернатор|лицензёр)/i.test(lowerCaseMessage);
-	const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word));
+	const rankKeywords = getRankKeywords();
+	const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
+	const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word.toLowerCase()));
 	const hasID = isTargetingPlayer(msg);
 
 	return hasRoleKeyword && (hasActionKeyword || hasID);
@@ -1810,7 +1967,7 @@ function initializeChatMonitor() {
 
 	window.OnChatAddMessage = function(e, i, t) {
 	// если что убрать
-    debugLog(`Чат-сообщение: ${e} | Цвет: ${i} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
+    // debugLog(`Чат-сообщение: ${e} | Цвет: ${i} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
 		const msg = String(e);
 		const lowerCaseMessage = msg.toLowerCase();
 		const currentTime = Date.now();
@@ -1940,17 +2097,12 @@ function initializeChatMonitor() {
 			}
 		}
 
-		if (!isNonRPMessage(msg) && (
-				(lowerCaseMessage.indexOf("депутат") !== -1 ||
-					lowerCaseMessage.indexOf("вице-губернатор") !== -1 ||
-					lowerCaseMessage.indexOf("губернатор") !== -1 ||
-					lowerCaseMessage.indexOf("лицензёр") !== -1 ||
-					lowerCaseMessage.indexOf("адвокат") !== -1) &&
-				(lowerCaseMessage.indexOf("строй") !== -1 ||
-					lowerCaseMessage.indexOf("сбор") !== -1 ||
-					lowerCaseMessage.indexOf("готовность") !== -1 ||
-					lowerCaseMessage.indexOf("конф") !== -1)
-			) && (chatRadius === CHAT_RADIUS.RADIO)) {
+		if (!isNonRPMessage(msg) && getRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
+			(lowerCaseMessage.indexOf("строй") !== -1 ||
+				lowerCaseMessage.indexOf("сбор") !== -1 ||
+				lowerCaseMessage.indexOf("готовность") !== -1 ||
+				lowerCaseMessage.indexOf("конф") !== -1)
+			&& (chatRadius === CHAT_RADIUS.RADIO)) {
 			debugLog('Обнаружен сбор/строй!');
 			sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
 			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
