@@ -76,7 +76,8 @@ function getChatRadius(color) {
 
 // Определение фракций и их рангов (только 6-10 используются в текущем функционале, полный список для справки)
 const factions = {
-    government: {
+    government: { // Правительство
+        color: 'CCFF00',
         skins: [57, 141, 147, 164, 165, 187, 208, 227],
         ranks: {
             1: 'водитель',
@@ -91,7 +92,8 @@ const factions = {
             10: 'губернатор'
         }
     },
-    mz: {
+    mz: { // Больница
+        color: 'FF6666',
         skins: [276, 15381, 15382, 15383, 15384, 15385, 15386, 15387, 15388, 15389],
         ranks: {
             1: 'интерн',
@@ -106,7 +108,8 @@ const factions = {
             10: 'глав врач'
         }
     },
-    trk: {
+    trk: { // ГТРК «Ритм»
+        color: 'FF6600',
         skins: [15438, 15439, 15440, 15441, 15442, 15443, 15444, 15445, 15446, 15447],
         ranks: {
             1: 'стажёр',
@@ -121,7 +124,8 @@ const factions = {
             10: 'гл. редактор'
         }
     },
-    mo: {
+    mo: { // Воинская часть
+        color: '996633',
         skins: [30, 61, 179, 191, 253, 255, 287, 162, 218, 220],
         ranks: {
             1: 'рядовой',
@@ -136,7 +140,8 @@ const factions = {
             10: 'генерал'
         }
     },
-    mchs: {
+    mchs: { // МЧС
+        color: '009999',
         skins: [15316, 15365, 15366, 15367, 15368, 15369, 15370, 15371, 15372, 15373, 15374, 15375, 15376, 15377, 15378, 15396, 15397],
         ranks: {
             1: 'рядовой',
@@ -917,11 +922,11 @@ function processUpdates(updates) {
 				sendWelcomeMessage();
 			} else if (message === '/soob_off') {
 				config.govMessagesEnabled = false;
-				sendToTelegram(`🔕 <b>Уведомления от сотрудников правительства отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message === '/soob_on') {
 				config.govMessagesEnabled = true;
-				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message === '/mesto_on') {
 				config.trackLocationRequests = true;
@@ -1185,11 +1190,11 @@ function processUpdates(updates) {
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_soob_on_`)) {
 				config.govMessagesEnabled = true;
-				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_soob_off_`)) {
 				config.govMessagesEnabled = false;
-				sendToTelegram(`🔕 <b>Уведомления от сотрудников правительства отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_mesto_on_`)) {
 				config.trackLocationRequests = true;
@@ -1441,11 +1446,11 @@ function processUpdates(updates) {
 				showLocalWarningOptionsMenu(chatId, messageId);
 			} else if (message.startsWith("local_soob_on_")) {
 				config.govMessagesEnabled = true;
-				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith("local_soob_off_")) {
 				config.govMessagesEnabled = false;
-				sendToTelegram(`🔕 <b>Уведомления от сотрудников правительства отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith("local_mesto_on_")) {
 				config.trackLocationRequests = true;
@@ -1975,226 +1980,244 @@ function initializeChatMonitor() {
 		};
 	}
 
-	window.OnChatAddMessage = function(e, i, t) {
+
+window.OnChatAddMessage = function(e, i, t) {
 	// если что убрать
     // debugLog(`Чат-сообщение: ${e} | Цвет: ${i} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
-		const msg = String(e);
-		const lowerCaseMessage = msg.toLowerCase();
-		const currentTime = Date.now();
-		const chatRadius = getChatRadius(i);
+	const msg = String(e);
+	const lowerCaseMessage = msg.toLowerCase();
+	const currentTime = Date.now();
+	const chatRadius = getChatRadius(i);
 
-		// Для отладки, выводим сообщения в консоль
-		// console.log(msg); // сооб в чат
+	// Для отладки, выводим сообщения в консоль
+	// console.log(msg); // сооб в чат
 
-        // Проверка сообщения "Текущее время:" для AFK
-	    if (msg.includes("Текущее время:") && config.afkSettings.active) {
-	        handlePayDayTimeMessage();
-	    }
-	
-	    // Проверка сообщения о возобновлении работы сервера для AFK
-	    if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
-	        debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-	        sendChatInput("/q");
-	        sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`, false, null, config.notificationDeleteDelay);
-	    }
+    // Проверка сообщения "Текущее время:" для AFK
+    if (msg.includes("Текущее время:") && config.afkSettings.active) {
+        handlePayDayTimeMessage();
+    }
 
-		if (lowerCaseMessage.includes("зареспавнил вас")) {
-			debugLog(`Обнаружен респавн для ${displayName}!`);
-			const replyMarkup = {
-				inline_keyboard: [
-					[
-						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-						createButton("🚶 Движения", `show_movement_${uniqueId}`)
-					]
+    // Проверка сообщения о возобновлении работы сервера для AFK
+    if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
+        debugLog('Обнаружено сообщение о возобновлении работы сервера!');
+        sendChatInput("/q");
+        sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`, false, null, config.notificationDeleteDelay);
+    }
+
+	if (lowerCaseMessage.includes("зареспавнил вас")) {
+		debugLog(`Обнаружен респавн для ${displayName}!`);
+		const replyMarkup = {
+			inline_keyboard: [
+				[
+					createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+					createButton("🚶 Движения", `show_movement_${uniqueId}`)
 				]
-			};
-			sendToTelegram(`🔄 <b>Вас зареспавнили! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
-		}
+			]
+		};
+		sendToTelegram(`🔄 <b>Вас зареспавнили! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+		window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+	}
 
-		if (lowerCaseMessage.includes("вы были кикнуты по подозрению в читерстве")) {
-			debugLog(`Обнаружен кик анти-читом для ${displayName}!`);
-			const replyMarkup = {
-				inline_keyboard: [
-					[
-						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-						createButton("🚶 Движения", `show_movement_${uniqueId}`)
-					]
-				]
-			};
-			sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-		}
+	if (lowerCaseMessage.includes("вы были кикнуты по подозрению в читерстве")) {
+		debugLog(`Обнаружен кик анти-читом для ${displayName}!`);
+		const replyMarkup = {
+		inline_keyboard: [
+			[
+				createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+				createButton("🚶 Движения", `show_movement_${uniqueId}`)
+			]
+		]
+	};
+		sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+		window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+	}
 
-		const govMessageRegex = /^- (.+?) \{CCFF00}\(\{v:([^}]+)}\)\[(\d+)\]/;
-		const govMatch = msg.match(govMessageRegex);
-		if (govMatch) {
-			const messageText = govMatch[1];
-			const senderName = govMatch[2];
-			const senderId = govMatch[3];
+	let factionColor = 'CCFF00'; // По умолчанию
+	if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
+		factionColor = factions[config.currentFaction].color;
+	}
+	const govMessageRegex = new RegExp(`^\\- (.+?) \\{${factionColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
+	const govMatch = msg.match(govMessageRegex);
+	if (govMatch) {
+		const messageText = govMatch[1];
+		const senderName = govMatch[2];
+		const senderId = govMatch[3];
 
-			// Проверяем, что сообщение отправлено из радиуса CLOSE
-			if (chatRadius === CHAT_RADIUS.CLOSE) {
-				if (checkGovMessageConditions(messageText, senderName, senderId)) {
-					const replyMarkup = {
-						inline_keyboard: [
-							[
-								createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-								createButton("🚶 Движения", `show_movement_${uniqueId}`)
-							]
-						]
-					};
-					sendToTelegram(`🏛️ <b>Сообщение от сотрудника правительства (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`, false, replyMarkup);
-				}
-			}
-		}
-
-		processSalaryAndBalance(msg);
-
-		if (config.keywords.some(kw => lowerCaseMessage.includes(kw.toLowerCase()))) {
-			debugLog('Найдено ключевое слово:', msg);
-			sendToTelegram(`🔔 <b>Обнаружено ключевое слово (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-
-			setTimeout(() => {
-				try {
-					sendChatInput("/c");
-					debugLog('Команда /c отправлена');
-				} catch (err) {
-					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>`;
-					debugLog(errorMsg);
-					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
-				}
-			}, config.clearDelay);
-		}
-
-		if ((lowerCaseMessage.indexOf("администратор") !== -1 && lowerCaseMessage.indexOf("для") !== -1) ||
-			(msg.includes("[A]") && msg.includes("((")) ||
-			(lowerCaseMessage.includes("подбросил") &&
-				(currentTime - config.lastPodbrosTime > config.podbrosCooldown || config.podbrosCounter < 2))) {
-
-			if (lowerCaseMessage.includes("подбросил")) {
-				config.podbrosCounter++;
-				if (config.podbrosCounter <= 2) {
-					debugLog('Обнаружен подброс!');
-					const replyMarkup = {
-						inline_keyboard: [
-							[
-								createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-								createButton("🚶 Движения", `show_movement_${uniqueId}`)
-							]
-						]
-					};
-					sendToTelegram(`🚨 <b>Обнаружен подброс! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-					window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
-				}
-
-				if (currentTime - config.lastPodbrosTime > config.podbrosCooldown) {
-					config.podbrosCounter = 0;
-				}
-				config.lastPodbrosTime = currentTime;
-			} else {
-				debugLog('Обнаружен администратор!');
+		// Проверяем, что сообщение отправлено из радиуса CLOSE
+		if (chatRadius === CHAT_RADIUS.CLOSE) {
+			if (checkGovMessageConditions(messageText, senderName, senderId)) {
 				const replyMarkup = {
 					inline_keyboard: [
 						[
-							createButton("📝 Ответить администратору", `admin_reply_${uniqueId}`),
+							createButton("📝 Ответить", `admin_reply_${uniqueId}`),
 							createButton("🚶 Движения", `show_movement_${uniqueId}`)
 						]
 					]
 				};
-				sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-				window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+				sendToTelegram(`🏛️ <b>Сообщение от сотрудника фракции (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`, false, replyMarkup);
 			}
-		}
-
-		if (!isNonRPMessage(msg) && getRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
-			(lowerCaseMessage.indexOf("строй") !== -1 ||
-				lowerCaseMessage.indexOf("сбор") !== -1 ||
-				lowerCaseMessage.indexOf("готовность") !== -1 ||
-				lowerCaseMessage.indexOf("конф") !== -1)
-			&& (chatRadius === CHAT_RADIUS.RADIO)) {
-			debugLog('Обнаружен сбор/строй!');
-			sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
-
-			setTimeout(() => {
-				sendChatInput("/q");
-				debugLog('Отправлена команда /q');
-				sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null, config.notificationDeleteDelay);
-			}, 30);
-		}
-
-		if (lowerCaseMessage.indexOf("администратор") !== -1 &&
-			lowerCaseMessage.indexOf("кикнул") !== -1 &&
-			msg.includes(config.accountInfo.nickname)) {
-			debugLog(`Обнаружен кик ${displayName}!`);
-			const replyMarkup = {
-				inline_keyboard: [
-					[
-						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-						createButton("🚶 Движения", `show_movement_${uniqueId}`)
-					]
-				]
-			};
-			sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-		}
-
-		if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
-			debugLog('Обнаружен запрос местоположения!');
-			const replyMarkup = {
-				inline_keyboard: [
-					[
-						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-						createButton("🚶 Движения", `show_movement_${uniqueId}`)
-					]
-				]
-			};
-			sendToTelegram(`📍 <b>Обнаружен запрос местоположения (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-		}
-
-		if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
-			debugLog('Обнаружено AFK условие!');
-			sendChatInput("/q");
-			sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
-		}
-
-		// Проверка сообщений с рации
-		if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
-			debugLog('Обнаружено сообщение с рации!');
-			const replyMarkup = {
-				inline_keyboard: [
-					[
-						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-						createButton("🚶 Движения", `show_movement_${uniqueId}`)
-					]
-				]
-			};
-			sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-		}
-
-		// Проверка выговоров
-		const warningMatch = msg.match(/(?:Губернатор|Вице-Губернатор)\s+([^[]+)\[(\d+)\]\s+выдал\s+Вам\s+Выговор\s+(\d+)\s+из\s+3\.\s+Причина:\s+(.*)/i);
-		if (warningMatch && config.warningNotifications) {
-			debugLog('Обнаружен выговор!');
-			sendToTelegram(`⚠️ <b>Получен выговор (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-		}
-	};
-
-	debugLog('Мониторинг успешно активирован');
-
-	if (!config.initialized) {
-		trackNicknameAndServer();
-		config.initialized = true;
-
-		if (config.trackPlayerId) {
-			debugLog('Запуск отслеживания ID игрока через HUD...');
-			trackPlayerId();
 		}
 	}
 
-	checkTelegramCommands();
-	return true;
+	processSalaryAndBalance(msg);
+
+	if (config.keywords.some(kw => lowerCaseMessage.includes(kw.toLowerCase()))) {
+		debugLog('Найдено ключевое слово:', msg);
+		sendToTelegram(`🔔 <b>Обнаружено ключевое слово (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+
+		setTimeout(() => {
+			try {
+				sendChatInput("/c");
+				debugLog('Команда /c отправлена');
+			} catch (err) {
+				const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>`;
+				debugLog(errorMsg);
+				sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+			}
+		}, config.clearDelay);
+	}
+
+	if ((lowerCaseMessage.indexOf("администратор") !== -1 && lowerCaseMessage.indexOf("для") !== -1) ||
+		(msg.includes("[A]") && msg.includes("((")) ||
+		(lowerCaseMessage.includes("подбросил") &&
+			(currentTime - config.lastPodbrosTime > config.podbrosCooldown || config.podbrosCounter < 2))) {
+
+		if (lowerCaseMessage.includes("подбросил")) {
+			config.podbrosCounter++;
+			if (config.podbrosCounter <= 2) {
+				debugLog('Обнаружен подброс!');
+				const replyMarkup = {
+					inline_keyboard: [
+						[
+							createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+							createButton("🚶 Движения", `show_movement_${uniqueId}`)
+						]
+					]
+				};
+				sendToTelegram(`🚨 <b>Обнаружен подброс! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+				window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+			}
+
+			if (currentTime - config.lastPodbrosTime > config.podbrosCooldown) {
+				config.podbrosCounter = 0;
+			}
+			config.lastPodbrosTime = currentTime;
+		} else {
+			debugLog('Обнаружен администратор!');
+			const replyMarkup = {
+				inline_keyboard: [
+					[
+						createButton("📝 Ответить администратору", `admin_reply_${uniqueId}`),
+						createButton("🚶 Движения", `show_movement_${uniqueId}`)
+					]
+				]
+			};
+			sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+		}
+	}
+
+	if (!isNonRPMessage(msg) && getRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
+		(lowerCaseMessage.indexOf("строй") !== -1 ||
+			lowerCaseMessage.indexOf("сбор") !== -1 ||
+			lowerCaseMessage.indexOf("готовность") !== -1 ||
+			lowerCaseMessage.indexOf("конф") !== -1)
+		&& (chatRadius === CHAT_RADIUS.RADIO)) {
+		debugLog('Обнаружен сбор/строй!');
+		sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+		window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
+
+		setTimeout(() => {
+			sendChatInput("/q");
+			debugLog('Отправлена команда /q');
+			sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null, config.notificationDeleteDelay);
+		}, 30);
+	}
+
+	if (lowerCaseMessage.indexOf("администратор") !== -1 &&
+		lowerCaseMessage.indexOf("кикнул") !== -1 &&
+		msg.includes(config.accountInfo.nickname)) {
+		debugLog(`Обнаружен кик ${displayName}!`);
+		const replyMarkup = {
+			inline_keyboard: [
+				[
+					createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+					createButton("🚶 Движения", `show_movement_${uniqueId}`)
+				]
+			]
+		};
+		sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+		window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+	}
+
+	if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
+		debugLog('Обнаружен запрос местоположения!');
+		const replyMarkup = {
+			inline_keyboard: [
+				[
+					createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+					createButton("🚶 Движения", `show_movement_${uniqueId}`)
+				]
+			]
+		};
+		sendToTelegram(`📍 <b>Обнаружен запрос местоположения (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+	}
+
+	if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
+		debugLog('Обнаружено AFK условие!');
+		sendChatInput("/q");
+		sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
+	}
+
+	// Проверка сообщений с рации
+	if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
+		debugLog('Обнаружено сообщение с рации!');
+		const replyMarkup = {
+			inline_keyboard: [
+				[
+					createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+					createButton("🚶 Движения", `show_movement_${uniqueId}`)
+				]
+			]
+		};
+		sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+	}
+
+	// Проверка выговоров (динамически только для определённой фракции)
+	if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
+		const ranks = factions[config.currentFaction].ranks;
+		const rank10 = ranks[10]; // Высший ранг (например, губернатор, глав врач)
+		const rank9 = ranks[9];   // Второй высший (например, вице-губернатор, заместитель глав врача)
+		
+		// Экранируем специальные символы в названиях рангов, если они есть (на всякий случай)
+		const escapedRank10 = rank10.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const escapedRank9 = rank9.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		
+		const warningRegex = new RegExp(`(?:${escapedRank10}|${escapedRank9})\\s+([^[]+)\\[(\\d+)\\]\\s+выдал\\s+Вам\\s+Выговор\\s+(\\d+)\\s+из\\s+3\\.\\s+Причина:\\s+(.*)`, 'i');
+		const warningMatch = msg.match(warningRegex);
+		
+		if (warningMatch) {
+			debugLog(`Обнаружен выговор от ${warningMatch[1]} в фракции ${config.currentFaction}!`);
+			sendToTelegram(`⚠️ <b>Получен выговор (${displayName}) от ${warningMatch[1]} [ID: ${warningMatch[2]}]:</b>\nВыговор ${warningMatch[3]}/3\nПричина: ${warningMatch[4]}\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0); // Опционально: звук для выговора
+		}
+	}
+};
+
+debugLog('Мониторинг успешно активирован');
+
+if (!config.initialized) {
+	trackNicknameAndServer();
+	config.initialized = true;
+
+	if (config.trackPlayerId) {
+		debugLog('Запуск отслеживания ID игрока через HUD...');
+		trackPlayerId();
+	}
+}
+
+checkTelegramCommands();
+return true;
 }
 
 debugLog('Скрипт запущен');
