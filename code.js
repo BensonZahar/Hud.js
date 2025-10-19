@@ -1,3 +1,14 @@
+/*
+// в случае index оставить это в hud.js = Если через загрузчик то убрать
+if (tt?.methods?.add) {
+	const originalAdd = tt.methods.add;
+	tt.methods.add = function(e, s, t) {
+		const result = originalAdd.call(this, e, s, t);
+		window.OnChatAddMessage?.(e, s, t);
+		return result;
+	};
+} 
+*/
 // Перехват window.setPlayerSkinId для отслеживания изменений скина
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
 window.setPlayerSkinId = function(skinId) {
