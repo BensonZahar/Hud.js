@@ -1,3 +1,30 @@
+// КОНФИГУРАЦИЯ
+const userConfig = {
+	chatIds: ['-1003040555627'],  // ПОМЕНЯТЬ
+	keywords: [],
+	clearDelay: 3000,
+	maxAttempts: 15,
+	checkInterval: 1500,
+	debug: true,
+	podbrosCooldown: 30000,
+	afkSettings: {},
+	lastSalaryInfo: null,
+	paydayNotifications: true,
+	trackPlayerId: true,
+	idCheckInterval: 10000,
+	govMessagesEnabled: true,
+	govMessageCooldown: 360000,
+	govMessageThreshold: 10,
+	govMessageKeywords: ["тут", "здесь"],
+	trackLocationRequests: false,
+	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
+	radioOfficialNotifications: true,
+	warningNotifications: true,
+	notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
+	trackSkinId: true, // Флаг отслеживания скина
+	skinCheckInterval: 5000 // Интервал проверки скина
+};
+
 // в случае index оставить это в hud.js 
 if (tt?.methods?.add) {
 	const originalAdd = tt.methods.add;
@@ -156,33 +183,6 @@ const factions = {
             10: 'генерал'
         }
     }
-};
-
-// КОНФИГУРАЦИЯ
-const userConfig = {
-	chatIds: ['-1003040555627'], // 1046461621 - Zahar, 5515408606 = Kolya, 
-	keywords: [],
-	clearDelay: 3000,
-	maxAttempts: 15,
-	checkInterval: 1500,
-	debug: true,
-	podbrosCooldown: 30000,
-	afkSettings: {},
-	lastSalaryInfo: null,
-	paydayNotifications: true,
-	trackPlayerId: true,
-	idCheckInterval: 10000,
-	govMessagesEnabled: true,
-	govMessageCooldown: 360000,
-	govMessageThreshold: 10,
-	govMessageKeywords: ["тут", "здесь"],
-	trackLocationRequests: false,
-	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
-	radioOfficialNotifications: true,
-	warningNotifications: true,
-	notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
-	trackSkinId: true, // Флаг отслеживания скина
-	skinCheckInterval: 5000 // Интервал проверки скина
 };
 
 const config = {
