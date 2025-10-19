@@ -1,41 +1,3 @@
-// Айди беседы и доступные сервера токены hassleb(номер)_bot
-const chatIds = ['-1003040555627']; // Введите ID чата Telegram здесь
-
-const serverTokens = { // доступные сервера токены hassleb(номер)_bot здесь
-    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
-    '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
-    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
-    '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
-};
-
-
-
-// КОНФИГУРАЦИЯ
-const userConfig = {
-	keywords: [],
-	clearDelay: 3000,
-	maxAttempts: 15,
-	checkInterval: 1500,
-	debug: true,
-	podbrosCooldown: 30000,
-	afkSettings: {},
-	lastSalaryInfo: null,
-	paydayNotifications: true,
-	trackPlayerId: true,
-	idCheckInterval: 10000,
-	govMessagesEnabled: true,
-	govMessageCooldown: 360000,
-	govMessageThreshold: 10,
-	govMessageKeywords: ["тут", "здесь"],
-	trackLocationRequests: false,
-	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
-	radioOfficialNotifications: true,
-	warningNotifications: true,
-	notificationDeleteDelay: 5000,
-	trackSkinId: true,
-	skinCheckInterval: 5000
-};
-
 // в случае index оставить это в hud.js 
 if (tt?.methods?.add) {
 	const originalAdd = tt.methods.add;
@@ -196,6 +158,33 @@ const factions = {
     }
 };
 
+// КОНФИГУРАЦИЯ
+const userConfig = {
+	chatIds: ['-1003040555627'], // 1046461621 - Zahar, 5515408606 = Kolya, 
+	keywords: [],
+	clearDelay: 3000,
+	maxAttempts: 15,
+	checkInterval: 1500,
+	debug: true,
+	podbrosCooldown: 30000,
+	afkSettings: {},
+	lastSalaryInfo: null,
+	paydayNotifications: true,
+	trackPlayerId: true,
+	idCheckInterval: 10000,
+	govMessagesEnabled: true,
+	govMessageCooldown: 360000,
+	govMessageThreshold: 10,
+	govMessageKeywords: ["тут", "здесь"],
+	trackLocationRequests: false,
+	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
+	radioOfficialNotifications: true,
+	warningNotifications: true,
+	notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
+	trackSkinId: true, // Флаг отслеживания скина
+	skinCheckInterval: 5000 // Интервал проверки скина
+};
+
 const config = {
 	...userConfig,
 	lastUpdateId: 0,
@@ -225,6 +214,13 @@ const config = {
 		mode: 'fixed'
 	},
 	nicknameLogged: false
+};
+
+const serverTokens = {
+    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
+    '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
+    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
+    '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 
 const defaultToken = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
