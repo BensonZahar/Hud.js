@@ -8,7 +8,7 @@ if (tt?.methods?.add) {
 		return result;
 	};
 } 
-*/
+*
 // Перехват window.setPlayerSkinId для отслеживания изменений скина
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
 window.setPlayerSkinId = function(skinId) {
