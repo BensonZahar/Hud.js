@@ -1,3 +1,30 @@
+// КОНФИГУРАЦИЯ
+const userConfig = {
+	chatIds: [''],  // ПОМЕНЯТЬ
+	keywords: [],
+	clearDelay: 3000,
+	maxAttempts: 15,
+	checkInterval: 1500,
+	debug: true,
+	podbrosCooldown: 30000,
+	afkSettings: {},
+	lastSalaryInfo: null,
+	paydayNotifications: true,
+	trackPlayerId: true,
+	idCheckInterval: 10000,
+	govMessagesEnabled: true,
+	govMessageCooldown: 360000,
+	govMessageThreshold: 10,
+	govMessageKeywords: ["тут", "здесь"],
+	trackLocationRequests: false,
+	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
+	radioOfficialNotifications: true,
+	warningNotifications: true,
+	notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
+	trackSkinId: true, // Флаг отслеживания скина
+	skinCheckInterval: 5000 // Интервал проверки скина
+};
+
 // в случае index оставить это в hud.js 
 if (tt?.methods?.add) {
 	const originalAdd = tt.methods.add;
@@ -7,6 +34,22 @@ if (tt?.methods?.add) {
 		return result;
 	};
 } 
+
+// Перехват window.setPlayerSkinId для отслеживания изменений скина
+let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
+window.setPlayerSkinId = function(skinId) {
+    debugLog(`Перехвачен вызов setPlayerSkinId с Skin ID: ${skinId}`);
+    
+    // Сохраняем Skin ID
+    config.accountInfo.skinId = skinId;
+    updateFaction(); // Обновляем фракцию при изменении скина
+    
+    // Вызываем оригинал, если он существует
+    if (originalSetPlayerSkinId) {
+        return originalSetPlayerSkinId.call(this, skinId);
+    }
+};
+
 // Глобальный объект для хранения состояния AFK-запроса и ID последнего приветственного сообщения
 const globalState = {
 	awaitingAfkAccount: false,
@@ -58,30 +101,88 @@ function getChatRadius(color) {
 	}
 }
 
-// КОНФИГУРАЦИЯ
-const userConfig = {
-	botToken: '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA',
-	chatIds: ['5515408606'], // 1046461621 - Zahar, 5515408606 = Kolya, 
-	keywords: [],
-	clearDelay: 3000,
-	maxAttempts: 15,
-	checkInterval: 1000,
-	debug: true,
-	podbrosCooldown: 30000,
-	afkSettings: {},
-	lastSalaryInfo: null,
-	paydayNotifications: true,
-	trackPlayerId: true,
-	idCheckInterval: 10000,
-	govMessagesEnabled: true,
-	govMessageCooldown: 360000,
-	govMessageThreshold: 10,
-	govMessageKeywords: ["тут", "здесь"],
-	trackLocationRequests: false,
-	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
-	radioOfficialNotifications: true,
-	warningNotifications: true,
-	notificationDeleteDelay: 5000 // Задержка для удаления уведомлений об изменении настроек
+// Определение фракций и их рангов (только 6-10 используются в текущем функционале, полный список для справки)
+const factions = {
+    government: { // Правительство
+        color: 'CCFF00',
+        skins: [57, 141, 147, 164, 165, 187, 208, 227],
+        ranks: {
+            1: 'водитель',
+            2: 'охранник',
+            3: 'нач. охраны',
+            4: 'секретарь',
+            5: 'старший секретарь',
+            6: 'лицензёр',
+            7: 'адвокат',
+            8: 'депутат',
+            9: 'вице-губернатор',
+            10: 'губернатор'
+        }
+    },
+    mz: { // Больница
+        color: 'FF6666',
+        skins: [276, 15381, 15382, 15383, 15384, 15385, 15386, 15387, 15388, 15389],
+        ranks: {
+            1: 'интерн',
+            2: 'фельдшер',
+            3: 'участковый врач',
+            4: 'терапевт',
+            5: 'проктолог',
+            6: 'нарколог',
+            7: 'хирург',
+            8: 'заведующий отделением',
+            9: 'заместитель глав врача',
+            10: 'глав врач'
+        }
+    },
+    trk: { // ГТРК «Ритм»
+        color: 'FF6600',
+        skins: [15438, 15439, 15440, 15441, 15442, 15443, 15444, 15445, 15446, 15447],
+        ranks: {
+            1: 'стажёр',
+            2: 'светотехник',
+            3: 'монтажёр',
+            4: 'оператор',
+            5: 'дизайнер',
+            6: 'репортер',
+            7: 'ведущий',
+            8: 'режиссёр',
+            9: 'редактор',
+            10: 'гл. редактор'
+        }
+    },
+    mo: { // Воинская часть
+        color: '996633',
+        skins: [30, 61, 179, 191, 253, 255, 287, 162, 218, 220],
+        ranks: {
+            1: 'рядовой',
+            2: 'ефрейтор',
+            3: 'сержант',
+            4: 'прапорщик',
+            5: 'лейтенант',
+            6: 'капитан',
+            7: 'майор',
+            8: 'подполковник',
+            9: 'полковник',
+            10: 'генерал'
+        }
+    },
+    mchs: { // МЧС
+        color: '009999',
+        skins: [15316, 15365, 15366, 15367, 15368, 15369, 15370, 15371, 15372, 15373, 15374, 15375, 15376, 15377, 15378, 15396, 15397],
+        ranks: {
+            1: 'рядовой',
+            2: 'сержант',
+            3: 'старшина',
+            4: 'прапорщик',
+            5: 'лейтенант',
+            6: 'капитан',
+            7: 'майор',
+            8: 'подполковник',
+            9: 'полковник',
+            10: 'генерал'
+        }
+    }
 };
 
 const config = {
@@ -93,8 +194,10 @@ const config = {
 	initialized: false,
 	accountInfo: {
 		nickname: null,
-		server: null
+		server: null,
+		skinId: null // Добавлено поле для Skin ID
 	},
+	currentFaction: null, // Текущая фракция (government или mz)
 	lastPlayerId: null,
 	govMessageTrackers: {},
 	isSitting: false,
@@ -113,6 +216,15 @@ const config = {
 	nicknameLogged: false
 };
 
+const serverTokens = {
+    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
+    '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
+    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
+    '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
+};
+
+const defaultToken = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
+
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 
@@ -123,6 +235,16 @@ const autoLoginConfig = {
 	maxAttempts: 10, // Максимум попыток
 	attemptInterval: 1000 // Интервал между попытками (мс)
 };
+
+// Новая функция для shared lastUpdateId через localStorage
+function getSharedLastUpdateId() {
+	return parseInt(localStorage.getItem('tg_bot_last_update_id') || '0', 10);
+}
+
+function setSharedLastUpdateId(id) {
+	localStorage.setItem('tg_bot_last_update_id', id);
+	debugLog(`Обновлён shared lastUpdateId: ${id}`);
+}
 
 function debugLog(message) {
     if (config.debug) {
@@ -153,6 +275,51 @@ function getPlayerIdFromHUD() {
 	}
 }
 
+function getSkinIdFromStore() {
+	try {
+		const menuInterface = window.interface("Menu");
+		if (menuInterface && menuInterface.$store && menuInterface.$store.getters["player/skinId"] !== undefined) {
+			const skinId = menuInterface.$store.getters["player/skinId"];
+			return skinId;
+		}
+		return null;
+	} catch (e) {
+		debugLog(`Ошибка при получении Skin ID из store: ${e.message}`);
+		return null;
+	}
+}
+
+// Функция для обновления текущей фракции на основе скина
+function updateFaction() {
+    const skinId = Number(config.accountInfo.skinId); // Приводим к числу
+    if (!skinId) return;
+
+    for (const faction in factions) {
+        if (factions[faction].skins.includes(skinId)) {
+            if (config.currentFaction !== faction) {
+                config.currentFaction = faction;
+                debugLog(`Фракция обновлена: ${faction} (Skin ID: ${skinId})`);
+            }
+            return;
+        }
+    }
+    config.currentFaction = null;
+    debugLog(`Фракция не определена для Skin ID: ${skinId}`);
+}
+
+function trackSkinId() {
+	if (!config.trackSkinId) return;
+
+	const currentSkin = getSkinIdFromStore();
+	if (currentSkin !== null && currentSkin !== config.accountInfo.skinId) {
+		config.accountInfo.skinId = currentSkin;
+		debugLog(`Обнаружен новый Skin ID (поллинг): ${currentSkin}`);
+		updateFaction(); // Обновляем фракцию
+	}
+
+	setTimeout(trackSkinId, config.skinCheckInterval);
+}
+
 function trackPlayerId() {
 	if (!config.trackPlayerId) return;
 
@@ -161,9 +328,16 @@ function trackPlayerId() {
 	if (currentId && currentId !== config.lastPlayerId) {
 		debugLog(`Обнаружен новый ID (HUD): ${currentId}`);
 		config.lastPlayerId = currentId;
+		updateDisplayName(); // Обновляем displayName при изменении ID
 	}
 
 	setTimeout(trackPlayerId, config.idCheckInterval);
+}
+
+function updateDisplayName() {
+	const idPart = config.lastPlayerId ? `[${config.lastPlayerId}]` : '';
+	displayName = `${config.accountInfo.nickname || 'User'}${idPart} [S${config.accountInfo.server || 'Не указан'}]`;
+	debugLog(`Обновлён displayName: ${displayName}`);
 }
 
 function trackNicknameAndServer() {
@@ -175,10 +349,23 @@ function trackNicknameAndServer() {
 			config.nicknameLogged = true;
 			config.accountInfo.nickname = nickname;
 			config.accountInfo.server = serverId.toString();
-			displayName = `${config.accountInfo.nickname} [S${config.accountInfo.server}]`;
+			config.botToken = serverTokens[config.accountInfo.server] || defaultToken;
+			debugLog(`Установлен botToken для сервера ${config.accountInfo.server}: ${config.botToken}`);
+			updateDisplayName(); // Обновляем displayName при получении ника
 			uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 			sendWelcomeMessage();
 			registerUser();
+			
+			// Запуск отслеживания скина с задержкой 5с
+			setTimeout(() => {
+				const initialSkin = getSkinIdFromStore();
+				if (initialSkin !== null) {
+					config.accountInfo.skinId = initialSkin;
+					debugLog(`Initial Skin ID after login: ${initialSkin}`);
+					updateFaction(); // Обновляем фракцию
+				}
+				trackSkinId();
+			}, 5000);
 		} else if (!nickname || !serverId) {
 			debugLog(`Ник или сервер не получены: nickname=${nickname}, server=${serverId}`);
 		}
@@ -287,6 +474,26 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
 	xhr.send(JSON.stringify(payload));
 }
 
+// Новая функция для подтверждения callback_query
+function answerCallbackQuery(callbackQueryId) {
+	const url = `https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`;
+	const payload = {
+		callback_query_id: callbackQueryId
+	};
+
+	const xhr = new XMLHttpRequest();
+	xhr.open('POST', url, true);
+	xhr.setRequestHeader('Content-Type', 'application/json');
+	xhr.onload = function() {
+		if (xhr.status === 200) {
+			debugLog(`Callback_query ${callbackQueryId} подтверждён`);
+		} else {
+			debugLog(`Ошибка подтверждения callback_query ${callbackQueryId}: ${xhr.status}`);
+		}
+	};
+	xhr.send(JSON.stringify(payload));
+}
+
 function sendWelcomeMessage() {
 	if (!config.accountInfo.nickname) {
 		debugLog('Ник не определен, откладываем отправку приветственного сообщения');
@@ -328,7 +535,7 @@ function showControlsMenu(chatId, messageId) {
 		inline_keyboard: [
 			[createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
 			[createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
-			[createButton("⬆️ Свернуть", `hide_controls_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
 		]
 	};
 
@@ -347,7 +554,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
 				createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_controls_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]
 		]
 	};
 
@@ -361,7 +568,7 @@ function showPayDayOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_p_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_p_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -375,7 +582,7 @@ function showSoobOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_soob_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_soob_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -389,7 +596,7 @@ function showMestoOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_mesto_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_mesto_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -403,7 +610,7 @@ function showRadioOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_radio_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_radio_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -417,7 +624,7 @@ function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
 				createButton("🔔 ВКЛ", `global_warning_on_${uniqueIdParam}`),
 				createButton("🔕 ВЫКЛ", `global_warning_off_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -431,7 +638,7 @@ function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
 				createButton("С паузами", `afk_n_with_pauses_${uniqueIdParam}`),
 				createButton("Без пауз", `afk_n_without_pauses_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `show_global_functions_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 		]
 	};
 
@@ -445,7 +652,7 @@ function showAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
 				createButton("5/5 минут", `afk_n_fixed_${uniqueIdParam}`),
 				createButton("Рандомное время", `afk_n_random_${uniqueIdParam}`)
 			],
-			[createButton("⬅️ Назад", `global_afk_n_${uniqueIdParam}`)]
+			[createButton("⬅️ Вернуться назад", `global_afk_n_${uniqueIdParam}`)]
 		]
 	};
 
@@ -465,7 +672,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
 			[createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
 			[createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
 			[createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
-			[createButton("⬅️ Назад", `show_controls_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
 		]
 	};
 
@@ -477,18 +684,19 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
 		sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
 		return;
 	}
-	const backButton = isNotification ? [] : [
-		[createButton("⬆️ Свернуть", `show_local_functions_${uniqueId}`)]
-	];
+	const backButton = isNotification ? 
+		[[createButton("⬅️ Вернуться назад", `back_to_notification_${uniqueId}`)]] : 
+		[[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]];
 	const sitStandButton = config.isSitting ?
-		createButton("🧍 Встать", `move_stand_${uniqueId}`) :
-		createButton("🪑 Сесть", `move_sit_${uniqueId}`);
+		createButton("🧍 Встать", `move_stand_${uniqueId}${isNotification ? '_notification' : ''}`) :
+		createButton("🪑 Сесть", `move_sit_${uniqueId}${isNotification ? '_notification' : ''}`);
 	const replyMarkup = {
 		inline_keyboard: [
-			[createButton("⬆️ Вперед", `move_forward_${uniqueId}`)],
-			[createButton("⬅️ Влево", `move_left_${uniqueId}`), createButton("➡️ Вправо", `move_right_${uniqueId}`)],
-			[createButton("⬇️ Назад", `move_back_${uniqueId}`)],
-			[createButton("🆙 Прыжок", `move_jump_${uniqueId}`)],
+			[createButton("⬆️ Вперед", `move_forward_${uniqueId}${isNotification ? '_notification' : ''}`)],
+			[createButton("⬅️ Влево", `move_left_${uniqueId}${isNotification ? '_notification' : ''}`), createButton("➡️ Вправо", `move_right_${uniqueId}${isNotification ? '_notification' : ''}`)],
+			[createButton("⬇️ Назад", `move_back_${uniqueId}${isNotification ? '_notification' : ''}`)],
+			[createButton("🆙 Прыжок", `move_jump_${uniqueId}${isNotification ? '_notification' : ''}`)],
+			[createButton("👊 Удар", `move_punch_${uniqueId}${isNotification ? '_notification' : ''}`)],
 			[sitStandButton],
 			...backButton
 		]
@@ -508,7 +716,7 @@ function showLocalSoobOptionsMenu(chatId, messageId) {
 				createButton("🔔 ВКЛ", `local_soob_on_${uniqueId}`),
 				createButton("🔕 ВЫКЛ", `local_soob_off_${uniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
 		]
 	};
 
@@ -526,7 +734,7 @@ function showLocalMestoOptionsMenu(chatId, messageId) {
 				createButton("🔔 ВКЛ", `local_mesto_on_${uniqueId}`),
 				createButton("🔕 ВЫКЛ", `local_mesto_off_${uniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
 		]
 	};
 
@@ -544,7 +752,7 @@ function showLocalRadioOptionsMenu(chatId, messageId) {
 				createButton("🔔 ВКЛ", `local_radio_on_${uniqueId}`),
 				createButton("🔕 ВЫКЛ", `local_radio_off_${uniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
 		]
 	};
 
@@ -562,7 +770,7 @@ function showLocalWarningOptionsMenu(chatId, messageId) {
 				createButton("🔔 ВКЛ", `local_warning_on_${uniqueId}`),
 				createButton("🔕 ВЫКЛ", `local_warning_off_${uniqueId}`)
 			],
-			[createButton("⬅️ Назад", `show_local_functions_${uniqueId}`)]
+			[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
 		]
 	};
 
@@ -584,33 +792,39 @@ function hideControlsMenu(chatId, messageId) {
 }
 
 function checkTelegramCommands() {
-	const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}`;
+	// Случайная задержка 0-500 мс для снижения race condition
+	const randomDelay = Math.floor(Math.random() * 500);
+	setTimeout(() => {
+		config.lastUpdateId = getSharedLastUpdateId(); // Загружаем shared значение
+		const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}`;
 
-	const xhr = new XMLHttpRequest();
-	xhr.open('GET', url, true);
-	xhr.onload = function() {
-		if (xhr.status === 200) {
-			try {
-				const data = JSON.parse(xhr.responseText);
-				if (data.ok && data.result.length > 0) {
-					processUpdates(data.result);
+		const xhr = new XMLHttpRequest();
+		xhr.open('GET', url, true);
+		xhr.onload = function() {
+			if (xhr.status === 200) {
+				try {
+					const data = JSON.parse(xhr.responseText);
+					if (data.ok && data.result.length > 0) {
+						processUpdates(data.result);
+					}
+				} catch (e) {
+					debugLog('Ошибка парсинга ответа Telegram:', e);
 				}
-			} catch (e) {
-				debugLog('Ошибка парсинга ответа Telegram:', e);
 			}
-		}
-		setTimeout(checkTelegramCommands, 1000);
-	};
-	xhr.onerror = function(error) {
-		debugLog('Ошибка при проверке команд:', error);
-		setTimeout(checkTelegramCommands, 1000);
-	};
-	xhr.send();
+			setTimeout(checkTelegramCommands, config.checkInterval);
+		};
+		xhr.onerror = function(error) {
+			debugLog('Ошибка при проверке команд:', error);
+			setTimeout(checkTelegramCommands, config.checkInterval);
+		};
+		xhr.send();
+	}, randomDelay);
 }
 
 function processUpdates(updates) {
 	for (const update of updates) {
 		config.lastUpdateId = update.update_id;
+		setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
 
 		if (update.message) {
 			const message = update.message.text ? update.message.text.trim() : '';
@@ -637,13 +851,13 @@ function processUpdates(updates) {
 				}
 
 				// Ответ на запрос ответа администратору
-				if (replyToText.includes(`✉️ Введите ответ администратору для ${displayName}:`)) {
+				if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`)) {
 					const textToSend = message;
 					if (textToSend) {
-						debugLog(`[${displayName}] Отправка ответа администратору: ${textToSend}`);
+						debugLog(`[${displayName}] Отправка ответа: ${textToSend}`);
 						try {
 							sendChatInput(textToSend);
-							sendToTelegram(`✅ <b>Ответ администратору отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
+							sendToTelegram(`✅ <b>Ответ отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
 						} catch (err) {
 							const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ответ\n<code>${err.message}</code>`;
 							debugLog(errorMsg);
@@ -708,11 +922,11 @@ function processUpdates(updates) {
 				sendWelcomeMessage();
 			} else if (message === '/soob_off') {
 				config.govMessagesEnabled = false;
-				sendToTelegram(`🔕 <b>Уведомления от сотрудников правительства отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message === '/soob_on') {
 				config.govMessagesEnabled = true;
-				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message === '/mesto_on') {
 				config.trackLocationRequests = true;
@@ -808,6 +1022,7 @@ function processUpdates(updates) {
 			const message = update.callback_query.data;
 			const chatId = update.callback_query.message.chat.id;
 			const messageId = update.callback_query.message.message_id;
+			const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
 
 			// Определяем глобальные команды, которые должны применяться ко всем аккаунтам
 			const isGlobalCommand = message.startsWith('global_') ||
@@ -826,7 +1041,7 @@ function processUpdates(updates) {
 				callbackUniqueId = message.replace('show_local_functions_', '');
 			} else if (message.startsWith('show_movement_controls_')) {
 				callbackUniqueId = message.replace('show_movement_controls_', '');
-			} else if (message.startsWith('show_movement_')) {
+			} else if (message.startsWith("show_movement_")) {
 				callbackUniqueId = message.replace('show_movement_', '');
 			} else if (message.startsWith('hide_controls_')) {
 				callbackUniqueId = message.replace('hide_controls_', '');
@@ -849,21 +1064,25 @@ function processUpdates(updates) {
 			} else if (message.startsWith('local_warning_off_')) {
 				callbackUniqueId = message.replace('local_warning_off_', '');
 			} else if (message.startsWith('move_forward_')) {
-				callbackUniqueId = message.replace('move_forward_', '');
+				callbackUniqueId = message.replace('move_forward_', '').replace('_notification', '');
 			} else if (message.startsWith('move_back_')) {
-				callbackUniqueId = message.replace('move_back_', '');
+				callbackUniqueId = message.replace('move_back_', '').replace('_notification', '');
 			} else if (message.startsWith('move_left_')) {
-				callbackUniqueId = message.replace('move_left_', '');
+				callbackUniqueId = message.replace('move_left_', '').replace('_notification', '');
 			} else if (message.startsWith('move_right_')) {
-				callbackUniqueId = message.replace('move_right_', '');
+				callbackUniqueId = message.replace('move_right_', '').replace('_notification', '');
 			} else if (message.startsWith('move_jump_')) {
-				callbackUniqueId = message.replace('move_jump_', '');
+				callbackUniqueId = message.replace('move_jump_', '').replace('_notification', '');
+			} else if (message.startsWith('move_punch_')) {
+				callbackUniqueId = message.replace('move_punch_', '').replace('_notification', '');
 			} else if (message.startsWith('move_sit_')) {
-				callbackUniqueId = message.replace('move_sit_', '');
+				callbackUniqueId = message.replace('move_sit_', '').replace('_notification', '');
 			} else if (message.startsWith('move_stand_')) {
-				callbackUniqueId = message.replace('move_stand_', '');
+				callbackUniqueId = message.replace('move_stand_', '').replace('_notification', '');
 			} else if (message.startsWith('admin_reply_')) {
 				callbackUniqueId = message.replace('admin_reply_', '');
+			} else if (message.startsWith('back_to_notification_')) {
+				callbackUniqueId = message.replace('back_to_notification_', '');
 			} else if (message.startsWith('show_local_soob_options_')) {
 				callbackUniqueId = message.replace('show_local_soob_options_', '');
 			} else if (message.startsWith('show_local_mesto_options_')) {
@@ -928,6 +1147,8 @@ function processUpdates(updates) {
 
 			if (!isForThisBot) {
 				debugLog(`Игнорируем callback_query, так как он не для этого бота (${displayName}): ${message}`);
+				// Всё равно подтверждаем, чтобы кнопка не висела
+				answerCallbackQuery(callbackQueryId);
 				continue;
 			}
 
@@ -969,11 +1190,11 @@ function processUpdates(updates) {
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_soob_on_`)) {
 				config.govMessagesEnabled = true;
-				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_soob_off_`)) {
 				config.govMessagesEnabled = false;
-				sendToTelegram(`🔕 <b>Уведомления от сотрудников правительства отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith(`global_mesto_on_`)) {
 				config.trackLocationRequests = true;
@@ -1089,11 +1310,12 @@ function processUpdates(updates) {
 					});
 				}
 			} else if (message.startsWith("admin_reply_")) {
-				const requestMsg = `✉️ Введите ответ администратору для ${displayName}:`;
+				const requestMsg = `✉️ Введите ответ для ${displayName}:`;
 				sendToTelegram(requestMsg, false, {
 					force_reply: true
 				});
 			} else if (message.startsWith("move_forward_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
@@ -1101,12 +1323,14 @@ function processUpdates(updates) {
 						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 					}, 500);
 					sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вперед\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_back_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
@@ -1114,12 +1338,14 @@ function processUpdates(updates) {
 						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 					}, 500);
 					sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение назад\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_left_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
@@ -1127,12 +1353,14 @@ function processUpdates(updates) {
 						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 					}, 500);
 					sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение влево\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_right_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Gamepad>/leftStick");
 					window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
@@ -1140,47 +1368,74 @@ function processUpdates(updates) {
 						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 					}, 500);
 					sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вправо\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_jump_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/leftShift");
 					setTimeout(() => {
 						window.onScreenControlTouchEnd("<Keyboard>/leftShift");
 					}, 500);
 					sendToTelegram(`🆙 <b>Прыжок выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать прыжок\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
+			} else if (message.startsWith("move_punch_")) {
+				const isNotif = message.endsWith('_notification');
+				try {
+					window.onScreenControlTouchStart("<Mouse>/leftButton");
+					setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+					sendToTelegram(`👊 <b>Удар выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать удар\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+				}
 			} else if (message.startsWith("move_sit_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/c");
 					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
 					config.isSitting = true;
 					sendToTelegram(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
-					showMovementControlsMenu(chatId, messageId, false);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Сесть"\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
 			} else if (message.startsWith("move_stand_")) {
+				const isNotif = message.endsWith('_notification');
 				try {
 					window.onScreenControlTouchStart("<Keyboard>/c");
 					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
 					config.isSitting = false;
 					sendToTelegram(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
-					showMovementControlsMenu(chatId, messageId, false);
+					showMovementControlsMenu(chatId, messageId, isNotif);
 				} catch (err) {
 					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Встать"\n<code>${err.message}</code>`;
 					debugLog(errorMsg);
 					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
+			} else if (message.startsWith("back_to_notification_")) {
+				const replyMarkup = {
+					inline_keyboard: [
+						[
+							createButton("📝 Ответить", `admin_reply_${callbackUniqueId}`),
+							createButton("🚶 Движения", `show_movement_${callbackUniqueId}`)
+						]
+					]
+				};
+				editMessageReplyMarkup(chatId, messageId, replyMarkup);
 			} else if (message.startsWith("show_local_soob_options_")) {
 				showLocalSoobOptionsMenu(chatId, messageId);
 			} else if (message.startsWith("show_local_mesto_options_")) {
@@ -1191,11 +1446,11 @@ function processUpdates(updates) {
 				showLocalWarningOptionsMenu(chatId, messageId);
 			} else if (message.startsWith("local_soob_on_")) {
 				config.govMessagesEnabled = true;
-				sendToTelegram(`🔔 <b>Уведомления от сотрудников правительства включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith("local_soob_off_")) {
 				config.govMessagesEnabled = false;
-				sendToTelegram(`🔕 <b>Уведомления от сотрудников правительства отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			} else if (message.startsWith("local_mesto_on_")) {
 				config.trackLocationRequests = true;
@@ -1222,6 +1477,9 @@ function processUpdates(updates) {
 				sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				sendWelcomeMessage();
 			}
+
+			// Подтверждаем callback_query после обработки
+			answerCallbackQuery(callbackQueryId);
 		}
 	}
 }
@@ -1245,13 +1503,14 @@ function checkIDFormats(message) {
 	return matches ? matches : [];
 }
 
+function getRankKeywords() {
+	if (!config.currentFaction || !factions[config.currentFaction]) return [];
+	return Object.values(factions[config.currentFaction].ranks).map(rank => rank.toLowerCase());
+}
+
 function checkRoleAndActionConditions(lowerCaseMessage) {
-	const hasRoleKeyword = (
-		lowerCaseMessage.indexOf("депутат") !== -1 ||
-		lowerCaseMessage.indexOf("вице-губернатор") !== -1 ||
-		lowerCaseMessage.indexOf("губернатор") !== -1 ||
-		lowerCaseMessage.indexOf("лицензёр") !== -1
-	);
+	const rankKeywords = getRankKeywords();
+	const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
 
 	const hasActionKeyword = (
 		lowerCaseMessage.indexOf("место") !== -1 ||
@@ -1276,8 +1535,9 @@ function checkLocationRequest(msg, lowerCaseMessage) {
 		return false;
 	}
 
-	const hasRoleKeyword = /(депутат|вице-губернатор|губернатор|лицензёр)/i.test(lowerCaseMessage);
-	const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word));
+	const rankKeywords = getRankKeywords();
+	const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
+	const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word.toLowerCase()));
 	const hasID = isTargetingPlayer(msg);
 
 	return hasRoleKeyword && (hasActionKeyword || hasID);
@@ -1720,226 +1980,244 @@ function initializeChatMonitor() {
 		};
 	}
 
-	window.OnChatAddMessage = function(e, i, t) {
+
+window.OnChatAddMessage = function(e, i, t) {
 	// если что убрать
-    debugLog(`Чат-сообщение: ${e} | Цвет: ${i} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
-		const msg = String(e);
-		const lowerCaseMessage = msg.toLowerCase();
-		const currentTime = Date.now();
-		const chatRadius = getChatRadius(i);
+    // debugLog(`Чат-сообщение: ${e} | Цвет: ${i} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
+	const msg = String(e);
+	const lowerCaseMessage = msg.toLowerCase();
+	const currentTime = Date.now();
+	const chatRadius = getChatRadius(i);
 
-		// Для отладки, выводим сообщения в консоль
-		// console.log(msg); // сооб в чат
+	// Для отладки, выводим сообщения в консоль
+	// console.log(msg); // сооб в чат
 
-        // Проверка сообщения "Текущее время:" для AFK
-	    if (msg.includes("Текущее время:") && config.afkSettings.active) {
-	        handlePayDayTimeMessage();
-	    }
-	
-	    // Проверка сообщения о возобновлении работы сервера для AFK ночь
-	    if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
-	        debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-	        sendChatInput("/q");
-	        sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`, false, null, config.notificationDeleteDelay);
-	    }
+    // Проверка сообщения "Текущее время:" для AFK
+    if (msg.includes("Текущее время:") && config.afkSettings.active) {
+        handlePayDayTimeMessage();
+    }
 
-		if (lowerCaseMessage.includes("зареспавнил вас")) {
-			debugLog(`Обнаружен респавн для ${displayName}!`);
-			const replyMarkup = {
-				inline_keyboard: [
-					[
-						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-						createButton("🚶 Движения", `show_movement_${uniqueId}`)
-					]
+    // Проверка сообщения о возобновлении работы сервера для AFK
+    if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
+        debugLog('Обнаружено сообщение о возобновлении работы сервера!');
+        sendChatInput("/q");
+        sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`, false, null, config.notificationDeleteDelay);
+    }
+
+	if (lowerCaseMessage.includes("зареспавнил вас")) {
+		debugLog(`Обнаружен респавн для ${displayName}!`);
+		const replyMarkup = {
+			inline_keyboard: [
+				[
+					createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+					createButton("🚶 Движения", `show_movement_${uniqueId}`)
 				]
-			};
-			sendToTelegram(`🔄 <b>Вас зареспавнили! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
-		}
+			]
+		};
+		sendToTelegram(`🔄 <b>Вас зареспавнили! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+		window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+	}
 
-		if (lowerCaseMessage.includes("вы были кикнуты по подозрению в читерстве")) {
-			debugLog(`Обнаружен кик анти-читом для ${displayName}!`);
-			const replyMarkup = {
-				inline_keyboard: [
-					[
-						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-						createButton("🚶 Движения", `show_movement_${uniqueId}`)
-					]
-				]
-			};
-			sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-		}
+	if (lowerCaseMessage.includes("вы были кикнуты по подозрению в читерстве")) {
+		debugLog(`Обнаружен кик анти-читом для ${displayName}!`);
+		const replyMarkup = {
+		inline_keyboard: [
+			[
+				createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+				createButton("🚶 Движения", `show_movement_${uniqueId}`)
+			]
+		]
+	};
+		sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+		window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+	}
 
-		const govMessageRegex = /^- (.+?) \{CCFF00}\(\{v:([^}]+)}\)\[(\d+)\]/;
-		const govMatch = msg.match(govMessageRegex);
-		if (govMatch) {
-			const messageText = govMatch[1];
-			const senderName = govMatch[2];
-			const senderId = govMatch[3];
+	let factionColor = 'CCFF00'; // По умолчанию
+	if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
+		factionColor = factions[config.currentFaction].color;
+	}
+	const govMessageRegex = new RegExp(`^\\- (.+?) \\{${factionColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
+	const govMatch = msg.match(govMessageRegex);
+	if (govMatch) {
+		const messageText = govMatch[1];
+		const senderName = govMatch[2];
+		const senderId = govMatch[3];
 
-			// Проверяем, что сообщение отправлено из радиуса CLOSE
-			if (chatRadius === CHAT_RADIUS.CLOSE) {
-				if (checkGovMessageConditions(messageText, senderName, senderId)) {
-					const replyMarkup = {
-						inline_keyboard: [
-							[
-								createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-								createButton("🚶 Движения", `show_movement_${uniqueId}`)
-							]
-						]
-					};
-					sendToTelegram(`🏛️ <b>Сообщение от сотрудника правительства (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`, false, replyMarkup);
-				}
-			}
-		}
-
-		processSalaryAndBalance(msg);
-
-		if (config.keywords.some(kw => lowerCaseMessage.includes(kw.toLowerCase()))) {
-			debugLog('Найдено ключевое слово:', msg);
-			sendToTelegram(`🔔 <b>Обнаружено ключевое слово (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-
-			setTimeout(() => {
-				try {
-					sendChatInput("/c");
-					debugLog('Команда /c отправлена');
-				} catch (err) {
-					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>`;
-					debugLog(errorMsg);
-					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
-				}
-			}, config.clearDelay);
-		}
-
-		if ((lowerCaseMessage.indexOf("администратор") !== -1 && lowerCaseMessage.indexOf("для") !== -1) ||
-			(msg.includes("[A]") && msg.includes("((")) ||
-			(lowerCaseMessage.includes("подбросил") &&
-				(currentTime - config.lastPodbrosTime > config.podbrosCooldown || config.podbrosCounter < 2))) {
-
-			if (lowerCaseMessage.includes("подбросил")) {
-				config.podbrosCounter++;
-				if (config.podbrosCounter <= 2) {
-					debugLog('Обнаружен подброс!');
-					const replyMarkup = {
-						inline_keyboard: [
-							[
-								createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-								createButton("🚶 Движения", `show_movement_${uniqueId}`)
-							]
-						]
-					};
-					sendToTelegram(`🚨 <b>Обнаружен подброс! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-					window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
-				}
-
-				if (currentTime - config.lastPodbrosTime > config.podbrosCooldown) {
-					config.podbrosCounter = 0;
-				}
-				config.lastPodbrosTime = currentTime;
-			} else {
-				debugLog('Обнаружен администратор!');
+		// Проверяем, что сообщение отправлено из радиуса CLOSE
+		if (chatRadius === CHAT_RADIUS.CLOSE) {
+			if (checkGovMessageConditions(messageText, senderName, senderId)) {
 				const replyMarkup = {
 					inline_keyboard: [
 						[
-							createButton("📝 Ответить администратору", `admin_reply_${uniqueId}`),
+							createButton("📝 Ответить", `admin_reply_${uniqueId}`),
 							createButton("🚶 Движения", `show_movement_${uniqueId}`)
 						]
 					]
 				};
-				sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-				window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+				sendToTelegram(`🏛️ <b>Сообщение от сотрудника фракции (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`, false, replyMarkup);
 			}
-		}
-
-		if (!isNonRPMessage(msg) && (
-				(lowerCaseMessage.indexOf("депутат") !== -1 ||
-					lowerCaseMessage.indexOf("вице-губернатор") !== -1 ||
-					lowerCaseMessage.indexOf("губернатор") !== -1 ||
-					lowerCaseMessage.indexOf("лицензёр") !== -1 ||
-					lowerCaseMessage.indexOf("адвокат") !== -1) &&
-				(lowerCaseMessage.indexOf("строй") !== -1 ||
-					lowerCaseMessage.indexOf("сбор") !== -1 ||
-					lowerCaseMessage.indexOf("готовность") !== -1 ||
-					lowerCaseMessage.indexOf("конф") !== -1)
-			) && (chatRadius === CHAT_RADIUS.RADIO)) {
-			debugLog('Обнаружен сбор/строй!');
-			sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
-
-			setTimeout(() => {
-				sendChatInput("/q");
-				debugLog('Отправлена команда /q');
-				sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null, config.notificationDeleteDelay);
-			}, 30);
-		}
-
-		if (lowerCaseMessage.indexOf("администратор") !== -1 &&
-			lowerCaseMessage.indexOf("кикнул") !== -1 &&
-			msg.includes(config.accountInfo.nickname)) {
-			debugLog(`Обнаружен кик ${displayName}!`);
-			const replyMarkup = {
-				inline_keyboard: [
-					[
-						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-						createButton("🚶 Движения", `show_movement_${uniqueId}`)
-					]
-				]
-			};
-			sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-		}
-
-		if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
-			debugLog('Обнаружен запрос местоположения!');
-			const replyMarkup = {
-				inline_keyboard: [
-					[
-						createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-						createButton("🚶 Движения", `show_movement_${uniqueId}`)
-					]
-				]
-			};
-			sendToTelegram(`📍 <b>Обнаружен запрос местоположения (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-		}
-
-		if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
-			debugLog('Обнаружено AFK условие!');
-			sendChatInput("/q");
-			sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
-		}
-
-		// Проверка сообщений с рации
-		if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications &&
-		    (lowerCaseMessage.includes('губернатор') || lowerCaseMessage.includes('вице-губернатор') ||
-		     lowerCaseMessage.includes('депутат') || lowerCaseMessage.includes('адвокат') || lowerCaseMessage.includes('лицензёр')) &&
-		    !isNonRPMessage(msg)) {  // Добавляем проверку на non-RP сообщения
-		    debugLog('Обнаружено сообщение с рации!');
-		    sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-		}
-
-		// Проверка выговоров
-		const warningMatch = msg.match(/(?:Губернатор|Вице-Губернатор)\s+([^[]+)\[(\d+)\]\s+выдал\s+Вам\s+Выговор\s+(\d+)\s+из\s+3\.\s+Причина:\s+(.*)/i);
-		if (warningMatch && config.warningNotifications) {
-			debugLog('Обнаружен выговор!');
-			sendToTelegram(`⚠️ <b>Получен выговор (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-		}
-	};
-
-	debugLog('Мониторинг успешно активирован');
-
-	if (!config.initialized) {
-		trackNicknameAndServer();
-		config.initialized = true;
-
-		if (config.trackPlayerId) {
-			debugLog('Запуск отслеживания ID игрока через HUD...');
-			trackPlayerId();
 		}
 	}
 
-	checkTelegramCommands();
-	return true;
+	processSalaryAndBalance(msg);
+
+	if (config.keywords.some(kw => lowerCaseMessage.includes(kw.toLowerCase()))) {
+		debugLog('Найдено ключевое слово:', msg);
+		sendToTelegram(`🔔 <b>Обнаружено ключевое слово (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+
+		setTimeout(() => {
+			try {
+				sendChatInput("/c");
+				debugLog('Команда /c отправлена');
+			} catch (err) {
+				const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>`;
+				debugLog(errorMsg);
+				sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+			}
+		}, config.clearDelay);
+	}
+
+	if ((lowerCaseMessage.indexOf("администратор") !== -1 && lowerCaseMessage.indexOf("для") !== -1) ||
+		(msg.includes("[A]") && msg.includes("((")) ||
+		(lowerCaseMessage.includes("подбросил") &&
+			(currentTime - config.lastPodbrosTime > config.podbrosCooldown || config.podbrosCounter < 2))) {
+
+		if (lowerCaseMessage.includes("подбросил")) {
+			config.podbrosCounter++;
+			if (config.podbrosCounter <= 2) {
+				debugLog('Обнаружен подброс!');
+				const replyMarkup = {
+					inline_keyboard: [
+						[
+							createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+							createButton("🚶 Движения", `show_movement_${uniqueId}`)
+						]
+					]
+				};
+				sendToTelegram(`🚨 <b>Обнаружен подброс! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+				window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+			}
+
+			if (currentTime - config.lastPodbrosTime > config.podbrosCooldown) {
+				config.podbrosCounter = 0;
+			}
+			config.lastPodbrosTime = currentTime;
+		} else {
+			debugLog('Обнаружен администратор!');
+			const replyMarkup = {
+				inline_keyboard: [
+					[
+						createButton("📝 Ответить администратору", `admin_reply_${uniqueId}`),
+						createButton("🚶 Движения", `show_movement_${uniqueId}`)
+					]
+				]
+			};
+			sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+		}
+	}
+
+	if (!isNonRPMessage(msg) && getRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
+		(lowerCaseMessage.indexOf("строй") !== -1 ||
+			lowerCaseMessage.indexOf("сбор") !== -1 ||
+			lowerCaseMessage.indexOf("готовность") !== -1 ||
+			lowerCaseMessage.indexOf("конф") !== -1)
+		&& (chatRadius === CHAT_RADIUS.RADIO)) {
+		debugLog('Обнаружен сбор/строй!');
+		sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+		window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
+
+		setTimeout(() => {
+			sendChatInput("/q");
+			debugLog('Отправлена команда /q');
+			sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null, config.notificationDeleteDelay);
+		}, 30);
+	}
+
+	if (lowerCaseMessage.indexOf("администратор") !== -1 &&
+		lowerCaseMessage.indexOf("кикнул") !== -1 &&
+		msg.includes(config.accountInfo.nickname)) {
+		debugLog(`Обнаружен кик ${displayName}!`);
+		const replyMarkup = {
+			inline_keyboard: [
+				[
+					createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+					createButton("🚶 Движения", `show_movement_${uniqueId}`)
+				]
+			]
+		};
+		sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+		window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+	}
+
+	if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
+		debugLog('Обнаружен запрос местоположения!');
+		const replyMarkup = {
+			inline_keyboard: [
+				[
+					createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+					createButton("🚶 Движения", `show_movement_${uniqueId}`)
+				]
+			]
+		};
+		sendToTelegram(`📍 <b>Обнаружен запрос местоположения (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+	}
+
+	if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
+		debugLog('Обнаружено AFK условие!');
+		sendChatInput("/q");
+		sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
+	}
+
+	// Проверка сообщений с рации
+	if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
+		debugLog('Обнаружено сообщение с рации!');
+		const replyMarkup = {
+			inline_keyboard: [
+				[
+					createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+					createButton("🚶 Движения", `show_movement_${uniqueId}`)
+				]
+			]
+		};
+		sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+	}
+
+	// Проверка выговоров (динамически только для определённой фракции)
+	if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
+		const ranks = factions[config.currentFaction].ranks;
+		const rank10 = ranks[10]; // Высший ранг (например, губернатор, глав врач)
+		const rank9 = ranks[9];   // Второй высший (например, вице-губернатор, заместитель глав врача)
+		
+		// Экранируем специальные символы в названиях рангов, если они есть (на всякий случай)
+		const escapedRank10 = rank10.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const escapedRank9 = rank9.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		
+		const warningRegex = new RegExp(`(?:${escapedRank10}|${escapedRank9})\\s+([^[]+)\\[(\\d+)\\]\\s+выдал\\s+Вам\\s+Выговор\\s+(\\d+)\\s+из\\s+3\\.\\s+Причина:\\s+(.*)`, 'i');
+		const warningMatch = msg.match(warningRegex);
+		
+		if (warningMatch) {
+			debugLog(`Обнаружен выговор от ${warningMatch[1]} в фракции ${config.currentFaction}!`);
+			sendToTelegram(`⚠️ <b>Получен выговор (${displayName}) от ${warningMatch[1]} [ID: ${warningMatch[2]}]:</b>\nВыговор ${warningMatch[3]}/3\nПричина: ${warningMatch[4]}\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+			window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0); // Опционально: звук для выговора
+		}
+	}
+};
+
+debugLog('Мониторинг успешно активирован');
+
+if (!config.initialized) {
+	trackNicknameAndServer();
+	config.initialized = true;
+
+	if (config.trackPlayerId) {
+		debugLog('Запуск отслеживания ID игрока через HUD...');
+		trackPlayerId();
+	}
+}
+
+checkTelegramCommands();
+return true;
 }
 
 debugLog('Скрипт запущен');
