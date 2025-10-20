@@ -10,16 +10,7 @@ const SERVER_TOKENS = {
 };
 
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
-
-// в случае index оставить это в hud.js 
-if (tt?.methods?.add) {
-	const originalAdd = tt.methods.add;
-	tt.methods.add = function(e, s, t) {
-		const result = originalAdd.call(this, e, s, t);
-		window.OnChatAddMessage?.(e, s, t);
-		return result;
-	};
-} 
+
 
 // Перехват window.setPlayerSkinId для отслеживания изменений скина
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
