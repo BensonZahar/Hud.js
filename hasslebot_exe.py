@@ -1,6 +1,3 @@
-"""
-pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --add-data "icon.ico;." hassle_bot.py
-"""
 import os
 import sys
 import subprocess
@@ -46,7 +43,7 @@ class MEmuHudManager:
         self.hud_nocode_file = self.script_dir / "Hud_nocode.js"
         self.temp_file = self.script_dir / "temp_hud.tmp"
         
-        self.github_repo = "https://api.github.com/repos/BensonZahar/Hud.js/contents"
+        self.github_repo = "https://api.github.com/repos/BensonZahar/Hud.js/contents/.js+Load.js"
         self.code_files = []
         self.selected_code_url = None
         self.selected_code_name = None
@@ -160,7 +157,7 @@ class MEmuHudManager:
                 pass
         
         try:
-            commits_url = f"https://api.github.com/repos/BensonZahar/Hud.js/commits?path={file_name}"
+            commits_url = f"https://api.github.com/repos/BensonZahar/Hud.js/commits?path=/.js+Load.js/{file_name}"
             response = requests.get(commits_url, timeout=10)
             response.raise_for_status()
             commits = response.json()
@@ -478,7 +475,6 @@ class MEmuHudManager:
 
     def initialize_checks(self):
         """Выполнение проверок после разрешения запуска"""
-        # FIX: Исправленная логика ADB как в старом коде
         memu_found = self.check_memu_installation()
         if memu_found:
             if not self.download_and_extract_adb():
@@ -573,7 +569,7 @@ class MEmuHudManager:
                 self.log("Загрузка ADB...")
             else:
                 self.log("Скачиваем adb.zip во временную папку...")
-            response = requests.get("https://raw.githubusercontent.com/BensonZahar/Hud.js/main/adb.zip", timeout=30)
+            response = requests.get("https://raw.githubusercontent.com/BensonZahar/Hud.js/main/installerEXE/adb.zip", timeout=30)
             response.raise_for_status()
             
             with open(self.adb_zip_path, 'wb') as f:
@@ -837,7 +833,7 @@ class MEmuHudManager:
                 return
             
             # Скачиваем шаблон load.js
-            load_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/Load.js"
+            load_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/.js+Load.js/Load.js"
             load_code = self.download_code(load_url)
             if not load_code:
                 return
@@ -993,99 +989,4 @@ class MEmuHudManager:
                 else:
                     self.log("[√] Файл найден")
                     if self.full_logging:
-                        cmd_size = [self.adb_path] + self.device_param + ["shell", "stat", "-c", "%s", files_to_check[1]]
-                        size_result = subprocess.run(cmd_size, capture_output=True, text=True,
-                                                   creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                        if size_result.returncode == 0:
-                            self.log(f"Размер файла: {size_result.stdout.strip()} байт")
-            
-            cmd = [self.adb_path] + self.device_param + ["shell", "ls", files_to_check[0]]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                  creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if result.returncode == 0:
-                if not self.full_logging:
-                    self.log(f"[√] Успешно: Файл найден, удаление...")
-                else:
-                    self.log(f"[√] Файл найден: {files_to_check[0]}, удаление...")
-                cmd_rm = [self.adb_path] + self.device_param + ["shell", "rm", "-f", files_to_check[0]]
-                rm_result = subprocess.run(cmd_rm, capture_output=True, text=True,
-                                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if rm_result.returncode == 0:
-                    if not self.full_logging:
-                        self.log("[√] Успешно: Файл удален")
-                    else:
-                        self.log("[√] Файл удален")
-                else:
-                    self.log(f"[X] Ошибка: Не удалось удалить файл")
-            else:
-                if not self.full_logging:
-                    self.log(f"[X] Ошибка: Файл не найден")
-                else:
-                    self.log(f"[X] Файл не найден: {files_to_check[0]}")
-                    
-        except Exception as e:
-            if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось проверить файлы")
-            else:
-                self.log(f"[X] Не выполнено: Ошибка проверки: {e}")
-    
-    def simple_download(self, app_folder):
-        """Простое скачивание файла"""
-        if not self.full_logging:
-            self.log("[X] Ошибка: Скачивание отключено")
-            return
-        
-        target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-        source_file = f"{target_path}/Hud.js"
-        
-        try:
-            self.log(f"Скачивание файла {source_file}...")
-            cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.hud_file)]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                  creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            
-            if result.returncode == 0:
-                self.log(f"[√] Успешно! Файл скачан: {self.hud_file}")
-            else:
-                self.log(f"[X] Ошибка скачивания файла")
-                
-        except Exception as e:
-            self.log(f"[X] Ошибка: {e}")
-    
-    def cleanup(self):
-        """Очистка временных файлов"""
-        try:
-            if self.temp_file.exists():
-                self.temp_file.unlink()
-            if self.full_logging and self.adb_zip_path.exists():
-                self.adb_zip_path.unlink()
-            if self.full_logging and self.temp_adb_dir.exists():
-                shutil.rmtree(self.temp_adb_dir)
-            if self.cache_file.exists():
-                self.cache_file.unlink()
-            for cache in self.script_dir.glob("commit_cache_*.json"):
-                cache.unlink()
-        except Exception:
-            pass
-    
-    def run(self):
-        """Главный метод запуска"""
-        try:
-            self.root.mainloop()
-        except KeyboardInterrupt:
-            self.log("[!] Прерывание пользователем")
-        except Exception as e:
-            if not self.full_logging:
-                self.log(f"[X] Ошибка: Критическая ошибка")
-            else:
-                self.log(f"[X] Не выполнено: Критическая ошибка: {e}")
-        finally:
-            self.cleanup()
-
-def main():
-    """Точка входа"""
-    manager = MEmuHudManager()
-    manager.run()
-
-if __name__ == "__main__":
-    main()
+                        cmd_size = [self.adb_path] + self.device_param + ["shell", "stat", "-c", "%s", files_to_check[1
