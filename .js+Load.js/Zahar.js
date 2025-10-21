@@ -10,7 +10,8 @@ const SERVER_TOKENS = {
 };
 
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
-
+
+
 
 // Перехват window.setPlayerSkinId для отслеживания изменений скина
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
