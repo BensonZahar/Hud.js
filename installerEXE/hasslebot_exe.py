@@ -46,7 +46,7 @@ class MEmuHudManager:
         self.hud_nocode_file = self.script_dir / "Hud_nocode.js"
         self.temp_file = self.script_dir / "temp_hud.tmp"
         
-        self.github_repo = "https://api.github.com/repos/BensonZahar/Hud.js/contents"
+        self.github_repo = "https://api.github.com/repos/BensonZahar/Hud.js/contents/.js%2BLoad.js"
         self.code_files = []
         self.selected_code_url = None
         self.selected_code_name = None
@@ -160,7 +160,7 @@ class MEmuHudManager:
                 pass
         
         try:
-            commits_url = f"https://api.github.com/repos/BensonZahar/Hud.js/commits?path={file_name}"
+            commits_url = f"https://api.github.com/repos/BensonZahar/Hud.js/commits?path=.js%2BLoad.js/{file_name}"
             response = requests.get(commits_url, timeout=10)
             response.raise_for_status()
             commits = response.json()
@@ -478,7 +478,6 @@ class MEmuHudManager:
 
     def initialize_checks(self):
         """Выполнение проверок после разрешения запуска"""
-        # FIX: Исправленная логика ADB как в старом коде
         memu_found = self.check_memu_installation()
         if memu_found:
             if not self.download_and_extract_adb():
@@ -573,7 +572,7 @@ class MEmuHudManager:
                 self.log("Загрузка ADB...")
             else:
                 self.log("Скачиваем adb.zip во временную папку...")
-            response = requests.get("https://raw.githubusercontent.com/BensonZahar/Hud.js/main/adb.zip", timeout=30)
+            response = requests.get("https://raw.githubusercontent.com/BensonZahar/Hud.js/main/installerEXE/adb.zip", timeout=30)
             response.raise_for_status()
             
             with open(self.adb_zip_path, 'wb') as f:
@@ -837,7 +836,7 @@ class MEmuHudManager:
                 return
             
             # Скачиваем шаблон load.js
-            load_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/Load.js"
+            load_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/.js%2BLoad.js/Load.js"
             load_code = self.download_code(load_url)
             if not load_code:
                 return
