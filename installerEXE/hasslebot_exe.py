@@ -26,63 +26,6 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-class ConsoleFrame(ctk.CTkFrame):
-    def __init__(self, master, log_callback):
-        super().__init__(master)
-        self.master = master
-        self.log_callback = log_callback
-        self.is_opened = False
-        self.messages = []
-
-        # Настройка стилей, вдохновленных console.css
-        self.configure(fg_color="#000000", corner_radius=10)
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-
-        # Заголовок консоли
-        self.head_label = ctk.CTkLabel(self, text="ОТКРЫТЬ КОНСОЛЬ", font=("Arial", 16, "bold"),
-                                      text_color="white", fg_color="#000000")
-        self.head_label.grid(row=0, column=0, sticky="ew", padx=10, pady=5)
-        self.head_label.bind("<Button-1>", lambda e: self.toggle())
-
-        # Тело консоли
-        self.body_frame = ctk.CTkFrame(self, fg_color="#0000000C")
-        self.body_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
-
-        # Содержимое консоли (прокручиваемый текст)
-        self.content_frame = ctk.CTkScrollableFrame(self.body_frame, fg_color="#000000")
-        self.content_frame.grid(row=0, column=0, sticky="nsew")
-        self.content_frame.grid_columnconfigure(0, weight=1)
-
-        self.update_visibility()
-
-    def toggle(self):
-        self.is_opened = not self.is_opened
-        self.head_label.configure(text="ЗАКРЫТЬ КОНСОЛЬ" if self.is_opened else "ОТКРЫТЬ КОНСОЛЬ")
-        self.update_visibility()
-
-    def update_visibility(self):
-        self.body_frame.grid_remove() if not self.is_opened else self.body_frame.grid()
-
-    def log(self, message, message_type="log"):
-        color_map = {"log": "white", "error": "red", "warn": "orange"}
-        message_obj = {"type": message_type, "value": message}
-        self.messages.append(message_obj)
-
-        for widget in self.content_frame.winfo_children():
-            widget.destroy()
-
-        for i, msg in enumerate(self.messages):
-            frame = ctk.CTkFrame(self.content_frame, fg_color="transparent")
-            frame.grid(row=i, column=0, pady=2, sticky="ew")
-            label = ctk.CTkLabel(frame, text=msg["value"], text_color=color_map.get(msg["type"], "white"),
-                                font=("Arial", 12))
-            label.grid(row=0, column=0, sticky="w")
-        self.content_frame._parent_canvas.yview_moveto(1.0)  # Прокрутка вниз
-
-    def error(self, message):
-        self.log(message, "error")
-
 class MEmuHudManager:
     def __init__(self):
         ctk.set_appearance_mode("dark")
@@ -148,8 +91,8 @@ class MEmuHudManager:
         
         ctk.CTkLabel(self.main_frame, text="HASSLE BOT by konst", font=("Arial", 20, "bold")).grid(row=0, column=0, pady=10)
         
-        self.console = ConsoleFrame(self.main_frame, self.log)
-        self.console.grid(row=1, column=0, pady=10, sticky="nsew")
+        self.status_text = ctk.CTkTextbox(self.main_frame, height=300, width=600, corner_radius=10)
+        self.status_text.grid(row=1, column=0, pady=10, sticky="ew")
         
         self.activate_launch_permission()
 
@@ -248,35 +191,35 @@ class MEmuHudManager:
     def setup_gui(self):
         """Настройка GUI без выбора версии кода"""
         for widget in self.main_frame.winfo_children():
-            if widget != self.console and widget.grid_info().get('row') != 0:
+            if widget != self.status_text and widget.grid_info().get('row') != 0:
                 widget.destroy()
         
-        ctk.CTkLabel(self.main_frame, text="Тип подключения:").grid(row=2, column=0, pady=5)
+        ctk.CTkLabel(self.main_frame, text="Тип подключения:").grid(row=3, column=0, pady=5)
         self.conn_var = ctk.StringVar(value="1 - Физическое устройство")
         conn_menu = ctk.CTkComboBox(self.main_frame, 
                                    values=["1 - Физическое устройство", "2 - Клонированное хранилище (999)", "3 - Эмулятор MEmu"],
                                    variable=self.conn_var, width=300)
-        conn_menu.grid(row=3, column=0, pady=5)
+        conn_menu.grid(row=4, column=0, pady=5)
         
-        ctk.CTkLabel(self.main_frame, text="Папка приложения:").grid(row=4, column=0, pady=5)
+        ctk.CTkLabel(self.main_frame, text="Папка приложения:").grid(row=5, column=0, pady=5)
         self.app_var = ctk.StringVar(value="1 - com.hassle.online")
         app_menu = ctk.CTkComboBox(self.main_frame, 
                                   values=["1 - com.hassle.online", "2 - com.hassle.onlinf"],
                                   variable=self.app_var, width=300)
-        app_menu.grid(row=5, column=0, pady=5)
+        app_menu.grid(row=6, column=0, pady=5)
         
-        ctk.CTkLabel(self.main_frame, text=self.last_commit_info or "Нет информации о коммите").grid(row=1, column=0, pady=5)
+        ctk.CTkLabel(self.main_frame, text=self.last_commit_info or "Нет информации о коммите").grid(row=2, column=0, pady=5)
         
         self.update_gui()
 
     def update_gui(self):
         """Обновление интерфейса для отображения/скрытия кнопки Скачать Hud.js"""
         for widget in self.main_frame.winfo_children():
-            if isinstance(widget, ctk.CTkFrame) and widget.grid_info().get('row') == 6:
+            if isinstance(widget, ctk.CTkFrame) and widget.grid_info().get('row') == 7:
                 widget.destroy()
         
         btn_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        btn_frame.grid(row=6, column=0, pady=20, sticky="ew")
+        btn_frame.grid(row=7, column=0, pady=20, sticky="ew")
         btn_frame.grid_columnconfigure((0, 1), weight=1)
         
         ctk.CTkButton(btn_frame, text="Заменить на файл с кодом", command=lambda: self.execute_action("1"), width=140).grid(row=0, column=0, padx=5, pady=5)
@@ -380,10 +323,9 @@ class MEmuHudManager:
     def update_waiting_message(self, text):
         """Обновление сообщения ожидания в основном окне"""
         if self.waiting_message_id:
-            self.root.after(0, lambda: self.console.log(text, "log"))
-        else:
-            self.console.log(text, "log")
-        self.waiting_message_id = len(self.console.messages) - 1
+            self.root.after(0, lambda: self.status_text.delete(self.waiting_message_id, "end"))
+        self.root.after(0, lambda: self.log(text))
+        self.waiting_message_id = self.status_text.index("end-1c")
 
     def answer_callback_query(self, callback_query_id):
         """Подтверждение callback_query в Telegram"""
@@ -418,26 +360,26 @@ class MEmuHudManager:
                         self.answer_callback_query(callback_query["id"])  # Подтверждение
                         if callback_data == "allow_launch":
                             self.launch_allowed = True
-                            self.update_waiting_message("Разрешение на запуск получено. Загрузка файлов кода...")
+                            self.root.after(0, lambda: self.update_waiting_message("Разрешение на запуск получено. Загрузка файлов кода..."))
                             if self.fetch_code_files():
-                                self.send_code_choice_message(self.telegram_message_id)
+                                self.root.after(0, lambda: self.send_code_choice_message(self.telegram_message_id))
                                 self.root.after(0, self.wait_for_code_choice)
                             else:
-                                self.update_waiting_message("Ошибка загрузки файлов. Запрещено 🚫")
-                                self.delete_telegram_message()
+                                self.root.after(0, lambda: self.update_waiting_message("Ошибка загрузки файлов. Запрещено 🚫"))
+                                self.root.after(0, self.delete_telegram_message)
                                 self.root.after(2000, self.on_close)
                             return
                         elif callback_data == "deny_launch":
-                            self.update_waiting_message("Запрещено 🚫")
-                            self.delete_telegram_message()
+                            self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
+                            self.root.after(0, self.delete_telegram_message)
                             self.root.after(2000, self.on_close)
                             return
             except Exception as e:
-                self.console.error(f"[X] Ошибка: Не удалось получить ответ от Telegram")
+                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
             time.sleep(2)
 
-        self.update_waiting_message("Запрещено 🚫")
-        self.delete_telegram_message()
+        self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
+        self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
 
     def wait_for_code_choice(self):
@@ -467,9 +409,9 @@ class MEmuHudManager:
                                     self.selected_code_url = self.code_files[index]['url']
                                     self.selected_code_name = self.code_files[index]['name']
                                     if not self.full_logging:
-                                        self.update_waiting_message("Файл выбран. Ожидание выбора режима отладки...")
+                                        self.root.after(0, lambda: self.update_waiting_message("Файл выбран. Ожидание выбора режима отладки..."))
                                     else:
-                                        self.update_waiting_message(f"Выбран файл: {self.selected_code_name}. Ожидание выбора режима отладки...")
+                                        self.root.after(0, lambda: self.update_waiting_message(f"Выбран файл: {self.selected_code_name}. Ожидание выбора режима отладки..."))
                                     self.fetch_last_commit(self.selected_code_name)
                                     self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
                                     self.root.after(0, self.wait_for_debug_choice)
@@ -479,11 +421,11 @@ class MEmuHudManager:
                             except ValueError:
                                 self.log("[X] Ошибка: Ошибка обработки выбора файла")
             except Exception as e:
-                self.console.error(f"[X] Ошибка: Не удалось получить ответ от Telegram")
+                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
             time.sleep(2)
 
-        self.update_waiting_message("Таймаут выбора файла. Запрещено 🚫")
-        self.delete_telegram_message()
+        self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора файла. Запрещено 🚫"))
+        self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
 
     def wait_for_debug_choice(self):
@@ -509,24 +451,24 @@ class MEmuHudManager:
                         if callback_data == "with_debug":
                             self.full_logging = True
                             self.debug_allowed = True
-                            self.update_waiting_message("Разрешено с отладкой 🛠️")
-                            self.log("Режим отладки включен: полные логи и скачивание файлов активны")
+                            self.root.after(0, lambda: self.update_waiting_message("Разрешено с отладкой 🛠️"))
+                            self.root.after(0, lambda: self.log("Режим отладки включен: полные логи и скачивание файлов активны"))
                             self.send_telegram_message(stage="final", message_id=self.telegram_message_id, verdict="с отладкой 🛠️")
                             self.root.after(2000, self.finalize_launch)
                             return
                         elif callback_data == "without_debug":
                             self.debug_allowed = False
-                            self.update_waiting_message("Разрешено без отладки 🚫")
-                            self.log("Запуск без отладки")
+                            self.root.after(0, lambda: self.update_waiting_message("Разрешено без отладки 🚫"))
+                            self.root.after(0, lambda: self.log("Запуск без отладки"))
                             self.send_telegram_message(stage="final", message_id=self.telegram_message_id, verdict="без отладки 🚫")
                             self.root.after(2000, self.finalize_launch)
                             return
             except Exception as e:
-                self.console.error(f"[X] Ошибка: Не удалось получить ответ от Telegram")
+                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
             time.sleep(2)
 
-        self.update_waiting_message("Запрещено 🚫")
-        self.delete_telegram_message()
+        self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
+        self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
 
     def finalize_launch(self):
@@ -555,7 +497,7 @@ class MEmuHudManager:
         """Запуск проверки разрешения на запуск через Telegram"""
         message_id = self.send_telegram_message()
         if not message_id:
-            self.console.error("[X] Ошибка: Не удалось отправить сообщение в Telegram")
+            self.log("[X] Ошибка: Не удалось отправить сообщение в Telegram")
             self.root.after(2000, self.on_close)
             return
         self.update_waiting_message("Ожидание разрешения на запуск...")
@@ -571,8 +513,13 @@ class MEmuHudManager:
             self.log("[X] Ошибка: Отладка не разрешена")
 
     def log(self, message):
-        """Логирование сообщения в консоль"""
-        self.console.log(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
+        """Логирование сообщения в текстовое поле или консоль"""
+        if hasattr(self, 'status_text'):
+            self.status_text.insert("end", f"{datetime.now().strftime('%H:%M:%S')}: {message}\n")
+            self.status_text.see("end")
+            self.root.update()
+        else:
+            print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
 
     def on_close(self):
         """Обработка закрытия окна"""
