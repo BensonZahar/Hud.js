@@ -18,7 +18,7 @@ if (tt?.methods?.add) {
 
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, filename, retries = 5) {
-    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${filename}`;
+    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/.js%2BLoad.js/${filename}`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
     xhr.onload = function() {
