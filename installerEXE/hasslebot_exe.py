@@ -17,6 +17,7 @@ import threading
 import socket
 import platform
 from tkinter import messagebox
+import psutil  # Добавляем для получения списка дисков
 
 def resource_path(relative_path):
     """Получение абсолютного пути к ресурсу, работает как в разработке, так и в .exe"""
@@ -30,11 +31,6 @@ class MEmuHudManager:
     def __init__(self):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
-        
-        self.memu_paths = [
-            r"D:\Program Files\Microvirt\MEmu\MEmu.exe",
-            r"C:\Program Files\Microvirt\MEmu\MEmu.exe"
-        ]
         
         self.memu_path = None
         self.memu_adb = None
@@ -95,6 +91,61 @@ class MEmuHudManager:
         self.status_text.grid(row=1, column=0, pady=10, sticky="ew")
         
         self.activate_launch_permission()
+
+    def check_memu_installation(self):
+        """Проверка наличия эмулятора MEmu путём рекурсивного поиска папки Microvirt на всех дисках"""
+        self.memu_path = None
+        self.memu_adb = None
+
+        if not self.full_logging:
+            self.log("Поиск эмулятора MEmu...")
+        else:
+            self.log("Рекурсивный поиск папки Microvirt на всех дисках...")
+
+        try:
+            # Получаем список всех доступных дисков
+            drives = [part.mountpoint for part in psutil.disk_partitions()]
+            if not drives:
+                self.log("[X] Ошибка: Не найдено ни одного диска")
+                return False
+
+            # Проходим по каждому диску и ищем папку Microvirt
+            for drive in drives:
+                try:
+                    if self.full_logging:
+                        self.log(f"Поиск на диске {drive}...")
+                    # Используем rglob для рекурсивного поиска папки Microvirt
+                    for microvirt_path in Path(drive).rglob("Microvirt"):
+                        if microvirt_path.is_dir():
+                            # Проверяем наличие MEmu.exe в папке Microvirt
+                            memu_exe = microvirt_path / "MEmu.exe"
+                            if memu_exe.exists():
+                                self.memu_path = str(memu_exe)
+                                self.memu_adb = str(memu_exe.parent / "adb.exe")
+                                if not self.full_logging:
+                                    self.log("[√] Успешно: Эмулятор найден")
+                                else:
+                                    self.log(f"[√] Выполнено: Эмулятор найден по пути {self.memu_path}")
+                                # Проверяем существование adb.exe
+                                if not Path(self.memu_adb).exists():
+                                    self.log(f"[X] Ошибка: ADB не найден по пути {self.memu_adb}")
+                                    self.memu_adb = None
+                                    return False
+                                return True
+                except (PermissionError, OSError) as e:
+                    if self.full_logging:
+                        self.log(f"[X] Ошибка при поиске на диске {drive}: {e}")
+                    continue
+
+            self.log("[X] Ошибка: Папка Microvirt не найдена на доступных дисках")
+            return False
+
+        except Exception as e:
+            if not self.full_logging:
+                self.log("[X] Ошибка: Не удалось проверить наличие эмулятора")
+            else:
+                self.log(f"[X] Не выполнено: Ошибка при поиске эмулятора: {e}")
+            return False
 
     def fetch_code_files(self):
         """Загрузка списка .js файлов из репозитория GitHub с кэшированием"""
@@ -544,20 +595,6 @@ class MEmuHudManager:
             finally:
                 os._exit(0)
 
-    def check_memu_installation(self):
-        """Проверка наличия эмулятора MEmu"""
-        for path in self.memu_paths:
-            if Path(path).exists():
-                self.memu_path = path
-                self.memu_adb = path.replace("MEmu.exe", "adb.exe")
-                if not self.full_logging:
-                    self.log("[√] Успешно: Эмулятор найден")
-                else:
-                    self.log("[√] Выполнено: Эмулятор найден")
-                return True
-        self.log("[X] Ошибка: Эмулятор не найден")
-        return False
-    
     def download_and_extract_adb(self):
         """Скачивание и распаковка ADB во временную папку"""
         if (self.temp_adb_dir / "adb").exists():
@@ -1088,3 +1125,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
