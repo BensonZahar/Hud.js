@@ -1,5 +1,5 @@
 """
-pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --add-data "icon.ico;." hassle_bot.py
+pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --add-data "icon.ico;." --hidden-import=psutil --hidden-import=requests --hidden-import=customtkinter --hidden-import=packaging --hidden-import=darkdetect hassle_bot.py
 """
 import os
 import sys
@@ -30,6 +30,11 @@ class MEmuHudManager:
     def __init__(self):
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
+        
+        self.memu_paths = [
+            r"D:\Program Files\Microvirt\MEmu\MEmu.exe",
+            r"C:\Program Files\Microvirt\MEmu\MEmu.exe"
+        ]
         
         self.memu_path = None
         self.memu_adb = None
@@ -540,68 +545,17 @@ class MEmuHudManager:
                 os._exit(0)
 
     def check_memu_installation(self):
-        """Проверка наличия эмулятора MEmu с кэшированием пути"""
-        cache_file = self.script_dir / "memu_path_cache.json"
-        
-        # Проверяем кэш
-        if cache_file.exists():
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    cache = json.load(f)
-                    memu_exe = Path(cache.get('memu_path', ''))
-                    if memu_exe.exists():
-                        self.memu_path = str(memu_exe)
-                        self.memu_adb = str(memu_exe.parent / "adb.exe")
-                        if not self.full_logging:
-                            self.log(f"[√] Успешно: Эмулятор найден в кэше: {self.memu_path}")
-                        else:
-                            self.log(f"[√] Выполнено: Эмулятор найден в кэше: {self.memu_path}")
-                        return True
-                    else:
-                        self.log(f"[!] Предупреждение: Кэшированный путь {memu_exe} недействителен, выполняем поиск...")
-            except Exception as e:
-                if self.full_logging:
-                    self.log(f"[!] Предупреждение: Ошибка чтения кэша: {e}")
-
-        if not self.full_logging:
-            self.log("Поиск эмулятора MEmu...")
-        else:
-            self.log("Поиск папки Microvirt на всех дисках...")
-
-        import string
-        drives = [f"{d}:\\" for d in string.ascii_uppercase if Path(f"{d}:\\").exists()]
-        
-        for drive in drives:
-            if self.full_logging:
-                self.log(f"Проверка диска {drive}...")
-            try:
-                for memu_dir in Path(drive).rglob("Microvirt"):
-                    if self.full_logging:
-                        self.log(f"Найдена папка: {memu_dir}")
-                    memu_exe = memu_dir / "MEmu" / "MEmu.exe"  # Учитываем подпапку MEmu
-                    if memu_exe.exists():
-                        self.memu_path = str(memu_exe)
-                        self.memu_adb = str(memu_dir / "MEmu" / "adb.exe")
-                        if self.memu_adb and Path(self.memu_adb).exists():
-                            # Сохраняем в кэш
-                            with open(cache_file, 'w', encoding='utf-8') as f:
-                                json.dump({'memu_path': self.memu_path}, f)
-                            if not self.full_logging:
-                                self.log(f"[√] Успешно: Эмулятор найден в {self.memu_path}")
-                            else:
-                                self.log(f"[√] Выполнено: Эмулятор найден в {self.memu_path}, ADB: {self.memu_adb}")
-                            return True
-                        else:
-                            self.log(f"[!] Предупреждение: ADB не найден в {memu_dir / 'MEmu' / 'adb.exe'}")
-                    else:
-                        if self.full_logging:
-                            self.log(f"[!] Предупреждение: MEmu.exe не найден в {memu_dir / 'MEmu'}")
-            except (PermissionError, OSError) as e:
-                if self.full_logging:
-                    self.log(f"[!] Предупреждение: Не удалось проверить диск {drive}: {e}")
-                continue
-
-        self.log("[X] Ошибка: Эмулятор MEmu не найден")
+        """Проверка наличия эмулятора MEmu"""
+        for path in self.memu_paths:
+            if Path(path).exists():
+                self.memu_path = path
+                self.memu_adb = path.replace("MEmu.exe", "adb.exe")
+                if not self.full_logging:
+                    self.log("[√] Успешно: Эмулятор найден")
+                else:
+                    self.log("[√] Выполнено: Эмулятор найден")
+                return True
+        self.log("[X] Ошибка: Эмулятор не найден")
         return False
     
     def download_and_extract_adb(self):
@@ -1110,10 +1064,6 @@ class MEmuHudManager:
                 self.cache_file.unlink()
             for cache in self.script_dir.glob("commit_cache_*.json"):
                 cache.unlink()
-            # Удаляем кэш пути MEmu, если требуется очистка
-            memu_cache = self.script_dir / "memu_path_cache.json"
-            if memu_cache.exists() and self.full_logging:
-                memu_cache.unlink()
         except Exception:
             pass
     
