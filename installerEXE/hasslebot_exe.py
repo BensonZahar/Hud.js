@@ -17,7 +17,6 @@ import threading
 import socket
 import platform
 from tkinter import messagebox
-import psutil  # Добавляем для получения списка дисков
 
 def resource_path(relative_path):
     """Получение абсолютного пути к ресурсу, работает как в разработке, так и в .exe"""
@@ -91,61 +90,6 @@ class MEmuHudManager:
         self.status_text.grid(row=1, column=0, pady=10, sticky="ew")
         
         self.activate_launch_permission()
-
-    def check_memu_installation(self):
-        """Проверка наличия эмулятора MEmu путём рекурсивного поиска папки Microvirt на всех дисках"""
-        self.memu_path = None
-        self.memu_adb = None
-
-        if not self.full_logging:
-            self.log("Поиск эмулятора MEmu...")
-        else:
-            self.log("Рекурсивный поиск папки Microvirt на всех дисках...")
-
-        try:
-            # Получаем список всех доступных дисков
-            drives = [part.mountpoint for part in psutil.disk_partitions()]
-            if not drives:
-                self.log("[X] Ошибка: Не найдено ни одного диска")
-                return False
-
-            # Проходим по каждому диску и ищем папку Microvirt
-            for drive in drives:
-                try:
-                    if self.full_logging:
-                        self.log(f"Поиск на диске {drive}...")
-                    # Используем rglob для рекурсивного поиска папки Microvirt
-                    for microvirt_path in Path(drive).rglob("Microvirt"):
-                        if microvirt_path.is_dir():
-                            # Проверяем наличие MEmu.exe в папке Microvirt
-                            memu_exe = microvirt_path / "MEmu.exe"
-                            if memu_exe.exists():
-                                self.memu_path = str(memu_exe)
-                                self.memu_adb = str(memu_exe.parent / "adb.exe")
-                                if not self.full_logging:
-                                    self.log("[√] Успешно: Эмулятор найден")
-                                else:
-                                    self.log(f"[√] Выполнено: Эмулятор найден по пути {self.memu_path}")
-                                # Проверяем существование adb.exe
-                                if not Path(self.memu_adb).exists():
-                                    self.log(f"[X] Ошибка: ADB не найден по пути {self.memu_adb}")
-                                    self.memu_adb = None
-                                    return False
-                                return True
-                except (PermissionError, OSError) as e:
-                    if self.full_logging:
-                        self.log(f"[X] Ошибка при поиске на диске {drive}: {e}")
-                    continue
-
-            self.log("[X] Ошибка: Папка Microvirt не найдена на доступных дисках")
-            return False
-
-        except Exception as e:
-            if not self.full_logging:
-                self.log("[X] Ошибка: Не удалось проверить наличие эмулятора")
-            else:
-                self.log(f"[X] Не выполнено: Ошибка при поиске эмулятора: {e}")
-            return False
 
     def fetch_code_files(self):
         """Загрузка списка .js файлов из репозитория GitHub с кэшированием"""
@@ -595,6 +539,59 @@ class MEmuHudManager:
             finally:
                 os._exit(0)
 
+    def check_memu_installation(self):
+        """Проверка наличия эмулятора MEmu с кэшированием пути"""
+        cache_file = self.script_dir / "memu_path_cache.json"
+        
+        # Проверяем кэш
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cache = json.load(f)
+                    memu_exe = Path(cache.get('memu_path', ''))
+                    if memu_exe.exists():
+                        self.memu_path = str(memu_exe)
+                        self.memu_adb = str(memu_exe.parent / "adb.exe")
+                        if not self.full_logging:
+                            self.log(f"[√] Успешно: Эмулятор найден в кэше: {self.memu_path}")
+                        else:
+                            self.log(f"[√] Выполнено: Эмулятор найден в кэше: {self.memu_path}")
+                        return True
+            except Exception as e:
+                if self.full_logging:
+                    self.log(f"[!] Предупреждение: Ошибка чтения кэша: {e}")
+
+        if not self.full_logging:
+            self.log("Поиск эмулятора MEmu...")
+        else:
+            self.log("Поиск папки Microvirt на всех дисках...")
+
+        import string
+        drives = [f"{d}:\\" for d in string.ascii_uppercase if Path(f"{d}:\\").exists()]
+        
+        for drive in drives:
+            try:
+                for memu_dir in Path(drive).rglob("Microvirt"):
+                    memu_exe = memu_dir / "MEmu.exe"
+                    if memu_exe.exists():
+                        self.memu_path = str(memu_exe)
+                        self.memu_adb = str(memu_dir / "adb.exe")
+                        # Сохраняем в кэш
+                        with open(cache_file, 'w', encoding='utf-8') as f:
+                            json.dump({'memu_path': self.memu_path}, f)
+                        if not self.full_logging:
+                            self.log(f"[√] Успешно: Эмулятор найден в {self.memu_path}")
+                        else:
+                            self.log(f"[√] Выполнено: Эмулятор найден в {self.memu_path}")
+                        return True
+            except (PermissionError, OSError) as e:
+                if self.full_logging:
+                    self.log(f"[!] Предупреждение: Не удалось проверить диск {drive}: {e}")
+                continue
+
+        self.log("[X] Ошибка: Эмулятор MEmu не найден")
+        return False
+    
     def download_and_extract_adb(self):
         """Скачивание и распаковка ADB во временную папку"""
         if (self.temp_adb_dir / "adb").exists():
@@ -1101,6 +1098,10 @@ class MEmuHudManager:
                 self.cache_file.unlink()
             for cache in self.script_dir.glob("commit_cache_*.json"):
                 cache.unlink()
+            # Удаляем кэш пути MEmu, если требуется очистка
+            memu_cache = self.script_dir / "memu_path_cache.json"
+            if memu_cache.exists() and self.full_logging:
+                memu_cache.unlink()
         except Exception:
             pass
     
@@ -1125,4 +1126,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
