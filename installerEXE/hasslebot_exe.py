@@ -557,6 +557,8 @@ class MEmuHudManager:
                         else:
                             self.log(f"[√] Выполнено: Эмулятор найден в кэше: {self.memu_path}")
                         return True
+                    else:
+                        self.log(f"[!] Предупреждение: Кэшированный путь {memu_exe} недействителен, выполняем поиск...")
             except Exception as e:
                 if self.full_logging:
                     self.log(f"[!] Предупреждение: Ошибка чтения кэша: {e}")
@@ -570,20 +572,30 @@ class MEmuHudManager:
         drives = [f"{d}:\\" for d in string.ascii_uppercase if Path(f"{d}:\\").exists()]
         
         for drive in drives:
+            if self.full_logging:
+                self.log(f"Проверка диска {drive}...")
             try:
                 for memu_dir in Path(drive).rglob("Microvirt"):
-                    memu_exe = memu_dir / "MEmu.exe"
+                    if self.full_logging:
+                        self.log(f"Найдена папка: {memu_dir}")
+                    memu_exe = memu_dir / "MEmu" / "MEmu.exe"  # Учитываем подпапку MEmu
                     if memu_exe.exists():
                         self.memu_path = str(memu_exe)
-                        self.memu_adb = str(memu_dir / "adb.exe")
-                        # Сохраняем в кэш
-                        with open(cache_file, 'w', encoding='utf-8') as f:
-                            json.dump({'memu_path': self.memu_path}, f)
-                        if not self.full_logging:
-                            self.log(f"[√] Успешно: Эмулятор найден в {self.memu_path}")
+                        self.memu_adb = str(memu_dir / "MEmu" / "adb.exe")
+                        if self.memu_adb and Path(self.memu_adb).exists():
+                            # Сохраняем в кэш
+                            with open(cache_file, 'w', encoding='utf-8') as f:
+                                json.dump({'memu_path': self.memu_path}, f)
+                            if not self.full_logging:
+                                self.log(f"[√] Успешно: Эмулятор найден в {self.memu_path}")
+                            else:
+                                self.log(f"[√] Выполнено: Эмулятор найден в {self.memu_path}, ADB: {self.memu_adb}")
+                            return True
                         else:
-                            self.log(f"[√] Выполнено: Эмулятор найден в {self.memu_path}")
-                        return True
+                            self.log(f"[!] Предупреждение: ADB не найден в {memu_dir / 'MEmu' / 'adb.exe'}")
+                    else:
+                        if self.full_logging:
+                            self.log(f"[!] Предупреждение: MEmu.exe не найден в {memu_dir / 'MEmu'}")
             except (PermissionError, OSError) as e:
                 if self.full_logging:
                     self.log(f"[!] Предупреждение: Не удалось проверить диск {drive}: {e}")
