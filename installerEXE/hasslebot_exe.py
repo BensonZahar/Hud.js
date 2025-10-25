@@ -204,7 +204,7 @@ class MEmuHudManager:
         ctk.CTkLabel(self.main_frame, text="Папка приложения:").grid(row=5, column=0, pady=5)
         self.app_var = ctk.StringVar(value="1 - com.hassle.online")
         app_menu = ctk.CTkComboBox(self.main_frame, 
-                                  values=["1 - com.hassle.online", "2 - com.hassle.onlinf"],
+                                  values=["1 - com.hassle.online", "2 - com.hassle.online2"],
                                   variable=self.app_var, width=300)
         app_menu.grid(row=6, column=0, pady=5)
         
@@ -772,7 +772,7 @@ class MEmuHudManager:
     def select_app_folder(self):
         """Получение выбранной папки приложения из GUI"""
         choice = self.app_var.get().split()[0]
-        return "com.hassle.online" if choice == "1" else "com.hassle.onlinf"
+        return "com.hassle.online" if choice == "1" else "com.hassle.online2"
     
     def execute_action(self, action):
         """Выполнение выбранного действия в отдельном потоке"""
@@ -1088,3 +1088,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
