@@ -1961,6 +1961,27 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 	return result;
 };
 
+// Новая функция для нормализации текста: замена латинских букв на кириллические эквиваленты
+function normalizeToCyrillic(text) {
+    const map = {
+        'A': 'А', 'a': 'а',
+        'B': 'В', 'b': 'в',  // B часто путают с В
+        'C': 'С', 'c': 'с',
+        'E': 'Е', 'e': 'е',
+        'H': 'Н', 'h': 'н',
+        'K': 'К', 'k': 'к',
+        'M': 'М', 'm': 'м',
+        'O': 'О', 'o': 'о',
+        'P': 'Р', 'p': 'р',
+        'T': 'Т', 't': 'т',
+        'X': 'Х', 'x': 'х',
+        'Y': 'У', 'y': 'у',
+        '3': 'З',  // Иногда 3 вместо З
+        // Добавьте другие возможные замены по необходимости
+    };
+    return text.split('').map(char => map[char] || char).join('');
+}
+
 function initializeChatMonitor() {
 	if (typeof sendChatInput === 'undefined') {
 		const errorMsg = '❌ <b>Ошибка</b>\nsendChatInput не найден';
@@ -1984,11 +2005,12 @@ window.OnChatAddMessage = function(e, i, t) {
 	// если что убрать
     // debugLog(`Чат-сообщение: ${e} | Цвет: ${i} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
 	const msg = String(e);
-	const lowerCaseMessage = msg.toLowerCase();
+    const normalizedMsg = normalizeToCyrillic(msg);
+	const lowerCaseMessage = normalizedMsg.toLowerCase();
 	const currentTime = Date.now();
 	const chatRadius = getChatRadius(i);
 
-	// Для отладки, выводим сообщения в консоль
+	// Для отладки, выводим сообщения в чат
 	// console.log(msg); // сооб в чат
 
     // Проверка сообщения "Текущее время:" для AFK
