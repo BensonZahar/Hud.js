@@ -1,39 +1,17 @@
-// КОНФИГУРАЦИЯ
-const userConfig = {
-	chatIds: [''],  // ПОМЕНЯТЬ
-	keywords: [],
-	clearDelay: 3000,
-	maxAttempts: 15,
-	checkInterval: 1500,
-	debug: true,
-	podbrosCooldown: 30000,
-	afkSettings: {},
-	lastSalaryInfo: null,
-	paydayNotifications: true,
-	trackPlayerId: true,
-	idCheckInterval: 10000,
-	govMessagesEnabled: true,
-	govMessageCooldown: 360000,
-	govMessageThreshold: 10,
-	govMessageKeywords: ["тут", "здесь"],
-	trackLocationRequests: false,
-	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
-	radioOfficialNotifications: true,
-	warningNotifications: true,
-	notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
-	trackSkinId: true, // Флаг отслеживания скина
-	skinCheckInterval: 5000 // Интервал проверки скина
+// Для удобства изменения: chatIds и serverTokens вынесены в начало
+
+const CHAT_IDS = ['-1003102212423']; // 1046461621 - Zahar, 5515408606 = Kolya
+
+const SERVER_TOKENS = {
+    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
+    '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
+    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
+    '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 
-// в случае index оставить это в hud.js 
-if (tt?.methods?.add) {
-	const originalAdd = tt.methods.add;
-	tt.methods.add = function(e, s, t) {
-		const result = originalAdd.call(this, e, s, t);
-		window.OnChatAddMessage?.(e, s, t);
-		return result;
-	};
-} 
+const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
+
+
 
 // Перехват window.setPlayerSkinId для отслеживания изменений скина
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
@@ -185,6 +163,33 @@ const factions = {
     }
 };
 
+// КОНФИГУРАЦИЯ
+const userConfig = {
+	chatIds: CHAT_IDS, // Используем вынесенную константу
+	keywords: [],
+	clearDelay: 3000,
+	maxAttempts: 15,
+	checkInterval: 1500,
+	debug: true,
+	podbrosCooldown: 30000,
+	afkSettings: {},
+	lastSalaryInfo: null,
+	paydayNotifications: true,
+	trackPlayerId: true,
+	idCheckInterval: 10000,
+	govMessagesEnabled: true,
+	govMessageCooldown: 360000,
+	govMessageThreshold: 10,
+	govMessageKeywords: ["тут", "здесь"],
+	trackLocationRequests: false,
+	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
+	radioOfficialNotifications: true,
+	warningNotifications: true,
+	notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
+	trackSkinId: true, // Флаг отслеживания скина
+	skinCheckInterval: 5000 // Интервал проверки скина
+};
+
 const config = {
 	...userConfig,
 	lastUpdateId: 0,
@@ -216,14 +221,8 @@ const config = {
 	nicknameLogged: false
 };
 
-const serverTokens = {
-    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
-    '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
-    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
-    '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
-};
-
-const defaultToken = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
+const serverTokens = SERVER_TOKENS; // Используем вынесенную константу
+const defaultToken = DEFAULT_TOKEN; // Используем вынесенную константу
 
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
@@ -1962,6 +1961,27 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 	return result;
 };
 
+// Новая функция для нормализации текста: замена латинских букв на кириллические эквиваленты
+function normalizeToCyrillic(text) {
+    const map = {
+        'A': 'А', 'a': 'а',
+        'B': 'В', 'b': 'в',  // B часто путают с В
+        'C': 'С', 'c': 'с',
+        'E': 'Е', 'e': 'е',
+        'H': 'Н', 'h': 'н',
+        'K': 'К', 'k': 'к',
+        'M': 'М', 'm': 'м',
+        'O': 'О', 'o': 'о',
+        'P': 'Р', 'p': 'р',
+        'T': 'Т', 't': 'т',
+        'X': 'Х', 'x': 'х',
+        'Y': 'У', 'y': 'у',
+        '3': 'З',  // Иногда 3 вместо З
+        // Добавьте другие возможные замены по необходимости
+    };
+    return text.split('').map(char => map[char] || char).join('');
+}
+
 function initializeChatMonitor() {
 	if (typeof sendChatInput === 'undefined') {
 		const errorMsg = '❌ <b>Ошибка</b>\nsendChatInput не найден';
@@ -1978,18 +1998,19 @@ function initializeChatMonitor() {
 			audio.volume = volume || 1.0;
 			audio.play().catch(e => debugLog('Ошибка воспроизведения звука:', e));
 		};
-	}
+	};
 
 
 window.OnChatAddMessage = function(e, i, t) {
 	// если что убрать
     // debugLog(`Чат-сообщение: ${e} | Цвет: ${i} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
 	const msg = String(e);
-	const lowerCaseMessage = msg.toLowerCase();
+    const normalizedMsg = normalizeToCyrillic(msg);
+	const lowerCaseMessage = normalizedMsg.toLowerCase();
 	const currentTime = Date.now();
 	const chatRadius = getChatRadius(i);
 
-	// Для отладки, выводим сообщения в консоль
+	// Для отладки, выводим сообщения в чат
 	// console.log(msg); // сооб в чат
 
     // Проверка сообщения "Текущее время:" для AFK
@@ -2070,7 +2091,7 @@ window.OnChatAddMessage = function(e, i, t) {
 				sendChatInput("/c");
 				debugLog('Команда /c отправлена');
 			} catch (err) {
-				const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>`;
+				const errorMsg = '❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>';
 				debugLog(errorMsg);
 				sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 			}
