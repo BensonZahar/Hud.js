@@ -1,27 +1,23 @@
 // Для удобства изменения: chatIds и serverTokens вынесены в начало
-
 const CHAT_IDS = ['-1003040555627']; // -1003040555627 - Zahar, -1003102212423 = Kolya, -1003202329790 - Kirill
-
 const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
     '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
     '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
-
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
-
-
+const AUTO_LOGIN_PASSWORD = "zahar2007"; // Ваш пароль — легко менять здесь
 
 // Перехват window.setPlayerSkinId для отслеживания изменений скина
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
 window.setPlayerSkinId = function(skinId) {
     debugLog(`Перехвачен вызов setPlayerSkinId с Skin ID: ${skinId}`);
-    
+   
     // Сохраняем Skin ID
     config.accountInfo.skinId = skinId;
     updateFaction(); // Обновляем фракцию при изменении скина
-    
+   
     // Вызываем оригинал, если он существует
     if (originalSetPlayerSkinId) {
         return originalSetPlayerSkinId.call(this, skinId);
@@ -30,209 +26,109 @@ window.setPlayerSkinId = function(skinId) {
 
 // Глобальный объект для хранения состояния AFK-запроса и ID последнего приветственного сообщения
 const globalState = {
-	awaitingAfkAccount: false,
-	awaitingAfkId: false,
-	afkTargetAccount: null,
-	lastWelcomeMessageId: null // Для хранения ID последнего приветственного сообщения
+    awaitingAfkAccount: false,
+    awaitingAfkId: false,
+    afkTargetAccount: null,
+    lastWelcomeMessageId: null // Для хранения ID последнего приветственного сообщения
 };
 
 // Определяем радиусы чата
 const CHAT_RADIUS = {
-	SELF: 0, // Собственное сообщение
-	CLOSE: 1, // Близко (< radius/4)
-	MEDIUM: 2, // Средне (< radius/2)
-	FAR: 3, // Далеко (>= radius/2)
-	RADIO: 4, // Рация
-	UNKNOWN: -1 // Неизвестный цвет
+    SELF: 0, // Собственное сообщение
+    CLOSE: 1, // Близко (< radius/4)
+    MEDIUM: 2, // Средне (< radius/2)
+    FAR: 3, // Далеко (>= radius/2)
+    RADIO: 4, // Рация
+    UNKNOWN: -1 // Неизвестный цвет
 };
 
 function normalizeColor(color) {
-	let normalized = color.toString().toUpperCase();
-	// Удаляем префикс #, если есть
-	if (normalized.startsWith('#')) {
-		normalized = normalized.slice(1);
-	}
-	// Если цвет в формате RGBA (8 символов), убираем альфа-канал
-	if (normalized.length === 8) {
-		normalized = normalized.slice(0, 6);
-	}
-	// Добавляем префикс 0x
-	return '0x' + normalized;
+    let normalized = color.toString().toUpperCase();
+    if (normalized.startsWith('#')) {
+        normalized = normalized.slice(1);
+    }
+    if (normalized.length === 8) {
+        normalized = normalized.slice(0, 6);
+    }
+    return '0x' + normalized;
 }
 
 function getChatRadius(color) {
-	const normalizedColor = normalizeColor(color);
-
-	switch (normalizedColor) {
-		case '0xEEEEEE':
-			return CHAT_RADIUS.SELF;
-		case '0xCECECE':
-			return CHAT_RADIUS.CLOSE;
-		case '0x999999':
-			return CHAT_RADIUS.MEDIUM;
-		case '0x6B6B6B':
-			return CHAT_RADIUS.FAR;
-		case '0x33CC66':
-			return CHAT_RADIUS.RADIO;
-		default:
-			return CHAT_RADIUS.UNKNOWN;
-	}
+    const normalizedColor = normalizeColor(color);
+    switch (normalizedColor) {
+        case '0xEEEEEE': return CHAT_RADIUS.SELF;
+        case '0xCECECE': return CHAT_RADIUS.CLOSE;
+        case '0x999999': return CHAT_RADIUS.MEDIUM;
+        case '0x6B6B6B': return CHAT_RADIUS.FAR;
+        case '0x33CC66': return CHAT_RADIUS.RADIO;
+        default: return CHAT_RADIUS.UNKNOWN;
+    }
 }
 
-// Определение фракций и их рангов (только 6-10 используются в текущем функционале, полный список для справки)
+// Определение фракций и их рангов
 const factions = {
-    government: { // Правительство
-        color: 'CCFF00',
-        skins: [57, 141, 147, 164, 165, 187, 208, 227],
-        ranks: {
-            1: 'водитель',
-            2: 'охранник',
-            3: 'нач. охраны',
-            4: 'секретарь',
-            5: 'старший секретарь',
-            6: 'лицензёр',
-            7: 'адвокат',
-            8: 'депутат',
-            9: 'вице-губернатор',
-            10: 'губернатор'
-        }
-    },
-    mz: { // Больница
-        color: 'FF6666',
-        skins: [276, 15381, 15382, 15383, 15384, 15385, 15386, 15387, 15388, 15389],
-        ranks: {
-            1: 'интерн',
-            2: 'фельдшер',
-            3: 'участковый врач',
-            4: 'терапевт',
-            5: 'проктолог',
-            6: 'нарколог',
-            7: 'хирург',
-            8: 'заведующий отделением',
-            9: 'заместитель глав врача',
-            10: 'глав врач'
-        }
-    },
-    trk: { // ГТРК «Ритм»
-        color: 'FF6600',
-        skins: [15438, 15439, 15440, 15441, 15442, 15443, 15444, 15445, 15446, 15447],
-        ranks: {
-            1: 'стажёр',
-            2: 'светотехник',
-            3: 'монтажёр',
-            4: 'оператор',
-            5: 'дизайнер',
-            6: 'репортер',
-            7: 'ведущий',
-            8: 'режиссёр',
-            9: 'редактор',
-            10: 'гл. редактор'
-        }
-    },
-    mo: { // Воинская часть
-        color: '996633',
-        skins: [30, 61, 179, 191, 253, 255, 287, 162, 218, 220],
-        ranks: {
-            1: 'рядовой',
-            2: 'ефрейтор',
-            3: 'сержант',
-            4: 'прапорщик',
-            5: 'лейтенант',
-            6: 'капитан',
-            7: 'майор',
-            8: 'подполковник',
-            9: 'полковник',
-            10: 'генерал'
-        }
-    },
-    mchs: { // МЧС
-        color: '009999',
-        skins: [15316, 15365, 15366, 15367, 15368, 15369, 15370, 15371, 15372, 15373, 15374, 15375, 15376, 15377, 15378, 15396, 15397],
-        ranks: {
-            1: 'рядовой',
-            2: 'сержант',
-            3: 'старшина',
-            4: 'прапорщик',
-            5: 'лейтенант',
-            6: 'капитан',
-            7: 'майор',
-            8: 'подполковник',
-            9: 'полковник',
-            10: 'генерал'
-        }
-    }
+    government: { color: 'CCFF00', skins: [57, 141, 147, 164, 165, 187, 208, 227], ranks: {1:'водитель',2:'охранник',3:'нач. охраны',4:'секретарь',5:'старший секретарь',6:'лицензёр',7:'адвокат',8:'депутат',9:'вице-губернатор',10:'губернатор'} },
+    mz: { color: 'FF6666', skins: [276, 15381, 15382, 15383, 15384, 15385, 15386, 15387, 15388, 15389], ranks: {1:'интерн',2:'фельдшер',3:'участковый врач',4:'терапевт',5:'проктолог',6:'нарколог',7:'хирург',8:'заведующий отделением',9:'заместитель глав врача',10:'глав врач'} },
+    trk: { color: 'FF6600', skins: [15438, 15439, 15440, 15441, 15442, 15443, 15444, 15445, 15446, 15447], ranks: {1:'стажёр',2:'светотехник',3:'монтажёр',4:'оператор',5:'дизайнер',6:'репортер',7:'ведущий',8:'режиссёр',9:'редактор',10:'гл. редактор'} },
+    mo: { color: '996633', skins: [30, 61, 179, 191, 253, 255, 287, 162, 218, 220], ranks: {1:'рядовой',2:'ефрейтор',3:'сержант',4:'прапорщик',5:'лейтенант',6:'капитан',7:'майор',8:'подполковник',9:'полковник',10:'генерал'} },
+    mchs: { color: '009999', skins: [15316, 15365, 15366, 15367, 15368, 15369, 15370, 15371, 15372, 15373, 15374, 15375, 15376, 15377, 15378, 15396, 15397], ranks: {1:'рядовой',2:'сержант',3:'старшина',4:'прапорщик',5:'лейтенант',6:'капитан',7:'майор',8:'подполковник',9:'полковник',10:'генерал'} }
 };
 
 // КОНФИГУРАЦИЯ
 const userConfig = {
-	chatIds: CHAT_IDS, // Используем вынесенную константу
-	keywords: [],
-	clearDelay: 3000,
-	maxAttempts: 15,
-	checkInterval: 1500,
-	debug: true,
-	podbrosCooldown: 30000,
-	afkSettings: {},
-	lastSalaryInfo: null,
-	paydayNotifications: true,
-	trackPlayerId: true,
-	idCheckInterval: 10000,
-	govMessagesEnabled: true,
-	govMessageCooldown: 360000,
-	govMessageThreshold: 10,
-	govMessageKeywords: ["тут", "здесь"],
-	trackLocationRequests: false,
-	locationKeywords: ["местоположение", "место", "позиция", "координаты"],
-	radioOfficialNotifications: true,
-	warningNotifications: true,
-	notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
-	trackSkinId: true, // Флаг отслеживания скина
-	skinCheckInterval: 5000 // Интервал проверки скина
+    chatIds: CHAT_IDS,
+    keywords: [],
+    clearDelay: 3000,
+    maxAttempts: 15,
+    checkInterval: 1500,
+    debug: true,
+    podbrosCooldown: 30000,
+    afkSettings: {},
+    lastSalaryInfo: null,
+    paydayNotifications: true,
+    trackPlayerId: true,
+    idCheckInterval: 10000,
+    govMessagesEnabled: true,
+    govMessageCooldown: 360000,
+    govMessageThreshold: 10,
+    govMessageKeywords: ["тут", "здесь"],
+    trackLocationRequests: false,
+    locationKeywords: ["местоположение", "место", "позиция", "координаты"],
+    radioOfficialNotifications: true,
+    warningNotifications: true,
+    notificationDeleteDelay: 5000,
+    trackSkinId: true,
+    skinCheckInterval: 5000,
+    deleteNotifications: false // false = уведомления НЕ удаляются (по умолчанию)
 };
 
 const config = {
-	...userConfig,
-	lastUpdateId: 0,
-	activeUsers: {},
-	lastPodbrosTime: 0,
-	podbrosCounter: 0,
-	initialized: false,
-	accountInfo: {
-		nickname: null,
-		server: null,
-		skinId: null // Добавлено поле для Skin ID
-	},
-	currentFaction: null, // Текущая фракция (government или mz)
-	lastPlayerId: null,
-	govMessageTrackers: {},
-	isSitting: false,
-	afkCycle: {
-		active: false,
-		startTime: null,
-		totalPlayTime: 0,
-		currentPlayTime: 0,
-		currentPauseTime: 0,
-		cycleTimer: null,
-		playTimer: null,
-		pauseTimer: null,
-		mainTimer: null,
-		mode: 'fixed'
-	},
-	nicknameLogged: false
+    ...userConfig,
+    lastUpdateId: 0,
+    activeUsers: {},
+    lastPodbrosTime: 0,
+    podbrosCounter: 0,
+    initialized: false,
+    accountInfo: { nickname: null, server: null, skinId: null },
+    currentFaction: null,
+    lastPlayerId: null,
+    govMessageTrackers: {},
+    isSitting: false,
+    afkCycle: { active: false, startTime: null, totalPlayTime: 0, currentPlayTime: 0, currentPauseTime: 0, cycleTimer: null, playTimer: null, pauseTimer: null, mainTimer: null, mode: 'fixed' },
+    nicknameLogged: false
 };
 
-const serverTokens = SERVER_TOKENS; // Используем вынесенную константу
-const defaultToken = DEFAULT_TOKEN; // Используем вынесенную константу
-
+const serverTokens = SERVER_TOKENS;
+const defaultToken = DEFAULT_TOKEN;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 
 // Настройка автовхода
 const autoLoginConfig = {
-	password: "zahar2007", // Ваш пароль
-	enabled: true, // Флаг активации автовхода
-	maxAttempts: 10, // Максимум попыток
-	attemptInterval: 1000 // Интервал между попытками (мс)
+    password: AUTO_LOGIN_PASSWORD,
+    enabled: true,
+    maxAttempts: 10,
+    attemptInterval: 1000
 };
 
 function getSharedLastUpdateId() {
@@ -420,7 +316,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
 					}, deleteAfter);
 				}
 				// Сохраняем ID приветственного сообщения
-				if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
+				if (message.includes('Hassle | Bot TG Test 2.0') && message.includes('Текущие настройки')) {
 					globalState.lastWelcomeMessageId = messageId;
 				}
 			} else {
@@ -500,7 +396,7 @@ function sendWelcomeMessage() {
 		return;
 	}
 	const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-	const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+	const message = `🟢 <b>Hassle | Bot TG Test 2.0</b>\n` +
 		`Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
 		`Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
 		`🔔 <b>Текущие настройки:</b>\n` +
