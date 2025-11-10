@@ -1,6 +1,6 @@
 // Для удобства изменения: chatIds и serverTokens вынесены в начало
 
-const CHAT_IDS = ['-1003202329790']; // 1046461621 - Zahar, 5515408606 = Kolya
+const CHAT_IDS = ['-1003040555627']; // 1046461621 - Zahar, 5515408606 = Kolya
 
 const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
@@ -229,7 +229,7 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 
 // Настройка автовхода
 const autoLoginConfig = {
-	password: "09230923", // Ваш пароль
+	password: "zahar2007", // Ваш пароль
 	enabled: true, // Флаг активации автовхода
 	maxAttempts: 10, // Максимум попыток
 	attemptInterval: 1000 // Интервал между попытками (мс)
