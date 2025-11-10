@@ -229,20 +229,24 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 
 // Настройка автовхода
 const autoLoginConfig = {
-	password: "zahar2007", // Ваш пароль
+	password: "09230923", // Ваш пароль
 	enabled: true, // Флаг активации автовхода
 	maxAttempts: 10, // Максимум попыток
 	attemptInterval: 1000 // Интервал между попытками (мс)
 };
 
-// Новая функция для shared lastUpdateId через localStorage
+// Новая функция для shared lastUpdateId через localStorage с уникальным ключом
 function getSharedLastUpdateId() {
-	return parseInt(localStorage.getItem('tg_bot_last_update_id') || '0', 10);
+    // Создаём уникальный ключ на основе botToken и chatIds
+    const storageKey = `tg_bot_last_update_id_${config.botToken}_${config.chatIds.join('_')}`;
+    return parseInt(localStorage.getItem(storageKey) || '0', 10);
 }
 
 function setSharedLastUpdateId(id) {
-	localStorage.setItem('tg_bot_last_update_id', id);
-	debugLog(`Обновлён shared lastUpdateId: ${id}`);
+    // Создаём уникальный ключ на основе botToken и chatIds
+    const storageKey = `tg_bot_last_update_id_${config.botToken}_${config.chatIds.join('_')}`;
+    localStorage.setItem(storageKey, id);
+    debugLog(`Обновлён shared lastUpdateId: ${id} (ключ: ${storageKey})`);
 }
 
 function debugLog(message) {
