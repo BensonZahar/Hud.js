@@ -1,6 +1,6 @@
 // Для удобства изменения: chatIds и serverTokens вынесены в начало
 
-const CHAT_IDS = ['-1003202329790']; // -1003040555627 - Zahar, -1003102212423 = Kolya, -1003202329790 - Kirill
+const CHAT_IDS = ['-1003202329790']; // 1046461621 - Zahar, 5515408606 = Kolya
 
 const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
@@ -235,15 +235,14 @@ const autoLoginConfig = {
 	attemptInterval: 1000 // Интервал между попытками (мс)
 };
 
+// Новая функция для shared lastUpdateId через localStorage
 function getSharedLastUpdateId() {
-    const key = `tg_bot_last_update_id_${uniqueId}`;
-    return parseInt(localStorage.getItem(key) || '0', 10);
+	return parseInt(localStorage.getItem('tg_bot_last_update_id') || '0', 10);
 }
 
 function setSharedLastUpdateId(id) {
-    const key = `tg_bot_last_update_id_${uniqueId}`;
-    localStorage.setItem(key, id);
-    debugLog(`Обновлён shared lastUpdateId для ${uniqueId}: ${id}`);
+	localStorage.setItem('tg_bot_last_update_id', id);
+	debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
 
 function debugLog(message) {
@@ -1019,154 +1018,289 @@ function processUpdates(updates) {
 				sendWelcomeMessage();
 			}
 		} else if (update.callback_query) {
-			const query = update.callback_query;
-			const chatId = query.message.chat.id;
-			const messageId = query.message.message_id;
-			const data = query.data;
-			const callbackQueryId = query.id;
+			const message = update.callback_query.data;
+			const chatId = update.callback_query.message.chat.id;
+			const messageId = update.callback_query.message.message_id;
+			const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
 
-			// === КЛЮЧЕВАЯ ПРОВЕРКА: ЭТО НАШ ЧАТ? ===
-			const isOurChat = config.chatIds.includes(String(chatId));
-			const isGlobalCommand = data.startsWith('global_') ||
-				data.startsWith('show_payday_options_') ||
-				data.startsWith('show_soob_options_') ||
-				data.startsWith('show_mesto_options_') ||
-				data.startsWith('show_radio_options_') ||
-				data.startsWith('show_warning_options_') ||
-				data.startsWith('show_global_functions_') ||
-				data.startsWith('afk_n_');
+			// Определяем глобальные команды, которые должны применяться ко всем аккаунтам
+			const isGlobalCommand = message.startsWith('global_') ||
+				message.startsWith('afk_n_') ||
+				message.startsWith('show_payday_options_') ||
+				message.startsWith('show_soob_options_') ||
+				message.startsWith('show_mesto_options_') ||
+				message.startsWith('show_radio_options_') ||
+				message.startsWith('show_warning_options_') ||
+				message.startsWith('show_global_functions_');
 
-			// Игнорируем, если не наш чат и не глобальная команда
-			if (!isOurChat && !isGlobalCommand) {
-				debugLog(`Игнорируем callback из чужого чата: ${chatId}`);
+			let callbackUniqueId = null;
+			if (message.startsWith('show_controls_')) {
+				callbackUniqueId = message.replace('show_controls_', '');
+			} else if (message.startsWith('show_local_functions_')) {
+				callbackUniqueId = message.replace('show_local_functions_', '');
+			} else if (message.startsWith('show_movement_controls_')) {
+				callbackUniqueId = message.replace('show_movement_controls_', '');
+			} else if (message.startsWith("show_movement_")) {
+				callbackUniqueId = message.replace('show_movement_', '');
+			} else if (message.startsWith('hide_controls_')) {
+				callbackUniqueId = message.replace('hide_controls_', '');
+			} else if (message.startsWith('request_chat_message_')) {
+				callbackUniqueId = message.replace('request_chat_message_', '');
+			} else if (message.startsWith('local_soob_on_')) {
+				callbackUniqueId = message.replace('local_soob_on_', '');
+			} else if (message.startsWith('local_soob_off_')) {
+				callbackUniqueId = message.replace('local_soob_off_', '');
+			} else if (message.startsWith('local_mesto_on_')) {
+				callbackUniqueId = message.replace('local_mesto_on_', '');
+			} else if (message.startsWith('local_mesto_off_')) {
+				callbackUniqueId = message.replace('local_mesto_off_', '');
+			} else if (message.startsWith('local_radio_on_')) {
+				callbackUniqueId = message.replace('local_radio_on_', '');
+			} else if (message.startsWith('local_radio_off_')) {
+				callbackUniqueId = message.replace('local_radio_off_', '');
+			} else if (message.startsWith('local_warning_on_')) {
+				callbackUniqueId = message.replace('local_warning_on_', '');
+			} else if (message.startsWith('local_warning_off_')) {
+				callbackUniqueId = message.replace('local_warning_off_', '');
+			} else if (message.startsWith('move_forward_')) {
+				callbackUniqueId = message.replace('move_forward_', '').replace('_notification', '');
+			} else if (message.startsWith('move_back_')) {
+				callbackUniqueId = message.replace('move_back_', '').replace('_notification', '');
+			} else if (message.startsWith('move_left_')) {
+				callbackUniqueId = message.replace('move_left_', '').replace('_notification', '');
+			} else if (message.startsWith('move_right_')) {
+				callbackUniqueId = message.replace('move_right_', '').replace('_notification', '');
+			} else if (message.startsWith('move_jump_')) {
+				callbackUniqueId = message.replace('move_jump_', '').replace('_notification', '');
+			} else if (message.startsWith('move_punch_')) {
+				callbackUniqueId = message.replace('move_punch_', '').replace('_notification', '');
+			} else if (message.startsWith('move_sit_')) {
+				callbackUniqueId = message.replace('move_sit_', '').replace('_notification', '');
+			} else if (message.startsWith('move_stand_')) {
+				callbackUniqueId = message.replace('move_stand_', '').replace('_notification', '');
+			} else if (message.startsWith('admin_reply_')) {
+				callbackUniqueId = message.replace('admin_reply_', '');
+			} else if (message.startsWith('back_to_notification_')) {
+				callbackUniqueId = message.replace('back_to_notification_', '');
+			} else if (message.startsWith('show_local_soob_options_')) {
+				callbackUniqueId = message.replace('show_local_soob_options_', '');
+			} else if (message.startsWith('show_local_mesto_options_')) {
+				callbackUniqueId = message.replace('show_local_mesto_options_', '');
+			} else if (message.startsWith('show_local_radio_options_')) {
+				callbackUniqueId = message.replace('show_local_radio_options_', '');
+			} else if (message.startsWith('show_local_warning_options_')) {
+				callbackUniqueId = message.replace('show_local_warning_options_', '');
+			} else if (message.startsWith('global_p_on_')) {
+				callbackUniqueId = message.replace('global_p_on_', '');
+			} else if (message.startsWith('global_p_off_')) {
+				callbackUniqueId = message.replace('global_p_off_', '');
+			} else if (message.startsWith('global_soob_on_')) {
+				callbackUniqueId = message.replace('global_soob_on_', '');
+			} else if (message.startsWith('global_soob_off_')) {
+				callbackUniqueId = message.replace('global_soob_off_', '');
+			} else if (message.startsWith('global_mesto_on_')) {
+				callbackUniqueId = message.replace('global_mesto_on_', '');
+			} else if (message.startsWith('global_mesto_off_')) {
+				callbackUniqueId = message.replace('global_mesto_off_', '');
+			} else if (message.startsWith('global_radio_on_')) {
+				callbackUniqueId = message.replace('global_radio_on_', '');
+			} else if (message.startsWith('global_radio_off_')) {
+				callbackUniqueId = message.replace('global_radio_off_', '');
+			} else if (message.startsWith('global_warning_on_')) {
+				callbackUniqueId = message.replace('global_warning_on_', '');
+			} else if (message.startsWith('global_warning_off_')) {
+				callbackUniqueId = message.replace('global_warning_off_', '');
+			} else if (message.startsWith('global_afk_n_')) {
+				callbackUniqueId = message.replace('global_afk_n_', '');
+			} else if (message.startsWith('global_afk_')) {
+				callbackUniqueId = message.replace('global_afk_', '');
+			} else if (message.startsWith('afk_n_with_pauses_')) {
+				callbackUniqueId = message.replace('afk_n_with_pauses_', '');
+			} else if (message.startsWith('afk_n_without_pauses_')) {
+				callbackUniqueId = message.replace('afk_n_without_pauses_', '');
+			} else if (message.startsWith('afk_n_fixed_')) {
+				callbackUniqueId = message.replace('afk_n_fixed_', '');
+			} else if (message.startsWith('afk_n_random_')) {
+				callbackUniqueId = message.replace('afk_n_random_', '');
+			} else if (message.startsWith('show_payday_options_')) {
+				callbackUniqueId = message.replace('show_payday_options_', '');
+			} else if (message.startsWith('show_soob_options_')) {
+				callbackUniqueId = message.replace('show_soob_options_', '');
+			} else if (message.startsWith('show_mesto_options_')) {
+				callbackUniqueId = message.replace('show_mesto_options_', '');
+			} else if (message.startsWith('show_radio_options_')) {
+				callbackUniqueId = message.replace('show_radio_options_', '');
+			} else if (message.startsWith('show_warning_options_')) {
+				callbackUniqueId = message.replace('show_warning_options_', '');
+			} else if (message.startsWith('show_global_functions_')) {
+				callbackUniqueId = message.replace('show_global_functions_', '');
+			}
+
+			// Проверяем, является ли команда локальной (только для текущего аккаунта)
+			const isForThisBot = isGlobalCommand ||
+				(callbackUniqueId && callbackUniqueId === uniqueId) ||
+				(update.callback_query.message.text && update.callback_query.message.text.includes(displayName)) ||
+				(update.callback_query.message.reply_to_message &&
+					update.callback_query.message.reply_to_message.text &&
+					update.callback_query.message.reply_to_message.text.includes(displayName));
+
+			if (!isForThisBot) {
+				debugLog(`Игнорируем callback_query, так как он не для этого бота (${displayName}): ${message}`);
+				// Всё равно подтверждаем, чтобы кнопка не висела
 				answerCallbackQuery(callbackQueryId);
 				continue;
 			}
 
-			// === ЛОКАЛЬНЫЙ ОТПРАВЩИК (только в текущий чат) ===
-			const sendLocal = (text, deleteAfter = null, markup = null) => {
-				const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
-				const payload = {
-					chat_id: chatId,
-					text: text,
-					parse_mode: 'HTML',
-					reply_markup: markup ? JSON.stringify(markup) : undefined
-				};
-				const xhr = new XMLHttpRequest();
-				xhr.open('POST', url, true);
-				xhr.setRequestHeader('Content-Type', 'application/json');
-				xhr.onload = () => {
-					if (deleteAfter && xhr.status === 200) {
-						const msgId = JSON.parse(xhr.responseText).result.message_id;
-						setTimeout(() => deleteMessage(chatId, msgId), deleteAfter);
-					}
-				};
-				xhr.send(JSON.stringify(payload));
-			};
-
-			// === ГЛОБАЛЬНЫЕ КОМАНДЫ (меняют настройку + уведомление ТОЛЬКО в этот чат) ===
-			if (data.startsWith(`global_p_on_`)) {
-				config.paydayNotifications = true;
-				sendLocal(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			} else if (data.startsWith(`global_p_off_`)) {
-				config.paydayNotifications = false;
-				sendLocal(`🔕 <b>Уведомления о PayDay отключены для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			} else if (data.startsWith(`global_soob_on_`)) {
-				config.govMessagesEnabled = true;
-				sendLocal(`🔔 <b>Уведомления от сотрудников фракции включены для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			} else if (data.startsWith(`global_soob_off_`)) {
-				config.govMessagesEnabled = false;
-				sendLocal(`🔕 <b>Уведомления от сотрудников фракции отключены для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			} else if (data.startsWith(`global_mesto_on_`)) {
-				config.trackLocationRequests = true;
-				sendLocal(`📍 <b>Отслеживание запросов местоположения включено для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			} else if (data.startsWith(`global_mesto_off_`)) {
-				config.trackLocationRequests = false;
-				sendLocal(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			} else if (data.startsWith(`global_radio_on_`)) {
-				config.radioOfficialNotifications = true;
-				sendLocal(`🔔 <b>Уведомления с Рации включены для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			} else if (data.startsWith(`global_radio_off_`)) {
-				config.radioOfficialNotifications = false;
-				sendLocal(`🔕 <b>Уведомления с Рации отключены для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			} else if (data.startsWith(`global_warning_on_`)) {
-				config.warningNotifications = true;
-				sendLocal(`🔔 <b>Уведомления о выговорах включены для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			} else if (data.startsWith(`global_warning_off_`)) {
-				config.warningNotifications = false;
-				sendLocal(`🔕 <b>Уведомления о выговорах отключены для всех аккаунтов</b>`, config.notificationDeleteDelay);
-			}
-
-			// === МЕНЮ ===
-			else if (data.startsWith(`show_controls_`)) {
+			// Обработка команд
+			if (message.startsWith(`show_controls_`)) {
 				showControlsMenu(chatId, messageId);
-			} else if (data.startsWith(`show_global_functions_`)) {
-				showGlobalFunctionsMenu(chatId, messageId, data.replace('show_global_functions_', ''));
-			} else if (data.startsWith(`show_payday_options_`)) {
-				showPayDayOptionsMenu(chatId, messageId, data.replace('show_payday_options_', ''));
-			} else if (data.startsWith(`show_soob_options_`)) {
-				showSoobOptionsMenu(chatId, messageId, data.replace('show_soob_options_', ''));
-			} else if (data.startsWith(`show_mesto_options_`)) {
-				showMestoOptionsMenu(chatId, messageId, data.replace('show_mesto_options_', ''));
-			} else if (data.startsWith(`show_radio_options_`)) {
-				showRadioOptionsMenu(chatId, messageId, data.replace('show_radio_options_', ''));
-			} else if (data.startsWith(`show_warning_options_`)) {
-				showWarningOptionsMenu(chatId, messageId, data.replace('show_warning_options_', ''));
-			} else if (data.startsWith(`global_afk_n_`)) {
-				showAFKNightModesMenu(chatId, messageId, data.replace('global_afk_n_', ''));
-			} else if (data.startsWith(`afk_n_with_pauses_`)) {
-				showAFKWithPausesSubMenu(chatId, messageId, data.replace('afk_n_with_pauses_', ''));
-			} else if (data.startsWith(`afk_n_without_pauses_`)) {
+			} else if (message.startsWith(`show_global_functions_`)) {
+				showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`show_local_functions_`)) {
+				showLocalFunctionsMenu(chatId, messageId);
+			} else if (message.startsWith(`show_movement_controls_`)) {
+				showMovementControlsMenu(chatId, messageId);
+			} else if (message.startsWith("show_movement_")) {
+				showMovementControlsMenu(chatId, messageId, true);
+			} else if (message.startsWith(`hide_controls_`)) {
+				hideControlsMenu(chatId, messageId);
+			} else if (message.startsWith(`request_chat_message_`)) {
+				const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)`;
+				sendToTelegram(requestMsg, false, {
+					force_reply: true
+				});
+			} else if (message.startsWith(`show_payday_options_`)) {
+				showPayDayOptionsMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`show_soob_options_`)) {
+				showSoobOptionsMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`show_mesto_options_`)) {
+				showMestoOptionsMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`show_radio_options_`)) {
+				showRadioOptionsMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`show_warning_options_`)) {
+				showWarningOptionsMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`global_p_on_`)) {
+				config.paydayNotifications = true;
+				sendToTelegram(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_p_off_`)) {
+				config.paydayNotifications = false;
+				sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_soob_on_`)) {
+				config.govMessagesEnabled = true;
+				sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_soob_off_`)) {
+				config.govMessagesEnabled = false;
+				sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_mesto_on_`)) {
+				config.trackLocationRequests = true;
+				sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_mesto_off_`)) {
+				config.trackLocationRequests = false;
+				sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_radio_on_`)) {
+				config.radioOfficialNotifications = true;
+				sendToTelegram(`🔔 <b>Уведомления с Рации включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_radio_off_`)) {
+				config.radioOfficialNotifications = false;
+				sendToTelegram(`🔕 <b>Уведомления с Рации отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_warning_on_`)) {
+				config.warningNotifications = true;
+				sendToTelegram(`🔔 <b>Уведомления о выговорах включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_warning_off_`)) {
+				config.warningNotifications = false;
+				sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith(`global_afk_n_`)) {
+				showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`afk_n_with_pauses_`)) {
+				showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
+			} else if (message.startsWith(`afk_n_without_pauses_`)) {
 				if (config.afkSettings.active) {
-					sendLocal(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, config.notificationDeleteDelay);
+					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				} else {
 					const hudId = getPlayerIdFromHUD();
 					if (!hudId) {
-						sendLocal(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, config.notificationDeleteDelay);
+						sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
 					} else {
 						const idFormats = [hudId];
-						if (hudId.includes('-')) idFormats.push(hudId.replace(/-/g, ''));
-						else if (hudId.length === 3) idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-						config.afkSettings = { id: hudId, formats: idFormats, active: true };
+						if (hudId.includes('-')) {
+							idFormats.push(hudId.replace(/-/g, ''));
+						} else if (hudId.length === 3) {
+							idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+						}
+
+						config.afkSettings = {
+							id: hudId,
+							formats: idFormats,
+							active: true
+						};
 						config.afkCycle.mode = 'none';
-						sendLocal(`🔄 <b>AFK режим (без пауз) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}`, config.notificationDeleteDelay);
+
+						sendToTelegram(`🔄 <b>AFK режим (без пауз) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null, config.notificationDeleteDelay);
 					}
 				}
-			} else if (data.startsWith(`afk_n_fixed_`)) {
+			} else if (message.startsWith(`afk_n_fixed_`)) {
 				if (config.afkSettings.active) {
-					sendLocal(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, config.notificationDeleteDelay);
+					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				} else {
 					const hudId = getPlayerIdFromHUD();
 					if (!hudId) {
-						sendLocal(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, config.notificationDeleteDelay);
+						sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
 					} else {
 						const idFormats = [hudId];
-						if (hudId.includes('-')) idFormats.push(hudId.replace(/-/g, ''));
-						else if (hudId.length === 3) idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-						config.afkSettings = { id: hudId, formats: idFormats, active: true };
+						if (hudId.includes('-')) {
+							idFormats.push(hudId.replace(/-/g, ''));
+						} else if (hudId.length === 3) {
+							idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+						}
+
+						config.afkSettings = {
+							id: hudId,
+							formats: idFormats,
+							active: true
+						};
 						config.afkCycle.mode = 'fixed';
 						startAFKCycle();
-						sendLocal(`🔄 <b>AFK режим (с паузами 5/5) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, config.notificationDeleteDelay);
+
+						sendToTelegram(`🔄 <b>AFK режим (с паузами 5/5) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
 					}
 				}
-			} else if (data.startsWith(`afk_n_random_`)) {
+			} else if (message.startsWith(`afk_n_random_`)) {
 				if (config.afkSettings.active) {
-					sendLocal(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, config.notificationDeleteDelay);
+					sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 				} else {
 					const hudId = getPlayerIdFromHUD();
 					if (!hudId) {
-						sendLocal(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, config.notificationDeleteDelay);
+						sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
 					} else {
 						const idFormats = [hudId];
-						if (hudId.includes('-')) idFormats.push(hudId.replace(/-/g, ''));
-						else if (hudId.length === 3) idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-						config.afkSettings = { id: hudId, formats: idFormats, active: true };
+						if (hudId.includes('-')) {
+							idFormats.push(hudId.replace(/-/g, ''));
+						} else if (hudId.length === 3) {
+							idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+						}
+
+						config.afkSettings = {
+							id: hudId,
+							formats: idFormats,
+							active: true
+						};
 						config.afkCycle.mode = 'random';
 						startAFKCycle();
-						sendLocal(`🔄 <b>AFK режим (с рандомными паузами) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, config.notificationDeleteDelay);
+
+						sendToTelegram(`🔄 <b>AFK режим (с рандомными паузами) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
 					}
 				}
-			} else if (data.startsWith(`global_afk_`)) {
+			} else if (message.startsWith(`global_afk_`)) {
 				if (!globalState.awaitingAfkAccount) {
 					globalState.awaitingAfkAccount = true;
 					const requestMsg = `✉️ Введите ник аккаунта для активации AFK режима:`;
@@ -1174,200 +1308,180 @@ function processUpdates(updates) {
 						force_reply: true
 					});
 				}
-			}
-
-			// === ЛОКАЛЬНЫЕ КОМАНДЫ (только если наш чат) ===
-			else if (isOurChat) {
-				if (data.startsWith(`show_local_functions_`)) {
-					showLocalFunctionsMenu(chatId, messageId);
-				} else if (data.startsWith(`show_movement_controls_`)) {
-					showMovementControlsMenu(chatId, messageId);
-				} else if (data.startsWith(`show_movement_`)) {
-					showMovementControlsMenu(chatId, messageId, true);
-				} else if (data.startsWith(`hide_controls_`)) {
-					hideControlsMenu(chatId, messageId);
-				} else if (data.startsWith(`request_chat_message_`)) {
-					const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)`;
-					sendToTelegram(requestMsg, false, {
-						force_reply: true
-					});
-				} else if (data.startsWith(`show_local_soob_options_`)) {
-					showLocalSoobOptionsMenu(chatId, messageId);
-				} else if (data.startsWith(`show_local_mesto_options_`)) {
-					showLocalMestoOptionsMenu(chatId, messageId);
-				} else if (data.startsWith(`show_local_radio_options_`)) {
-					showLocalRadioOptionsMenu(chatId, messageId);
-				} else if (data.startsWith(`show_local_warning_options_`)) {
-					showLocalWarningOptionsMenu(chatId, messageId);
-				} else if (data.startsWith(`local_soob_on_`)) {
-					config.govMessagesEnabled = true;
-					sendLocal(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, config.notificationDeleteDelay);
-					sendWelcomeMessage();
-				} else if (data.startsWith(`local_soob_off_`)) {
-					config.govMessagesEnabled = false;
-					sendLocal(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, config.notificationDeleteDelay);
-					sendWelcomeMessage();
-				} else if (data.startsWith(`local_mesto_on_`)) {
-					config.trackLocationRequests = true;
-					sendLocal(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, config.notificationDeleteDelay);
-					sendWelcomeMessage();
-				} else if (data.startsWith(`local_mesto_off_`)) {
-					config.trackLocationRequests = false;
-					sendLocal(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, config.notificationDeleteDelay);
-					sendWelcomeMessage();
-				} else if (data.startsWith(`local_radio_on_`)) {
-					config.radioOfficialNotifications = true;
-					sendLocal(`🔔 <b>Уведомления с Рации включены для ${displayName}</b>`, config.notificationDeleteDelay);
-					sendWelcomeMessage();
-				} else if (data.startsWith(`local_radio_off_`)) {
-					config.radioOfficialNotifications = false;
-					sendLocal(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, config.notificationDeleteDelay);
-					sendWelcomeMessage();
-				} else if (data.startsWith(`local_warning_on_`)) {
-					config.warningNotifications = true;
-					sendLocal(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, config.notificationDeleteDelay);
-					sendWelcomeMessage();
-				} else if (data.startsWith(`local_warning_off_`)) {
-					config.warningNotifications = false;
-					sendLocal(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, config.notificationDeleteDelay);
-					sendWelcomeMessage();
-				} else if (data.startsWith("admin_reply_")) {
-					const requestMsg = `✉️ Введите ответ для ${displayName}:`;
-					sendToTelegram(requestMsg, false, {
-						force_reply: true
-					});
-				} else if (data.startsWith("move_forward_")) {
-					const isNotif = data.endsWith('_notification');
-					try {
-						window.onScreenControlTouchStart("<Gamepad>/leftStick");
-						window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
-						setTimeout(() => {
-							window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-						}, 500);
-						sendLocal(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, config.notificationDeleteDelay);
-						showMovementControlsMenu(chatId, messageId, isNotif);
-					} catch (err) {
-						const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вперед\n<code>${err.message}</code>`;
-						debugLog(errorMsg);
-						sendLocal(errorMsg, config.notificationDeleteDelay);
-					}
-				} else if (data.startsWith("move_back_")) {
-					const isNotif = data.endsWith('_notification');
-					try {
-						window.onScreenControlTouchStart("<Gamepad>/leftStick");
-						window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
-						setTimeout(() => {
-							window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-						}, 500);
-						sendLocal(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, config.notificationDeleteDelay);
-						showMovementControlsMenu(chatId, messageId, isNotif);
-					} catch (err) {
-						const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение назад\n<code>${err.message}</code>`;
-						debugLog(errorMsg);
-						sendLocal(errorMsg, config.notificationDeleteDelay);
-					}
-				} else if (data.startsWith("move_left_")) {
-					const isNotif = data.endsWith('_notification');
-					try {
-						window.onScreenControlTouchStart("<Gamepad>/leftStick");
-						window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
-						setTimeout(() => {
-							window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-						}, 500);
-						sendLocal(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, config.notificationDeleteDelay);
-						showMovementControlsMenu(chatId, messageId, isNotif);
-					} catch (err) {
-						const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение влево\n<code>${err.message}</code>`;
-						debugLog(errorMsg);
-						sendLocal(errorMsg, config.notificationDeleteDelay);
-					}
-				} else if (data.startsWith("move_right_")) {
-					const isNotif = data.endsWith('_notification');
-					try {
-						window.onScreenControlTouchStart("<Gamepad>/leftStick");
-						window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
-						setTimeout(() => {
-							window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-						}, 500);
-						sendLocal(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, config.notificationDeleteDelay);
-						showMovementControlsMenu(chatId, messageId, isNotif);
-					} catch (err) {
-						const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вправо\n<code>${err.message}</code>`;
-						debugLog(errorMsg);
-						sendLocal(errorMsg, config.notificationDeleteDelay);
-					}
-				} else if (data.startsWith("move_jump_")) {
-					const isNotif = data.endsWith('_notification');
-					try {
-						window.onScreenControlTouchStart("<Keyboard>/leftShift");
-						setTimeout(() => {
-							window.onScreenControlTouchEnd("<Keyboard>/leftShift");
-						}, 500);
-						sendLocal(`🆙 <b>Прыжок выполнен для ${displayName}</b>`, config.notificationDeleteDelay);
-						showMovementControlsMenu(chatId, messageId, isNotif);
-					} catch (err) {
-						const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать прыжок\n<code>${err.message}</code>`;
-						debugLog(errorMsg);
-						sendLocal(errorMsg, config.notificationDeleteDelay);
-					}
-				} else if (data.startsWith("move_punch_")) {
-					const isNotif = data.endsWith('_notification');
-					try {
-						window.onScreenControlTouchStart("<Mouse>/leftButton");
-						setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
-						sendLocal(`👊 <b>Удар выполнен для ${displayName}</b>`, config.notificationDeleteDelay);
-						showMovementControlsMenu(chatId, messageId, isNotif);
-					} catch (err) {
-						const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать удар\n<code>${err.message}</code>`;
-						debugLog(errorMsg);
-						sendLocal(errorMsg, config.notificationDeleteDelay);
-					}
-				} else if (data.startsWith("move_sit_")) {
-					const isNotif = data.endsWith('_notification');
-					try {
-						window.onScreenControlTouchStart("<Keyboard>/c");
-						setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
-						config.isSitting = true;
-						sendLocal(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, config.notificationDeleteDelay);
-						showMovementControlsMenu(chatId, messageId, isNotif);
-					} catch (err) {
-						const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Сесть"\n<code>${err.message}</code>`;
-						debugLog(errorMsg);
-						sendLocal(errorMsg, config.notificationDeleteDelay);
-					}
-				} else if (data.startsWith("move_stand_")) {
-					const isNotif = data.endsWith('_notification');
-					try {
-						window.onScreenControlTouchStart("<Keyboard>/c");
-						setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
-						config.isSitting = false;
-						sendLocal(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, config.notificationDeleteDelay);
-						showMovementControlsMenu(chatId, messageId, isNotif);
-					} catch (err) {
-						const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Встать"\n<code>${err.message}</code>`;
-						debugLog(errorMsg);
-						sendLocal(errorMsg, config.notificationDeleteDelay);
-					}
-				} else if (data.startsWith("back_to_notification_")) {
-					const callbackUniqueId = data.replace("back_to_notification_", "");
-					const replyMarkup = {
-						inline_keyboard: [
-							[
-								createButton("📝 Ответить", `admin_reply_${callbackUniqueId}`),
-								createButton("🚶 Движения", `show_movement_${callbackUniqueId}`)
-							]
-						]
-					};
-					editMessageReplyMarkup(chatId, messageId, replyMarkup);
+			} else if (message.startsWith("admin_reply_")) {
+				const requestMsg = `✉️ Введите ответ для ${displayName}:`;
+				sendToTelegram(requestMsg, false, {
+					force_reply: true
+				});
+			} else if (message.startsWith("move_forward_")) {
+				const isNotif = message.endsWith('_notification');
+				try {
+					window.onScreenControlTouchStart("<Gamepad>/leftStick");
+					window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
+					setTimeout(() => {
+						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+					}, 500);
+					sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вперед\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
 				}
+			} else if (message.startsWith("move_back_")) {
+				const isNotif = message.endsWith('_notification');
+				try {
+					window.onScreenControlTouchStart("<Gamepad>/leftStick");
+					window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
+					setTimeout(() => {
+						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+					}, 500);
+					sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение назад\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+				}
+			} else if (message.startsWith("move_left_")) {
+				const isNotif = message.endsWith('_notification');
+				try {
+					window.onScreenControlTouchStart("<Gamepad>/leftStick");
+					window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
+					setTimeout(() => {
+						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+					}, 500);
+					sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение влево\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+				}
+			} else if (message.startsWith("move_right_")) {
+				const isNotif = message.endsWith('_notification');
+				try {
+					window.onScreenControlTouchStart("<Gamepad>/leftStick");
+					window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
+					setTimeout(() => {
+						window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+					}, 500);
+					sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вправо\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+				}
+			} else if (message.startsWith("move_jump_")) {
+				const isNotif = message.endsWith('_notification');
+				try {
+					window.onScreenControlTouchStart("<Keyboard>/leftShift");
+					setTimeout(() => {
+						window.onScreenControlTouchEnd("<Keyboard>/leftShift");
+					}, 500);
+					sendToTelegram(`🆙 <b>Прыжок выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать прыжок\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+				}
+			} else if (message.startsWith("move_punch_")) {
+				const isNotif = message.endsWith('_notification');
+				try {
+					window.onScreenControlTouchStart("<Mouse>/leftButton");
+					setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+					sendToTelegram(`👊 <b>Удар выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать удар\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+				}
+			} else if (message.startsWith("move_sit_")) {
+				const isNotif = message.endsWith('_notification');
+				try {
+					window.onScreenControlTouchStart("<Keyboard>/c");
+					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+					config.isSitting = true;
+					sendToTelegram(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Сесть"\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+				}
+			} else if (message.startsWith("move_stand_")) {
+				const isNotif = message.endsWith('_notification');
+				try {
+					window.onScreenControlTouchStart("<Keyboard>/c");
+					setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+					config.isSitting = false;
+					sendToTelegram(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+					showMovementControlsMenu(chatId, messageId, isNotif);
+				} catch (err) {
+					const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Встать"\n<code>${err.message}</code>`;
+					debugLog(errorMsg);
+					sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+				}
+			} else if (message.startsWith("back_to_notification_")) {
+				const replyMarkup = {
+					inline_keyboard: [
+						[
+							createButton("📝 Ответить", `admin_reply_${callbackUniqueId}`),
+							createButton("🚶 Движения", `show_movement_${callbackUniqueId}`)
+						]
+					]
+				};
+				editMessageReplyMarkup(chatId, messageId, replyMarkup);
+			} else if (message.startsWith("show_local_soob_options_")) {
+				showLocalSoobOptionsMenu(chatId, messageId);
+			} else if (message.startsWith("show_local_mesto_options_")) {
+				showLocalMestoOptionsMenu(chatId, messageId);
+			} else if (message.startsWith("show_local_radio_options_")) {
+				showLocalRadioOptionsMenu(chatId, messageId);
+			} else if (message.startsWith("show_local_warning_options_")) {
+				showLocalWarningOptionsMenu(chatId, messageId);
+			} else if (message.startsWith("local_soob_on_")) {
+				config.govMessagesEnabled = true;
+				sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_soob_off_")) {
+				config.govMessagesEnabled = false;
+				sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_mesto_on_")) {
+				config.trackLocationRequests = true;
+				sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_mesto_off_")) {
+				config.trackLocationRequests = false;
+				sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_radio_on_")) {
+				config.radioOfficialNotifications = true;
+				sendToTelegram(`🔔 <b>Уведомления с Рации включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_radio_off_")) {
+				config.radioOfficialNotifications = false;
+				sendToTelegram(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_warning_on_")) {
+				config.warningNotifications = true;
+				sendToTelegram(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
+			} else if (message.startsWith("local_warning_off_")) {
+				config.warningNotifications = false;
+				sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+				sendWelcomeMessage();
 			}
 
-			// Подтверждение callback_query после обработки
+			// Подтверждаем callback_query после обработки
 			answerCallbackQuery(callbackQueryId);
 		}
 	}
 }
-
 
 function registerUser() {
 	if (!config.accountInfo.nickname) {
