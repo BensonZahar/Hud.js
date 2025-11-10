@@ -1,6 +1,6 @@
 // Для удобства изменения: chatIds и serverTokens вынесены в начало
 
-const CHAT_IDS = ['-1003040555627']; // -1003040555627 - Zahar, -1003102212423 = Kolya, -1003202329790 - Kirill
+const CHAT_IDS = ['-1003040555627']; // 1046461621 - Zahar, 5515408606 = Kolya
 
 const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
@@ -500,7 +500,7 @@ function sendWelcomeMessage() {
 		return;
 	}
 	const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-	const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+	const message = `🟢 <b>Hassle | Bot TG Test 1.0</b>\n` +
 		`Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
 		`Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
 		`🔔 <b>Текущие настройки:</b>\n` +
