@@ -375,11 +375,6 @@ if (xhr.status === 200) {
 debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
 const data = JSON.parse(xhr.responseText);
 const messageId = data.result.message_id;
-if (deleteAfter) {
-setTimeout(() => {
-deleteMessage(chatId, messageId);
-}, deleteAfter);
-}
 // Сохраняем ID приветственного сообщения
 if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
 globalState.lastWelcomeMessageId = messageId;
@@ -479,7 +474,7 @@ sendToTelegram(message, false, replyMarkup);
 }
 function showControlsMenu(chatId, messageId) {
 if (!config.accountInfo.nickname) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
 return;
 }
 const replyMarkup = {
@@ -594,7 +589,7 @@ editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showLocalFunctionsMenu(chatId, messageId) {
 if (!config.accountInfo.nickname) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
 return;
 }
 const replyMarkup = {
@@ -612,7 +607,7 @@ editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showMovementControlsMenu(chatId, messageId, isNotification = false) {
 if (!config.accountInfo.nickname) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
 return;
 }
 const backButton = isNotification ?
@@ -636,7 +631,7 @@ editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showLocalSoobOptionsMenu(chatId, messageId) {
 if (!config.accountInfo.nickname) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
 return;
 }
 const replyMarkup = {
@@ -652,7 +647,7 @@ editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showLocalMestoOptionsMenu(chatId, messageId) {
 if (!config.accountInfo.nickname) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
 return;
 }
 const replyMarkup = {
@@ -668,7 +663,7 @@ editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showLocalRadioOptionsMenu(chatId, messageId) {
 if (!config.accountInfo.nickname) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
 return;
 }
 const replyMarkup = {
@@ -684,7 +679,7 @@ editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showLocalWarningOptionsMenu(chatId, messageId) {
 if (!config.accountInfo.nickname) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
 return;
 }
 const replyMarkup = {
@@ -700,7 +695,7 @@ editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function hideControlsMenu(chatId, messageId) {
 if (!config.accountInfo.nickname) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
 return;
 }
 const replyMarkup = {
@@ -754,11 +749,11 @@ if (textToSend) {
 debugLog(`[${displayName}] Отправка сообщения: ${textToSend}`);
 try {
 sendChatInput(textToSend);
-sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 }
 continue;
@@ -770,11 +765,11 @@ if (textToSend) {
 debugLog(`[${displayName}] Отправка ответа: ${textToSend}`);
 try {
 sendChatInput(textToSend);
-sendToTelegram(`✅ <b>Ответ отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`✅ <b>Ответ отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ответ\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 }
 continue;
@@ -792,7 +787,7 @@ force_reply: true
 } else {
 sendToTelegram(`❌ <b>Ошибка:</b> Неверный ник аккаунта. Попробуйте снова.`, false, {
 force_reply: true
-}, config.notificationDeleteDelay);
+});
 }
 continue;
 }
@@ -813,7 +808,7 @@ active: true
 };
 globalState.awaitingAfkId = false;
 globalState.afkTargetAccount = null;
-sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null);
 }
 continue;
 }
@@ -821,38 +816,38 @@ continue;
 // Глобальные команды (работают на все аккаунты)
 if (message === '/p_off') {
 config.paydayNotifications = false;
-sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message === '/p_on') {
 config.paydayNotifications = true;
-sendToTelegram(`🔔 <b>Уведомления о PayDay включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔔 <b>Уведомления о PayDay включены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message === '/soob_off') {
 config.govMessagesEnabled = false;
-sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message === '/soob_on') {
 config.govMessagesEnabled = true;
-sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message === '/mesto_on') {
 config.trackLocationRequests = true;
-sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message === '/mesto_off') {
 config.trackLocationRequests = false;
-sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`/chat${config.accountInfo.nickname}_${config.accountInfo.server} `)) {
 const textToSend = message.replace(`/chat${config.accountInfo.nickname}_${config.accountInfo.server} `, '').trim();
 debugLog(`[${displayName}] Получено сообщение: ${textToSend}`);
 try {
 sendChatInput(textToSend);
-sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 } else if (message.startsWith('/afk ')) {
 const parts = message.split(' ');
@@ -871,7 +866,7 @@ id: id,
 formats: idFormats,
 active: true
 };
-sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null);
 }
 }
 } else if (message.startsWith('/afk_n')) {
@@ -883,7 +878,7 @@ targetNickname = parts[1];
 if (targetNickname === config.accountInfo.nickname) {
 const hudId = getPlayerIdFromHUD();
 if (!hudId) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null);
 continue;
 }
 const idFormats = [hudId];
@@ -898,7 +893,7 @@ formats: idFormats,
 active: true
 };
 startAFKCycle();
-sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null);
 }
 } else if (message.startsWith('/register ')) {
 const parts = message.split(' ');
@@ -1075,43 +1070,43 @@ showRadioOptionsMenu(chatId, messageId, callbackUniqueId);
 showWarningOptionsMenu(chatId, messageId, callbackUniqueId);
 } else if (message.startsWith(`global_p_on_`)) {
 config.paydayNotifications = true;
-sendToTelegram(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_p_off_`)) {
 config.paydayNotifications = false;
-sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_soob_on_`)) {
 config.govMessagesEnabled = true;
-sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_soob_off_`)) {
 config.govMessagesEnabled = false;
-sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_mesto_on_`)) {
 config.trackLocationRequests = true;
-sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_mesto_off_`)) {
 config.trackLocationRequests = false;
-sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_radio_on_`)) {
 config.radioOfficialNotifications = true;
-sendToTelegram(`🔔 <b>Уведомления с Рации включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔔 <b>Уведомления с Рации включены для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_radio_off_`)) {
 config.radioOfficialNotifications = false;
-sendToTelegram(`🔕 <b>Уведомления с Рации отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Уведомления с Рации отключены для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_warning_on_`)) {
 config.warningNotifications = true;
-sendToTelegram(`🔔 <b>Уведомления о выговорах включены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔔 <b>Уведомления о выговорах включены для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_warning_off_`)) {
 config.warningNotifications = false;
-sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для всех аккаунтов</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для всех аккаунтов</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith(`global_afk_n_`)) {
 showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
@@ -1119,11 +1114,11 @@ showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
 showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
 } else if (message.startsWith(`afk_n_without_pauses_`)) {
 if (config.afkSettings.active) {
-sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null);
 } else {
 const hudId = getPlayerIdFromHUD();
 if (!hudId) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null);
 } else {
 const idFormats = [hudId];
 if (hudId.includes('-')) {
@@ -1137,16 +1132,16 @@ formats: idFormats,
 active: true
 };
 config.afkCycle.mode = 'none';
-sendToTelegram(`🔄 <b>AFK режим (без пауз) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK режим (без пауз) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null);
 }
 }
 } else if (message.startsWith(`afk_n_fixed_`)) {
 if (config.afkSettings.active) {
-sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null);
 } else {
 const hudId = getPlayerIdFromHUD();
 if (!hudId) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null);
 } else {
 const idFormats = [hudId];
 if (hudId.includes('-')) {
@@ -1161,16 +1156,16 @@ active: true
 };
 config.afkCycle.mode = 'fixed';
 startAFKCycle();
-sendToTelegram(`🔄 <b>AFK режим (с паузами 5/5) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK режим (с паузами 5/5) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null);
 }
 }
 } else if (message.startsWith(`afk_n_random_`)) {
 if (config.afkSettings.active) {
-sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null);
 } else {
 const hudId = getPlayerIdFromHUD();
 if (!hudId) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null);
 } else {
 const idFormats = [hudId];
 if (hudId.includes('-')) {
@@ -1185,7 +1180,7 @@ active: true
 };
 config.afkCycle.mode = 'random';
 startAFKCycle();
-sendToTelegram(`🔄 <b>AFK режим (с рандомными паузами) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK режим (с рандомными паузами) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null);
 }
 }
 } else if (message.startsWith(`global_afk_`)) {
@@ -1209,12 +1204,12 @@ window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
 setTimeout(() => {
 window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 }, 500);
-sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null);
 showMovementControlsMenu(chatId, messageId, isNotif);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вперед\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 } else if (message.startsWith("move_back_")) {
 const isNotif = message.endsWith('_notification');
@@ -1224,12 +1219,12 @@ window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
 setTimeout(() => {
 window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 }, 500);
-sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null);
 showMovementControlsMenu(chatId, messageId, isNotif);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение назад\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 } else if (message.startsWith("move_left_")) {
 const isNotif = message.endsWith('_notification');
@@ -1239,12 +1234,12 @@ window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
 setTimeout(() => {
 window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 }, 500);
-sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null);
 showMovementControlsMenu(chatId, messageId, isNotif);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение влево\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 } else if (message.startsWith("move_right_")) {
 const isNotif = message.endsWith('_notification');
@@ -1254,12 +1249,12 @@ window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
 setTimeout(() => {
 window.onScreenControlTouchEnd("<Gamepad>/leftStick");
 }, 500);
-sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null);
 showMovementControlsMenu(chatId, messageId, isNotif);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать движение вправо\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 } else if (message.startsWith("move_jump_")) {
 const isNotif = message.endsWith('_notification');
@@ -1268,24 +1263,24 @@ window.onScreenControlTouchStart("<Keyboard>/leftShift");
 setTimeout(() => {
 window.onScreenControlTouchEnd("<Keyboard>/leftShift");
 }, 500);
-sendToTelegram(`🆙 <b>Прыжок выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🆙 <b>Прыжок выполнен для ${displayName}</b>`, false, null);
 showMovementControlsMenu(chatId, messageId, isNotif);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать прыжок\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 } else if (message.startsWith("move_punch_")) {
 const isNotif = message.endsWith('_notification');
 try {
 window.onScreenControlTouchStart("<Mouse>/leftButton");
 setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
-sendToTelegram(`👊 <b>Удар выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`👊 <b>Удар выполнен для ${displayName}</b>`, false, null);
 showMovementControlsMenu(chatId, messageId, isNotif);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось симулировать удар\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 } else if (message.startsWith("move_sit_")) {
 const isNotif = message.endsWith('_notification');
@@ -1293,12 +1288,12 @@ try {
 window.onScreenControlTouchStart("<Keyboard>/c");
 setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
 config.isSitting = true;
-sendToTelegram(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, false, null);
 showMovementControlsMenu(chatId, messageId, isNotif);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Сесть"\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 } else if (message.startsWith("move_stand_")) {
 const isNotif = message.endsWith('_notification');
@@ -1306,12 +1301,12 @@ try {
 window.onScreenControlTouchStart("<Keyboard>/c");
 setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
 config.isSitting = false;
-sendToTelegram(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, false, null);
 showMovementControlsMenu(chatId, messageId, isNotif);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Встать"\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 } else if (message.startsWith("back_to_notification_")) {
 const replyMarkup = {
@@ -1333,35 +1328,35 @@ showLocalRadioOptionsMenu(chatId, messageId);
 showLocalWarningOptionsMenu(chatId, messageId);
 } else if (message.startsWith("local_soob_on_")) {
 config.govMessagesEnabled = true;
-sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith("local_soob_off_")) {
 config.govMessagesEnabled = false;
-sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith("local_mesto_on_")) {
 config.trackLocationRequests = true;
-sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith("local_mesto_off_")) {
 config.trackLocationRequests = false;
-sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith("local_radio_on_")) {
 config.radioOfficialNotifications = true;
-sendToTelegram(`🔔 <b>Уведомления с Рации включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔔 <b>Уведомления с Рации включены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith("local_radio_off_")) {
 config.radioOfficialNotifications = false;
-sendToTelegram(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith("local_warning_on_")) {
 config.warningNotifications = true;
-sendToTelegram(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 } else if (message.startsWith("local_warning_off_")) {
 config.warningNotifications = false;
-sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
 sendWelcomeMessage();
 }
 // Подтверждаем callback_query после обработки
@@ -1516,7 +1511,7 @@ config.afkCycle.active = true;
 config.afkCycle.startTime = Date.now();
 config.afkCycle.totalPlayTime = 0;
 debugLog(`AFK цикл запущен для ${displayName}`);
-sendToTelegram(`🔄 <b>AFK цикл запущен для ${displayName}</b>\nОжидание PayDay сообщения "Текущее время:"`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`🔄 <b>AFK цикл запущен для ${displayName}</b>\nОжидание PayDay сообщения "Текущее время:"`, false, null);
 }
 function stopAFKCycle() {
 if (config.afkCycle.cycleTimer) {
@@ -1533,12 +1528,12 @@ clearTimeout(config.afkCycle.mainTimer);
 }
 config.afkCycle.active = false;
 debugLog(`AFK цикл остановлен для ${displayName}`);
-sendToTelegram(`⏹️ <b>AFK цикл остановлен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`⏹️ <b>AFK цикл остановлен для ${displayName}</b>`, false, null);
 }
 function startPlayPhase() {
 if (!config.afkCycle.active) return;
 debugLog(`Начинаем игровую фазу для ${displayName}`);
-sendToTelegram(`▶️ Игровая фаза начата для ${displayName}`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`▶️ Игровая фаза начата для ${displayName}`, false, null);
 try {
 if (typeof closeInterface === 'function') {
 closeInterface("PauseMenu");
@@ -1570,7 +1565,7 @@ if (config.afkCycle.totalPlayTime < 25 * 60 * 1000) {
 startPausePhase();
 } else {
 debugLog(`Отыграно 25 минут, ставим на паузу до следующего PayDay для ${displayName}`);
-sendToTelegram(`💤 <b>Отыграно 25 минут для ${displayName}</b>\nСтавим на паузу до следующего PayDay`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`💤 <b>Отыграно 25 минут для ${displayName}</b>\nСтавим на паузу до следующего PayDay`, false, null);
 enterPauseUntilEnd();
 }
 }, playDurationMs);
@@ -1632,7 +1627,7 @@ try {
 if (typeof closeInterface === 'function') {
 closeInterface("PauseMenu");
 debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
-sendToTelegram(`▶️ <b>Выход из паузы перед следующим PayDay для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`▶️ <b>Выход из паузы перед следующим PayDay для ${displayName}</b>`, false, null);
 }
 } catch (e) {
 debugLog(`Ошибка при выходе из паузы: ${e.message}`);
@@ -1640,7 +1635,7 @@ debugLog(`Ошибка при выходе из паузы: ${e.message}`);
 if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
 if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
 debugLog(`Готов к следующему PayDay для ${displayName}`);
-sendToTelegram(`⏰ <b>Готов к следующему PayDay для ${displayName}</b>\nОжидание сообщения "Текущее время:"`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`⏰ <b>Готов к следующему PayDay для ${displayName}</b>\nОжидание сообщения "Текущее время:"`, false, null);
 }, mainTimerDuration);
 if (!config.afkCycle.active) {
 startAFKCycle();
@@ -1649,7 +1644,7 @@ config.afkCycle.startTime = Date.now();
 config.afkCycle.totalPlayTime = 0;
 const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' : 'рандомное время игры/паузы';
 debugLog(`Обнаружено сообщение "Текущее время:", начинаем AFK цикл для ${displayName}`);
-sendToTelegram(`⏰ <b>Обнаружен PayDay для ${displayName}</b>\nНачинаем AFK цикл: ${modeText}\nГлавный таймер: 59 минут`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`⏰ <b>Обнаружен PayDay для ${displayName}</b>\nНачинаем AFK цикл: ${modeText}\nГлавный таймер: 59 минут`, false, null);
 startPlayPhase();
 }
 // Функция для автоматического ввода пароля
@@ -1661,7 +1656,7 @@ return;
 if (attempt > autoLoginConfig.maxAttempts) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить автовход после ${autoLoginConfig.maxAttempts} попыток`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 return;
 }
 // Проверяем, открыт ли интерфейс Authorization
@@ -1693,11 +1688,10 @@ if (loginInstance.password.value === autoLoginConfig.password) {
 debugLog(`[${displayName}] Эмуляция нажатия кнопки "Войти"`);
 try {
 loginInstance.onClickEvent("play");
-sendToTelegram(`✅ <b>Автовход выполнен для ${displayName}</b>`, false, null, config.notificationDeleteDelay);
 } catch (err) {
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
 }
 } else {
@@ -1739,7 +1733,7 @@ try {
 window.openInterface("Authorization", JSON.stringify(openParams));
 } catch (err) {
 debugLog(`Ошибка при открытии Authorization: ${err.message}`);
-sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть интерфейс Authorization\n<code>${err.message}</code>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть интерфейс Authorization\n<code>${err.message}</code>`, false, null);
 return;
 }
 // Ожидаем открытия интерфейса
@@ -1754,7 +1748,7 @@ setTimeout(setupAutoLogin, 1000); // Задержка для полной ини
 clearInterval(checkInterval);
 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть Authorization после ${autoLoginConfig.maxAttempts} попыток`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 } else {
 debugLog(`Попытка ${attempts}: Ожидание открытия Authorization`);
 }
@@ -1795,7 +1789,7 @@ function initializeChatMonitor() {
 if (typeof sendChatInput === 'undefined') {
 const errorMsg = '❌ <b>Ошибка</b>\nsendChatInput не найден';
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 return false;
 }
 if (typeof window.playSound === 'undefined') {
@@ -1825,7 +1819,7 @@ const chatRadius = getChatRadius(i);
     if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
         debugLog('Обнаружено сообщение о возобновлении работы сервера!');
         sendChatInput("/q");
-        sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`, false, null, config.notificationDeleteDelay);
+        sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`, false, null);
     }
 if (lowerCaseMessage.includes("зареспавнил вас")) {
 debugLog(`Обнаружен респавн для ${displayName}!`);
@@ -1852,6 +1846,7 @@ createButton("🚶 Движения", `show_movement_${uniqueId}`)
 };
 sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+sendChatInput("/rec 5");
 }
 let factionColor = 'CCFF00'; // По умолчанию
 if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
@@ -1889,7 +1884,7 @@ debugLog('Команда /c отправлена');
 } catch (err) {
 const errorMsg = '❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>';
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 }
 }, config.clearDelay);
 }
@@ -1940,9 +1935,21 @@ debugLog('Обнаружен сбор/строй!');
 sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
 setTimeout(() => {
+if (config.autoReconnectEnabled) {
+sendChatInput("/rec 5");
+autoLoginConfig.enabled = false;
+sendToTelegram(`🔄 <b>Автореконнект: /rec 5 отправлено, автоавторизация отключена на 5 мин (${displayName})</b>`, false, null);
+setTimeout(() => {
+sendChatInput("/rec 5");
+autoLoginConfig.enabled = true;
+initializeAutoLogin(); // Ждем появления Authorization и авторизуемся
+sendToTelegram(`🔄 <b>Автореконнект: второй /rec 5 отправлено, автоавторизация включена (${displayName})</b>`, false, null);
+}, 300000); // 5 минут = 300000 мс
+} else {
 sendChatInput("/q");
 debugLog('Отправлена команда /q');
-sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null);
+}
 }, 30);
 }
 if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -1963,13 +1970,13 @@ if (config.autoReconnectEnabled) {
     debugLog(`Автореконнект после кика администратора для ${displayName}`);
     sendChatInput("/rec 5");
     autoLoginConfig.enabled = false;
-    sendToTelegram(`🔄 <b>Автореконнект: /rec 5 отправлено, автоавторизация отключена на 5 мин (${displayName})</b>`, false, null, config.notificationDeleteDelay);
+    sendToTelegram(`🔄 <b>Автореконнект: /rec 5 отправлено, автоавторизация отключена на 2 мин (${displayName})</b>`, false, null);
     setTimeout(() => {
         sendChatInput("/rec 5");
         autoLoginConfig.enabled = true;
         initializeAutoLogin(); // Ждем появления Authorization и авторизуемся
-        sendToTelegram(`🔄 <b>Автореконнект: второй /rec 5 отправлено, автоавторизация включена (${displayName})</b>`, false, null, config.notificationDeleteDelay);
-    }, 300000); // 5 минут = 300000 мс
+        sendToTelegram(`🔄 <b>Автореконнект: второй /rec 5 отправлено, автоавторизация включена (${displayName})</b>`, false, null);
+    }, 120000); // 2 минуты = 120000 мс
 }
 }
 if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
@@ -1987,7 +1994,7 @@ sendToTelegram(`📍 <b>Обнаружен запрос местоположен
 if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
 debugLog('Обнаружено AFK условие!');
 sendChatInput("/q");
-sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null, config.notificationDeleteDelay);
+sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
 }
 // Проверка сообщений с рации
 if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
@@ -2042,7 +2049,7 @@ clearInterval(intervalId);
 clearInterval(intervalId);
 const errorMsg = `❌ <b>Ошибка</b>\nНе удалось инициализировать после ${config.maxAttempts} попыток`;
 debugLog(errorMsg);
-sendToTelegram(errorMsg, false, null, config.notificationDeleteDelay);
+sendToTelegram(errorMsg, false, null);
 } else {
 debugLog(`Попытка инициализации #${attempts}`);
 }
