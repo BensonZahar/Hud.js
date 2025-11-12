@@ -1961,4 +1961,4 @@ if (!initializeChatMonitor()) {
             debugLog(`Попытка инициализации #${attempts}`);
         }
     }, config.checkInterval);
-}
+} // D
