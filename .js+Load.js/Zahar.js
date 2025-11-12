@@ -895,7 +895,7 @@ sendToTelegram(`🔄 <b>AFK режим активирован для ${displayNa
 continue;
 }
 }
-// Глобальные команды (работают на все аккаунты)
+// Глобальные команды (работают на все аккаунтов)
 if (message === '/p_off') {
 config.paydayNotifications = false;
 sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null);
@@ -967,7 +967,7 @@ const idFormats = [hudId];
 if (hudId.includes('-')) {
 idFormats.push(hudId.replace(/-/g, ''));
 } else if (hudId.length === 3) {
-idFormats.push(`${hudId[0]}-${id[1]}-${id[2]}`);
+idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
 }
 config.afkSettings = {
 id: hudId,
@@ -1205,7 +1205,7 @@ showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
 } else if (message.startsWith(`afk_n_with_pauses_`)) {
 showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
 } else if (message.startsWith(`afk_n_without_pauses_`)) {
-activateAFKWithMode('none', false, chatId, messageId);
+showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'none');
 } else if (message.startsWith(`afk_n_fixed_`)) {
 showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'fixed');
 } else if (message.startsWith(`afk_n_random_`)) {
@@ -1713,13 +1713,13 @@ const timeSinceStart = Date.now() - config.afkCycle.startTime;
 const timeToPayDay = 60 * 60 * 1000 - timeSinceStart;
 const timeToReconnect = timeToPayDay - 60 * 1000; // За минуту до PayDay
 if (config.afkCycle.reconnectEnabled) {
-  // Для режимов с паузами: реконнект за минуту до PayDay
+  autoLoginConfig.enabled = false;
+  sendChatInput("/q");
+  debugLog(`Реконнект: отключен автовход, отправлено /q для ${displayName}`);
   config.afkCycle.mainTimer = setTimeout(() => {
-    autoLoginConfig.enabled = false;
-    sendChatInput("/rec 5");
-    debugLog(`Реконнект: отключен автовход, отправлено /rec 5 для ${displayName}`);
-    // Поскольку скрипт останавливается после disconnect, реконнект не сработает автоматически
-    // Рекомендуется вручную реконнектиться или использовать внешний инструмент
+    autoLoginConfig.enabled = true;
+    initializeAutoLogin();
+    debugLog(`Реконнект: включен автовход, инициализировано для ${displayName}`);
   }, timeToReconnect);
 } else {
   try {
