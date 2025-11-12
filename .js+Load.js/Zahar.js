@@ -1,3 +1,4 @@
+```javascript
 // Для удобства изменения: chatIds и serverTokens вынесены в начало
 const CHAT_IDS = ['-1003040555627']; // 1046461621 - Zahar, 5515408606 = Kolya
 const SERVER_TOKENS = {
@@ -11,11 +12,11 @@ const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
 window.setPlayerSkinId = function(skinId) {
     debugLog(`Перехвачен вызов setPlayerSkinId с Skin ID: ${skinId}`);
-  
+ 
     // Сохраняем Skin ID
     config.accountInfo.skinId = skinId;
     updateFaction(); // Обновляем фракцию при изменении скина
-  
+ 
     // Вызываем оригинал, если он существует
     if (originalSetPlayerSkinId) {
         return originalSetPlayerSkinId.call(this, skinId);
@@ -206,7 +207,8 @@ mainTimer: null,
 mode: 'fixed',
 playHistory: [], // Последние 3 игровые фазы
 pauseHistory: [], // Последние 3 паузы
-statusMessageIds: [] // Массив {chatId, messageId} для редактирования
+statusMessageIds: [], // Массив {chatId, messageId} для редактирования
+totalSalary: 0 // Новое поле для накопленной зарплаты
 },
 nicknameLogged: false
 };
@@ -395,23 +397,21 @@ xhr.send(JSON.stringify(payload));
 // Функция для обновления статуса AFK в одном редактируемом сообщении
 function updateAFKStatus(isNew = false) {
   if (!config.afkCycle.active) return;
-
   const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' :
                    config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' :
                    'без пауз';
-
   let statusText = `🔄 <b>AFK цикл для ${displayName}</b>\nРежим: ${modeText}\nОбщее игровое время: ${Math.floor(config.afkCycle.totalPlayTime / 60000)} мин\n\n`;
-
   statusText += '<b>Последние игровые фазы:</b>\n';
   config.afkCycle.playHistory.slice(-3).forEach((entry, index) => {
     statusText += `${index + 1}. ${entry}\n`;
   });
-
   statusText += '\n<b>Последние паузы:</b>\n';
   config.afkCycle.pauseHistory.slice(-3).forEach((entry, index) => {
     statusText += `${index + 1}. ${entry}\n`;
   });
-
+  if (config.afkCycle.mode === 'none') {
+    statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
+  }
   if (isNew) {
     // Отправляем новое сообщение и сохраняем IDs
     config.afkCycle.statusMessageIds = [];
@@ -1504,6 +1504,8 @@ debugLog(`Зарплата спарсена: ${salaryMatch[1]}`);
 config.lastSalaryInfo = config.lastSalaryInfo || {};
 config.lastSalaryInfo.salary = salaryMatch[1];
 debugLog(`Обнаружена зарплата: ${salaryMatch[1]} руб`);
+config.afkCycle.totalSalary += parseInt(salaryMatch[1]);
+updateAFKStatus(); // Обновляем статус для отображения накопленной зарплаты
 }
 const balanceMatch = msg.match(/Текущий баланс счета: \{[\w]+\}(\d+) руб/);
 if (balanceMatch) {
@@ -1559,6 +1561,13 @@ return false;
 }
 return true;
 }
+function getCurrentTimeString() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
 function startAFKCycle() {
 config.afkCycle.active = true;
 config.afkCycle.startTime = Date.now();
@@ -1566,6 +1575,7 @@ config.afkCycle.totalPlayTime = 0;
 config.afkCycle.playHistory = [];
 config.afkCycle.pauseHistory = [];
 config.afkCycle.statusMessageIds = [];
+config.afkCycle.totalSalary = 0; // Сбрасываем накопленную зарплату при старте цикла
 debugLog(`AFK цикл запущен для ${displayName}`);
 updateAFKStatus(true); // Создаем новое сообщение
 }
@@ -1587,7 +1597,6 @@ config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
   deleteMessage(chatId, messageId);
 });
 config.afkCycle.statusMessageIds = [];
-
 config.afkCycle.active = false;
 debugLog(`AFK цикл остановлен для ${displayName}`);
 sendToTelegram(`⏹️ <b>AFK цикл остановлен для ${displayName}</b>`, false, null);
@@ -1619,7 +1628,8 @@ playDurationMs = Math.floor(Math.random() * (maxPossible - minPossible + 1) + mi
   }
 }
 const durationMin = Math.floor(playDurationMs / 60000);
-config.afkCycle.playHistory.push(`▶️ Игровой режим [${durationMin} мин]`);
+const currentTime = getCurrentTimeString();
+config.afkCycle.playHistory.push(`▶️ Игровой режим [${durationMin} мин] в ${currentTime}`);
 if (config.afkCycle.playHistory.length > 3) {
   config.afkCycle.playHistory.shift(); // Удаляем самую старую (сверху вниз)
 }
@@ -1656,7 +1666,8 @@ const maxMin = 8;
 pauseDurationMs = Math.floor(Math.random() * ((maxMin - minMin) * 60 * 1000 + 1) + minMin * 60 * 1000);
 }
 const durationMin = Math.floor(pauseDurationMs / 60000);
-config.afkCycle.pauseHistory.push(`💤 Режим паузы [${durationMin} мин]`);
+const currentTime = getCurrentTimeString();
+config.afkCycle.pauseHistory.push(`💤 Режим паузы [${durationMin} мин] в ${currentTime}`);
 if (config.afkCycle.pauseHistory.length > 3) {
   config.afkCycle.pauseHistory.shift(); // Удаляем самую старую (сверху вниз)
 }
@@ -1675,7 +1686,8 @@ startPlayPhase();
 }, pauseDurationMs);
 }
 function enterPauseUntilEnd() {
-config.afkCycle.pauseHistory.push(`💤 Пауза до PayDay`);
+const currentTime = getCurrentTimeString();
+config.afkCycle.pauseHistory.push(`💤 Пауза до PayDay (до 59 мин) в ${currentTime}`);
 if (config.afkCycle.pauseHistory.length > 3) {
   config.afkCycle.pauseHistory.shift();
 }
@@ -2137,3 +2149,4 @@ debugLog(`Попытка инициализации #${attempts}`);
 }
 }, config.checkInterval);
 }
+```
