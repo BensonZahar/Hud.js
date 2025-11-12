@@ -1911,7 +1911,7 @@ const chatRadius = getChatRadius(i);
     // Проверка сообщения о возобновлении работы сервера для AFK
     if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
         debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-        sendChatInput("/q");
+        sendChatInput("/rec 300");
         sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`, false, null);
     }
 if (lowerCaseMessage.includes("зареспавнил вас")) {
