@@ -11,11 +11,11 @@ const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
 window.setPlayerSkinId = function(skinId) {
     debugLog(`Перехвачен вызов setPlayerSkinId с Skin ID: ${skinId}`);
-   
+  
     // Сохраняем Skin ID
     config.accountInfo.skinId = skinId;
     updateFaction(); // Обновляем фракцию при изменении скина
-   
+  
     // Вызываем оригинал, если он существует
     if (originalSetPlayerSkinId) {
         return originalSetPlayerSkinId.call(this, skinId);
@@ -203,7 +203,10 @@ cycleTimer: null,
 playTimer: null,
 pauseTimer: null,
 mainTimer: null,
-mode: 'fixed'
+mode: 'fixed',
+playHistory: [], // Последние 3 игровые фазы
+pauseHistory: [], // Последние 3 паузы
+statusMessageIds: [] // Массив {chatId, messageId} для редактирования
 },
 nicknameLogged: false
 };
@@ -388,6 +391,56 @@ debugLog(`Ошибка сети при отправке в чат ${chatId}`);
 };
 xhr.send(JSON.stringify(payload));
 });
+}
+// Функция для обновления статуса AFK в одном редактируемом сообщении
+function updateAFKStatus(isNew = false) {
+  if (!config.afkCycle.active) return;
+
+  const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' :
+                   config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' :
+                   'без пауз';
+
+  let statusText = `🔄 <b>AFK цикл для ${displayName}</b>\nРежим: ${modeText}\nОбщее игровое время: ${Math.floor(config.afkCycle.totalPlayTime / 60000)} мин\n\n`;
+
+  statusText += '<b>Последние игровые фазы:</b>\n';
+  config.afkCycle.playHistory.slice(-3).forEach((entry, index) => {
+    statusText += `${index + 1}. ${entry}\n`;
+  });
+
+  statusText += '\n<b>Последние паузы:</b>\n';
+  config.afkCycle.pauseHistory.slice(-3).forEach((entry, index) => {
+    statusText += `${index + 1}. ${entry}\n`;
+  });
+
+  if (isNew) {
+    // Отправляем новое сообщение и сохраняем IDs
+    config.afkCycle.statusMessageIds = [];
+    config.chatIds.forEach(chatId => {
+      const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+      const payload = {
+        chat_id: chatId,
+        text: statusText,
+        parse_mode: 'HTML'
+      };
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          const data = JSON.parse(xhr.responseText);
+          const messageId = data.result.message_id;
+          config.afkCycle.statusMessageIds.push({ chatId, messageId });
+          debugLog(`Новое AFK статус-сообщение отправлено в чат ${chatId}: ID ${messageId}`);
+        }
+      };
+      xhr.send(JSON.stringify(payload));
+    });
+  } else {
+    // Редактируем существующие сообщения
+    config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
+      editMessageText(chatId, messageId, statusText);
+    });
+  }
 }
 function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
 const url = `https://api.telegram.org/bot${config.botToken}/editMessageReplyMarkup`;
@@ -1510,8 +1563,11 @@ function startAFKCycle() {
 config.afkCycle.active = true;
 config.afkCycle.startTime = Date.now();
 config.afkCycle.totalPlayTime = 0;
+config.afkCycle.playHistory = [];
+config.afkCycle.pauseHistory = [];
+config.afkCycle.statusMessageIds = [];
 debugLog(`AFK цикл запущен для ${displayName}`);
-sendToTelegram(`🔄 <b>AFK цикл запущен для ${displayName}</b>\nОжидание PayDay сообщения "Текущее время:"`, false, null);
+updateAFKStatus(true); // Создаем новое сообщение
 }
 function stopAFKCycle() {
 if (config.afkCycle.cycleTimer) {
@@ -1526,6 +1582,12 @@ clearTimeout(config.afkCycle.pauseTimer);
 if (config.afkCycle.mainTimer) {
 clearTimeout(config.afkCycle.mainTimer);
 }
+// Удаляем статус-сообщения
+config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
+  deleteMessage(chatId, messageId);
+});
+config.afkCycle.statusMessageIds = [];
+
 config.afkCycle.active = false;
 debugLog(`AFK цикл остановлен для ${displayName}`);
 sendToTelegram(`⏹️ <b>AFK цикл остановлен для ${displayName}</b>`, false, null);
@@ -1533,15 +1595,6 @@ sendToTelegram(`⏹️ <b>AFK цикл остановлен для ${displayName
 function startPlayPhase() {
 if (!config.afkCycle.active) return;
 debugLog(`Начинаем игровую фазу для ${displayName}`);
-sendToTelegram(`▶️ Игровая фаза начата для ${displayName}`, false, null);
-try {
-if (typeof closeInterface === 'function') {
-closeInterface("PauseMenu");
-debugLog(`Выход из паузы для ${displayName}`);
-}
-} catch (e) {
-debugLog(`Ошибка при выходе из паузы: ${e.message}`);
-}
 config.afkCycle.currentPlayTime = 0;
 let playDurationMs;
 if (config.afkCycle.mode === 'fixed') {
@@ -1557,15 +1610,35 @@ return;
 const maxPossible = Math.min(maxMin * 60 * 1000, remainingPlay);
 const minPossible = Math.min(minMin * 60 * 1000, maxPossible);
 playDurationMs = Math.floor(Math.random() * (maxPossible - minPossible + 1) + minPossible);
+} else {
+  // Без пауз: играем до 25 мин
+  playDurationMs = 25 * 60 * 1000 - config.afkCycle.totalPlayTime;
+  if (playDurationMs <= 0) {
+    enterPauseUntilEnd();
+    return;
+  }
 }
-debugLog(`Игровая фаза: ${playDurationMs / 60000} минут`);
+const durationMin = Math.floor(playDurationMs / 60000);
+config.afkCycle.playHistory.push(`▶️ Игровой режим [${durationMin} мин]`);
+if (config.afkCycle.playHistory.length > 3) {
+  config.afkCycle.playHistory.shift(); // Удаляем самую старую (сверху вниз)
+}
+updateAFKStatus(); // Обновляем статус-сообщение
+try {
+if (typeof closeInterface === 'function') {
+closeInterface("PauseMenu");
+debugLog(`Выход из паузы для ${displayName}`);
+}
+} catch (e) {
+debugLog(`Ошибка при выходе из паузы: ${e.message}`);
+}
+debugLog(`Игровая фаза: ${durationMin} минут`);
 config.afkCycle.playTimer = setTimeout(() => {
 config.afkCycle.totalPlayTime += playDurationMs;
-if (config.afkCycle.totalPlayTime < 25 * 60 * 1000) {
+if (config.afkCycle.totalPlayTime < 25 * 60 * 1000 && config.afkCycle.mode !== 'none') {
 startPausePhase();
 } else {
 debugLog(`Отыграно 25 минут, ставим на паузу до следующего PayDay для ${displayName}`);
-sendToTelegram(`💤 <b>Отыграно 25 минут для ${displayName}</b>\nСтавим на паузу до следующего PayDay`, false, null);
 enterPauseUntilEnd();
 }
 }, playDurationMs);
@@ -1573,14 +1646,6 @@ enterPauseUntilEnd();
 function startPausePhase() {
 if (!config.afkCycle.active) return;
 debugLog(`Начинаем фазу паузы для ${displayName}`);
-try {
-if (typeof openInterface === 'function') {
-openInterface("PauseMenu");
-debugLog(`Вход в паузу для ${displayName}`);
-}
-} catch (e) {
-debugLog(`Ошибка при входе в паузу: ${e.message}`);
-}
 config.afkCycle.currentPauseTime = 0;
 let pauseDurationMs;
 if (config.afkCycle.mode === 'fixed') {
@@ -1590,12 +1655,31 @@ const minMin = 2;
 const maxMin = 8;
 pauseDurationMs = Math.floor(Math.random() * ((maxMin - minMin) * 60 * 1000 + 1) + minMin * 60 * 1000);
 }
-debugLog(`Пауза: ${pauseDurationMs / 60000} минут`);
+const durationMin = Math.floor(pauseDurationMs / 60000);
+config.afkCycle.pauseHistory.push(`💤 Режим паузы [${durationMin} мин]`);
+if (config.afkCycle.pauseHistory.length > 3) {
+  config.afkCycle.pauseHistory.shift(); // Удаляем самую старую (сверху вниз)
+}
+updateAFKStatus(); // Обновляем статус-сообщение
+try {
+if (typeof openInterface === 'function') {
+openInterface("PauseMenu");
+debugLog(`Вход в паузу для ${displayName}`);
+}
+} catch (e) {
+debugLog(`Ошибка при входе в паузу: ${e.message}`);
+}
+debugLog(`Пауза: ${durationMin} минут`);
 config.afkCycle.pauseTimer = setTimeout(() => {
 startPlayPhase();
 }, pauseDurationMs);
 }
 function enterPauseUntilEnd() {
+config.afkCycle.pauseHistory.push(`💤 Пауза до PayDay`);
+if (config.afkCycle.pauseHistory.length > 3) {
+  config.afkCycle.pauseHistory.shift();
+}
+updateAFKStatus(); // Обновляем статус-сообщение
 try {
 if (typeof openInterface === 'function') {
 openInterface("PauseMenu");
@@ -1627,7 +1711,6 @@ try {
 if (typeof closeInterface === 'function') {
 closeInterface("PauseMenu");
 debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
-sendToTelegram(`▶️ <b>Выход из паузы перед следующим PayDay для ${displayName}</b>`, false, null);
 }
 } catch (e) {
 debugLog(`Ошибка при выходе из паузы: ${e.message}`);
@@ -1635,7 +1718,6 @@ debugLog(`Ошибка при выходе из паузы: ${e.message}`);
 if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
 if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
 debugLog(`Готов к следующему PayDay для ${displayName}`);
-sendToTelegram(`⏰ <b>Готов к следующему PayDay для ${displayName}</b>\nОжидание сообщения "Текущее время:"`, false, null);
 }, mainTimerDuration);
 if (!config.afkCycle.active) {
 startAFKCycle();
@@ -1644,7 +1726,7 @@ config.afkCycle.startTime = Date.now();
 config.afkCycle.totalPlayTime = 0;
 const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' : 'рандомное время игры/паузы';
 debugLog(`Обнаружено сообщение "Текущее время:", начинаем AFK цикл для ${displayName}`);
-sendToTelegram(`⏰ <b>Обнаружен PayDay для ${displayName}</b>\nНачинаем AFK цикл: ${modeText}\nГлавный таймер: 59 минут`, false, null);
+updateAFKStatus(); // Обновляем с начальным статусом
 startPlayPhase();
 }
 // Функция для автоматического ввода пароля
