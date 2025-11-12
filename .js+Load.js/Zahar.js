@@ -202,6 +202,9 @@ cycleTimer: null,
 playTimer: null,
 pauseTimer: null,
 mainTimer: null,
+updateTimer: null,
+phaseType: null,
+phaseStart: null,
 mode: 'fixed',
 playHistory: [], // Последние 3 игровые фазы
 pauseHistory: [], // Последние 3 паузы
@@ -405,10 +408,15 @@ function getAFKStatusText() {
                    config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' :
                    'без пауз';
   let reconnectText = '';
-  if (config.autoReconnectEnabled && config.afkCycle.mode !== 'none') {
+  if (config.autoReconnectEnabled) {
     reconnectText = `\nРеконнект: ${config.afkCycle.reconnectEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
   }
-  let statusText = `\n\n🔄 <b>AFK цикл для ${displayName}</b>\nРежим: ${modeText}${reconnectText}\nОбщее игровое время: ${Math.floor(config.afkCycle.totalPlayTime / 60000)} мин\n\n`;
+  let extraTime = 0;
+  if (config.afkCycle.phaseType === 'play' && config.afkCycle.phaseStart) {
+    extraTime = Date.now() - config.afkCycle.phaseStart;
+  }
+  const totalMin = Math.floor((config.afkCycle.totalPlayTime + extraTime) / 60000);
+  let statusText = `\n\n🔄 <b>AFK цикл для ${displayName}</b>\nРежим: ${modeText}${reconnectText}\nОбщее игровое время: ${totalMin} мин\n\n`;
   statusText += '<b>Последние игровые фазы:</b>\n';
   config.afkCycle.playHistory.slice(-3).forEach((entry, index) => {
     statusText += `${index + 1}. ${entry}\n`;
@@ -1618,6 +1626,9 @@ config.afkCycle.playHistory = [];
 config.afkCycle.pauseHistory = [];
 config.afkCycle.statusMessageIds = [];
 config.afkCycle.totalSalary = 0; // Сбрасываем накопленную зарплату при старте цикла
+config.afkCycle.phaseType = null;
+config.afkCycle.phaseStart = null;
+config.afkCycle.updateTimer = setInterval(updateAFKStatus, 60000); // Каждую минуту обновляем статус
 debugLog(`AFK цикл запущен для ${displayName}`);
 updateAFKStatus(true); // Создаем новое сообщение
 }
@@ -1634,6 +1645,9 @@ clearTimeout(config.afkCycle.pauseTimer);
 if (config.afkCycle.mainTimer) {
 clearTimeout(config.afkCycle.mainTimer);
 }
+if (config.afkCycle.updateTimer) {
+clearInterval(config.afkCycle.updateTimer);
+}
 // Удаляем статус-сообщения
 config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
   deleteMessage(chatId, messageId);
@@ -1647,13 +1661,17 @@ function startPlayPhase() {
 if (!config.afkCycle.active) return;
 debugLog(`Начинаем игровую фазу для ${displayName}`);
 config.afkCycle.currentPlayTime = 0;
+config.afkCycle.phaseType = 'play';
+config.afkCycle.phaseStart = Date.now();
 let playDurationMs;
+const PLAY_REQUIRED_MIN = (config.afkCycle.mode === 'none' ? 2 : 25); // Для теста без пауз 2 мин, иначе 25
+const PLAY_REQUIRED_MS = PLAY_REQUIRED_MIN * 60 * 1000;
 if (config.afkCycle.mode === 'fixed') {
 playDurationMs = 5 * 60 * 1000;
 } else if (config.afkCycle.mode === 'random') {
 const minMin = 2;
 const maxMin = 8;
-const remainingPlay = 25 * 60 * 1000 - config.afkCycle.totalPlayTime;
+const remainingPlay = PLAY_REQUIRED_MS - config.afkCycle.totalPlayTime;
 if (remainingPlay <= 0) {
 enterPauseUntilEnd();
 return;
@@ -1662,8 +1680,8 @@ const maxPossible = Math.min(maxMin * 60 * 1000, remainingPlay);
 const minPossible = Math.min(minMin * 60 * 1000, maxPossible);
 playDurationMs = Math.floor(Math.random() * (maxPossible - minPossible + 1) + minPossible);
 } else {
-  // Без пауз: играем до 25 мин
-  playDurationMs = 25 * 60 * 1000 - config.afkCycle.totalPlayTime;
+  // Без пауз: играем до PLAY_REQUIRED_MIN мин
+  playDurationMs = PLAY_REQUIRED_MS - config.afkCycle.totalPlayTime;
   if (playDurationMs <= 0) {
     enterPauseUntilEnd();
     return;
@@ -1687,10 +1705,10 @@ debugLog(`Ошибка при выходе из паузы: ${e.message}`);
 debugLog(`Игровая фаза: ${durationMin} минут`);
 config.afkCycle.playTimer = setTimeout(() => {
 config.afkCycle.totalPlayTime += playDurationMs;
-if (config.afkCycle.totalPlayTime < 25 * 60 * 1000 && config.afkCycle.mode !== 'none') {
+if (config.afkCycle.totalPlayTime < PLAY_REQUIRED_MS && config.afkCycle.mode !== 'none') {
 startPausePhase();
 } else {
-debugLog(`Отыграно 25 минут, ставим на паузу до следующего PayDay для ${displayName}`);
+debugLog(`Отыграно ${PLAY_REQUIRED_MIN} минут, ставим на паузу до следующего PayDay для ${displayName}`);
 enterPauseUntilEnd();
 }
 }, playDurationMs);
@@ -1699,6 +1717,8 @@ function startPausePhase() {
 if (!config.afkCycle.active) return;
 debugLog(`Начинаем фазу паузы для ${displayName}`);
 config.afkCycle.currentPauseTime = 0;
+config.afkCycle.phaseType = 'pause';
+config.afkCycle.phaseStart = Date.now();
 let pauseDurationMs;
 if (config.afkCycle.mode === 'fixed') {
 pauseDurationMs = 5 * 60 * 1000;
