@@ -1510,7 +1510,7 @@ function activateAFKNight(mode, reconnectEnabled = false, restartBehavior = 'q')
   const idFormats = [hudId];
   if (hudId.includes('-')) {
     idFormats.push(hudId.replace(/-/g, ''));
-  } else if (hudId.length === 3) {
+  } else if (id.length === 3) {
     idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
   }
   config.afkSettings = { id: hudId, formats: idFormats, active: true };
@@ -1641,9 +1641,8 @@ function enterPauseUntilEnd() {
 }
 
 function handlePayDayTimeMessage() {
-  if (!config.afkSettings.active || config.afkCycle.mode === 'none' && !config.afkCycle.reconnectEnabled) {
-    return;
-  }
+  if (!config.afkSettings.active) return;
+  if (config.afkCycle.mode === 'none' && !config.afkCycle.reconnectEnabled) return;
   if (config.afkCycle.cycleTimer) {
     clearTimeout(config.afkCycle.cycleTimer);
   }
