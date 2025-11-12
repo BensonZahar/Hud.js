@@ -26,7 +26,8 @@ const globalState = {
 awaitingAfkAccount: false,
 awaitingAfkId: false,
 afkTargetAccount: null,
-lastWelcomeMessageId: null // Для хранения ID последнего приветственного сообщения
+lastWelcomeMessageId: null, // Для хранения ID последнего приветственного сообщения
+lastPaydayMessageIds: [] // Для хранения ID сообщений PayDay для редактирования
 };
 // Определяем радиусы чата
 const CHAT_RADIUS = {
@@ -207,7 +208,8 @@ mode: 'fixed',
 playHistory: [], // Последние 3 игровые фазы
 pauseHistory: [], // Последние 3 паузы
 statusMessageIds: [], // Массив {chatId, messageId} для редактирования
-totalSalary: 0 // Новое поле для накопленной зарплаты
+totalSalary: 0, // Новое поле для накопленной зарплаты
+reconnectEnabled: false // Новый флаг для реконнекта в AFK
 },
 nicknameLogged: false
 };
@@ -383,6 +385,10 @@ const messageId = data.result.message_id;
 if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
 globalState.lastWelcomeMessageId = messageId;
 }
+// Сохраняем ID PayDay сообщения
+if (message.includes('+ PayDay |')) {
+globalState.lastPaydayMessageIds.push({ chatId, messageId });
+}
 } else {
 debugLog(`Ошибка Telegram API для чата ${chatId}:`, xhr.status, xhr.responseText);
 }
@@ -394,12 +400,16 @@ xhr.send(JSON.stringify(payload));
 });
 }
 // Функция для обновления статуса AFK в одном редактируемом сообщении
-function updateAFKStatus(isNew = false) {
-  if (!config.afkCycle.active) return;
+function getAFKStatusText() {
+  if (!config.afkCycle.active) return '';
   const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' :
                    config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' :
                    'без пауз';
-  let statusText = `🔄 <b>AFK цикл для ${displayName}</b>\nРежим: ${modeText}\nОбщее игровое время: ${Math.floor(config.afkCycle.totalPlayTime / 60000)} мин\n\n`;
+  let reconnectText = '';
+  if (config.autoReconnectEnabled && config.afkCycle.mode !== 'none') {
+    reconnectText = `\nРеконнект: ${config.afkCycle.reconnectEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
+  }
+  let statusText = `\n\n🔄 <b>AFK цикл для ${displayName}</b>\nРежим: ${modeText}${reconnectText}\nОбщее игровое время: ${Math.floor(config.afkCycle.totalPlayTime / 60000)} мин\n\n`;
   statusText += '<b>Последние игровые фазы:</b>\n';
   config.afkCycle.playHistory.slice(-3).forEach((entry, index) => {
     statusText += `${index + 1}. ${entry}\n`;
@@ -411,6 +421,12 @@ function updateAFKStatus(isNew = false) {
   if (config.afkCycle.mode === 'none') {
     statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
   }
+  return statusText;
+}
+function updateAFKStatus(isNew = false) {
+  if (!config.afkCycle.active) return;
+  const statusText = getAFKStatusText().replace(/^\n\n/, '');
+  const fullText = `🔄 <b>AFK цикл для ${displayName}</b>${statusText}`;
   if (isNew) {
     // Отправляем новое сообщение и сохраняем IDs
     config.afkCycle.statusMessageIds = [];
@@ -418,7 +434,7 @@ function updateAFKStatus(isNew = false) {
       const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
       const payload = {
         chat_id: chatId,
-        text: statusText,
+        text: fullText,
         parse_mode: 'HTML'
       };
       const xhr = new XMLHttpRequest();
@@ -437,7 +453,7 @@ function updateAFKStatus(isNew = false) {
   } else {
     // Редактируем существующие сообщения
     config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
-      editMessageText(chatId, messageId, statusText);
+      editMessageText(chatId, messageId, fullText);
     });
   }
 }
@@ -635,6 +651,23 @@ createButton("5/5 минут", `afk_n_fixed_${uniqueIdParam}`),
 createButton("Рандомное время", `afk_n_random_${uniqueIdParam}`)
 ],
 [createButton("⬅️ Вернуться назад", `global_afk_n_${uniqueIdParam}`)]
+]
+};
+editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+function showAFKReconnectMenu(chatId, messageId, uniqueIdParam, selectedMode) {
+if (!config.autoReconnectEnabled) {
+  // Если реконнект отключен, сразу активируем с reconnectEnabled = false
+  activateAFKWithMode(selectedMode, false, chatId, messageId);
+  return;
+}
+const replyMarkup = {
+inline_keyboard: [
+[
+createButton("Реконнект 🟢", `afk_n_reconnect_on_${uniqueIdParam}_${selectedMode}`),
+createButton("Реконнект 🔴", `afk_n_reconnect_off_${uniqueIdParam}_${selectedMode}`)
+],
+[createButton("⬅️ Вернуться назад", `afk_n_with_pauses_${uniqueIdParam}`)]
 ]
 };
 editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -1078,6 +1111,16 @@ callbackUniqueId = message.replace('show_radio_options_', '');
 callbackUniqueId = message.replace('show_warning_options_', '');
 } else if (message.startsWith('show_global_functions_')) {
 callbackUniqueId = message.replace('show_global_functions_', '');
+} else if (message.startsWith('afk_n_reconnect_on_')) {
+const parts = message.split('_');
+callbackUniqueId = parts[parts.length - 2];
+const selectedMode = parts[parts.length - 1];
+activateAFKWithMode(selectedMode, true, chatId, messageId);
+} else if (message.startsWith('afk_n_reconnect_off_')) {
+const parts = message.split('_');
+callbackUniqueId = parts[parts.length - 2];
+const selectedMode = parts[parts.length - 1];
+activateAFKWithMode(selectedMode, false, chatId, messageId);
 }
 // Проверяем, является ли команда локальной (только для текущего аккаунта)
 const isForThisBot = isGlobalCommand ||
@@ -1165,76 +1208,11 @@ showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
 } else if (message.startsWith(`afk_n_with_pauses_`)) {
 showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
 } else if (message.startsWith(`afk_n_without_pauses_`)) {
-if (config.afkSettings.active) {
-sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null);
-} else {
-const hudId = getPlayerIdFromHUD();
-if (!hudId) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null);
-} else {
-const idFormats = [hudId];
-if (hudId.includes('-')) {
-idFormats.push(hudId.replace(/-/g, ''));
-} else if (hudId.length === 3) {
-idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-}
-config.afkSettings = {
-id: hudId,
-formats: idFormats,
-active: true
-};
-config.afkCycle.mode = 'none';
-sendToTelegram(`🔄 <b>AFK режим (без пауз) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null);
-}
-}
+activateAFKWithMode('none', false, chatId, messageId);
 } else if (message.startsWith(`afk_n_fixed_`)) {
-if (config.afkSettings.active) {
-sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null);
-} else {
-const hudId = getPlayerIdFromHUD();
-if (!hudId) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null);
-} else {
-const idFormats = [hudId];
-if (hudId.includes('-')) {
-idFormats.push(hudId.replace(/-/g, ''));
-} else if (hudId.length === 3) {
-idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-}
-config.afkSettings = {
-id: hudId,
-formats: idFormats,
-active: true
-};
-config.afkCycle.mode = 'fixed';
-startAFKCycle();
-sendToTelegram(`🔄 <b>AFK режим (с паузами 5/5) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null);
-}
-}
+showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'fixed');
 } else if (message.startsWith(`afk_n_random_`)) {
-if (config.afkSettings.active) {
-sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null);
-} else {
-const hudId = getPlayerIdFromHUD();
-if (!hudId) {
-sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null);
-} else {
-const idFormats = [hudId];
-if (hudId.includes('-')) {
-idFormats.push(hudId.replace(/-/g, ''));
-} else if (hudId.length === 3) {
-idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-}
-config.afkSettings = {
-id: hudId,
-formats: idFormats,
-active: true
-};
-config.afkCycle.mode = 'random';
-startAFKCycle();
-sendToTelegram(`🔄 <b>AFK режим (с рандомными паузами) активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null);
-}
-}
+showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'random');
 } else if (message.startsWith(`global_afk_`)) {
 if (!globalState.awaitingAfkAccount) {
 globalState.awaitingAfkAccount = true;
@@ -1514,7 +1492,20 @@ config.lastSalaryInfo.balance = balanceMatch[1];
 debugLog(`Обнаружен баланс счета: ${balanceMatch[1]} руб`);
 }
 if (config.lastSalaryInfo && config.lastSalaryInfo.salary && config.lastSalaryInfo.balance) {
-const message = `+ PayDay | ${displayName}:\nЗарплата: ${config.lastSalaryInfo.salary} руб\nБаланс счета: ${config.lastSalaryInfo.balance} руб`;
+let message = `+ PayDay | ${displayName}:\nЗарплата: ${config.lastSalaryInfo.salary} руб\nБаланс счета: ${config.lastSalaryInfo.balance} руб`;
+if (config.afkCycle.active) {
+  message += getAFKStatusText();
+  // Удаляем оригинальные статус-сообщения AFK
+  config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
+    deleteMessage(chatId, messageId);
+  });
+  config.afkCycle.statusMessageIds = [];
+  // Удаляем предыдущие PayDay сообщения, если есть
+  globalState.lastPaydayMessageIds.forEach(({ chatId, messageId }) => {
+    deleteMessage(chatId, messageId);
+  });
+  globalState.lastPaydayMessageIds = [];
+}
 sendToTelegram(message);
 config.lastSalaryInfo = null;
 }
@@ -1566,6 +1557,34 @@ function getCurrentTimeString() {
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const seconds = String(now.getSeconds()).padStart(2, '0');
   return `${hours}:${minutes}:${seconds}`;
+}
+function activateAFKWithMode(mode, reconnect, chatId, messageId) {
+  if (config.afkSettings.active) {
+    sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null);
+    return;
+  }
+  const hudId = getPlayerIdFromHUD();
+  if (!hudId) {
+    sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> Не удалось получить ID из HUD`, false, null);
+    return;
+  }
+  const idFormats = [hudId];
+  if (hudId.includes('-')) {
+    idFormats.push(hudId.replace(/-/g, ''));
+  } else if (hudId.length === 3) {
+    idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+  }
+  config.afkSettings = {
+    id: hudId,
+    formats: idFormats,
+    active: true
+  };
+  config.afkCycle.mode = mode;
+  config.afkCycle.reconnectEnabled = reconnect;
+  startAFKCycle();
+  sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null);
+  // Возвращаемся в главное меню или скрываем кнопки
+  showGlobalFunctionsMenu(chatId, messageId, uniqueId);
 }
 function startAFKCycle() {
 config.afkCycle.active = true;
@@ -1691,13 +1710,19 @@ if (config.afkCycle.pauseHistory.length > 3) {
   config.afkCycle.pauseHistory.shift();
 }
 updateAFKStatus(); // Обновляем статус-сообщение
-try {
-if (typeof openInterface === 'function') {
-openInterface("PauseMenu");
-debugLog(`Вход в паузу до конца для ${displayName}`);
-}
-} catch (e) {
-debugLog(`Ошибка при входе в паузу до конца: ${e.message}`);
+if (config.afkCycle.reconnectEnabled) {
+  autoLoginConfig.enabled = false;
+  sendChatInput("/rec 5");
+  debugLog(`Реконнект: отключен автовход, отправлено /rec 5 для ${displayName}`);
+} else {
+  try {
+    if (typeof openInterface === 'function') {
+      openInterface("PauseMenu");
+      debugLog(`Вход в паузу до конца для ${displayName}`);
+    }
+  } catch (e) {
+    debugLog(`Ошибка при входе в паузу до конца: ${e.message}`);
+  }
 }
 }
 function handlePayDayTimeMessage() {
@@ -1718,13 +1743,22 @@ clearTimeout(config.afkCycle.mainTimer);
 }
 const mainTimerDuration = 59 * 60 * 1000;
 config.afkCycle.mainTimer = setTimeout(() => {
-try {
-if (typeof closeInterface === 'function') {
-closeInterface("PauseMenu");
-debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
-}
-} catch (e) {
-debugLog(`Ошибка при выходе из паузы: ${e.message}`);
+if (config.afkCycle.reconnectEnabled) {
+  autoLoginConfig.enabled = true;
+  initializeAutoLogin();
+  setTimeout(() => {
+    sendChatInput("/rec 5");
+  }, 5000); // Задержка для входа в игру
+  debugLog(`Реконнект: включен автовход, отправлено /rec 5 для ${displayName}`);
+} else {
+  try {
+    if (typeof closeInterface === 'function') {
+      closeInterface("PauseMenu");
+      debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
+    }
+  } catch (e) {
+    debugLog(`Ошибка при выходе из паузы: ${e.message}`);
+  }
 }
 if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
 if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
@@ -1912,7 +1946,16 @@ const chatRadius = getChatRadius(i);
     if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
         debugLog('Обнаружено сообщение о возобновлении работы сервера!');
         sendChatInput("/q");
-        sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`, false, null);
+        let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+        if (config.afkCycle.active) {
+          restartMessage += getAFKStatusText();
+          // Удаляем оригинальные статус-сообщения AFK
+          config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
+            deleteMessage(chatId, messageId);
+          });
+          config.afkCycle.statusMessageIds = [];
+        }
+        sendToTelegram(restartMessage, false, null);
     }
 if (lowerCaseMessage.includes("зареспавнил вас")) {
 debugLog(`Обнаружен респавн для ${displayName}!`);
@@ -1924,7 +1967,7 @@ createButton("🚶 Движения", `show_movement_${uniqueId}`)
 ]
 ]
 };
-sendToTelegram(`🔄 <b>Вас зареспавнили! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+sendToTelegram(`🔄 <b>Вас зареспавнили!! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
 }
 if (lowerCaseMessage.includes("вы были кикнуты по подозрению в читерстве")) {
