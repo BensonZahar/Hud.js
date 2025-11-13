@@ -207,7 +207,8 @@ playHistory: [], // Последние 3 игровые фазы
 pauseHistory: [], // Последние 3 паузы
 statusMessageIds: [], // Массив {chatId, messageId} для редактирования
 totalSalary: 0, // Новое поле для накопленной зарплаты
-reconnectEnabled: false // Новый флаг для реконнекта в AFK
+reconnectEnabled: false, // Новый флаг для реконнекта в AFK
+restartType: 'q' // Новый флаг для типа рестарта: 'q' или 'rec5'
 },
 nicknameLogged: false
 };
@@ -668,6 +669,18 @@ createButton("Реконнект 🔴", `afk_n_reconnect_off_${uniqueIdParam}_${
 };
 editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
+function showAFKRestartMenu(chatId, messageId, uniqueIdParam, selectedMode) {
+const replyMarkup = {
+inline_keyboard: [
+[
+createButton("/q", `afk_n_restart_q_${uniqueIdParam}_${selectedMode}`),
+createButton("/rec 5 double", `afk_n_restart_rec5_${uniqueIdParam}_${selectedMode}`)
+],
+[createButton("⬅️ Вернуться назад", `afk_n_reconnect_on_${uniqueIdParam}_${selectedMode}`)]
+]
+};
+editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
 function showLocalFunctionsMenu(chatId, messageId) {
 if (!config.accountInfo.nickname) {
 sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
@@ -1111,20 +1124,24 @@ callbackUniqueId = message.replace('show_global_functions_', '');
 const parts = message.split('_');
 callbackUniqueId = parts[parts.length - 2];
 const selectedMode = parts[parts.length - 1];
-activateAFKWithMode(selectedMode, true, chatId, messageId);
+showAFKRestartMenu(chatId, messageId, callbackUniqueId, selectedMode);
 } else if (message.startsWith('afk_n_reconnect_off_')) {
 const parts = message.split('_');
 callbackUniqueId = parts[parts.length - 2];
 const selectedMode = parts[parts.length - 1];
 activateAFKWithMode(selectedMode, false, chatId, messageId);
-} else if (message.startsWith('server_restart_q_')) {
-callbackUniqueId = message.replace('server_restart_q_', '');
-sendChatInput("/q");
-editMessageText(chatId, messageId, `⚡ <b>Отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`);
-} else if (message.startsWith('server_restart_rec300_')) {
-callbackUniqueId = message.replace('server_restart_rec300_', '');
-sendChatInput("/rec 300");
-editMessageText(chatId, messageId, `⚡ <b>Отправлено /rec 300 (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`);
+} else if (message.startsWith('afk_n_restart_q_')) {
+const parts = message.split('_');
+callbackUniqueId = parts[parts.length - 2];
+const selectedMode = parts[parts.length - 1];
+config.afkCycle.restartType = 'q';
+activateAFKWithMode(selectedMode, true, chatId, messageId);
+} else if (message.startsWith('afk_n_restart_rec5_')) {
+const parts = message.split('_');
+callbackUniqueId = parts[parts.length - 2];
+const selectedMode = parts[parts.length - 1];
+config.afkCycle.restartType = 'rec5';
+activateAFKWithMode(selectedMode, true, chatId, messageId);
 }
 // Проверяем, является ли команда локальной (только для текущего аккаунта)
 const isForThisBot = isGlobalCommand ||
@@ -1955,24 +1972,53 @@ const chatRadius = getChatRadius(i);
     // Проверка сообщения о возобновлении работы сервера для AFK
     if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
         debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-        const replyMarkup = {
-          inline_keyboard: [
-            [
-              createButton("/q", `server_restart_q_${uniqueId}`),
-              createButton("/rec 300", `server_restart_rec300_${uniqueId}`)
-            ]
-          ]
-        };
-        let restartMessage = `⚡ <b>Обнаружено возобновление работы сервера (${displayName})</b>\nВыберите действие:`;
-        if (config.afkCycle.active) {
-          restartMessage += getAFKStatusText();
-          // Удаляем оригинальные статус-сообщения AFK
-          config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
-            deleteMessage(chatId, messageId);
-          });
-          config.afkCycle.statusMessageIds = [];
+        if (config.afkCycle.reconnectEnabled) {
+          if (config.afkCycle.restartType === 'rec5') {
+            autoLoginConfig.enabled = false;
+            sendChatInput("/rec 5");
+            setTimeout(() => {
+              autoLoginConfig.enabled = true;
+              initializeAutoLogin();
+              setTimeout(() => {
+                sendChatInput("/rec 5");
+              }, 5000);
+            }, 300000); // 5 мин
+            let restartMessage = `⚡ <b>Автоматически начат double /rec 5 (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+            if (config.afkCycle.active) {
+              restartMessage += getAFKStatusText();
+              // Удаляем оригинальные статус-сообщения AFK
+              config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
+                deleteMessage(chatId, messageId);
+              });
+              config.afkCycle.statusMessageIds = [];
+            }
+            sendToTelegram(restartMessage, false, null);
+          } else {
+            sendChatInput("/q");
+            let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+            if (config.afkCycle.active) {
+              restartMessage += getAFKStatusText();
+              // Удаляем оригинальные статус-сообщения AFK
+              config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
+                deleteMessage(chatId, messageId);
+              });
+              config.afkCycle.statusMessageIds = [];
+            }
+            sendToTelegram(restartMessage, false, null);
+          }
+        } else {
+          sendChatInput("/q");
+          let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+          if (config.afkCycle.active) {
+            restartMessage += getAFKStatusText();
+            // Удаляем оригинальные статус-сообщения AFK
+            config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
+              deleteMessage(chatId, messageId);
+            });
+            config.afkCycle.statusMessageIds = [];
+          }
+          sendToTelegram(restartMessage, false, null);
         }
-        sendToTelegram(restartMessage, false, replyMarkup);
     }
 if (lowerCaseMessage.includes("зареспавнил вас")) {
 debugLog(`Обнаружен респавн для ${displayName}!`);
