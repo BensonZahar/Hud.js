@@ -416,7 +416,9 @@ function getAFKStatusText() {
   config.afkCycle.pauseHistory.slice(-3).forEach((entry, index) => {
     statusText += `${index + 1}. ${entry}\n`;
   });
-  statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
+  if (config.afkCycle.mode === 'none') {
+    statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
+  }
   return statusText;
 }
 function updateAFKStatus(isNew = false) {
@@ -1117,14 +1119,6 @@ const parts = message.split('_');
 callbackUniqueId = parts[parts.length - 2];
 const selectedMode = parts[parts.length - 1];
 activateAFKWithMode(selectedMode, false, chatId, messageId);
-} else if (message.startsWith('server_restart_q_')) {
-callbackUniqueId = message.replace('server_restart_q_', '');
-sendChatInput("/q");
-editMessageText(chatId, messageId, `⚡ <b>Отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`);
-} else if (message.startsWith('server_restart_rec300_')) {
-callbackUniqueId = message.replace('server_restart_rec300_', '');
-sendChatInput("/rec 300");
-editMessageText(chatId, messageId, `⚡ <b>Отправлено /rec 300 (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`);
 }
 // Проверяем, является ли команда локальной (только для текущего аккаунта)
 const isForThisBot = isGlobalCommand ||
@@ -1955,15 +1949,8 @@ const chatRadius = getChatRadius(i);
     // Проверка сообщения о возобновлении работы сервера для AFK
     if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
         debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-        const replyMarkup = {
-          inline_keyboard: [
-            [
-              createButton("/q", `server_restart_q_${uniqueId}`),
-              createButton("/rec 300", `server_restart_rec300_${uniqueId}`)
-            ]
-          ]
-        };
-        let restartMessage = `⚡ <b>Обнаружено возобновление работы сервера (${displayName})</b>\nВыберите действие:`;
+        sendChatInput("/q");
+        let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
         if (config.afkCycle.active) {
           restartMessage += getAFKStatusText();
           // Удаляем оригинальные статус-сообщения AFK
@@ -1972,7 +1959,7 @@ const chatRadius = getChatRadius(i);
           });
           config.afkCycle.statusMessageIds = [];
         }
-        sendToTelegram(restartMessage, false, replyMarkup);
+        sendToTelegram(restartMessage, false, null);
     }
 if (lowerCaseMessage.includes("зареспавнил вас")) {
 debugLog(`Обнаружен респавн для ${displayName}!`);
@@ -2084,7 +2071,7 @@ lowerCaseMessage.indexOf("сбор") !== -1 ||
 lowerCaseMessage.indexOf("готовность") !== -1 ||
 lowerCaseMessage.indexOf("конф") !== -1)
 && (chatRadius === CHAT_RADIUS.RADIO)) {
-debugLog('Обнаружено сбор/строй!');
+debugLog('Обнаружен сбор/строй!');
 sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
 setTimeout(() => {
@@ -2207,4 +2194,4 @@ sendToTelegram(errorMsg, false, null);
 debugLog(`Попытка инициализации #${attempts}`);
 }
 }, config.checkInterval);
-}*
+}
