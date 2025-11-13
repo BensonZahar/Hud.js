@@ -416,9 +416,7 @@ function getAFKStatusText() {
   config.afkCycle.pauseHistory.slice(-3).forEach((entry, index) => {
     statusText += `${index + 1}. ${entry}\n`;
   });
-  if (config.afkCycle.mode === 'none') {
-    statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
-  }
+  statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
   return statusText;
 }
 function updateAFKStatus(isNew = false) {
@@ -1949,7 +1947,11 @@ const chatRadius = getChatRadius(i);
     // Проверка сообщения о возобновлении работы сервера для AFK
     if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
         debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-        sendChatInput("/q");
+        if (config.afkCycle.reconnectEnabled) {
+          sendChatInput("/rec 300");
+        } else {
+          sendChatInput("/q");
+        }
         let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
         if (config.afkCycle.active) {
           restartMessage += getAFKStatusText();
