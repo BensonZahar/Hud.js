@@ -1947,9 +1947,12 @@ const chatRadius = getChatRadius(i);
     // Проверка сообщения о возобновлении работы сервера для AFK
     if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
         debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-        let command = config.afkCycle.reconnectEnabled ? "/rec 300" : "/q";
-        sendChatInput(command);
-        let restartMessage = `⚡ <b>Автоматически отправлено ${command} (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+        if (config.afkCycle.reconnectEnabled) {
+          sendChatInput("/rec 300");
+        } else {
+          sendChatInput("/q");
+        }
+        let restartMessage = `⚡ <b>Автоматически отправлено ${config.afkCycle.reconnectEnabled ? '/rec 300' : '/q'} (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
         if (config.afkCycle.active) {
           restartMessage += getAFKStatusText();
           // Удаляем оригинальные статус-сообщения AFK
@@ -2070,7 +2073,7 @@ lowerCaseMessage.indexOf("сбор") !== -1 ||
 lowerCaseMessage.indexOf("готовность") !== -1 ||
 lowerCaseMessage.indexOf("конф") !== -1)
 && (chatRadius === CHAT_RADIUS.RADIO)) {
-debugLog('Обнаружен сбор/строй!');
+debugLog('Обнаружено сбор/строй!');
 sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
 setTimeout(() => {
@@ -2193,4 +2196,4 @@ sendToTelegram(errorMsg, false, null);
 debugLog(`Попытка инициализации #${attempts}`);
 }
 }, config.checkInterval);
-} // d
+}
