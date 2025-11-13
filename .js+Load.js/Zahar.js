@@ -404,7 +404,7 @@ function getAFKStatusText() {
                    config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' :
                    'без пауз';
   let reconnectText = '';
-  if (config.autoReconnectEnabled && config.afkCycle.mode !== 'none') {
+  if (config.autoReconnectEnabled) {
     reconnectText = `\nРеконнект: ${config.afkCycle.reconnectEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
   }
   let statusText = `\n\n🔄 <b>AFK цикл для ${displayName}</b>\nРежим: ${modeText}${reconnectText}\nОбщее игровое время: ${Math.floor(config.afkCycle.totalPlayTime / 60000)} мин\n\n`;
@@ -1206,7 +1206,11 @@ showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
 } else if (message.startsWith(`afk_n_with_pauses_`)) {
 showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
 } else if (message.startsWith(`afk_n_without_pauses_`)) {
-activateAFKWithMode('none', false, chatId, messageId);
+if (config.autoReconnectEnabled) {
+  showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'none');
+} else {
+  activateAFKWithMode('none', false, chatId, messageId);
+}
 } else if (message.startsWith(`afk_n_fixed_`)) {
 showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'fixed');
 } else if (message.startsWith(`afk_n_random_`)) {
@@ -1712,7 +1716,6 @@ if (config.afkCycle.reconnectEnabled) {
   autoLoginConfig.enabled = false;
   sendChatInput("/rec 5");
   debugLog(`Реконнект: отключен автовход, отправлено /rec 5 для ${displayName}`);
-  sendToTelegram(`🔄 <b>Реконнект: отключен автовход, отправлено /rec 5 (${displayName})</b>`, false, null);
 } else {
   try {
     if (typeof openInterface === 'function') {
@@ -1725,7 +1728,7 @@ if (config.afkCycle.reconnectEnabled) {
 }
 }
 function handlePayDayTimeMessage() {
-if (!config.afkSettings.active || config.afkCycle.mode === 'none') {
+if (!config.afkSettings.active) {
 return;
 }
 if (config.afkCycle.cycleTimer) {
@@ -1749,7 +1752,6 @@ if (config.afkCycle.reconnectEnabled) {
     sendChatInput("/rec 5");
   }, 5000); // Задержка для входа в игру
   debugLog(`Реконнект: включен автовход, отправлено /rec 5 для ${displayName}`);
-  sendToTelegram(`🔄 <b>Реконнект: включен автовход, отправлено /rec 5 (${displayName})</b>`, false, null);
 } else {
   try {
     if (typeof closeInterface === 'function') {
@@ -1763,6 +1765,8 @@ if (config.afkCycle.reconnectEnabled) {
 if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
 if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
 debugLog(`Готов к следующему PayDay для ${displayName}`);
+config.afkCycle.totalPlayTime = 0;
+startPlayPhase();
 }, mainTimerDuration);
 if (!config.afkCycle.active) {
 startAFKCycle();
