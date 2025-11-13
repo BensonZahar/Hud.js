@@ -1947,12 +1947,14 @@ const chatRadius = getChatRadius(i);
     // Проверка сообщения о возобновлении работы сервера для AFK
     if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
         debugLog('Обнаружено сообщение о возобновлении работы сервера!');
+        let restartMessage;
         if (config.afkCycle.reconnectEnabled) {
-          sendChatInput("/rec 300");
+            sendChatInput("/rec 300");
+            restartMessage = `⚡ <b>Автоматически отправлено /rec 300 (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
         } else {
-          sendChatInput("/q");
+            sendChatInput("/q");
+            restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
         }
-        let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
         if (config.afkCycle.active) {
           restartMessage += getAFKStatusText();
           // Удаляем оригинальные статус-сообщения AFK
@@ -2165,6 +2167,7 @@ if (warningMatch) {
 debugLog(`Обнаружен выговор от ${warningMatch[1]} в фракции ${config.currentFaction}!`);
 sendToTelegram(`⚠️ <b>Получен выговор (${displayName}) от ${warningMatch[1]} [ID: ${warningMatch[2]}]:</b>\nВыговор ${warningMatch[3]}/3\nПричина: ${warningMatch[4]}\n<code>${msg.replace(/</g, '&lt;')}</code>`);
 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0); // Опционально: звук для выговора
+}
 }
 }
 };
