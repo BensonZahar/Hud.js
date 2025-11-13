@@ -2193,4 +2193,4 @@ sendToTelegram(errorMsg, false, null);
 debugLog(`Попытка инициализации #${attempts}`);
 }
 }, config.checkInterval);
-}
+} // d
