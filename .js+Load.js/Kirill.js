@@ -2262,3 +2262,4 @@ if (!initializeChatMonitor()) {
 	}, config.checkInterval);
 }
 
+*/
