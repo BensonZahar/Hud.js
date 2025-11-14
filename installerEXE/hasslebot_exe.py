@@ -132,7 +132,7 @@ class MEmuHudManager:
                     })
 
             if not self.code_files:
-                self.log("[X] Ошибка: Файлы не найдены")
+                self.log("[Ошибка] Ошибка: Файлы не найдены")
                 return False
 
             with open(self.cache_file, 'w', encoding='utf-8') as f:
@@ -145,7 +145,7 @@ class MEmuHudManager:
             return True
 
         except Exception as e:
-            self.log(f"[X] Ошибка: Не удалось загрузить файлы")
+            self.log(f"[Ошибка] Ошибка: Не удалось загрузить файлы")
             return False
 
     def fetch_last_commit(self, file_name):
@@ -201,7 +201,7 @@ class MEmuHudManager:
         conn_menu = ctk.CTkComboBox(self.main_frame,
                                    values=["1 - Физическое устройство", "2 - Клонированное хранилище (999)", "3 - Эмулятор MEmu"],
                                    variable=self.conn_var, width=300)
-        conn_menu.grid(row=4, column=0, pady=5)
+        conn_menu.grid(row=4, column=0, pady=5studio)
 
         ctk.CTkLabel(self.main_frame, text="Папка приложения:").grid(row=5, column=0, pady=5)
         self.app_var = ctk.StringVar(value="1 - com.hassle.online")
@@ -230,7 +230,7 @@ class MEmuHudManager:
             ctk.CTkButton(btn_frame, text="Скачать Hud.js", command=lambda: self.execute_action("4"), width=140).grid(row=1, column=0, padx=5, pady=5)
         ctk.CTkButton(btn_frame, text="Проверка файлов", command=lambda: self.execute_action("3"), width=140).grid(row=1, column=1, padx=5, pady=5)
 
-        # НОВАЯ КНОПКА MOD HASSLE
+        # КНОПКА MOD HASSLE
         ctk.CTkButton(btn_frame, text="Mod Hassle", fg_color="#8B00FF", hover_color="#6A00CC",
                       command=lambda: self.execute_action("mod"), width=140).grid(row=2, column=0, padx=5, pady=5, columnspan=2)
 
@@ -281,13 +281,14 @@ class MEmuHudManager:
             self.telegram_message_id = new_message_id
             return new_message_id
         except Exception as e:
-            self.log(f"[X] Ошибка: Не удалось отправить сообщение в Telegram")
+           710
+            self.log(f"[Ошибка] Ошибка: Не удалось отправить сообщение в Telegram")
             return None
 
     def send_code_choice_message(self, message_id):
         """Отправка сообщения с выбором версии кода в Telegram"""
         if not self.code_files:
-            self.log("[X] Ошибка: Файлы кода не загружены")
+            self.log("[Ошибка] Ошибка: Файлы кода не загружены")
             return None
         message_text = "Выберите версию кода для HASSLE BOT:"
         buttons = [{"text": f"{i+1} - {f['name'][:30]}...", "callback_data": f"code_{i}"} for i, f in enumerate(self.code_files)]
@@ -305,7 +306,7 @@ class MEmuHudManager:
             self.log("[Успешно] Сообщение с выбором кода отправлено в Telegram")
             return message_id
         except Exception as e:
-            self.log(f"[X] Ошибка: Не удалось отправить сообщение с выбором кода")
+            self.log(f"[Ошибка] Ошибка: Не удалось отправить сообщение с выбором кода")
             return None
 
     def delete_telegram_message(self):
@@ -321,7 +322,7 @@ class MEmuHudManager:
                 response.raise_for_status()
                 self.log("[Успешно] Сообщение в Telegram удалено")
             except Exception as e:
-                self.log(f"[X] Ошибка: Не удалось удалить сообщение в Telegram")
+                self.log(f"[Ошибка] Ошибка: Не удалось удалить сообщение в Telegram")
             self.telegram_message_id = None
 
     def update_waiting_message(self, text):
@@ -340,7 +341,7 @@ class MEmuHudManager:
             response.raise_for_status()
             self.log("[Успешно] Callback подтвержден")
         except Exception as e:
-            self.log(f"[X] Ошибка подтверждения callback: {e}")
+            self.log(f"[Ошибка] Ошибка подтверждения callback: {e}")
 
     def wait_for_telegram_response(self):
         """Ожидание ответа на inline-кнопки из Telegram"""
@@ -377,7 +378,7 @@ class MEmuHudManager:
                             self.root.after(2000, self.on_close)
                             return
             except Exception as e:
-                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
+                self.root.after(0, lambda: self.log(f"[Ошибка] Ошибка: Не удалось получить ответ от Telegram"))
             time.sleep(2)
         self.root.after(0, lambda: self.update_waiting_message("Запрещено"))
         self.root.after(0, self.delete_telegram_message)
@@ -416,11 +417,11 @@ class MEmuHudManager:
                                     self.root.after(0, self.wait_for_debug_choice)
                                     return
                                 else:
-                                    self.log("[X] Ошибка: Неверный выбор файла")
+                                    self.log("[Ошибка] Ошибка: Неверный выбор файла")
                             except ValueError:
-                                self.log("[X] Ошибка: Ошибка обработки выбора файла")
+                                self.log("[Ошибка] Ошибка: Ошибка обработки выбора файла")
             except Exception as e:
-                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
+                self.root.after(0, lambda: self.log(f"[Ошибка] Ошибка: Не удалось получить ответ от Telegram"))
             time.sleep(2)
         self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора файла. Запрещено"))
         self.root.after(0, self.delete_telegram_message)
@@ -460,7 +461,7 @@ class MEmuHudManager:
                             self.root.after(2000, self.finalize_launch)
                             return
             except Exception as e:
-                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
+                self.root.after(0, lambda: self.log(f"[Ошибка] Ошибка: Не удалось получить ответ от Telegram"))
             time.sleep(2)
         self.root.after(0, lambda: self.update_waiting_message("Запрещено"))
         self.root.after(0, self.delete_telegram_message)
@@ -492,7 +493,7 @@ class MEmuHudManager:
         """Запуск проверки разрешения на запуск через Telegram"""
         message_id = self.send_telegram_message()
         if not message_id:
-            self.log("[X] Ошибка: Не удалось отправить сообщение в Telegram")
+            self.log("[Ошибка] Ошибка: Не удалось отправить сообщение в Telegram")
             self.root.after(2000, self.on_close)
             return
         self.update_waiting_message("Ожидание разрешения на запуск...")
@@ -505,7 +506,7 @@ class MEmuHudManager:
             self.log("Режим отладки активирован")
             self.update_gui()
         else:
-            self.log("[X] Ошибка: Отладка не разрешена")
+            self.log("[Ошибка] Ошибка: Отладка не разрешена")
 
     def log(self, message):
         """Логирование сообщения в текстовое поле или консоль"""
@@ -531,11 +532,11 @@ class MEmuHudManager:
                 else:
                     self.log("[Успешно] Успешно: Программа завершена")
             except PermissionError as e:
-                self.log(f"[X] Ошибка: Доступ запрещен")
+                self.log(f"[Ошибка] Ошибка: Доступ запрещен")
             except FileNotFoundError as e:
-                self.log(f"[X] Ошибка: Файл не найден")
+                self.log(f"[Ошибка] Ошибка: Файл не найден")
             except Exception as e:
-                self.log(f"[X] Ошибка: Не удалось завершить программу")
+                self.log(f"[Ошибка] Ошибка: Не удалось завершить программу")
             finally:
                 os._exit(0)
 
@@ -550,7 +551,7 @@ class MEmuHudManager:
                 else:
                     self.log("[Успешно] Выполнено: Эмулятор найден")
                 return True
-        self.log("[X] Ошибка: Эмулятор не найден")
+        self.log("[Ошибка] Ошибка: Эмулятор не найден")
         return False
 
     def download_and_extract_adb(self):
@@ -581,7 +582,7 @@ class MEmuHudManager:
                 zip_ref.extractall(self.temp_adb_dir)
 
             if not (self.temp_adb_dir / "adb").exists():
-                self.log("[X] Ошибка: Не удалось распаковать ADB")
+                self.log("[Ошибка] Ошибка: Не удалось распаковать ADB")
                 return False
 
             if not self.full_logging:
@@ -592,15 +593,15 @@ class MEmuHudManager:
 
         except Exception as e:
             if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось загрузить ADB")
+                self.log(f"[Ошибка] Ошибка: Не удалось загрузить ADB")
             else:
-                self.log(f"[X] Не выполнено: Ошибка загрузки ADB: {e}")
+                self.log(f"[Ошибка] Не выполнено: Ошибка загрузки ADB: {e}")
             return False
 
     def check_adb_exists(self):
         """Проверка наличия adb.exe"""
         if not self.local_adb.exists():
-            self.log("[X] Ошибка: ADB не найден")
+            self.log("[Ошибка] Ошибка: ADB не найден")
             return False
         return True
 
@@ -612,7 +613,7 @@ class MEmuHudManager:
             code = response.text.strip()
 
             if not code:
-                self.log("[X] Ошибка: Код пуст")
+                self.log("[Ошибка] Ошибка: Код пуст")
                 return None
 
             code = code.replace('\r\n', '\n').replace('\r', '\n').strip() + '\n'
@@ -625,9 +626,9 @@ class MEmuHudManager:
 
         except Exception as e:
             if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось загрузить код")
+                self.log(f"[Ошибка] Ошибка: Не удалось загрузить код")
             else:
-                self.log(f"[X] Не выполнено: Ошибка загрузки кода: {e}")
+                self.log(f"[Ошибка] Не выполнено: Ошибка загрузки кода: {e}")
             return None
 
     def remove_old_code(self, content, new_code):
@@ -648,26 +649,26 @@ class MEmuHudManager:
                 return removed_content.rstrip() + '\n'
 
         if self.full_logging:
-            self.log("[!] Предупреждение: Маркеры не найдены, вставка в конец без удаления")
+            self.log("[Предупреждение] Предупреждение: Маркеры не найдены, вставка в конец без удаления")
         return content.rstrip() + '\n'
 
     def select_connection(self):
         """Получение выбранного типа подключения из GUI"""
         if not self.local_adb.exists() and not self.memu_adb:
-            self.log("[X] Ошибка: ADB не готов")
+            self.log("[Ошибка] Ошибка: ADB не готов")
             return False
 
         conn_choice = self.conn_var.get().split()[0]
         if conn_choice == "1":
             if not self.local_adb.exists():
-                self.log("[X] Ошибка: ADB не готов")
+                self.log("[Ошибка] Ошибка: ADB не готов")
                 return False
             self.adb_path = str(self.local_adb)
             self.storage_path = "/sdcard/Android/data"
             return self.check_physical_device()
         elif conn_choice == "2":
             if not self.local_adb.exists():
-                self.log("[X] Ошибка: ADB не готов")
+                self.log("[Ошибка] Ошибка: ADB не готов")
                 return False
             self.adb_path = str(self.local_adb)
             self.storage_path = "/storage/emulated/999/Android/data"
@@ -677,7 +678,7 @@ class MEmuHudManager:
                 self.adb_path = self.memu_adb
             else:
                 if not self.local_adb.exists():
-                    self.log("[X] Ошибка: ADB не готов")
+                    self.log("[Ошибка] Ошибка: ADB не готов")
                     return False
                 self.adb_path = str(self.local_adb)
             self.storage_path = "/sdcard/Android/data"
@@ -696,7 +697,7 @@ class MEmuHudManager:
                                   creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
 
             if "device" not in result.stdout:
-                self.log("[X] Ошибка: Устройство не найдено")
+                self.log("[Ошибка] Ошибка: Устройство не найдено")
                 return False
 
             lines = result.stdout.strip().split('\n')
@@ -723,9 +724,9 @@ class MEmuHudManager:
 
         except Exception as e:
             if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось проверить устройство")
+                self.log(f"[Ошибка] Ошибка: Не удалось проверить устройство")
             else:
-                self.log(f"[X] Не выполнено: Ошибка проверки устройства: {e}")
+                self.log(f"[Ошибка] Не выполнено: Ошибка проверки устройства: {e}")
             return False
 
     def check_memu_device(self):
@@ -757,7 +758,7 @@ class MEmuHudManager:
             except Exception:
                 continue
 
-        self.log("[X] Ошибка: Эмулятор не отвечает")
+        self.log("[Ошибка] Ошибка: Эмулятор не отвечает")
         return False
 
     def select_app_folder(self):
@@ -769,13 +770,13 @@ class MEmuHudManager:
         """Выполнение выбранного действия в отдельном потоке"""
         def run_action():
             if not self.launch_allowed:
-                self.log("[X] Ошибка: Нет разрешения на запуск")
+                self.log("[Ошибка] Ошибка: Нет разрешения на запуск")
                 return
             if action not in ["mod", "3"] and not self.selected_code_url:
-                self.log("[X] Ошибка: Файл кода не выбран")
+                self.log("[Ошибка] Ошибка: Файл кода не выбран")
                 return
             if not self.select_connection():
-                self.log("[X] Ошибка: Устройство не подключено")
+                self.log("[Ошибка] Ошибка: Устройство не подключено")
                 return
 
             app_folder = self.select_app_folder()
@@ -796,9 +797,9 @@ class MEmuHudManager:
         threading.Thread(target=run_action, daemon=True).start()
 
     def mod_hassle(self):
-        """Переименование папок com.hassle.online → 1com.hassle.online и com.hassle.online2 → 1com.hassle.online2"""
+        """Переименование папок + УДАЛЕНИЕ УСТАНОВЛЕННЫХ ПРИЛОЖЕНИЙ (pm uninstall), сохранение кэша"""
         if not self.select_connection():
-            self.log("[X] Ошибка: Устройство не подключено")
+            self.log("[Ошибка] Устройство не подключено")
             return
 
         base_path = self.storage_path
@@ -807,57 +808,76 @@ class MEmuHudManager:
             ("com.hassle.online2", "1com.hassle.online2")
         ]
 
-        success_count = 0
+        renamed_count = 0
+        uninstalled_count = 0
 
-        for old, new in packages:
-            old_path = f"{base_path}/{old}"
-            new_path = f"{base_path}/{new}"
+        for old_pkg, new_pkg in packages:
+            old_data_path = f"{base_path}/{old_pkg}"
+            new_data_path = f"{base_path}/{new_pkg}"
 
             try:
-                # Проверка существования старой папки
-                cmd_check = [self.adb_path] + self.device_param + ["shell", "test", "-d", old_path, "&&", "echo", "exists"]
+                # === 1. Переименование папки (сохранение кэша) ===
+                cmd_check = [self.adb_path] + self.device_param + ["shell", "test", "-d", old_data_path, "&&", "echo", "exists"]
                 result = subprocess.run(cmd_check, capture_output=True, text=True,
                                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
 
                 if "exists" not in result.stdout:
-                    if self.full_logging:
-                        self.log(f"[i] Папка {old} не найдена — пропускаем")
+                    self.log(f"[Информация] Папка {old_pkg} не найдена — пропускаем")
                     continue
 
-                # Проверка, не существует ли уже новая
-                cmd_check_new = [self.adb_path] + self.device_param + ["shell", "test", "-d", new_path, "&&", "echo", "exists"]
+                cmd_check_new = [self.adb_path] + self.device_param + ["shell", "test", "-d", new_data_path, "&&", "echo", "exists"]
                 result_new = subprocess.run(cmd_check_new, capture_output=True, text=True,
                                             creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
 
                 if "exists" in result_new.stdout:
-                    self.log(f"[!] Папка {new} уже существует — пропускаем")
-                    continue
-
-                # Переименование
-                if not self.full_logging:
-                    self.log(f"Переименование {old} → {new}...")
+                    self.log(f"[Предупреждение] Папка {new_pkg} уже существует — пропускаем переименование")
                 else:
-                    self.log(f"Выполняется: mv {old_path} {new_path}")
+                    self.log(f"Переименование {old_pkg} → {new_pkg}...")
+                    cmd_mv = [self.adb_path] + self.device_param + ["shell", "mv", old_data_path, new_data_path]
+                    mv_result = subprocess.run(cmd_mv, capture_output=True, text=True,
+                                               creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                    if mv_result.returncode == 0:
+                        self.log(f"[Успешно] Папка переименована: {old_pkg} → {new_pkg}")
+                        renamed_count += 1
+                    else:
+                        self.log(f"[Ошибка] Не удалось переименовать папку: {mv_result.stderr.strip()}")
 
-                cmd_mv = [self.adb_path] + self.device_param + ["shell", "mv", old_path, new_path]
-                mv_result = subprocess.run(cmd_mv, capture_output=True, text=True,
-                                           creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                # === 2. УДАЛЕНИЕ УСТАНОВЛЕННОГО ПРИЛОЖЕНИЯ ===
+                self.log(f"Удаление приложения {old_pkg}...")
+                cmd_uninstall = [self.adb_path] + self.device_param + ["shell", "pm", "uninstall", old_pkg]
+                uninstall_result = subprocess.run(cmd_uninstall, capture_output=True, text=True,
+                                                  creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
 
-                if mv_result.returncode == 0:
-                    self.log(f"[Успешно] {old} → {new}")
-                    success_count += 1
+                if uninstall_result.returncode == 0 and "Success" in uninstall_result.stdout:
+                    self.log(f"[Успешно] Приложение удалено: {old_pkg}")
+                    uninstalled_count += 1
+                elif "Failure [not installed]" in uninstall_result.stdout:
+                    self.log(f"[Информация] Приложение {old_pkg} уже не установлено")
                 else:
-                    self.log(f"[X] Ошибка при переименовании {old}: {mv_result.stderr.strip()}")
+                    self.log(f"[Ошибка] Не удалось удалить {old_pkg}: {uninstall_result.stdout.strip()}")
 
             except Exception as e:
-                self.log(f"[X] Исключение при обработке {old}: {e}")
+                self.log(f"[Ошибка] Ошибка при обработке {old_pkg}: {e}")
 
-        if success_count > 0:
-            self.log(f"[Успешно] Переименовано папок: {success_count}")
-            messagebox.showinfo("Mod Hassle", f"Успешно переименовано {success_count} папок!\nТеперь используй новые папки в настройках.")
-        else:
-            self.log("[i] Нечего переименовывать")
-            messagebox.showinfo("Mod Hassle", "Папки не найдены или уже переименованы.")
+        # === ИТОГ ===
+        summary = []
+        if renamed_count > 0:
+            summary.append(f"Переименовано папок: {renamed_count}")
+        if uninstalled_count > 0:
+            summary.append(f"Удалено приложений: {uninstalled_count}")
+        if not summary:
+            summary.append("Нечего делать")
+
+        result_text = "\n".join(summary)
+        self.log(f"[Информация] Результат: {result_text}")
+
+        messagebox.showinfo(
+            "Mod Hassle",
+            f"ГОТОВО!\n\n{result_text}\n\n"
+            "• Кэш сохранён в новых папках\n"
+            "• Приложения удалены\n"
+            "• Можно устанавливать модифицированный APK"
+        )
 
     def replace_with_code(self, app_folder):
         """Замена файла с добавлением кода - логика с удалением по маркерам"""
@@ -876,20 +896,20 @@ class MEmuHudManager:
 
             if result.returncode != 0:
                 if not self.full_logging:
-                    self.log(f"[X] Ошибка: Не удалось получить файл")
+                    self.log(f"[Ошибка] Ошибка: Не удалось получить файл")
                 else:
-                    self.log(f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
+                    self.log(f"[Ошибка] Не выполнено: Не удалось получить файл: {result.stderr}")
                 return
 
             try:
                 with open(self.temp_file, 'r', encoding='utf-8') as f:
                     content = f.read()
             except UnicodeDecodeError:
-                self.log("[X] Ошибка: Не удалось декодировать файл Hud.js")
+                self.log("[Ошибка] Ошибка: Не удалось декодировать файл Hud.js")
                 return
 
             if not content:
-                self.log("[X] Ошибка: Файл Hud.js пуст")
+                self.log("[Ошибка] Ошибка: Файл Hud.js пуст")
                 return
 
             load_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/.js%2BLoad.js/Load.js"
@@ -933,15 +953,15 @@ class MEmuHudManager:
                     self.log(f"[Успешно] Выполнено: Файл заменен с новым кодом")
             else:
                 if not self.full_logging:
-                    self.log(f"[X] Ошибка: Не удалось заменить файл")
+                    self.log(f"[Ошибка] Ошибка: Не удалось заменить файл")
                 else:
-                    self.log(f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
+                    self.log(f"[Ошибка] Не выполнено: Ошибка замены файла: {result.stderr}")
 
         except Exception as e:
             if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось обработать файл")
+                self.log(f"[Ошибка] Ошибка: Не удалось обработать файл")
             else:
-                self.log(f"[X] Не выполнено: Ошибка обработки: {e}")
+                self.log(f"[Ошибка] Не выполнено: Ошибка обработки: {e}")
         finally:
             if self.temp_file.exists():
                 self.temp_file.unlink()
@@ -959,24 +979,24 @@ class MEmuHudManager:
 
             cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.temp_file)]
             result = subprocess.run(cmd, capture_output=True, text=True,
-                                  creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == " E" else 0)
+                                  creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
 
             if result.returncode != 0:
                 if not self.full_logging:
-                    self.log(f"[X] Ошибка: Не удалось получить файл")
+                    self.log(f"[Ошибка] Ошибка: Не удалось получить файл")
                 else:
-                    self.log(f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
+                    self.log(f"[Ошибка] Не выполнено: Не удалось получить файл: {result.stderr}")
                 return
 
             try:
                 with open(self.temp_file, 'r', encoding='utf-8') as f:
                     content = f.read()
             except UnicodeDecodeError:
-                self.log("[X] Ошибка: Не удалось декодировать файл Hud.js")
+                self.log("[Ошибка] Ошибка: Не удалось декодировать файл Hud.js")
                 return
 
             if not content:
-                self.log("[X] Ошибка: Файл Hud.js пуст")
+                self.log("[Ошибка] Ошибка: Файл Hud.js пуст")
                 return
 
             if self.full_logging:
@@ -1007,15 +1027,15 @@ class MEmuHudManager:
                     self.log(f"[Успешно] Выполнено: Файл заменен без кода")
             else:
                 if not self.full_logging:
-                    self.log(f"[X] Ошибка: Не удалось заменить файл")
+                    self.log(f"[Ошибка] Ошибка: Не удалось заменить файл")
                 else:
-                    self.log(f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
+                    self.log(f"[Ошибка] Не выполнено: Ошибка замены файла: {result.stderr}")
 
         except Exception as e:
             if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось обработать файл")
+                self.log(f"[Ошибка] Ошибка: Не удалось обработать файл")
             else:
-                self.log(f"[X] Не выполнено: Ошибка обработки: {e}")
+                self.log(f"[Ошибка] Не выполнено: Ошибка обработки: {e}")
         finally:
             if self.temp_file.exists():
                 self.temp_file.unlink()
@@ -1066,23 +1086,23 @@ class MEmuHudManager:
                     else:
                         self.log("[Успешно] Файл удален")
                 else:
-                    self.log(f"[X] Ошибка: Не удалось удалить файл")
+                    self.log(f"[Ошибка] Ошибка: Не удалось удалить файл")
             else:
                 if not self.full_logging:
-                    self.log(f"[X] Ошибка: Файл не найден")
+                    self.log(f"[Ошибка] Ошибка: Файл не найден")
                 else:
-                    self.log(f"[X] Файл не найден: {files_to_check[0]}")
+                    self.log(f"[Ошибка] Файл не найден: {files_to_check[0]}")
 
         except Exception as e:
             if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось проверить файлы")
+                self.log(f"[Ошибка] Ошибка: Не удалось проверить файлы")
             else:
-                self.log(f"[X] Не выполнено: Ошибка проверки: {e}")
+                self.log(f"[Ошибка] Не выполнено: Ошибка проверки: {e}")
 
     def simple_download(self, app_folder):
         """Простое скачивание файла"""
         if not self.full_logging:
-            self.log("[X] Ошибка: Скачивание отключено")
+            self.log("[Ошибка] Ошибка: Скачивание отключено")
             return
 
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
@@ -1097,10 +1117,10 @@ class MEmuHudManager:
             if result.returncode == 0:
                 self.log(f"[Успешно] Успешно! Файл скачан: {self.hud_file}")
             else:
-                self.log(f"[X] Ошибка скачивания файла")
+                self.log(f"[Ошибка] Ошибка скачивания файла")
 
         except Exception as e:
-            self.log(f"[X] Ошибка: {e}")
+            self.log(f"[Ошибка] Ошибка: {e}")
 
     def cleanup(self):
         """Очистка временных файлов"""
@@ -1123,12 +1143,12 @@ class MEmuHudManager:
         try:
             self.root.mainloop()
         except KeyboardInterrupt:
-            self.log("[!] Прерывание пользователем")
+            self.log("[Предупреждение] Прерывание пользователем")
         except Exception as e:
             if not self.full_logging:
-                self.log(f"[X] Ошибка: Критическая ошибка")
+                self.log(f"[Ошибка] Ошибка: Критическая ошибка")
             else:
-                self.log(f"[X] Не выполнено: Критическая ошибка: {e}")
+                self.log(f"[Ошибка] Не выполнено: Критическая ошибка: {e}")
         finally:
             self.cleanup()
 
