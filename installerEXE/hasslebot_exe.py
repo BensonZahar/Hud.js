@@ -201,7 +201,7 @@ class MEmuHudManager:
         conn_menu = ctk.CTkComboBox(self.main_frame,
                                    values=["1 - Физическое устройство", "2 - Клонированное хранилище (999)", "3 - Эмулятор MEmu"],
                                    variable=self.conn_var, width=300)
-        conn_menu.grid(row=4, column=0, pady=5)  # ИСПРАВЛЕНО
+        conn_menu.grid(row=4, column=0, pady=5studio)
 
         ctk.CTkLabel(self.main_frame, text="Папка приложения:").grid(row=5, column=0, pady=5)
         self.app_var = ctk.StringVar(value="1 - com.hassle.online")
