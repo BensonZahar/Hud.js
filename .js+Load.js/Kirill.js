@@ -1,3 +1,4 @@
+/*
 // Для удобства изменения: chatIds и serverTokens вынесены в начало
 
 const CHAT_IDS = ['-1003202329790']; // 1046461621 - Zahar, 5515408606 = Kolya
@@ -2260,3 +2261,4 @@ if (!initializeChatMonitor()) {
 		}
 	}, config.checkInterval);
 }
+
