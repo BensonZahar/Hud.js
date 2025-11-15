@@ -217,7 +217,7 @@ let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 // Настройка автовхода
 const autoLoginConfig = {
-password: "zahar2007", // Ваш пароль
+password: "zahar2007!", // Ваш пароль
 enabled: true, // Флаг активации автовхода
 maxAttempts: 10, // Максимум попыток
 attemptInterval: 1000 // Интервал между попытками (мс)
@@ -2225,3 +2225,4 @@ debugLog(`Попытка инициализации #${attempts}`);
 }
 }, config.checkInterval);
 }
+
