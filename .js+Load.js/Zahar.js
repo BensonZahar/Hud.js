@@ -1287,6 +1287,17 @@ function processUpdates(updates) {
     for (const update of updates) {
         config.lastUpdateId = update.update_id;
         setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
+        let chatId = null;
+        if (update.message) {
+            chatId = update.message.chat.id;
+        } else if (update.callback_query) {
+            chatId = update.callback_query.message.chat.id;
+        }
+        // Проверяем, что chat_id входит в config.chatIds
+        if (!config.chatIds.includes(String(chatId))) {
+            debugLog(`Игнорируем обновление из неавторизованного чата: ${chatId}`);
+            continue;
+        }
         if (update.message) {
             const message = update.message.text ? update.message.text.trim() : '';
             // Проверяем, является ли сообщение ответом на запрос ввода
