@@ -8,7 +8,6 @@ const SERVER_TOKENS = {
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
-const PASSWORD = "zahar2007!"; // Ваш пароль
 // END CONSTANTS MODULE //
 
 // START GLOBAL STATE MODULE //
@@ -223,7 +222,7 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
 const autoLoginConfig = {
-    password: PASSWORD, // Ваш пароль
+    password: "zahar2007!", // Ваш пароль
     enabled: true, // Флаг активации автовхода
     maxAttempts: 10, // Максимум попыток
     attemptInterval: 1000 // Интервал между попытками (мс)
