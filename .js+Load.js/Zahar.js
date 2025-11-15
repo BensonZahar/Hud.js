@@ -2091,7 +2091,7 @@ function initializeChatMonitor() {
         // Проверка сообщения о возобновлении работы сервера для AFK
         if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-            sendChatInput("/q");
+            sendChatInput("/rec 5");
             let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
             if (config.afkCycle.active) {
               restartMessage += getAFKStatusText();
@@ -2341,5 +2341,6 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
 
 
