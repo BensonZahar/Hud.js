@@ -402,6 +402,7 @@ function getAFKStatusText() {
   if (!config.afkCycle.active) return '';
   const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' :
                    config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' :
+                   config.afkCycle.mode === 'levelup' ? 'прокачка уровня (10 мин игры без пауз)' :
                    'без пауз';
   let reconnectText = '';
   if (config.autoReconnectEnabled) {
@@ -416,7 +417,7 @@ function getAFKStatusText() {
   config.afkCycle.pauseHistory.slice(-3).forEach((entry, index) => {
     statusText += `${index + 1}. ${entry}\n`;
   });
-  if (config.afkCycle.mode === 'none') {
+  if (config.afkCycle.mode === 'none' || config.afkCycle.mode === 'levelup') {
     statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
   }
   return statusText;
@@ -564,6 +565,7 @@ inline_keyboard: [
 createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
 createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
 ],
+[createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)],
 [createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]
 ]
 };
@@ -666,6 +668,23 @@ createButton("Реконнект 🟢", `afk_n_reconnect_on_${uniqueIdParam}_${s
 createButton("Реконнект 🔴", `afk_n_reconnect_off_${uniqueIdParam}_${selectedMode}`)
 ],
 [createButton("⬅️ Вернуться назад", `afk_n_with_pauses_${uniqueIdParam}`)]
+]
+};
+editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+function showLevelUpReconnectMenu(chatId, messageId, uniqueIdParam) {
+if (!config.autoReconnectEnabled) {
+  // Если реконнект отключен, сразу активируем с reconnectEnabled = false
+  activateAFKWithMode('levelup', false, chatId, messageId);
+  return;
+}
+const replyMarkup = {
+inline_keyboard: [
+[
+createButton("Реконнект 🟢", `levelup_reconnect_on_${uniqueIdParam}`),
+createButton("Реконнект 🔴", `levelup_reconnect_off_${uniqueIdParam}`)
+],
+[createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
 ]
 };
 editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -1007,7 +1026,8 @@ message.startsWith('show_soob_options_') ||
 message.startsWith('show_mesto_options_') ||
 message.startsWith('show_radio_options_') ||
 message.startsWith('show_warning_options_') ||
-message.startsWith('show_global_functions_');
+message.startsWith('show_global_functions_') ||
+message.startsWith('levelup_reconnect_');
 let callbackUniqueId = null;
 if (message.startsWith('show_controls_')) {
 callbackUniqueId = message.replace('show_controls_', '');
@@ -1119,6 +1139,15 @@ const parts = message.split('_');
 callbackUniqueId = parts[parts.length - 2];
 const selectedMode = parts[parts.length - 1];
 activateAFKWithMode(selectedMode, false, chatId, messageId);
+} else if (message.startsWith('global_levelup_')) {
+callbackUniqueId = message.replace('global_levelup_', '');
+showLevelUpReconnectMenu(chatId, messageId, callbackUniqueId);
+} else if (message.startsWith('levelup_reconnect_on_')) {
+callbackUniqueId = message.replace('levelup_reconnect_on_', '');
+activateAFKWithMode('levelup', true, chatId, messageId);
+} else if (message.startsWith('levelup_reconnect_off_')) {
+callbackUniqueId = message.replace('levelup_reconnect_off_', '');
+activateAFKWithMode('levelup', false, chatId, messageId);
 }
 // Проверяем, является ли команда локальной (только для текущего аккаунта)
 const isForThisBot = isGlobalCommand ||
@@ -1625,13 +1654,14 @@ function startPlayPhase() {
 if (!config.afkCycle.active) return;
 debugLog(`Начинаем игровую фазу для ${displayName}`);
 config.afkCycle.currentPlayTime = 0;
+const requiredPlayTime = (config.afkCycle.mode === 'levelup') ? 10 * 60 * 1000 : 25 * 60 * 1000;
 let playDurationMs;
 if (config.afkCycle.mode === 'fixed') {
 playDurationMs = 5 * 60 * 1000;
 } else if (config.afkCycle.mode === 'random') {
 const minMin = 2;
 const maxMin = 8;
-const remainingPlay = 25 * 60 * 1000 - config.afkCycle.totalPlayTime;
+const remainingPlay = requiredPlayTime - config.afkCycle.totalPlayTime;
 if (remainingPlay <= 0) {
 enterPauseUntilEnd();
 return;
@@ -1640,8 +1670,8 @@ const maxPossible = Math.min(maxMin * 60 * 1000, remainingPlay);
 const minPossible = Math.min(minMin * 60 * 1000, maxPossible);
 playDurationMs = Math.floor(Math.random() * (maxPossible - minPossible + 1) + minPossible);
 } else {
-  // Без пауз: играем до 25 мин
-  playDurationMs = 25 * 60 * 1000 - config.afkCycle.totalPlayTime;
+  // Без пауз: играем до requiredPlayTime
+  playDurationMs = requiredPlayTime - config.afkCycle.totalPlayTime;
   if (playDurationMs <= 0) {
     enterPauseUntilEnd();
     return;
@@ -1665,10 +1695,10 @@ debugLog(`Ошибка при выходе из паузы: ${e.message}`);
 debugLog(`Игровая фаза: ${durationMin} минут`);
 config.afkCycle.playTimer = setTimeout(() => {
 config.afkCycle.totalPlayTime += playDurationMs;
-if (config.afkCycle.totalPlayTime < 25 * 60 * 1000 && config.afkCycle.mode !== 'none') {
+if (config.afkCycle.totalPlayTime < requiredPlayTime && config.afkCycle.mode !== 'none' && config.afkCycle.mode !== 'levelup') {
 startPausePhase();
 } else {
-debugLog(`Отыграно 25 минут, ставим на паузу до следующего PayDay для ${displayName}`);
+debugLog(`Отыграно ${requiredPlayTime / 60000} минут, ставим на паузу до следующего PayDay для ${displayName}`);
 enterPauseUntilEnd();
 }
 }, playDurationMs);
@@ -1773,7 +1803,7 @@ startAFKCycle();
 }
 config.afkCycle.startTime = Date.now();
 config.afkCycle.totalPlayTime = 0;
-const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' : 'рандомное время игры/паузы';
+const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' : config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' : config.afkCycle.mode === 'levelup' ? 'прокачка уровня (10 мин игры без пауз)' : 'без пауз';
 debugLog(`Обнаружено сообщение "Текущее время:", начинаем AFK цикл для ${displayName}`);
 updateAFKStatus(); // Обновляем с начальным статусом
 startPlayPhase();
@@ -1972,7 +2002,7 @@ createButton("🚶 Движения", `show_movement_${uniqueId}`)
 ]
 };
 sendToTelegram(`🔄 <b>Вас зареспавнили!! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
-window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+window.playSound("https://raw.githubusercontent.com/Z/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
 }
 if (lowerCaseMessage.includes("вы были кикнуты по подозрению в читерстве")) {
 debugLog(`Обнаружен кик анти-читом для ${displayName}!`);
