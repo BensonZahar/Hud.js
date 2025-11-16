@@ -8,7 +8,7 @@ const SERVER_TOKENS = {
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
-const PASSWORD = "zahar2007!"; // Ваш пароль
+const PASSWORD = "zahar2007"; // Ваш пароль
 const RECONNECT_ENABLED_DEFAULT = false; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
@@ -55,7 +55,7 @@ const factions = {
         ranks: {
             1: 'водитель', 2: 'охранник', 3: 'нач. охраны', 4: 'секретарь',
             5: 'старший секретарь', 6: 'лицензёр', 7: 'адвокат', 8: 'депутат',
-            9: 'вице-губернатор', 10: 'губернатор'
+            9: 'вице-губернатор', 10: 'охранник'
         }
     },
     mz: {
@@ -2166,3 +2166,4 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
