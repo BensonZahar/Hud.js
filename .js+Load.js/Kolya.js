@@ -1,3 +1,4 @@
+/*
 // START CONSTANTS MODULE //
 // Константы, вынесенные в начало для удобства
 const CHAT_IDS = ['-1003102212423']; // -1003202329790- kirill, -1003040555627 - zahar, -1003102212423 - kolya
@@ -2167,5 +2168,5 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
+*/
 
