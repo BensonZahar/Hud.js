@@ -1,6 +1,6 @@
 // START CONSTANTS MODULE //
 // Константы, вынесенные в начало для удобства
-const CHAT_IDS = ['-1003040555627']; // -1003202329790- kirill, -1003040555627 - zahar, -1003102212423 - kolya
+const CHAT_IDS = ['-1003040555627']; // 1046461621 - Zahar, 5515408606 = Kolya
 const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
     '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
@@ -9,96 +9,144 @@ const SERVER_TOKENS = {
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
 const PASSWORD = "zahar2007!"; // Ваш пароль
-const RECONNECT_ENABLED_DEFAULT = true; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
+// Глобальный объект для хранения состояния
 const globalState = {
     awaitingAfkAccount: false,
     awaitingAfkId: false,
     afkTargetAccount: null,
-    lastWelcomeMessageId: null,
-    lastPaydayMessageIds: []
+    lastWelcomeMessageId: null, // Для хранения ID последнего приветственного сообщения
+    lastPaydayMessageIds: [] // Для хранения ID сообщений PayDay для редактирования
 };
 // END GLOBAL STATE MODULE //
 // START CHAT RADIUS MODULE //
+// Определяем радиусы чата
 const CHAT_RADIUS = {
-    SELF: 0,
-    CLOSE: 1,
-    MEDIUM: 2,
-    FAR: 3,
-    RADIO: 4,
-    UNKNOWN: -1
+    SELF: 0, // Собственное сообщение
+    CLOSE: 1, // Близко (< radius/4)
+    MEDIUM: 2, // Средне (< radius/2)
+    FAR: 3, // Далеко (>= radius/2)
+    RADIO: 4, // Рация
+    UNKNOWN: -1 // Неизвестный цвет
 };
 function normalizeColor(color) {
     let normalized = color.toString().toUpperCase();
-    if (normalized.startsWith('#')) normalized = normalized.slice(1);
-    if (normalized.length === 8) normalized = normalized.slice(0, 6);
+    if (normalized.startsWith('#')) {
+        normalized = normalized.slice(1);
+    }
+    if (normalized.length === 8) {
+        normalized = normalized.slice(0, 6);
+    }
     return '0x' + normalized;
 }
 function getChatRadius(color) {
     const normalizedColor = normalizeColor(color);
     switch (normalizedColor) {
-        case '0xEEEEEE': return CHAT_RADIUS.SELF;
-        case '0xCECECE': return CHAT_RADIUS.CLOSE;
-        case '0x999999': return CHAT_RADIUS.MEDIUM;
-        case '0x6B6B6B': return CHAT_RADIUS.FAR;
-        case '0x33CC66': return CHAT_RADIUS.RADIO;
-        default: return CHAT_RADIUS.UNKNOWN;
+        case '0xEEEEEE':
+            return CHAT_RADIUS.SELF;
+        case '0xCECECE':
+            return CHAT_RADIUS.CLOSE;
+        case '0x999999':
+            return CHAT_RADIUS.MEDIUM;
+        case '0x6B6B6B':
+            return CHAT_RADIUS.FAR;
+        case '0x33CC66':
+            return CHAT_RADIUS.RADIO;
+        default:
+            return CHAT_RADIUS.UNKNOWN;
     }
 }
 // END CHAT RADIUS MODULE //
 // START FACTIONS MODULE //
+// Определение фракций и их рангов
 const factions = {
-    government: {
+    government: { // Правительство
         color: 'CCFF00',
         skins: [57, 141, 147, 164, 165, 187, 208, 227],
         ranks: {
-            1: 'водитель', 2: 'охранник', 3: 'нач. охраны', 4: 'секретарь',
-            5: 'старший секретарь', 6: 'лицензёр', 7: 'адвокат', 8: 'депутат',
-            9: 'вице-губернатор', 10: 'охранник'
+            1: 'водитель',
+            2: 'охранник',
+            3: 'нач. охраны',
+            4: 'секретарь',
+            5: 'старший секретарь',
+            6: 'лицензёр',
+            7: 'адвокат',
+            8: 'депутат',
+            9: 'вице-губернатор',
+            10: 'губернатор'
         }
     },
-    mz: {
+    mz: { // Больница
         color: 'FF6666',
         skins: [276, 15381, 15382, 15383, 15384, 15385, 15386, 15387, 15388, 15389],
         ranks: {
-            1: 'интерн', 2: 'фельдшер', 3: 'участковый врач', 4: 'терапевт',
-            5: 'проктолог', 6: 'нарколог', 7: 'хирург', 8: 'заведующий отделением',
-            9: 'заместитель глав врача', 10: 'глав врач'
+            1: 'интерн',
+            2: 'фельдшер',
+            3: 'участковый врач',
+            4: 'терапевт',
+            5: 'проктолог',
+            6: 'нарколог',
+            7: 'хирург',
+            8: 'заведующий отделением',
+            9: 'заместитель глав врача',
+            10: 'глав врач'
         }
     },
-    trk: {
+    trk: { // ГТРК «Ритм»
         color: 'FF6600',
         skins: [15438, 15439, 15440, 15441, 15442, 15443, 15444, 15445, 15446, 15447],
         ranks: {
-            1: 'стажёр', 2: 'светотехник', 3: 'монтажёр', 4: 'оператор',
-            5: 'дизайнер', 6: 'репортер', 7: 'ведущий', 8: 'режиссёр',
-            9: 'редактор', 10: 'гл. редактор'
+            1: 'стажёр',
+            2: 'светотехник',
+            3: 'монтажёр',
+            4: 'оператор',
+            5: 'дизайнер',
+            6: 'репортер',
+            7: 'ведущий',
+            8: 'режиссёр',
+            9: 'редактор',
+            10: 'гл. редактор'
         }
     },
-    mo: {
+    mo: { // Воинская часть
         color: '996633',
         skins: [30, 61, 179, 191, 253, 255, 287, 162, 218, 220],
         ranks: {
-            1: 'рядовой', 2: 'ефрейтор', 3: 'сержант', 4: 'прапорщик',
-            5: 'лейтенант', 6: 'капитан', 7: 'майор', 8: 'подполковник',
-            9: 'полковник', 10: 'генерал'
+            1: 'рядовой',
+            2: 'ефрейтор',
+            3: 'сержант',
+            4: 'прапорщик',
+            5: 'лейтенант',
+            6: 'капитан',
+            7: 'майор',
+            8: 'подполковник',
+            9: 'полковник',
+            10: 'генерал'
         }
     },
-    mchs: {
+    mchs: { // МЧС
         color: '009999',
         skins: [15316, 15365, 15366, 15367, 15368, 15369, 15370, 15371, 15372, 15373, 15374, 15375, 15376, 15377, 15378, 15396, 15397],
         ranks: {
-            1: 'рядовой', 2: 'сержант', 3: 'старшина', 4: 'прапорщик',
-            5: 'лейтенант', 6: 'капитан', 7: 'майор', 8: 'подполковник',
-            9: 'полковник', 10: 'генерал'
+            1: 'рядовой',
+            2: 'сержант',
+            3: 'старшина',
+            4: 'прапорщик',
+            5: 'лейтенант',
+            6: 'капитан',
+            7: 'майор',
+            8: 'подполковник',
+            9: 'полковник',
+            10: 'генерал'
         }
     }
 };
 // END FACTIONS MODULE //
 // START CONFIG MODULE //
+// КОНФИГУРАЦИЯ
 const userConfig = {
-    chatIds: CHAT_IDS,
+    chatIds: CHAT_IDS, // Используем вынесенную константу
     keywords: [],
     clearDelay: 3000,
     maxAttempts: 15,
@@ -118,10 +166,10 @@ const userConfig = {
     locationKeywords: ["местоположение", "место", "позиция", "координаты"],
     radioOfficialNotifications: true,
     warningNotifications: true,
-    notificationDeleteDelay: 5000,
-    trackSkinId: true,
-    skinCheckInterval: 5000,
-    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- используем константу
+    notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
+    trackSkinId: true, // Флаг отслеживания скина
+    skinCheckInterval: 5000, // Интервал проверки скина
+    autoReconnectEnabled: false // Новый флаг для автореконнекта после кика
 };
 const config = {
     ...userConfig,
@@ -130,8 +178,12 @@ const config = {
     lastPodbrosTime: 0,
     podbrosCounter: 0,
     initialized: false,
-    accountInfo: { nickname: null, server: null, skinId: null },
-    currentFaction: null,
+    accountInfo: {
+        nickname: null,
+        server: null,
+        skinId: null // Добавлено поле для Skin ID
+    },
+    currentFaction: null, // Текущая фракция (government или mz)
     lastPlayerId: null,
     govMessageTrackers: {},
     isSitting: false,
@@ -146,20 +198,18 @@ const config = {
         pauseTimer: null,
         mainTimer: null,
         mode: 'fixed',
-        playHistory: [],
-        pauseHistory: [],
-        statusMessageIds: [],
-        totalSalary: 0,
-        reconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- по умолчанию включён
+        playHistory: [], // Последние 3 игровые фазы
+        pauseHistory: [], // Последние 3 паузы
+        statusMessageIds: [], // Массив {chatId, messageId} для редактирования
+        totalSalary: 0, // Новое поле для накопленной зарплаты
+        reconnectEnabled: false // Новый флаг для реконнекта в AFK
     },
     nicknameLogged: false
 };
-const serverTokens = SERVER_TOKENS;
-const defaultToken = DEFAULT_TOKEN;
+const serverTokens = SERVER_TOKENS; // Используем вынесенную константу
+const defaultToken = DEFAULT_TOKEN; // Используем вынесенную константу
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
-const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
-const quitCommand = "/q";
 // END CONFIG MODULE //
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
@@ -1561,9 +1611,9 @@ function processUpdates(updates) {
             } else if (message.startsWith(`afk_n_without_pauses_`)) {
                 activateAFKWithMode('none', false, chatId, messageId);
             } else if (message.startsWith(`afk_n_fixed_`)) {
-                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'fixed');
+                activateAFKWithMode('fixed', false, chatId, messageId);
             } else if (message.startsWith(`afk_n_random_`)) {
-                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'random');
+                activateAFKWithMode('random', false, chatId, messageId);
             } else if (message.startsWith(`global_afk_`)) {
                 if (!globalState.awaitingAfkAccount) {
                     globalState.awaitingAfkAccount = true;
@@ -1940,8 +1990,8 @@ function initializeChatMonitor() {
         // Проверка сообщения о возобновлении работы сервера для AFK
         if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-            sendChatInput(quitCommand);
-            let restartMessage = `⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+            sendChatInput("/q");
+            let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
             if (config.afkCycle.active) {
               restartMessage += getAFKStatusText();
               // Удаляем оригинальные статус-сообщения AFK
@@ -1977,7 +2027,7 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            sendChatInput(reconnectionCommand);
+            sendChatInput("/rec 5");
         }
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
@@ -2066,9 +2116,9 @@ function initializeChatMonitor() {
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
-                sendChatInput(reconnectionCommand);
-                debugLog('Отправлена команда ' + quitCommand);
-                sendToTelegram(`✅ <b>Отправлено ${quitCommand} (${displayName})</b>`, false, null);
+                sendChatInput("/q");
+                debugLog('Отправлена команда /q');
+                sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null);
             }, 30);
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -2085,7 +2135,6 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            sendChatInput(reconnectionCommand);
         }
         if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
             debugLog('Обнаружен запрос местоположения!');
@@ -2101,8 +2150,8 @@ function initializeChatMonitor() {
         }
         if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
             debugLog('Обнаружено AFK условие!');
-            sendChatInput(quitCommand);
-            sendToTelegram(`⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
+            sendChatInput("/q");
+            sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
         }
         // Проверка сообщений с рации
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
@@ -2166,5 +2215,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
-
