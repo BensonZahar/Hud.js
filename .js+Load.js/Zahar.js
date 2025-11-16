@@ -805,19 +805,13 @@ function enterPauseUntilEnd() {
         config.afkCycle.pauseHistory.shift();
     }
     updateAFKStatus(); // Обновляем статус-сообщение
-    if (config.afkCycle.reconnectEnabled) {
-        autoLoginConfig.enabled = false;
-        sendChatInput("/rec 5");
-        debugLog(`Реконнект: отключен автовход, отправлено /rec 5 для ${displayName}`);
-    } else {
-        try {
-            if (typeof openInterface === 'function') {
-                openInterface("PauseMenu");
-                debugLog(`Вход в паузу до конца для ${displayName}`);
-            }
-        } catch (e) {
-            debugLog(`Ошибка при входе в паузу до конца: ${e.message}`);
+    try {
+        if (typeof openInterface === 'function') {
+            openInterface("PauseMenu");
+            debugLog(`Вход в паузу до конца для ${displayName}`);
         }
+    } catch (e) {
+        debugLog(`Ошибка при входе в паузу до конца: ${e.message}`);
     }
 }
 function handlePayDayTimeMessage() {
@@ -838,22 +832,13 @@ function handlePayDayTimeMessage() {
     }
     const mainTimerDuration = 59 * 60 * 1000;
     config.afkCycle.mainTimer = setTimeout(() => {
-        if (config.afkCycle.reconnectEnabled) {
-            autoLoginConfig.enabled = true;
-            initializeAutoLogin();
-            setTimeout(() => {
-                sendChatInput("/rec 5");
-            }, 5000); // Задержка для входа в игру
-            debugLog(`Реконнект: включен автовход, отправлено /rec 5 для ${displayName}`);
-        } else {
-            try {
-                if (typeof closeInterface === 'function') {
-                    closeInterface("PauseMenu");
-                    debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
-                }
-            } catch (e) {
-                debugLog(`Ошибка при выходе из паузы: ${e.message}`);
+        try {
+            if (typeof closeInterface === 'function') {
+                closeInterface("PauseMenu");
+                debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
             }
+        } catch (e) {
+            debugLog(`Ошибка при выходе из паузы: ${e.message}`);
         }
         if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
         if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
@@ -1324,7 +1309,7 @@ function processUpdates(updates) {
                     if (hudId.includes('-')) {
                         idFormats.push(hudId.replace(/-/g, ''));
                     } else if (hudId.length === 3) {
-                        idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+                        idFormats.push(`${hudId[0]}-${id[1]}-${id[2]}`);
                     }
                     config.afkSettings = {
                         id: hudId,
@@ -1953,8 +1938,9 @@ function initializeChatMonitor() {
         // Проверка сообщения о возобновлении работы сервера для AFK
         if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-            sendChatInput("/q");
-            let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+            let quitCommand = config.autoReconnectEnabled ? "/rec 5" : "/q";
+            sendChatInput(quitCommand);
+            let restartMessage = `⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
             if (config.afkCycle.active) {
               restartMessage += getAFKStatusText();
               // Удаляем оригинальные статус-сообщения AFK
@@ -1964,6 +1950,14 @@ function initializeChatMonitor() {
               config.afkCycle.statusMessageIds = [];
             }
             sendToTelegram(restartMessage, false, null);
+            if (config.autoReconnectEnabled) {
+                autoLoginConfig.enabled = false;
+                sendToTelegram(`🔄 <b>Автореконнект: автоавторизация отключена на 5 мин (${displayName})</b>`, false, null);
+                setTimeout(() => {
+                    autoLoginConfig.enabled = true;
+                    initializeAutoLogin();
+                }, 300000); // 5 мин
+            }
         }
         if (lowerCaseMessage.includes("зареспавнил вас")) {
             debugLog(`Обнаружен респавн для ${displayName}!`);
@@ -1990,8 +1984,15 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+            let quitCommand = config.autoReconnectEnabled ? "/rec 5" : "/q";
+            sendChatInput(quitCommand);
             if (config.autoReconnectEnabled) {
-                sendChatInput("/rec 5");
+                autoLoginConfig.enabled = false;
+                sendToTelegram(`🔄 <b>Автореконнект: автоавторизация отключена на 5 мин (${displayName})</b>`, false, null);
+                setTimeout(() => {
+                    autoLoginConfig.enabled = true;
+                    initializeAutoLogin();
+                }, 300000); // 5 мин
             }
         }
         let factionColor = 'CCFF00'; // По умолчанию
@@ -2081,9 +2082,23 @@ function initializeChatMonitor() {
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
-                sendChatInput("/q");
-                debugLog('Команда /q отправлена');
-                sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null);
+                if (config.autoReconnectEnabled) {
+                    sendChatInput("/rec 5");
+                    autoLoginConfig.enabled = false;
+                    debugLog('Отправлена команда /rec 5');
+                    sendToTelegram(`✅ <b>Отправлено /rec 5 (${displayName})</b>`, false, null);
+                    setTimeout(() => {
+                        autoLoginConfig.enabled = true;
+                        initializeAutoLogin(); // Ждем появления Authorization и авторизуемся
+                        sendChatInput("/rec 5");
+                        debugLog('Вторая команда /rec 5 отправлена после 5 мин');
+                        sendToTelegram(`✅ <b>Отправлено второе /rec 5 после 5 мин (${displayName})</b>`, false, null);
+                    }, 300000); // 5 минут
+                } else {
+                    sendChatInput("/q");
+                    debugLog('Отправлена команда /q');
+                    sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null);
+                }
             }, 30);
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -2100,6 +2115,23 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+            if (config.autoReconnectEnabled) {
+                sendChatInput("/rec 5");
+                autoLoginConfig.enabled = false;
+                debugLog('Отправлена команда /rec 5 для кика администратора');
+                sendToTelegram(`✅ <b>Отправлено /rec 5 для кика администратора (${displayName})</b>`, false, null);
+                setTimeout(() => {
+                    autoLoginConfig.enabled = true;
+                    initializeAutoLogin(); // Ждем появления Authorization и авторизуемся
+                    sendChatInput("/rec 5");
+                    debugLog('Вторая команда /rec 5 отправлена после 2 мин');
+                    sendToTelegram(`✅ <b>Отправлено второе /rec 5 после 2 мин (${displayName})</b>`, false, null);
+                }, 120000); // 2 минуты
+            } else {
+                sendChatInput("/q");
+                debugLog('Отправлена команда /q для кика администратора');
+                sendToTelegram(`✅ <b>Отправлено /q для кика администратора (${displayName})</b>`, false, null);
+            }
         }
         if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
             debugLog('Обнаружен запрос местоположения!');
@@ -2115,8 +2147,17 @@ function initializeChatMonitor() {
         }
         if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
             debugLog('Обнаружено AFK условие!');
-            sendChatInput("/q");
-            sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
+            let quitCommand = config.autoReconnectEnabled ? "/rec 5" : "/q";
+            sendChatInput(quitCommand);
+            sendToTelegram(`⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
+            if (config.autoReconnectEnabled) {
+                autoLoginConfig.enabled = false;
+                sendToTelegram(`🔄 <b>Автореконнект: автоавторизация отключена на 5 мин (${displayName})</b>`, false, null);
+                setTimeout(() => {
+                    autoLoginConfig.enabled = true;
+                    initializeAutoLogin();
+                }, 300000); // 5 мин
+            }
         }
         // Проверка сообщений с рации
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
