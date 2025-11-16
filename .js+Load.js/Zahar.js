@@ -8,7 +8,7 @@ const SERVER_TOKENS = {
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
-const PASSWORD = "zahar2007!"; // Ваш пароль
+const PASSWORD = "zahar2007"; // Ваш пароль
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
 // Глобальный объект для хранения состояния
@@ -169,7 +169,7 @@ const userConfig = {
     notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
     trackSkinId: true, // Флаг отслеживания скина
     skinCheckInterval: 5000, // Интервал проверки скина
-    autoReconnectEnabled: false // Новый флаг для автореконнекта после кика
+    autoReconnectEnabled: true // Новый флаг для автореконнекта после кика
 };
 const config = {
     ...userConfig,
@@ -2215,3 +2215,4 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
