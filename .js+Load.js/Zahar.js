@@ -2,12 +2,12 @@
 // Константы, вынесенные в начало для удобства
 const CHAT_IDS = ['-1003040555627']; // 1046461621 - Zahar, 5515408606 = Kolya
 const SERVER_TOKENS = {
-    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
+    '4': '8519538655:AAHpc7UPO2X9BWuHypG7iXGYNkjAglX3soE',
     '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
-    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
+    '6': '8519538655:AAHpc7UPO2X9BWuHypG7iXGYNkjAglX3soE',
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
-const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
+const DEFAULT_TOKEN = '8519538655:AAHpc7UPO2X9BWuHypG7iXGYNkjAglX3soE';
 const PASSWORD = "zahar2007!"; // Ваш пароль
 const RECONNECT_ENABLED_DEFAULT = true; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
@@ -2167,3 +2167,4 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
