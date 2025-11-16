@@ -169,7 +169,7 @@ const userConfig = {
     notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
     trackSkinId: true, // Флаг отслеживания скина
     skinCheckInterval: 5000, // Интервал проверки скина
-    autoReconnectEnabled: false // Новый флаг для автореконнекта после кика
+    autoReconnectEnabled: true // Новый флаг для автореконнекта после кика
 };
 const config = {
     ...userConfig,
@@ -2270,3 +2270,4 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
