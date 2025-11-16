@@ -2168,3 +2168,234 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+// START CONSTANTS MODULE //
+const config = {
+    paydayNotifications: false,
+    govMessagesEnabled: false,
+    trackLocationRequests: false,
+    radioOfficialNotifications: false,
+    warningNotifications: false,
+    autoReconnectEnabled: false,
+    afkSettings: { id: null, formats: [], active: false },
+    accountInfo: { nickname: "" }
+};
+
+const globalState = {
+    afkTargetAccount: null,
+    tempAfkMode: null
+};
+
+// END CONSTANTS MODULE //
+
+// START IN-GAME MENU MODULE //
+// ID для диалогов меню /hb
+const HB_MAIN_MENU_ID = 700; // Главное меню
+const HB_PAYDAY_SUB_ID = 701; // Подменю PayDay
+const HB_SOOB_SUB_ID = 702; // Подменю Сообщ.
+const HB_MESTO_SUB_ID = 703; // Подменю Место
+const HB_RADIO_SUB_ID = 704; // Подменю Рация
+const HB_WARNING_SUB_ID = 705; // Подменю Выговоры
+const HB_AFKN_MODES_ID = 706; // Подменю AFK Ночь (режимы)
+const HB_AFKN_WITH_PAUSES_ID = 707; // Подменю С паузами (Fixed/Random)
+const HB_AFKN_RECONNECT_ID = 708; // Подменю Реконнект для AFK Ночь
+const HB_AFKN_INPUT_NICK_ID = 709; // Input для ника AFK
+const HB_AFKN_INPUT_ID_ID = 710; // Input для ID AFK
+const HB_LEVELUP_RECONNECT_ID = 711; // Подменю Реконнект для Прокачка уровня
+
+// Функция для показа главного меню /hb
+function showHbMainMenu() {
+    let menuList = `PayDay: ${config.paydayNotifications ? "{00FF00}ВКЛ" : "{FF0000}ВЫКЛ"}<n>` +
+                   `Сообщ.: ${config.govMessagesEnabled ? "{00FF00}ВКЛ" : "{FF0000}ВЫКЛ"}<n>` +
+                   `Место: ${config.trackLocationRequests ? "{00FF00}ВКЛ" : "{FF0000}ВЫКЛ"}<n>` +
+                   `Рация: ${config.radioOfficialNotifications ? "{00FF00}ВКЛ" : "{FF0000}ВЫКЛ"}<n>` +
+                   `Выговоры: ${config.warningNotifications ? "{00FF00}ВКЛ" : "{FF0000}ВЫКЛ"}<n>` +
+                   `AFK Ночь<n>` +
+                   `AFK<n>`;
+    if (config.autoReconnectEnabled) {
+        menuList += `Прокачка уровня<n>`;
+    }
+    window.addDialogInQueue(`[${HB_MAIN_MENU_ID},2,"Hassle Bot Menu","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+// Функция для показа подменю ВКЛ/ВЫКЛ (общая для простых опций)
+function showHbToggleSubMenu(dialogId, title, currentEnabled) {
+    const menuList = "ВКЛ<n>ВЫКЛ";
+    window.addDialogInQueue(`[${dialogId},2,"${title} | ${currentEnabled ? 'ВКЛ' : 'ВЫКЛ'}","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+// Подменю для AFK Ночь (режимы)
+function showHbAfkNightModes() {
+    const menuList = "С паузами<n>Без пауз";
+    window.addDialogInQueue(`[${HB_AFKN_MODES_ID},2,"AFK Ночь","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+// Подменю для С паузами (Fixed/Random)
+function showHbAfkWithPauses() {
+    const menuList = "5/5 минут<n>Рандомное время";
+    window.addDialogInQueue(`[${HB_AFKN_WITH_PAUSES_ID},2,"AFK Ночь: С паузами","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+// Подменю для Реконнект (для AFK Ночь или LevelUp)
+function showHbReconnectSub(dialogId, title, selectedMode) {
+    const menuList = "Реконнект ВКЛ<n>Реконнект ВЫКЛ";
+    window.addDialogInQueue(`[${dialogId},2,"${title}","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+// Input для ника AFK
+function showHbAfkInputNick() {
+    window.addDialogInQueue(`[${HB_AFKN_INPUT_NICK_ID},1,"AFK: Введите ник","Введите ник аккаунта:","Подтвердить","Отмена",0,0]`, "", 0);
+}
+
+// Input для ID AFK
+function showHbAfkInputId() {
+    window.addDialogInQueue(`[${HB_AFKN_INPUT_ID_ID},1,"AFK: Введите ID","Введите ID:","Подтвердить","Отмена",0,0]`, "", 0);
+}
+
+// Функция-заглушка для активации AFK (адаптируйте под вашу логику)
+function activateAFKWithMode(mode, reconnect) {
+    // Пример: логика для активации AFK с указанным режимом и реконнектом
+    sendToTelegram(`🔄 AFK Ночь активирован из игры (${displayName}) с режимом: ${mode}, реконнект: ${reconnect ? 'ВКЛ' : 'ВЫКЛ'}`);
+    window.onChatMessage(`AFK Ночь активирован: ${mode}, реконнект ${reconnect ? 'вкл' : 'выкл'}`, "00FF00");
+    showHbMainMenu();
+}
+
+// Функция-заглушка для отправки в Telegram (адаптируйте под вашу реализацию)
+function sendToTelegram(message) {
+    console.log(`Отправка в Telegram: ${message}`);
+    // Реальная логика отправки в TG, если есть API
+}
+
+// Функция-заглушка для обновления welcome-сообщения
+function sendWelcomeMessage() {
+    console.log("Обновление welcome-сообщения");
+    // Реальная логика обновления welcome, если есть
+}
+
+// Перехват команды /hb
+window.sendChatInputCustom = e => {
+    const args = e.split(" ");
+    if (args[0] == "/hb") {
+        showHbMainMenu();
+    } else {
+        window.App.developmentMode || engine.trigger("SendChatInput", e);
+    }
+};
+
+// Обработка диалогов
+window.sendClientEventCustom = (event, ...args) => {
+    if (args[0] === "OnDialogResponse") {
+        const dialogId = args[1];
+        const response = args[2]; // 1 - Выбрать, 0 - Отмена
+        const listitem = args[3]; // Индекс выбранного пункта
+        const input = args[4]; // Для input-диалогов
+
+        if (dialogId >= 700 && dialogId <= 711 && response === 1) {
+            switch (dialogId) {
+                case HB_MAIN_MENU_ID: // Главное меню
+                    switch (listitem) {
+                        case 0: showHbToggleSubMenu(HB_PAYDAY_SUB_ID, "PayDay", config.paydayNotifications); break;
+                        case 1: showHbToggleSubMenu(HB_SOOB_SUB_ID, "Сообщ.", config.govMessagesEnabled); break;
+                        case 2: showHbToggleSubMenu(HB_MESTO_SUB_ID, "Место", config.trackLocationRequests); break;
+                        case 3: showHbToggleSubMenu(HB_RADIO_SUB_ID, "Рация", config.radioOfficialNotifications); break;
+                        case 4: showHbToggleSubMenu(HB_WARNING_SUB_ID, "Выговоры", config.warningNotifications); break;
+                        case 5: showHbAfkNightModes(); break;
+                        case 6: showHbAfkInputNick(); break;
+                        case 7: if (config.autoReconnectEnabled) showHbReconnectSub(HB_LEVELUP_RECONNECT_ID, "Прокачка уровня", 'levelup'); break;
+                    }
+                    break;
+
+                // Подменю toggle
+                case HB_PAYDAY_SUB_ID:
+                    config.paydayNotifications = listitem === 0;
+                    sendToTelegram(`🔔 PayDay уведомления ${config.paydayNotifications ? 'включены' : 'отключены'} из игры (${displayName})`);
+                    sendWelcomeMessage();
+                    showHbMainMenu();
+                    break;
+                case HB_SOOB_SUB_ID:
+                    config.govMessagesEnabled = listitem === 0;
+                    sendToTelegram(`🔔 Сообщ. уведомления ${config.govMessagesEnabled ? 'включены' : 'отключены'} из игры (${displayName})`);
+                    sendWelcomeMessage();
+                    showHbMainMenu();
+                    break;
+                case HB_MESTO_SUB_ID:
+                    config.trackLocationRequests = listitem === 0;
+                    sendToTelegram(`🔔 Место уведомления ${config.trackLocationRequests ? 'включены' : 'отключены'} из игры (${displayName})`);
+                    sendWelcomeMessage();
+                    showHbMainMenu();
+                    break;
+                case HB_RADIO_SUB_ID:
+                    config.radioOfficialNotifications = listitem === 0;
+                    sendToTelegram(`🔔 Рация уведомления ${config.radioOfficialNotifications ? 'включены' : 'отключены'} из игры (${displayName})`);
+                    sendWelcomeMessage();
+                    showHbMainMenu();
+                    break;
+                case HB_WARNING_SUB_ID:
+                    config.warningNotifications = listitem === 0;
+                    sendToTelegram(`🔔 Выговоры уведомления ${config.warningNotifications ? 'включены' : 'отключены'} из игры (${displayName})`);
+                    sendWelcomeMessage();
+                    showHbMainMenu();
+                    break;
+
+                // AFK Ночь: Режимы
+                case HB_AFKN_MODES_ID:
+                    if (listitem === 0) showHbAfkWithPauses();
+                    else activateAFKWithMode('none', false);
+                    break;
+
+                // AFK Ночь: С паузами (Fixed/Random)
+                case HB_AFKN_WITH_PAUSES_ID:
+                    const mode = listitem === 0 ? 'fixed' : 'random';
+                    globalState.tempAfkMode = mode;
+                    showHbReconnectSub(HB_AFKN_RECONNECT_ID, `AFK Ночь: ${mode}`, mode);
+                    break;
+
+                // Реконнект для AFK Ночь
+                case HB_AFKN_RECONNECT_ID:
+                    const reconnect = listitem === 0;
+                    const mode = globalState.tempAfkMode || 'fixed';
+                    activateAFKWithMode(mode, reconnect);
+                    globalState.tempAfkMode = null;
+                    break;
+
+                // Input ник для AFK
+                case HB_AFKN_INPUT_NICK_ID:
+                    if (input && input === config.accountInfo.nickname) {
+                        globalState.afkTargetAccount = input;
+                        showHbAfkInputId();
+                    } else {
+                        window.onChatMessage("Ошибка: Неверный ник", "FF0000");
+                    }
+                    break;
+
+                // Input ID для AFK
+                case HB_AFKN_INPUT_ID_ID:
+                    if (input && globalState.afkTargetAccount) {
+                        const idFormats = [input];
+                        if (input.includes('-')) idFormats.push(input.replace(/-/g, ''));
+                        else if (input.length === 3) idFormats.push(`${input[0]}-${input[1]}-${input[2]}`);
+                        config.afkSettings = { id: input, formats: idFormats, active: true };
+                        sendToTelegram(`🔄 AFK активирован из игры (${displayName}) для ID: ${input}`);
+                        globalState.afkTargetAccount = null;
+                        showHbMainMenu();
+                    }
+                    break;
+
+                // Реконнект для LevelUp
+                case HB_LEVELUP_RECONNECT_ID:
+                    const levelReconnect = listitem === 0;
+                    activateAFKWithMode('levelup', levelReconnect);
+                    break;
+            }
+        }
+    } else {
+        window.sendClientEventHandle(event, ...args);
+    }
+};
+
+// Перезапись функций
+sendChatInput = window.sendChatInputCustom;
+sendClientEvent = window.sendClientEventCustom;
+
+// END IN-GAME MENU MODULE //
+
+// END INITIALIZATION MODULE //
