@@ -1,3 +1,4 @@
+```javascript
 // START CONSTANTS MODULE //
 // Константы, вынесенные в начало для удобства
 const CHAT_IDS = ['-1003040555627']; // -1003202329790- kirill, -1003040555627 - zahar, -1003102212423 - kolya
@@ -806,19 +807,13 @@ function enterPauseUntilEnd() {
         config.afkCycle.pauseHistory.shift();
     }
     updateAFKStatus(); // Обновляем статус-сообщение
-    if (config.afkCycle.reconnectEnabled && config.autoReconnectEnabled) {
-        autoLoginConfig.enabled = false;
-        sendChatInput("/rec 5");
-        debugLog(`Реконнект: отключен автовход, отправлено /rec 5 для ${displayName}`);
-    } else {
-        try {
-            if (typeof openInterface === 'function') {
-                openInterface("PauseMenu");
-                debugLog(`Вход в паузу до конца для ${displayName}`);
-            }
-        } catch (e) {
-            debugLog(`Ошибка при входе в паузу до конца: ${e.message}`);
+    try {
+        if (typeof openInterface === 'function') {
+            openInterface("PauseMenu");
+            debugLog(`Вход в паузу до конца для ${displayName}`);
         }
+    } catch (e) {
+        debugLog(`Ошибка при входе в паузу до конца: ${e.message}`);
     }
 }
 function handlePayDayTimeMessage() {
@@ -839,22 +834,13 @@ function handlePayDayTimeMessage() {
     }
     const mainTimerDuration = 59 * 60 * 1000;
     config.afkCycle.mainTimer = setTimeout(() => {
-        if (config.afkCycle.reconnectEnabled && config.autoReconnectEnabled) {
-            autoLoginConfig.enabled = true;
-            initializeAutoLogin();
-            setTimeout(() => {
-                sendChatInput("/rec 5");
-            }, 5000); // Задержка для входа в игру
-            debugLog(`Реконнект: включен автовход, отправлено /rec 5 для ${displayName}`);
-        } else {
-            try {
-                if (typeof closeInterface === 'function') {
-                    closeInterface("PauseMenu");
-                    debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
-                }
-            } catch (e) {
-                debugLog(`Ошибка при выходе из паузы: ${e.message}`);
+        try {
+            if (typeof closeInterface === 'function') {
+                closeInterface("PauseMenu");
+                debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
             }
+        } catch (e) {
+            debugLog(`Ошибка при выходе из паузы: ${e.message}`);
         }
         if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
         if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
@@ -889,7 +875,7 @@ function showControlsMenu(chatId, messageId) {
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
-    const inlineKeyboard = [
+    let inlineKeyboard = [
         [createButton("🔔 PayDay", `show_payday_options_${uniqueIdParam}`)],
         [createButton("🏛️ Сообщ.", `show_soob_options_${uniqueIdParam}`)],
         [createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
@@ -899,8 +885,11 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
             createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
             createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
         ],
-        [createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]
     ];
+    if (config.autoReconnectEnabled) {
+        inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
+    }
+    inlineKeyboard.push([createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]);
     const replyMarkup = {
         inline_keyboard: inlineKeyboard
     };
@@ -1041,8 +1030,8 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
         [[createButton("⬅️ Вернуться назад", `back_to_notification_${uniqueId}`)]] :
         [[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]];
     const sitStandButton = config.isSitting ?
-        createButton("🧍 Встать", `move_stand_${uniqueId}${isNotification ? '_notification' : ''}`)
-        : createButton("🪑 Сесть", `move_sit_${uniqueId}${isNotification ? '_notification' : ''}`);
+        createButton("🧍 Встать", `move_stand_${uniqueId}${isNotification ? '_notification' : ''}`) :
+        createButton("🪑 Сесть", `move_sit_${uniqueId}${isNotification ? '_notification' : ''}`);
     const replyMarkup = {
         inline_keyboard: [
             [createButton("⬆️ Вперед", `move_forward_${uniqueId}${isNotification ? '_notification' : ''}`)],
@@ -1453,18 +1442,8 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('afk_n_without_pauses_', '');
             } else if (message.startsWith('afk_n_fixed_')) {
                 callbackUniqueId = message.replace('afk_n_fixed_', '');
-                if (config.autoReconnectEnabled) {
-                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'fixed');
-                } else {
-                    activateAFKWithMode('fixed', false, chatId, messageId);
-                }
             } else if (message.startsWith('afk_n_random_')) {
                 callbackUniqueId = message.replace('afk_n_random_', '');
-                if (config.autoReconnectEnabled) {
-                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'random');
-                } else {
-                    activateAFKWithMode('random', false, chatId, messageId);
-                }
             } else if (message.startsWith('show_payday_options_')) {
                 callbackUniqueId = message.replace('show_payday_options_', '');
             } else if (message.startsWith('show_soob_options_')) {
@@ -1489,11 +1468,7 @@ function processUpdates(updates) {
                 activateAFKWithMode(selectedMode, false, chatId, messageId);
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
-                if (config.autoReconnectEnabled) {
-                    showLevelUpReconnectMenu(chatId, messageId, callbackUniqueId);
-                } else {
-                    activateAFKWithMode('levelup', false, chatId, messageId);
-                }
+                showLevelUpReconnectMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith('levelup_reconnect_on_')) {
                 callbackUniqueId = message.replace('levelup_reconnect_on_', '');
                 activateAFKWithMode('levelup', true, chatId, messageId);
@@ -1588,6 +1563,10 @@ function processUpdates(updates) {
                 showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`afk_n_without_pauses_`)) {
                 activateAFKWithMode('none', false, chatId, messageId);
+            } else if (message.startsWith(`afk_n_fixed_`)) {
+                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'fixed');
+            } else if (message.startsWith(`afk_n_random_`)) {
+                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'random');
             } else if (message.startsWith(`global_afk_`)) {
                 if (!globalState.awaitingAfkAccount) {
                     globalState.awaitingAfkAccount = true;
@@ -2190,4 +2169,4 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
+```
