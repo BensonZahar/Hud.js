@@ -9,144 +9,100 @@ const SERVER_TOKENS = {
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
 const PASSWORD = "zahar2007!"; // Ваш пароль
+const RECONNECT_ENABLED_DEFAULT = true; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
+
 // START GLOBAL STATE MODULE //
-// Глобальный объект для хранения состояния
 const globalState = {
     awaitingAfkAccount: false,
     awaitingAfkId: false,
     afkTargetAccount: null,
-    lastWelcomeMessageId: null, // Для хранения ID последнего приветственного сообщения
-    lastPaydayMessageIds: [] // Для хранения ID сообщений PayDay для редактирования
+    lastWelcomeMessageId: null,
+    lastPaydayMessageIds: []
 };
 // END GLOBAL STATE MODULE //
+
 // START CHAT RADIUS MODULE //
-// Определяем радиусы чата
 const CHAT_RADIUS = {
-    SELF: 0, // Собственное сообщение
-    CLOSE: 1, // Близко (< radius/4)
-    MEDIUM: 2, // Средне (< radius/2)
-    FAR: 3, // Далеко (>= radius/2)
-    RADIO: 4, // Рация
-    UNKNOWN: -1 // Неизвестный цвет
+    SELF: 0,
+    CLOSE: 1,
+    MEDIUM: 2,
+    FAR: 3,
+    RADIO: 4,
+    UNKNOWN: -1
 };
 function normalizeColor(color) {
     let normalized = color.toString().toUpperCase();
-    if (normalized.startsWith('#')) {
-        normalized = normalized.slice(1);
-    }
-    if (normalized.length === 8) {
-        normalized = normalized.slice(0, 6);
-    }
+    if (normalized.startsWith('#')) normalized = normalized.slice(1);
+    if (normalized.length === 8) normalized = normalized.slice(0, 6);
     return '0x' + normalized;
 }
 function getChatRadius(color) {
     const normalizedColor = normalizeColor(color);
     switch (normalizedColor) {
-        case '0xEEEEEE':
-            return CHAT_RADIUS.SELF;
-        case '0xCECECE':
-            return CHAT_RADIUS.CLOSE;
-        case '0x999999':
-            return CHAT_RADIUS.MEDIUM;
-        case '0x6B6B6B':
-            return CHAT_RADIUS.FAR;
-        case '0x33CC66':
-            return CHAT_RADIUS.RADIO;
-        default:
-            return CHAT_RADIUS.UNKNOWN;
+        case '0xEEEEEE': return CHAT_RADIUS.SELF;
+        case '0xCECECE': return CHAT_RADIUS.CLOSE;
+        case '0x999999': return CHAT_RADIUS.MEDIUM;
+        case '0x6B6B6B': return CHAT_RADIUS.FAR;
+        case '0x33CC66': return CHAT_RADIUS.RADIO;
+        default: return CHAT_RADIUS.UNKNOWN;
     }
 }
 // END CHAT RADIUS MODULE //
+
 // START FACTIONS MODULE //
-// Определение фракций и их рангов
 const factions = {
-    government: { // Правительство
+    government: {
         color: 'CCFF00',
         skins: [57, 141, 147, 164, 165, 187, 208, 227],
         ranks: {
-            1: 'водитель',
-            2: 'охранник',
-            3: 'нач. охраны',
-            4: 'секретарь',
-            5: 'старший секретарь',
-            6: 'лицензёр',
-            7: 'адвокат',
-            8: 'депутат',
-            9: 'вице-губернатор',
-            10: 'губернатор'
+            1: 'водитель', 2: 'охранник', 3: 'нач. охраны', 4: 'секретарь',
+            5: 'старший секретарь', 6: 'лицензёр', 7: 'адвокат', 8: 'депутат',
+            9: 'вице-губернатор', 10: 'губернатор'
         }
     },
-    mz: { // Больница
+    mz: {
         color: 'FF6666',
         skins: [276, 15381, 15382, 15383, 15384, 15385, 15386, 15387, 15388, 15389],
         ranks: {
-            1: 'интерн',
-            2: 'фельдшер',
-            3: 'участковый врач',
-            4: 'терапевт',
-            5: 'проктолог',
-            6: 'нарколог',
-            7: 'хирург',
-            8: 'заведующий отделением',
-            9: 'заместитель глав врача',
-            10: 'глав врач'
+            1: 'интерн', 2: 'фельдшер', 3: 'участковый врач', 4: 'терапевт',
+            5: 'проктолог', 6: 'нарколог', 7: 'хирург', 8: 'заведующий отделением',
+            9: 'заместитель глав врача', 10: 'глав врач'
         }
     },
-    trk: { // ГТРК «Ритм»
+    trk: {
         color: 'FF6600',
         skins: [15438, 15439, 15440, 15441, 15442, 15443, 15444, 15445, 15446, 15447],
         ranks: {
-            1: 'стажёр',
-            2: 'светотехник',
-            3: 'монтажёр',
-            4: 'оператор',
-            5: 'дизайнер',
-            6: 'репортер',
-            7: 'ведущий',
-            8: 'режиссёр',
-            9: 'редактор',
-            10: 'гл. редактор'
+            1: 'стажёр', 2: 'светотехник', 3: 'монтажёр', 4: 'оператор',
+            5: 'дизайнер', 6: 'репортер', 7: 'ведущий', 8: 'режиссёр',
+            9: 'редактор', 10: 'гл. редактор'
         }
     },
-    mo: { // Воинская часть
+    mo: {
         color: '996633',
         skins: [30, 61, 179, 191, 253, 255, 287, 162, 218, 220],
         ranks: {
-            1: 'рядовой',
-            2: 'ефрейтор',
-            3: 'сержант',
-            4: 'прапорщик',
-            5: 'лейтенант',
-            6: 'капитан',
-            7: 'майор',
-            8: 'подполковник',
-            9: 'полковник',
-            10: 'генерал'
+            1: 'рядовой', 2: 'ефрейтор', 3: 'сержант', 4: 'прапорщик',
+            5: 'лейтенант', 6: 'капитан', 7: 'майор', 8: 'подполковник',
+            9: 'полковник', 10: 'генерал'
         }
     },
-    mchs: { // МЧС
+    mchs: {
         color: '009999',
         skins: [15316, 15365, 15366, 15367, 15368, 15369, 15370, 15371, 15372, 15373, 15374, 15375, 15376, 15377, 15378, 15396, 15397],
         ranks: {
-            1: 'рядовой',
-            2: 'сержант',
-            3: 'старшина',
-            4: 'прапорщик',
-            5: 'лейтенант',
-            6: 'капитан',
-            7: 'майор',
-            8: 'подполковник',
-            9: 'полковник',
-            10: 'генерал'
+            1: 'рядовой', 2: 'сержант', 3: 'старшина', 4: 'прапорщик',
+            5: 'лейтенант', 6: 'капитан', 7: 'майор', 8: 'подполковник',
+            9: 'полковник', 10: 'генерал'
         }
     }
 };
 // END FACTIONS MODULE //
+
 // START CONFIG MODULE //
-// КОНФИГУРАЦИЯ
 const userConfig = {
-    chatIds: CHAT_IDS, // Используем вынесенную константу
+    chatIds: CHAT_IDS,
     keywords: [],
     clearDelay: 3000,
     maxAttempts: 15,
@@ -166,10 +122,10 @@ const userConfig = {
     locationKeywords: ["местоположение", "место", "позиция", "координаты"],
     radioOfficialNotifications: true,
     warningNotifications: true,
-    notificationDeleteDelay: 5000, // Задержка для удаления уведомлений об изменении настроек
-    trackSkinId: true, // Флаг отслеживания скина
-    skinCheckInterval: 5000, // Интервал проверки скина
-    autoReconnectEnabled: false // Новый флаг для автореконнекта после кика
+    notificationDeleteDelay: 5000,
+    trackSkinId: true,
+    skinCheckInterval: 5000,
+    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT   // <-- используем константу
 };
 const config = {
     ...userConfig,
@@ -178,12 +134,8 @@ const config = {
     lastPodbrosTime: 0,
     podbrosCounter: 0,
     initialized: false,
-    accountInfo: {
-        nickname: null,
-        server: null,
-        skinId: null // Добавлено поле для Skin ID
-    },
-    currentFaction: null, // Текущая фракция (government или mz)
+    accountInfo: { nickname: null, server: null, skinId: null },
+    currentFaction: null,
     lastPlayerId: null,
     govMessageTrackers: {},
     isSitting: false,
@@ -198,16 +150,16 @@ const config = {
         pauseTimer: null,
         mainTimer: null,
         mode: 'fixed',
-        playHistory: [], // Последние 3 игровые фазы
-        pauseHistory: [], // Последние 3 паузы
-        statusMessageIds: [], // Массив {chatId, messageId} для редактирования
-        totalSalary: 0, // Новое поле для накопленной зарплаты
-        reconnectEnabled: true // Новый флаг для реконнекта в AFK
+        playHistory: [],
+        pauseHistory: [],
+        statusMessageIds: [],
+        totalSalary: 0,
+        reconnectEnabled: RECONNECT_ENABLED_DEFAULT   // <-- по умолчанию включён
     },
     nicknameLogged: false
 };
-const serverTokens = SERVER_TOKENS; // Используем вынесенную константу
-const defaultToken = DEFAULT_TOKEN; // Используем вынесенную константу
+const serverTokens = SERVER_TOKENS;
+const defaultToken = DEFAULT_TOKEN;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 // END CONFIG MODULE //
@@ -2215,4 +2167,5 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
 
