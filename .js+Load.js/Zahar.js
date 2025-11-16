@@ -202,7 +202,7 @@ const config = {
         pauseHistory: [], // Последние 3 паузы
         statusMessageIds: [], // Массив {chatId, messageId} для редактирования
         totalSalary: 0, // Новое поле для накопленной зарплаты
-        reconnectEnabled: false // Новый флаг для реконнекта в AFK
+        reconnectEnabled: true // Новый флаг для реконнекта в AFK
     },
     nicknameLogged: false
 };
@@ -2215,3 +2215,4 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
