@@ -8,8 +8,8 @@ const SERVER_TOKENS = {
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
-const PASSWORD = "zahar2007"; // Ваш пароль
-const RECONNECT_ENABLED_DEFAULT = true; // Авто-реконнект включён по умолчанию
+const PASSWORD = "zahar2007!"; // Ваш пароль
+const RECONNECT_ENABLED_DEFAULT = false; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
 const globalState = {
@@ -55,7 +55,7 @@ const factions = {
         ranks: {
             1: 'водитель', 2: 'охранник', 3: 'нач. охраны', 4: 'секретарь',
             5: 'старший секретарь', 6: 'лицензёр', 7: 'адвокат', 8: 'депутат',
-            9: 'вице-губернатор', 10: 'охранник'
+            9: 'вице-губернатор', 10: 'губернатор'
         }
     },
     mz: {
@@ -158,6 +158,8 @@ const serverTokens = SERVER_TOKENS;
 const defaultToken = DEFAULT_TOKEN;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
+const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
+const quitCommand = "/q";
 // END CONFIG MODULE //
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
@@ -1938,8 +1940,8 @@ function initializeChatMonitor() {
         // Проверка сообщения о возобновлении работы сервера для AFK
         if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-            sendChatInput("/q");
-            let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+            sendChatInput(quitCommand);
+            let restartMessage = `⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
             if (config.afkCycle.active) {
               restartMessage += getAFKStatusText();
               // Удаляем оригинальные статус-сообщения AFK
@@ -1975,8 +1977,7 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            const exitCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
-            sendChatInput(exitCommand);
+            sendChatInput(reconnectionCommand);
         }
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
@@ -2065,9 +2066,9 @@ function initializeChatMonitor() {
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
-                sendChatInput("/q");
-                debugLog('Отправлена команда /q');
-                sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null);
+                sendChatInput(reconnectionCommand);
+                debugLog('Отправлена команда ' + quitCommand);
+                sendToTelegram(`✅ <b>Отправлено ${quitCommand} (${displayName})</b>`, false, null);
             }, 30);
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -2084,6 +2085,7 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+            sendChatInput(reconnectionCommand);
         }
         if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
             debugLog('Обнаружен запрос местоположения!');
@@ -2099,8 +2101,8 @@ function initializeChatMonitor() {
         }
         if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
             debugLog('Обнаружено AFK условие!');
-            sendChatInput("/q");
-            sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
+            sendChatInput(quitCommand);
+            sendToTelegram(`⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
         }
         // Проверка сообщений с рации
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
@@ -2164,5 +2166,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
-
