@@ -1,6 +1,6 @@
 // START CONSTANTS MODULE //
 // Константы, вынесенные в начало для удобства
-const CHAT_IDS = ['-1003040555627']; // 1046461621 - Zahar, 5515408606 = Kolya
+const CHAT_IDS = ['-1003202329790']; // 1046461621 - Zahar, 5515408606 = Kolya
 const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
     '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
@@ -2341,3 +2341,4 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
