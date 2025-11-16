@@ -55,7 +55,7 @@ const factions = {
         ranks: {
             1: 'водитель', 2: 'охранник', 3: 'нач. охраны', 4: 'секретарь',
             5: 'старший секретарь', 6: 'лицензёр', 7: 'адвокат', 8: 'депутат',
-            9: 'вице-губернатор', 10: 'охранник'
+            9: 'вице-губернатор', 10: 'губернатор'
         }
     },
     mz: {
@@ -1559,9 +1559,9 @@ function processUpdates(updates) {
             } else if (message.startsWith(`afk_n_without_pauses_`)) {
                 activateAFKWithMode('none', false, chatId, messageId);
             } else if (message.startsWith(`afk_n_fixed_`)) {
-                activateAFKWithMode('fixed', false, chatId, messageId);
+                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'fixed');
             } else if (message.startsWith(`afk_n_random_`)) {
-                activateAFKWithMode('random', false, chatId, messageId);
+                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'random');
             } else if (message.startsWith(`global_afk_`)) {
                 if (!globalState.awaitingAfkAccount) {
                     globalState.awaitingAfkAccount = true;
@@ -1938,9 +1938,8 @@ function initializeChatMonitor() {
         // Проверка сообщения о возобновлении работы сервера для AFK
         if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-            let quitCommand = config.autoReconnectEnabled ? "/rec 5" : "/q";
-            sendChatInput(quitCommand);
-            let restartMessage = `⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
+            sendChatInput("/q");
+            let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
             if (config.afkCycle.active) {
               restartMessage += getAFKStatusText();
               // Удаляем оригинальные статус-сообщения AFK
@@ -1950,14 +1949,6 @@ function initializeChatMonitor() {
               config.afkCycle.statusMessageIds = [];
             }
             sendToTelegram(restartMessage, false, null);
-            if (config.autoReconnectEnabled) {
-                autoLoginConfig.enabled = false;
-                sendToTelegram(`🔄 <b>Автореконнект: автоавторизация отключена на 5 мин (${displayName})</b>`, false, null);
-                setTimeout(() => {
-                    autoLoginConfig.enabled = true;
-                    initializeAutoLogin();
-                }, 300000); // 5 мин
-            }
         }
         if (lowerCaseMessage.includes("зареспавнил вас")) {
             debugLog(`Обнаружен респавн для ${displayName}!`);
@@ -1984,16 +1975,8 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            let quitCommand = config.autoReconnectEnabled ? "/rec 5" : "/q";
-            sendChatInput(quitCommand);
-            if (config.autoReconnectEnabled) {
-                autoLoginConfig.enabled = false;
-                sendToTelegram(`🔄 <b>Автореконнект: автоавторизация отключена на 5 мин (${displayName})</b>`, false, null);
-                setTimeout(() => {
-                    autoLoginConfig.enabled = true;
-                    initializeAutoLogin();
-                }, 300000); // 5 мин
-            }
+            const exitCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
+            sendChatInput(exitCommand);
         }
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
@@ -2082,23 +2065,9 @@ function initializeChatMonitor() {
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
-                if (config.autoReconnectEnabled) {
-                    sendChatInput("/rec 5");
-                    autoLoginConfig.enabled = false;
-                    debugLog('Отправлена команда /rec 5');
-                    sendToTelegram(`✅ <b>Отправлено /rec 5 (${displayName})</b>`, false, null);
-                    setTimeout(() => {
-                        autoLoginConfig.enabled = true;
-                        initializeAutoLogin(); // Ждем появления Authorization и авторизуемся
-                        sendChatInput("/rec 5");
-                        debugLog('Вторая команда /rec 5 отправлена после 5 мин');
-                        sendToTelegram(`✅ <b>Отправлено второе /rec 5 после 5 мин (${displayName})</b>`, false, null);
-                    }, 300000); // 5 минут
-                } else {
-                    sendChatInput("/q");
-                    debugLog('Отправлена команда /q');
-                    sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null);
-                }
+                sendChatInput("/q");
+                debugLog('Отправлена команда /q');
+                sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null);
             }, 30);
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -2115,23 +2084,6 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            if (config.autoReconnectEnabled) {
-                sendChatInput("/rec 5");
-                autoLoginConfig.enabled = false;
-                debugLog('Отправлена команда /rec 5 для кика администратора');
-                sendToTelegram(`✅ <b>Отправлено /rec 5 для кика администратора (${displayName})</b>`, false, null);
-                setTimeout(() => {
-                    autoLoginConfig.enabled = true;
-                    initializeAutoLogin(); // Ждем появления Authorization и авторизуемся
-                    sendChatInput("/rec 5");
-                    debugLog('Вторая команда /rec 5 отправлена после 2 мин');
-                    sendToTelegram(`✅ <b>Отправлено второе /rec 5 после 2 мин (${displayName})</b>`, false, null);
-                }, 120000); // 2 минуты
-            } else {
-                sendChatInput("/q");
-                debugLog('Отправлена команда /q для кика администратора');
-                sendToTelegram(`✅ <b>Отправлено /q для кика администратора (${displayName})</b>`, false, null);
-            }
         }
         if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
             debugLog('Обнаружен запрос местоположения!');
@@ -2147,17 +2099,8 @@ function initializeChatMonitor() {
         }
         if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
             debugLog('Обнаружено AFK условие!');
-            let quitCommand = config.autoReconnectEnabled ? "/rec 5" : "/q";
-            sendChatInput(quitCommand);
-            sendToTelegram(`⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
-            if (config.autoReconnectEnabled) {
-                autoLoginConfig.enabled = false;
-                sendToTelegram(`🔄 <b>Автореконнект: автоавторизация отключена на 5 мин (${displayName})</b>`, false, null);
-                setTimeout(() => {
-                    autoLoginConfig.enabled = true;
-                    initializeAutoLogin();
-                }, 300000); // 5 мин
-            }
+            sendChatInput("/q");
+            sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
         }
         // Проверка сообщений с рации
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
@@ -2221,5 +2164,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
-
