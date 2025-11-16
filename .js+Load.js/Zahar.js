@@ -11,7 +11,6 @@ const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
 const PASSWORD = "zahar2007!"; // Ваш пароль
 const RECONNECT_ENABLED_DEFAULT = true; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
-
 // START GLOBAL STATE MODULE //
 const globalState = {
     awaitingAfkAccount: false,
@@ -21,7 +20,6 @@ const globalState = {
     lastPaydayMessageIds: []
 };
 // END GLOBAL STATE MODULE //
-
 // START CHAT RADIUS MODULE //
 const CHAT_RADIUS = {
     SELF: 0,
@@ -49,7 +47,6 @@ function getChatRadius(color) {
     }
 }
 // END CHAT RADIUS MODULE //
-
 // START FACTIONS MODULE //
 const factions = {
     government: {
@@ -58,7 +55,7 @@ const factions = {
         ranks: {
             1: 'водитель', 2: 'охранник', 3: 'нач. охраны', 4: 'секретарь',
             5: 'старший секретарь', 6: 'лицензёр', 7: 'адвокат', 8: 'депутат',
-            9: 'охранник', 10: 'губернатор'
+            9: 'вице-губернатор', 10: 'охранник'
         }
     },
     mz: {
@@ -99,7 +96,6 @@ const factions = {
     }
 };
 // END FACTIONS MODULE //
-
 // START CONFIG MODULE //
 const userConfig = {
     chatIds: CHAT_IDS,
@@ -125,7 +121,7 @@ const userConfig = {
     notificationDeleteDelay: 5000,
     trackSkinId: true,
     skinCheckInterval: 5000,
-    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT   // <-- используем константу
+    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- используем константу
 };
 const config = {
     ...userConfig,
@@ -154,7 +150,7 @@ const config = {
         pauseHistory: [],
         statusMessageIds: [],
         totalSalary: 0,
-        reconnectEnabled: RECONNECT_ENABLED_DEFAULT   // <-- по умолчанию включён
+        reconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- по умолчанию включён
     },
     nicknameLogged: false
 };
@@ -809,13 +805,19 @@ function enterPauseUntilEnd() {
         config.afkCycle.pauseHistory.shift();
     }
     updateAFKStatus(); // Обновляем статус-сообщение
-    try {
-        if (typeof openInterface === 'function') {
-            openInterface("PauseMenu");
-            debugLog(`Вход в паузу до конца для ${displayName}`);
+    if (config.afkCycle.reconnectEnabled) {
+        autoLoginConfig.enabled = false;
+        sendChatInput("/rec 5");
+        debugLog(`Реконнект: отключен автовход, отправлено /rec 5 для ${displayName}`);
+    } else {
+        try {
+            if (typeof openInterface === 'function') {
+                openInterface("PauseMenu");
+                debugLog(`Вход в паузу до конца для ${displayName}`);
+            }
+        } catch (e) {
+            debugLog(`Ошибка при входе в паузу до конца: ${e.message}`);
         }
-    } catch (e) {
-        debugLog(`Ошибка при входе в паузу до конца: ${e.message}`);
     }
 }
 function handlePayDayTimeMessage() {
@@ -836,13 +838,22 @@ function handlePayDayTimeMessage() {
     }
     const mainTimerDuration = 59 * 60 * 1000;
     config.afkCycle.mainTimer = setTimeout(() => {
-        try {
-            if (typeof closeInterface === 'function') {
-                closeInterface("PauseMenu");
-                debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
+        if (config.afkCycle.reconnectEnabled) {
+            autoLoginConfig.enabled = true;
+            initializeAutoLogin();
+            setTimeout(() => {
+                sendChatInput("/rec 5");
+            }, 5000); // Задержка для входа в игру
+            debugLog(`Реконнект: включен автовход, отправлено /rec 5 для ${displayName}`);
+        } else {
+            try {
+                if (typeof closeInterface === 'function') {
+                    closeInterface("PauseMenu");
+                    debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
+                }
+            } catch (e) {
+                debugLog(`Ошибка при выходе из паузы: ${e.message}`);
             }
-        } catch (e) {
-            debugLog(`Ошибка при выходе из паузы: ${e.message}`);
         }
         if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
         if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
@@ -1313,7 +1324,7 @@ function processUpdates(updates) {
                     if (hudId.includes('-')) {
                         idFormats.push(hudId.replace(/-/g, ''));
                     } else if (hudId.length === 3) {
-                        idFormats.push(`${hudId[0]}-${id[1]}-${id[2]}`);
+                        idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
                     }
                     config.afkSettings = {
                         id: hudId,
@@ -1979,7 +1990,9 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            sendChatInput("/rec 5");
+            if (config.autoReconnectEnabled) {
+                sendChatInput("/rec 5");
+            }
         }
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
@@ -2069,7 +2082,7 @@ function initializeChatMonitor() {
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
                 sendChatInput("/q");
-                debugLog('Отправлена команда /q');
+                debugLog('Команда /q отправлена');
                 sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null);
             }, 30);
         }
@@ -2167,5 +2180,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
-
