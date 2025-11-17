@@ -833,47 +833,112 @@ class MEmuHudManager:
         threading.Thread(target=run_action, daemon=True).start()
 
     def show_transfer_dialog(self):
-        """Показать диалог для подтверждения переноса"""
+        """Диалог для кнопки «Перенос фулл Hassle на Hassle Rec»"""
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Перенос фулл Hassle на Hassle Rec")
-        dialog.geometry("400x200")
+        dialog.geometry("560x360")
+        dialog.resizable(False, False)
         dialog.grab_set()
+        dialog.transient(self.root)
+        dialog.lift()
 
-        ctk.CTkLabel(dialog, text="Если у вас полностью скаченный (внутри) оригинальный Hassle, и Hassle 2 (Наша старая версия) , заменится на Hassle с рекконектом без заново скачки файлов").pack(pady=20, padx=20)
+        scroll_frame = ctk.CTkScrollableFrame(dialog, width=520, height=220)
+        scroll_frame.pack(pady=20, padx=20, fill="both", expand=True)
 
-        btn_frame = ctk.CTkFrame(dialog)
+        # ТВОЙ ТЕКСТ БЕЗ ИЗМЕНЕНИЙ
+        text = ("Если у вас полностью скаченный (внутри) оригинальный Hassle, "
+                "и Hassle 2 (Наша старая версия) , заменится на Hassle с рекконектом "
+                "без заново скачки файлов")
+
+        ctk.CTkLabel(
+            scroll_frame,
+            text=text,
+            font=("Segoe UI", 15),
+            wraplength=500,
+            justify="center",
+            anchor="center"
+        ).pack(pady=(30, 20))
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_frame.pack(pady=10)
 
-        ctk.CTkButton(btn_frame, text="Назад", command=dialog.destroy).grid(row=0, column=0, padx=10)
-        ctk.CTkButton(btn_frame, text="Начать", command=lambda: [dialog.destroy(), self.mod_hassle()]).grid(row=0, column=1, padx=10)
+        ctk.CTkButton(btn_frame, text="Назад", width=160, command=dialog.destroy).grid(row=0, column=0, padx=20)
+        ctk.CTkButton(btn_frame, text="Начать", width=160, 
+                      fg_color="#8B00FF", hover_color="#6A00CC",
+                      command=lambda: [dialog.destroy(), self.mod_hassle()]).grid(row=0, column=1, padx=20)
+
+        # Центрируем
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (560 // 2)
+        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (360 // 2)
+        dialog.geometry(f"+{x}+{y}")
 
     def show_replace_warning(self, app_folder):
-        """Показать предупреждение перед заменой на файл с кодом"""
+        """Предупреждение перед «Заменить на файл с кодом»"""
         if self.skip_warning:
             self.replace_with_code(app_folder)
             return
 
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Предупреждение")
-        dialog.geometry("400x250")
+        dialog.geometry("580x420")
+        dialog.resizable(False, False)
         dialog.grab_set()
+        dialog.transient(self.root)
+        dialog.lift()
 
-        ctk.CTkLabel(dialog, text="Если у вас не скачен Hassle с реконнектом установите (если у вас скачены наши прошлые версии Hassle то вам нужна кнопка Перенос фулл Hassle на Hassle Rec").pack(pady=20, padx=20)
+        scroll_frame = ctk.CTkScrollableFrame(dialog, width=540, height=250)
+        scroll_frame.pack(pady=20, padx=20, fill="both", expand=True)
+
+        # ТВОЙ ТЕКСТ БЕЗ ИЗМЕНЕНИЙ + версия кода
+        text = ("Если у вас не скачен Hassle с реконнектом установите "
+                "(если у вас скачены наши прошлые версии Hassle то вам нужна кнопка "
+                "Перенос фулл Hassle на Hassle Rec")
+
+        ctk.CTkLabel(
+            scroll_frame,
+            text=text,
+            font=("Segoe UI", 15),
+            wraplength=520,
+            justify="center",
+            anchor="center"
+        ).pack(pady=(30, 15))
+
+        # Показываем какая версия кода выбрана
+        code_info = f"Используется версия кода: {self.selected_code_name or 'не выбрана'}"
+        ctk.CTkLabel(
+            scroll_frame,
+            text=code_info,
+            font=("Segoe UI", 14, "bold"),
+            text_color="#8B00FF"
+        ).pack(pady=(0, 20))
 
         skip_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(dialog, text="Не сообщать следующий раз", variable=skip_var).pack(pady=10)
+        ctk.CTkCheckBox(
+            dialog,
+            text="Не сообщать следующий раз",
+            variable=skip_var,
+            font=("Segoe UI", 14)
+        ).pack(pady=10)
 
-        btn_frame = ctk.CTkFrame(dialog)
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_frame.pack(pady=10)
 
         def on_start():
-            self.skip_warning = skip_var.get()
-            self.save_skip_warning(self.skip_warning)
+            if skip_var.get():
+                self.skip_warning = True
+                self.save_skip_warning(True)
             dialog.destroy()
             self.replace_with_code(app_folder)
 
-        ctk.CTkButton(btn_frame, text="Назад", command=dialog.destroy).grid(row=0, column=0, padx=10)
-        ctk.CTkButton(btn_frame, text="Начать", command=on_start).grid(row=0, column=1, padx=10)
+        ctk.CTkButton(btn_frame, text="Назад", width=160, command=dialog.destroy).grid(row=0, column=0, padx=25)
+        ctk.CTkButton(btn_frame, text="Начать", width=160, command=on_start).grid(row=0, column=1, padx=25)
+
+        # Центрируем
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (580 // 2)
+        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (420 // 2)
+        dialog.geometry(f"+{x}+{y}")
  
     def mod_hassle(self):
         """Переименование папок + УДАЛЕНИЕ УСТАНОВЛЕННЫХ ПРИЛОЖЕНИЙ (pm uninstall), сохранение кэша"""
@@ -1281,3 +1346,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
