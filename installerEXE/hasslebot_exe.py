@@ -917,9 +917,9 @@ class MEmuHudManager:
                         self.log(f"[X] Не удалось переименовать папку: {mv_result.stderr.strip()}")
             except Exception as e:
                 self.log(f"[X] Ошибка при обработке {old_pkg}: {e}")
-        # После переименования вписываем код (как в action "1")
-        app_folder = self.select_app_folder()
-        self.replace_with_code(app_folder)
+        # После переименования вписываем код (как в action "1") в обе папки
+        self.replace_with_code('com.hassle.online')
+        self.replace_with_code('com.hassle.online2')
         # Сбрасываем флаг и обновляем GUI
         self.mod_done = False
         self.root.after(0, self.update_gui)
