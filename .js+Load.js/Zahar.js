@@ -569,7 +569,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotHB TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotHBB TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -653,7 +653,7 @@ function updateAFKStatus(isNew = false) {
         });
     }
 }
-function activateAFKWithMode(mode, reconnect, chatId, messageId) {
+function activateAFKWithMode(mode, reconnect, chatId = null, messageId = null) {
     if (config.afkSettings.active) {
         sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null);
         return;
@@ -679,7 +679,9 @@ function activateAFKWithMode(mode, reconnect, chatId, messageId) {
     startAFKCycle();
     sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null);
     // Возвращаемся в главное меню или скрываем кнопки
-    showGlobalFunctionsMenu(chatId, messageId, uniqueId);
+    if (chatId && messageId) {
+        showGlobalFunctionsMenu(chatId, messageId, uniqueId);
+    }
 }
 function startAFKCycle() {
     config.afkCycle.active = true;
@@ -1121,6 +1123,490 @@ function hideControlsMenu(chatId, messageId) {
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 // END MENU MODULE //
+// START INGAME MENU MODULE //
+// Диалог ID для меню (начиная с 700, чтобы не конфликтовать с другими)
+const DIALOG_MAIN_MENU = 700;
+const DIALOG_LOCAL_FUNCTIONS = 701;
+const DIALOG_GLOBAL_FUNCTIONS = 702;
+const DIALOG_PAYDAY_OPTIONS = 703;
+const DIALOG_SOOB_OPTIONS = 704;
+const DIALOG_MESTO_OPTIONS = 705;
+const DIALOG_RADIO_OPTIONS = 706;
+const DIALOG_WARNING_OPTIONS = 707;
+const DIALOG_AFK_NIGHT_MODES = 708;
+const DIALOG_AFK_WITH_PAUSES = 709;
+const DIALOG_AFK_RECONNECT = 710;
+const DIALOG_LEVELUP_RECONNECT = 711;
+const DIALOG_MOVEMENT_CONTROLS = 712;
+const DIALOG_LOCAL_SOOB_OPTIONS = 713;
+const DIALOG_LOCAL_MESTO_OPTIONS = 714;
+const DIALOG_LOCAL_RADIO_OPTIONS = 715;
+const DIALOG_LOCAL_WARNING_OPTIONS = 716;
+const DIALOG_CHAT_MESSAGE_INPUT = 717;
+const DIALOG_AFK_ID_INPUT = 718;
+
+// Функции для показа игровых диалогов (аналогично Telegram меню)
+function showIngameMainMenu() {
+    let menuList = "⚙️ Функции<n>";
+    menuList += "📋 Общие функции<n>";
+    window.addDialogInQueue(`[${DIALOG_MAIN_MENU},2,"Hassle Bot Управление","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameLocalFunctions() {
+    let menuList = "🚶 Движение<n>";
+    menuList += "🏛️ Увед. правик<n>";
+    menuList += "📍 Отслеживание<n>";
+    menuList += "📡 Рация<n>";
+    menuList += "⚠️ Выговоры<n>";
+    menuList += "📝 Написать в чат<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_LOCAL_FUNCTIONS},2,"Локальные функции","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameGlobalFunctions() {
+    let menuList = "🔔 PayDay<n>";
+    menuList += "🏛️ Сообщ.<n>";
+    menuList += "📍 Место<n>";
+    menuList += "📡 Рация<n>";
+    menuList += "⚠️ Выговоры<n>";
+    menuList += "🌙 AFK Ночь<n>";
+    menuList += "🔄 AFK<n>";
+    if (config.autoReconnectEnabled) {
+        menuList += "📈 Прокачка уровня<n>";
+    }
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_GLOBAL_FUNCTIONS},2,"Общие функции","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngamePayDayOptions() {
+    let menuList = "🔔 ВКЛ<n>";
+    menuList += "🔕 ВЫКЛ<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_PAYDAY_OPTIONS},2,"PayDay уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameSoobOptions() {
+    let menuList = "🔔 ВКЛ<n>";
+    menuList += "🔕 ВЫКЛ<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_SOOB_OPTIONS},2,"Сообщ. уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameMestoOptions() {
+    let menuList = "🔔 ВКЛ<n>";
+    menuList += "🔕 ВЫКЛ<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_MESTO_OPTIONS},2,"Место уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameRadioOptions() {
+    let menuList = "🔔 ВКЛ<n>";
+    menuList += "🔕 ВЫКЛ<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_RADIO_OPTIONS},2,"Рация уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameWarningOptions() {
+    let menuList = "🔔 ВКЛ<n>";
+    menuList += "🔕 ВЫКЛ<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_WARNING_OPTIONS},2,"Выговоры уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameAFKNightModes() {
+    let menuList = "С паузами<n>";
+    menuList += "Без пауз<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_AFK_NIGHT_MODES},2,"AFK Ночь режимы","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameAFKWithPauses() {
+    let menuList = "5/5 минут<n>";
+    menuList += "Рандомное время<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_AFK_WITH_PAUSES},2,"AFK с паузами","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameAFKReconnect(selectedMode) {
+    let menuList = "Реконнект 🟢<n>";
+    menuList += "Реконнект 🔴<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    // Сохраняем selectedMode в глобальной переменной для обработки
+    globalState.selectedAFKMode = selectedMode;
+    window.addDialogInQueue(`[${DIALOG_AFK_RECONNECT},2,"AFK Реконнект","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameLevelUpReconnect() {
+    let menuList = "Реконнект 🟢<n>";
+    menuList += "Реконнект 🔴<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_LEVELUP_RECONNECT},2,"Прокачка уровня Реконнект","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameMovementControls() {
+    let menuList = "⬆️ Вперед<n>";
+    menuList += "⬅️ Влево<n>";
+    menuList += "➡️ Вправо<n>";
+    menuList += "⬇️ Назад<n>";
+    menuList += "🆙 Прыжок<n>";
+    menuList += "👊 Удар<n>";
+    const sitStandText = config.isSitting ? "🧍 Встать" : "🪑 Сесть";
+    menuList += `${sitStandText}<n>`;
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_MOVEMENT_CONTROLS},2,"Движения","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameLocalSoobOptions() {
+    let menuList = "🔔 ВКЛ<n>";
+    menuList += "🔕 ВЫКЛ<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_LOCAL_SOOB_OPTIONS},2,"Локальные Сообщ. уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameLocalMestoOptions() {
+    let menuList = "🔔 ВКЛ<n>";
+    menuList += "🔕 ВЫКЛ<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_LOCAL_MESTO_OPTIONS},2,"Локальные Место уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameLocalRadioOptions() {
+    let menuList = "🔔 ВКЛ<n>";
+    menuList += "🔕 ВЫКЛ<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_LOCAL_RADIO_OPTIONS},2,"Локальные Рация уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameLocalWarningOptions() {
+    let menuList = "🔔 ВКЛ<n>";
+    menuList += "🔕 ВЫКЛ<n>";
+    menuList += "⬅️ Вернуться назад<n>";
+    window.addDialogInQueue(`[${DIALOG_LOCAL_WARNING_OPTIONS},2,"Локальные Выговоры уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showIngameChatMessageInput() {
+    window.addDialogInQueue(`[${DIALOG_CHAT_MESSAGE_INPUT},1,"Написать в чат","Введите сообщение:","Отправить","Отмена",0,0]`, "", 0);
+}
+
+function showIngameAFKIdInput() {
+    window.addDialogInQueue(`[${DIALOG_AFK_ID_INPUT},1,"AFK ID","Введите ID:","Активировать","Отмена",0,0]`, "", 0);
+}
+
+// Перехват OnDialogResponse для обработки игровых диалогов
+const originalSendClientEvent = window.sendClientEvent || function() {};
+window.sendClientEvent = function(event, ...args) {
+    if (event === "OnDialogResponse") {
+        const dialogId = args[0];
+        const response = args[1]; // 1 - подтвердить, 0 - отмена
+        const listitem = args[2]; // Индекс выбранного пункта (начиная с 0)
+        const inputtext = args[3]; // Для input диалогов
+
+        if (response === 1) { // Только если подтверждено
+            switch (dialogId) {
+                case DIALOG_MAIN_MENU:
+                    if (listitem === 0) { // ⚙️ Функции
+                        showIngameLocalFunctions();
+                    } else if (listitem === 1) { // 📋 Общие функции
+                        showIngameGlobalFunctions();
+                    }
+                    break;
+
+                case DIALOG_LOCAL_FUNCTIONS:
+                    if (listitem === 0) { // 🚶 Движение
+                        showIngameMovementControls();
+                    } else if (listitem === 1) { // 🏛️ Увед. правик
+                        showIngameLocalSoobOptions();
+                    } else if (listitem === 2) { // 📍 Отслеживание
+                        showIngameLocalMestoOptions();
+                    } else if (listitem === 3) { // 📡 Рация
+                        showIngameLocalRadioOptions();
+                    } else if (listitem === 4) { // ⚠️ Выговоры
+                        showIngameLocalWarningOptions();
+                    } else if (listitem === 5) { // 📝 Написать в чат
+                        showIngameChatMessageInput();
+                    } else if (listitem === 6) { // ⬅️ Вернуться назад
+                        showIngameMainMenu();
+                    }
+                    break;
+
+                case DIALOG_GLOBAL_FUNCTIONS:
+                    let offset = 0;
+                    if (listitem === 0) { // 🔔 PayDay
+                        showIngamePayDayOptions();
+                    } else if (listitem === 1) { // 🏛️ Сообщ.
+                        showIngameSoobOptions();
+                    } else if (listitem === 2) { // 📍 Место
+                        showIngameMestoOptions();
+                    } else if (listitem === 3) { // 📡 Рация
+                        showIngameRadioOptions();
+                    } else if (listitem === 4) { // ⚠️ Выговоры
+                        showIngameWarningOptions();
+                    } else if (listitem === 5) { // 🌙 AFK Ночь
+                        showIngameAFKNightModes();
+                    } else if (listitem === 6) { // 🔄 AFK
+                        showIngameAFKIdInput();
+                    } else if (config.autoReconnectEnabled && listitem === 7) { // 📈 Прокачка уровня
+                        showIngameLevelUpReconnect();
+                    } else if ((config.autoReconnectEnabled && listitem === 8) || (!config.autoReconnectEnabled && listitem === 7)) { // ⬅️ Вернуться назад
+                        showIngameMainMenu();
+                    }
+                    break;
+
+                case DIALOG_PAYDAY_OPTIONS:
+                    if (listitem === 0) { // 🔔 ВКЛ
+                        config.paydayNotifications = true;
+                        sendToTelegram(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 1) { // 🔕 ВЫКЛ
+                        config.paydayNotifications = false;
+                        sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameGlobalFunctions();
+                    }
+                    break;
+
+                case DIALOG_SOOB_OPTIONS:
+                    if (listitem === 0) { // 🔔 ВКЛ
+                        config.govMessagesEnabled = true;
+                        sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 1) { // 🔕 ВЫКЛ
+                        config.govMessagesEnabled = false;
+                        sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameGlobalFunctions();
+                    }
+                    break;
+
+                case DIALOG_MESTO_OPTIONS:
+                    if (listitem === 0) { // 🔔 ВКЛ
+                        config.trackLocationRequests = true;
+                        sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 1) { // 🔕 ВЫКЛ
+                        config.trackLocationRequests = false;
+                        sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameGlobalFunctions();
+                    }
+                    break;
+
+                case DIALOG_RADIO_OPTIONS:
+                    if (listitem === 0) { // 🔔 ВКЛ
+                        config.radioOfficialNotifications = true;
+                        sendToTelegram(`🔔 <b>Уведомления с Рации включены для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 1) { // 🔕 ВЫКЛ
+                        config.radioOfficialNotifications = false;
+                        sendToTelegram(`🔕 <b>Уведомления с Рации отключены для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameGlobalFunctions();
+                    }
+                    break;
+
+                case DIALOG_WARNING_OPTIONS:
+                    if (listitem === 0) { // 🔔 ВКЛ
+                        config.warningNotifications = true;
+                        sendToTelegram(`🔔 <b>Уведомления о выговорах включены для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 1) { // 🔕 ВЫКЛ
+                        config.warningNotifications = false;
+                        sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для всех аккаунтов</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameGlobalFunctions();
+                    }
+                    break;
+
+                case DIALOG_AFK_NIGHT_MODES:
+                    if (listitem === 0) { // С паузами
+                        showIngameAFKWithPauses();
+                    } else if (listitem === 1) { // Без пауз
+                        activateAFKWithMode('none', false);
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameGlobalFunctions();
+                    }
+                    break;
+
+                case DIALOG_AFK_WITH_PAUSES:
+                    if (listitem === 0) { // 5/5 минут
+                        if (config.autoReconnectEnabled) {
+                            showIngameAFKReconnect('fixed');
+                        } else {
+                            activateAFKWithMode('fixed', false);
+                        }
+                    } else if (listitem === 1) { // Рандомное время
+                        if (config.autoReconnectEnabled) {
+                            showIngameAFKReconnect('random');
+                        } else {
+                            activateAFKWithMode('random', false);
+                        }
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameAFKNightModes();
+                    }
+                    break;
+
+                case DIALOG_AFK_RECONNECT:
+                    const selectedMode = globalState.selectedAFKMode;
+                    if (listitem === 0) { // Реконнект 🟢
+                        activateAFKWithMode(selectedMode, true);
+                    } else if (listitem === 1) { // Реконнект 🔴
+                        activateAFKWithMode(selectedMode, false);
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameAFKWithPauses();
+                    }
+                    globalState.selectedAFKMode = null;
+                    break;
+
+                case DIALOG_LEVELUP_RECONNECT:
+                    if (listitem === 0) { // Реконнект 🟢
+                        activateAFKWithMode('levelup', true);
+                    } else if (listitem === 1) { // Реконнект 🔴
+                        activateAFKWithMode('levelup', false);
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameGlobalFunctions();
+                    }
+                    break;
+
+                case DIALOG_MOVEMENT_CONTROLS:
+                    if (listitem === 0) { // ⬆️ Вперед
+                        window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                        window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
+                        setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+                    } else if (listitem === 1) { // ⬅️ Влево
+                        window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                        window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
+                        setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+                    } else if (listitem === 2) { // ➡️ Вправо
+                        window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                        window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
+                        setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+                    } else if (listitem === 3) { // ⬇️ Назад
+                        window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                        window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
+                        setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+                    } else if (listitem === 4) { // 🆙 Прыжок
+                        window.onScreenControlTouchStart("<Keyboard>/leftShift");
+                        setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/leftShift"), 500);
+                    } else if (listitem === 5) { // 👊 Удар
+                        window.onScreenControlTouchStart("<Mouse>/leftButton");
+                        setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+                    } else if (listitem === 6) { // Сесть/Встать
+                        window.onScreenControlTouchStart("<Keyboard>/c");
+                        setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+                        config.isSitting = !config.isSitting;
+                    } else if (listitem === 7) { // ⬅️ Вернуться назад
+                        showIngameLocalFunctions();
+                    }
+                    setTimeout(showIngameMovementControls, 100); // Переоткрываем меню после действия
+                    break;
+
+                case DIALOG_LOCAL_SOOB_OPTIONS:
+                    if (listitem === 0) { // 🔔 ВКЛ
+                        config.govMessagesEnabled = true;
+                        sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 1) { // 🔕 ВЫКЛ
+                        config.govMessagesEnabled = false;
+                        sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameLocalFunctions();
+                    }
+                    break;
+
+                case DIALOG_LOCAL_MESTO_OPTIONS:
+                    if (listitem === 0) { // 🔔 ВКЛ
+                        config.trackLocationRequests = true;
+                        sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 1) { // 🔕 ВЫКЛ
+                        config.trackLocationRequests = false;
+                        sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameLocalFunctions();
+                    }
+                    break;
+
+                case DIALOG_LOCAL_RADIO_OPTIONS:
+                    if (listitem === 0) { // 🔔 ВКЛ
+                        config.radioOfficialNotifications = true;
+                        sendToTelegram(`🔔 <b>Уведомления с Рации включены для ${displayName}</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 1) { // 🔕 ВЫКЛ
+                        config.radioOfficialNotifications = false;
+                        sendToTelegram(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameLocalFunctions();
+                    }
+                    break;
+
+                case DIALOG_LOCAL_WARNING_OPTIONS:
+                    if (listitem === 0) { // 🔔 ВКЛ
+                        config.warningNotifications = true;
+                        sendToTelegram(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 1) { // 🔕 ВЫКЛ
+                        config.warningNotifications = false;
+                        sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
+                        sendWelcomeMessage();
+                    } else if (listitem === 2) { // ⬅️ Вернуться назад
+                        showIngameLocalFunctions();
+                    }
+                    break;
+
+                case DIALOG_CHAT_MESSAGE_INPUT:
+                    const textToSend = inputtext.trim();
+                    if (textToSend) {
+                        sendChatInput(textToSend);
+                        sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
+                    }
+                    showIngameLocalFunctions(); // Возврат в меню
+                    break;
+
+                case DIALOG_AFK_ID_INPUT:
+                    const id = inputtext.trim();
+                    const idFormats = [id];
+                    if (id.includes('-')) {
+                        idFormats.push(id.replace(/-/g, ''));
+                    } else if (id.length === 3) {
+                        idFormats.push(`${id[0]}-${id[1]}-${id[2]}`);
+                    }
+                    config.afkSettings = {
+                        id: id,
+                        formats: idFormats,
+                        active: true
+                    };
+                    sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null);
+                    showIngameGlobalFunctions(); // Возврат в меню
+                    break;
+            }
+        } else { // Если отмена, возвращаемся назад или закрываем
+            // Для простоты, возвращаемся в главное меню при отмене
+            showIngameMainMenu();
+        }
+        return; // Не вызываем оригинал для наших диалогов
+    }
+    // Для других событий вызываем оригинал
+    return originalSendClientEvent(event, ...args);
+};
+
+// Перехват sendChatInput для команды /hb
+const originalSendChatInput = window.sendChatInput || function() {};
+window.sendChatInput = function(input) {
+    if (input.toLowerCase() === '/hb') {
+        showIngameMainMenu();
+        return;
+    }
+    return originalSendChatInput(input);
+};
+// END INGAME MENU MODULE //
 // START TELEGRAM COMMANDS MODULE //
 function checkTelegramCommands() {
     // Случайная задержка 0-500 мс для снижения race condition
@@ -2075,6 +2561,7 @@ function initializeChatMonitor() {
             debugLog('Обнаружен сбор/строй!');
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
+            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
                 sendChatInput(reconnectionCommand);
                 debugLog('Отправлена команда ' + reconnectionCommand);
@@ -2176,654 +2663,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-// START AHK MENU MODULE (from user's AHK code) //
-const licenseTypes = [
-    { name: "МВД" },
-    { name: `Отслеживание | {FF0000}Выкл` },
-    { name: `Auto-cuff | {FF0000}Выкл` }
-];
-const mvdOptions = [
-    { name: "1. Приветствие", action: "greeting", needsId: true },
-    { name: "2. Проверка документов", action: "checkDocuments" },
-    { name: "3. Изучение документов", action: "studyDocuments" },
-    { name: "4. Объявление в розыск", action: "wanted", needsId: true },
-    { name: "5. Сканирование", action: "scanningTablet" },
-    { name: "6. Надевание наручников", action: "cuffing", needsId: true },
-    { name: "7. Посадка в машину", action: "putInCar", needsId: true },
-    { name: "8. Доставка в участок", action: "arrest", needsId: true },
-    { name: "9. Снятие наручников", action: "uncuffing", needsId: true },
-    { name: "10. Преследование преступника", action: "chase", needsId: true },
-    { name: "11. Обыск", action: "search", needsId: true },
-    { name: "12. Конвоирование", action: "escort", needsId: true },
-    { name: "13. Снятие розыска", action: "clearWanted", needsId: true },
-    { name: "14. Выдача штрафа [Самому /ticket]", action: "fine" },
-    { name: "15. Изъятие веществ", action: "confiscate", needsId: true },
-    { name: "16. Разбитие стекла", action: "breakGlass", needsId: true },
-    { name: "17. Снятие маски", action: "removeMask" },
-    { name: "18. Сканирование отпечатков", action: "fingerprint" },
-    { name: "19. Изъятие прав", action: "takeLicense", needsId: true }
-];
-const ITEMS_PER_PAGE = 6;
-let currentPage = 0;
-let licenseList = '';
-licenseTypes.forEach((license, index) => {
-    licenseList += `${index + 1}. ${license.name}<n>`;
-});
-let giveLicenseTo = -1;
-let lastLicenseType = -1;
-let targetId = null;
-let currentMenu = null;
-let currentAction = null;
-let scanInterval = null;
-let currentScanId = null;
-let autoCuffEnabled = false;
-// Обработчик горячих клавиш
-window.addEventListener('keydown', function(e) {
-    if (e.altKey && e.key === '1') {
-        const targetId = window.getTargetPlayerId(); // Функция должна быть реализована в вашем клиенте
-        if (targetId) {
-            window.onChatMessage("AHK by Deni_Pels [tg:denipels] thanks to R.Shadow", "FFFFFF");
-            if (lastLicenseType === 0) {
-                showMvdMenuPage(targetId);
-            } else {
-                showGiveLicenseDialog(targetId);
-            }
-        }
-    }
-});
-const setupChatHandler = () => {
-    if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
-        const originalAddFunction = window.interface('Hud').$refs.chat.add;
-       
-        window.interface('Hud').$refs.chat.add = function(message, ...args) {
-            if (autoCuffEnabled && typeof message === 'string') {
-                const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
-                if (stunMatch) {
-                    const nickname = stunMatch[1];
-                    setTimeout(() => {
-                        sendChatInput(`/id ${nickname}`);
-                    }, 500);
-                }
-               
-                const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
-                if (idMatch && idMatch[2]) {
-                    const id = idMatch[2];
-                    setTimeout(() => {
-                        sendMessagesWithDelay([
-                            "/me снял наручники с пояса",
-                            "/do Наручники в правой руке.",
-                            "/me резким движением схватил руки человека",
-                            "/me надел наручники на человека напротив",
-                            "/do Наручники надеты.",
-                            `/cuff ${id}`,
-                            "/do Человек свободен.",
-                            "/me схватил руку человка",
-                            "/do Человек схвачен.",
-                            `/escort ${id}`
-                        ], [0, 700, 700, 700, 700, 700, 700, 700, 700, 700]);
-                    }, 1000);
-                }
-            }
-           
-            return originalAddFunction.apply(this, [message, ...args]);
-        };
-        console.log('[Auto-cuff] Обработчик чата успешно установлен');
-    } else {
-        setTimeout(setupChatHandler, 100);
-    }
-};
-setupChatHandler();
-const getPaginatedMenu = () => {
-    const start = currentPage * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    const pageItems = mvdOptions.slice(start, end);
-   
-    let menuList = "← Назад<n>";
-   
-    pageItems.forEach((option) => {
-        menuList += `${option.name}<n>`;
-    });
-   
-    if ((currentPage + 1) * ITEMS_PER_PAGE < mvdOptions.length) {
-        menuList += "Вперед →<n>";
-    }
-   
-    return menuList;
-};
-const startTracking = (id) => {
-    if (scanInterval) {
-        clearInterval(scanInterval);
-        scanInterval = null;
-    }
-   
-    currentScanId = id;
-    licenseTypes[1].name = `Отслеживание | {00FF00}Вкл`;
-   
-    sendMessagesWithDelay([
-        `/setmark ${currentScanId}`
-    ], [0, 1000, 0]);
-   
-    scanInterval = setInterval(() => {
-        if (currentScanId) {
-            sendChatInput(`/setmark ${currentScanId}`);
-        }
-    }, 7000);
-   
-    if (currentMenu === null && giveLicenseTo !== -1) {
-        setTimeout(() => {
-            showGiveLicenseDialog(giveLicenseTo);
-        }, 100);
-    }
-};
-const stopTracking = () => {
-    if (scanInterval) {
-        clearInterval(scanInterval);
-        scanInterval = null;
-    }
-    currentScanId = null;
-    licenseTypes[1].name = `Отслеживание | {FF0000}Выкл`;
-};
-const toggleAutoCuff = () => {
-    autoCuffEnabled = !autoCuffEnabled;
-    licenseTypes[2].name = `Auto-cuff | ${autoCuffEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
-};
-const SendGiveLicenseCommand = (to, index) => {
-    if (index < 0 || index >= licenseTypes.length)
-        return;
-    lastLicenseType = index;
-    switch (index) {
-        case 0: // МВД
-            setTimeout(() => {
-                showMvdMenuPage(giveLicenseTo);
-            }, 100);
-            break;
-        case 1: // Отслеживание
-            if (currentScanId) {
-                stopTracking();
-            } else {
-                setTimeout(() => {
-                    showTrackingInputDialog(giveLicenseTo);
-                }, 100);
-            }
-            break;
-        case 2: // Auto-cuff
-            toggleAutoCuff();
-            if (currentMenu === null && giveLicenseTo !== -1) {
-                setTimeout(() => {
-                    showGiveLicenseDialog(giveLicenseTo);
-                }, 50);
-            }
-            break;
-    }
-};
-const HandleMvdCommand = (optionIndex) => {
-    const totalPages = Math.ceil(mvdOptions.length / ITEMS_PER_PAGE);
-    const isBackButton = optionIndex === 0;
-    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-   
-    if (isBackButton) {
-        if (currentPage > 0) {
-            currentPage--;
-            setTimeout(() => {
-                showMvdMenuPage(giveLicenseTo);
-            }, 50);
-        } else {
-            lastLicenseType = -1;
-            currentMenu = null;
-            setTimeout(() => {
-                showGiveLicenseDialog(giveLicenseTo);
-            }, 50);
-        }
-        return;
-    }
-   
-    if (isForwardButton) {
-        currentPage++;
-        setTimeout(() => {
-            showMvdMenuPage(giveLicenseTo);
-        }, 50);
-        return;
-    }
-   
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
-   
-    if (adjustedIndex >= 0 && adjustedIndex < mvdOptions.length) {
-        const option = mvdOptions[adjustedIndex];
-        currentAction = option.action;
-       
-        if (option.needsId) {
-            setTimeout(() => {
-                showIdInputDialog(giveLicenseTo);
-            }, 50);
-        } else {
-            executeMvdAction(option.action, giveLicenseTo);
-        }
-    }
-};
-const executeMvdAction = (action, targetId) => {
-    if (!targetId) targetId = giveLicenseTo;
-   
-    switch (action) {
-        case "greeting":
-            sendMessagesWithDelay([
-                "Здравия желаю, Лейтенант - Дени Пелс.",
-                "/do Жетон [Сотрудника МВД] на груди.",
-                "/do В нагрудном кармане удостоверение сотрудника МВД.",
-                "/me достал удостоверение в развернутом виде",
-                "/me предъявил документ человеку напротив",
-                `/doc ${targetId}`
-            ], [0, 700, 700, 700, 700, 700]);
-            break;
-           
-        case "checkDocuments":
-            sendMessagesWithDelay([
-                "Будьте добры, предъявите Ваши документы.",
-                "/n Введите: /pass ID"
-            ], [0, 900]);
-            break;
-           
-        case "studyDocuments":
-            sendMessagesWithDelay([
-                "/me взял документы и открыл их",
-                "/do Документы в развернутом виде.",
-                "/me изучил документы",
-                "/do Документы изучены.",
-                "/me вернул документы владельцу"
-            ], [0, 700, 700, 700, 700]);
-            break;
-           
-        case "wanted":
-            sendMessagesWithDelay([
-                "/me взял рацию в руки, затем зажал кнопку",
-                "/do Кнопка зажата.",
-                "/me сообщил данные нарушителя диспетчеру",
-                "/do Нарушитель объявлен в розыск.",
-                `/su ${targetId}`
-            ], [0, 700, 700, 700, 700]);
-            break;
-           
-        case "scanningTablet":
-            sendMessagesWithDelay([
-                "/me достал планшет по определению личности, затем сфотографировал человека",
-                "/do Человек сфотографирован.",
-                "/me получил выписку из базы данных МВД",
-                "/do Личность гражданина определена.",
-                "/me убрал планшет в карман",
-                "/do Планшет в кармане."
-            ], [700, 700, 700, 700, 700, 700]);
-            break;
-           
-        case "cuffing":
-            sendMessagesWithDelay([
-                "/me снял наручники с пояса",
-                "/do Наручники в правой руке.",
-                "/me резким движением схватил руки человека",
-                "/me надел наручники на человека напротив",
-                "/do Наручники надеты.",
-                `/cuff ${targetId}`
-            ], [0, 700, 700, 700, 700, 700]);
-            break;
-           
-        case "putInCar":
-            sendMessagesWithDelay([
-                "/me открыл дверь патрульного автомобиля",
-                "/do Дверь открыта.",
-                "/todo Посадил человека в машину*Осторожно, пригните голову.",
-                "/do Человек в машине.",
-                "/me закрыл дверь",
-                "/do Дверь закрыта.",
-                `/putpl ${targetId}`
-            ], [0, 700, 700, 700, 700, 500, 700]);
-            break;
-           
-        case "arrest":
-            sendMessagesWithDelay([
-                "/me открыл двери МВД",
-                "/do Двери открыты.",
-                "/me провел человека в участок",
-                "/do Человек в участке.",
-                `/arrest ${targetId}`
-            ], [0, 700, 700, 500, 700]);
-            break;
-           
-        case "uncuffing":
-            sendMessagesWithDelay([
-                "/do Наручники на руках у человека.",
-                "/me снял наручники с рук подозреваемого",
-                "/do Наручники сняты.",
-                "/me повесил наручники на пояс",
-                "/do Наручники на поясе.",
-                `/uncuff ${targetId}`
-            ], [0, 700, 700, 700, 700, 700]);
-            break;
-           
-        case "chase":
-            sendMessagesWithDelay([
-                "/do Рация на поясе.",
-                "/me достал рацию",
-                "/todo Зажав кнопку*Преследую преступника, прием.",
-                `/pg ${targetId}`
-            ], [0, 600, 600, 500]);
-            break;
-           
-        case "search":
-            sendMessagesWithDelay([
-                "/do На поясе висит сумка для обыска.",
-                "/me достал перчатки из сумки",
-                "/do Перчатки в руках.",
-                "/me показал ориентировку человеку напротив",
-                "/todo Надев перчатки на руки*Расслабьтесь. Если ничего не найду, больно не будет.",
-                "/me провел руками по верхним частям тела в области груди и рук",
-                "/me провел руками по туловищу в области пояса и карманов",
-                "/me провел руками по нижним частям тела в области ног",
-                `/search ${targetId}`
-            ], [0, 900, 900, 1100, 1100, 1100, 1100, 700, 700]);
-            break;
-           
-        case "escort":
-            sendMessagesWithDelay([
-                "/do Человек свободен.",
-                "/me схватил руку человка",
-                "/do Человек схвачен.",
-                `/escort ${targetId}`
-            ], [0, 700, 700, 700]);
-            break;
-           
-        case "clearWanted":
-            sendMessagesWithDelay([
-                "/me взял рацию в руки, затем зажал кнопку",
-                "/do Кнопка зажата.",
-                "/me сообщил данные подозреваемого диспетчеру",
-                "/do Данные сообщены диспетчеру.",
-                "/do Диспетчер: С подозреваемого снят розыск.",
-                `/clear ${targetId}`
-            ], [0, 700, 700, 700, 700, 700]);
-            break;
-           
-        case "fine":
-            sendMessagesWithDelay([
-                "/me достал планшет",
-                "/do Планшет в руке.",
-                "/me записал данные о нарушении и нарушителе",
-                "/do Данные заполнены.",
-                "/me отправил данные в базу данных",
-                "/do Данные отправлены.",
-                "/me убрал планшет"
-            ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
-            break;
-           
-        case "confiscate":
-            sendMessagesWithDelay([
-                "/me изъял запрещенные вещества",
-                "/do Вещества в руке.",
-                "/me достал полиэтиленовый пакет",
-                "/do Полиэтилоновый пакет в руке.",
-                "/todo Положив вещества в пакет*Так, это будет передано криминалистам.",
-                "/do Вещества в пакете.",
-                `/remove ${targetId}`
-            ], [0, 700, 700, 700, 1000, 700, 700]);
-            break;
-           
-        case "breakGlass":
-            sendMessagesWithDelay([
-                "/me ударил прикладом стекло транспортного средства",
-                "/me разбил стекло транспортного средства",
-                "/do Стекло разбито.",
-                "/me открыл дверь транспортного средства, затем вытащил человека из нее",
-                `/ejectout ${targetId}`
-            ], [0, 900, 900, 900, 900]);
-            break;
-           
-        case "removeMask":
-            sendMessagesWithDelay([
-                "/do Человек напротив находится в маске.",
-                "/me протянув правую руку вперёд, сорвал маску с лица у человека напротив",
-                "/do Маска сорвана, человек находится без маски на лице.",
-                "/n Команда для снятие маски: /reset или /maskoff"
-            ], [0, 400, 400, 400]);
-            break;
-           
-        case "fingerprint":
-            sendMessagesWithDelay([
-                "/do Аппарат 'CТОЛ' в кармане.",
-                "/me резким движением достал Аппарат",
-                "/do Аппарат 'СТОЛ' в руке.",
-                "/me резким движением потянул руку гражданина напротив и приложил его палец к аппарату",
-                "/do Процесс сканирования начат.",
-                "/do Процесс завершен.",
-                "/do Личность установлена."
-            ], [0, 700, 700, 700, 700, 700, 700]);
-            break;
-           
-        case "takeLicense":
-            sendMessagesWithDelay([
-                "/me взял планшет",
-                "/do Планшет в руке.",
-                "/me записал данные о нарушении и нарушителе",
-                "/do Данные обновлены.",
-                "/me забрал водительские удостоверение",
-                "/do Водительское удостоверение забрано.",
-                `/takelic ${targetId}`
-            ], [0, 750, 750, 750, 750, 750, 1000]);
-            break;
-    }
-};
-window.showGiveLicenseDialog = (e) => {
-    giveLicenseTo = e;
-    currentMenu = null;
-   
-    licenseList = '';
-    licenseTypes.forEach((license, index) => {
-        licenseList += `${index + 1}. ${license.name}<n>`;
-    });
-   
-    window.addDialogInQueue(`[666,2,"АХК tg:denipels | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
-};
-window.showMvdMenuPage = (e) => {
-    giveLicenseTo = e;
-    currentMenu = "mvd";
-    const menuList = getPaginatedMenu();
-    window.addDialogInQueue(
-        `[667,2,"МВД (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
-        menuList,
-        0
-    );
-};
-window.showIdInputDialog = (e) => {
-    giveLicenseTo = e;
-    window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
-};
-window.showTrackingInputDialog = (e) => {
-    giveLicenseTo = e;
-    window.addDialogInQueue(`[669,1,"Отслеживание","Введите ID для отслеживания:","Начать","Отмена",0,0]`, "", 0);
-};
-window.sendClientEventCustom = (event, ...args) => {
-    console.log(`Событие: ${event}, Аргументы:`, args);
-    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 669)) {
-        if (args[1] === 666) { // Главное меню
-            const listitem = args[3];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                SendGiveLicenseCommand(giveLicenseTo, listitem);
-            } else {
-                lastLicenseType = -1;
-                currentMenu = null;
-            }
-        }
-        else if (args[1] === 667) { // Меню МВД
-            const optionIndex = args[3];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleMvdCommand(optionIndex);
-            }
-        }
-        else if (args[1] === 668) { // Диалог ввода ID для МВД
-            const inputId = args[4];
-            if (args[2] === 1 && giveLicenseTo !== -1 && currentAction) {
-                executeMvdAction(currentAction, inputId);
-            }
-            currentAction = null;
-        }
-        else if (args[1] === 669) { // Диалог ввода ID для отслеживания
-            const inputId = args[4];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                startTracking(inputId);
-            } else {
-                stopTracking();
-            }
-        }
-    } else {
-        window.sendClientEventHandle(event, ...args);
-    }
-};
-window.sendChatInputCustom = e => {
-    const args = e.split(" ");
-    if (args[0] == "/dahk") {
-        targetId = args[1];
-        window.onChatMessage("AHK by Deni_Pels [tg:denipels] thanks to R.Shadow", "FFFFFF");
-        if (lastLicenseType === 0) {
-            showMvdMenuPage(args[1]);
-        } else {
-            showGiveLicenseDialog(args[1]);
-        }
-    } else if (args[0] == "/mvdreset") {
-        lastLicenseType = -1;
-        currentMenu = null;
-        currentAction = null;
-        currentPage = 0;
-        stopTracking();
-        autoCuffEnabled = false;
-        licenseTypes[1].name = `Отслеживание | {FF0000}Выкл`;
-        licenseTypes[2].name = `Auto-cuff | {FF0000}Выкл`;
-        sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
-    } else {
-        window.App.developmentMode || engine.trigger("SendChatInput", e);
-    }
-};
-function sendMessagesWithDelay(messages, delays, index = 0) {
-    if (index >= messages.length) return;
-    setTimeout(() => {
-        sendChatInput(messages[index]);
-        sendMessagesWithDelay(messages, delays, index + 1);
-    }, delays[index]);
-}
-sendChatInput = sendChatInputCustom;
-sendClientEvent = sendClientEventCustom;
-// END AHK MENU MODULE //
-// START NEW /HB MENU MODULE //
-let hbCurrentMenu = 'main';
-let hbCurrentPage = 0;
-let hbGiveLicenseTo = -1;
-let hbLastLicenseType = -1;
-let hbCurrentAction = null;
-const HB_ITEMS_PER_PAGE = 6;
-
-// Опции для меню, аналогичные Telegram
-const hbGlobalOptions = [
-    { name: "PayDay уведомления", key: "paydayNotifications", on: "🔔 ВКЛ", off: "🔕 ВЫКЛ" },
-    { name: "Сообщ. от сотрудников", key: "govMessagesEnabled", on: "🔔 ВКЛ", off: "🔕 ВЫКЛ" },
-    { name: "Отслеживание местоположения", key: "trackLocationRequests", on: "🔔 ВКЛ", off: "🔕 ВЫКЛ" },
-    { name: "Рация уведомления", key: "radioOfficialNotifications", on: "🔔 ВКЛ", off: "🔕 ВЫКЛ" },
-    { name: "Выговоры уведомления", key: "warningNotifications", on: "🔔 ВКЛ", off: "🔕 ВЫКЛ" },
-    // AFK опции (упрощенные, без подменю, так как в игре диалоги простые)
-    { name: "AFK Ночь (с паузами)", action: "afk_n_fixed", needsReconnect: true },
-    { name: "AFK Ночь (без пауз)", action: "afk_n_none" },
-    { name: "Прокачка уровня", action: "levelup", needsReconnect: true }
-];
-
-function getHbGlobalMenuList() {
-    let menuList = "← Назад<n>";
-    hbGlobalOptions.forEach(option => {
-        if (option.key) {
-            const status = config[option.key] ? option.on : option.off;
-            menuList += `${option.name}: ${status}<n>`;
-        } else {
-            menuList += `${option.name}<n>`;
-        }
-    });
-    return menuList;
-}
-
-// Показать главное меню /hb
-function showHbMainMenu() {
-    hbCurrentMenu = 'global';
-    window.addDialogInQueue(
-        `[700,2,"Hassle Bot Управление","","Выбрать","Отмена",0,0]`,
-        getHbGlobalMenuList(),
-        0
-    );
-}
-
-// Обработка выбора в меню
-function handleHbGlobalSelection(listitem) {
-    if (listitem === 0) { // Назад
-        // Закрыть меню или вернуться
-        hbCurrentMenu = null;
-        return;
-    }
-    const option = hbGlobalOptions[listitem - 1];
-    if (option.key) {
-        // Переключить настройку
-        config[option.key] = !config[option.key];
-        const newStatus = config[option.key] ? 'ВКЛ' : 'ВЫКЛ';
-        window.onChatMessage(`[HB] ${option.name}: ${newStatus}`, "00FF00");
-        sendWelcomeMessage(); // Обновить Telegram
-        // Переоткрыть меню
-        setTimeout(showHbMainMenu, 50);
-    } else if (option.action) {
-        hbCurrentAction = option.action;
-        if (option.needsReconnect) {
-            // Показать диалог для реконнекта (ВКЛ/ВЫКЛ)
-            window.addDialogInQueue(
-                `[701,2,"Выберите реконнект для ${option.name}","Реконнект ВКЛ\nРеконнект ВЫКЛ","Выбрать","Отмена",0,0]`,
-                "Реконнект ВКЛ<n>Реконнект ВЫКЛ<n>",
-                0
-            );
-        } else {
-            activateAFKWithMode(option.action.split('_')[2], false); // Для без пауз
-            window.onChatMessage(`[HB] Активирован ${option.name}`, "00FF00");
-        }
-    }
-}
-
-// Перехват sendChatInput для /hb
-const originalSendChatInput = window.sendChatInput || engine.trigger.bind(engine, "SendChatInput");
-window.sendChatInput = function(e) {
-    const args = e.trim().toLowerCase().split(" ");
-    if (args[0] === "/hb") {
-        showHbMainMenu();
-        return;
-    }
-    return originalSendChatInput(e);
-};
-
-// Перехват OnDialogResponse для новых ID (700+)
-const originalSendClientEvent = window.sendClientEvent || window.sendClientEventHandle;
-window.sendClientEvent = function(event, ...args) {
-    if (event === "OnDialogResponse" && args[0] >= 700 && args[0] <= 701) {
-        const dialogId = args[0];
-        const response = args[1];
-        const listitem = args[2];
-
-        if (response === 1) { // Подтверждено
-            if (dialogId === 700) { // Главное меню глобальных опций
-                handleHbGlobalSelection(listitem);
-            } else if (dialogId === 701) { // Диалог реконнекта
-                if (hbCurrentAction) {
-                    const reconnect = listitem === 0; // 0 - ВКЛ, 1 - ВЫКЛ
-                    const mode = hbCurrentAction.split('_')[2] || hbCurrentAction;
-                    activateAFKWithMode(mode, reconnect);
-                    window.onChatMessage(`[HB] Активирован ${hbCurrentAction} с реконнектом: ${reconnect ? 'ВКЛ' : 'ВЫКЛ'}`, "00FF00");
-                    hbCurrentAction = null;
-                }
-            }
-        } else {
-            // Отмена - вернуться в главное меню или закрыть
-            if (dialogId === 701) {
-                setTimeout(showHbMainMenu, 50);
-            }
-            hbCurrentAction = null;
-        }
-        return; // Не передаем дальше
-    }
-    return originalSendClientEvent(event, ...args);
-};
-// END NEW /HB MENU MODULE //
