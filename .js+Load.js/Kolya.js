@@ -1,4 +1,3 @@
-/*
 // START CONSTANTS MODULE //
 // Константы, вынесенные в начало для удобства
 const CHAT_IDS = ['-1003102212423']; // -1003202329790- kirill, -1003040555627 - zahar, -1003102212423 - kolya
@@ -10,9 +9,8 @@ const SERVER_TOKENS = {
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
 const PASSWORD = "kol16052011"; // Ваш пароль
-const RECONNECT_ENABLED_DEFAULT = false; // Авто-реконнект включён по умолчанию
+const RECONNECT_ENABLED_DEFAULT = true; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
-
 // START GLOBAL STATE MODULE //
 const globalState = {
     awaitingAfkAccount: false,
@@ -22,7 +20,6 @@ const globalState = {
     lastPaydayMessageIds: []
 };
 // END GLOBAL STATE MODULE //
-
 // START CHAT RADIUS MODULE //
 const CHAT_RADIUS = {
     SELF: 0,
@@ -50,7 +47,6 @@ function getChatRadius(color) {
     }
 }
 // END CHAT RADIUS MODULE //
-
 // START FACTIONS MODULE //
 const factions = {
     government: {
@@ -100,7 +96,6 @@ const factions = {
     }
 };
 // END FACTIONS MODULE //
-
 // START CONFIG MODULE //
 const userConfig = {
     chatIds: CHAT_IDS,
@@ -126,7 +121,7 @@ const userConfig = {
     notificationDeleteDelay: 5000,
     trackSkinId: true,
     skinCheckInterval: 5000,
-    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT   // <-- используем константу
+    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- используем константу
 };
 const config = {
     ...userConfig,
@@ -155,7 +150,7 @@ const config = {
         pauseHistory: [],
         statusMessageIds: [],
         totalSalary: 0,
-        reconnectEnabled: RECONNECT_ENABLED_DEFAULT   // <-- по умолчанию включён
+        reconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- по умолчанию включён
     },
     nicknameLogged: false
 };
@@ -163,6 +158,7 @@ const serverTokens = SERVER_TOKENS;
 const defaultToken = DEFAULT_TOKEN;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
+const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
@@ -878,7 +874,7 @@ function showControlsMenu(chatId, messageId) {
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
-    const inlineKeyboard = [
+    let inlineKeyboard = [
         [createButton("🔔 PayDay", `show_payday_options_${uniqueIdParam}`)],
         [createButton("🏛️ Сообщ.", `show_soob_options_${uniqueIdParam}`)],
         [createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
@@ -888,8 +884,11 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
             createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
             createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
         ],
-        [createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]
     ];
+    if (config.autoReconnectEnabled) {
+        inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
+    }
+    inlineKeyboard.push([createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]);
     const replyMarkup = {
         inline_keyboard: inlineKeyboard
     };
@@ -1314,7 +1313,7 @@ function processUpdates(updates) {
                     if (hudId.includes('-')) {
                         idFormats.push(hudId.replace(/-/g, ''));
                     } else if (hudId.length === 3) {
-                        idFormats.push(`${hudId[0]}-${id[1]}-${id[2]}`);
+                        idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
                     }
                     config.afkSettings = {
                         id: hudId,
@@ -1468,7 +1467,6 @@ function processUpdates(updates) {
                 activateAFKWithMode(selectedMode, false, chatId, messageId);
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
-                showLevelUpReconnectMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith('levelup_reconnect_on_')) {
                 callbackUniqueId = message.replace('levelup_reconnect_on_', '');
                 activateAFKWithMode('levelup', true, chatId, messageId);
@@ -1564,9 +1562,17 @@ function processUpdates(updates) {
             } else if (message.startsWith(`afk_n_without_pauses_`)) {
                 activateAFKWithMode('none', false, chatId, messageId);
             } else if (message.startsWith(`afk_n_fixed_`)) {
-                activateAFKWithMode('fixed', false, chatId, messageId);
+                if (config.autoReconnectEnabled) {
+                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'fixed');
+                } else {
+                    activateAFKWithMode('fixed', false, chatId, messageId);
+                }
             } else if (message.startsWith(`afk_n_random_`)) {
-                activateAFKWithMode('random', false, chatId, messageId);
+                if (config.autoReconnectEnabled) {
+                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'random');
+                } else {
+                    activateAFKWithMode('random', false, chatId, messageId);
+                }
             } else if (message.startsWith(`global_afk_`)) {
                 if (!globalState.awaitingAfkAccount) {
                     globalState.awaitingAfkAccount = true;
@@ -1742,6 +1748,8 @@ function processUpdates(updates) {
                 config.warningNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
+            } else if (message.startsWith('global_levelup_')) {
+                showLevelUpReconnectMenu(chatId, messageId, callbackUniqueId);
             }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
@@ -1980,7 +1988,7 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            sendChatInput("/rec 5");
+            sendChatInput(reconnectionCommand);
         }
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
@@ -1989,7 +1997,6 @@ function initializeChatMonitor() {
         const govMessageRegex = new RegExp(`^\\- (.+?) \\{${factionColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
         const govMatch = msg.match(govMessageRegex);
         if (govMatch) {
-            const messageText = govMatch[1];
             const senderName = govMatch[2];
             const senderId = govMatch[3];
             // Проверяем, что сообщение отправлено из радиуса CLOSE
@@ -2069,9 +2076,9 @@ function initializeChatMonitor() {
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
-                sendChatInput("/q");
-                debugLog('Отправлена команда /q');
-                sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`, false, null);
+                sendChatInput(reconnectionCommand);
+                debugLog('Отправлена команда ' + reconnectionCommand);
+                sendToTelegram(`✅ <b>Отправлено ${reconnectionCommand} (${displayName})</b>`, false, null);
             }, 30);
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -2088,6 +2095,7 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+            sendChatInput(reconnectionCommand);
         }
         if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
             debugLog('Обнаружен запрос местоположения!');
@@ -2103,8 +2111,8 @@ function initializeChatMonitor() {
         }
         if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
             debugLog('Обнаружено AFK условие!');
-            sendChatInput("/q");
-            sendToTelegram(`⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
+            sendChatInput(quitCommand);
+            sendToTelegram(`⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
         }
         // Проверка сообщений с рации
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
@@ -2168,5 +2176,5 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-*/
+
 
