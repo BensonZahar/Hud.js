@@ -569,7 +569,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TGR</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -762,8 +762,13 @@ function startPlayPhase() {
         if (config.afkCycle.totalPlayTime < requiredPlayTime && config.afkCycle.mode !== 'none' && config.afkCycle.mode !== 'levelup') {
             startPausePhase();
         } else {
-            debugLog(`Отыграно ${requiredPlayTime / 60000} минут, ставим на паузу до следующего PayDay для ${displayName}`);
-            enterPauseUntilEnd();
+            if (config.afkCycle.mode === 'levelup') {
+                autoLoginConfig.enabled = false;
+                sendChatInput("/rec 5");
+            } else {
+                debugLog(`Отыграно ${requiredPlayTime / 60000} минут, ставим на паузу до следующего PayDay для ${displayName}`);
+                enterPauseUntilEnd();
+            }
         }
     }, playDurationMs);
 }
@@ -833,19 +838,24 @@ function handlePayDayTimeMessage() {
     }
     const mainTimerDuration = 59 * 60 * 1000;
     config.afkCycle.mainTimer = setTimeout(() => {
-        try {
-            if (typeof closeInterface === 'function') {
-                closeInterface("PauseMenu");
-                debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
+        if (config.afkCycle.mode === 'levelup') {
+            autoLoginConfig.enabled = true;
+            sendChatInput("/rec 5");
+        } else {
+            try {
+                if (typeof closeInterface === 'function') {
+                    closeInterface("PauseMenu");
+                    debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
+                }
+            } catch (e) {
+                debugLog(`Ошибка при выходе из паузы: ${e.message}`);
             }
-        } catch (e) {
-            debugLog(`Ошибка при выходе из паузы: ${e.message}`);
+            if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
+            if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
+            debugLog(`Готов к следующему PayDay для ${displayName}`);
+            config.afkCycle.totalPlayTime = 0;
+            startPlayPhase();
         }
-        if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
-        if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
-        debugLog(`Готов к следующему PayDay для ${displayName}`);
-        config.afkCycle.totalPlayTime = 0;
-        startPlayPhase();
     }, mainTimerDuration);
     if (!config.afkCycle.active) {
         startAFKCycle();
@@ -1569,8 +1579,6 @@ function processUpdates(updates) {
                         force_reply: true
                     });
                 }
-            } else if (message.startsWith(`global_levelup_`)) {
-                activateAFKWithMode('levelup', true, chatId, messageId);
             } else if (message.startsWith("admin_reply_")) {
                 const requestMsg = `✉️ Введите ответ для ${displayName}:`;
                 sendToTelegram(requestMsg, false, {
@@ -2164,4 +2172,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
