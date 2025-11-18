@@ -1,4 +1,4 @@
-"""
+'''
 pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --add-data "icon.ico;." --hidden-import=psutil --hidden-import=requests --hidden-import=customtkinter --hidden-import=packaging --hidden-import=darkdetect hassle_bot.py
 """
 import os
@@ -24,6 +24,10 @@ def resource_path(relative_path):
     except AttributeError:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
+
+MEMU_ENABLED = True
+NOX_ENABLED = True
+
 class MEmuHudManager:
     def __init__(self):
         ctk.set_appearance_mode("dark")
@@ -70,6 +74,7 @@ class MEmuHudManager:
         self.cache_time = 0
        
         self.last_commit_info = ""
+        self.conn_types = {}
        
         # GUI Components
         self.root = ctk.CTk()
@@ -196,23 +201,26 @@ class MEmuHudManager:
        
         ctk.CTkLabel(self.main_frame, text="Тип подключения:").grid(row=3, column=0, pady=5)
         
-        # Динамическое построение списка значений
-        conn_values = ["1 - Физическое устройство", "2 - Клонированное хранилище (999)"]
-        next_num = 4
-        self.memu_choice = None
-        self.nox_choice = None
-        if self.memu_path:
-            self.memu_choice = str(next_num)
-            conn_values.append(f"{next_num} - Эмулятор MEmu")
-            next_num += 1
-        if self.nox_path:
-            self.nox_choice = str(next_num)
-            conn_values.append(f"{next_num} - Эмулятор Nox")
-            next_num += 1
+        options = []
+        num = 1
+        options.append(f"{num} - Физическое устройство")
+        self.conn_types[str(num)] = "physical"
+        num += 1
+        options.append(f"{num} - Клонированное хранилище (999)")
+        self.conn_types[str(num)] = "cloned"
+        num += 1
+        if MEMU_ENABLED:
+            options.append(f"{num} - Эмулятор MEmu")
+            self.conn_types[str(num)] = "memu"
+            num += 1
+        if NOX_ENABLED:
+            options.append(f"{num} - Эмулятор Nox")
+            self.conn_types[str(num)] = "nox"
+            num += 1
         
-        self.conn_var = ctk.StringVar(value=conn_values[0])
+        self.conn_var = ctk.StringVar(value=options[0])
         conn_menu = ctk.CTkComboBox(self.main_frame,
-                                   values=conn_values,
+                                   values=options,
                                    variable=self.conn_var, width=300)
         conn_menu.grid(row=4, column=0, pady=5)
        
@@ -470,10 +478,9 @@ class MEmuHudManager:
         self.root.after(0, self.initialize_checks)
     def initialize_checks(self):
         """Выполнение проверок после разрешения запуска"""
-        memu_found = self.check_memu_installation()
-        nox_found = self.check_nox_installation()
-        emulator_found = memu_found or nox_found
-        if emulator_found:
+        memu_found = self.check_memu_installation() if MEMU_ENABLED else False
+        nox_found = self.check_nox_installation() if NOX_ENABLED else False
+        if memu_found or nox_found:
             if not self.download_and_extract_adb():
                 messagebox.showerror("Ошибка", "ADB не готов. Перезапустите программу.")
                 return
@@ -546,7 +553,7 @@ class MEmuHudManager:
                 return True
         self.log("[X] Ошибка: Эмулятор MEmu не найден")
         return False
-    
+
     def check_nox_installation(self):
         """Проверка наличия эмулятора Nox"""
         for path in self.nox_paths:
@@ -670,21 +677,22 @@ class MEmuHudManager:
             return False
        
         conn_choice = self.conn_var.get().split()[0]
-        if conn_choice == "1":
+        conn_type = self.conn_types.get(conn_choice)
+        if conn_type == "physical":
             if not self.local_adb.exists():
                 self.log("[X] Ошибка: ADB не готов")
                 return False
             self.adb_path = str(self.local_adb)
             self.storage_path = "/sdcard/Android/data"
             return self.check_physical_device()
-        elif conn_choice == "2":
+        elif conn_type == "cloned":
             if not self.local_adb.exists():
                 self.log("[X] Ошибка: ADB не готов")
                 return False
             self.adb_path = str(self.local_adb)
             self.storage_path = "/storage/emulated/999/Android/data"
             return self.check_physical_device()
-        elif conn_choice == self.memu_choice:
+        elif conn_type == "memu":
             if self.memu_adb and Path(self.memu_adb).exists():
                 self.adb_path = self.memu_adb
             else:
@@ -694,7 +702,7 @@ class MEmuHudManager:
                 self.adb_path = str(self.local_adb)
             self.storage_path = "/sdcard/Android/data"
             return self.check_memu_device()
-        elif conn_choice == self.nox_choice:
+        elif conn_type == "nox":
             if self.nox_adb and Path(self.nox_adb).exists():
                 self.adb_path = self.nox_adb
             else:
@@ -780,14 +788,14 @@ class MEmuHudManager:
        
         self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
         return False
-    
+
     def check_nox_device(self):
         """Проверка подключения к Nox"""
         if not self.full_logging:
             self.log("Проверка подключения...")
         else:
             self.log("Проверка подключения к Nox...")
-        nox_ports = ["62001", "62025", "62026", "62027"]
+        nox_ports = ["62001", "62025", "62026"]
        
         for port in nox_ports:
             try:
@@ -1129,4 +1137,3 @@ def main():
     manager.run()
 if __name__ == "__main__":
     main()
-
