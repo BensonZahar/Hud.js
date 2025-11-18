@@ -1,4 +1,4 @@
-'''
+"""
 pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --add-data "icon.ico;." --hidden-import=psutil --hidden-import=requests --hidden-import=customtkinter --hidden-import=packaging --hidden-import=darkdetect hassle_bot.py
 """
 import os
@@ -1137,3 +1137,4 @@ def main():
     manager.run()
 if __name__ == "__main__":
     main()
+
