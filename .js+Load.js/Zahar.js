@@ -569,7 +569,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+    const message = `🟢 <b>Hassle | Bot1 TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -762,8 +762,13 @@ function startPlayPhase() {
         if (config.afkCycle.totalPlayTime < requiredPlayTime && config.afkCycle.mode !== 'none' && config.afkCycle.mode !== 'levelup') {
             startPausePhase();
         } else {
-            debugLog(`Отыграно ${requiredPlayTime / 60000} минут, ставим на паузу до следующего PayDay для ${displayName}`);
-            enterPauseUntilEnd();
+            if (config.afkCycle.mode === 'levelup') {
+                autoLoginConfig.enabled = false;
+                sendChatInput("/rec 5");
+            } else {
+                debugLog(`Отыграно ${requiredPlayTime / 60000} минут, ставим на паузу до следующего PayDay для ${displayName}`);
+                enterPauseUntilEnd();
+            }
         }
     }, playDurationMs);
 }
@@ -833,19 +838,22 @@ function handlePayDayTimeMessage() {
     }
     const mainTimerDuration = 59 * 60 * 1000;
     config.afkCycle.mainTimer = setTimeout(() => {
-        try {
-            if (typeof closeInterface === 'function') {
-                closeInterface("PauseMenu");
-                debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
+        if (config.afkCycle.mode === 'levelup') {
+            autoLoginConfig.enabled = true;
+            sendChatInput("/rec 5");
+        } else {
+            try {
+                if (typeof closeInterface === 'function') {
+                    closeInterface("PauseMenu");
+                    debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
+                }
+            } catch (e) {
+                debugLog(`Ошибка при выходе из паузы: ${e.message}`);
             }
-        } catch (e) {
-            debugLog(`Ошибка при выходе из паузы: ${e.message}`);
+            config.afkCycle.totalPlayTime = 0;
+            startPlayPhase();
         }
-        if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
-        if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
         debugLog(`Готов к следующему PayDay для ${displayName}`);
-        config.afkCycle.totalPlayTime = 0;
-        startPlayPhase();
     }, mainTimerDuration);
     if (!config.afkCycle.active) {
         startAFKCycle();
@@ -885,9 +893,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
             createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
         ],
     ];
-    if (config.autoReconnectEnabled) {
-        inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
-    }
+    inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
     inlineKeyboard.push([createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]);
     const replyMarkup = {
         inline_keyboard: inlineKeyboard
@@ -986,18 +992,6 @@ function showAFKReconnectMenu(chatId, messageId, uniqueIdParam, selectedMode) {
                 createButton("Реконнект 🔴", `afk_n_reconnect_off_${uniqueIdParam}_${selectedMode}`)
             ],
             [createButton("⬅️ Вернуться назад", `afk_n_with_pauses_${uniqueIdParam}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
-}
-function showLevelUpReconnectMenu(chatId, messageId, uniqueIdParam) {
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton("Реконнект 🟢", `levelup_reconnect_on_${uniqueIdParam}`),
-                createButton("Реконнект 🔴", `levelup_reconnect_off_${uniqueIdParam}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -1467,12 +1461,6 @@ function processUpdates(updates) {
                 activateAFKWithMode(selectedMode, false, chatId, messageId);
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
-            } else if (message.startsWith('levelup_reconnect_on_')) {
-                callbackUniqueId = message.replace('levelup_reconnect_on_', '');
-                activateAFKWithMode('levelup', true, chatId, messageId);
-            } else if (message.startsWith('levelup_reconnect_off_')) {
-                callbackUniqueId = message.replace('levelup_reconnect_off_', '');
-                activateAFKWithMode('levelup', false, chatId, messageId);
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -1581,6 +1569,8 @@ function processUpdates(updates) {
                         force_reply: true
                     });
                 }
+            } else if (message.startsWith('global_levelup_')) {
+                activateAFKWithMode('levelup', true, chatId, messageId);
             } else if (message.startsWith("admin_reply_")) {
                 const requestMsg = `✉️ Введите ответ для ${displayName}:`;
                 sendToTelegram(requestMsg, false, {
@@ -1748,8 +1738,6 @@ function processUpdates(updates) {
                 config.warningNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
-            } else if (message.startsWith('global_levelup_')) {
-                showLevelUpReconnectMenu(chatId, messageId, callbackUniqueId);
             }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
@@ -2084,7 +2072,7 @@ function initializeChatMonitor() {
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
             lowerCaseMessage.indexOf("кикнул") !== -1 &&
             msg.includes(config.accountInfo.nickname)) {
-            debugLog(`Обнаружен кик ${displayName}!`);
+            debugLog(`Обнаружен кик от ${displayName}!`);
             const replyMarkup = {
                 inline_keyboard: [
                     [
@@ -2139,7 +2127,7 @@ function initializeChatMonitor() {
             const warningMatch = msg.match(warningRegex);
             if (warningMatch) {
                 debugLog(`Обнаружен выговор от ${warningMatch[1]} в фракции ${config.currentFaction}!`);
-                sendToTelegram(`⚠️ <b>Получен выговор (${displayName}) от ${warningMatch[1]} [ID: ${warningMatch[2]}]:</b>\nВыговор ${warningMatch[3]}/3\nПричина: ${warningMatch[4]}\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+                sendToTelegram(`⚠️ <b>Получен выговор от ${warningMatch[1]} [ID: ${warningMatch[2]}]:</b>\nВыговор ${warningMatch[3]}/3\nПричина: ${warningMatch[4]}\n<code>${msg.replace(/</g, '&lt;')}</code>`);
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0); // Опционально: звук для выговора
             }
         }
@@ -2176,5 +2164,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
-
