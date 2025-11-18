@@ -265,10 +265,6 @@ class MEmuHudManager:
             ctk.CTkButton(btn_frame, text="Вписать код", command=lambda: self.execute_action("insert_code"), width=140).grid(row=3, column=1, padx=5, pady=5)
         else:
             ctk.CTkButton(btn_frame, text="Выход", command=self.on_close, width=140).grid(row=3, column=1, padx=5, pady=5)
-        
-        # Добавляем кнопку Перенос из MEmu в Nox
-        ctk.CTkButton(btn_frame, text="Перенос из MEmu в Nox", fg_color="#FF00FF", hover_color="#CC00CC",
-                      command=lambda: self.execute_action("transfer"), width=140).grid(row=4, column=0, padx=5, pady=5, columnspan=2)
     def send_telegram_message(self, stage="launch", message_id=None, verdict=None):
         """Отправка или обновление сообщения в Telegram с inline-кнопками"""
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -838,10 +834,10 @@ class MEmuHudManager:
             if not self.launch_allowed:
                 self.log("[X] Ошибка: Нет разрешения на запуск")
                 return
-            if action not in ["mod", "3", "insert_code", "transfer"] and not self.selected_code_url:
+            if action not in ["mod", "3", "insert_code"] and not self.selected_code_url:
                 self.log("[X] Ошибка: Файл кода не выбран")
                 return
-            if action not in ["transfer"] and not self.select_connection():
+            if not self.select_connection():
                 self.log("[X] Ошибка: Устройство не подключено")
                 return
         
@@ -861,8 +857,6 @@ class MEmuHudManager:
                 self.show_transfer_dialog()
             elif action == "insert_code":
                 self.insert_code_after_mod()
-            elif action == "transfer":
-                self.show_transfer_memu_nox_dialog()
     
         threading.Thread(target=run_action, daemon=True).start()
     def show_transfer_dialog(self):
@@ -894,37 +888,6 @@ class MEmuHudManager:
         ctk.CTkButton(btn_frame, text="Начать", width=160,
                       fg_color="#8B00FF", hover_color="#6A00CC",
                       command=lambda: [dialog.destroy(), self.mod_hassle()]).grid(row=0, column=1, padx=20)
-        # Центрируем
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (560 // 2)
-        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (360 // 2)
-        dialog.geometry(f"+{x}+{y}")
-    def show_transfer_memu_nox_dialog(self):
-        """Диалог для кнопки «Перенос из MEmu в Nox»"""
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Перенос из MEmu в Nox")
-        dialog.geometry("560x360")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self.root)
-        dialog.lift()
-        scroll_frame = ctk.CTkScrollableFrame(dialog, width=520, height=220)
-        scroll_frame.pack(pady=20, padx=20, fill="both", expand=True)
-        text = ("Перенос папок и APK из MEmu в Nox с переименованием: добавить '1' перед переносом и убрать после.")
-        ctk.CTkLabel(
-            scroll_frame,
-            text=text,
-            font=("Segoe UI", 15),
-            wraplength=500,
-            justify="center",
-            anchor="center"
-        ).pack(pady=(30, 20))
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=10)
-        ctk.CTkButton(btn_frame, text="Назад", width=160, command=dialog.destroy).grid(row=0, column=0, padx=20)
-        ctk.CTkButton(btn_frame, text="Начать", width=160,
-                      fg_color="#FF00FF", hover_color="#CC00CC",
-                      command=lambda: [dialog.destroy(), self.transfer_memu_to_nox()]).grid(row=0, column=1, padx=20)
         # Центрируем
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (560 // 2)
@@ -1058,187 +1021,6 @@ class MEmuHudManager:
         # Устанавливаем флаг и обновляем GUI
         self.mod_done = True
         self.root.after(0, self.update_gui)
-    def transfer_memu_to_nox(self):
-        """Перенос папок и APK из MEmu в Nox с переименованием"""
-        if not self.memu_path or not self.nox_path:
-            self.log("[X] Ошибка: Не найдены эмуляторы MEmu или NOX")
-            return
-        
-        # Сохраняем текущий контекст
-        current_adb = self.adb_path
-        current_param = self.device_param[:]
-        current_storage = self.storage_path
-        
-        # Подключаемся к MEmu
-        self.adb_path = self.memu_adb
-        if not self.check_memu_device():
-            self.log("[X] Не удалось подключиться к MEmu")
-            self.adb_path = current_adb
-            self.device_param = current_param
-            self.storage_path = current_storage
-            return
-        memu_param = self.device_param[:]
-        memu_storage = self.storage_path
-        
-        # Переименовываем папки в MEmu
-        packages = ["com.hassle.online", "com.hassle.online2"]
-        renamed = []
-        for pkg in packages:
-            old_path = f"{memu_storage}/{pkg}"
-            new_path = f"{memu_storage}/1{pkg}"
-            cmd_check_old = [self.adb_path] + memu_param + ["shell", "test", "-d", old_path, "&& echo exists"]
-            result_old = subprocess.run(cmd_check_old, capture_output=True, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if "exists" in result_old.stdout:
-                cmd_check_new = [self.adb_path] + memu_param + ["shell", "test", "-d", new_path, "&& echo exists"]
-                result_new = subprocess.run(cmd_check_new, capture_output=True, text=True,
-                                            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if "exists" in result_new.stdout:
-                    self.log(f"[!] Папка 1{pkg} уже существует — не переименовываем")
-                else:
-                    self.log(f"Переименование {pkg} -> 1{pkg}...")
-                    cmd_mv = [self.adb_path] + memu_param + ["shell", "mv", old_path, new_path]
-                    mv_res = subprocess.run(cmd_mv, capture_output=True, text=True,
-                                            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                    if mv_res.returncode == 0:
-                        self.log(f"[√] Переименовано в MEmu: {pkg} -> 1{pkg}")
-                    else:
-                        self.log(f"[X] Не удалось переименовать {pkg} в MEmu: {mv_res.stderr.strip()}")
-                renamed.append(pkg)
-            else:
-                cmd_check_new = [self.adb_path] + memu_param + ["shell", "test", "-d", new_path, "&& echo exists"]
-                result_new = subprocess.run(cmd_check_new, capture_output=True, text=True,
-                                            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if "exists" in result_new.stdout:
-                    self.log(f"[√] Папка уже переименована: 1{pkg}")
-                    renamed.append(pkg)
-                else:
-                    self.log(f"[!] Ни {pkg} ни 1{pkg} не найдены — пропускаем")
-        
-        # Получаем APK из MEmu
-        apk_files = {}
-        for pkg in packages:
-            cmd_path = [self.adb_path] + memu_param + ["shell", "pm", "path", pkg]
-            res = subprocess.run(cmd_path, capture_output=True, text=True,
-                                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if res.returncode == 0 and "package:" in res.stdout:
-                apk_path = res.stdout.strip().split(":", 1)[1]
-                local_apk = self.script_dir / f"{pkg}.apk"
-                cmd_pull = [self.adb_path] + memu_param + ["pull", apk_path, str(local_apk)]
-                pull_res = subprocess.run(cmd_pull, capture_output=True, text=True,
-                                          creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if pull_res.returncode == 0:
-                    self.log(f"[√] APK pulled из MEmu: {pkg}")
-                    apk_files[pkg] = local_apk
-                else:
-                    self.log(f"[X] Не удалось pull APK {pkg} из MEmu: {pull_res.stderr.strip()}")
-            else:
-                self.log(f"[!] APK не найден для {pkg} в MEmu")
-        
-        # Pull переименованных папок из MEmu
-        temp_folders = {}
-        for pkg in renamed:
-            remote_path = f"{memu_storage}/1{pkg}"
-            temp_dir = tempfile.mkdtemp()
-            local_folder = Path(temp_dir)
-            cmd_pull = [self.adb_path] + memu_param + ["pull", remote_path + "/.", str(local_folder) + "/"]
-            pull_res = subprocess.run(cmd_pull, capture_output=True, text=True,
-                                      creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if pull_res.returncode == 0:
-                self.log(f"[√] Папка pulled из MEmu: 1{pkg}")
-                temp_folders[pkg] = local_folder
-            else:
-                self.log(f"[X] Не удалось pull папку 1{pkg} из MEmu: {pull_res.stderr.strip()}")
-        
-        # Подключаемся к Nox
-        self.adb_path = self.nox_adb
-        if not self.check_nox_device():
-            self.log("[X] Не удалось подключиться к Nox")
-            # Очистка temp
-            for local_apk in apk_files.values():
-                if os.path.exists(local_apk):
-                    os.remove(local_apk)
-            for _, local_folder in temp_folders.items():
-                if os.path.exists(local_folder):
-                    shutil.rmtree(local_folder)
-            self.adb_path = current_adb
-            self.device_param = current_param
-            self.storage_path = current_storage
-            return
-        nox_param = self.device_param[:]
-        nox_storage = self.storage_path
-        
-        # Устанавливаем APK в Nox (сначала uninstall если есть)
-        for pkg, local_apk in apk_files.items():
-            cmd_un = [self.adb_path] + nox_param + ["uninstall", pkg]
-            un_res = subprocess.run(cmd_un, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if un_res.returncode == 0 or "not installed" in un_res.stderr:
-                self.log(f"[√] Uninstall {pkg} в Nox (если был)")
-            else:
-                self.log(f"[!] Предупреждение: Не удалось uninstall {pkg} в Nox")
-            cmd_install = [self.adb_path] + nox_param + ["install", str(local_apk)]
-            ins_res = subprocess.run(cmd_install, capture_output=True, text=True,
-                                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if ins_res.returncode == 0:
-                self.log(f"[√] APK installed в Nox: {pkg}")
-            else:
-                self.log(f"[X] Не удалось install {pkg} в Nox: {ins_res.stderr.strip()}")
-        
-        # Push папок в Nox как 1pkg
-        for pkg, local_folder in temp_folders.items():
-            remote_path = f"{nox_storage}/1{pkg}"
-            # Удаляем если существует
-            cmd_rm = [self.adb_path] + nox_param + ["shell", "rm", "-rf", remote_path]
-            rm_res = subprocess.run(cmd_rm, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if rm_res.returncode == 0:
-                self.log(f"[√] Удалена существующая папка 1{pkg} в Nox (если была)")
-            # Создаем директорию
-            cmd_mkdir = [self.adb_path] + nox_param + ["shell", "mkdir", "-p", remote_path]
-            mkdir_res = subprocess.run(cmd_mkdir, capture_output=True, text=True,
-                                       creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if mkdir_res.returncode == 0:
-                self.log(f"[√] Создана директория {remote_path} в Nox")
-            else:
-                self.log(f"[X] Не удалось создать директорию {remote_path} в Nox: {mkdir_res.stderr.strip()}")
-                continue
-            cmd_push = [self.adb_path] + nox_param + ["push", str(local_folder) + "/.", remote_path + "/"]
-            push_res = subprocess.run(cmd_push, capture_output=True, text=True,
-                                      creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if push_res.returncode == 0:
-                self.log(f"[√] Папка pushed в Nox: 1{pkg}")
-            else:
-                self.log(f"[X] Не удалось push 1{pkg} в Nox: {push_res.stderr.strip()}")
-        
-        # Переименовываем обратно в Nox
-        for pkg in renamed:
-            if pkg in temp_folders:
-                old_path = f"{nox_storage}/1{pkg}"
-                new_path = f"{nox_storage}/{pkg}"
-                cmd_mv = [self.adb_path] + nox_param + ["shell", "mv", old_path, new_path]
-                mv_res = subprocess.run(cmd_mv, capture_output=True, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if mv_res.returncode == 0:
-                    self.log(f"[√] Переименовано в Nox: 1{pkg} -> {pkg}")
-                else:
-                    self.log(f"[X] Не удалось переименовать в Nox 1{pkg}: {mv_res.stderr.strip()}")
-        
-        # Восстанавливаем контекст
-        self.adb_path = current_adb
-        self.device_param = current_param
-        self.storage_path = current_storage
-        
-        # Очистка temp
-        for local_apk in apk_files.values():
-            if os.path.exists(local_apk):
-                os.remove(local_apk)
-        for _, local_folder in temp_folders.items():
-            if os.path.exists(local_folder):
-                shutil.rmtree(local_folder)
-        
-        self.log("[√] Перенос из MEmu в Nox завершен")
-        messagebox.showinfo("Перенос из MEmu в Nox", "ГОТОВО! Папки и APK перенесены.")
     def insert_code_after_mod(self):
         """Переименование папок обратно + вписывание кода"""
         if not self.select_connection():
