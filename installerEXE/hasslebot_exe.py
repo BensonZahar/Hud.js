@@ -25,7 +25,7 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
-MEMU_ENABLED = True
+MEMU_ENABLED = False
 NOX_ENABLED = True
 
 class MEmuHudManager:
@@ -1137,4 +1137,5 @@ def main():
     manager.run()
 if __name__ == "__main__":
     main()
+
 
