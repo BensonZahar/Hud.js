@@ -198,7 +198,7 @@ class MEmuHudManager:
         
         # Динамическое построение списка значений
         conn_values = ["1 - Физическое устройство", "2 - Клонированное хранилище (999)"]
-        next_num = 3
+        next_num = 4
         self.memu_choice = None
         self.nox_choice = None
         if self.memu_path:
@@ -1129,3 +1129,4 @@ def main():
     manager.run()
 if __name__ == "__main__":
     main()
+
