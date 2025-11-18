@@ -1086,20 +1086,34 @@ class MEmuHudManager:
         for pkg in packages:
             old_path = f"{memu_storage}/{pkg}"
             new_path = f"{memu_storage}/1{pkg}"
-            cmd_check = [self.adb_path] + memu_param + ["shell", "test", "-d", old_path, "&& echo exists"]
-            result = subprocess.run(cmd_check, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if "exists" in result.stdout:
-                cmd_mv = [self.adb_path] + memu_param + ["shell", "mv", old_path, new_path]
-                mv_res = subprocess.run(cmd_mv, capture_output=True, text=True,
+            cmd_check_old = [self.adb_path] + memu_param + ["shell", "test", "-d", old_path, "&& echo exists"]
+            result_old = subprocess.run(cmd_check_old, capture_output=True, text=True,
                                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if mv_res.returncode == 0:
-                    self.log(f"[√] Переименовано в MEmu: {pkg} -> 1{pkg}")
+            if "exists" in result_old.stdout:
+                cmd_check_new = [self.adb_path] + memu_param + ["shell", "test", "-d", new_path, "&& echo exists"]
+                result_new = subprocess.run(cmd_check_new, capture_output=True, text=True,
+                                            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                if "exists" in result_new.stdout:
+                    self.log(f"[!] Папка 1{pkg} уже существует — не переименовываем")
+                else:
+                    self.log(f"Переименование {pkg} -> 1{pkg}...")
+                    cmd_mv = [self.adb_path] + memu_param + ["shell", "mv", old_path, new_path]
+                    mv_res = subprocess.run(cmd_mv, capture_output=True, text=True,
+                                            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                    if mv_res.returncode == 0:
+                        self.log(f"[√] Переименовано в MEmu: {pkg} -> 1{pkg}")
+                    else:
+                        self.log(f"[X] Не удалось переименовать {pkg} в MEmu: {mv_res.stderr.strip()}")
+                renamed.append(pkg)
+            else:
+                cmd_check_new = [self.adb_path] + memu_param + ["shell", "test", "-d", new_path, "&& echo exists"]
+                result_new = subprocess.run(cmd_check_new, capture_output=True, text=True,
+                                            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                if "exists" in result_new.stdout:
+                    self.log(f"[√] Папка уже переименована: 1{pkg}")
                     renamed.append(pkg)
                 else:
-                    self.log(f"[X] Не удалось переименовать {pkg} в MEmu: {mv_res.stderr.strip()}")
-            else:
-                self.log(f"[!] Папка {pkg} не найдена в MEmu")
+                    self.log(f"[!] Ни {pkg} ни 1{pkg} не найдены — пропускаем")
         
         # Получаем APK из MEmu
         apk_files = {}
@@ -1126,14 +1140,13 @@ class MEmuHudManager:
         for pkg in renamed:
             remote_path = f"{memu_storage}/1{pkg}"
             temp_dir = tempfile.mkdtemp()
-            local_folder = Path(temp_dir) / "1pkg"  # временная папка
-            os.mkdir(local_folder)
-            cmd_pull = [self.adb_path] + memu_param + ["pull", remote_path + "/", str(local_folder)]
+            local_folder = Path(temp_dir)
+            cmd_pull = [self.adb_path] + memu_param + ["pull", remote_path + "/.", str(local_folder) + "/"]
             pull_res = subprocess.run(cmd_pull, capture_output=True, text=True,
                                       creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
             if pull_res.returncode == 0:
                 self.log(f"[√] Папка pulled из MEmu: 1{pkg}")
-                temp_folders[pkg] = local_folder.parent / "1pkg"  # путь к 1pkg
+                temp_folders[pkg] = local_folder
             else:
                 self.log(f"[X] Не удалось pull папку 1{pkg} из MEmu: {pull_res.stderr.strip()}")
         
@@ -1146,8 +1159,8 @@ class MEmuHudManager:
                 if os.path.exists(local_apk):
                     os.remove(local_apk)
             for _, local_folder in temp_folders.items():
-                if os.path.exists(local_folder.parent):
-                    shutil.rmtree(local_folder.parent)
+                if os.path.exists(local_folder):
+                    shutil.rmtree(local_folder)
             self.adb_path = current_adb
             self.device_param = current_param
             self.storage_path = current_storage
@@ -1181,7 +1194,16 @@ class MEmuHudManager:
                                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
             if rm_res.returncode == 0:
                 self.log(f"[√] Удалена существующая папка 1{pkg} в Nox (если была)")
-            cmd_push = [self.adb_path] + nox_param + ["push", str(local_folder) + "/", remote_path]
+            # Создаем директорию
+            cmd_mkdir = [self.adb_path] + nox_param + ["shell", "mkdir", "-p", remote_path]
+            mkdir_res = subprocess.run(cmd_mkdir, capture_output=True, text=True,
+                                       creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            if mkdir_res.returncode == 0:
+                self.log(f"[√] Создана директория {remote_path} в Nox")
+            else:
+                self.log(f"[X] Не удалось создать директорию {remote_path} в Nox: {mkdir_res.stderr.strip()}")
+                continue
+            cmd_push = [self.adb_path] + nox_param + ["push", str(local_folder) + "/.", remote_path + "/"]
             push_res = subprocess.run(cmd_push, capture_output=True, text=True,
                                       creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
             if push_res.returncode == 0:
@@ -1212,8 +1234,8 @@ class MEmuHudManager:
             if os.path.exists(local_apk):
                 os.remove(local_apk)
         for _, local_folder in temp_folders.items():
-            if os.path.exists(local_folder.parent):
-                shutil.rmtree(local_folder.parent)
+            if os.path.exists(local_folder):
+                shutil.rmtree(local_folder)
         
         self.log("[√] Перенос из MEmu в Nox завершен")
         messagebox.showinfo("Перенос из MEmu в Nox", "ГОТОВО! Папки и APK перенесены.")
