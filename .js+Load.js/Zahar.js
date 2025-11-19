@@ -9,7 +9,7 @@ const SERVER_TOKENS = {
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
 const PASSWORD = "zahar2007"; // Ваш пароль
-const RECONNECT_ENABLED_DEFAULT = false; // Авто-реконнект включён по умолчанию
+const RECONNECT_ENABLED_DEFAULT = true; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
 const globalState = {
@@ -55,7 +55,7 @@ const factions = {
         ranks: {
             1: 'водитель', 2: 'охранник', 3: 'нач. охраны', 4: 'секретарь',
             5: 'старший секретарь', 6: 'лицензёр', 7: 'адвокат', 8: 'депутат',
-            9: 'охранник', 10: 'водитель'
+            9: 'вице-губернатор', 10: 'губернатор'
         }
     },
     mz: {
@@ -569,7 +569,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TGv4</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1988,7 +1988,9 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            sendChatInput(reconnectionCommand);
+            setTimeout(() => {
+                performReconnect(1 * 60 * 1000);
+            }, 30);
         }
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
@@ -2076,7 +2078,7 @@ function initializeChatMonitor() {
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
-                performReconnect(1 * 60 * 1000);
+                performReconnect(5 * 60 * 1000);
             }, 30);
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -2191,6 +2193,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
-
-
