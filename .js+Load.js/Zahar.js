@@ -2156,6 +2156,7 @@ function initializeChatMonitor() {
     checkTelegramCommands();
     return true;
 }
+initializeIngameMenu();
 // END CHAT MONITOR MODULE //
 // START INITIALIZATION MODULE //
 debugLog('Скрипт запущен');
@@ -2177,6 +2178,7 @@ if (!initializeChatMonitor()) {
 }
 // END INITIALIZATION MODULE //
 // START INGAME MENU MODULE //
+
 // Константы для диалогов (начинаем с высоких ID, чтобы избежать конфликтов)
 const DIALOG_MAIN = 1000;
 const DIALOG_GLOBAL_FUNCTIONS = 1001;
@@ -2196,32 +2198,37 @@ const DIALOG_LOCAL_RADIO_OPTIONS = 1014;
 const DIALOG_LOCAL_WARNING_OPTIONS = 1015;
 const DIALOG_AFK_ID_INPUT = 1016;
 
-let selectedAFKMode = null;
+// Сохраняем оригинальные функции
+const originalSendClientEvent = window.sendClientEvent || function() {};
+const originalSendChatInput = window.sendChatInput || function() {};
 
 // Перехват sendClientEvent для обработки ответов на диалоги
-const originalSendClientEvent = window.sendClientEvent || function() {};
 window.sendClientEvent = function(event, ...args) {
     if (event === "OnDialogResponse") {
         const dialogId = args[0];
-        // Если это наш клиентский диалог (диапазон ваших ID), обрабатываем и НЕ отправляем на сервер
-        if (dialogId >= 1000 && dialogId <= 1016) {  // Ваш диапазон DIALOG_MAIN до DIALOG_AFK_ID_INPUT
-            handleIngameDialogResponse(dialogId, args[1], args[2], args[3]);
-            return;  // Важно: не вызываем original, чтобы не сломать
-        }
+        const button = args[1];
+        const listItem = args[2];
+        const inputText = args[3];
+        
+        debugLog(`Диалог ответ: ID=${dialogId}, button=${button}, listItem=${listItem}, input=${inputText}`);
+        
+        handleIngameDialogResponse(dialogId, button, listItem, inputText);
     }
-    // Для всех других событий вызываем original
     return originalSendClientEvent.call(this, event, ...args);
 };
 
 // Функция обработки ответов на диалоги
 function handleIngameDialogResponse(dialogId, button, listItem, inputText) {
     if (button !== 1) return; // Если не "Выбрать" или "OK"
-
+    
+    debugLog(`Обработка диалога ${dialogId}: listItem=${listItem}, input=${inputText}`);
+    
     switch (dialogId) {
         case DIALOG_MAIN:
             if (listItem === 0) showLocalFunctionsIngame();
-            if (listItem === 1) showGlobalFunctionsIngame();
+            else if (listItem === 1) showGlobalFunctionsIngame();
             break;
+            
         case DIALOG_GLOBAL_FUNCTIONS:
             if (listItem === 0) showPayDayOptionsIngame();
             else if (listItem === 1) showSoobOptionsIngame();
@@ -2233,78 +2240,106 @@ function handleIngameDialogResponse(dialogId, button, listItem, inputText) {
             else if (listItem === 7 && config.autoReconnectEnabled) activateAFKWithMode('levelup', true);
             else if (listItem === 8) showMainMenuIngame();
             break;
+            
         case DIALOG_PAYDAY_OPTIONS:
             if (listItem === 0) {
                 config.paydayNotifications = true;
                 debugLog('PayDay notifications enabled');
+                sendToTelegram(`🔔 <b>Уведомления о PayDay включены для ${displayName}</b>`, false, null);
             } else if (listItem === 1) {
                 config.paydayNotifications = false;
                 debugLog('PayDay notifications disabled');
-            } else if (listItem === 2) showGlobalFunctionsIngame();
+                sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null);
+            }
+            sendWelcomeMessage();
+            showGlobalFunctionsIngame();
             break;
+            
         case DIALOG_SOOB_OPTIONS:
             if (listItem === 0) {
                 config.govMessagesEnabled = true;
                 debugLog('Gov messages enabled');
+                sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null);
             } else if (listItem === 1) {
                 config.govMessagesEnabled = false;
                 debugLog('Gov messages disabled');
-            } else if (listItem === 2) showGlobalFunctionsIngame();
+                sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null);
+            }
+            sendWelcomeMessage();
+            showGlobalFunctionsIngame();
             break;
+            
         case DIALOG_MESTO_OPTIONS:
             if (listItem === 0) {
                 config.trackLocationRequests = true;
                 debugLog('Location tracking enabled');
+                sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null);
             } else if (listItem === 1) {
                 config.trackLocationRequests = false;
                 debugLog('Location tracking disabled');
-            } else if (listItem === 2) showGlobalFunctionsIngame();
+                sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null);
+            }
+            sendWelcomeMessage();
+            showGlobalFunctionsIngame();
             break;
+            
         case DIALOG_RADIO_OPTIONS:
             if (listItem === 0) {
                 config.radioOfficialNotifications = true;
                 debugLog('Radio notifications enabled');
+                sendToTelegram(`🔔 <b>Уведомления с Рации включены для ${displayName}</b>`, false, null);
             } else if (listItem === 1) {
                 config.radioOfficialNotifications = false;
                 debugLog('Radio notifications disabled');
-            } else if (listItem === 2) showGlobalFunctionsIngame();
+                sendToTelegram(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, false, null);
+            }
+            sendWelcomeMessage();
+            showGlobalFunctionsIngame();
             break;
+            
         case DIALOG_WARNING_OPTIONS:
             if (listItem === 0) {
                 config.warningNotifications = true;
                 debugLog('Warning notifications enabled');
+                sendToTelegram(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, false, null);
             } else if (listItem === 1) {
                 config.warningNotifications = false;
                 debugLog('Warning notifications disabled');
-            } else if (listItem === 2) showGlobalFunctionsIngame();
+                sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
+            }
+            sendWelcomeMessage();
+            showGlobalFunctionsIngame();
             break;
+            
         case DIALOG_AFK_NIGHT_MODES:
             if (listItem === 0) showAFKWithPausesIngame();
             else if (listItem === 1) activateAFKWithMode('none', false);
             else if (listItem === 2) showGlobalFunctionsIngame();
             break;
+            
         case DIALOG_AFK_WITH_PAUSES:
             if (listItem === 0) {
-                selectedAFKMode = 'fixed';
                 if (config.autoReconnectEnabled) {
-                    showAFKReconnectIngame();
+                    showAFKReconnectIngame('fixed');
                 } else {
                     activateAFKWithMode('fixed', false);
                 }
             } else if (listItem === 1) {
-                selectedAFKMode = 'random';
                 if (config.autoReconnectEnabled) {
-                    showAFKReconnectIngame();
+                    showAFKReconnectIngame('random');
                 } else {
                     activateAFKWithMode('random', false);
                 }
             } else if (listItem === 2) showAFKNightModesIngame();
             break;
+            
         case DIALOG_AFK_RECONNECT:
-            if (listItem === 0) activateAFKWithMode(selectedAFKMode, true);
-            else if (listItem === 1) activateAFKWithMode(selectedAFKMode, false);
+            // inputText здесь содержит выбранный режим из предыдущего диалога
+            if (listItem === 0) activateAFKWithMode(inputText, true);
+            else if (listItem === 1) activateAFKWithMode(inputText, false);
             else if (listItem === 2) showAFKWithPausesIngame();
             break;
+            
         case DIALOG_LOCAL_FUNCTIONS:
             if (listItem === 0) showMovementControlsIngame();
             else if (listItem === 1) showLocalSoobOptionsIngame();
@@ -2313,8 +2348,9 @@ function handleIngameDialogResponse(dialogId, button, listItem, inputText) {
             else if (listItem === 4) showLocalWarningOptionsIngame();
             else if (listItem === 5) showMainMenuIngame();
             break;
+            
         case DIALOG_MOVEMENT_CONTROLS:
-            // Обработка движений (аналогично Telegram)
+            // Обработка движений
             if (listItem === 0) simulateMovement('forward');
             else if (listItem === 1) simulateMovement('left');
             else if (listItem === 2) simulateMovement('right');
@@ -2324,136 +2360,169 @@ function handleIngameDialogResponse(dialogId, button, listItem, inputText) {
             else if (listItem === 6) simulateMovement(config.isSitting ? 'stand' : 'sit');
             else if (listItem === 7) showLocalFunctionsIngame();
             break;
+            
         case DIALOG_LOCAL_SOOB_OPTIONS:
             if (listItem === 0) {
                 config.govMessagesEnabled = true;
                 debugLog('Local Gov messages enabled');
+                sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null);
             } else if (listItem === 1) {
                 config.govMessagesEnabled = false;
                 debugLog('Local Gov messages disabled');
-            } else if (listItem === 2) showLocalFunctionsIngame();
+                sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null);
+            }
+            sendWelcomeMessage();
+            showLocalFunctionsIngame();
             break;
+            
         case DIALOG_LOCAL_MESTO_OPTIONS:
             if (listItem === 0) {
                 config.trackLocationRequests = true;
                 debugLog('Local Location tracking enabled');
+                sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null);
             } else if (listItem === 1) {
                 config.trackLocationRequests = false;
                 debugLog('Local Location tracking disabled');
-            } else if (listItem === 2) showLocalFunctionsIngame();
+                sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null);
+            }
+            sendWelcomeMessage();
+            showLocalFunctionsIngame();
             break;
+            
         case DIALOG_LOCAL_RADIO_OPTIONS:
             if (listItem === 0) {
                 config.radioOfficialNotifications = true;
                 debugLog('Local Radio notifications enabled');
+                sendToTelegram(`🔔 <b>Уведомления с Рации включены для ${displayName}</b>`, false, null);
             } else if (listItem === 1) {
                 config.radioOfficialNotifications = false;
                 debugLog('Local Radio notifications disabled');
-            } else if (listItem === 2) showLocalFunctionsIngame();
+                sendToTelegram(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, false, null);
+            }
+            sendWelcomeMessage();
+            showLocalFunctionsIngame();
             break;
+            
         case DIALOG_LOCAL_WARNING_OPTIONS:
             if (listItem === 0) {
                 config.warningNotifications = true;
                 debugLog('Local Warning notifications enabled');
+                sendToTelegram(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, false, null);
             } else if (listItem === 1) {
                 config.warningNotifications = false;
                 debugLog('Local Warning notifications disabled');
-            } else if (listItem === 2) showLocalFunctionsIngame();
+                sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
+            }
+            sendWelcomeMessage();
+            showLocalFunctionsIngame();
             break;
+            
         case DIALOG_AFK_ID_INPUT:
             const id = inputText.trim();
             if (id) {
                 const idFormats = [id];
                 if (id.includes('-')) idFormats.push(id.replace(/-/g, ''));
                 else if (id.length === 3) idFormats.push(`${id[0]}-${id[1]}-${id[2]}`);
-                config.afkSettings = { id, formats: idFormats, active: true };
+                
+                config.afkSettings = {
+                    id: id,
+                    formats: idFormats,
+                    active: true
+                };
+                
                 debugLog(`AFK activated with ID: ${id}`);
+                sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null);
             }
             showGlobalFunctionsIngame();
             break;
     }
 }
 
-// Функции показа диалогов в игре (аналогично Telegram меню)
+// Функции показа диалогов в игре
 function showMainMenuIngame() {
-    let menuList = `⚙️ Функции<n>📋 Общие функции`;
+    const menuList = `⚙️ Функции<n>📋 Общие функции`;
     window.addDialogInQueue(`[${DIALOG_MAIN},2,"Hassle Bot Управление","","Выбрать","Отмена",0,0]`, menuList, 0);
+    debugLog('Показано главное меню в игре');
 }
 
 function showGlobalFunctionsIngame() {
     let menuList = `🔔 PayDay<n>🏛️ Сообщ.<n>📍 Место<n>📡 Рация<n>⚠️ Выговоры<n>🌙 AFK Ночь<n>🔄 AFK`;
     if (config.autoReconnectEnabled) menuList += `<n>📈 Прокачка уровня`;
     menuList += `<n>⬅️ Вернуться назад`;
+    
     window.addDialogInQueue(`[${DIALOG_GLOBAL_FUNCTIONS},2,"Общие функции","","Выбрать","Отмена",0,0]`, menuList, 0);
+    debugLog('Показаны общие функции в игре');
 }
 
 function showPayDayOptionsIngame() {
-    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    const menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_PAYDAY_OPTIONS},2,"PayDay уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showSoobOptionsIngame() {
-    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    const menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_SOOB_OPTIONS},2,"Сообщения от сотрудников","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showMestoOptionsIngame() {
-    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    const menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_MESTO_OPTIONS},2,"Отслеживание местоположения","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showRadioOptionsIngame() {
-    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    const menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_RADIO_OPTIONS},2,"Рация уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showWarningOptionsIngame() {
-    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    const menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_WARNING_OPTIONS},2,"Выговоры уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showAFKNightModesIngame() {
-    let menuList = `С паузами<n>Без пауз<n>⬅️ Вернуться назад`;
+    const menuList = `С паузами<n>Без пауз<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_AFK_NIGHT_MODES},2,"AFK Ночь","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showAFKWithPausesIngame() {
-    let menuList = `5/5 минут<n>Рандомное время<n>⬅️ Вернуться назад`;
+    const menuList = `5/5 минут<n>Рандомное время<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_AFK_WITH_PAUSES},2,"AFK с паузами","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
-function showAFKReconnectIngame() {
-    let menuList = `Реконнект 🟢<n>Реконнект 🔴<n>⬅️ Вернуться назад`;
-    window.addDialogInQueue(`[${DIALOG_AFK_RECONNECT},2,"Реконнект для AFK","","Выбрать","Отмена",0,0]`, menuList, 0);
+function showAFKReconnectIngame(selectedMode) {
+    const menuList = `Реконнект 🟢<n>Реконнект 🔴<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_AFK_RECONNECT},2,"Реконнект для AFK","${selectedMode}","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showLocalFunctionsIngame() {
-    let menuList = `🚶 Движение<n>🏛️ Увед. правик<n>📍 Отслеживание<n>📡 Рация<n>⚠️ Выговоры<n>⬅️ Вернуться назад`;
+    const menuList = `🚶 Движение<n>🏛️ Увед. правик<n>📍 Отслеживание<n>📡 Рация<n>⚠️ Выговоры<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_LOCAL_FUNCTIONS},2,"Локальные функции","","Выбрать","Отмена",0,0]`, menuList, 0);
+    debugLog('Показаны локальные функции в игре');
 }
 
 function showMovementControlsIngame() {
-    let menuList = `⬆️ Вперед<n>⬅️ Влево<n>➡️ Вправо<n>⬇️ Назад<n>🆙 Прыжок<n>👊 Удар<n>${config.isSitting ? '🧍 Встать' : '🪑 Сесть'}<n>⬅️ Вернуться назад`;
+    const sitStandButton = config.isSitting ? '🧍 Встать' : '🪑 Сесть';
+    const menuList = `⬆️ Вперед<n>⬅️ Влево<n>➡️ Вправо<n>⬇️ Назад<n>🆙 Прыжок<n>👊 Удар<n>${sitStandButton}<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_MOVEMENT_CONTROLS},2,"Управление движением","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showLocalSoobOptionsIngame() {
-    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    const menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_LOCAL_SOOB_OPTIONS},2,"Локальные сообщения от сотрудников","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showLocalMestoOptionsIngame() {
-    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    const menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_LOCAL_MESTO_OPTIONS},2,"Локальное отслеживание местоположения","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showLocalRadioOptionsIngame() {
-    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    const menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_LOCAL_RADIO_OPTIONS},2,"Локальные рация уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
 function showLocalWarningOptionsIngame() {
-    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    const menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
     window.addDialogInQueue(`[${DIALOG_LOCAL_WARNING_OPTIONS},2,"Локальные выговоры уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
 }
 
@@ -2461,59 +2530,90 @@ function showAFKIdInputIngame() {
     window.addDialogInQueue(`[${DIALOG_AFK_ID_INPUT},1,"Ввод ID для AFK","Введите ID:","OK","Отмена",0,0]`, "", 0);
 }
 
-// Симуляция движений (аналогично Telegram)
+// Симуляция движений
 function simulateMovement(action) {
-    switch (action) {
-        case 'forward':
-            window.onScreenControlTouchStart("<Gamepad>/leftStick");
-            window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
-            setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
-            break;
-        case 'back':
-            window.onScreenControlTouchStart("<Gamepad>/leftStick");
-            window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
-            setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
-            break;
-        case 'left':
-            window.onScreenControlTouchStart("<Gamepad>/leftStick");
-            window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
-            setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
-            break;
-        case 'right':
-            window.onScreenControlTouchStart("<Gamepad>/leftStick");
-            window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
-            setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
-            break;
-        case 'jump':
-            window.onScreenControlTouchStart("<Keyboard>/leftShift");
-            setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/leftShift"), 500);
-            break;
-        case 'punch':
-            window.onScreenControlTouchStart("<Mouse>/leftButton");
-            setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
-            break;
-        case 'sit':
-            window.onScreenControlTouchStart("<Keyboard>/c");
-            setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
-            config.isSitting = true;
-            break;
-        case 'stand':
-            window.onScreenControlTouchStart("<Keyboard>/c");
-            setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
-            config.isSitting = false;
-            break;
+    try {
+        switch (action) {
+            case 'forward':
+                window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
+                setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+                sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null);
+                break;
+                
+            case 'back':
+                window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
+                setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+                sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null);
+                break;
+                
+            case 'left':
+                window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
+                setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+                sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null);
+                break;
+                
+            case 'right':
+                window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
+                setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+                sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null);
+                break;
+                
+            case 'jump':
+                window.onScreenControlTouchStart("<Keyboard>/leftShift");
+                setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/leftShift"), 500);
+                sendToTelegram(`🆙 <b>Прыжок выполнен для ${displayName}</b>`, false, null);
+                break;
+                
+            case 'punch':
+                window.onScreenControlTouchStart("<Mouse>/leftButton");
+                setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+                sendToTelegram(`👊 <b>Удар выполнен для ${displayName}</b>`, false, null);
+                break;
+                
+            case 'sit':
+                window.onScreenControlTouchStart("<Keyboard>/c");
+                setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+                config.isSitting = true;
+                sendToTelegram(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, false, null);
+                break;
+                
+            case 'stand':
+                window.onScreenControlTouchStart("<Keyboard>/c");
+                setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+                config.isSitting = false;
+                sendToTelegram(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, false, null);
+                break;
+        }
+        
+        // Показываем меню движений снова после выполнения действия
+        setTimeout(() => showMovementControlsIngame(), 100);
+        
+    } catch (err) {
+        const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить движение\n<code>${err.message}</code>`;
+        debugLog(errorMsg);
+        sendToTelegram(errorMsg, false, null);
     }
-    showMovementControlsIngame();
 }
 
 // Перехват sendChatInput для команды /hb
-const originalSendChatInput = window.sendChatInput || sendChatInput;
 window.sendChatInput = function(msg) {
     if (msg.toLowerCase() === '/hb') {
         showMainMenuIngame();
         return;
     }
-    originalSendChatInput(msg);
+    return originalSendChatInput.call(this, msg);
 };
-// END INGAME MENU MODULE //
 
+// Инициализация игрового меню
+function initializeIngameMenu() {
+    debugLog('Игровое меню инициализировано (команда /hb)');
+}
+
+// Запускаем инициализацию при загрузке скрипта
+setTimeout(initializeIngameMenu, 3000);
+
+// END INGAME MENU MODULE //
