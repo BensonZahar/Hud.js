@@ -490,7 +490,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
                 const data = JSON.parse(xhr.responseText);
                 const messageId = data.result.message_id;
                 // Сохраняем ID приветственного сообщения
-                if (message.includes('Hassle | Bot TG V3') && message.includes('Текущие настройки')) {
+                if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
                     globalState.lastWelcomeMessageId = messageId;
                 }
                 // Сохраняем ID PayDay сообщения
@@ -569,7 +569,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TGv3</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2191,4 +2191,5 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
 
