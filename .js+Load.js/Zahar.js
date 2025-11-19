@@ -55,7 +55,7 @@ const factions = {
         ranks: {
             1: 'водитель', 2: 'охранник', 3: 'нач. охраны', 4: 'секретарь',
             5: 'старший секретарь', 6: 'лицензёр', 7: 'адвокат', 8: 'депутат',
-            9: 'вице-губернатор', 10: 'губернатор'
+            9: 'охранник', 10: 'водитель'
         }
     },
     mz: {
@@ -490,7 +490,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
                 const data = JSON.parse(xhr.responseText);
                 const messageId = data.result.message_id;
                 // Сохраняем ID приветственного сообщения
-                if (message.includes('Hassle | Bot TG V2') && message.includes('Текущие настройки')) {
+                if (message.includes('Hassle | Bot TG V3') && message.includes('Текущие настройки')) {
                     globalState.lastWelcomeMessageId = messageId;
                 }
                 // Сохраняем ID PayDay сообщения
@@ -2076,7 +2076,7 @@ function initializeChatMonitor() {
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
-                performReconnect(5 * 60 * 1000);
+                performReconnect(1 * 60 * 1000);
             }, 30);
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -2191,3 +2191,4 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
