@@ -569,7 +569,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TGR</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -762,15 +762,28 @@ function startPlayPhase() {
         if (config.afkCycle.totalPlayTime < requiredPlayTime && config.afkCycle.mode !== 'none' && config.afkCycle.mode !== 'levelup') {
             startPausePhase();
         } else {
+            debugLog(`Отыграно ${requiredPlayTime / 60000} минут, ставим на паузу до следующего PayDay для ${displayName}`);
             if (config.afkCycle.mode === 'levelup') {
-                autoLoginConfig.enabled = false;
-                sendChatInput("/rec 5");
+                handleLevelUpEnd();
             } else {
-                debugLog(`Отыграно ${requiredPlayTime / 60000} минут, ставим на паузу до следующего PayDay для ${displayName}`);
                 enterPauseUntilEnd();
             }
         }
     }, playDurationMs);
+}
+function handleLevelUpEnd() {
+    autoLoginConfig.enabled = false;
+    sendChatInput("/rec 5");
+    sendToTelegram(`🔄 <b>LevelUp: Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
+    const timePassed = Date.now() - config.afkCycle.startTime;
+    const timeToReconnect = 59 * 60 * 1000 - timePassed;
+    if (timeToReconnect > 0) {
+        setTimeout(() => {
+            autoLoginConfig.enabled = true;
+            sendChatInput("/rec 5");
+            sendToTelegram(`🔄 <b>LevelUp: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+        }, timeToReconnect);
+    }
 }
 function startPausePhase() {
     if (!config.afkCycle.active) return;
@@ -838,24 +851,19 @@ function handlePayDayTimeMessage() {
     }
     const mainTimerDuration = 59 * 60 * 1000;
     config.afkCycle.mainTimer = setTimeout(() => {
-        if (config.afkCycle.mode === 'levelup') {
-            autoLoginConfig.enabled = true;
-            sendChatInput("/rec 5");
-        } else {
-            try {
-                if (typeof closeInterface === 'function') {
-                    closeInterface("PauseMenu");
-                    debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
-                }
-            } catch (e) {
-                debugLog(`Ошибка при выходе из паузы: ${e.message}`);
+        try {
+            if (typeof closeInterface === 'function') {
+                closeInterface("PauseMenu");
+                debugLog(`Выход из паузы перед следующим PayDay для ${displayName}`);
             }
-            if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
-            if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
-            debugLog(`Готов к следующему PayDay для ${displayName}`);
-            config.afkCycle.totalPlayTime = 0;
-            startPlayPhase();
+        } catch (e) {
+            debugLog(`Ошибка при выходе из паузы: ${e.message}`);
         }
+        if (config.afkCycle.playTimer) clearTimeout(config.afkCycle.playTimer);
+        if (config.afkCycle.pauseTimer) clearTimeout(config.afkCycle.pauseTimer);
+        debugLog(`Готов к следующему PayDay для ${displayName}`);
+        config.afkCycle.totalPlayTime = 0;
+        startPlayPhase();
     }, mainTimerDuration);
     if (!config.afkCycle.active) {
         startAFKCycle();
@@ -1465,12 +1473,6 @@ function processUpdates(updates) {
                 activateAFKWithMode(selectedMode, false, chatId, messageId);
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
-            } else if (message.startsWith('levelup_reconnect_on_')) {
-                callbackUniqueId = message.replace('levelup_reconnect_on_', '');
-                activateAFKWithMode('levelup', true, chatId, messageId);
-            } else if (message.startsWith('levelup_reconnect_off_')) {
-                callbackUniqueId = message.replace('levelup_reconnect_off_', '');
-                activateAFKWithMode('levelup', false, chatId, messageId);
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -1746,6 +1748,8 @@ function processUpdates(updates) {
                 config.warningNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
+            } else if (message.startsWith('global_levelup_')) {
+                activateAFKWithMode('levelup', true, chatId, messageId);
             }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
