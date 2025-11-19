@@ -2203,11 +2203,13 @@ const originalSendClientEvent = window.sendClientEvent || function() {};
 window.sendClientEvent = function(event, ...args) {
     if (event === "OnDialogResponse") {
         const dialogId = args[0];
-        const button = args[1];
-        const listItem = args[2];
-        const inputText = args[3];
-        handleIngameDialogResponse(dialogId, button, listItem, inputText);
+        // Если это наш клиентский диалог (диапазон ваших ID), обрабатываем и НЕ отправляем на сервер
+        if (dialogId >= 1000 && dialogId <= 1016) {  // Ваш диапазон DIALOG_MAIN до DIALOG_AFK_ID_INPUT
+            handleIngameDialogResponse(dialogId, args[1], args[2], args[3]);
+            return;  // Важно: не вызываем original, чтобы не сломать
+        }
     }
+    // Для всех других событий вызываем original
     return originalSendClientEvent.call(this, event, ...args);
 };
 
@@ -2514,3 +2516,4 @@ window.sendChatInput = function(msg) {
     originalSendChatInput(msg);
 };
 // END INGAME MENU MODULE //
+
