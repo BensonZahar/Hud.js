@@ -490,7 +490,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
                 const data = JSON.parse(xhr.responseText);
                 const messageId = data.result.message_id;
                 // Сохраняем ID приветственного сообщения
-                if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
+                if (message.includes('Hassle | Bot TG V2') && message.includes('Текущие настройки')) {
                     globalState.lastWelcomeMessageId = messageId;
                 }
                 // Сохраняем ID PayDay сообщения
@@ -2076,9 +2076,7 @@ function initializeChatMonitor() {
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
             setTimeout(() => {
-                sendChatInput(reconnectionCommand);
-                debugLog('Отправлена команда ' + reconnectionCommand);
-                sendToTelegram(`✅ <b>Отправлено ${reconnectionCommand} (${displayName})</b>`, false, null);
+                performReconnect(5 * 60 * 1000);
             }, 30);
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -2095,7 +2093,7 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            sendChatInput(reconnectionCommand);
+            performReconnect(2 * 60 * 1000);
         }
         if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
             debugLog('Обнаружен запрос местоположения!');
@@ -2157,6 +2155,23 @@ function initializeChatMonitor() {
     return true;
 }
 // END CHAT MONITOR MODULE //
+// START RECONNECT MODULE //
+function performReconnect(delay) {
+    if (config.autoReconnectEnabled) {
+        autoLoginConfig.enabled = false;
+        sendChatInput("/rec 5");
+        sendToTelegram(`🔄 <b>Отключен автовход и отправлен /rec 5 (${displayName})</b>`);
+        setTimeout(() => {
+            autoLoginConfig.enabled = true;
+            sendChatInput("/rec 5");
+            sendToTelegram(`🔄 <b>Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+        }, delay);
+    } else {
+        sendChatInput("/q");
+        sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`);
+    }
+}
+// END RECONNECT MODULE //
 // START INITIALIZATION MODULE //
 debugLog('Скрипт запущен');
 if (!initializeChatMonitor()) {
@@ -2176,4 +2191,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
