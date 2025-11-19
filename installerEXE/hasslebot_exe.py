@@ -200,6 +200,36 @@ class MEmuHudManager:
      
         except Exception as e:
             return "Ошибка загрузки коммита"
+    def fetch_last_commit_path(self, path):
+        """Загрузка информации о последнем коммите для произвольного пути"""
+        encoded_path = path.replace('/', '%2F')
+        commit_cache_file = self.script_dir / f"commit_cache_{path.replace('/', '_')}.json"
+        current_time = time.time()
+        if current_time - self.cache_time < 3600 and commit_cache_file.exists():
+            try:
+                with open(commit_cache_file, 'r', encoding='utf-8') as f:
+                    last_commit = json.load(f)
+                return self.format_commit_info(last_commit)
+            except Exception:
+                pass
+ 
+        try:
+            commits_url = f"https://api.github.com/repos/BensonZahar/Hud.js/commits?path={encoded_path}"
+            response = requests.get(commits_url, timeout=10)
+            response.raise_for_status()
+            commits = response.json()
+     
+            if not commits:
+                return "Нет информации о коммите"
+     
+            last_commit = commits[0]['commit']
+            with open(commit_cache_file, 'w', encoding='utf-8') as f:
+                json.dump(last_commit, f)
+            self.cache_time = current_time
+            return self.format_commit_info(last_commit)
+     
+        except Exception as e:
+            return "Ошибка загрузки коммита"
     def format_commit_info(self, commit):
         """Форматирование информации о коммите"""
         date_str = commit['author']['date']
@@ -832,22 +862,6 @@ class MEmuHudManager:
         """Получение выбранной папки приложения из GUI"""
         choice = self.app_var.get().split()[0]
         return "com.hassle.online" if choice == "1" else "com.hassle.online2"
-    def get_hassle_packages(self, prefix=""):
-        """Автоматическое определение всех папок com.hassle.online* (с опциональным префиксом, например '1' для 1com.hassle.online*)"""
-        base_path = self.storage_path
-        cmd = [self.adb_path] + self.device_param + ["shell", "ls", base_path]
-        result = subprocess.run(cmd, capture_output=True, text=True,
-                                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-        if result.returncode != 0:
-            self.log(f"[X] Ошибка: Не удалось перечислить папки в {base_path}")
-            return []
-        folders = result.stdout.strip().splitlines()
-        hassle_folders = [f.strip() for f in folders if f.startswith(prefix + "com.hassle.online")]
-        if hassle_folders:
-            self.log(f"[√] Найдено папок: {len(hassle_folders)} ({', '.join(hassle_folders)})")
-        else:
-            self.log("[!] Не найдено папок com.hassle.online*")
-        return hassle_folders
     def execute_action(self, action):
         """Выполнение выбранного действия в отдельном потоке"""
         def run_action():
@@ -1007,16 +1021,16 @@ class MEmuHudManager:
         if not self.select_connection():
             self.log("[X] Устройство не подключено")
             return
-        packages = self.get_hassle_packages()  # Автоматически находим все com.hassle.online*
-        if not packages:
-            self.log("[X] Нет папок для обработки")
-            return
+        base_path = self.storage_path
+        packages = [
+            ("com.hassle.online", "1com.hassle.online"),
+            ("com.hassle.online2", "1com.hassle.online2")
+        ]
         renamed_count = 0
         uninstalled_count = 0
-        for old_pkg in packages:
-            new_pkg = "1" + old_pkg
-            old_data_path = f"{self.storage_path}/{old_pkg}"
-            new_data_path = f"{self.storage_path}/{new_pkg}"
+        for old_pkg, new_pkg in packages:
+            old_data_path = f"{base_path}/{old_pkg}"
+            new_data_path = f"{base_path}/{new_pkg}"
             try:
                 # === 1. Переименование папки (сохранение кэша) ===
                 cmd_check = [self.adb_path] + self.device_param + ["shell", "test", "-d", old_data_path, "&&", "echo", "exists"]
@@ -1096,16 +1110,8 @@ class MEmuHudManager:
         memu_param = self.device_param[:]
         memu_storage = self.storage_path
      
-        # Автоматически находим все пакеты в MEmu
-        packages = self.get_hassle_packages()
-        if not packages:
-            self.log("[X] Нет папок для переноса в MEmu")
-            self.adb_path = current_adb
-            self.device_param = current_param
-            self.storage_path = current_storage
-            return
-     
         # Переименовываем папки в MEmu
+        packages = ["com.hassle.online", "com.hassle.online2"]
         renamed = []
         for pkg in packages:
             old_path = f"{memu_storage}/{pkg}"
@@ -1260,15 +1266,15 @@ class MEmuHudManager:
         if not self.select_connection():
             self.log("[X] Устройство не подключено")
             return
-        renamed_packages = self.get_hassle_packages(prefix="1")  # Находим все 1com.hassle.online*
-        if not renamed_packages:
-            self.log("[X] Нет переименованных папок для обработки")
-            return
+        base_path = self.storage_path
+        packages = [
+            ("1com.hassle.online", "com.hassle.online"),
+            ("1com.hassle.online2", "com.hassle.online2")
+        ]
         renamed_back_count = 0
-        for old_pkg in renamed_packages:
-            new_pkg = old_pkg[1:]  # Убираем '1'
-            old_data_path = f"{self.storage_path}/{old_pkg}"
-            new_data_path = f"{self.storage_path}/{new_pkg}"
+        for old_pkg, new_pkg in packages:
+            old_data_path = f"{base_path}/{old_pkg}"
+            new_data_path = f"{base_path}/{new_pkg}"
             try:
                 # Проверка существования старой папки
                 cmd_check = [self.adb_path] + self.device_param + ["shell", "test", "-d", old_data_path, "&&", "echo", "exists"]
@@ -1302,9 +1308,9 @@ class MEmuHudManager:
                     self.log(f"[X] Не удалось переименовать папку: {mv_result.stderr.strip()}")
             except Exception as e:
                 self.log(f"[X] Ошибка при обработке {old_pkg}: {e}")
-        # После переименования вписываем код (как в action "1") во все переименованные обратно папки
-        for pkg in [p[1:] for p in renamed_packages]:
-            self.replace_with_code(pkg)
+        # После переименования вписываем код (как в action "1") в обе папки
+        self.replace_with_code('com.hassle.online')
+        self.replace_with_code('com.hassle.online2')
         # Сбрасываем флаг и обновляем GUI
         self.mod_done = False
         self.root.after(0, self.update_gui)
@@ -1349,6 +1355,10 @@ class MEmuHudManager:
      
             # Подставляем выбранный filename
             load_code = load_code.replace("const filename = '';", f"const filename = '{self.selected_code_name}';")
+            
+            # Получаем версию и время hasslebot_exe.py
+            hasslebot_info = self.fetch_last_commit_path("installerEXE/hasslebot_exe.py")
+            load_code += f"\n// Hasslebot_exe.py version and time: {hasslebot_info}"
      
             # Удаляем старый код по маркерам
             if self.full_logging:
