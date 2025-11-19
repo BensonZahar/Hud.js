@@ -1702,8 +1702,8 @@ function processUpdates(updates) {
                 const replyMarkup = {
                     inline_keyboard: [
                         [
-                            createButton("📝 Ответить", `admin_reply_${callbackUniqueId}`),
-                            createButton("🚶 Движения", `show_movement_${callbackUniqueId}`)
+                            createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+                            createButton("🚶 Движения", `show_movement_${uniqueId}`)
                         ]
                     ]
                 };
@@ -2176,192 +2176,346 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-// START IN-GAME MENU MODULE (/hb) //
+// START INGAME MENU MODULE //
+// Константы для диалогов (начинаем с высоких ID, чтобы избежать конфликтов)
+const DIALOG_MAIN = 1000;
+const DIALOG_GLOBAL_FUNCTIONS = 1001;
+const DIALOG_PAYDAY_OPTIONS = 1002;
+const DIALOG_SOOB_OPTIONS = 1003;
+const DIALOG_MESTO_OPTIONS = 1004;
+const DIALOG_RADIO_OPTIONS = 1005;
+const DIALOG_WARNING_OPTIONS = 1006;
+const DIALOG_AFK_NIGHT_MODES = 1007;
+const DIALOG_AFK_WITH_PAUSES = 1008;
+const DIALOG_AFK_RECONNECT = 1009;
+const DIALOG_LOCAL_FUNCTIONS = 1010;
+const DIALOG_MOVEMENT_CONTROLS = 1011;
+const DIALOG_LOCAL_SOOB_OPTIONS = 1012;
+const DIALOG_LOCAL_MESTO_OPTIONS = 1013;
+const DIALOG_LOCAL_RADIO_OPTIONS = 1014;
+const DIALOG_LOCAL_WARNING_OPTIONS = 1015;
+const DIALOG_AFK_ID_INPUT = 1016;
 
-const gameMenu = {
-    dialogId: 9999,
-    currentMenu: 'main'
-};
-
-function getMenuList(menuType) {
-    let list = '';
-    
-    if (menuType === 'main') {
-        list = '⚙️ Настройки<n>';
-        list += '🌙 AFK режимы<n>';
-        list += '🔔 Уведомления<n>';
-        list += '📊 Статус<n>';
-        list += '❌ Закрыть';
-    } else if (menuType === 'settings') {
-        list = '← Назад<n>';
-        list += `Авто-вход: ${autoLoginConfig.enabled ? '{00FF00}ВКЛ' : '{FF0000}ВЫКЛ'}<n>`;
-        list += `Реконнект: ${config.autoReconnectEnabled ? '{00FF00}ВКЛ' : '{FF0000}ВЫКЛ'}<n>`;
-        list += `Debug: ${config.debug ? '{00FF00}ВКЛ' : '{FF0000}ВЫКЛ'}`;
-    } else if (menuType === 'afk') {
-        list = '← Назад<n>';
-        list += `AFK статус: ${config.afkSettings.active ? '{00FF00}Активен' : '{FF0000}Неактивен'}<n>`;
-        list += '🌙 Запустить AFK (5/5 мин)<n>';
-        list += '🎲 Запустить AFK (рандом)<n>';
-        list += '⏹️ Остановить AFK';
-    } else if (menuType === 'notifications') {
-        list = '← Назад<n>';
-        list += `PayDay: ${config.paydayNotifications ? '{00FF00}ВКЛ' : '{FF0000}ВЫКЛ'}<n>`;
-        list += `Сообщения фракции: ${config.govMessagesEnabled ? '{00FF00}ВКЛ' : '{FF0000}ВЫКЛ'}<n>`;
-        list += `Рация: ${config.radioOfficialNotifications ? '{00FF00}ВКЛ' : '{FF0000}ВЫКЛ'}<n>`;
-        list += `Выговоры: ${config.warningNotifications ? '{00FF00}ВКЛ' : '{FF0000}ВЫКЛ'}<n>`;
-        list += `Местоположение: ${config.trackLocationRequests ? '{00FF00}ВКЛ' : '{FF0000}ВЫКЛ'}`;
-    }
-    
-    return list;
-}
-
-function showGameMenu(menuType = 'main') {
-    gameMenu.currentMenu = menuType;
-    const menuTitle = menuType === 'main' ? 'Hassle Bot | Главное меню' :
-                     menuType === 'settings' ? 'Настройки' :
-                     menuType === 'afk' ? 'AFK управление' :
-                     'Уведомления';
-    
-    const menuList = getMenuList(menuType);
-    window.addDialogInQueue(
-        `[${gameMenu.dialogId},2,"${menuTitle}","","Выбрать","Отмена",0,0]`,
-        menuList,
-        0
-    );
-}
-
-function handleGameMenuResponse(listitem) {
-    const menuType = gameMenu.currentMenu;
-    
-    if (menuType === 'main') {
-        if (listitem === 0) showGameMenu('settings');
-        else if (listitem === 1) showGameMenu('afk');
-        else if (listitem === 2) showGameMenu('notifications');
-        else if (listitem === 3) {
-            const statusMsg = `📊 Статус бота:\n` +
-                `Ник: ${config.accountInfo.nickname || 'N/A'}\n` +
-                `Сервер: ${config.accountInfo.server || 'N/A'}\n` +
-                `ID: ${config.lastPlayerId || 'N/A'}\n` +
-                `Skin ID: ${config.accountInfo.skinId || 'N/A'}\n` +
-                `Фракция: ${config.currentFaction || 'Нет'}`;
-            sendChatInput(statusMsg);
-        }
-    } else if (menuType === 'settings') {
-        if (listitem === 0) showGameMenu('main');
-        else if (listitem === 1) {
-            autoLoginConfig.enabled = !autoLoginConfig.enabled;
-            sendChatInput(`Авто-вход: ${autoLoginConfig.enabled ? 'Включен' : 'Отключен'}`);
-            sendWelcomeMessage();
-            showGameMenu('settings');
-        } else if (listitem === 2) {
-            config.autoReconnectEnabled = !config.autoReconnectEnabled;
-            sendChatInput(`Реконнект: ${config.autoReconnectEnabled ? 'Включен' : 'Отключен'}`);
-            sendWelcomeMessage();
-            showGameMenu('settings');
-        } else if (listitem === 3) {
-            config.debug = !config.debug;
-            sendChatInput(`Debug: ${config.debug ? 'Включен' : 'Отключен'}`);
-            showGameMenu('settings');
-        }
-    } else if (menuType === 'afk') {
-        if (listitem === 0) showGameMenu('main');
-        else if (listitem === 2) {
-            const hudId = getPlayerIdFromHUD();
-            if (hudId) {
-                const idFormats = [hudId];
-                if (hudId.includes('-')) idFormats.push(hudId.replace(/-/g, ''));
-                else if (hudId.length === 3) idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-                
-                config.afkSettings = { id: hudId, formats: idFormats, active: true };
-                config.afkCycle.mode = 'fixed';
-                config.afkCycle.reconnectEnabled = config.autoReconnectEnabled;
-                startAFKCycle();
-                sendChatInput('✅ AFK режим (5/5 мин) запущен!');
-                sendToTelegram(`🔄 <b>AFK режим активирован через /hb для ${displayName}</b>\nРежим: 5/5 минут`, false, null);
-            } else {
-                sendChatInput('❌ Не удалось получить ID из HUD');
-            }
-        } else if (listitem === 3) {
-            const hudId = getPlayerIdFromHUD();
-            if (hudId) {
-                const idFormats = [hudId];
-                if (hudId.includes('-')) idFormats.push(hudId.replace(/-/g, ''));
-                else if (hudId.length === 3) idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-                
-                config.afkSettings = { id: hudId, formats: idFormats, active: true };
-                config.afkCycle.mode = 'random';
-                config.afkCycle.reconnectEnabled = config.autoReconnectEnabled;
-                startAFKCycle();
-                sendChatInput('✅ AFK режим (рандом) запущен!');
-                sendToTelegram(`🔄 <b>AFK режим активирован через /hb для ${displayName}</b>\nРежим: рандомное время`, false, null);
-            } else {
-                sendChatInput('❌ Не удалось получить ID из HUD');
-            }
-        } else if (listitem === 4) {
-            stopAFKCycle();
-            config.afkSettings.active = false;
-            sendChatInput('⏹️ AFK остановлен!');
-        }
-    } else if (menuType === 'notifications') {
-        if (listitem === 0) showGameMenu('main');
-        else if (listitem === 1) {
-            config.paydayNotifications = !config.paydayNotifications;
-            sendChatInput(`PayDay уведомления: ${config.paydayNotifications ? 'Включены' : 'Отключены'}`);
-            sendWelcomeMessage();
-            showGameMenu('notifications');
-        } else if (listitem === 2) {
-            config.govMessagesEnabled = !config.govMessagesEnabled;
-            sendChatInput(`Уведомления фракции: ${config.govMessagesEnabled ? 'Включены' : 'Отключены'}`);
-            sendWelcomeMessage();
-            showGameMenu('notifications');
-        } else if (listitem === 3) {
-            config.radioOfficialNotifications = !config.radioOfficialNotifications;
-            sendChatInput(`Уведомления рации: ${config.radioOfficialNotifications ? 'Включены' : 'Отключены'}`);
-            sendWelcomeMessage();
-            showGameMenu('notifications');
-        } else if (listitem === 4) {
-            config.warningNotifications = !config.warningNotifications;
-            sendChatInput(`Уведомления выговоров: ${config.warningNotifications ? 'Включены' : 'Отключены'}`);
-            sendWelcomeMessage();
-            showGameMenu('notifications');
-        } else if (listitem === 5) {
-            config.trackLocationRequests = !config.trackLocationRequests;
-            sendChatInput(`Отслеживание местоположения: ${config.trackLocationRequests ? 'Включено' : 'Отключено'}`);
-            sendWelcomeMessage();
-            showGameMenu('notifications');
-        }
-    }
-}
-
-// Перехват sendClientEvent для обработки диалогов
-const originalSendClientEvent = window.sendClientEvent;
-
+// Перехват sendClientEvent для обработки ответов на диалоги
+const originalSendClientEvent = window.sendClientEvent || function() {};
 window.sendClientEvent = function(event, ...args) {
-    if (args[0] === "OnDialogResponse" && args[1] === gameMenu.dialogId) {
-        const listitem = args[3];
-        if (args[2] === 1) {
-            handleGameMenuResponse(listitem);
-        }
-        return;
+    if (event === "OnDialogResponse") {
+        const dialogId = args[0];
+        const button = args[1];
+        const listItem = args[2];
+        const inputText = args[3];
+        handleIngameDialogResponse(dialogId, button, listItem, inputText);
     }
-    
-    if (originalSendClientEvent) {
-        return originalSendClientEvent.call(this, event, ...args);
-    }
+    return originalSendClientEvent.call(this, event, ...args);
 };
+
+// Функция обработки ответов на диалоги
+function handleIngameDialogResponse(dialogId, button, listItem, inputText) {
+    if (button !== 1) return; // Если не "Выбрать" или "OK"
+
+    switch (dialogId) {
+        case DIALOG_MAIN:
+            if (listItem === 0) showLocalFunctionsIngame();
+            if (listItem === 1) showGlobalFunctionsIngame();
+            break;
+        case DIALOG_GLOBAL_FUNCTIONS:
+            if (listItem === 0) showPayDayOptionsIngame();
+            else if (listItem === 1) showSoobOptionsIngame();
+            else if (listItem === 2) showMestoOptionsIngame();
+            else if (listItem === 3) showRadioOptionsIngame();
+            else if (listItem === 4) showWarningOptionsIngame();
+            else if (listItem === 5) showAFKNightModesIngame();
+            else if (listItem === 6) showAFKIdInputIngame();
+            else if (listItem === 7 && config.autoReconnectEnabled) activateAFKWithMode('levelup', true);
+            else if (listItem === 8) showMainMenuIngame();
+            break;
+        case DIALOG_PAYDAY_OPTIONS:
+            if (listItem === 0) {
+                config.paydayNotifications = true;
+                debugLog('PayDay notifications enabled');
+            } else if (listItem === 1) {
+                config.paydayNotifications = false;
+                debugLog('PayDay notifications disabled');
+            }
+            showGlobalFunctionsIngame();
+            break;
+        case DIALOG_SOOB_OPTIONS:
+            if (listItem === 0) {
+                config.govMessagesEnabled = true;
+                debugLog('Gov messages enabled');
+            } else if (listItem === 1) {
+                config.govMessagesEnabled = false;
+                debugLog('Gov messages disabled');
+            }
+            showGlobalFunctionsIngame();
+            break;
+        case DIALOG_MESTO_OPTIONS:
+            if (listItem === 0) {
+                config.trackLocationRequests = true;
+                debugLog('Location tracking enabled');
+            } else if (listItem === 1) {
+                config.trackLocationRequests = false;
+                debugLog('Location tracking disabled');
+            }
+            showGlobalFunctionsIngame();
+            break;
+        case DIALOG_RADIO_OPTIONS:
+            if (listItem === 0) {
+                config.radioOfficialNotifications = true;
+                debugLog('Radio notifications enabled');
+            } else if (listItem === 1) {
+                config.radioOfficialNotifications = false;
+                debugLog('Radio notifications disabled');
+            }
+            showGlobalFunctionsIngame();
+            break;
+        case DIALOG_WARNING_OPTIONS:
+            if (listItem === 0) {
+                config.warningNotifications = true;
+                debugLog('Warning notifications enabled');
+            } else if (listItem === 1) {
+                config.warningNotifications = false;
+                debugLog('Warning notifications disabled');
+            }
+            showGlobalFunctionsIngame();
+            break;
+        case DIALOG_AFK_NIGHT_MODES:
+            if (listItem === 0) showAFKWithPausesIngame();
+            else if (listItem === 1) activateAFKWithMode('none', false);
+            else if (listItem === 2) showGlobalFunctionsIngame();
+            break;
+        case DIALOG_AFK_WITH_PAUSES:
+            if (listItem === 0) {
+                if (config.autoReconnectEnabled) {
+                    showAFKReconnectIngame('fixed');
+                } else {
+                    activateAFKWithMode('fixed', false);
+                }
+            } else if (listItem === 1) {
+                if (config.autoReconnectEnabled) {
+                    showAFKReconnectIngame('random');
+                } else {
+                    activateAFKWithMode('random', false);
+                }
+            } else if (listItem === 2) showAFKNightModesIngame();
+            break;
+        case DIALOG_AFK_RECONNECT:
+            if (listItem === 0) activateAFKWithMode(inputText, true); // inputText здесь - mode из предыдущего
+            else if (listItem === 1) activateAFKWithMode(inputText, false);
+            else if (listItem === 2) showAFKWithPausesIngame();
+            break;
+        case DIALOG_LOCAL_FUNCTIONS:
+            if (listItem === 0) showMovementControlsIngame();
+            else if (listItem === 1) showLocalSoobOptionsIngame();
+            else if (listItem === 2) showLocalMestoOptionsIngame();
+            else if (listItem === 3) showLocalRadioOptionsIngame();
+            else if (listItem === 4) showLocalWarningOptionsIngame();
+            else if (listItem === 5) showMainMenuIngame();
+            break;
+        case DIALOG_MOVEMENT_CONTROLS:
+            // Обработка движений (аналогично Telegram)
+            if (listItem === 0) simulateMovement('forward');
+            else if (listItem === 1) simulateMovement('left');
+            else if (listItem === 2) simulateMovement('right');
+            else if (listItem === 3) simulateMovement('back');
+            else if (listItem === 4) simulateMovement('jump');
+            else if (listItem === 5) simulateMovement('punch');
+            else if (listItem === 6) simulateMovement(config.isSitting ? 'stand' : 'sit');
+            else if (listItem === 7) showLocalFunctionsIngame();
+            break;
+        case DIALOG_LOCAL_SOOB_OPTIONS:
+            if (listItem === 0) {
+                config.govMessagesEnabled = true;
+                debugLog('Local Gov messages enabled');
+            } else if (listItem === 1) {
+                config.govMessagesEnabled = false;
+                debugLog('Local Gov messages disabled');
+            }
+            showLocalFunctionsIngame();
+            break;
+        case DIALOG_LOCAL_MESTO_OPTIONS:
+            if (listItem === 0) {
+                config.trackLocationRequests = true;
+                debugLog('Local Location tracking enabled');
+            } else if (listItem === 1) {
+                config.trackLocationRequests = false;
+                debugLog('Local Location tracking disabled');
+            }
+            showLocalFunctionsIngame();
+            break;
+        case DIALOG_LOCAL_RADIO_OPTIONS:
+            if (listItem === 0) {
+                config.radioOfficialNotifications = true;
+                debugLog('Local Radio notifications enabled');
+            } else if (listItem === 1) {
+                config.radioOfficialNotifications = false;
+                debugLog('Local Radio notifications disabled');
+            }
+            showLocalFunctionsIngame();
+            break;
+        case DIALOG_LOCAL_WARNING_OPTIONS:
+            if (listItem === 0) {
+                config.warningNotifications = true;
+                debugLog('Local Warning notifications enabled');
+            } else if (listItem === 1) {
+                config.warningNotifications = false;
+                debugLog('Local Warning notifications disabled');
+            }
+            showLocalFunctionsIngame();
+            break;
+        case DIALOG_AFK_ID_INPUT:
+            const id = inputText.trim();
+            if (id) {
+                const idFormats = [id];
+                if (id.includes('-')) idFormats.push(id.replace(/-/g, ''));
+                else if (id.length === 3) idFormats.push(`${id[0]}-${id[1]}-${id[2]}`);
+                config.afkSettings = { id, formats: idFormats, active: true };
+                debugLog(`AFK activated with ID: ${id}`);
+            }
+            showGlobalFunctionsIngame();
+            break;
+    }
+}
+
+// Функции показа диалогов в игре (аналогично Telegram меню)
+function showMainMenuIngame() {
+    let menuList = `⚙️ Функции<n>📋 Общие функции`;
+    window.addDialogInQueue(`[${DIALOG_MAIN},2,"Hassle Bot Управление","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showGlobalFunctionsIngame() {
+    let menuList = `🔔 PayDay<n>🏛️ Сообщ.<n>📍 Место<n>📡 Рация<n>⚠️ Выговоры<n>🌙 AFK Ночь<n>🔄 AFK`;
+    if (config.autoReconnectEnabled) menuList += `<n>📈 Прокачка уровня`;
+    menuList += `<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_GLOBAL_FUNCTIONS},2,"Общие функции","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showPayDayOptionsIngame() {
+    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_PAYDAY_OPTIONS},2,"PayDay уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showSoobOptionsIngame() {
+    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_SOOB_OPTIONS},2,"Сообщения от сотрудников","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showMestoOptionsIngame() {
+    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_MESTO_OPTIONS},2,"Отслеживание местоположения","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showRadioOptionsIngame() {
+    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_RADIO_OPTIONS},2,"Рация уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showWarningOptionsIngame() {
+    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_WARNING_OPTIONS},2,"Выговоры уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showAFKNightModesIngame() {
+    let menuList = `С паузами<n>Без пауз<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_AFK_NIGHT_MODES},2,"AFK Ночь","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showAFKWithPausesIngame() {
+    let menuList = `5/5 минут<n>Рандомное время<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_AFK_WITH_PAUSES},2,"AFK с паузами","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showAFKReconnectIngame(selectedMode) {
+    let menuList = `Реконнект 🟢<n>Реконнект 🔴<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_AFK_RECONNECT},2,"Реконнект для AFK","${selectedMode}","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showLocalFunctionsIngame() {
+    let menuList = `🚶 Движение<n>🏛️ Увед. правик<n>📍 Отслеживание<n>📡 Рация<n>⚠️ Выговоры<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_LOCAL_FUNCTIONS},2,"Локальные функции","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showMovementControlsIngame() {
+    let menuList = `⬆️ Вперед<n>⬅️ Влево<n>➡️ Вправо<n>⬇️ Назад<n>🆙 Прыжок<n>👊 Удар<n>${config.isSitting ? '🧍 Встать' : '🪑 Сесть'}<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_MOVEMENT_CONTROLS},2,"Управление движением","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showLocalSoobOptionsIngame() {
+    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_LOCAL_SOOB_OPTIONS},2,"Локальные сообщения от сотрудников","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showLocalMestoOptionsIngame() {
+    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_LOCAL_MESTO_OPTIONS},2,"Локальное отслеживание местоположения","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showLocalRadioOptionsIngame() {
+    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_LOCAL_RADIO_OPTIONS},2,"Локальные рация уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showLocalWarningOptionsIngame() {
+    let menuList = `🔔 ВКЛ<n>🔕 ВЫКЛ<n>⬅️ Вернуться назад`;
+    window.addDialogInQueue(`[${DIALOG_LOCAL_WARNING_OPTIONS},2,"Локальные выговоры уведомления","","Выбрать","Отмена",0,0]`, menuList, 0);
+}
+
+function showAFKIdInputIngame() {
+    window.addDialogInQueue(`[${DIALOG_AFK_ID_INPUT},1,"Ввод ID для AFK","Введите ID:","OK","Отмена",0,0]`, "", 0);
+}
+
+// Симуляция движений (аналогично Telegram)
+function simulateMovement(action) {
+    switch (action) {
+        case 'forward':
+            window.onScreenControlTouchStart("<Gamepad>/leftStick");
+            window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
+            setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+            break;
+        case 'back':
+            window.onScreenControlTouchStart("<Gamepad>/leftStick");
+            window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
+            setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+            break;
+        case 'left':
+            window.onScreenControlTouchStart("<Gamepad>/leftStick");
+            window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
+            setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+            break;
+        case 'right':
+            window.onScreenControlTouchStart("<Gamepad>/leftStick");
+            window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
+            setTimeout(() => window.onScreenControlTouchEnd("<Gamepad>/leftStick"), 500);
+            break;
+        case 'jump':
+            window.onScreenControlTouchStart("<Keyboard>/leftShift");
+            setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/leftShift"), 500);
+            break;
+        case 'punch':
+            window.onScreenControlTouchStart("<Mouse>/leftButton");
+            setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+            break;
+        case 'sit':
+            window.onScreenControlTouchStart("<Keyboard>/c");
+            setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+            config.isSitting = true;
+            break;
+        case 'stand':
+            window.onScreenControlTouchStart("<Keyboard>/c");
+            setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+            config.isSitting = false;
+            break;
+    }
+    showMovementControlsIngame();
+}
 
 // Перехват sendChatInput для команды /hb
-const originalSendChatInputForMenu = sendChatInput;
-
-sendChatInput = function(text) {
-    if (text === '/hb') {
-        showGameMenu('main');
+const originalSendChatInput = sendChatInput;
+sendChatInput = function(msg) {
+    if (msg.toLowerCase() === '/hbb') {
+        showMainMenuIngame();
         return;
     }
-    return originalSendChatInputForMenu.call(this, text);
+    originalSendChatInput(msg);
 };
-
-debugLog('Игровое меню /hb загружено');
-
-// END IN-GAME MENU MODULE //
-
+// END INGAME MENU MODULE //
