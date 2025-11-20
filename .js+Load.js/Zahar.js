@@ -570,7 +570,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>HassleDD | Bot TGNR</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TGNR</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1320,7 +1320,7 @@ function processUpdates(updates) {
                     if (hudId.includes('-')) {
                         idFormats.push(hudId.replace(/-/g, ''));
                     } else if (hudId.length === 3) {
-                        idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+                        idFormats.push(`${hudId[0]}-${id[1]}-${id[2]}`);
                     }
                     config.afkSettings = {
                         id: hudId,
@@ -2012,26 +2012,25 @@ function initializeChatMonitor() {
             sendToTelegram(`🚨 <b>Посадили в тюрьму! (${displayName})</b>\nАдмин: ${adminName}\nВремя: ${prisonMinutes} мин\nПричина: ${reason}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             globalState.isPrison = true; // Устанавливаем флаг для игнора /rec при следующем кике
-            setTimeout(() => { globalState.isPrison = false; }, 5000); // Сбрасываем флаг через 5 сек
+            setTimeout(() => { globalState.isPrison = false; }, 10000); // Сбрасываем флаг через 10 сек (на случай кика)
             // Логика обработки тюрьмы
+            const twoMinDelay = 2 * 60 * 1000;
+            const prisonTimeMs = prisonMinutes * 60 * 1000;
             if (config.autoReconnectEnabled) {
-                autoLoginConfig.enabled = false;
-                sendChatInput("/q");
-                sendToTelegram(`🔄 <b>Отключен автовход и отправлен /q (${displayName})</b>`);
-                const twoMinDelay = 2 * 60 * 1000;
-                const prisonTimeMs = prisonMinutes * 60 * 1000;
                 setTimeout(() => {
                     autoLoginConfig.enabled = true;
                     sendChatInput("/rec 5");
-                    sendToTelegram(`🔄 <b>Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+                    sendToTelegram(`🔄 <b>Отправлен /rec 5 после 2 мин (${displayName})</b>`);
                     setTimeout(() => {
                         sendChatInput("/q");
                         sendToTelegram(`✅ <b>Отправлено /q после отсидки (${displayName})</b>`);
                     }, prisonTimeMs);
                 }, twoMinDelay);
             } else {
-                sendChatInput("/q");
-                sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`);
+                setTimeout(() => {
+                    sendChatInput("/q");
+                    sendToTelegram(`✅ <b>Отправлено /q после 2 мин (${displayName})</b>`);
+                }, twoMinDelay);
             }
         }
         let factionColor = 'CCFF00'; // По умолчанию
@@ -2239,4 +2238,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
