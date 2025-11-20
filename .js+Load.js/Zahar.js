@@ -17,7 +17,8 @@ const globalState = {
     awaitingAfkId: false,
     afkTargetAccount: null,
     lastWelcomeMessageId: null,
-    lastPaydayMessageIds: []
+    lastPaydayMessageIds: [],
+    isPrison: false // Новый флаг для посадки в тюрьму
 };
 // END GLOBAL STATE MODULE //
 // START CHAT RADIUS MODULE //
@@ -1951,7 +1952,7 @@ function initializeChatMonitor() {
         // Проверка сообщения о возобновлении работы сервера для AFK
         if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
-            //sendChatInput("/q");
+            sendChatInput("/q");
             let restartMessage = `⚡ <b>Автоматически отправлено /q (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
             if (config.afkCycle.active) {
               restartMessage += getAFKStatusText();
@@ -1991,6 +1992,47 @@ function initializeChatMonitor() {
             setTimeout(() => {
                 performReconnect(1 * 60 * 1000);
             }, 30);
+        }
+        // Обработка посадки в тюрьму администратором
+        const prisonRegex = /Администратор (.+) посадил в тюрьму игрока (.+) на (\d+) мин\. Причина: (.+)/;
+        const prisonMatch = msg.match(prisonRegex);
+        if (prisonMatch && prisonMatch[2] === config.accountInfo.nickname) {
+            const adminName = prisonMatch[1];
+            const prisonMinutes = parseInt(prisonMatch[3]);
+            const reason = prisonMatch[4];
+            debugLog(`Обнаружена посадка в тюрьму для ${displayName} на ${prisonMinutes} мин!`);
+            const replyMarkup = {
+                inline_keyboard: [
+                    [
+                        createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+                        createButton("🚶 Движения", `show_movement_${uniqueId}`)
+                    ]
+                ]
+            };
+            sendToTelegram(`🚨 <b>Посадили в тюрьму! (${displayName})</b>\nАдмин: ${adminName}\nВремя: ${prisonMinutes} мин\nПричина: ${reason}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
+            globalState.isPrison = true; // Устанавливаем флаг для игнора /rec при следующем кике
+            setTimeout(() => { globalState.isPrison = false; }, 5000); // Сбрасываем флаг через 5 сек
+            // Логика обработки тюрьмы
+            if (config.autoReconnectEnabled) {
+                autoLoginConfig.enabled = false;
+                sendChatInput("/q");
+                sendToTelegram(`🔄 <b>Отключен автовход и отправлен /q (${displayName})</b>`);
+                const twoMinDelay = 2 * 60 * 1000;
+                const prisonTimeMs = prisonMinutes * 60 * 1000;
+                setTimeout(() => {
+                    autoLoginConfig.enabled = true;
+                    sendChatInput("/rec 5");
+                    sendToTelegram(`🔄 <b>Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+                    setTimeout(() => {
+                        sendChatInput("/q");
+                        sendToTelegram(`✅ <b>Отправлено /q после отсидки (${displayName})</b>`);
+                    }, prisonTimeMs);
+                }, twoMinDelay);
+            } else {
+                sendChatInput("/q");
+                sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`);
+            }
         }
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
@@ -2095,7 +2137,11 @@ function initializeChatMonitor() {
             };
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            performReconnect(2 * 60 * 1000);
+            if (!globalState.isPrison) {
+                performReconnect(2 * 60 * 1000);
+            } else {
+                debugLog('Кик после посадки в тюрьму, игнорируем стандартный реконнект');
+            }
         }
         if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
             debugLog('Обнаружен запрос местоположения!');
@@ -2193,4 +2239,3 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
