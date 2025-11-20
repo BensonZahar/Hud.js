@@ -570,7 +570,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TG V2</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2037,11 +2037,15 @@ function initializeChatMonitor() {
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
             factionColor = factions[config.currentFaction].color;
         }
+        
         const govMessageRegex = new RegExp(`^\\- (.+?) \\{${factionColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
         const govMatch = msg.match(govMessageRegex);
+        
         if (govMatch) {
-            const senderName = govMatch[2];
-            const senderId = govMatch[3];
+            const messageText = govMatch[1];  // Текст сообщения
+            const senderName = govMatch[2];   // Имя отправителя
+            const senderId = govMatch[3];     // ID отправителя
+        
             // Проверяем, что сообщение отправлено из радиуса CLOSE
             if (chatRadius === CHAT_RADIUS.CLOSE) {
                 if (checkGovMessageConditions(messageText, senderName, senderId)) {
@@ -2238,3 +2242,4 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
