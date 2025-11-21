@@ -1,6 +1,6 @@
 // START CONSTANTS MODULE //
 // Константы, вынесенные в начало для удобства
-const CHAT_IDS = ['-1003202329790']; // -1003202329790- kirill, -1003040555627 - zahar, -1003102212423 - kolya
+const CHAT_IDS = ['-1003102212423']; // -1003202329790- kirill, -1003040555627 - zahar, -1003102212423 - kolya
 const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
     '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
@@ -8,7 +8,7 @@ const SERVER_TOKENS = {
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
-const PASSWORD = "09230923"; // Ваш пароль
+const PASSWORD = "kol16052011"; // Ваш пароль
 const RECONNECT_ENABLED_DEFAULT = false; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
