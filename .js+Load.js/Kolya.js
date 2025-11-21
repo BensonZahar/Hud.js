@@ -1,6 +1,6 @@
 // START CONSTANTS MODULE //
 // Константы, вынесенные в начало для удобства
-const CHAT_IDS = ['-1003102212423']; // -1003202329790- kirill, -1003040555627 - zahar, -1003102212423 - kolya
+const CHAT_IDS = ['-1003202329790']; // -1003202329790- kirill, -1003040555627 - zahar, -1003102212423 - kolya
 const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
     '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
@@ -8,8 +8,8 @@ const SERVER_TOKENS = {
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 const DEFAULT_TOKEN = '8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA';
-const PASSWORD = "kol16052011"; // Ваш пароль
-const RECONNECT_ENABLED_DEFAULT = true; // Авто-реконнект включён по умолчанию
+const PASSWORD = "09230923"; // Ваш пароль
+const RECONNECT_ENABLED_DEFAULT = false; // Авто-реконнект включён по умолчанию
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
 const globalState = {
@@ -1037,7 +1037,7 @@ function showRestartActionMenu(chatId, messageId, uniqueIdParam, selectedMode) {
                 createButton("/q", `restart_q_${uniqueIdParam}_${selectedMode}`),
                 createButton("/rec", `restart_rec_${uniqueIdParam}_${selectedMode}`)
             ],
-            [createButton("⬅️ Вернуться назад", `afk_n_reconnect_on_${uniqueIdParam}_${selectedMode}`)]
+            [createButton("⬅️ Вернуться назад", `back_from_restart_${uniqueIdParam}_${selectedMode}`)]
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -1069,8 +1069,8 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
         [[createButton("⬅️ Вернуться назад", `back_to_notification_${uniqueId}`)]] :
         [[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]];
     const sitStandButton = config.isSitting ?
-        createButton("🧍 Встать", `move_stand_${uniqueId}${isNotification ? '_notification' : ''}`) :
-        createButton("🪑 Сесть", `move_sit_${uniqueId}${isNotification ? '_notification' : ''}`);
+        createButton("🧍 Встать", `move_stand_${uniqueId}${isNotification ? '_notification' : ''}`)
+        : createButton("🪑 Сесть", `move_sit_${uniqueId}${isNotification ? '_notification' : ''}`);
     const replyMarkup = {
         inline_keyboard: [
             [createButton("⬆️ Вперед", `move_forward_${uniqueId}${isNotification ? '_notification' : ''}`)],
@@ -1389,6 +1389,7 @@ function processUpdates(updates) {
                 message.startsWith('afk_n_') ||
                 message.startsWith('restart_q_') ||
                 message.startsWith('restart_rec_') ||
+                message.startsWith('back_from_restart_') ||
                 message.startsWith('show_payday_options_') ||
                 message.startsWith('show_soob_options_') ||
                 message.startsWith('show_mesto_options_') ||
@@ -1517,6 +1518,15 @@ function processUpdates(updates) {
                 callbackUniqueId = parts[parts.length - 2];
                 const selectedMode = parts[parts.length - 1];
                 activateAFKWithMode(selectedMode, true, 'rec', chatId, messageId);
+            } else if (message.startsWith('back_from_restart_')) {
+                const parts = message.split('_');
+                callbackUniqueId = parts[parts.length - 2];
+                const selectedMode = parts[parts.length - 1];
+                if (selectedMode === 'levelup') {
+                    showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
+                } else {
+                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
+                }
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
                 showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
@@ -2111,11 +2121,15 @@ function initializeChatMonitor() {
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
             factionColor = factions[config.currentFaction].color;
         }
+        
         const govMessageRegex = new RegExp(`^\\- (.+?) \\{${factionColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
         const govMatch = msg.match(govMessageRegex);
+        
         if (govMatch) {
-            const senderName = govMatch[2];
-            const senderId = govMatch[3];
+            const messageText = govMatch[1]; // Текст сообщения
+            const senderName = govMatch[2]; // Имя отправителя
+            const senderId = govMatch[3]; // ID отправителя
+        
             // Проверяем, что сообщение отправлено из радиуса CLOSE
             if (chatRadius === CHAT_RADIUS.CLOSE) {
                 if (checkGovMessageConditions(messageText, senderName, senderId)) {
@@ -2230,8 +2244,8 @@ function initializeChatMonitor() {
         }
         if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
             debugLog('Обнаружено AFK условие!');
-            sendChatInput(quitCommand);
-            sendToTelegram(`⚡ <b>Автоматически отправлено ${quitCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
+            sendChatInput(reconnectionCommand);
+            sendToTelegram(`⚡ <b>Автоматически отправлено ${reconnectionCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
         }
         // Проверка сообщений с рации
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
