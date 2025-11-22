@@ -974,6 +974,15 @@ class MEmuHudManager:
         dialog.geometry(f"+{x}+{y}")
 
     def insert_ahk_code(self):
+        uiresources_path = self.radmir_path / "uiresources"
+        models_path = self.radmir_path / "models"
+        if not (uiresources_path.exists() and models_path.exists()):
+            if self.full_logging:
+                self.log("Не выполнено: Папки uiresources и models не найдены в выбранной директории.")
+            else:
+                self.log("Не удалось установить AHK")
+            return
+
         load_ahk_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
         load_code = self.download_code(load_ahk_url)
         if not load_code:
@@ -1001,9 +1010,21 @@ class MEmuHudManager:
         with open(index_path, 'w', encoding='utf-8', newline='\n') as f:
             f.write(new_content)
 
-        self.log("[√] Успешно: Код вставлен в Index.js")
+        if self.full_logging:
+            self.log("[√] Успешно: Код вставлен в Index.js")
+        else:
+            self.log("AHK добавлен в игру")
 
     def remove_ahk_code(self):
+        uiresources_path = self.radmir_path / "uiresources"
+        models_path = self.radmir_path / "models"
+        if not (uiresources_path.exists() and models_path.exists()):
+            if self.full_logging:
+                self.log("Не выполнено: Папки uiresources и models не найдены в выбранной директории.")
+            else:
+                self.log("Не удалось установить AHK")
+            return
+
         index_path = self.radmir_path / "uiresources" / "assets" / "Index.js"
         if not index_path.exists():
             self.log(f"[X] Ошибка: Файл {index_path} не найден")
@@ -1017,7 +1038,10 @@ class MEmuHudManager:
         with open(index_path, 'w', encoding='utf-8', newline='\n') as f:
             f.write(content)
 
-        self.log("[√] Успешно: Код удален из Index.js")
+        if self.full_logging:
+            self.log("[√] Успешно: Код удален из Index.js")
+        else:
+            self.log("AHK удален из игры")
 
     def show_transfer_dialog(self):
         dialog = ctk.CTkToplevel(self.root)
