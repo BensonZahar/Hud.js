@@ -44,7 +44,7 @@ let currentScanId = null;
 let autoCuffEnabled = false;
 // Обработчик горячих клавиш
 window.addEventListener('keydown', function(e) {
-    if (e.altKey && e.key === '1') {
+    if (e.altKey && e.key === '0') {
         const targetId = window.getTargetPlayerId(); // Функция должна быть реализована в вашем клиенте
         if (targetId) {
             window.onChatMessage("AHK by Deni_Pels [tg:denipels] thanks to R.Shadow", "FFFFFF");
@@ -59,7 +59,7 @@ window.addEventListener('keydown', function(e) {
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
         const originalAddFunction = window.interface('Hud').$refs.chat.add;
-       
+      
         window.interface('Hud').$refs.chat.add = function(message, ...args) {
             if (autoCuffEnabled && typeof message === 'string') {
                 const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
@@ -69,7 +69,7 @@ const setupChatHandler = () => {
                         sendChatInput(`/id ${nickname}`);
                     }, 500);
                 }
-               
+              
                 const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
                 if (idMatch && idMatch[2]) {
                     const id = idMatch[2];
@@ -89,7 +89,7 @@ const setupChatHandler = () => {
                     }, 1000);
                 }
             }
-           
+          
             return originalAddFunction.apply(this, [message, ...args]);
         };
         console.log('[Auto-cuff] Обработчик чата успешно установлен');
@@ -102,17 +102,17 @@ const getPaginatedMenu = () => {
     const start = currentPage * ITEMS_PER_PAGE;
     const end = start + ITEMS_PER_PAGE;
     const pageItems = mvdOptions.slice(start, end);
-   
+  
     let menuList = "← Назад<n>";
-   
+  
     pageItems.forEach((option) => {
         menuList += `${option.name}<n>`;
     });
-   
+  
     if ((currentPage + 1) * ITEMS_PER_PAGE < mvdOptions.length) {
         menuList += "Вперед →<n>";
     }
-   
+  
     return menuList;
 };
 const startTracking = (id) => {
@@ -120,20 +120,20 @@ const startTracking = (id) => {
         clearInterval(scanInterval);
         scanInterval = null;
     }
-   
+  
     currentScanId = id;
     licenseTypes[1].name = `Отслеживание | {00FF00}Вкл`;
-   
+  
     sendMessagesWithDelay([
         `/setmark ${currentScanId}`
     ], [0, 1000, 0]);
-   
+  
     scanInterval = setInterval(() => {
         if (currentScanId) {
             sendChatInput(`/setmark ${currentScanId}`);
         }
     }, 7000);
-   
+  
     if (currentMenu === null && giveLicenseTo !== -1) {
         setTimeout(() => {
             showGiveLicenseDialog(giveLicenseTo);
@@ -185,7 +185,7 @@ const HandleMvdCommand = (optionIndex) => {
     const totalPages = Math.ceil(mvdOptions.length / ITEMS_PER_PAGE);
     const isBackButton = optionIndex === 0;
     const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-   
+  
     if (isBackButton) {
         if (currentPage > 0) {
             currentPage--;
@@ -201,7 +201,7 @@ const HandleMvdCommand = (optionIndex) => {
         }
         return;
     }
-   
+  
     if (isForwardButton) {
         currentPage++;
         setTimeout(() => {
@@ -209,13 +209,13 @@ const HandleMvdCommand = (optionIndex) => {
         }, 50);
         return;
     }
-   
+  
     const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
-   
+  
     if (adjustedIndex >= 0 && adjustedIndex < mvdOptions.length) {
         const option = mvdOptions[adjustedIndex];
         currentAction = option.action;
-       
+      
         if (option.needsId) {
             setTimeout(() => {
                 showIdInputDialog(giveLicenseTo);
@@ -227,7 +227,7 @@ const HandleMvdCommand = (optionIndex) => {
 };
 const executeMvdAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
-   
+  
     switch (action) {
         case "greeting":
             sendMessagesWithDelay([
@@ -240,7 +240,7 @@ const executeMvdAction = (action, targetId) => {
                 `/doc ${targetId}`
             ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "checkDocuments":
             sendMessagesWithDelay([
                 "Будьте добры предъявить Ваши документы, а именно:",
@@ -250,7 +250,7 @@ const executeMvdAction = (action, targetId) => {
                 "/n /rem"
             ], [0, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "studyDocuments":
             sendMessagesWithDelay([
                 "/me взял документы",
@@ -264,7 +264,7 @@ const executeMvdAction = (action, targetId) => {
                 "/me вернул документы"
             ], [0, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]);
             break;
-           
+          
         case "wanted":
             sendMessagesWithDelay([
                 "/me взял рацию в руки",
@@ -274,7 +274,7 @@ const executeMvdAction = (action, targetId) => {
                 `/su ${targetId}`
             ], [0, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "scanningTablet":
             sendMessagesWithDelay([
                 "/me достал фоторобот из кармана",
@@ -283,7 +283,7 @@ const executeMvdAction = (action, targetId) => {
                 "Вы задержаны так как находитесь в федеральном розыске."
             ], [0, 1000, 1000, 1000]);
             break;
-           
+          
         case "cuffing":
             sendMessagesWithDelay([
                 "/do Наручники в руке.",
@@ -291,7 +291,7 @@ const executeMvdAction = (action, targetId) => {
                 `/cuff ${targetId}`
             ], [0, 300, 300]);
             break;
-           
+          
         case "putInCar":
             sendMessagesWithDelay([
                 "/me открыл дверь автомобиля",
@@ -300,7 +300,7 @@ const executeMvdAction = (action, targetId) => {
                 `/putpl ${targetId}`
             ], [0, 1000, 1000, 1000]);
             break;
-           
+          
         case "arrest":
             sendMessagesWithDelay([
                 "/me открыл двери ППС",
@@ -310,7 +310,7 @@ const executeMvdAction = (action, targetId) => {
                 `/arrest ${targetId}`
             ], [0, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "uncuffing":
             sendMessagesWithDelay([
                 "/me снял наручники с преступника",
@@ -319,7 +319,7 @@ const executeMvdAction = (action, targetId) => {
                 `/uncuff ${targetId}`
             ], [0, 600, 600, 600]);
             break;
-           
+          
         case "chase":
             sendMessagesWithDelay([
                 "/me взял рацию в руки",
@@ -328,7 +328,7 @@ const executeMvdAction = (action, targetId) => {
                 `/Pg ${targetId}`
             ], [0, 500, 500, 500]);
             break;
-           
+          
         case "search":
             sendMessagesWithDelay([
                 "Сейчас я проведу у вас обыск.",
@@ -340,7 +340,7 @@ const executeMvdAction = (action, targetId) => {
                 `/search ${targetId}`
             ], [0, 1000, 1001, 1004, 1007, 1010, 1000]);
             break;
-           
+          
         case "escort":
             sendMessagesWithDelay([
                 "/me схватил задержанного за руки",
@@ -348,7 +348,7 @@ const executeMvdAction = (action, targetId) => {
                 `/escort ${targetId}`
             ], [0, 300, 300]);
             break;
-           
+          
         case "clearWanted":
             sendMessagesWithDelay([
                 "/me взял рацию в руки, затем зажал кнопку",
@@ -359,7 +359,7 @@ const executeMvdAction = (action, targetId) => {
                 `/clear ${targetId}`
             ], [0, 700, 700, 700, 700, 700]);
             break;
-           
+          
         case "fine":
             sendMessagesWithDelay([
                 "/me достал планшет",
@@ -371,7 +371,7 @@ const executeMvdAction = (action, targetId) => {
                 "/me убрал планшет"
             ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "confiscate":
             sendMessagesWithDelay([
                 "Я нащупал что то.",
@@ -381,7 +381,7 @@ const executeMvdAction = (action, targetId) => {
                 `/remove ${targetId}`
             ], [0, 500, 500, 500, 500]);
             break;
-           
+          
         case "breakGlass":
             sendMessagesWithDelay([
                 "/me открыл дверь авто.",
@@ -389,7 +389,7 @@ const executeMvdAction = (action, targetId) => {
                 `/ejectout ${targetId}`
             ], [0, 300, 300]);
             break;
-           
+          
         case "removeMask":
             sendMessagesWithDelay([
                 "/do Человек напротив находится в маске.",
@@ -398,7 +398,7 @@ const executeMvdAction = (action, targetId) => {
                 "/n Команда для снятие маски: /reset или /maskoff"
             ], [0, 400, 400, 400]);
             break;
-           
+          
         case "fingerprint":
             sendMessagesWithDelay([
                 "/do Аппарат 'CТОЛ' в кармане.",
@@ -410,7 +410,7 @@ const executeMvdAction = (action, targetId) => {
                 "/do Личность установлена."
             ], [0, 700, 700, 700, 700, 700, 700]);
             break;
-           
+          
         case "takeLicense":
             sendMessagesWithDelay([
                 "/me взял права, затем переложил их в левую руку",
@@ -423,7 +423,6 @@ const executeMvdAction = (action, targetId) => {
                 `/takelic ${targetId}`
             ], [0, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
             break;
-
         case "miranda":
             sendMessagesWithDelay([
                 "У вас есть право на молчание, телефонный звонок",
@@ -432,14 +431,12 @@ const executeMvdAction = (action, targetId) => {
                 "Так-же все что вы скажете будет использовано против вас в суде"
             ], [0, 1500, 1500, 1500]);
             break;
-
         case "omonShout":
             sendMessagesWithDelay([
                 "/s Всем лежать работает ОМОН.",
                 "/s В случае неподчинения вынужден буду открыть огонь на поражение."
             ], [0, 1000]);
             break;
-
         case "showWarrant":
             sendMessagesWithDelay([
                 "/me достал ордер на обыск",
@@ -452,7 +449,6 @@ const executeMvdAction = (action, targetId) => {
                 "Я имею полное право вас обыскать"
             ], [0, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
             break;
-
         case "breakDoor":
             sendMessagesWithDelay([
                 "/do Лом на земле.",
@@ -469,12 +465,12 @@ const executeMvdAction = (action, targetId) => {
 window.showGiveLicenseDialog = (e) => {
     giveLicenseTo = e;
     currentMenu = null;
-   
+  
     licenseList = '';
     licenseTypes.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-   
+  
     window.addDialogInQueue(`[666,2,"АХК tg:denipels | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 window.showMvdMenuPage = (e) => {
