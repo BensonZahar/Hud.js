@@ -1,6 +1,7 @@
 const RANK = "";
 const FIRST_NAME = "";
 const LAST_NAME = "";
+const CALLSIGN = "";
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
