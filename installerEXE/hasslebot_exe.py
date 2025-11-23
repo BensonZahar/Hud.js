@@ -894,14 +894,14 @@ class MEmuHudManager:
     def show_ahk_input_dialog(self):
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Ввод данных для AHK MVD")
-        dialog.geometry("400x350")
+        dialog.geometry("400x400")
         dialog.resizable(False, False)
         dialog.grab_set()
         dialog.transient(self.root)
         dialog.lift()
 
         self.use_callsign = ctk.BooleanVar(value=False)
-        callsign_checkbox = ctk.CTkCheckBox(dialog, text="Позывной ОМОН", variable=self.use_callsign)
+        callsign_checkbox = ctk.CTkCheckBox(dialog, text="Позывной ОМОН", variable=self.use_callsign, command=self.toggle_callsign)
         callsign_checkbox.pack(pady=5)
 
         ctk.CTkLabel(dialog, text="Звание (на русском):").pack(pady=5)
@@ -919,34 +919,32 @@ class MEmuHudManager:
         last_entry.pack(pady=5)
         last_entry.insert(0, "Конст")
 
-        callsign_label = ctk.CTkLabel(dialog, text="Позывной:")
-        callsign_entry = ctk.CTkEntry(dialog)
+        self.callsign_label = ctk.CTkLabel(dialog, text="Позывной:")
+        self.callsign_entry = ctk.CTkEntry(dialog)
 
-        def toggle_callsign():
-            if self.use_callsign.get():
-                callsign_label.pack(pady=5)
-                callsign_entry.pack(pady=5)
-            else:
-                callsign_label.pack_forget()
-                callsign_entry.pack_forget()
-            dialog.update_idletasks()
-
-        self.use_callsign.trace("w", lambda *args: toggle_callsign())
-        toggle_callsign()  # Инициализация
+        self.toggle_callsign()  # Инициализация
 
         def on_confirm():
             self.rank = rank_entry.get()
             self.first_name = first_entry.get()
             self.last_name = last_entry.get()
-            self.callsign = callsign_entry.get() if self.use_callsign.get() else ""
+            self.callsign = self.callsign_entry.get() if self.use_callsign.get() else ""
             dialog.destroy()
             self.insert_ahk_code()
 
         ctk.CTkButton(dialog, text="Подтвердить", command=on_confirm).pack(pady=20)
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (400 // 2)
-        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (350 // 2)
+        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (400 // 2)
         dialog.geometry(f"+{x}+{y}")
+    def toggle_callsign(self):
+        if self.use_callsign.get():
+            self.callsign_label.pack(pady=5)
+            self.callsign_entry.pack(pady=5)
+        else:
+            self.callsign_label.pack_forget()
+            self.callsign_entry.pack_forget()
+        self.root.update_idletasks()
     def insert_ahk_code(self):
         uiresources_path = self.radmir_path / "uiresources"
         models_path = self.radmir_path / "models"
