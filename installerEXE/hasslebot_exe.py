@@ -14,7 +14,6 @@ import threading
 import socket
 import platform
 from tkinter import messagebox, filedialog
-
 def resource_path(relative_path):
     """Получение абсолютного пути к ресурсу, работает как в разработке, так и в .exe"""
     try:
@@ -22,7 +21,6 @@ def resource_path(relative_path):
     except AttributeError:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
-
 class MEmuHudManager:
     def __init__(self):
         ctk.set_appearance_mode("dark")
@@ -68,11 +66,13 @@ class MEmuHudManager:
         self.mod_done = False
         self.skip_warning_file = self.script_dir / "skip_warning.json"
         self.skip_warning = self.load_skip_warning()
-        self.mode = "hassle"  # Новый флаг: "hassle" или "ahk_mvd"
-        self.radmir_path = None  # Путь к RADMIR CRMP для AHK MVD
+        self.mode = "hassle" # Новый флаг: "hassle" или "ahk_mvd"
+        self.radmir_path = None # Путь к RADMIR CRMP для AHK MVD
         self.rank = ""
         self.first_name = ""
         self.last_name = ""
+        self.callsign = ""  # Новый атрибут для позывного
+        self.use_callsign = False  # Флаг для использования позывного
         # GUI Components
         self.root = ctk.CTk()
         self.root.title("HASSLE BOT by konst")
@@ -96,7 +96,6 @@ class MEmuHudManager:
         self.status_text = ctk.CTkTextbox(self.main_frame, height=300, width=600, corner_radius=10)
         self.status_text.grid(row=1, column=0, pady=10, sticky="ew")
         self.activate_launch_permission()
-
     def load_skip_warning(self):
         if self.skip_warning_file.exists():
             try:
@@ -106,14 +105,12 @@ class MEmuHudManager:
             except Exception:
                 return False
         return False
-
     def save_skip_warning(self, skip):
         try:
             with open(self.skip_warning_file, 'w', encoding='utf-8') as f:
                 json.dump({'skip': skip}, f)
         except Exception:
             pass
-
     def fetch_code_files(self):
         current_time = time.time()
         if current_time - self.cache_time < 3600 and self.cache_file.exists():
@@ -135,7 +132,6 @@ class MEmuHudManager:
             response = requests.get(self.github_repo, timeout=10)
             response.raise_for_status()
             files = response.json()
-
             self.code_files = []
             for file in files:
                 if file['name'].endswith('.js') and file['name'] != 'Hud.js' and file['name'] != 'Load.js':
@@ -144,11 +140,9 @@ class MEmuHudManager:
                         'url': file['download_url'],
                         'html_url': file['html_url']
                     })
-
             if not self.code_files:
                 self.log("[X] Ошибка: Файлы не найдены")
                 return False
-
             with open(self.cache_file, 'w', encoding='utf-8') as f:
                 json.dump(self.code_files, f)
             self.cache_time = current_time
@@ -157,11 +151,9 @@ class MEmuHudManager:
             else:
                 self.log(f"[√] Найдено {len(self.code_files)} файлов кода")
             return True
-
         except Exception as e:
             self.log(f"[X] Ошибка: Не удалось загрузить файлы")
             return False
-
     def fetch_last_commit(self, file_name, subdir=".js%2BLoad.js"):
         commit_cache_file = self.script_dir / f"commit_cache_{subdir}_{file_name}.json"
         current_time = time.time()
@@ -177,26 +169,21 @@ class MEmuHudManager:
             response = requests.get(commits_url, timeout=10)
             response.raise_for_status()
             commits = response.json()
-
             if not commits:
                 return "Нет информации о коммите"
-
             last_commit = commits[0]['commit']
             with open(commit_cache_file, 'w', encoding='utf-8') as f:
                 json.dump(last_commit, f)
             self.cache_time = current_time
             return self.format_commit_info(last_commit)
-
         except Exception as e:
             return "Ошибка загрузки коммита"
-
     def format_commit_info(self, commit):
         date_str = commit['author']['date']
         dt = datetime.fromisoformat(date_str.rstrip('Z'))
         formatted_date = dt.strftime("%Y-%m-%d %H:%M:%S")
         message = commit['message']
         return f"{formatted_date}: {message}"
-
     def setup_gui(self):
         for widget in self.main_frame.winfo_children():
             if widget != self.status_text and widget.grid_info().get('row') != 0:
@@ -226,20 +213,18 @@ class MEmuHudManager:
             if not commit_label_text:
                 commit_label_text = "Нет информации о коммите"
             ctk.CTkLabel(self.main_frame, text=commit_label_text).grid(row=2, column=0, pady=5)
-        else:  # AHK MVD mode
+        else: # AHK MVD mode
             ctk.CTkLabel(self.main_frame, text="Режим: AHK MVD").grid(row=2, column=0, pady=5)
             if self.radmir_path:
                 ctk.CTkLabel(self.main_frame, text=f"Папка RADMIR: {self.radmir_path}").grid(row=3, column=0, pady=5)
             ctk.CTkButton(self.main_frame, text="Выбрать папку RADMIR CRMP", command=self.select_radmir_folder).grid(row=4, column=0, pady=10)
         self.update_gui()
-
     def select_radmir_folder(self):
         path = filedialog.askdirectory(title="Выберите папку RADMIR CRMP")
         if path:
             self.radmir_path = Path(path)
             self.log(f"[√] Папка выбрана: {self.radmir_path}")
-            self.setup_gui()  # Обновляем GUI
-
+            self.setup_gui() # Обновляем GUI
     def detect_app_folders(self, *args):
         if self.select_connection():
             try:
@@ -262,7 +247,6 @@ class MEmuHudManager:
         else:
             self.app_menu.configure(values=[])
             self.app_var.set("")
-
     def update_gui(self):
         for widget in self.main_frame.winfo_children():
             if isinstance(widget, ctk.CTkFrame) and widget.grid_info().get('row') == 7:
@@ -286,13 +270,12 @@ class MEmuHudManager:
                 ctk.CTkButton(btn_frame, text="Выход", command=self.on_close, width=140).grid(row=3, column=1, padx=5, pady=5)
             ctk.CTkButton(btn_frame, text="Перенос из MEmu в Nox", fg_color="#FF00FF", hover_color="#CC00CC",
                           command=lambda: self.execute_action("transfer"), width=140).grid(row=4, column=0, padx=5, pady=5, columnspan=2)
-        else:  # AHK MVD
+        else: # AHK MVD
             ctk.CTkButton(btn_frame, text="Вставить код", command=lambda: self.execute_action("insert_ahk"), width=140).grid(row=0, column=0, padx=5, pady=5)
             ctk.CTkButton(btn_frame, text="Убрать код", command=lambda: self.execute_action("remove_ahk"), width=140).grid(row=0, column=1, padx=5, pady=5)
             if self.debug_allowed:
                 ctk.CTkButton(btn_frame, text="Активировать отладку", command=self.activate_debug_mode, width=140).grid(row=1, column=0, padx=5, pady=5)
             ctk.CTkButton(btn_frame, text="Выход", command=self.on_close, width=140).grid(row=1, column=1, padx=5, pady=5)
-
     def send_telegram_message(self, stage="launch", message_id=None, verdict=None):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         device_name = platform.node()
@@ -342,7 +325,6 @@ class MEmuHudManager:
         except Exception as e:
             self.log(f"[X] Ошибка: Не удалось отправить сообщение в Telegram")
             return None
-
     def send_code_choice_message(self, message_id):
         if not self.code_files:
             self.log("[X] Ошибка: Файлы кода не загружены")
@@ -365,7 +347,6 @@ class MEmuHudManager:
         except Exception as e:
             self.log(f"[X] Ошибка: Не удалось отправить сообщение с выбором кода")
             return None
-
     def delete_telegram_message(self):
         if self.telegram_message_id:
             url = f"https://api.telegram.org/bot{self.bot_token}/deleteMessage"
@@ -380,13 +361,11 @@ class MEmuHudManager:
             except Exception as e:
                 self.log(f"[X] Ошибка: Не удалось удалить сообщение в Telegram")
             self.telegram_message_id = None
-
     def update_waiting_message(self, text):
         if self.waiting_message_id:
             self.root.after(0, lambda: self.status_text.delete(self.waiting_message_id, "end"))
         self.root.after(0, lambda: self.log(text))
         self.waiting_message_id = self.status_text.index("end-1c")
-
     def answer_callback_query(self, callback_query_id):
         try:
             url = f"https://api.telegram.org/bot{self.bot_token}/answerCallbackQuery"
@@ -396,7 +375,6 @@ class MEmuHudManager:
             self.log("[√] Callback подтвержден")
         except Exception as e:
             self.log(f"[X] Ошибка подтверждения callback: {e}")
-
     def wait_for_telegram_response(self):
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 30
@@ -431,7 +409,6 @@ class MEmuHudManager:
         self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
-
     def wait_for_mode_choice(self):
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 30
@@ -462,7 +439,7 @@ class MEmuHudManager:
                             return
                         elif callback_data == "ahk_mvd_mode":
                             self.mode = "ahk_mvd"
-                            self.selected_code_name = "mvd.js"  # Фиксированный для AHK MVD
+                            self.selected_code_name = "mvd.js" # Фиксированный для AHK MVD
                             self.root.after(0, lambda: self.update_waiting_message("Режим AHK MVD. Ожидание выбора отладки..."))
                             self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
                             self.root.after(0, self.wait_for_debug_choice)
@@ -473,7 +450,6 @@ class MEmuHudManager:
         self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора режима. Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
-
     def wait_for_code_choice(self):
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 60
@@ -515,7 +491,6 @@ class MEmuHudManager:
         self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора файла. Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
-
     def wait_for_debug_choice(self):
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 30
@@ -554,7 +529,6 @@ class MEmuHudManager:
         self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
-
     def finalize_launch(self):
         if self.mode == "hassle":
             if self.full_logging:
@@ -565,9 +539,8 @@ class MEmuHudManager:
                 self.script_commit_info = ""
             self.root.after(0, self.setup_gui)
             self.root.after(0, self.initialize_checks)
-        else:  # AHK MVD
+        else: # AHK MVD
             self.root.after(0, self.setup_gui)
-
     def initialize_checks(self):
         if self.mode == "hassle":
             memu_found = self.check_memu_installation()
@@ -584,7 +557,6 @@ class MEmuHudManager:
                 messagebox.showerror("Ошибка", "ADB не найден. Перезапустите программу.")
                 return
             self.log("[√] Успешно: Система готова")
-
     def activate_launch_permission(self):
         message_id = self.send_telegram_message()
         if not message_id:
@@ -593,7 +565,6 @@ class MEmuHudManager:
             return
         self.update_waiting_message("Ожидание разрешения на запуск...")
         threading.Thread(target=self.wait_for_telegram_response, daemon=True).start()
-
     def activate_debug_mode(self):
         if self.debug_allowed:
             self.full_logging = True
@@ -601,7 +572,6 @@ class MEmuHudManager:
             self.update_gui()
         else:
             self.log("[X] Ошибка: Отладка не разрешена")
-
     def log(self, message):
         if hasattr(self, 'status_text'):
             self.status_text.insert("end", f"{datetime.now().strftime('%H:%M:%S')}: {message}\n")
@@ -609,7 +579,6 @@ class MEmuHudManager:
             self.root.update()
         else:
             print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
-
     def on_close(self):
         self.delete_telegram_message()
         self.root.destroy()
@@ -631,7 +600,6 @@ class MEmuHudManager:
                 self.log(f"[X] Ошибка: Не удалось завершить программу")
             finally:
                 os._exit(0)
-
     def check_memu_installation(self):
         for path in self.memu_paths:
             if Path(path).exists():
@@ -644,7 +612,6 @@ class MEmuHudManager:
                 return True
         self.log("[X] Ошибка: Эмулятор MEmu не найден")
         return False
-
     def check_nox_installation(self):
         for path in self.nox_paths:
             if Path(path).exists():
@@ -657,7 +624,6 @@ class MEmuHudManager:
                 return True
         self.log("[X] Ошибка: Эмулятор NOX не найден")
         return False
-
     def download_and_extract_adb(self):
         if (self.temp_adb_dir / "adb").exists():
             if not self.full_logging:
@@ -672,65 +638,62 @@ class MEmuHudManager:
                 self.log("Скачиваем adb.zip во временную папку...")
             response = requests.get("https://raw.githubusercontent.com/BensonZahar/Hud.js/main/installerEXE/adb.zip", timeout=30)
             response.raise_for_status()
-    
+   
             with open(self.adb_zip_path, 'wb') as f:
                 f.write(response.content)
-    
+   
             if not self.full_logging:
                 self.log("Распаковка ADB...")
             else:
                 self.log("Распаковка adb.zip во временную папку...")
             with zipfile.ZipFile(self.adb_zip_path, 'r') as zip_ref:
                 zip_ref.extractall(self.temp_adb_dir)
-    
+   
             if not (self.temp_adb_dir / "adb").exists():
                 self.log("[X] Ошибка: Не удалось распаковать ADB")
                 return False
-    
+   
             if not self.full_logging:
                 self.log("[√] Успешно: ADB готов")
             else:
                 self.log("[√] Выполнено: ADB готов")
             return True
-    
+   
         except Exception as e:
             if not self.full_logging:
                 self.log(f"[X] Ошибка: Не удалось загрузить ADB")
             else:
                 self.log(f"[X] Не выполнено: Ошибка загрузки ADB: {e}")
             return False
-
     def check_adb_exists(self):
         if not self.local_adb.exists():
             self.log("[X] Ошибка: ADB не найден")
             return False
         return True
-
     def download_code(self, url):
         try:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
             code = response.text.strip()
-    
+   
             if not code:
                 self.log("[X] Ошибка: Код пуст")
                 return None
-    
+   
             code = code.replace('\r\n', '\n').replace('\r', '\n').strip() + '\n'
-    
+   
             if not self.full_logging:
                 self.log("[√] Успешно: Код загружен")
             else:
                 self.log(f"[√] Выполнено: Код загружен")
             return code
-    
+   
         except Exception as e:
             if not self.full_logging:
                 self.log(f"[X] Ошибка: Не удалось загрузить код")
             else:
                 self.log(f"[X] Не выполнено: Ошибка загрузки кода: {e}")
             return None
-
     def remove_old_code(self, content, new_code):
         if not content:
             return content
@@ -747,10 +710,9 @@ class MEmuHudManager:
         if self.full_logging:
             self.log("[!] Предупреждение: Маркеры не найдены, вставка в конец без удаления")
         return content.rstrip() + '\n'
-
     def select_connection(self):
         if self.mode != "hassle":
-            return True  # Для AHK MVD не нужно ADB
+            return True # Для AHK MVD не нужно ADB
         if not self.local_adb.exists() and not self.memu_adb and not self.nox_adb:
             self.log("[X] Ошибка: ADB не готов")
             return False
@@ -790,7 +752,6 @@ class MEmuHudManager:
             self.storage_path = "/sdcard/Android/data"
             return self.check_nox_device()
         return False
-
     def check_physical_device(self):
         try:
             if not self.full_logging:
@@ -800,11 +761,11 @@ class MEmuHudManager:
             result = subprocess.run([self.adb_path, "devices"],
                                   capture_output=True, text=True,
                                   creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-    
+   
             if "device" not in result.stdout:
                 self.log("[X] Ошибка: Устройство не найдено")
                 return False
-    
+   
             lines = result.stdout.strip().split('\n')
             device_found = False
             for line in lines:
@@ -817,23 +778,22 @@ class MEmuHudManager:
                         self.log("[√] Выполнено: Устройство подключено")
                     device_found = True
                     break
-    
+   
             if not device_found:
                 self.device_param = []
                 if not self.full_logging:
                     self.log("[√] Успешно: Устройство подключено")
                 else:
                     self.log("[√] Выполнено: Устройство подключено")
-    
+   
             return True
-    
+   
         except Exception as e:
             if not self.full_logging:
                 self.log(f"[X] Ошибка: Не удалось проверить устройство")
             else:
                 self.log(f"[X] Не выполнено: Ошибка проверки устройства: {e}")
             return False
-
     def check_memu_device(self):
         if not self.full_logging:
             self.log("Проверка подключения...")
@@ -848,7 +808,7 @@ class MEmuHudManager:
                 result = subprocess.run([self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
                                       capture_output=True, text=True, timeout=10,
                                       creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-        
+       
                 if result.returncode == 0:
                     self.device_param = ["-s", f"127.0.0.1:{port}"]
                     if not self.full_logging:
@@ -856,12 +816,11 @@ class MEmuHudManager:
                     else:
                         self.log("[√] Выполнено: Подключено к эмулятору MEmu")
                     return True
-            
+           
             except Exception:
                 continue
         self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
         return False
-
     def check_nox_device(self):
         if not self.full_logging:
             self.log("Проверка подключения...")
@@ -876,7 +835,7 @@ class MEmuHudManager:
                 result = subprocess.run([self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
                                       capture_output=True, text=True, timeout=10,
                                       creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-        
+       
                 if result.returncode == 0:
                     self.device_param = ["-s", f"127.0.0.1:{port}"]
                     if not self.full_logging:
@@ -884,15 +843,13 @@ class MEmuHudManager:
                     else:
                         self.log("[√] Выполнено: Подключено к эмулятору NOX")
                     return True
-            
+           
             except Exception:
                 continue
         self.log("[X] Ошибка: Эмулятор NOX не отвечает")
         return False
-
     def select_app_folder(self):
         return self.app_var.get()
-
     def execute_action(self, action):
         def run_action():
             if not self.launch_allowed:
@@ -925,7 +882,7 @@ class MEmuHudManager:
                     self.insert_code_after_mod()
                 elif action == "transfer":
                     self.show_transfer_memu_nox_dialog()
-            else:  # AHK MVD
+            else: # AHK MVD
                 if not self.radmir_path:
                     self.log("[X] Ошибка: Папка RADMIR CRMP не выбрана")
                     return
@@ -934,15 +891,18 @@ class MEmuHudManager:
                 elif action == "remove_ahk":
                     self.remove_ahk_code()
         threading.Thread(target=run_action, daemon=True).start()
-
     def show_ahk_input_dialog(self):
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Ввод данных для AHK MVD")
-        dialog.geometry("400x300")
+        dialog.geometry("400x350")
         dialog.resizable(False, False)
         dialog.grab_set()
         dialog.transient(self.root)
         dialog.lift()
+
+        self.use_callsign = ctk.BooleanVar(value=False)
+        callsign_checkbox = ctk.CTkCheckBox(dialog, text="Позывной ОМОН", variable=self.use_callsign)
+        callsign_checkbox.pack(pady=5)
 
         ctk.CTkLabel(dialog, text="Звание (на русском):").pack(pady=5)
         rank_entry = ctk.CTkEntry(dialog)
@@ -959,20 +919,34 @@ class MEmuHudManager:
         last_entry.pack(pady=5)
         last_entry.insert(0, "Конст")
 
+        callsign_label = ctk.CTkLabel(dialog, text="Позывной:")
+        callsign_entry = ctk.CTkEntry(dialog)
+
+        def toggle_callsign():
+            if self.use_callsign.get():
+                callsign_label.pack(pady=5)
+                callsign_entry.pack(pady=5)
+            else:
+                callsign_label.pack_forget()
+                callsign_entry.pack_forget()
+            dialog.update_idletasks()
+
+        self.use_callsign.trace("w", lambda *args: toggle_callsign())
+        toggle_callsign()  # Инициализация
+
         def on_confirm():
             self.rank = rank_entry.get()
             self.first_name = first_entry.get()
             self.last_name = last_entry.get()
+            self.callsign = callsign_entry.get() if self.use_callsign.get() else ""
             dialog.destroy()
             self.insert_ahk_code()
 
         ctk.CTkButton(dialog, text="Подтвердить", command=on_confirm).pack(pady=20)
-
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (400 // 2)
-        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (300 // 2)
+        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (350 // 2)
         dialog.geometry(f"+{x}+{y}")
-
     def insert_ahk_code(self):
         uiresources_path = self.radmir_path / "uiresources"
         models_path = self.radmir_path / "models"
@@ -982,39 +956,32 @@ class MEmuHudManager:
             else:
                 self.log("Не удалось установить AHK")
             return
-
         load_ahk_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
         load_code = self.download_code(load_ahk_url)
         if not load_code:
             return
-
         load_code = load_code.replace('const RANK = "";', f'const RANK = "{self.rank}";')
         load_code = load_code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{self.first_name}";')
         load_code = load_code.replace('const LAST_NAME = "";', f'const LAST_NAME = "{self.last_name}";')
-
+        if self.use_callsign and self.callsign:
+            load_code = load_code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{self.callsign}";')
         index_path = self.radmir_path / "uiresources" / "assets" / "Index.js"
         if not index_path.exists():
             self.log(f"[X] Ошибка: Файл {index_path} не найден")
             return
-
         with open(index_path, 'r', encoding='utf-8') as f:
             content = f.read()
-
         content = self.remove_old_code(content, load_code)
-
         start_marker = "// === HASSLE LOAD BOT CODE START ===\n"
         end_marker = "// === HASSLE LOAD BOT CODE END ===\n"
         new_content = content + start_marker + load_code + end_marker
         new_content = new_content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
-
         with open(index_path, 'w', encoding='utf-8', newline='\n') as f:
             f.write(new_content)
-
         if self.full_logging:
             self.log("[√] Успешно: Код вставлен в Index.js")
         else:
             self.log("AHK добавлен в игру")
-
     def remove_ahk_code(self):
         uiresources_path = self.radmir_path / "uiresources"
         models_path = self.radmir_path / "models"
@@ -1024,25 +991,19 @@ class MEmuHudManager:
             else:
                 self.log("Не удалось установить AHK")
             return
-
         index_path = self.radmir_path / "uiresources" / "assets" / "Index.js"
         if not index_path.exists():
             self.log(f"[X] Ошибка: Файл {index_path} не найден")
             return
-
         with open(index_path, 'r', encoding='utf-8') as f:
             content = f.read()
-
         content = self.remove_old_code(content, "")
-
         with open(index_path, 'w', encoding='utf-8', newline='\n') as f:
             f.write(content)
-
         if self.full_logging:
             self.log("[√] Успешно: Код удален из Index.js")
         else:
             self.log("AHK удален из игры")
-
     def show_transfer_dialog(self):
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Перенос фулл Hassle на Hassle Rec")
@@ -1074,7 +1035,6 @@ class MEmuHudManager:
         x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (560 // 2)
         y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (360 // 2)
         dialog.geometry(f"+{x}+{y}")
-
     def show_transfer_memu_nox_dialog(self):
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Перенос из MEmu в Nox")
@@ -1104,7 +1064,6 @@ class MEmuHudManager:
         x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (560 // 2)
         y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (360 // 2)
         dialog.geometry(f"+{x}+{y}")
-
     def show_replace_warning(self, app_folder):
         if self.skip_warning:
             self.replace_with_code(app_folder)
@@ -1157,7 +1116,6 @@ class MEmuHudManager:
         x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (580 // 2)
         y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (420 // 2)
         dialog.geometry(f"+{x}+{y}")
-
     def get_hassle_folders(self, param=None, storage=None):
         param = param or self.device_param
         storage = storage or self.storage_path
@@ -1168,7 +1126,6 @@ class MEmuHudManager:
             folders = [f.strip() for f in result.stdout.splitlines() if f.strip().startswith("com.hassle.online") and not f.strip().startswith("1com.hassle.online")]
             return folders
         return []
-
     def get_renamed_hassle_folders(self, param=None, storage=None):
         param = param or self.device_param
         storage = storage or self.storage_path
@@ -1179,7 +1136,6 @@ class MEmuHudManager:
             folders = [f.strip() for f in result.stdout.splitlines() if f.strip().startswith("1com.hassle.online")]
             return folders
         return []
-
     def mod_hassle(self):
         if not self.select_connection():
             self.log("[X] Устройство не подключено")
@@ -1245,7 +1201,6 @@ class MEmuHudManager:
         )
         self.mod_done = True
         self.root.after(0, self.update_gui)
-
     def transfer_memu_to_nox(self):
         if not self.memu_path or not self.nox_path:
             self.log("[X] Ошибка: Не найдены эмуляторы MEmu или NOX")
@@ -1392,7 +1347,6 @@ class MEmuHudManager:
                 shutil.rmtree(local_folder.parent)
         self.log("[√] Перенос из MEmu в Nox завершен")
         messagebox.showinfo("Перенос из MEmu в Nox", "ГОТОВО! Папки и APK перенесены.")
-
     def insert_code_after_mod(self):
         if not self.select_connection():
             self.log("[X] Устройство не подключено")
@@ -1440,7 +1394,6 @@ class MEmuHudManager:
             self.replace_with_code(pkg)
         self.mod_done = False
         self.root.after(0, self.update_gui)
-
     def replace_with_code(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
         source_file = f"{target_path}/Hud.js"
@@ -1510,7 +1463,6 @@ class MEmuHudManager:
         finally:
             if self.temp_file.exists():
                 self.temp_file.unlink()
-
     def download_without_code(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
         source_file = f"{target_path}/Hud.js"
@@ -1571,7 +1523,6 @@ class MEmuHudManager:
         finally:
             if self.temp_file.exists():
                 self.temp_file.unlink()
-
     def check_files(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets"
         files_to_check = [
@@ -1620,13 +1571,12 @@ class MEmuHudManager:
                     self.log(f"[X] Ошибка: Файл не найден")
                 else:
                     self.log(f"[X] Файл не найден: {files_to_check[0]}")
-            
+           
         except Exception as e:
             if not self.full_logging:
                 self.log(f"[X] Ошибка: Не удалось проверить файлы")
             else:
                 self.log(f"[X] Не выполнено: Ошибка проверки: {e}")
-
     def simple_download(self, app_folder):
         if not self.full_logging:
             self.log("[X] Ошибка: Скачивание отключено")
@@ -1638,15 +1588,14 @@ class MEmuHudManager:
             cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.hud_file)]
             result = subprocess.run(cmd, capture_output=True, text=True,
                                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-    
+   
             if result.returncode == 0:
                 self.log(f"[√] Успешно! Файл скачан: {self.hud_file}")
             else:
                 self.log(f"[X] Ошибка скачивания файла")
-        
+       
         except Exception as e:
             self.log(f"[X] Ошибка: {e}")
-
     def cleanup(self):
         try:
             if self.temp_file.exists():
@@ -1661,7 +1610,6 @@ class MEmuHudManager:
                 cache.unlink()
         except Exception:
             pass
-
     def run(self):
         try:
             self.root.mainloop()
@@ -1674,10 +1622,8 @@ class MEmuHudManager:
                 self.log(f"[X] Не выполнено: Критическая ошибка: {e}")
         finally:
             self.cleanup()
-
 def main():
     manager = MEmuHudManager()
     manager.run()
-
 if __name__ == "__main__":
     main()
