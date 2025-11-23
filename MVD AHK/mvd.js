@@ -162,7 +162,7 @@ const startTracking = (id) => {
         if (currentScanId) {
             sendChatInput(`/setmark ${currentScanId}`);
         }
-    }, 3100);
+    }, 31000);
    
     if (currentMenu === null && giveLicenseTo !== -1) {
         setTimeout(() => {
@@ -825,3 +825,4 @@ function sendMessagesWithDelay(messages, delays, index = 0) {
 }
 sendChatInput = sendChatInputCustom;
 sendClientEvent = sendClientEventCustom;
+
