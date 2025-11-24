@@ -571,7 +571,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+    const message = `🟢 <b>Hassle | Bot1 TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2326,7 +2326,6 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
-
 // ==================== HB MENU SYSTEM ====================
 // Добавьте этот код в конец вашего основного скрипта
 
@@ -2345,7 +2344,8 @@ const HB_DIALOG_IDS = {
     AFK_MODES: 910,
     AFK_PAUSES: 911,
     AFK_RECONNECT: 912,
-    AFK_RESTART: 913
+    AFK_RESTART: 913,
+    ACCOUNT_SELECT: 914  // Новый диалог для выбора аккаунта
 };
 
 let currentHBMenu = null;
@@ -2353,68 +2353,60 @@ let currentHBPage = 0;
 let currentHBSelectedMode = null;
 const HB_ITEMS_PER_PAGE = 6;
 
-// Функции для работы с глобальными настройками через localStorage
-function getGlobalSettings() {
-    const settings = localStorage.getItem('hassle_global_settings');
-    if (settings) {
-        return JSON.parse(settings);
-    }
-    return {
-        paydayNotifications: true,
-        govMessagesEnabled: true,
-        trackLocationRequests: false,
-        radioOfficialNotifications: true,
-        warningNotifications: true
-    };
-}
-
-function setGlobalSettings(settings) {
-    localStorage.setItem('hassle_global_settings', JSON.stringify(settings));
-    // Триггерим событие для других аккаунтов
-    window.dispatchEvent(new Event('hassle_settings_changed'));
-}
-
-function updateGlobalSetting(key, value) {
-    const settings = getGlobalSettings();
-    settings[key] = value;
-    setGlobalSettings(settings);
+// Глобальное хранилище для shared состояний между аккаунтами
+const HB_SHARED_STATE = {
+    // Используем localStorage для shared состояния между всеми аккаунтами
+    getGlobalConfig: function(key) {
+        try {
+            const stored = localStorage.getItem('hb_global_' + key);
+            return stored ? JSON.parse(stored) : null;
+        } catch (e) {
+            return null;
+        }
+    },
     
-    // Применяем к текущему аккаунту
-    config[key] = value;
-    sendWelcomeMessage();
-}
+    setGlobalConfig: function(key, value) {
+        try {
+            localStorage.setItem('hb_global_' + key, JSON.stringify(value));
+            // Триггерим событие для синхронизации между аккаунтами
+            window.dispatchEvent(new CustomEvent('hb_global_config_changed', { 
+                detail: { key, value } 
+            }));
+        } catch (e) {
+            debugLog(`Ошибка сохранения глобальной настройки: ${e.message}`);
+        }
+    },
+    
+    // Применяем глобальные настройки к текущему аккаунту
+    applyGlobalSettings: function() {
+        const settings = {
+            paydayNotifications: this.getGlobalConfig('paydayNotifications'),
+            govMessagesEnabled: this.getGlobalConfig('govMessagesEnabled'),
+            trackLocationRequests: this.getGlobalConfig('trackLocationRequests'),
+            radioOfficialNotifications: this.getGlobalConfig('radioOfficialNotifications'),
+            warningNotifications: this.getGlobalConfig('warningNotifications')
+        };
+        
+        Object.keys(settings).forEach(key => {
+            if (settings[key] !== null) {
+                config[key] = settings[key];
+            }
+        });
+    }
+};
 
-// Слушаем изменения настроек от других аккаунтов
-window.addEventListener('storage', function(e) {
-    if (e.key === 'hassle_global_settings' && e.newValue) {
-        const settings = JSON.parse(e.newValue);
-        
-        // Применяем изменения к текущему аккаунту
-        config.paydayNotifications = settings.paydayNotifications;
-        config.govMessagesEnabled = settings.govMessagesEnabled;
-        config.trackLocationRequests = settings.trackLocationRequests;
-        config.radioOfficialNotifications = settings.radioOfficialNotifications;
-        config.warningNotifications = settings.warningNotifications;
-        
-        debugLog('Глобальные настройки обновлены из другого аккаунта');
+// Слушаем изменения глобальных настроек
+window.addEventListener('hb_global_config_changed', function(e) {
+    const { key, value } = e.detail;
+    if (config[key] !== undefined) {
+        config[key] = value;
+        debugLog(`Глобальная настройка обновлена: ${key} = ${value}`);
         sendWelcomeMessage();
     }
 });
 
-// Инициализация: загружаем глобальные настройки при старте
-function initGlobalSettings() {
-    const settings = getGlobalSettings();
-    config.paydayNotifications = settings.paydayNotifications;
-    config.govMessagesEnabled = settings.govMessagesEnabled;
-    config.trackLocationRequests = settings.trackLocationRequests;
-    config.radioOfficialNotifications = settings.radioOfficialNotifications;
-    config.warningNotifications = settings.warningNotifications;
-}
-
-// Вызываем при инициализации скрипта
-setTimeout(() => {
-    initGlobalSettings();
-}, 1000);
+// При инициализации применяем сохранённые глобальные настройки
+HB_SHARED_STATE.applyGlobalSettings();
 
 // Функция для создания меню с пагинацией
 function createHBMenu(title, items, dialogId) {
@@ -2515,18 +2507,22 @@ function showHBGlobalFunctionsMenu() {
     currentHBMenu = "global_functions";
     currentHBPage = 0;
     
-    // Загружаем глобальные настройки
-    const globalSettings = getGlobalSettings();
-    
     const statusOn = "{00FF00}[ВКЛ]";
     const statusOff = "{FF0000}[ВЫКЛ]";
     
+    // Используем глобальные настройки из shared state
+    const globalPayday = HB_SHARED_STATE.getGlobalConfig('paydayNotifications') ?? config.paydayNotifications;
+    const globalSoob = HB_SHARED_STATE.getGlobalConfig('govMessagesEnabled') ?? config.govMessagesEnabled;
+    const globalMesto = HB_SHARED_STATE.getGlobalConfig('trackLocationRequests') ?? config.trackLocationRequests;
+    const globalRadio = HB_SHARED_STATE.getGlobalConfig('radioOfficialNotifications') ?? config.radioOfficialNotifications;
+    const globalWarning = HB_SHARED_STATE.getGlobalConfig('warningNotifications') ?? config.warningNotifications;
+    
     const menuItems = [
-        { name: `{FFFFFF}PayDay ${globalSettings.paydayNotifications ? statusOn : statusOff}`, action: "toggle_payday" },
-        { name: `{FFFFFF}Сообщ. ${globalSettings.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob" },
-        { name: `{FFFFFF}Место ${globalSettings.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto" },
-        { name: `{FFFFFF}Рация ${globalSettings.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
-        { name: `{FFFFFF}Выговоры ${globalSettings.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
+        { name: `{FFFFFF}PayDay ${globalPayday ? statusOn : statusOff}`, action: "toggle_payday" },
+        { name: `{FFFFFF}Сообщ. ${globalSoob ? statusOn : statusOff}`, action: "toggle_soob" },
+        { name: `{FFFFFF}Место ${globalMesto ? statusOn : statusOff}`, action: "toggle_mesto" },
+        { name: `{FFFFFF}Рация ${globalRadio ? statusOn : statusOff}`, action: "toggle_radio" },
+        { name: `{FFFFFF}Выговоры ${globalWarning ? statusOn : statusOff}`, action: "toggle_warning" },
         { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" },
         { name: "{FFD700}> {FFFFFF}AFK", action: "afk_standard" }
     ];
@@ -2541,7 +2537,7 @@ function showHBGlobalFunctionsMenu() {
     });
     
     window.addDialogInQueue(
-        `[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции (Все аккаунты)","","Выбрать","Закрыть",0,0]`,
+        `[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции","","Выбрать","Закрыть",0,0]`,
         menuList,
         0
     );
@@ -2723,34 +2719,44 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             if (listitem === 0) {
                 setTimeout(() => showHBControlsMenu(), 100);
             } else if (listitem === 1) {
-                // Toggle PayDay для ВСЕХ аккаунтов
-                const currentPayday = getGlobalSettings().paydayNotifications;
-                updateGlobalSetting('paydayNotifications', !currentPayday);
-                sendToTelegram(`${!currentPayday ? '🔔' : '🔕'} <b>PayDay ${!currentPayday ? 'включены' : 'отключены'} для ВСЕХ аккаунтов</b>`, false, null);
+                // PayDay - глобальная настройка
+                const newPaydayValue = !(HB_SHARED_STATE.getGlobalConfig('paydayNotifications') ?? config.paydayNotifications);
+                HB_SHARED_STATE.setGlobalConfig('paydayNotifications', newPaydayValue);
+                config.paydayNotifications = newPaydayValue;
+                sendToTelegram(`${newPaydayValue ? '🔔' : '🔕'} <b>PayDay ${newPaydayValue ? 'включены' : 'отключены'} для ВСЕХ аккаунтов</b>`, false, null);
+                sendWelcomeMessage();
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 2) {
-                // Toggle Сообщения от правительства для ВСЕХ аккаунтов
-                const currentGov = getGlobalSettings().govMessagesEnabled;
-                updateGlobalSetting('govMessagesEnabled', !currentGov);
-                sendToTelegram(`${!currentGov ? '🔔' : '🔕'} <b>Сообщения от правительства ${!currentGov ? 'включены' : 'отключены'} для ВСЕХ аккаунтов</b>`, false, null);
+                // Сообщения - глобальная настройка
+                const newSoobValue = !(HB_SHARED_STATE.getGlobalConfig('govMessagesEnabled') ?? config.govMessagesEnabled);
+                HB_SHARED_STATE.setGlobalConfig('govMessagesEnabled', newSoobValue);
+                config.govMessagesEnabled = newSoobValue;
+                sendToTelegram(`${newSoobValue ? '🔔' : '🔕'} <b>Сообщения ${newSoobValue ? 'включены' : 'отключены'} для ВСЕХ аккаунтов</b>`, false, null);
+                sendWelcomeMessage();
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 3) {
-                // Toggle Отслеживание для ВСЕХ аккаунтов
-                const currentLocation = getGlobalSettings().trackLocationRequests;
-                updateGlobalSetting('trackLocationRequests', !currentLocation);
-                sendToTelegram(`${!currentLocation ? '📍' : '🔕'} <b>Отслеживание ${!currentLocation ? 'включено' : 'отключено'} для ВСЕХ аккаунтов</b>`, false, null);
+                // Место - глобальная настройка
+                const newMestoValue = !(HB_SHARED_STATE.getGlobalConfig('trackLocationRequests') ?? config.trackLocationRequests);
+                HB_SHARED_STATE.setGlobalConfig('trackLocationRequests', newMestoValue);
+                config.trackLocationRequests = newMestoValue;
+                sendToTelegram(`${newMestoValue ? '📍' : '🔕'} <b>Отслеживание ${newMestoValue ? 'включено' : 'отключено'} для ВСЕХ аккаунтов</b>`, false, null);
+                sendWelcomeMessage();
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 4) {
-                // Toggle Рация для ВСЕХ аккаунтов
-                const currentRadio = getGlobalSettings().radioOfficialNotifications;
-                updateGlobalSetting('radioOfficialNotifications', !currentRadio);
-                sendToTelegram(`${!currentRadio ? '📡' : '🔕'} <b>Рация ${!currentRadio ? 'включена' : 'отключена'} для ВСЕХ аккаунтов</b>`, false, null);
+                // Рация - глобальная настройка
+                const newRadioValue = !(HB_SHARED_STATE.getGlobalConfig('radioOfficialNotifications') ?? config.radioOfficialNotifications);
+                HB_SHARED_STATE.setGlobalConfig('radioOfficialNotifications', newRadioValue);
+                config.radioOfficialNotifications = newRadioValue;
+                sendToTelegram(`${newRadioValue ? '📡' : '🔕'} <b>Рация ${newRadioValue ? 'включена' : 'отключена'} для ВСЕХ аккаунтов</b>`, false, null);
+                sendWelcomeMessage();
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 5) {
-                // Toggle Выговоры для ВСЕХ аккаунтов
-                const currentWarning = getGlobalSettings().warningNotifications;
-                updateGlobalSetting('warningNotifications', !currentWarning);
-                sendToTelegram(`${!currentWarning ? '⚠️' : '🔕'} <b>Выговоры ${!currentWarning ? 'включены' : 'отключены'} для ВСЕХ аккаунтов</b>`, false, null);
+                // Выговоры - глобальная настройка
+                const newWarningValue = !(HB_SHARED_STATE.getGlobalConfig('warningNotifications') ?? config.warningNotifications);
+                HB_SHARED_STATE.setGlobalConfig('warningNotifications', newWarningValue);
+                config.warningNotifications = newWarningValue;
+                sendToTelegram(`${newWarningValue ? '⚠️' : '🔕'} <b>Выговоры ${newWarningValue ? 'включены' : 'отключены'} для ВСЕХ аккаунтов</b>`, false, null);
+                sendWelcomeMessage();
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 6) {
                 setTimeout(() => showHBAFKModesMenu(), 100);
@@ -2897,7 +2903,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     activateAFKWithMode('fixed', false, 'q', null, null);
                 }
             } else if (listitem === 2) {
-                if (config.autoReconnectEnabled) {
+if (config.autoReconnectEnabled) {
                     currentHBSelectedMode = 'random';
                     setTimeout(() => showHBAFKReconnectMenu('random'), 100);
                 } else {
@@ -2961,8 +2967,8 @@ window.sendClientEventCustom = function(event, ...args) {
     if (args[0] === "OnDialogResponse") {
         const dialogId = args[1];
         
-        // Проверяем, является ли это нашим HB меню (900-913)
-        if (dialogId >= 900 && dialogId <= 913) {
+        // Проверяем, является ли это нашим HB меню (900-914)
+        if (dialogId >= 900 && dialogId <= 914) {
             const button = args[2];
             const listitem = args[3];
             handleHBMenuSelection(dialogId, button, listitem);
@@ -2983,6 +2989,8 @@ sendChatInput = window.sendChatInputCustom;
 sendClientEvent = window.sendClientEventCustom;
 
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
+console.log('[HB Menu] Глобальные настройки синхронизируются между всеми аккаунтами через localStorage.');
 
 // ==================== END HB MENU SYSTEM ====================
+
 
