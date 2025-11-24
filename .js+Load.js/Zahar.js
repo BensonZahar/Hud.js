@@ -2928,4 +2928,124 @@ sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 
 // ==================== END HB MENU SYSTEM ====================
+// ==================== UKKOAP INTERFACE INJECTION ====================
+// Добавляем этот код в конец вашего основного скрипта, перед или после HB MENU SYSTEM
 
+(function() {
+    debugLog('[UkKoap] Начало инъекции интерфейса...');
+
+    // 1. Перехват загрузки компонентов (если td - это объект с компонентами)
+    if (typeof window.td !== 'undefined') {
+        const originalTd = window.td || {};
+        
+        // Добавляем UkKoap в список компонентов
+        if (!originalTd.UkKoap) {
+            originalTd.UkKoap = () => import("./UkKoap.js").then(m => m.default || m);
+            debugLog('[UkKoap] Компонент добавлен в window.td');
+        }
+    }
+
+    // 2. Перехват конфигурации интерфейсов (od - объект с настройками)
+    if (typeof window.od !== 'undefined') {
+        const originalOd = window.od || {};
+        
+        if (!originalOd.UkKoap) {
+            originalOd.UkKoap = {
+                open: {
+                    status: false
+                },
+                show: true,
+                options: {
+                    hideHud: true,
+                    hideChat: false
+                }
+            };
+            debugLog('[UkKoap] Конфигурация добавлена в window.od');
+        }
+    }
+
+    // 3. Альтернативный метод через перехват openInterface
+    const originalOpenInterfaceUkKoap = window.openInterface;
+    window.openInterface = function(interfaceName, params, additionalParams) {
+        debugLog(`[UkKoap] Попытка открыть интерфейс: ${interfaceName}`);
+        
+        // Если пытаются открыть UkKoap
+        if (interfaceName === "UkKoap") {
+            debugLog('[UkKoap] Перехвачена попытка открытия UkKoap');
+            
+            // Проверяем, доступен ли компонент
+            if (typeof window.td !== 'undefined' && window.td.UkKoap) {
+                debugLog('[UkKoap] Компонент найден, вызываем оригинальную функцию');
+                return originalOpenInterfaceUkKoap.call(this, interfaceName, params, additionalParams);
+            } else {
+                debugLog('[UkKoap] Компонент не найден, пытаемся загрузить динамически');
+                
+                // Пытаемся загрузить компонент динамически
+                try {
+                    // Здесь можно добавить динамическую загрузку, если нужно
+                    sendToTelegram(`⚠️ <b>Попытка открыть UkKoap (${displayName})</b>\nКомпонент загружается...`, false, null);
+                } catch (error) {
+                    debugLog(`[UkKoap] Ошибка загрузки: ${error.message}`);
+                    sendToTelegram(`❌ <b>Ошибка загрузки UkKoap (${displayName})</b>\n<code>${error.message}</code>`, false, null);
+                }
+            }
+        }
+        
+        // Вызываем оригинальную функцию для всех остальных интерфейсов
+        if (originalOpenInterfaceUkKoap) {
+            return originalOpenInterfaceUkKoap.call(this, interfaceName, params, additionalParams);
+        }
+    };
+
+    // 4. Перехват getInterfaceStatus для UkKoap
+    const originalGetInterfaceStatus = window.getInterfaceStatus;
+    window.getInterfaceStatus = function(interfaceName) {
+        if (interfaceName === "UkKoap") {
+            debugLog('[UkKoap] Проверка статуса интерфейса');
+            // Возвращаем статус из конфигурации
+            if (window.od && window.od.UkKoap) {
+                return window.od.UkKoap.open.status;
+            }
+            return false;
+        }
+        
+        if (originalGetInterfaceStatus) {
+            return originalGetInterfaceStatus.call(this, interfaceName);
+        }
+        return false;
+    };
+
+    // 5. Добавляем команду для открытия UkKoap через чат
+    const originalSendChatInputUkKoap = window.sendChatInputCustom || sendChatInput;
+    window.sendChatInputUkKoap = function(e) {
+        const args = e.split(" ");
+        
+        if (args[0] === "/ukkoap" || args[0] === "/uk") {
+            debugLog('[UkKoap] Команда открытия UkKoap получена');
+            try {
+                window.openInterface("UkKoap");
+                sendToTelegram(`📖 <b>Открыт УК КОАП (${displayName})</b>`, false, null);
+            } catch (error) {
+                debugLog(`[UkKoap] Ошибка при открытии: ${error.message}`);
+                sendToTelegram(`❌ <b>Ошибка открытия УК КОАП (${displayName})</b>\n<code>${error.message}</code>`, false, null);
+            }
+            return;
+        }
+        
+        // Вызываем оригинальную функцию для других команд
+        if (originalSendChatInputUkKoap) {
+            return originalSendChatInputUkKoap.call(this, e);
+        }
+    };
+
+    // Применяем перехват для sendChatInput
+    if (typeof sendChatInput !== 'undefined') {
+        sendChatInput = window.sendChatInputUkKoap;
+    }
+
+    debugLog('[UkKoap] Инъекция интерфейса завершена успешно');
+    sendToTelegram(`✅ <b>УК КОАП интегрирован (${displayName})</b>\nИспользуйте /ukkoap или /uk для открытия`, false, null);
+
+})();
+
+// ==================== END UKKOAP INTERFACE INJECTION ====================
