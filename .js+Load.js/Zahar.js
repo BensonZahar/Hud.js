@@ -1839,6 +1839,12 @@ function getRankKeywords() {
     if (!config.currentFaction || !factions[config.currentFaction]) return [];
     return Object.values(factions[config.currentFaction].ranks).map(rank => rank.toLowerCase());
 }
+function getHighRankKeywords() {
+    if (!config.currentFaction || !factions[config.currentFaction]) return [];
+    return Object.entries(factions[config.currentFaction].ranks)
+        .filter(([rankNum]) => parseInt(rankNum) >= 6)  // Только 6-10
+        .map(([, rank]) => rank.toLowerCase());
+}
 function checkRoleAndActionConditions(lowerCaseMessage) {
     const rankKeywords = getRankKeywords();
     const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
@@ -1855,7 +1861,7 @@ function checkAFKConditions(msg, lowerCaseMessage) {
     const hasID = config.afkSettings.formats.some(format => msg.includes(format));
     return hasConditions && hasID;
 }
-function checkLocationRequest(msg, lowerCaseMessage) {
+function checkLocationRequest(msg, lowerCaseMessage, chatRadius) {
     if (!config.trackLocationRequests && !isTargetingPlayer(msg)) {
         return false;
     }
@@ -1863,7 +1869,14 @@ function checkLocationRequest(msg, lowerCaseMessage) {
     const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
     const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word.toLowerCase()));
     const hasID = isTargetingPlayer(msg);
-    return hasRoleKeyword && (hasActionKeyword || hasID);
+    
+    // Строгая проверка: обязательно action keyword, если нет targeting
+    const isValid = hasRoleKeyword && hasActionKeyword && (hasID || true); // Если нужно, уберите || true для еще большей строгости
+    
+    // Добавляем фильтр по радиусу чата (игнорируем UNKNOWN или SELF)
+    const validRadius = (chatRadius === CHAT_RADIUS.RADIO || chatRadius === CHAT_RADIUS.CLOSE);
+    
+    return isValid && validRadius;
 }
 function isTargetingPlayer(msg) {
     if (!config.lastPlayerId) return false;
@@ -1871,7 +1884,8 @@ function isTargetingPlayer(msg) {
         config.lastPlayerId,
         config.lastPlayerId.split('').join('-')
     ];
-    return idFormats.some(format => msg.includes(format));
+    // Проверяем наличие в контексте, например "[ID]" или "ID"
+    return idFormats.some(format => msg.match(new RegExp(`\\[${format}\\]|\\b${format}\\b`)));
 }
 function processSalaryAndBalance(msg) {
     if (!config.paydayNotifications) {
@@ -2121,15 +2135,15 @@ function initializeChatMonitor() {
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
             factionColor = factions[config.currentFaction].color;
         }
-        
+
         const govMessageRegex = new RegExp(`^\\- (.+?) \\{${factionColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
         const govMatch = msg.match(govMessageRegex);
-        
+
         if (govMatch) {
             const messageText = govMatch[1]; // Текст сообщения
             const senderName = govMatch[2]; // Имя отправителя
             const senderId = govMatch[3]; // ID отправителя
-        
+
             // Проверяем, что сообщение отправлено из радиуса CLOSE
             if (chatRadius === CHAT_RADIUS.CLOSE) {
                 if (checkGovMessageConditions(messageText, senderName, senderId)) {
@@ -2197,7 +2211,7 @@ function initializeChatMonitor() {
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
             }
         }
-        if (!isNonRPMessage(msg) && getRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
+        if (!isNonRPMessage(msg) && getHighRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
             (lowerCaseMessage.indexOf("строй") !== -1 ||
             lowerCaseMessage.indexOf("сбор") !== -1 ||
             lowerCaseMessage.indexOf("готовность") !== -1 ||
@@ -2230,7 +2244,7 @@ function initializeChatMonitor() {
                 debugLog('Кик после посадки в тюрьму, игнорируем стандартный реконнект');
             }
         }
-        if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage)) {
+        if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage, chatRadius)) {
             debugLog('Обнаружен запрос местоположения!');
             const replyMarkup = {
                 inline_keyboard: [
@@ -2358,17 +2372,17 @@ function createHBMenu(title, items, dialogId) {
     const start = currentHBPage * HB_ITEMS_PER_PAGE;
     const end = start + HB_ITEMS_PER_PAGE;
     const pageItems = items.slice(start, end);
-    
+
     let menuList = "← Назад<n>";
-    
+
     pageItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     if ((currentHBPage + 1) * HB_ITEMS_PER_PAGE < items.length) {
         menuList += "Вперед →<n>";
     }
-    
+
     window.addDialogInQueue(
         `[${dialogId},2,"${title}","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2380,16 +2394,16 @@ function createHBMenu(title, items, dialogId) {
 function showHBMainMenu() {
     currentHBMenu = "main";
     currentHBPage = 0;
-    
+
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}Управление", action: "controls" }
     ];
-    
+
     let menuList = "";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.MAIN},2,"{00BFFF}Hassle | Bot TG Menu","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2401,17 +2415,17 @@ function showHBMainMenu() {
 function showHBControlsMenu() {
     currentHBMenu = "controls";
     currentHBPage = 0;
-    
+
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}Функции", action: "local_functions" },
         { name: "{FFD700}> {FFFFFF}Общие функции", action: "global_functions" }
     ];
-    
+
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.CONTROLS},2,"{00BFFF}Управление","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2423,10 +2437,10 @@ function showHBControlsMenu() {
 function showHBLocalFunctionsMenu() {
     currentHBMenu = "local_functions";
     currentHBPage = 0;
-    
+
     const statusOn = "{00FF00}[ВКЛ]";
     const statusOff = "{FF0000}[ВЫКЛ]";
-    
+
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}Движение", action: "movement" },
         { name: `{FFFFFF}Увед. правик ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob_local" },
@@ -2434,12 +2448,12 @@ function showHBLocalFunctionsMenu() {
         { name: `{FFFFFF}Рация ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
         { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" }
     ];
-    
+
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.LOCAL_FUNCTIONS},2,"{00BFFF}Функции","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2451,10 +2465,10 @@ function showHBLocalFunctionsMenu() {
 function showHBGlobalFunctionsMenu() {
     currentHBMenu = "global_functions";
     currentHBPage = 0;
-    
+
     const statusOn = "{00FF00}[ВКЛ]";
     const statusOff = "{FF0000}[ВЫКЛ]";
-    
+
     const menuItems = [
         { name: `{FFFFFF}PayDay ${config.paydayNotifications ? statusOn : statusOff}`, action: "toggle_payday" },
         { name: `{FFFFFF}Сообщ. ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob" },
@@ -2464,16 +2478,16 @@ function showHBGlobalFunctionsMenu() {
         { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" },
         { name: "{FFD700}> {FFFFFF}AFK", action: "afk_standard" }
     ];
-    
+
     if (config.autoReconnectEnabled) {
         menuItems.push({ name: "{FFD700}> {FFFFFF}Прокачка уровня", action: "levelup" });
     }
-    
+
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2485,9 +2499,9 @@ function showHBGlobalFunctionsMenu() {
 function showHBMovementMenu() {
     currentHBMenu = "movement";
     currentHBPage = 0;
-    
+
     const sitStandText = config.isSitting ? "{FFFFFF}Встать" : "{FFFFFF}Сесть";
-    
+
     const menuItems = [
         { name: "{FFFFFF}^ Вперед", action: "move_forward" },
         { name: "{FFFFFF}< Влево", action: "move_left" },
@@ -2497,12 +2511,12 @@ function showHBMovementMenu() {
         { name: "{FFFFFF}Удар", action: "move_punch" },
         { name: sitStandText, action: "move_sit_stand" }
     ];
-    
+
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.MOVEMENT_CONTROLS},2,"{00BFFF}Движение","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2514,17 +2528,17 @@ function showHBMovementMenu() {
 function showHBAFKModesMenu() {
     currentHBMenu = "afk_modes";
     currentHBPage = 0;
-    
+
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}С паузами", action: "afk_with_pauses" },
         { name: "{FFD700}> {FFFFFF}Без пауз", action: "afk_without_pauses" }
     ];
-    
+
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.AFK_MODES},2,"{00BFFF}AFK Ночь - Режим","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2536,17 +2550,17 @@ function showHBAFKModesMenu() {
 function showHBAFKPausesMenu() {
     currentHBMenu = "afk_pauses";
     currentHBPage = 0;
-    
+
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}5/5 минут", action: "afk_fixed" },
         { name: "{FFD700}> {FFFFFF}Рандомное время", action: "afk_random" }
     ];
-    
+
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.AFK_PAUSES},2,"{00BFFF}AFK Ночь - Паузы","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2558,17 +2572,17 @@ function showHBAFKPausesMenu() {
 function showHBAFKReconnectMenu(selectedMode) {
     currentHBMenu = "afk_reconnect";
     currentHBPage = 0;
-    
+
     const menuItems = [
         { name: "{00FF00}Реконнект [ВКЛ]", action: `reconnect_on_${selectedMode}` },
         { name: "{FF0000}Реконнект [ВЫКЛ]", action: `reconnect_off_${selectedMode}` }
     ];
-    
+
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.AFK_RECONNECT},2,"{00BFFF}AFK Ночь - Реконнект","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2580,17 +2594,17 @@ function showHBAFKReconnectMenu(selectedMode) {
 function showHBAFKRestartMenu(selectedMode) {
     currentHBMenu = "afk_restart";
     currentHBPage = 0;
-    
+
     const menuItems = [
         { name: "{FFFFFF}/q", action: `restart_q_${selectedMode}` },
         { name: "{FFFFFF}/rec", action: `restart_rec_${selectedMode}` }
     ];
-    
+
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
     });
-    
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.AFK_RESTART},2,"{00BFFF}AFK Ночь - Действие","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -2601,20 +2615,20 @@ function showHBAFKRestartMenu(selectedMode) {
 // Обработчик выбора в меню
 function handleHBMenuSelection(dialogId, button, listitem) {
     console.log(`HB Menu: dialogId=${dialogId}, button=${button}, listitem=${listitem}`);
-    
+
     if (button !== 1) {
         currentHBMenu = null;
         currentHBSelectedMode = null;
         return;
     }
-    
+
     switch (dialogId) {
         case HB_DIALOG_IDS.MAIN:
             if (listitem === 0) {
                 setTimeout(() => showHBControlsMenu(), 100);
             }
             break;
-            
+
         case HB_DIALOG_IDS.CONTROLS:
             if (listitem === 0) {
                 setTimeout(() => showHBMainMenu(), 100);
@@ -2624,7 +2638,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             }
             break;
-            
+
         case HB_DIALOG_IDS.LOCAL_FUNCTIONS:
             if (listitem === 0) {
                 setTimeout(() => showHBControlsMenu(), 100);
@@ -2652,7 +2666,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             }
             break;
-            
+
         case HB_DIALOG_IDS.GLOBAL_FUNCTIONS:
             if (listitem === 0) {
                 setTimeout(() => showHBControlsMenu(), 100);
@@ -2708,7 +2722,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBAFKRestartMenu('levelup'), 100);
             }
             break;
-            
+
         case HB_DIALOG_IDS.MOVEMENT_CONTROLS:
             if (listitem === 0) {
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
@@ -2799,7 +2813,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 }
             }
             break;
-            
+
         case HB_DIALOG_IDS.AFK_MODES:
             if (listitem === 0) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
@@ -2814,7 +2828,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 }
             }
             break;
-            
+
         case HB_DIALOG_IDS.AFK_PAUSES:
             if (listitem === 0) {
                 setTimeout(() => showHBAFKModesMenu(), 100);
@@ -2834,7 +2848,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 }
             }
             break;
-            
+
         case HB_DIALOG_IDS.AFK_RECONNECT:
             if (listitem === 0) {
                 setTimeout(() => showHBAFKPausesMenu(), 100);
@@ -2847,7 +2861,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 currentHBSelectedMode = null;
             }
             break;
-            
+
         case HB_DIALOG_IDS.AFK_RESTART:
             if (listitem === 0) {
                 setTimeout(() => showHBAFKReconnectMenu(currentHBSelectedMode), 100);
@@ -2869,12 +2883,12 @@ const originalSendChatInputCustom = window.sendChatInputCustom || sendChatInput;
 
 window.sendChatInputCustom = function(e) {
     const args = e.split(" ");
-    
+
     if (args[0] === "/hb") {
         showHBMainMenu();
         return;
     }
-    
+
     // Вызываем оригинальную функцию для других команд
     if (typeof originalSendChatInputCustom === 'function') {
         originalSendChatInputCustom(e);
@@ -2886,10 +2900,10 @@ const originalSendClientEventCustom = window.sendClientEventCustom || sendClient
 
 window.sendClientEventCustom = function(event, ...args) {
     console.log(`HB Event: ${event}, Args:`, args);
-    
+
     if (args[0] === "OnDialogResponse") {
         const dialogId = args[1];
-        
+
         // Проверяем, является ли это нашим HB меню (900-913)
         if (dialogId >= 900 && dialogId <= 913) {
             const button = args[2];
@@ -2898,7 +2912,7 @@ window.sendClientEventCustom = function(event, ...args) {
             return;
         }
     }
-    
+
     // Вызываем оригинальную функцию для других событий
     if (typeof originalSendClientEventCustom === 'function') {
         originalSendClientEventCustom(event, ...args);
@@ -2914,4 +2928,3 @@ sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 
 // ==================== END HB MENU SYSTEM ====================
-
