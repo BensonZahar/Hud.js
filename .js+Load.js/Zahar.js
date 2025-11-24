@@ -2353,6 +2353,69 @@ let currentHBPage = 0;
 let currentHBSelectedMode = null;
 const HB_ITEMS_PER_PAGE = 6;
 
+// Функции для работы с глобальными настройками через localStorage
+function getGlobalSettings() {
+    const settings = localStorage.getItem('hassle_global_settings');
+    if (settings) {
+        return JSON.parse(settings);
+    }
+    return {
+        paydayNotifications: true,
+        govMessagesEnabled: true,
+        trackLocationRequests: false,
+        radioOfficialNotifications: true,
+        warningNotifications: true
+    };
+}
+
+function setGlobalSettings(settings) {
+    localStorage.setItem('hassle_global_settings', JSON.stringify(settings));
+    // Триггерим событие для других аккаунтов
+    window.dispatchEvent(new Event('hassle_settings_changed'));
+}
+
+function updateGlobalSetting(key, value) {
+    const settings = getGlobalSettings();
+    settings[key] = value;
+    setGlobalSettings(settings);
+    
+    // Применяем к текущему аккаунту
+    config[key] = value;
+    sendWelcomeMessage();
+}
+
+// Слушаем изменения настроек от других аккаунтов
+window.addEventListener('storage', function(e) {
+    if (e.key === 'hassle_global_settings' && e.newValue) {
+        const settings = JSON.parse(e.newValue);
+        
+        // Применяем изменения к текущему аккаунту
+        config.paydayNotifications = settings.paydayNotifications;
+        config.govMessagesEnabled = settings.govMessagesEnabled;
+        config.trackLocationRequests = settings.trackLocationRequests;
+        config.radioOfficialNotifications = settings.radioOfficialNotifications;
+        config.warningNotifications = settings.warningNotifications;
+        
+        debugLog('Глобальные настройки обновлены из другого аккаунта');
+        sendWelcomeMessage();
+    }
+});
+
+// Инициализация: загружаем глобальные настройки при старте
+function initGlobalSettings() {
+    const settings = getGlobalSettings();
+    config.paydayNotifications = settings.paydayNotifications;
+    config.govMessagesEnabled = settings.govMessagesEnabled;
+    config.trackLocationRequests = settings.trackLocationRequests;
+    config.radioOfficialNotifications = settings.radioOfficialNotifications;
+    config.warningNotifications = settings.warningNotifications;
+}
+
+// Вызываем при инициализации скрипта
+setTimeout(() => {
+    initGlobalSettings();
+}, 1000);
+
 // Функция для создания меню с пагинацией
 function createHBMenu(title, items, dialogId) {
     const start = currentHBPage * HB_ITEMS_PER_PAGE;
@@ -2452,15 +2515,18 @@ function showHBGlobalFunctionsMenu() {
     currentHBMenu = "global_functions";
     currentHBPage = 0;
     
+    // Загружаем глобальные настройки
+    const globalSettings = getGlobalSettings();
+    
     const statusOn = "{00FF00}[ВКЛ]";
     const statusOff = "{FF0000}[ВЫКЛ]";
     
     const menuItems = [
-        { name: `{FFFFFF}PayDay ${config.paydayNotifications ? statusOn : statusOff}`, action: "toggle_payday" },
-        { name: `{FFFFFF}Сообщ. ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob" },
-        { name: `{FFFFFF}Место ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto" },
-        { name: `{FFFFFF}Рация ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
-        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
+        { name: `{FFFFFF}PayDay ${globalSettings.paydayNotifications ? statusOn : statusOff}`, action: "toggle_payday" },
+        { name: `{FFFFFF}Сообщ. ${globalSettings.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob" },
+        { name: `{FFFFFF}Место ${globalSettings.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto" },
+        { name: `{FFFFFF}Рация ${globalSettings.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
+        { name: `{FFFFFF}Выговоры ${globalSettings.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
         { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" },
         { name: "{FFD700}> {FFFFFF}AFK", action: "afk_standard" }
     ];
@@ -2475,7 +2541,7 @@ function showHBGlobalFunctionsMenu() {
     });
     
     window.addDialogInQueue(
-        `[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции","","Выбрать","Закрыть",0,0]`,
+        `[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции (Все аккаунты)","","Выбрать","Закрыть",0,0]`,
         menuList,
         0
     );
@@ -2657,29 +2723,34 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             if (listitem === 0) {
                 setTimeout(() => showHBControlsMenu(), 100);
             } else if (listitem === 1) {
-                config.paydayNotifications = !config.paydayNotifications;
-                sendToTelegram(`${config.paydayNotifications ? '🔔' : '🔕'} <b>PayDay ${config.paydayNotifications ? 'включены' : 'отключены'} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                // Toggle PayDay для ВСЕХ аккаунтов
+                const currentPayday = getGlobalSettings().paydayNotifications;
+                updateGlobalSetting('paydayNotifications', !currentPayday);
+                sendToTelegram(`${!currentPayday ? '🔔' : '🔕'} <b>PayDay ${!currentPayday ? 'включены' : 'отключены'} для ВСЕХ аккаунтов</b>`, false, null);
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 2) {
-                config.govMessagesEnabled = !config.govMessagesEnabled;
-                sendToTelegram(`${config.govMessagesEnabled ? '🔔' : '🔕'} <b>Сообщения от правительства ${config.govMessagesEnabled ? 'включены' : 'отключены'} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                // Toggle Сообщения от правительства для ВСЕХ аккаунтов
+                const currentGov = getGlobalSettings().govMessagesEnabled;
+                updateGlobalSetting('govMessagesEnabled', !currentGov);
+                sendToTelegram(`${!currentGov ? '🔔' : '🔕'} <b>Сообщения от правительства ${!currentGov ? 'включены' : 'отключены'} для ВСЕХ аккаунтов</b>`, false, null);
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 3) {
-                config.trackLocationRequests = !config.trackLocationRequests;
-                sendToTelegram(`${config.trackLocationRequests ? '📍' : '🔕'} <b>Отслеживание ${config.trackLocationRequests ? 'включено' : 'отключено'} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                // Toggle Отслеживание для ВСЕХ аккаунтов
+                const currentLocation = getGlobalSettings().trackLocationRequests;
+                updateGlobalSetting('trackLocationRequests', !currentLocation);
+                sendToTelegram(`${!currentLocation ? '📍' : '🔕'} <b>Отслеживание ${!currentLocation ? 'включено' : 'отключено'} для ВСЕХ аккаунтов</b>`, false, null);
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 4) {
-                config.radioOfficialNotifications = !config.radioOfficialNotifications;
-                sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Рация ${config.radioOfficialNotifications ? 'включена' : 'отключена'} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                // Toggle Рация для ВСЕХ аккаунтов
+                const currentRadio = getGlobalSettings().radioOfficialNotifications;
+                updateGlobalSetting('radioOfficialNotifications', !currentRadio);
+                sendToTelegram(`${!currentRadio ? '📡' : '🔕'} <b>Рация ${!currentRadio ? 'включена' : 'отключена'} для ВСЕХ аккаунтов</b>`, false, null);
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 5) {
-                config.warningNotifications = !config.warningNotifications;
-                sendToTelegram(`${config.warningNotifications ? '⚠️' : '🔕'} <b>Выговоры ${config.warningNotifications ? 'включены' : 'отключены'} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                // Toggle Выговоры для ВСЕХ аккаунтов
+                const currentWarning = getGlobalSettings().warningNotifications;
+                updateGlobalSetting('warningNotifications', !currentWarning);
+                sendToTelegram(`${!currentWarning ? '⚠️' : '🔕'} <b>Выговоры ${!currentWarning ? 'включены' : 'отключены'} для ВСЕХ аккаунтов</b>`, false, null);
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 6) {
                 setTimeout(() => showHBAFKModesMenu(), 100);
@@ -2914,6 +2985,4 @@ sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 
 // ==================== END HB MENU SYSTEM ====================
-
-
 
