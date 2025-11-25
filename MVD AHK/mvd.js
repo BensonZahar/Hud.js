@@ -1,5 +1,4 @@
 let skinId = null;
-
 function getSkinIdFromStore() {
     try {
         const menuInterface = window.interface("Menu");
@@ -12,7 +11,6 @@ function getSkinIdFromStore() {
         return null;
     }
 }
-
 function trackSkinId() {
     const currentSkin = getSkinIdFromStore();
     if (currentSkin !== null && currentSkin !== skinId) {
@@ -21,12 +19,11 @@ function trackSkinId() {
     }
     setTimeout(trackSkinId, 5000);
 }
-
 trackSkinId();
-
 const licenseTypes = [
     { name: "МВД", id: "mvd" },
     { name: "ОМОН", id: "omon" },
+    { name: "Строй", id: "stroy" },
     { name: `Отслеживание | {FF0000}Выкл`, id: "tracking" },
     { name: `Auto-cuff | {FF0000}Выкл`, id: "autocuff" }
 ];
@@ -69,14 +66,40 @@ const omonOptions = [
     { name: "14. Крик ОМОН", action: "omonShout" },
     { name: "15. Показать ордер на обыск", action: "showWarrant" }
 ];
+const stroyOptions = [
+    { name: "1. Объявление о строе (Основное)", action: "stroy1", needsInput: true },
+    { name: "2. Объявление о строе (Повтор)", action: "stroy2", needsInput: true },
+    { name: "3. Лекция", action: "lecture", sub: true },
+    { name: "4. Тренировка", action: "training", sub: true },
+    { name: "5. Спец.Задание", action: "special", sub: true }
+];
+const lectureOptions = [
+    { name: "1. Устав", action: "ust1" },
+    { name: "2. Субординация", action: "sub1" }
+];
+const trainingOptions = [
+    { name: "1. Начало тренировки", action: "trenya1" },
+    { name: "2. Разминка рук", action: "trenya2" },
+    { name: "3. Отжимания", action: "trenya3" },
+    { name: "4. Бег по плацу", action: "trenya4" },
+    { name: "5. Восточное единоборство", action: "trenya5" },
+    { name: "6. Завершение тренировки", action: "trenya6" }
+];
+const specialOptions = [
+    { name: "1. Начало задания", action: "rp1" },
+    { name: "2. Завершение задания", action: "rp2" }
+];
 const ITEMS_PER_PAGE = 6;
 let currentPage = 0;
 let shownLicenseTypes = [];
-let lastMenuType = null; // "mvd" or "omon" or null
+let lastMenuType = null; // "mvd" or "omon" or "stroy" or null
 let giveLicenseTo = -1;
 let targetId = null;
 let currentMenu = null;
+let currentSubMenu = null;
 let currentAction = null;
+let currentStroyAction = null;
+let tempHour = null;
 let scanInterval = null;
 let currentScanId = null;
 let autoCuffEnabled = false;
@@ -86,11 +109,10 @@ window.addEventListener('keydown', function(e) {
         sendChatInput('/dahk');
     }
 });
-
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
         const originalAddFunction = window.interface('Hud').$refs.chat.add;
-       
+      
         window.interface('Hud').$refs.chat.add = function(message, ...args) {
             if (autoCuffEnabled && typeof message === 'string') {
                 const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
@@ -100,7 +122,7 @@ const setupChatHandler = () => {
                         sendChatInput(`/id ${nickname}`);
                     }, 500);
                 }
-               
+              
                 const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
                 if (idMatch && idMatch[2]) {
                     const id = idMatch[2];
@@ -116,7 +138,7 @@ const setupChatHandler = () => {
                     }, 1000);
                 }
             }
-           
+          
             return originalAddFunction.apply(this, [message, ...args]);
         };
         console.log('[Auto-cuff] Обработчик чата успешно установлен');
@@ -129,17 +151,17 @@ const getPaginatedMenu = (options) => {
     const start = currentPage * ITEMS_PER_PAGE;
     const end = start + ITEMS_PER_PAGE;
     const pageItems = options.slice(start, end);
-   
+  
     let menuList = "← Назад<n>";
-   
+  
     pageItems.forEach((option) => {
         menuList += `${option.name}<n>`;
     });
-   
+  
     if ((currentPage + 1) * ITEMS_PER_PAGE < options.length) {
         menuList += "Вперед →<n>";
     }
-   
+  
     return menuList;
 };
 function getLicenseById(id) {
@@ -150,20 +172,20 @@ const startTracking = (id) => {
         clearInterval(scanInterval);
         scanInterval = null;
     }
-   
+  
     currentScanId = id;
     getLicenseById("tracking").name = `Отслеживание | {00FF00}Вкл`;
-   
+  
     sendMessagesWithDelay([
         `/setmark ${currentScanId}`
     ], [0, 1000, 0]);
-   
+  
     scanInterval = setInterval(() => {
         if (currentScanId) {
             sendChatInput(`/setmark ${currentScanId}`);
         }
     }, 31000);
-   
+  
     if (currentMenu === null && giveLicenseTo !== -1) {
         setTimeout(() => {
             showGiveLicenseDialog(giveLicenseTo);
@@ -199,6 +221,12 @@ const SendGiveLicenseCommand = (to, index) => {
                 showOmonMenuPage(giveLicenseTo);
             }, 100);
             break;
+        case "stroy": // Строй
+            lastMenuType = "stroy";
+            setTimeout(() => {
+                showStroyMenuPage(giveLicenseTo);
+            }, 100);
+            break;
         case "tracking": // Отслеживание
             if (currentScanId) {
                 stopTracking();
@@ -222,7 +250,7 @@ const HandleMvdCommand = (optionIndex) => {
     const totalPages = Math.ceil(mvdOptions.length / ITEMS_PER_PAGE);
     const isBackButton = optionIndex === 0;
     const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-   
+  
     if (isBackButton) {
         if (currentPage > 0) {
             currentPage--;
@@ -238,7 +266,7 @@ const HandleMvdCommand = (optionIndex) => {
         }
         return;
     }
-   
+  
     if (isForwardButton) {
         currentPage++;
         setTimeout(() => {
@@ -246,13 +274,13 @@ const HandleMvdCommand = (optionIndex) => {
         }, 50);
         return;
     }
-   
+  
     const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
-   
+  
     if (adjustedIndex >= 0 && adjustedIndex < mvdOptions.length) {
         const option = mvdOptions[adjustedIndex];
         currentAction = option.action;
-       
+      
         if (option.needsId) {
             setTimeout(() => {
                 showIdInputDialog(giveLicenseTo);
@@ -266,7 +294,7 @@ const HandleOmonCommand = (optionIndex) => {
     const totalPages = Math.ceil(omonOptions.length / ITEMS_PER_PAGE);
     const isBackButton = optionIndex === 0;
     const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-   
+  
     if (isBackButton) {
         if (currentPage > 0) {
             currentPage--;
@@ -282,7 +310,7 @@ const HandleOmonCommand = (optionIndex) => {
         }
         return;
     }
-   
+  
     if (isForwardButton) {
         currentPage++;
         setTimeout(() => {
@@ -290,13 +318,13 @@ const HandleOmonCommand = (optionIndex) => {
         }, 50);
         return;
     }
-   
+  
     const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
-   
+  
     if (adjustedIndex >= 0 && adjustedIndex < omonOptions.length) {
         const option = omonOptions[adjustedIndex];
         currentAction = option.action;
-       
+      
         if (option.needsId) {
             setTimeout(() => {
                 showIdInputDialog(giveLicenseTo);
@@ -306,9 +334,173 @@ const HandleOmonCommand = (optionIndex) => {
         }
     }
 };
+const HandleStroyCommand = (optionIndex) => {
+    const totalPages = Math.ceil(stroyOptions.length / ITEMS_PER_PAGE);
+    const isBackButton = optionIndex === 0;
+    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
+  
+    if (isBackButton) {
+        if (currentPage > 0) {
+            currentPage--;
+            setTimeout(() => {
+                showStroyMenuPage(giveLicenseTo);
+            }, 50);
+        } else {
+            lastMenuType = null;
+            currentMenu = null;
+            setTimeout(() => {
+                showGiveLicenseDialog(giveLicenseTo);
+            }, 50);
+        }
+        return;
+    }
+  
+    if (isForwardButton) {
+        currentPage++;
+        setTimeout(() => {
+            showStroyMenuPage(giveLicenseTo);
+        }, 50);
+        return;
+    }
+  
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
+  
+    if (adjustedIndex >= 0 && adjustedIndex < stroyOptions.length) {
+        const option = stroyOptions[adjustedIndex];
+        currentStroyAction = option.action;
+      
+        if (option.needsInput) {
+            setTimeout(() => {
+                showHourInputDialog(giveLicenseTo);
+            }, 50);
+        } else if (option.sub) {
+            currentSubMenu = option.action;
+            currentPage = 0;
+            setTimeout(() => {
+                if (option.action === "lecture") {
+                    showLectureMenuPage(giveLicenseTo);
+                } else if (option.action === "training") {
+                    showTrainingMenuPage(giveLicenseTo);
+                } else if (option.action === "special") {
+                    showSpecialMenuPage(giveLicenseTo);
+                }
+            }, 50);
+        } else {
+            executeStroyAction(option.action);
+        }
+    }
+};
+const HandleLectureCommand = (optionIndex) => {
+    const totalPages = Math.ceil(lectureOptions.length / ITEMS_PER_PAGE);
+    const isBackButton = optionIndex === 0;
+    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
+  
+    if (isBackButton) {
+        if (currentPage > 0) {
+            currentPage--;
+            setTimeout(() => {
+                showLectureMenuPage(giveLicenseTo);
+            }, 50);
+        } else {
+            currentSubMenu = null;
+            currentPage = 0;
+            setTimeout(() => {
+                showStroyMenuPage(giveLicenseTo);
+            }, 50);
+        }
+        return;
+    }
+  
+    if (isForwardButton) {
+        currentPage++;
+        setTimeout(() => {
+            showLectureMenuPage(giveLicenseTo);
+        }, 50);
+        return;
+    }
+  
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
+  
+    if (adjustedIndex >= 0 && adjustedIndex < lectureOptions.length) {
+        const option = lectureOptions[adjustedIndex];
+        executeStroyAction(option.action);
+    }
+};
+const HandleTrainingCommand = (optionIndex) => {
+    const totalPages = Math.ceil(trainingOptions.length / ITEMS_PER_PAGE);
+    const isBackButton = optionIndex === 0;
+    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
+  
+    if (isBackButton) {
+        if (currentPage > 0) {
+            currentPage--;
+            setTimeout(() => {
+                showTrainingMenuPage(giveLicenseTo);
+            }, 50);
+        } else {
+            currentSubMenu = null;
+            currentPage = 0;
+            setTimeout(() => {
+                showStroyMenuPage(giveLicenseTo);
+            }, 50);
+        }
+        return;
+    }
+  
+    if (isForwardButton) {
+        currentPage++;
+        setTimeout(() => {
+            showTrainingMenuPage(giveLicenseTo);
+        }, 50);
+        return;
+    }
+  
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
+  
+    if (adjustedIndex >= 0 && adjustedIndex < trainingOptions.length) {
+        const option = trainingOptions[adjustedIndex];
+        executeStroyAction(option.action);
+    }
+};
+const HandleSpecialCommand = (optionIndex) => {
+    const totalPages = Math.ceil(specialOptions.length / ITEMS_PER_PAGE);
+    const isBackButton = optionIndex === 0;
+    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
+  
+    if (isBackButton) {
+        if (currentPage > 0) {
+            currentPage--;
+            setTimeout(() => {
+                showSpecialMenuPage(giveLicenseTo);
+            }, 50);
+        } else {
+            currentSubMenu = null;
+            currentPage = 0;
+            setTimeout(() => {
+                showStroyMenuPage(giveLicenseTo);
+            }, 50);
+        }
+        return;
+    }
+  
+    if (isForwardButton) {
+        currentPage++;
+        setTimeout(() => {
+            showSpecialMenuPage(giveLicenseTo);
+        }, 50);
+        return;
+    }
+  
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
+  
+    if (adjustedIndex >= 0 && adjustedIndex < specialOptions.length) {
+        const option = specialOptions[adjustedIndex];
+        executeStroyAction(option.action);
+    }
+};
 const executeMvdAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
-   
+  
     switch (action) {
         case "greeting":
             sendMessagesWithDelay([
@@ -321,7 +513,7 @@ const executeMvdAction = (action, targetId) => {
                 `/doc ${targetId}`
             ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "checkDocuments":
             sendMessagesWithDelay([
                 "Будьте добры предъявить Ваши документы, а именно:",
@@ -331,7 +523,7 @@ const executeMvdAction = (action, targetId) => {
                 "/n /rem"
             ], [0, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "studyDocuments":
             sendMessagesWithDelay([
                 "/me взял документы",
@@ -345,7 +537,7 @@ const executeMvdAction = (action, targetId) => {
                 "/me вернул документы"
             ], [0, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]);
             break;
-           
+          
         case "wanted":
             sendMessagesWithDelay([
                 "/me взял рацию в руки",
@@ -355,7 +547,7 @@ const executeMvdAction = (action, targetId) => {
                 `/su ${targetId}`
             ], [0, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "scanningTablet":
             sendMessagesWithDelay([
                 "/me достал фоторобот из кармана",
@@ -364,7 +556,7 @@ const executeMvdAction = (action, targetId) => {
                 "Вы задержаны так как находитесь в федеральном розыске."
             ], [0, 1000, 1000, 1000]);
             break;
-           
+          
         case "cuffing":
             sendMessagesWithDelay([
                 "/do Наручники в руке.",
@@ -372,7 +564,7 @@ const executeMvdAction = (action, targetId) => {
                 `/cuff ${targetId}`
             ], [0, 300, 300]);
             break;
-           
+          
         case "putInCar":
             sendMessagesWithDelay([
                 "/me открыл дверь автомобиля",
@@ -381,7 +573,7 @@ const executeMvdAction = (action, targetId) => {
                 `/putpl ${targetId}`
             ], [0, 1000, 1000, 1000]);
             break;
-           
+          
         case "arrest":
             sendMessagesWithDelay([
                 "/me открыл двери ППС",
@@ -391,7 +583,7 @@ const executeMvdAction = (action, targetId) => {
                 `/arrest ${targetId}`
             ], [0, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "uncuffing":
             sendMessagesWithDelay([
                 "/me снял наручники с преступника",
@@ -403,7 +595,7 @@ const executeMvdAction = (action, targetId) => {
                 `/escort ${targetId}`
             ], [0, 600, 600, 600, 600, 600, 600]);
             break;
-           
+          
         case "chase":
             sendMessagesWithDelay([
                 "/me взял рацию в руки",
@@ -412,7 +604,7 @@ const executeMvdAction = (action, targetId) => {
                 `/Pg ${targetId}`
             ], [0, 500, 500, 500]);
             break;
-           
+          
         case "search":
             sendMessagesWithDelay([
                 "Сейчас я проведу у вас обыск.",
@@ -424,7 +616,7 @@ const executeMvdAction = (action, targetId) => {
                 `/search ${targetId}`
             ], [0, 1000, 1004, 1007, 1010, 1000, 1000]);
             break;
-           
+          
         case "escort":
             sendMessagesWithDelay([
                 "/me схватил задержанного за руки",
@@ -432,7 +624,7 @@ const executeMvdAction = (action, targetId) => {
                 `/escort ${targetId}`
             ], [0, 300, 300]);
             break;
-           
+          
         case "clearWanted":
             sendMessagesWithDelay([
                 "/me взял рацию в руки, затем зажал кнопку",
@@ -443,7 +635,7 @@ const executeMvdAction = (action, targetId) => {
                 `/clear ${targetId}`
             ], [0, 700, 700, 700, 700, 700]);
             break;
-           
+          
         case "fine":
             sendMessagesWithDelay([
                 "/me достал планшет",
@@ -455,7 +647,7 @@ const executeMvdAction = (action, targetId) => {
                 "/me убрал планшет"
             ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "confiscate":
             sendMessagesWithDelay([
                 "Я нащупал что то.",
@@ -465,7 +657,7 @@ const executeMvdAction = (action, targetId) => {
                 `/remove ${targetId}`
             ], [0, 500, 500, 500, 500]);
             break;
-           
+          
         case "breakGlass":
             sendMessagesWithDelay([
                 "/me открыл дверь авто.",
@@ -473,7 +665,7 @@ const executeMvdAction = (action, targetId) => {
                 `/ejectout ${targetId}`
             ], [0, 300, 300]);
             break;
-           
+          
         case "removeMask":
             sendMessagesWithDelay([
                 "/do Человек напротив находится в маске.",
@@ -482,7 +674,7 @@ const executeMvdAction = (action, targetId) => {
                 "/n Команда для снятие маски: /reset или /maskoff"
             ], [0, 400, 400, 400]);
             break;
-           
+          
         case "fingerprint":
             sendMessagesWithDelay([
                 "/do Аппарат 'CТОЛ' в кармане.",
@@ -494,7 +686,7 @@ const executeMvdAction = (action, targetId) => {
                 "/do Личность установлена."
             ], [0, 700, 700, 700, 700, 700, 700]);
             break;
-           
+          
         case "takeLicense":
             sendMessagesWithDelay([
                 "/me взял права, затем переложил их в левую руку",
@@ -519,7 +711,7 @@ const executeMvdAction = (action, targetId) => {
 };
 const executeOmonAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
-   
+  
     switch (action) {
         case "omonStandard":
             sendMessagesWithDelay([
@@ -537,7 +729,7 @@ const executeOmonAction = (action, targetId) => {
                 `/escort ${targetId}`
             ], [0, 1000, 1000, 0, 900, 800, 800, 700, 700, 650, 1000, 1000]);
             break;
-           
+          
         case "omonCheckDocs":
             sendMessagesWithDelay([
                 `/s Работает сотрудник ОМОН | Позывной: '${CALLSIGN}'`,
@@ -546,13 +738,13 @@ const executeOmonAction = (action, targetId) => {
                 "/s Если вы убежите или попробуете это сделать я сочту это за 8.1 УК."
             ], [0, 500, 500, 500]);
             break;
-           
+          
         case "omonExitVehicle":
             sendMessagesWithDelay([
                 "/s Будьте добры, выйдите из своего транспортного средства."
             ], [0]);
             break;
-           
+          
         case "omonStudyDocs":
             sendMessagesWithDelay([
                 "/me взял документы",
@@ -566,7 +758,7 @@ const executeOmonAction = (action, targetId) => {
                 "/me вернул документы"
             ], [0, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]);
             break;
-           
+          
         case "omonWanted":
             sendMessagesWithDelay([
                 "/me взял рацию в руки",
@@ -579,7 +771,7 @@ const executeOmonAction = (action, targetId) => {
                 `/su ${targetId}`
             ], [0, 800, 800, 800, 800, 800, 800, 800]);
             break;
-           
+          
         case "omonRemoveMask":
             sendMessagesWithDelay([
                 "/do Маска на лице человека.",
@@ -590,7 +782,7 @@ const executeOmonAction = (action, targetId) => {
                 "/do Человек напротив без маски."
             ], [0, 800, 800, 800, 800, 800]);
             break;
-           
+          
         case "omonSearch":
             sendMessagesWithDelay([
                 "/s СЕЙЧАС Я ПРОВЕДУ ОБЫСК, ПРОСЬБА НЕ ДВИГАТЬСЯ...",
@@ -606,7 +798,7 @@ const executeOmonAction = (action, targetId) => {
                 `/search ${targetId}`
             ], [0, 700, 900, 900, 800, 800, 800, 800, 800, 800, 800]);
             break;
-           
+          
         case "omonArrest":
             sendMessagesWithDelay([
                 "/me открыл двери МВД",
@@ -616,7 +808,7 @@ const executeOmonAction = (action, targetId) => {
                 `/arrest ${targetId}`
             ], [0, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "omonBreakGlass":
             sendMessagesWithDelay([
                 "/me разбил окно прикладом",
@@ -626,7 +818,7 @@ const executeOmonAction = (action, targetId) => {
                 `/ejectout ${targetId}`
             ], [0, 700, 700, 700, 700]);
             break;
-           
+          
         case "omonBreakDoor":
             sendMessagesWithDelay([
                 "/do Лом на земле.",
@@ -638,7 +830,7 @@ const executeOmonAction = (action, targetId) => {
                 "/break_door"
             ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
             break;
-           
+          
         case "omonFingerprint":
             sendMessagesWithDelay([
                 "/do Аппарат 'CТОЛ' в кармане.",
@@ -650,7 +842,7 @@ const executeOmonAction = (action, targetId) => {
                 "/do Личность установленна."
             ], [0, 700, 700, 700, 700, 700, 700]);
             break;
-           
+          
         case "omonPutInCar":
             sendMessagesWithDelay([
                 "/do Двери автомобиля закрыты.",
@@ -665,7 +857,7 @@ const executeOmonAction = (action, targetId) => {
                 `/putpl ${targetId}`
             ], [0, 900, 900, 900, 900, 900, 900, 900, 900, 900]);
             break;
-           
+          
         case "omonFine":
             sendMessagesWithDelay([
                 "/me достал планшет",
@@ -698,21 +890,125 @@ const executeOmonAction = (action, targetId) => {
             break;
     }
 };
+const executeStroyAction = (action, hour = null, minute = null) => {
+    switch (action) {
+        case "stroy1":
+            sendMessagesWithDelay([
+                `/r [${RANK}] Внимание.`,
+                `/r [${RANK}] Прошу прийти на плац.`,
+                `/r [${RANK}] Напомню, строй начнется в ${hour}:${minute} по МСК.`,
+                `/r [${RANK}] Касается это всего младшего состава.`,
+                `/r [${RANK}] Спасибо за внимание.`
+            ], [0, 1700, 1700, 1700, 1700]);
+            break;
+        case "stroy2":
+            sendMessagesWithDelay([
+                `/r [${RANK}] Внимание.*Повторяя*`,
+                `/r [${RANK}] Прошу прийти на плац.*Повторяя*`,
+                `/r [${RANK}] Напомню, строй начнется в ${hour}:${minute} по МСК.*Повторяя*`,
+                `/r [${RANK}] Касается это всего младшего состава.*Повторяя*`,
+                `/r [${RANK}] Спасибо за внимание.*Повторяя*`
+            ], [0, 1500, 1500, 1500, 1500]);
+            break;
+        case "ust1":
+            sendMessagesWithDelay([
+                "/s Итак бойцы, сейчас я вам проведу лекцию на тему \"Устав\".",
+                "/s Устав устанавливает стандарты служебной деятельности.",
+                "/s Следование Уставу способствует дисциплине. Каждый сотрудник обязан знать свои права и обязанности",
+                "/s Знать устав - ваша обязанность. Незнание не освобождает от наказания.",
+                "/s Следование Уставу положительно сказывается на нашем имидже в глазах граждан",
+                "/s Соблюдение Устава — это не только ваша обязанность, но и залог успешной службы.",
+                "/s Лекция окончена.",
+                "/c 060"
+            ], [0, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+            break;
+        case "sub1":
+            sendMessagesWithDelay([
+                "/s Коллеги,я хочу прочитать лекцию на тему \"Субординцация\"",
+                "/s В силовых структурах нет слов: \"можно\",\"да\",\"нет\",\"привет\"",
+                "/s Обращаться нужно так:",
+                "/s \"Разрешите\",\"Так точно\",\"Никак нет\",\"Здравия желаю\"",
+                "/s Ко всем обращаться строго по званию.К примеру:",
+                "Т.Полковник,т.Сержант,т.Подполковник и т.д",
+                "/s Обращаться ко всем сослуживцам без исключения только на \"Вы\"",
+                "/s Запрещенно перечить или огрызаться со старшими по званию.",
+                "/s Не соблюдение субординации, это прямое нарушение",
+                "/c 060"
+            ], [0, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000]);
+            break;
+        case "trenya1":
+            sendMessagesWithDelay([
+                `/s Здравия. Я ${RANK} ${LAST_NAME}.`,
+                "/s Сегодня я проведу вам тренировку",
+                "/s Начнём с приседаний."
+            ], [0, 1700, 1700]);
+            break;
+        case "trenya2":
+            sendMessagesWithDelay([
+                "/s Закончили.",
+                "/s Дальше разминка рук.",
+                "/n /anim 8 1",
+                "/c 60"
+            ], [0, 1700, 1700, 1700]);
+            break;
+        case "trenya3":
+            sendMessagesWithDelay([
+                "/s Закончили.",
+                "/s Отжимания.",
+                "/n /anim 6 23",
+                "/c 60"
+            ], [0, 1500, 1500, 1500]);
+            break;
+        case "trenya4":
+            sendMessagesWithDelay([
+                "/s Закончили.",
+                "/s Бег по плацу 3 круга.",
+                "/s Без прыжков."
+            ], [0, 1500, 1500]);
+            break;
+        case "trenya5":
+            sendMessagesWithDelay([
+                "/s Восточное единоборство.",
+                "/n /anim 8 2"
+            ], [0, 1500]);
+            break;
+        case "trenya6":
+            sendMessagesWithDelay([
+                "/s Закончили.",
+                "/s На этом наша тренировка закончена, но не расходимся."
+            ], [0, 1500]);
+            break;
+        case "rp1":
+            sendMessagesWithDelay([
+                "/s Хочу вам сказать.",
+                "/s У меня для вас есть задания."
+            ], [0, 1700]);
+            break;
+        case "rp2":
+            sendMessagesWithDelay([
+                "/s Всем спасибо за помощь.",
+                "/s Помогли очень сильно.",
+                "/s На этой ноте я хочу вам сказать...",
+                "/s Вы свободны, можете идти."
+            ], [0, 1500, 1500, 1500]);
+            break;
+    }
+};
 window.showGiveLicenseDialog = (e) => {
     giveLicenseTo = e;
     currentMenu = null;
-   
+  
     let availableTypes = licenseTypes;
     if (skinId !== 15340) {
         availableTypes = availableTypes.filter(t => t.id !== "omon");
     }
     shownLicenseTypes = availableTypes;
-   
+  
     let licenseList = '';
     availableTypes.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-   
+  
     window.addDialogInQueue(`[666,2,"АХК tg:denipels | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 window.showMvdMenuPage = (e) => {
@@ -735,6 +1031,43 @@ window.showOmonMenuPage = (e) => {
         0
     );
 };
+window.showStroyMenuPage = (e) => {
+    giveLicenseTo = e;
+    currentMenu = "stroy";
+    const menuList = getPaginatedMenu(stroyOptions);
+    window.addDialogInQueue(
+        `[671,2,"Строй (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        menuList,
+        0
+    );
+};
+window.showLectureMenuPage = (e) => {
+    giveLicenseTo = e;
+    const menuList = getPaginatedMenu(lectureOptions);
+    window.addDialogInQueue(
+        `[672,2,"Лекция (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        menuList,
+        0
+    );
+};
+window.showTrainingMenuPage = (e) => {
+    giveLicenseTo = e;
+    const menuList = getPaginatedMenu(trainingOptions);
+    window.addDialogInQueue(
+        `[673,2,"Тренировка (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        menuList,
+        0
+    );
+};
+window.showSpecialMenuPage = (e) => {
+    giveLicenseTo = e;
+    const menuList = getPaginatedMenu(specialOptions);
+    window.addDialogInQueue(
+        `[674,2,"Спец.Задание (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        menuList,
+        0
+    );
+};
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
     window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
@@ -743,9 +1076,17 @@ window.showTrackingInputDialog = (e) => {
     giveLicenseTo = e;
     window.addDialogInQueue(`[669,1,"Отслеживание","Введите ID для отслеживания:","Начать","Отмена",0,0]`, "", 0);
 };
+window.showHourInputDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[675,1,"Ввод часа","Введите когда начнется строй (Час. по МСК):","Подтвердить","Отмена",0,0]`, "", 0);
+};
+window.showMinuteInputDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[676,1,"Ввод минуты","Введите когда начнется строй (Мин. по МСК):","Подтвердить","Отмена",0,0]`, "", 0);
+};
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`Событие: ${event}, Аргументы:`, args);
-    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 670)) {
+    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 676)) {
         if (args[1] === 666) { // Главное меню
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
@@ -786,6 +1127,50 @@ window.sendClientEventCustom = (event, ...args) => {
                 HandleOmonCommand(optionIndex);
             }
         }
+        else if (args[1] === 671) { // Меню Строй
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleStroyCommand(optionIndex);
+            }
+        }
+        else if (args[1] === 672) { // Меню Лекция
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleLectureCommand(optionIndex);
+            }
+        }
+        else if (args[1] === 673) { // Меню Тренировка
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleTrainingCommand(optionIndex);
+            }
+        }
+        else if (args[1] === 674) { // Меню Спец.Задание
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleSpecialCommand(optionIndex);
+            }
+        }
+        else if (args[1] === 675) { // Ввод часа
+            const inputHour = args[4];
+            if (args[2] === 1 && giveLicenseTo !== -1 && currentStroyAction) {
+                tempHour = inputHour;
+                setTimeout(() => {
+                    showMinuteInputDialog(giveLicenseTo);
+                }, 50);
+            }
+            else {
+                currentStroyAction = null;
+            }
+        }
+        else if (args[1] === 676) { // Ввод минуты
+            const inputMinute = args[4];
+            if (args[2] === 1 && giveLicenseTo !== -1 && currentStroyAction && tempHour) {
+                executeStroyAction(currentStroyAction, tempHour, inputMinute);
+            }
+            currentStroyAction = null;
+            tempHour = null;
+        }
     } else {
         window.sendClientEventHandle(event, ...args);
     }
@@ -799,13 +1184,17 @@ window.sendChatInputCustom = e => {
             showMvdMenuPage(args[1]);
         } else if (lastMenuType === "omon") {
             showOmonMenuPage(args[1]);
+        } else if (lastMenuType === "stroy") {
+            showStroyMenuPage(args[1]);
         } else {
             showGiveLicenseDialog(args[1]);
         }
     } else if (args[0] == "/mvdreset") {
         lastMenuType = null;
         currentMenu = null;
+        currentSubMenu = null;
         currentAction = null;
+        currentStroyAction = null;
         currentPage = 0;
         stopTracking();
         autoCuffEnabled = false;
@@ -825,4 +1214,3 @@ function sendMessagesWithDelay(messages, delays, index = 0) {
 }
 sendChatInput = sendChatInputCustom;
 sendClientEvent = sendClientEventCustom;
-
