@@ -20,14 +20,36 @@ function trackSkinId() {
     setTimeout(trackSkinId, 5000);
 }
 trackSkinId();
+const rankTags = {
+    "Рядовой": "[Р]",
+    "Сержант": "[С]",
+    "Старшина": "[СТ]",
+    "Прапорщик": "[ПР]",
+    "Лейтенант": "[Л]",
+    "Капитан": "[К]",
+    "Майор": "[М]",
+    "Подполковник": "[ПП]",
+    "Командир ДПС": "[Ком.ДПС]",
+    "Командир ППС": "[Ком.ППС]",
+    "Командир ОМОН": "[Ком.ОМОН]",
+    "Заместитель командира ОМОН": "[Зам.Ком.ОМОН]",
+    "Командир мотобатальона": "[Ком.МБ]",
+    "Полковник": "[П]",
+    "Генерал": "[Г]"
+};
+const mvdSkins = [15321, 15323, 15325, 15330, 15332, 15334, 15335, 190, 148, 15340, 15341, 15342, 15343, 15344, 15348, 15351];
+const stroyRanks = ["Капитан", "Майор", "Подполковник", "Полковник", "Генерал"];
 const licenseTypes = [
-    { name: "МВД", id: "mvd" },
-    { name: "ОМОН", id: "omon" },
-    { name: "Строй", id: "stroy" },
-    { name: `Отслеживание | {FF0000}Выкл`, id: "tracking" },
-    { name: `Auto-cuff | {FF0000}Выкл`, id: "autocuff" }
+    { name: "МВД", id: "mvd_main" }
 ];
-const mvdOptions = [
+const mvdSubTypes = [
+    { name: "Повседневная", id: "povsednev" },
+    { name: "Строй", id: "stroy" },
+    { name: "ОМОН", id: "omon" }
+];
+let trackingName = `Отслеживание | {FF0000}Выкл`;
+let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
+const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
     { name: "3. Изучение документов", action: "studyDocuments" },
@@ -92,7 +114,8 @@ const specialOptions = [
 const ITEMS_PER_PAGE = 6;
 let currentPage = 0;
 let shownLicenseTypes = [];
-let lastMenuType = null; // "mvd" or "omon" or "stroy" or null
+let shownMvdSubTypes = [];
+let lastMenuType = null; // "povsednev" or "omon" or "stroy" or null
 let giveLicenseTo = -1;
 let targetId = null;
 let currentMenu = null;
@@ -164,9 +187,6 @@ const getPaginatedMenu = (options) => {
   
     return menuList;
 };
-function getLicenseById(id) {
-    return licenseTypes.find(t => t.id === id);
-}
 const startTracking = (id) => {
     if (scanInterval) {
         clearInterval(scanInterval);
@@ -174,7 +194,7 @@ const startTracking = (id) => {
     }
   
     currentScanId = id;
-    getLicenseById("tracking").name = `Отслеживание | {00FF00}Вкл`;
+    trackingName = `Отслеживание | {00FF00}Вкл`;
   
     sendMessagesWithDelay([
         `/setmark ${currentScanId}`
@@ -186,11 +206,9 @@ const startTracking = (id) => {
         }
     }, 31000);
   
-    if (currentMenu === null && giveLicenseTo !== -1) {
-        setTimeout(() => {
-            showGiveLicenseDialog(giveLicenseTo);
-        }, 100);
-    }
+    setTimeout(() => {
+        showMvdSubMenu(giveLicenseTo);
+    }, 100);
 };
 const stopTracking = () => {
     if (scanInterval) {
@@ -198,56 +216,27 @@ const stopTracking = () => {
         scanInterval = null;
     }
     currentScanId = null;
-    getLicenseById("tracking").name = `Отслеживание | {FF0000}Выкл`;
+    trackingName = `Отслеживание | {FF0000}Выкл`;
 };
 const toggleAutoCuff = () => {
     autoCuffEnabled = !autoCuffEnabled;
-    getLicenseById("autocuff").name = `Auto-cuff | ${autoCuffEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
+    autoCuffName = `Auto-cuff | ${autoCuffEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
 };
 const SendGiveLicenseCommand = (to, index) => {
     if (index < 0 || index >= shownLicenseTypes.length)
         return;
     const selected = shownLicenseTypes[index];
     switch (selected.id) {
-        case "mvd": // МВД
-            lastMenuType = "mvd";
+        case "mvd_main": // МВД
+            lastMenuType = "mvd_sub";
             setTimeout(() => {
-                showMvdMenuPage(giveLicenseTo);
+                showMvdSubMenu(giveLicenseTo);
             }, 100);
-            break;
-        case "omon": // ОМОН
-            lastMenuType = "omon";
-            setTimeout(() => {
-                showOmonMenuPage(giveLicenseTo);
-            }, 100);
-            break;
-        case "stroy": // Строй
-            lastMenuType = "stroy";
-            setTimeout(() => {
-                showStroyMenuPage(giveLicenseTo);
-            }, 100);
-            break;
-        case "tracking": // Отслеживание
-            if (currentScanId) {
-                stopTracking();
-            } else {
-                setTimeout(() => {
-                    showTrackingInputDialog(giveLicenseTo);
-                }, 100);
-            }
-            break;
-        case "autocuff": // Auto-cuff
-            toggleAutoCuff();
-            if (currentMenu === null && giveLicenseTo !== -1) {
-                setTimeout(() => {
-                    showGiveLicenseDialog(giveLicenseTo);
-                }, 50);
-            }
             break;
     }
 };
-const HandleMvdCommand = (optionIndex) => {
-    const totalPages = Math.ceil(mvdOptions.length / ITEMS_PER_PAGE);
+const HandlePovsednevCommand = (optionIndex) => {
+    const totalPages = Math.ceil(povsednevOptions.length / ITEMS_PER_PAGE);
     const isBackButton = optionIndex === 0;
     const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
   
@@ -255,13 +244,13 @@ const HandleMvdCommand = (optionIndex) => {
         if (currentPage > 0) {
             currentPage--;
             setTimeout(() => {
-                showMvdMenuPage(giveLicenseTo);
+                showPovsednevMenuPage(giveLicenseTo);
             }, 50);
         } else {
             lastMenuType = null;
             currentMenu = null;
             setTimeout(() => {
-                showGiveLicenseDialog(giveLicenseTo);
+                showMvdSubMenu(giveLicenseTo);
             }, 50);
         }
         return;
@@ -270,15 +259,15 @@ const HandleMvdCommand = (optionIndex) => {
     if (isForwardButton) {
         currentPage++;
         setTimeout(() => {
-            showMvdMenuPage(giveLicenseTo);
+            showPovsednevMenuPage(giveLicenseTo);
         }, 50);
         return;
     }
   
     const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
   
-    if (adjustedIndex >= 0 && adjustedIndex < mvdOptions.length) {
-        const option = mvdOptions[adjustedIndex];
+    if (adjustedIndex >= 0 && adjustedIndex < povsednevOptions.length) {
+        const option = povsednevOptions[adjustedIndex];
         currentAction = option.action;
       
         if (option.needsId) {
@@ -286,7 +275,7 @@ const HandleMvdCommand = (optionIndex) => {
                 showIdInputDialog(giveLicenseTo);
             }, 50);
         } else {
-            executeMvdAction(option.action, giveLicenseTo);
+            executePovsednevAction(option.action, giveLicenseTo);
         }
     }
 };
@@ -305,7 +294,7 @@ const HandleOmonCommand = (optionIndex) => {
             lastMenuType = null;
             currentMenu = null;
             setTimeout(() => {
-                showGiveLicenseDialog(giveLicenseTo);
+                showMvdSubMenu(giveLicenseTo);
             }, 50);
         }
         return;
@@ -349,7 +338,7 @@ const HandleStroyCommand = (optionIndex) => {
             lastMenuType = null;
             currentMenu = null;
             setTimeout(() => {
-                showGiveLicenseDialog(giveLicenseTo);
+                showMvdSubMenu(giveLicenseTo);
             }, 50);
         }
         return;
@@ -388,6 +377,52 @@ const HandleStroyCommand = (optionIndex) => {
         } else {
             executeStroyAction(option.action);
         }
+    }
+};
+const HandleMvdSubCommand = (index) => {
+    if (index < 0 || index >= shownMvdSubTypes.length)
+        return;
+    const selected = shownMvdSubTypes[index];
+    switch (selected.id) {
+        case "povsednev":
+            lastMenuType = "povsednev";
+            currentPage = 0;
+            setTimeout(() => {
+                showPovsednevMenuPage(giveLicenseTo);
+            }, 50);
+            break;
+        case "stroy":
+            lastMenuType = "stroy";
+            currentPage = 0;
+            setTimeout(() => {
+                showStroyMenuPage(giveLicenseTo);
+            }, 50);
+            break;
+        case "omon":
+            lastMenuType = "omon";
+            currentPage = 0;
+            setTimeout(() => {
+                showOmonMenuPage(giveLicenseTo);
+            }, 50);
+            break;
+        case "tracking":
+            if (currentScanId) {
+                stopTracking();
+                setTimeout(() => {
+                    showMvdSubMenu(giveLicenseTo);
+                }, 50);
+            } else {
+                setTimeout(() => {
+                    showTrackingInputDialog(giveLicenseTo);
+                }, 100);
+            }
+            break;
+        case "autocuff":
+            toggleAutoCuff();
+            setTimeout(() => {
+                showMvdSubMenu(giveLicenseTo);
+            }, 50);
+            break;
     }
 };
 const HandleLectureCommand = (optionIndex) => {
@@ -498,7 +533,7 @@ const HandleSpecialCommand = (optionIndex) => {
         executeStroyAction(option.action);
     }
 };
-const executeMvdAction = (action, targetId) => {
+const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
   
     switch (action) {
@@ -891,23 +926,24 @@ const executeOmonAction = (action, targetId) => {
     }
 };
 const executeStroyAction = (action, hour = null, minute = null) => {
+    const tag = rankTags[RANK] || `[${RANK}]`;
     switch (action) {
         case "stroy1":
             sendMessagesWithDelay([
-                `/r [${RANK}] Внимание.`,
-                `/r [${RANK}] Прошу прийти на плац.`,
-                `/r [${RANK}] Напомню, строй начнется в ${hour}:${minute} по МСК.`,
-                `/r [${RANK}] Касается это всего младшего состава.`,
-                `/r [${RANK}] Спасибо за внимание.`
+                `/r ${tag} Внимание.`,
+                `/r ${tag} Прошу прийти на плац.`,
+                `/r ${tag} Напомню, строй начнется в ${hour}:${minute} по МСК.`,
+                `/r ${tag} Касается это всего младшего состава.`,
+                `/r ${tag} Спасибо за внимание.`
             ], [0, 1700, 1700, 1700, 1700]);
             break;
         case "stroy2":
             sendMessagesWithDelay([
-                `/r [${RANK}] Внимание.*Повторяя*`,
-                `/r [${RANK}] Прошу прийти на плац.*Повторяя*`,
-                `/r [${RANK}] Напомню, строй начнется в ${hour}:${minute} по МСК.*Повторяя*`,
-                `/r [${RANK}] Касается это всего младшего состава.*Повторяя*`,
-                `/r [${RANK}] Спасибо за внимание.*Повторяя*`
+                `/r ${tag} Внимание.*Повторяя*`,
+                `/r ${tag} Прошу прийти на плац.*Повторяя*`,
+                `/r ${tag} Напомню, строй начнется в ${hour}:${minute} по МСК.*Повторяя*`,
+                `/r ${tag} Касается это всего младшего состава.*Повторяя*`,
+                `/r ${tag} Спасибо за внимание.*Повторяя*`
             ], [0, 1500, 1500, 1500, 1500]);
             break;
         case "ust1":
@@ -998,9 +1034,9 @@ window.showGiveLicenseDialog = (e) => {
     giveLicenseTo = e;
     currentMenu = null;
   
-    let availableTypes = licenseTypes;
-    if (skinId !== 15340) {
-        availableTypes = availableTypes.filter(t => t.id !== "omon");
+    let availableTypes = [];
+    if (mvdSkins.includes(skinId)) {
+        availableTypes.push({ name: "МВД", id: "mvd_main" });
     }
     shownLicenseTypes = availableTypes;
   
@@ -1011,12 +1047,12 @@ window.showGiveLicenseDialog = (e) => {
   
     window.addDialogInQueue(`[666,2,"АХК tg:denipels | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
-window.showMvdMenuPage = (e) => {
+window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
-    currentMenu = "mvd";
-    const menuList = getPaginatedMenu(mvdOptions);
+    currentMenu = "povsednev";
+    const menuList = getPaginatedMenu(povsednevOptions);
     window.addDialogInQueue(
-        `[667,2,"МВД (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        `[667,2,"Повседневная (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
         menuList,
         0
     );
@@ -1068,6 +1104,30 @@ window.showSpecialMenuPage = (e) => {
         0
     );
 };
+window.showMvdSubMenu = (e) => {
+    giveLicenseTo = e;
+    currentMenu = "mvd_sub";
+  
+    let availableSub = [
+        { name: "Повседневная", id: "povsednev" }
+    ];
+    if (stroyRanks.includes(RANK)) {
+        availableSub.push({ name: "Строй", id: "stroy" });
+    }
+    if (skinId === 15340) {
+        availableSub.push({ name: "ОМОН", id: "omon" });
+    }
+    availableSub.push({ name: trackingName, id: "tracking" });
+    availableSub.push({ name: autoCuffName, id: "autocuff" });
+    shownMvdSubTypes = availableSub;
+  
+    let licenseList = '';
+    availableSub.forEach((license, index) => {
+        licenseList += `${index + 1}. ${license.name}<n>`;
+    });
+  
+    window.addDialogInQueue(`[677,2,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
+};
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
     window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
@@ -1086,7 +1146,7 @@ window.showMinuteInputDialog = (e) => {
 };
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`Событие: ${event}, Аргументы:`, args);
-    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 676)) {
+    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 677)) {
         if (args[1] === 666) { // Главное меню
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
@@ -1096,17 +1156,17 @@ window.sendClientEventCustom = (event, ...args) => {
                 currentMenu = null;
             }
         }
-        else if (args[1] === 667) { // Меню МВД
+        else if (args[1] === 667) { // Меню Повседневная
             const optionIndex = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleMvdCommand(optionIndex);
+                HandlePovsednevCommand(optionIndex);
             }
         }
         else if (args[1] === 668) { // Диалог ввода ID
             const inputId = args[4];
             if (args[2] === 1 && giveLicenseTo !== -1 && currentAction) {
-                if (currentMenu === "mvd") {
-                    executeMvdAction(currentAction, inputId);
+                if (currentMenu === "povsednev") {
+                    executePovsednevAction(currentAction, inputId);
                 } else if (currentMenu === "omon") {
                     executeOmonAction(currentAction, inputId);
                 }
@@ -1119,6 +1179,9 @@ window.sendClientEventCustom = (event, ...args) => {
                 startTracking(inputId);
             } else {
                 stopTracking();
+                setTimeout(() => {
+                    showMvdSubMenu(giveLicenseTo);
+                }, 50);
             }
         }
         else if (args[1] === 670) { // Меню ОМОН
@@ -1171,6 +1234,12 @@ window.sendClientEventCustom = (event, ...args) => {
             currentStroyAction = null;
             tempHour = null;
         }
+        else if (args[1] === 677) { // Меню МВД sub
+            const listitem = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleMvdSubCommand(listitem);
+            }
+        }
     } else {
         window.sendClientEventHandle(event, ...args);
     }
@@ -1180,12 +1249,14 @@ window.sendChatInputCustom = e => {
     if (args[0] == "/dahk") {
         targetId = args[1];
         window.onChatMessage("AHK by Deni_Pels [tg:denipels] thanks to R.Shadow", "FFFFFF");
-        if (lastMenuType === "mvd") {
-            showMvdMenuPage(args[1]);
+        if (lastMenuType === "povsednev") {
+            showPovsednevMenuPage(args[1]);
         } else if (lastMenuType === "omon") {
             showOmonMenuPage(args[1]);
         } else if (lastMenuType === "stroy") {
             showStroyMenuPage(args[1]);
+        } else if (lastMenuType === "mvd_sub") {
+            showMvdSubMenu(args[1]);
         } else {
             showGiveLicenseDialog(args[1]);
         }
@@ -1198,8 +1269,8 @@ window.sendChatInputCustom = e => {
         currentPage = 0;
         stopTracking();
         autoCuffEnabled = false;
-        getLicenseById("tracking").name = `Отслеживание | {FF0000}Выкл`;
-        getLicenseById("autocuff").name = `Auto-cuff | {FF0000}Выкл`;
+        trackingName = `Отслеживание | {FF0000}Выкл`;
+        autoCuffName = `Auto-cuff | {FF0000}Выкл`;
         sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
