@@ -1027,7 +1027,7 @@ window.showGiveLicenseDialog = (e) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
   
-    window.addDialogInQueue(`[666,2,"АХК tg:denipels | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    window.addDialogInQueue(`[666,2,"АХК tg:ZaharKonst | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 window.showMvdMenuPage = (e) => {
     giveLicenseTo = e;
@@ -1197,7 +1197,7 @@ window.sendChatInputCustom = e => {
     const args = e.split(" ");
     if (args[0] == "/dahk") {
         targetId = args[1];
-        window.onChatMessage("AHK by Deni_Pels [tg:denipels] thanks to R.Shadow", "FFFFFF");
+        window.onChatMessage("AHK by  [tg:ZaharKonst] thanks to R.Shadow", "FFFFFF");
         if (lastMenuType === "mvd") {
             showMvdMenuPage(args[1]);
         } else if (lastMenuType === "omon") {
@@ -1232,3 +1232,4 @@ function sendMessagesWithDelay(messages, delays, index = 0) {
 }
 sendChatInput = sendChatInputCustom;
 sendClientEvent = sendClientEventCustom;
+
