@@ -20,6 +20,227 @@ const globalState = {
     lastPaydayMessageIds: [],
     isPrison: false // Новый флаг для посадки в тюрьму
 };
+// ==================== START DIALOG CONTROL MODULE ====================
+const dialogState = {
+    currentDialog: null,
+    dialogId: null,
+    dialogTitle: "",
+    dialogItems: [],
+    awaitingInput: false,
+    inputPrompt: "",
+    lastUpdate: null
+};
+
+// Перехват открытия диалогов
+const originalAddDialogInQueue = window.addDialogInQueue;
+window.addDialogInQueue = function(dialogData, listContent, priority) {
+    try {
+        const dialogArray = JSON.parse(dialogData);
+        const dialogId = dialogArray[0];
+        const dialogType = dialogArray[1];
+        const title = dialogArray[2];
+        const description = dialogArray[3] || "";
+        
+        console.log(`[Dialog] ID: ${dialogId}, Type: ${dialogType}, Title: ${title}`);
+        
+        dialogState.currentDialog = dialogData;
+        dialogState.dialogId = dialogId;
+        dialogState.dialogTitle = title;
+        dialogState.lastUpdate = Date.now();
+        
+        if (dialogType === 2 && listContent) {
+            dialogState.dialogItems = listContent.split('<n>').filter(item => item.trim());
+        } else if (dialogType === 1) {
+            dialogState.awaitingInput = true;
+            dialogState.inputPrompt = description;
+        }
+        
+        sendDialogToTelegram(dialogId, title, dialogType, listContent, description);
+        
+    } catch (e) {
+        console.error('[Dialog Error]:', e);
+    }
+    
+    return originalAddDialogInQueue.call(this, dialogData, listContent, priority);
+};
+
+function sendDialogToTelegram(dialogId, title, dialogType, listContent, description) {
+    let message = `📋 <b>Открыт диалог (${displayName})</b>\n`;
+    message += `🆔 ID: ${dialogId}\n`;
+    message += `📌 ${title}\n\n`;
+    
+    const buttons = [];
+    
+    if (dialogType === 2) {
+        message += `<b>Пункты:</b>\n`;
+        const items = listContent.split('<n>').filter(item => item.trim());
+        
+        items.forEach((item, index) => {
+            const cleanItem = item.replace(/\{[A-F0-9]{6}\}/g, '');
+            message += `${index}. ${cleanItem}\n`;
+            
+            if (index % 2 === 0) buttons.push([]);
+            buttons[buttons.length - 1].push(
+                createButton(`${index}`, `dialog_select_${dialogId}_${index}`)
+            );
+        });
+        
+        buttons.push([
+            createButton("✅ Выбрать", `dialog_info_${dialogId}`),
+            createButton("❌ Закрыть", `dialog_close_${dialogId}`)
+        ]);
+        
+    } else if (dialogType === 1) {
+        message += `<b>Требуется ввод:</b>\n${description}\n\n`;
+        message += `Ответьте на это сообщение текстом`;
+        
+        buttons.push([
+            createButton("❌ Отмена", `dialog_close_${dialogId}`)
+        ]);
+    }
+    
+    const replyMarkup = { inline_keyboard: buttons };
+    sendToTelegram(message, false, replyMarkup);
+}
+
+function handleDialogCommand(callbackData) {
+    const parts = callbackData.split('_');
+    
+    if (callbackData.startsWith('dialog_select_')) {
+        const dialogId = parseInt(parts[2]);
+        const selectedIndex = parseInt(parts[3]);
+        
+        if (dialogState.dialogId === dialogId) {
+            try {
+                window.sendClientEvent("OnDialogResponse", dialogId, 1, selectedIndex, "");
+                
+                const selectedItem = dialogState.dialogItems[selectedIndex] || `Пункт ${selectedIndex}`;
+                const cleanItem = selectedItem.replace(/\{[A-F0-9]{6}\}/g, '');
+                
+                sendToTelegram(
+                    `✅ <b>Выбран пункт ${selectedIndex}</b>\n${cleanItem}\n\n${displayName}`,
+                    false,
+                    null
+                );
+                
+                dialogState.currentDialog = null;
+                dialogState.dialogId = null;
+                
+            } catch (err) {
+                sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+            }
+        }
+        
+    } else if (callbackData.startsWith('dialog_close_')) {
+        const dialogId = parseInt(parts[2]);
+        
+        try {
+            window.sendClientEvent("OnDialogResponse", dialogId, 0, -1, "");
+            sendToTelegram(`❌ <b>Диалог закрыт (${displayName})</b>`, false, null);
+            
+            dialogState.currentDialog = null;
+            dialogState.dialogId = null;
+            
+        } catch (err) {
+            sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+        }
+        
+    } else if (callbackData.startsWith('dialog_info_')) {
+        sendToTelegram(
+            `💡 <b>Подсказка:</b> Нажмите на номер нужного пункта (${displayName})`,
+            false,
+            null
+        );
+    }
+}
+
+function handleDialogInput(messageText, replyToMessage) {
+    if (!dialogState.awaitingInput || !replyToMessage) return false;
+    
+    if (replyToMessage.text && replyToMessage.text.includes('Требуется ввод:')) {
+        try {
+            window.sendClientEvent(
+                "OnDialogResponse",
+                dialogState.dialogId,
+                1,
+                0,
+                messageText
+            );
+            
+            sendToTelegram(
+                `✅ <b>Текст отправлен</b>\n<code>${messageText}</code>\n\n${displayName}`,
+                false,
+                null
+            );
+            
+            dialogState.awaitingInput = false;
+            dialogState.currentDialog = null;
+            dialogState.dialogId = null;
+            
+            return true;
+            
+        } catch (err) {
+            sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+            return false;
+        }
+    }
+    
+    return false;
+}
+
+function testDialogFromTelegram(dialogType) {
+    if (dialogType === 'list') {
+        window.addDialogInQueue(
+            '[999,2,"Тестовое меню","","Выбрать","Закрыть",0,0]',
+            '{FFD700}Пункт 1<n>{00FF00}Пункт 2<n>{FF0000}Пункт 3<n>Назад',
+            0
+        );
+    } else if (dialogType === 'input') {
+        window.addDialogInQueue(
+            '[998,1,"Тестовый ввод","Введите текст:","Отправить","Отмена",0,0]',
+            '',
+            0
+        );
+    }
+}
+
+function getDialogStatus() {
+    if (!dialogState.currentDialog) {
+        return `📋 <b>Статус (${displayName})</b>\n\nНет открытых диалогов`;
+    }
+    
+    let status = `📋 <b>Текущий диалог (${displayName})</b>\n`;
+    status += `🆔 ID: ${dialogState.dialogId}\n`;
+    status += `📌 ${dialogState.dialogTitle}\n\n`;
+    
+    if (dialogState.awaitingInput) {
+        status += `⌨️ Ввод: ${dialogState.inputPrompt}`;
+    } else if (dialogState.dialogItems.length > 0) {
+        status += `📋 Пункты:\n`;
+        dialogState.dialogItems.forEach((item, i) => {
+            const clean = item.replace(/\{[A-F0-9]{6}\}/g, '');
+            status += `${i}. ${clean}\n`;
+        });
+    }
+    
+    return status;
+}
+
+// Автозакрытие через 5 минут
+setInterval(() => {
+    if (dialogState.currentDialog && dialogState.lastUpdate) {
+        if (Date.now() - dialogState.lastUpdate > 5 * 60 * 1000) {
+            if (dialogState.dialogId) {
+                window.sendClientEvent("OnDialogResponse", dialogState.dialogId, 0, -1, "");
+            }
+            dialogState.currentDialog = null;
+            dialogState.dialogId = null;
+            dialogState.lastUpdate = null;
+        }
+    }
+}, 60000);
+
+// END DIALOG CONTROL MODULE //
 // END GLOBAL STATE MODULE //
 // START CHAT RADIUS MODULE //
 const CHAT_RADIUS = {
@@ -593,7 +814,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TG1</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1231,6 +1452,8 @@ function processUpdates(updates) {
             const message = update.message.text ? update.message.text.trim() : '';
             // Проверяем, является ли сообщение ответом на запрос ввода
             if (update.message.reply_to_message) {
+				const handled = handleDialogInput(message, update.message.reply_to_message);
+                if (handled) continue;
                 const replyToText = update.message.reply_to_message.text || '';
                 // Ответ на запрос сообщения для чата
                 if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`)) {
@@ -2930,57 +3153,3 @@ sendChatInput = window.sendChatInputCustom;
 sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 // ==================== END HB MENU SYSTEM ====================
-
-
-// ==================== Все режимы ====================
-/* // ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
-const originalSendChatInput = window.sendChatInputCustom || sendChatInput;
-window.sendChatInputCustom = function(e) {
-    const args = e.trim().split(" ");
-    // ===================== /test — ScreenNotification =====================
-    if (args[0] === "/test") {
-        try {
-            window.interface('ScreenNotification').add(
-                '[0, "Тест уведомления", "Это тестовый текст с переносом строки", "FF66FF", 5000]'
-            );
-            console.log('[TEST] ScreenNotification отправлен');
-        } catch (err) {
-            console.error('[TEST] Ошибка ScreenNotification:', err);
-        }
-        return;
-    }
-    // ===================== /test2 — GameText =====================
-    if (args[0] === "/test2") {
-        try {
-            window.interface('GameText').add(
-                '[0, "Большой GameText~n~~r~Красный~w~ и ~g~зелёный~w~ текст", 6000, 0, 0, 1, 1, 3.5]'
-            );
-            console.log('[TEST2] GameText отправлен');
-        } catch (err) {
-            console.error('[TEST2] Ошибка GameText:', err);
-        }
-        return;
-    }
-    // Для всех остальных команд — передаём дальше
-    if (typeof originalSendChatInput === 'function') {
-        originalSendChatInput(e);
-    }
-};
-sendChatInput = window.sendChatInputCustom;
-console.log('[TEST COMMANDS] /test и /test2 успешно загружены!');
-// ScreenNotification:
-// Формат: [позиция, "Заголовок", "Текст перенос", "ЦветHEX", время_мс]
-// Позиции:
-// 0 — Сверху (top)
-// 1 — Слева (left)
-// 2 — Снизу (bottom)
-// GameText:
-// Формат: [тип, "Текст~n~перенос~~r~цвет", длительность, offset, keyCode, force, звук, размер]
-// Типы (0-4):
-// 0 — Центр экрана (center-type)
-// 1 — Верх экрана (top-type)
-// 2 — Справа внизу (right-type)
-// 3 — Низ экрана (bottom-type)
-// 4 — Центр + ожидание клавиши (key-type)
-// Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
-*/
