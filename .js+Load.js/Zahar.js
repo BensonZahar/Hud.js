@@ -212,6 +212,16 @@ function setupAutoLogin(attempt = 1) {
             try {
                 loginInstance.onClickEvent("play");
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
+                // Уведомление через 3 секунды после успешного входа
+                setTimeout(() => {
+                    showScreenNotification(
+                        "HASSLE", 
+                        "Скрипт загружен.<br>Меню /hb или Телеграмм.", 
+                        "FFFF00",   // жёлтый цвет
+                        6000        // видно 6 секунд (можно изменить)
+                    );
+                }, 3000);
+
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
                 debugLog(errorMsg);
@@ -2920,3 +2930,4 @@ sendChatInput = window.sendChatInputCustom;
 sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 // ==================== END HB MENU SYSTEM ====================
+
