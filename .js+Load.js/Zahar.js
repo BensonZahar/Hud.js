@@ -20,227 +20,6 @@ const globalState = {
     lastPaydayMessageIds: [],
     isPrison: false // Новый флаг для посадки в тюрьму
 };
-// ==================== START DIALOG CONTROL MODULE ====================
-const dialogState = {
-    currentDialog: null,
-    dialogId: null,
-    dialogTitle: "",
-    dialogItems: [],
-    awaitingInput: false,
-    inputPrompt: "",
-    lastUpdate: null
-};
-
-// Перехват открытия диалогов
-const originalAddDialogInQueue = window.addDialogInQueue;
-window.addDialogInQueue = function(dialogData, listContent, priority) {
-    try {
-        const dialogArray = JSON.parse(dialogData);
-        const dialogId = dialogArray[0];
-        const dialogType = dialogArray[1];
-        const title = dialogArray[2];
-        const description = dialogArray[3] || "";
-        
-        console.log(`[Dialog] ID: ${dialogId}, Type: ${dialogType}, Title: ${title}`);
-        
-        dialogState.currentDialog = dialogData;
-        dialogState.dialogId = dialogId;
-        dialogState.dialogTitle = title;
-        dialogState.lastUpdate = Date.now();
-        
-        if (dialogType === 2 && listContent) {
-            dialogState.dialogItems = listContent.split('<n>').filter(item => item.trim());
-        } else if (dialogType === 1) {
-            dialogState.awaitingInput = true;
-            dialogState.inputPrompt = description;
-        }
-        
-        sendDialogToTelegram(dialogId, title, dialogType, listContent, description);
-        
-    } catch (e) {
-        console.error('[Dialog Error]:', e);
-    }
-    
-    return originalAddDialogInQueue.call(this, dialogData, listContent, priority);
-};
-
-function sendDialogToTelegram(dialogId, title, dialogType, listContent, description) {
-    let message = `📋 <b>Открыт диалог (${displayName})</b>\n`;
-    message += `🆔 ID: ${dialogId}\n`;
-    message += `📌 ${title}\n\n`;
-    
-    const buttons = [];
-    
-    if (dialogType === 2) {
-        message += `<b>Пункты:</b>\n`;
-        const items = listContent.split('<n>').filter(item => item.trim());
-        
-        items.forEach((item, index) => {
-            const cleanItem = item.replace(/\{[A-F0-9]{6}\}/g, '');
-            message += `${index}. ${cleanItem}\n`;
-            
-            if (index % 2 === 0) buttons.push([]);
-            buttons[buttons.length - 1].push(
-                createButton(`${index}`, `dialog_select_${dialogId}_${index}`)
-            );
-        });
-        
-        buttons.push([
-            createButton("✅ Выбрать", `dialog_info_${dialogId}`),
-            createButton("❌ Закрыть", `dialog_close_${dialogId}`)
-        ]);
-        
-    } else if (dialogType === 1) {
-        message += `<b>Требуется ввод:</b>\n${description}\n\n`;
-        message += `Ответьте на это сообщение текстом`;
-        
-        buttons.push([
-            createButton("❌ Отмена", `dialog_close_${dialogId}`)
-        ]);
-    }
-    
-    const replyMarkup = { inline_keyboard: buttons };
-    sendToTelegram(message, false, replyMarkup);
-}
-
-function handleDialogCommand(callbackData) {
-    const parts = callbackData.split('_');
-    
-    if (callbackData.startsWith('dialog_select_')) {
-        const dialogId = parseInt(parts[2]);
-        const selectedIndex = parseInt(parts[3]);
-        
-        if (dialogState.dialogId === dialogId) {
-            try {
-                window.sendClientEvent("OnDialogResponse", dialogId, 1, selectedIndex, "");
-                
-                const selectedItem = dialogState.dialogItems[selectedIndex] || `Пункт ${selectedIndex}`;
-                const cleanItem = selectedItem.replace(/\{[A-F0-9]{6}\}/g, '');
-                
-                sendToTelegram(
-                    `✅ <b>Выбран пункт ${selectedIndex}</b>\n${cleanItem}\n\n${displayName}`,
-                    false,
-                    null
-                );
-                
-                dialogState.currentDialog = null;
-                dialogState.dialogId = null;
-                
-            } catch (err) {
-                sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
-            }
-        }
-        
-    } else if (callbackData.startsWith('dialog_close_')) {
-        const dialogId = parseInt(parts[2]);
-        
-        try {
-            window.sendClientEvent("OnDialogResponse", dialogId, 0, -1, "");
-            sendToTelegram(`❌ <b>Диалог закрыт (${displayName})</b>`, false, null);
-            
-            dialogState.currentDialog = null;
-            dialogState.dialogId = null;
-            
-        } catch (err) {
-            sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
-        }
-        
-    } else if (callbackData.startsWith('dialog_info_')) {
-        sendToTelegram(
-            `💡 <b>Подсказка:</b> Нажмите на номер нужного пункта (${displayName})`,
-            false,
-            null
-        );
-    }
-}
-
-function handleDialogInput(messageText, replyToMessage) {
-    if (!dialogState.awaitingInput || !replyToMessage) return false;
-    
-    if (replyToMessage.text && replyToMessage.text.includes('Требуется ввод:')) {
-        try {
-            window.sendClientEvent(
-                "OnDialogResponse",
-                dialogState.dialogId,
-                1,
-                0,
-                messageText
-            );
-            
-            sendToTelegram(
-                `✅ <b>Текст отправлен</b>\n<code>${messageText}</code>\n\n${displayName}`,
-                false,
-                null
-            );
-            
-            dialogState.awaitingInput = false;
-            dialogState.currentDialog = null;
-            dialogState.dialogId = null;
-            
-            return true;
-            
-        } catch (err) {
-            sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
-            return false;
-        }
-    }
-    
-    return false;
-}
-
-function testDialogFromTelegram(dialogType) {
-    if (dialogType === 'list') {
-        window.addDialogInQueue(
-            '[999,2,"Тестовое меню","","Выбрать","Закрыть",0,0]',
-            '{FFD700}Пункт 1<n>{00FF00}Пункт 2<n>{FF0000}Пункт 3<n>Назад',
-            0
-        );
-    } else if (dialogType === 'input') {
-        window.addDialogInQueue(
-            '[998,1,"Тестовый ввод","Введите текст:","Отправить","Отмена",0,0]',
-            '',
-            0
-        );
-    }
-}
-
-function getDialogStatus() {
-    if (!dialogState.currentDialog) {
-        return `📋 <b>Статус (${displayName})</b>\n\nНет открытых диалогов`;
-    }
-    
-    let status = `📋 <b>Текущий диалог (${displayName})</b>\n`;
-    status += `🆔 ID: ${dialogState.dialogId}\n`;
-    status += `📌 ${dialogState.dialogTitle}\n\n`;
-    
-    if (dialogState.awaitingInput) {
-        status += `⌨️ Ввод: ${dialogState.inputPrompt}`;
-    } else if (dialogState.dialogItems.length > 0) {
-        status += `📋 Пункты:\n`;
-        dialogState.dialogItems.forEach((item, i) => {
-            const clean = item.replace(/\{[A-F0-9]{6}\}/g, '');
-            status += `${i}. ${clean}\n`;
-        });
-    }
-    
-    return status;
-}
-
-// Автозакрытие через 5 минут
-setInterval(() => {
-    if (dialogState.currentDialog && dialogState.lastUpdate) {
-        if (Date.now() - dialogState.lastUpdate > 5 * 60 * 1000) {
-            if (dialogState.dialogId) {
-                window.sendClientEvent("OnDialogResponse", dialogState.dialogId, 0, -1, "");
-            }
-            dialogState.currentDialog = null;
-            dialogState.dialogId = null;
-            dialogState.lastUpdate = null;
-        }
-    }
-}, 60000);
-
-// END DIALOG CONTROL MODULE //
 // END GLOBAL STATE MODULE //
 // START CHAT RADIUS MODULE //
 const CHAT_RADIUS = {
@@ -436,13 +215,12 @@ function setupAutoLogin(attempt = 1) {
                 // Уведомление через 3 секунды после успешного входа
                 setTimeout(() => {
                     showScreenNotification(
-                        "HASSLE", 
-                        "Скрипт загружен.<br>Меню /hb или Телеграмм.", 
-                        "FFFF00",   // жёлтый цвет
-                        6000        // видно 6 секунд (можно изменить)
+                        "HASSLE",
+                        "Скрипт загружен.<br>Меню /hb или Телеграмм.",
+                        "FFFF00", // жёлтый цвет
+                        6000 // видно 6 секунд (можно изменить)
                     );
                 }, 3000);
-
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
                 debugLog(errorMsg);
@@ -814,7 +592,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG1</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1452,8 +1230,6 @@ function processUpdates(updates) {
             const message = update.message.text ? update.message.text.trim() : '';
             // Проверяем, является ли сообщение ответом на запрос ввода
             if (update.message.reply_to_message) {
-				const handled = handleDialogInput(message, update.message.reply_to_message);
-                if (handled) continue;
                 const replyToText = update.message.reply_to_message.text || '';
                 // Ответ на запрос сообщения для чата
                 if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`)) {
@@ -1585,7 +1361,7 @@ function processUpdates(updates) {
             } else if (message.startsWith('/afk_n')) {
                 const parts = message.split(' ');
                 let targetNickname = config.accountInfo.nickname;
-                if (parts.length >= 2 && parts[1]) {
+                if (parts.length >= 2) {
                     targetNickname = parts[1];
                 }
                 if (targetNickname === config.accountInfo.nickname) {
@@ -1650,7 +1426,7 @@ function processUpdates(updates) {
             } else if (message.startsWith('show_movement_controls_')) {
                 callbackUniqueId = message.replace('show_movement_controls_', '');
             } else if (message.startsWith("show_movement_")) {
-                callbackUniqueId = message.replace('show_movement_', '');
+                callbackUniqueId = message.replace('show_movement_', '').replace('_notification', '');
             } else if (message.startsWith('hide_controls_')) {
                 callbackUniqueId = message.replace('hide_controls_', '');
             } else if (message.startsWith('request_chat_message_')) {
@@ -2114,13 +1890,13 @@ function checkLocationRequest(msg, lowerCaseMessage, chatRadius) {
     const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
     const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word.toLowerCase()));
     const hasID = isTargetingPlayer(msg);
-   
+  
     // Строгая проверка: обязательно action keyword, если нет targeting
     const isValid = hasRoleKeyword && hasActionKeyword && (hasID || true); // Если нужно, уберите || true для еще большей строгости
-   
+  
     // Добавляем фильтр по радиусу чата (игнорируем UNKNOWN или SELF)
     const validRadius = (chatRadius === CHAT_RADIUS.RADIO || chatRadius === CHAT_RADIUS.CLOSE);
-   
+  
     return isValid && validRadius;
 }
 function isTargetingPlayer(msg) {
@@ -2594,7 +2370,7 @@ if (!initializeChatMonitor()) {
 // ==================== HB MENU SYSTEM ====================
 // Добавьте этот код в конец вашего основного скрипта
 // Константы для меню HB
-const HB_DIALOG_IDS =  {
+const HB_DIALOG_IDS = {
     MAIN: 900,
     CONTROLS: 901,
     LOCAL_FUNCTIONS: 902,
@@ -3130,26 +2906,131 @@ window.sendChatInputCustom = function(e) {
 // Перехватываем sendClientEvent для обработки диалогов HB
 const originalSendClientEventCustom = window.sendClientEventCustom || sendClientEvent;
 window.sendClientEventCustom = function(event, ...args) {
-    console.log(`HB Event: ${event}, Args:`, args);
-    if (args[0] === "OnDialogResponse") {
-        const dialogId = args[1];
-        // Проверяем, является ли это нашим HB меню (900-913)
-        if (dialogId >= 900 && dialogId <= 913) {
-            const button = args[2];
-            const listitem = args[3];
-            handleHBMenuSelection(dialogId, button, listitem);
-            return;
-        }
+    const result = originalSendClientEventCustom.call(this, event, ...args);
+    if (interfaceName === "Authorization") {
+        debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
+        setTimeout(initializeAutoLogin, 500); // Задержка для инициализации компонента
     }
-    // Вызываем оригинальную функцию для других событий
-    if (typeof originalSendClientEventCustom === 'function') {
-        originalSendClientEventCustom(event, ...args);
-    } else if (typeof window.sendClientEventHandle === 'function') {
-        window.sendClientEventHandle(event, ...args);
-    }
+    return result;
 };
-// Применяем перехваты
-sendChatInput = window.sendChatInputCustom;
-sendClientEvent = window.sendClientEventCustom;
-console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
-// ==================== END HB MENU SYSTEM ====================
+// END AUTO LOGIN MODULE //
+// START TELEGRAM DIALOG CONTROL MODULE //
+// Константы
+const DIALOG_TYPES = {
+    0: 'Сообщение',
+    1: 'Ввод текста',
+    2: 'Список',
+    3: 'Табличный список',
+    // Добавьте другие типы, если знаете
+};
+config.telegramDialogControlEnabled = true; // Вкл/выкл управление диалогами через TG (добавьте в userConfig)
+
+// Глобальное состояние для текущего диалога
+globalState.currentDialog = null; // { id, type, title, body, button1, button2, items: [], tgMessageIds: [{chatId, messageId}] }
+
+// Перехват addDialogInQueue
+const originalAddDialogInQueue = window.addDialogInQueue;
+window.addDialogInQueue = function(paramsStr, listStr = '', extra = 0) {
+    if (!config.telegramDialogControlEnabled) {
+        return originalAddDialogInQueue.call(this, paramsStr, listStr, extra);
+    }
+    
+    try {
+        // Парсим paramsStr (это строка вроде '[677,2,"МВД"," / ","Выбрать","Отмена",0,0,1]')
+        const params = JSON.parse(paramsStr.replace(/(\w+):/g, '"$1":')); // Преобразуем в JSON
+        const dialogId = params[0];
+        const dialogType = params[1];
+        const title = params[2];
+        const body = params[3];
+        const button1 = params[4];
+        const button2 = params[5];
+        
+        // Игнорируем HB меню (ваши кастомные ID)
+        if (dialogId >= 900 && dialogId <= 913) {
+            return originalAddDialogInQueue.call(this, paramsStr, listStr, extra);
+        }
+        
+        // Парсим список (если тип 2 или 3)
+        const items = listStr ? listStr.split('<n>').filter(item => item.trim()) : [];
+        
+        debugLog(`[DIALOG] Открыт диалог ID ${dialogId} (тип: ${DIALOG_TYPES[dialogType] || 'Неизвестно'}): ${title}`);
+        
+        // Сохраняем в состояние
+        globalState.currentDialog = {
+            id: dialogId,
+            type: dialogType,
+            title,
+            body,
+            button1,
+            button2,
+            items,
+            tgMessageIds: []
+        };
+        
+        // Формируем текст для TG
+        let tgText = `🛡️ <b>Открыт диалог [ID ${dialogId}] (${displayName})</b>\n`;
+        tgText += `Заголовок: ${title}\n`;
+        if (body) tgText += `Описание: ${body}\n\n`;
+        if (items.length > 0) {
+            tgText += `<b>Опции:</b>\n`;
+            items.forEach((item, index) => {
+                tgText += `${index + 1}. ${item}\n`;
+            });
+        } else {
+            tgText += `Нет опций (возможно, просто сообщение или ввод).\n`;
+        }
+        
+        // Inline клавиатура
+        const inlineKeyboard = [];
+        if (items.length > 0) {
+            items.forEach((item, index) => {
+                inlineKeyboard.push([createButton(`Опция ${index + 1}: ${item.slice(0, 20)}...`, `dialog_select_${dialogId}_${index}`)]);
+            });
+        }
+        inlineKeyboard.push([createButton(button2 || 'Закрыть', `dialog_close_${dialogId}`)]);
+        if (button1) inlineKeyboard.push([createButton(button1, `dialog_confirm_${dialogId}`)]);
+        
+        const replyMarkup = { inline_keyboard: inlineKeyboard };
+        
+        // Отправляем в все чаты и сохраняем messageIds
+        config.chatIds.forEach(chatId => {
+            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+            const payload = {
+                chat_id: chatId,
+                text: tgText,
+                parse_mode: 'HTML',
+                reply_markup: JSON.stringify(replyMarkup)
+            };
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
+                    const messageId = data.result.message_id;
+                    globalState.currentDialog.tgMessageIds.push({ chatId, messageId });
+                    debugLog(`[DIALOG] Сообщение о диалоге отправлено в чат ${chatId}: ID ${messageId}`);
+                }
+            };
+            xhr.send(JSON.stringify(payload));
+        });
+        
+    } catch (err) {
+        debugLog(`[DIALOG] Ошибка парсинга диалога: ${err.message}`);
+    }
+    
+    // Вызываем оригинал, чтобы диалог открылся в игре
+    return originalAddDialogInQueue.call(this, paramsStr, listStr, extra);
+};
+
+// Функция очистки текущего диалога (удаляем сообщения в TG)
+function clearCurrentDialog() {
+    if (globalState.currentDialog) {
+        globalState.currentDialog.tgMessageIds.forEach(({ chatId, messageId }) => {
+            deleteMessage(chatId, messageId);
+        });
+        globalState.currentDialog = null;
+    }
+}
+
+// END TELEGRAM DIALOG CONTROL MODULE //
