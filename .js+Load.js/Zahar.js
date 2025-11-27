@@ -160,7 +160,7 @@ const serverTokens = SERVER_TOKENS;
 const defaultToken = DEFAULT_TOKEN;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
-const reconnectionCommand = config.autoReconnectEnabled ? "/rec 5" : "/q";
+const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
@@ -215,12 +215,13 @@ function setupAutoLogin(attempt = 1) {
                 // Уведомление через 3 секунды после успешного входа
                 setTimeout(() => {
                     showScreenNotification(
-                        "HASSLE",
-                        "Скрипт загружен.<br>Меню /hb или Телеграмм.",
-                        "FFFF00", // жёлтый цвет
-                        6000 // видно 6 секунд (можно изменить)
+                        "HASSLE", 
+                        "Скрипт загружен.<br>Меню /hb или Телеграмм.", 
+                        "FFFF00",   // жёлтый цвет
+                        6000        // видно 6 секунд (можно изменить)
                     );
                 }, 3000);
+
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
                 debugLog(errorMsg);
@@ -592,7 +593,6 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const reconnectStatus = config.autoReconnectEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ';
     const message = `🟢 <b>Hassle | Bot TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
@@ -601,8 +601,7 @@ function sendWelcomeMessage() {
         `├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Уведомления рации: ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `├ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `└ Реконнект: ${reconnectStatus}`;
+        `└ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
     const replyMarkup = {
         inline_keyboard: [
             [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
@@ -927,27 +926,11 @@ function showControlsMenu(chatId, messageId) {
         sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
         return;
     }
-    let inlineKeyboard = [
-        [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
-        [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
-    ];
-    if (RECONNECT_ENABLED_DEFAULT) {
-        inlineKeyboard.push([createButton("🔄 Реконнект", `show_reconnect_options_${uniqueId}`)]);
-    }
-    inlineKeyboard.push([createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]);
-    const replyMarkup = {
-        inline_keyboard: inlineKeyboard
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
-}
-function showReconnectOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
-            [
-                createButton("🟢 ВКЛ", `reconnect_on_${uniqueIdParam}`),
-                createButton("🔴 ВЫКЛ", `reconnect_off_${uniqueIdParam}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]
+            [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
+            [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
+            [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -1435,10 +1418,7 @@ function processUpdates(updates) {
                 message.startsWith('show_radio_options_') ||
                 message.startsWith('show_warning_options_') ||
                 message.startsWith('show_global_functions_') ||
-                message.startsWith('levelup_reconnect_') ||
-                message.startsWith('reconnect_on_') ||
-                message.startsWith('reconnect_off_') ||
-                message.startsWith('show_reconnect_options_');
+                message.startsWith('levelup_reconnect_');
             let callbackUniqueId = null;
             if (message.startsWith('show_controls_')) {
                 callbackUniqueId = message.replace('show_controls_', '');
@@ -1572,21 +1552,6 @@ function processUpdates(updates) {
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
                 showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
-            } else if (message.startsWith('show_reconnect_options_')) {
-                callbackUniqueId = message.replace('show_reconnect_options_', '');
-                showReconnectOptionsMenu(chatId, messageId, callbackUniqueId);
-            } else if (message.startsWith('reconnect_on_')) {
-                callbackUniqueId = message.replace('reconnect_on_', '');
-                config.autoReconnectEnabled = true;
-                sendToTelegram(`🔄 <b>Реконнект включен для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
-                showControlsMenu(chatId, messageId);
-            } else if (message.startsWith('reconnect_off_')) {
-                callbackUniqueId = message.replace('reconnect_off_', '');
-                config.autoReconnectEnabled = false;
-                sendToTelegram(`🔄 <b>Реконнект отключен для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
-                showControlsMenu(chatId, messageId);
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -1926,13 +1891,13 @@ function checkLocationRequest(msg, lowerCaseMessage, chatRadius) {
     const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
     const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word.toLowerCase()));
     const hasID = isTargetingPlayer(msg);
-  
+   
     // Строгая проверка: обязательно action keyword, если нет targeting
     const isValid = hasRoleKeyword && hasActionKeyword && (hasID || true); // Если нужно, уберите || true для еще большей строгости
-  
+   
     // Добавляем фильтр по радиусу чата (игнорируем UNKNOWN или SELF)
     const validRadius = (chatRadius === CHAT_RADIUS.RADIO || chatRadius === CHAT_RADIUS.CLOSE);
-  
+   
     return isValid && validRadius;
 }
 function isTargetingPlayer(msg) {
@@ -2058,7 +2023,7 @@ function initializeChatMonitor() {
     }
     if (typeof window.playSound === 'undefined') {
         debugLog('Функция playSound не найдена, создаем свою');
-        window.playSound = function(url, loop, loop, volume) {
+        window.playSound = function(url, loop, volume) {
             const audio = new Audio(url);
             audio.loop = loop || false;
             audio.volume = volume || 1.0;
@@ -2406,7 +2371,7 @@ if (!initializeChatMonitor()) {
 // ==================== HB MENU SYSTEM ====================
 // Добавьте этот код в конец вашего основного скрипта
 // Константы для меню HB
-const HB_DIALOG_IDS = {
+const HB_DIALOG_IDS =  {
     MAIN: 900,
     CONTROLS: 901,
     LOCAL_FUNCTIONS: 902,
@@ -2625,7 +2590,7 @@ function showHBAFKRestartMenu(selectedMode) {
         menuList += `${item.name}<n>`;
     });
     window.addDialogInQueue(
-        `[${HB_DIALOG_IDS.AFK_RESTART},2,"{00BFFF}AFK Ночь - Действие после перезагрузки сервера","","Выбрать","Закрыть",0,0]`,
+        `[${HB_DIALOG_IDS.AFK_RESTART},2,"{00BFFF}AFK Ночь - Действие","","Выбрать","Закрыть",0,0]`,
         menuList,
         0
     );
@@ -2965,6 +2930,9 @@ sendChatInput = window.sendChatInputCustom;
 sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 // ==================== END HB MENU SYSTEM ====================
+
+
+// ==================== Все режимы ====================
 /* // ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
 const originalSendChatInput = window.sendChatInputCustom || sendChatInput;
 window.sendChatInputCustom = function(e) {
