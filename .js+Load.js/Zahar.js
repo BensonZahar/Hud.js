@@ -160,7 +160,7 @@ const serverTokens = SERVER_TOKENS;
 const defaultToken = DEFAULT_TOKEN;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
-const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
+const reconnectionCommand = config.autoReconnectEnabled ? "/rec 5" : "/q";
 // END CONFIG MODULE //
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
@@ -592,6 +592,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
+    const reconnectStatus = config.autoReconnectEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ';
     const message = `🟢 <b>Hassle | Bot TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
@@ -600,7 +601,8 @@ function sendWelcomeMessage() {
         `├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Уведомления рации: ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `└ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
+        `├ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `└ Реконнект: ${reconnectStatus}`;
     const replyMarkup = {
         inline_keyboard: [
             [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
@@ -925,11 +927,27 @@ function showControlsMenu(chatId, messageId) {
         sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
         return;
     }
+    let inlineKeyboard = [
+        [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
+        [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
+    ];
+    if (RECONNECT_ENABLED_DEFAULT) {
+        inlineKeyboard.push([createButton("🔄 Реконнект", `show_reconnect_options_${uniqueId}`)]);
+    }
+    inlineKeyboard.push([createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]);
+    const replyMarkup = {
+        inline_keyboard: inlineKeyboard
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+function showReconnectOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
-            [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
-            [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
-            [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
+            [
+                createButton("🟢 ВКЛ", `reconnect_on_${uniqueIdParam}`),
+                createButton("🔴 ВЫКЛ", `reconnect_off_${uniqueIdParam}`)
+            ],
+            [createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -1361,7 +1379,7 @@ function processUpdates(updates) {
             } else if (message.startsWith('/afk_n')) {
                 const parts = message.split(' ');
                 let targetNickname = config.accountInfo.nickname;
-                if (parts.length >= 2) {
+                if (parts.length >= 2 && parts[1]) {
                     targetNickname = parts[1];
                 }
                 if (targetNickname === config.accountInfo.nickname) {
@@ -1417,7 +1435,10 @@ function processUpdates(updates) {
                 message.startsWith('show_radio_options_') ||
                 message.startsWith('show_warning_options_') ||
                 message.startsWith('show_global_functions_') ||
-                message.startsWith('levelup_reconnect_');
+                message.startsWith('levelup_reconnect_') ||
+                message.startsWith('reconnect_on_') ||
+                message.startsWith('reconnect_off_') ||
+                message.startsWith('show_reconnect_options_');
             let callbackUniqueId = null;
             if (message.startsWith('show_controls_')) {
                 callbackUniqueId = message.replace('show_controls_', '');
@@ -1426,7 +1447,7 @@ function processUpdates(updates) {
             } else if (message.startsWith('show_movement_controls_')) {
                 callbackUniqueId = message.replace('show_movement_controls_', '');
             } else if (message.startsWith("show_movement_")) {
-                callbackUniqueId = message.replace('show_movement_', '').replace('_notification', '');
+                callbackUniqueId = message.replace('show_movement_', '');
             } else if (message.startsWith('hide_controls_')) {
                 callbackUniqueId = message.replace('hide_controls_', '');
             } else if (message.startsWith('request_chat_message_')) {
@@ -1551,6 +1572,21 @@ function processUpdates(updates) {
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
                 showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
+            } else if (message.startsWith('show_reconnect_options_')) {
+                callbackUniqueId = message.replace('show_reconnect_options_', '');
+                showReconnectOptionsMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith('reconnect_on_')) {
+                callbackUniqueId = message.replace('reconnect_on_', '');
+                config.autoReconnectEnabled = true;
+                sendToTelegram(`🔄 <b>Реконнект включен для всех аккаунтов</b>`, false, null);
+                sendWelcomeMessage();
+                showControlsMenu(chatId, messageId);
+            } else if (message.startsWith('reconnect_off_')) {
+                callbackUniqueId = message.replace('reconnect_off_', '');
+                config.autoReconnectEnabled = false;
+                sendToTelegram(`🔄 <b>Реконнект отключен для всех аккаунтов</b>`, false, null);
+                sendWelcomeMessage();
+                showControlsMenu(chatId, messageId);
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -2022,7 +2058,7 @@ function initializeChatMonitor() {
     }
     if (typeof window.playSound === 'undefined') {
         debugLog('Функция playSound не найдена, создаем свою');
-        window.playSound = function(url, loop, volume) {
+        window.playSound = function(url, loop, loop, volume) {
             const audio = new Audio(url);
             audio.loop = loop || false;
             audio.volume = volume || 1.0;
@@ -2589,7 +2625,7 @@ function showHBAFKRestartMenu(selectedMode) {
         menuList += `${item.name}<n>`;
     });
     window.addDialogInQueue(
-        `[${HB_DIALOG_IDS.AFK_RESTART},2,"{00BFFF}AFK Ночь - Действие","","Выбрать","Закрыть",0,0]`,
+        `[${HB_DIALOG_IDS.AFK_RESTART},2,"{00BFFF}AFK Ночь - Действие после перезагрузки сервера","","Выбрать","Закрыть",0,0]`,
         menuList,
         0
     );
@@ -2906,131 +2942,77 @@ window.sendChatInputCustom = function(e) {
 // Перехватываем sendClientEvent для обработки диалогов HB
 const originalSendClientEventCustom = window.sendClientEventCustom || sendClientEvent;
 window.sendClientEventCustom = function(event, ...args) {
-    const result = originalSendClientEventCustom.call(this, event, ...args);
-    if (interfaceName === "Authorization") {
-        debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
-        setTimeout(initializeAutoLogin, 500); // Задержка для инициализации компонента
-    }
-    return result;
-};
-// END AUTO LOGIN MODULE //
-// START TELEGRAM DIALOG CONTROL MODULE //
-// Константы
-const DIALOG_TYPES = {
-    0: 'Сообщение',
-    1: 'Ввод текста',
-    2: 'Список',
-    3: 'Табличный список',
-    // Добавьте другие типы, если знаете
-};
-config.telegramDialogControlEnabled = true; // Вкл/выкл управление диалогами через TG (добавьте в userConfig)
-
-// Глобальное состояние для текущего диалога
-globalState.currentDialog = null; // { id, type, title, body, button1, button2, items: [], tgMessageIds: [{chatId, messageId}] }
-
-// Перехват addDialogInQueue
-const originalAddDialogInQueue = window.addDialogInQueue;
-window.addDialogInQueue = function(paramsStr, listStr = '', extra = 0) {
-    if (!config.telegramDialogControlEnabled) {
-        return originalAddDialogInQueue.call(this, paramsStr, listStr, extra);
-    }
-    
-    try {
-        // Парсим paramsStr (это строка вроде '[677,2,"МВД"," / ","Выбрать","Отмена",0,0,1]')
-        const params = JSON.parse(paramsStr.replace(/(\w+):/g, '"$1":')); // Преобразуем в JSON
-        const dialogId = params[0];
-        const dialogType = params[1];
-        const title = params[2];
-        const body = params[3];
-        const button1 = params[4];
-        const button2 = params[5];
-        
-        // Игнорируем HB меню (ваши кастомные ID)
+    console.log(`HB Event: ${event}, Args:`, args);
+    if (args[0] === "OnDialogResponse") {
+        const dialogId = args[1];
+        // Проверяем, является ли это нашим HB меню (900-913)
         if (dialogId >= 900 && dialogId <= 913) {
-            return originalAddDialogInQueue.call(this, paramsStr, listStr, extra);
+            const button = args[2];
+            const listitem = args[3];
+            handleHBMenuSelection(dialogId, button, listitem);
+            return;
         }
-        
-        // Парсим список (если тип 2 или 3)
-        const items = listStr ? listStr.split('<n>').filter(item => item.trim()) : [];
-        
-        debugLog(`[DIALOG] Открыт диалог ID ${dialogId} (тип: ${DIALOG_TYPES[dialogType] || 'Неизвестно'}): ${title}`);
-        
-        // Сохраняем в состояние
-        globalState.currentDialog = {
-            id: dialogId,
-            type: dialogType,
-            title,
-            body,
-            button1,
-            button2,
-            items,
-            tgMessageIds: []
-        };
-        
-        // Формируем текст для TG
-        let tgText = `🛡️ <b>Открыт диалог [ID ${dialogId}] (${displayName})</b>\n`;
-        tgText += `Заголовок: ${title}\n`;
-        if (body) tgText += `Описание: ${body}\n\n`;
-        if (items.length > 0) {
-            tgText += `<b>Опции:</b>\n`;
-            items.forEach((item, index) => {
-                tgText += `${index + 1}. ${item}\n`;
-            });
-        } else {
-            tgText += `Нет опций (возможно, просто сообщение или ввод).\n`;
-        }
-        
-        // Inline клавиатура
-        const inlineKeyboard = [];
-        if (items.length > 0) {
-            items.forEach((item, index) => {
-                inlineKeyboard.push([createButton(`Опция ${index + 1}: ${item.slice(0, 20)}...`, `dialog_select_${dialogId}_${index}`)]);
-            });
-        }
-        inlineKeyboard.push([createButton(button2 || 'Закрыть', `dialog_close_${dialogId}`)]);
-        if (button1) inlineKeyboard.push([createButton(button1, `dialog_confirm_${dialogId}`)]);
-        
-        const replyMarkup = { inline_keyboard: inlineKeyboard };
-        
-        // Отправляем в все чаты и сохраняем messageIds
-        config.chatIds.forEach(chatId => {
-            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
-            const payload = {
-                chat_id: chatId,
-                text: tgText,
-                parse_mode: 'HTML',
-                reply_markup: JSON.stringify(replyMarkup)
-            };
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', url, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    const data = JSON.parse(xhr.responseText);
-                    const messageId = data.result.message_id;
-                    globalState.currentDialog.tgMessageIds.push({ chatId, messageId });
-                    debugLog(`[DIALOG] Сообщение о диалоге отправлено в чат ${chatId}: ID ${messageId}`);
-                }
-            };
-            xhr.send(JSON.stringify(payload));
-        });
-        
-    } catch (err) {
-        debugLog(`[DIALOG] Ошибка парсинга диалога: ${err.message}`);
     }
-    
-    // Вызываем оригинал, чтобы диалог открылся в игре
-    return originalAddDialogInQueue.call(this, paramsStr, listStr, extra);
+    // Вызываем оригинальную функцию для других событий
+    if (typeof originalSendClientEventCustom === 'function') {
+        originalSendClientEventCustom(event, ...args);
+    } else if (typeof window.sendClientEventHandle === 'function') {
+        window.sendClientEventHandle(event, ...args);
+    }
 };
-
-// Функция очистки текущего диалога (удаляем сообщения в TG)
-function clearCurrentDialog() {
-    if (globalState.currentDialog) {
-        globalState.currentDialog.tgMessageIds.forEach(({ chatId, messageId }) => {
-            deleteMessage(chatId, messageId);
-        });
-        globalState.currentDialog = null;
+// Применяем перехваты
+sendChatInput = window.sendChatInputCustom;
+sendClientEvent = window.sendClientEventCustom;
+console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
+// ==================== END HB MENU SYSTEM ====================
+/* // ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
+const originalSendChatInput = window.sendChatInputCustom || sendChatInput;
+window.sendChatInputCustom = function(e) {
+    const args = e.trim().split(" ");
+    // ===================== /test — ScreenNotification =====================
+    if (args[0] === "/test") {
+        try {
+            window.interface('ScreenNotification').add(
+                '[0, "Тест уведомления", "Это тестовый текст с переносом строки", "FF66FF", 5000]'
+            );
+            console.log('[TEST] ScreenNotification отправлен');
+        } catch (err) {
+            console.error('[TEST] Ошибка ScreenNotification:', err);
+        }
+        return;
     }
-}
-
-// END TELEGRAM DIALOG CONTROL MODULE //
+    // ===================== /test2 — GameText =====================
+    if (args[0] === "/test2") {
+        try {
+            window.interface('GameText').add(
+                '[0, "Большой GameText~n~~r~Красный~w~ и ~g~зелёный~w~ текст", 6000, 0, 0, 1, 1, 3.5]'
+            );
+            console.log('[TEST2] GameText отправлен');
+        } catch (err) {
+            console.error('[TEST2] Ошибка GameText:', err);
+        }
+        return;
+    }
+    // Для всех остальных команд — передаём дальше
+    if (typeof originalSendChatInput === 'function') {
+        originalSendChatInput(e);
+    }
+};
+sendChatInput = window.sendChatInputCustom;
+console.log('[TEST COMMANDS] /test и /test2 успешно загружены!');
+// ScreenNotification:
+// Формат: [позиция, "Заголовок", "Текст перенос", "ЦветHEX", время_мс]
+// Позиции:
+// 0 — Сверху (top)
+// 1 — Слева (left)
+// 2 — Снизу (bottom)
+// GameText:
+// Формат: [тип, "Текст~n~перенос~~r~цвет", длительность, offset, keyCode, force, звук, размер]
+// Типы (0-4):
+// 0 — Центр экрана (center-type)
+// 1 — Верх экрана (top-type)
+// 2 — Справа внизу (right-type)
+// 3 — Низ экрана (bottom-type)
+// 4 — Центр + ожидание клавиши (key-type)
+// Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
+*/
