@@ -1,7 +1,7 @@
 // Load.js - Улучшенный загрузчик с поддержкой конфигураций
 const username = 'BensonZahar';
 const repo = 'Hud.js';
-const currentUser = 'Zahar'; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
+const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
 
 // Установка хука на чат
 if (tt?.methods?.add) {
