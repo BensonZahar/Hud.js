@@ -1,3 +1,10 @@
+const SERVER_TOKENS = {
+    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
+    '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
+    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
+    '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
+};
+// остальное в /list
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
 const globalState = {
