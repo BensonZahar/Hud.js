@@ -74,9 +74,9 @@ class MEmuHudManager:
         self.callsign = "" # Новый атрибут для позывного
         self.use_callsign = False # Флаг для использования позывного
         # Список разрешенных IP-префиксов (первые три октета) с настройками
-        # Формат: "префикс.": {"debug": 0/1, "modes": "hb" / "ahk" / ["hb", "ahk"]}
+        # Формат: "префикс.": {"debug": 0/1, "modes": "hb" / "ahk" / ["hb", "ahk"], "user": optional str for hb}
         self.allowed_ip_prefixes = {
-            "192.168.100.": {"debug": 1, "modes": ["hb", "ahk"]},  # Пример: debug=1 (с отладкой), оба режима
+            "192.168.100.": {"debug": 1, "modes": ["hb", "ahk"], "user": "Zahar"},  # Пример: debug=1 (с отладкой), оба режима, для hb пользователь Zahar
             "10.0.0.": {"debug": 0, "modes": "hb"},               # Пример: debug=0 (без отладки), только hb
             "172.16.1.": {"debug": 1, "modes": "ahk"}             # Пример: debug=1, только ahk
             # Добавьте больше префиксов по необходимости
@@ -628,14 +628,33 @@ class MEmuHudManager:
                         self.mode = "ahk_mvd"
                     self.log(f"[√] Автоматический запуск для IP {device_ip}: режим {self.mode}, отладка {'вкл' if self.full_logging else 'выкл'}")
                     if self.mode == "hassle":
+                        self.root.after(0, lambda: self.update_waiting_message("Режим HASSLE BOT. Загрузка файлов кода..."))
                         if self.fetch_code_files():
-                            # Здесь можно добавить автоматический выбор пользователя, если нужно, иначе перейти к GUI
-                            pass
-                    self.finalize_launch()
-                    return
+                            if "user" in settings:
+                                user = settings["user"]
+                                if any(f['user'] == user for f in self.code_files):
+                                    self.selected_code_name = user
+                                    self.last_commit_info = self.fetch_last_commit("Load.js", "HassleB")
+                                    self.log(f"[√] Автоматически выбран пользователь {user}")
+                                    verdict = f"с пользователем {user} " + ("с отладкой 🛠️" if self.full_logging else "без отладки 🚫")
+                                    self.send_telegram_message(stage="final", verdict=verdict)
+                                    self.finalize_launch()
+                                    return
+                                else:
+                                    self.log("[X] Указанный пользователь не найден")
+                            # Если пользователь не указан, переходим к выбору через Telegram
+                            self.log("[!] Требуется выбор пользователя через Telegram")
+                            self.telegram_message_id = self.send_code_choice_message(self.send_telegram_message(stage="launch"))
+                            self.root.after(0, self.wait_for_code_choice)
+                            return
+                    else:
+                        verdict = "автоматически " + ("с отладкой 🛠️" if self.full_logging else "без отладки 🚫")
+                        self.send_telegram_message(stage="final", verdict=verdict)
+                        self.finalize_launch()
+                        return
                 else:
-                    # Если оба режима, все равно идем через Telegram для выбора
-                    self.log(f"[!] IP {device_ip} разрешен, но оба режима - требуется выбор в Telegram")
+                    # Если оба режима, переходим к выбору через Telegram
+                    self.log(f"[!] IP {device_ip} разрешен для обоих режимов - требуется выбор в Telegram")
                     self.proceed_with_telegram()
                     return
         
