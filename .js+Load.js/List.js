@@ -7,12 +7,12 @@ const USER_CONFIGS = {
     },
     'Kirill': {
         CHAT_IDS: ['-1003202329790'],
-        PASSWORD: 'kirill2007',
+        PASSWORD: '09230923',
         RECONNECT_ENABLED_DEFAULT: true
     },
     'Kolya': {
         CHAT_IDS: ['-1003102212423'],
-        PASSWORD: 'kolya2007',
+        PASSWORD: 'kol16052011',
         RECONNECT_ENABLED_DEFAULT: false
     }
 };
