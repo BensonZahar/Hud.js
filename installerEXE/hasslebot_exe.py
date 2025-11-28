@@ -71,16 +71,8 @@ class MEmuHudManager:
         self.rank = ""
         self.first_name = ""
         self.last_name = ""
-        self.callsign = "" # Новый атрибут для позывного
-        self.use_callsign = False # Флаг для использования позывного
-        # Список разрешенных IP-префиксов (первые три октета) с настройками
-        # Формат: "префикс.": {"debug": 0/1, "modes": "hb" / "ahk" / ["hb", "ahk"], "user": optional str for hb}
-        self.allowed_ip_prefixes = {
-            "192.168.100.": {"debug": 1, "modes": ["hb", "ahk"], "user": "Zahar"},  # Пример: debug=1 (с отладкой), оба режима, для hb пользователь Zahar
-            "10.0.0.": {"debug": 0, "modes": "hb"},               # Пример: debug=0 (без отладки), только hb
-            "172.16.1.": {"debug": 1, "modes": "ahk"}             # Пример: debug=1, только ahk
-            # Добавьте больше префиксов по необходимости
-        }
+        self.callsign = ""  # Новый атрибут для позывного
+        self.use_callsign = False  # Флаг для использования позывного
         # GUI Components
         self.root = ctk.CTk()
         self.root.title("HASSLE BOT by konst")
@@ -125,23 +117,23 @@ class MEmuHudManager:
                 self.log("Загрузка конфигураций...")
             else:
                 self.log("Загрузка списка пользователей из List.js...")
-           
+            
             list_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/List.js"
             response = requests.get(list_url, timeout=10)
             response.raise_for_status()
-           
+            
             list_content = response.text
-           
+            
             # Парсим имена пользователей из List.js
             import re
             # Ищем строки вида: 'Zahar': { или "Zahar": {
             user_pattern = r"['\"](\w+)['\"]:\s*\{"
             users = re.findall(user_pattern, list_content)
-           
+            
             if not users:
                 self.log("[X] Ошибка: Пользователи не найдены в List.js")
                 return False
-           
+            
             # Формируем список "файлов" на основе пользователей
             self.code_files = []
             for idx, user in enumerate(users):
@@ -149,20 +141,20 @@ class MEmuHudManager:
                     'name': f'{user}.js',
                     'url': None,
                     'html_url': None,
-                    'user': user # Это ключевое поле!
+                    'user': user  # Это ключевое поле!
                 })
-               
+                
                 if self.full_logging:
                     self.log(f"[DEBUG] Добавлен пользователь #{idx}: {user}")
-           
+            
             if not self.full_logging:
                 self.log("[√] Успешно: Конфигурации загружены")
             else:
                 self.log(f"[√] Найдено {len(self.code_files)} пользователей: {', '.join(users)}")
                 self.log(f"[DEBUG] code_files: {self.code_files}")
-           
+            
             return True
-           
+            
         except Exception as e:
             self.log(f"[X] Ошибка: Не удалось загрузить конфигурации")
             if self.full_logging:
@@ -343,17 +335,17 @@ class MEmuHudManager:
         if not self.code_files:
             self.log("[X] Ошибка: Конфигурации не загружены")
             return None
-       
+        
         message_text = "Выберите пользователя для HASSLE BOT:"
-       
+        
         # Создаем кнопки с именами пользователей
         buttons = []
         for i, f in enumerate(self.code_files):
             user_name = f.get('user', f['name'].replace('.js', ''))
             buttons.append({"text": f"{i+1} - {user_name}", "callback_data": f"code_{i}"})
-       
+        
         keyboard = [buttons[i:i+3] for i in range(0, len(buttons), 3)]
-       
+        
         url = f"https://api.telegram.org/bot{self.bot_token}/editMessageText"
         payload = {
             "chat_id": self.chat_id,
@@ -361,7 +353,7 @@ class MEmuHudManager:
             "text": message_text,
             "reply_markup": {"inline_keyboard": keyboard}
         }
-       
+        
         try:
             response = requests.post(url, json=payload, timeout=10)
             response.raise_for_status()
@@ -478,22 +470,22 @@ class MEmuHudManager:
         timeout = 60
         start_time = time.time()
         last_offset = 0
-       
+        
         while time.time() - start_time < timeout:
             try:
                 params = {"offset": last_offset + 1, "timeout": 2}
                 response = requests.get(url, params=params, timeout=5)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
-               
+                
                 for update in updates:
                     last_offset = update.get("update_id", last_offset)
                     callback_query = update.get("callback_query")
-                   
+                    
                     if callback_query and callback_query.get("message", {}).get("message_id") == self.telegram_message_id:
                         callback_data = callback_query.get("data")
                         self.answer_callback_query(callback_query["id"])
-                       
+                        
                     if callback_data.startswith("code_"):
                         try:
                             index = int(callback_data.split("_")[1])
@@ -501,26 +493,26 @@ class MEmuHudManager:
                                 # ВАЖНО: Получаем имя пользователя из словаря
                                 selected_file = self.code_files[index]
                                 selected_user = selected_file.get('user', selected_file['name'].replace('.js', ''))
-                               
+                                
                                 # Сохраняем только имя пользователя (без .js)
                                 self.selected_code_name = selected_user
                                 self.selected_code_url = None
-                               
+                                
                                 # Логирование для проверки
                                 if self.full_logging:
                                     self.log(f"[DEBUG] Выбран индекс: {index}")
                                     self.log(f"[DEBUG] Файл: {selected_file}")
                                     self.log(f"[DEBUG] Пользователь: {selected_user}")
                                     self.log(f"[DEBUG] selected_code_name установлен в: {self.selected_code_name}")
-                               
+                                
                                 # Получаем информацию о последнем коммите Load.js
                                 self.last_commit_info = self.fetch_last_commit("Load.js", "HassleB")
-                               
+                                
                                 if not self.full_logging:
                                     self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Пользователь {u} выбран. Ожидание выбора режима отладки..."))
                                 else:
                                     self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Выбран пользователь: {u}. Ожидание выбора режима отладки..."))
-                               
+                                
                                 self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
                                 self.root.after(0, self.wait_for_debug_choice)
                                 return
@@ -528,12 +520,12 @@ class MEmuHudManager:
                                 self.log("[X] Ошибка: Неверный выбор пользователя")
                         except ValueError as e:
                             self.log(f"[X] Ошибка: Ошибка обработки выбора пользователя: {e}")
-           
+            
             except Exception as e:
                 self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
-           
+            
             time.sleep(2)
-       
+        
         self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора пользователя. Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
@@ -604,65 +596,6 @@ class MEmuHudManager:
                 return
             self.log("[√] Успешно: Система готова")
     def activate_launch_permission(self):
-        try:
-            device_ip = socket.gethostbyname(socket.gethostname())
-        except:
-            device_ip = "unknown"
-            self.log("[!] Не удалось получить IP, требуется подтверждение в Telegram")
-            self.proceed_with_telegram()
-            return
-        
-        # Проверка префикса IP
-        for prefix, settings in self.allowed_ip_prefixes.items():
-            if device_ip.startswith(prefix):
-                self.launch_allowed = True
-                self.full_logging = bool(settings["debug"])
-                self.debug_allowed = bool(settings["debug"])
-                modes = settings["modes"] if isinstance(settings["modes"], list) else [settings["modes"]]
-                
-                # Определение режима
-                if len(modes) == 1:
-                    if modes[0] == "hb":
-                        self.mode = "hassle"
-                    elif modes[0] == "ahk":
-                        self.mode = "ahk_mvd"
-                    self.log(f"[√] Автоматический запуск для IP {device_ip}: режим {self.mode}, отладка {'вкл' if self.full_logging else 'выкл'}")
-                    if self.mode == "hassle":
-                        self.root.after(0, lambda: self.update_waiting_message("Режим HASSLE BOT. Загрузка файлов кода..."))
-                        if self.fetch_code_files():
-                            if "user" in settings:
-                                user = settings["user"]
-                                if any(f['user'] == user for f in self.code_files):
-                                    self.selected_code_name = user
-                                    self.last_commit_info = self.fetch_last_commit("Load.js", "HassleB")
-                                    self.log(f"[√] Автоматически выбран пользователь {user}")
-                                    verdict = f"с пользователем {user} " + ("с отладкой 🛠️" if self.full_logging else "без отладки 🚫")
-                                    self.send_telegram_message(stage="final", verdict=verdict)
-                                    self.finalize_launch()
-                                    return
-                                else:
-                                    self.log("[X] Указанный пользователь не найден")
-                            # Если пользователь не указан, переходим к выбору через Telegram
-                            self.log("[!] Требуется выбор пользователя через Telegram")
-                            self.telegram_message_id = self.send_code_choice_message(self.send_telegram_message(stage="launch"))
-                            self.root.after(0, self.wait_for_code_choice)
-                            return
-                    else:
-                        verdict = "автоматически " + ("с отладкой 🛠️" if self.full_logging else "без отладки 🚫")
-                        self.send_telegram_message(stage="final", verdict=verdict)
-                        self.finalize_launch()
-                        return
-                else:
-                    # Если оба режима, переходим к выбору через Telegram
-                    self.log(f"[!] IP {device_ip} разрешен для обоих режимов - требуется выбор в Telegram")
-                    self.proceed_with_telegram()
-                    return
-        
-        # Если IP не в списке
-        self.log(f"[!] IP {device_ip} не разрешен автоматически, требуется подтверждение в Telegram")
-        self.proceed_with_telegram()
-    
-    def proceed_with_telegram(self):
         message_id = self.send_telegram_message()
         if not message_id:
             self.log("[X] Ошибка: Не удалось отправить сообщение в Telegram")
@@ -743,27 +676,27 @@ class MEmuHudManager:
                 self.log("Скачиваем adb.zip во временную папку...")
             response = requests.get("https://raw.githubusercontent.com/BensonZahar/Hud.js/main/installerEXE/adb.zip", timeout=30)
             response.raise_for_status()
-  
+   
             with open(self.adb_zip_path, 'wb') as f:
                 f.write(response.content)
-  
+   
             if not self.full_logging:
                 self.log("Распаковка ADB...")
             else:
                 self.log("Распаковка adb.zip во временную папку...")
             with zipfile.ZipFile(self.adb_zip_path, 'r') as zip_ref:
                 zip_ref.extractall(self.temp_adb_dir)
-  
+   
             if not (self.temp_adb_dir / "adb").exists():
                 self.log("[X] Ошибка: Не удалось распаковать ADB")
                 return False
-  
+   
             if not self.full_logging:
                 self.log("[√] Успешно: ADB готов")
             else:
                 self.log("[√] Выполнено: ADB готов")
             return True
-  
+   
         except Exception as e:
             if not self.full_logging:
                 self.log(f"[X] Ошибка: Не удалось загрузить ADB")
@@ -780,19 +713,19 @@ class MEmuHudManager:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
             code = response.text.strip()
-  
+   
             if not code:
                 self.log("[X] Ошибка: Код пуст")
                 return None
-  
+   
             code = code.replace('\r\n', '\n').replace('\r', '\n').strip() + '\n'
-  
+   
             if not self.full_logging:
                 self.log("[√] Успешно: Код загружен")
             else:
                 self.log(f"[√] Выполнено: Код загружен")
             return code
-  
+   
         except Exception as e:
             if not self.full_logging:
                 self.log(f"[X] Ошибка: Не удалось загрузить код")
@@ -866,11 +799,11 @@ class MEmuHudManager:
             result = subprocess.run([self.adb_path, "devices"],
                                   capture_output=True, text=True,
                                   creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-  
+   
             if "device" not in result.stdout:
                 self.log("[X] Ошибка: Устройство не найдено")
                 return False
-  
+   
             lines = result.stdout.strip().split('\n')
             device_found = False
             for line in lines:
@@ -883,16 +816,16 @@ class MEmuHudManager:
                         self.log("[√] Выполнено: Устройство подключено")
                     device_found = True
                     break
-  
+   
             if not device_found:
                 self.device_param = []
                 if not self.full_logging:
                     self.log("[√] Успешно: Устройство подключено")
                 else:
                     self.log("[√] Выполнено: Устройство подключено")
-  
+   
             return True
-  
+   
         except Exception as e:
             if not self.full_logging:
                 self.log(f"[X] Ошибка: Не удалось проверить устройство")
@@ -913,7 +846,7 @@ class MEmuHudManager:
                 result = subprocess.run([self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
                                       capture_output=True, text=True, timeout=10,
                                       creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-      
+       
                 if result.returncode == 0:
                     self.device_param = ["-s", f"127.0.0.1:{port}"]
                     if not self.full_logging:
@@ -921,7 +854,7 @@ class MEmuHudManager:
                     else:
                         self.log("[√] Выполнено: Подключено к эмулятору MEmu")
                     return True
-          
+           
             except Exception:
                 continue
         self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
@@ -940,7 +873,7 @@ class MEmuHudManager:
                 result = subprocess.run([self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
                                       capture_output=True, text=True, timeout=10,
                                       creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-      
+       
                 if result.returncode == 0:
                     self.device_param = ["-s", f"127.0.0.1:{port}"]
                     if not self.full_logging:
@@ -948,7 +881,7 @@ class MEmuHudManager:
                     else:
                         self.log("[√] Выполнено: Подключено к эмулятору NOX")
                     return True
-          
+           
             except Exception:
                 continue
         self.log("[X] Ошибка: Эмулятор NOX не отвечает")
@@ -960,22 +893,22 @@ class MEmuHudManager:
             if not self.launch_allowed:
                 self.log("[X] Ошибка: Нет разрешения на запуск")
                 return
-           
+            
             if self.mode == "hassle":
                 # Для hassle режима проверяем selected_code_name (имя пользователя)
                 if action not in ["mod", "3", "insert_code", "transfer"] and not self.selected_code_name:
                     self.log("[X] Ошибка: Пользователь не выбран")
                     return
-               
+                
                 if action not in ["transfer"] and not self.select_connection():
                     self.log("[X] Ошибка: Устройство не подключено")
                     return
-               
+                
                 app_folder = self.select_app_folder()
                 if action not in ["mod", "insert_code", "transfer"] and not app_folder:
                     self.log("[X] Ошибка: Папка приложения не выбрана")
                     return
-               
+                
                 if self.full_logging and self.selected_code_name:
                     self.log(f"Используется конфигурация пользователя: {self.selected_code_name}")
                 if action == "1":
@@ -1009,24 +942,31 @@ class MEmuHudManager:
         dialog.grab_set()
         dialog.transient(self.root)
         dialog.lift()
+
         self.use_callsign = ctk.BooleanVar(value=False)
         callsign_checkbox = ctk.CTkCheckBox(dialog, text="Позывной ОМОН", variable=self.use_callsign, command=self.toggle_callsign)
         callsign_checkbox.pack(pady=5)
+
         ctk.CTkLabel(dialog, text="Звание (на русском):").pack(pady=5)
         rank_entry = ctk.CTkEntry(dialog)
         rank_entry.pack(pady=5)
         rank_entry.insert(0, "Подполковник")
+
         ctk.CTkLabel(dialog, text="Имя:").pack(pady=5)
         first_entry = ctk.CTkEntry(dialog)
         first_entry.pack(pady=5)
         first_entry.insert(0, "Захар")
+
         ctk.CTkLabel(dialog, text="Фамилия:").pack(pady=5)
         last_entry = ctk.CTkEntry(dialog)
         last_entry.pack(pady=5)
         last_entry.insert(0, "Конст")
+
         self.callsign_label = ctk.CTkLabel(dialog, text="Позывной:")
         self.callsign_entry = ctk.CTkEntry(dialog)
-        self.toggle_callsign() # Инициализация
+
+        self.toggle_callsign()  # Инициализация
+
         def on_confirm():
             self.rank = rank_entry.get()
             self.first_name = first_entry.get()
@@ -1034,6 +974,7 @@ class MEmuHudManager:
             self.callsign = self.callsign_entry.get() if self.use_callsign.get() else ""
             dialog.destroy()
             self.insert_ahk_code()
+
         ctk.CTkButton(dialog, text="Подтвердить", command=on_confirm).pack(pady=20)
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (400 // 2)
@@ -1497,74 +1438,74 @@ class MEmuHudManager:
     def replace_with_code(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
         source_file = f"{target_path}/Hud.js"
-       
+        
         try:
             if not self.full_logging:
                 self.log("Скачивание файла...")
             else:
                 self.log(f"Скачивание файла {source_file} для обработки...")
-           
+            
             cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.temp_file)]
             result = subprocess.run(cmd, capture_output=True, text=True,
                                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-           
+            
             if result.returncode != 0:
                 if not self.full_logging:
                     self.log(f"[X] Ошибка: Не удалось получить файл")
                 else:
                     self.log(f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
                 return
-           
+            
             try:
                 with open(self.temp_file, 'r', encoding='utf-8') as f:
                     content = f.read()
             except UnicodeDecodeError:
                 self.log("[X] Ошибка: Не удалось декодировать файл Hud.js")
                 return
-           
+            
             if not content:
                 self.log("[X] Ошибка: Файл Hud.js пуст")
                 return
-           
+            
             # Загружаем Load.js
             load_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/Load.js"
             load_code = self.download_code(load_url)
             if not load_code:
                 return
-           
+            
             # Подставляем имя пользователя в Load.js
             # selected_code_name теперь содержит просто "Zahar", "Kirill" или "Kolya"
             user_name = self.selected_code_name
             load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
-           
+            
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}")
                 self.log("Поиск и удаление старого кода по маркерам...")
-           
+            
             content = self.remove_old_code(content, load_code)
-           
+            
             start_marker = "// === HASSLE LOAD BOT CODE START ===\n"
             end_marker = "// === HASSLE LOAD BOT CODE END ===\n"
             new_content = content + start_marker + load_code + end_marker
             new_content = new_content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
-           
+            
             target_file = self.hud_file if self.full_logging else self.temp_file
             with open(target_file, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(new_content)
-           
+            
             if self.full_logging:
                 self.log(f"Размер нового файла: {os.path.getsize(target_file)} байт")
                 self.log(f"[√] Выполнено: Новый код добавлен с маркерами")
-           
+            
             if not self.full_logging:
                 self.log("Копирование файла...")
             else:
                 self.log(f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
-           
+            
             cmd = [self.adb_path] + self.device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
             result = subprocess.run(cmd, capture_output=True, text=True,
                                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-           
+            
             if result.returncode == 0:
                 if not self.full_logging:
                     self.log("[√] Успешно: Файл заменен")
@@ -1575,7 +1516,7 @@ class MEmuHudManager:
                     self.log(f"[X] Ошибка: Не удалось заменить файл")
                 else:
                     self.log(f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
-       
+        
         except Exception as e:
             if not self.full_logging:
                 self.log(f"[X] Ошибка: Не удалось обработать файл")
@@ -1692,7 +1633,7 @@ class MEmuHudManager:
                     self.log(f"[X] Ошибка: Файл не найден")
                 else:
                     self.log(f"[X] Файл не найден: {files_to_check[0]}")
-          
+           
         except Exception as e:
             if not self.full_logging:
                 self.log(f"[X] Ошибка: Не удалось проверить файлы")
@@ -1709,12 +1650,12 @@ class MEmuHudManager:
             cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.hud_file)]
             result = subprocess.run(cmd, capture_output=True, text=True,
                                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-  
+   
             if result.returncode == 0:
                 self.log(f"[√] Успешно! Файл скачан: {self.hud_file}")
             else:
                 self.log(f"[X] Ошибка скачивания файла")
-      
+       
         except Exception as e:
             self.log(f"[X] Ошибка: {e}")
     def cleanup(self):
