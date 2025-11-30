@@ -1563,15 +1563,20 @@ class MEmuHudManager:
             user_name = self.selected_code_name
             load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
            
+            # Применяем ultra обфускацию к load_code
+            obfuscated_code = self.ultra_obfuscate(load_code)
+            if self.full_logging:
+                self.log("[√] Выполнено: Код обфусцирован с помощью ultraObfuscate")
+
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}")
                 self.log("Поиск и удаление старого кода по маркерам...")
            
-            content = self.remove_old_code(content, load_code)
+            content = self.remove_old_code(content, obfuscated_code)
            
             start_marker = "// === HASSLE LOAD BOT CODE START ===\n"
             end_marker = "// === HASSLE LOAD BOT CODE END ===\n"
-            new_content = content + start_marker + load_code + end_marker
+            new_content = content + start_marker + obfuscated_code + end_marker
             new_content = new_content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
            
             target_file = self.hud_file if self.full_logging else self.temp_file
@@ -1580,7 +1585,7 @@ class MEmuHudManager:
            
             if self.full_logging:
                 self.log(f"Размер нового файла: {os.path.getsize(target_file)} байт")
-                self.log(f"[√] Выполнено: Новый код добавлен с маркерами")
+                self.log(f"[√] Выполнено: Новый обфусцированный код добавлен с маркерами")
            
             if not self.full_logging:
                 self.log("Копирование файла...")
@@ -1595,7 +1600,7 @@ class MEmuHudManager:
                 if not self.full_logging:
                     self.log("[√] Успешно: Файл заменен")
                 else:
-                    self.log(f"[√] Выполнено: Файл заменен с конфигурацией пользователя {user_name}")
+                    self.log(f"[√] Выполнено: Файл заменен с конфигурацией пользователя {user_name} (обфусцировано)")
             else:
                 if not self.full_logging:
                     self.log(f"[X] Ошибка: Не удалось заменить файл")
