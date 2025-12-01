@@ -20,4 +20,4 @@ const USER_CONFIGS = {
 
 // Экспортируем в глобальную область
 window.USER_CONFIGS = USER_CONFIGS;
-console.log('[List.js] Конфигурации пользователей загружены');
+console.log('[List.js] Конфигурации пользователей загружены ACC');
