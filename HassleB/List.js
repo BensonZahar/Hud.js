@@ -3,6 +3,7 @@ const USER_CONFIGS = {
     'Zahar': {
         CHAT_IDS: ['-1003040555627'],
         PASSWORD: 'zahar2007',
+        ACCOUNT_NUMBER = "2",
         RECONNECT_ENABLED_DEFAULT: true
     },
     'Kirill': {
