@@ -3,7 +3,6 @@ const USER_CONFIGS = {
     'Zahar': {
         CHAT_IDS: ['-1003040555627'],
         PASSWORD: 'zahar2007',
-        ACCOUNT_NUMBER = "2",
         RECONNECT_ENABLED_DEFAULT: true
     },
     'Kirill': {
@@ -20,4 +19,4 @@ const USER_CONFIGS = {
 
 // Экспортируем в глобальную область
 window.USER_CONFIGS = USER_CONFIGS;
-console.log('[List.js] Конфигурации пользователей загружены ACC');
+console.log('[List.js] Конфигурации пользователей загружены');
