@@ -738,19 +738,7 @@ function startPlayPhase() {
     if (!config.afkCycle.active) return;
     debugLog(`Начинаем игровую фазу для ${displayName}`);
     config.afkCycle.currentPlayTime = 0;
-    
-    // Определяем время игры в зависимости от режима и номера аккаунта
-    let requiredPlayTime;
-    if (config.afkCycle.mode === 'levelup') {
-        requiredPlayTime = 10 * 60 * 1000;
-    } else if (config.afkCycle.mode === 'none' && ACCOUNT_NUMBER === "1") {
-        requiredPlayTime = 26 * 60 * 1000; // Аккаунт 1: 26 минут
-    } else if (config.afkCycle.mode === 'none' && ACCOUNT_NUMBER === "2") {
-        requiredPlayTime = 26 * 60 * 1000; // Аккаунт 2: тоже 26 минут (но логика в handleNoneReconnectEnd)
-    } else {
-        requiredPlayTime = 25 * 60 * 1000; // Стандартное время для других режимов
-    }
-    
+    const requiredPlayTime = (config.afkCycle.mode === 'levelup') ? 10 * 60 * 1000 : 25 * 60 * 1000;
     let playDurationMs;
     if (config.afkCycle.mode === 'fixed') {
         playDurationMs = 5 * 60 * 1000;
@@ -773,15 +761,13 @@ function startPlayPhase() {
             return;
         }
     }
-    
     const durationMin = Math.floor(playDurationMs / 60000);
     const currentTime = getCurrentTimeString();
     config.afkCycle.playHistory.push(`▶️ Игровой режим [${durationMin} мин] в ${currentTime}`);
     if (config.afkCycle.playHistory.length > 3) {
-        config.afkCycle.playHistory.shift();
+        config.afkCycle.playHistory.shift(); // Удаляем самую старую (сверху вниз)
     }
-    updateAFKStatus();
-    
+    updateAFKStatus(); // Обновляем статус-сообщение
     try {
         if (typeof closeInterface === 'function') {
             closeInterface("PauseMenu");
@@ -790,7 +776,6 @@ function startPlayPhase() {
     } catch (e) {
         debugLog(`Ошибка при выходе из паузы: ${e.message}`);
     }
-    
     debugLog(`Игровая фаза: ${durationMin} минут`);
     config.afkCycle.playTimer = setTimeout(() => {
         config.afkCycle.totalPlayTime += playDurationMs;
@@ -826,52 +811,17 @@ function handleLevelUpEnd() {
     }
 }
 function handleNoneReconnectEnd() {
-    if (ACCOUNT_NUMBER === "1") {
-        // Аккаунт 1: отыгрывает 26 минут с момента "Текущее время:"
-        autoLoginConfig.enabled = false;
-        sendChatInput("/rec 5");
-        sendToTelegram(`🔄 <b>None (Акк1): Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
-        
-        const timePassed = Date.now() - config.afkCycle.startTime;
-        const timeToReconnect = 59 * 60 * 1000 - timePassed;
-        
-        if (timeToReconnect > 0) {
-            setTimeout(() => {
-                autoLoginConfig.enabled = true;
-                sendChatInput("/rec 5");
-                sendToTelegram(`🔄 <b>None (Акк1): Включен автовход и отправлен /rec 5 (${displayName})</b>`);
-            }, timeToReconnect);
-        }
-    } else if (ACCOUNT_NUMBER === "2") {
-        // Аккаунт 2: сразу после "Текущее время:" выключает автовход, /rec 5
-        // затем в 26 минут включает автовход, /rec 5
-        // отыгрывает 26 минут, выключает автовход, /rec 5
-        // к 59 минутам включает автовход, /rec 5
-        
-        autoLoginConfig.enabled = false;
-        sendChatInput("/rec 5");
-        sendToTelegram(`🔄 <b>None (Акк2): Отключен автовход и отправлен /rec 5 сразу после PayDay (${displayName})</b>` + getAFKStatusText());
-        
-        // Через 26 минут включаем автовход и отправляем /rec 5
+    autoLoginConfig.enabled = false;
+    sendChatInput("/rec 5");
+    sendToTelegram(`🔄 <b>None: Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
+    const timePassed = Date.now() - config.afkCycle.startTime;
+    const timeToReconnect = 59 * 60 * 1000 - timePassed;
+    if (timeToReconnect > 0) {
         setTimeout(() => {
             autoLoginConfig.enabled = true;
             sendChatInput("/rec 5");
-            sendToTelegram(`🔄 <b>None (Акк2): Включен автовход и отправлен /rec 5 (26 мин) (${displayName})</b>`);
-            
-            // Через еще 26 минут (всего 52 минуты) выключаем автовход и отправляем /rec 5
-            setTimeout(() => {
-                autoLoginConfig.enabled = false;
-                sendChatInput("/rec 5");
-                sendToTelegram(`🔄 <b>None (Акк2): Отключен автовход и отправлен /rec 5 (52 мин) (${displayName})</b>`);
-                
-                // К 59 минутам включаем автовход и отправляем /rec 5
-                setTimeout(() => {
-                    autoLoginConfig.enabled = true;
-                    sendChatInput("/rec 5");
-                    sendToTelegram(`🔄 <b>None (Акк2): Включен автовход и отправлен /rec 5 (59 мин) (${displayName})</b>`);
-                }, 7 * 60 * 1000); // Еще 7 минут (52 + 7 = 59)
-            }, 26 * 60 * 1000); // 26 минут игры
-        }, 26 * 60 * 1000); // Ждем 26 минут
+            sendToTelegram(`🔄 <b>None: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+        }, timeToReconnect);
     }
 }
 function startPausePhase() {
