@@ -13,7 +13,8 @@ const globalState = {
     afkTargetAccount: null,
     lastWelcomeMessageId: null,
     lastPaydayMessageIds: [],
-    isPrison: false // Новый флаг для посадки в тюрьму
+    isPrison: false, // Новый флаг для посадки в тюрьму
+    accountType: null // Новое поле для типа аккаунта ('acc1' или 'acc2')
 };
 // END GLOBAL STATE MODULE //
 // START CHAT RADIUS MODULE //
@@ -147,7 +148,8 @@ const config = {
         statusMessageIds: [],
         totalSalary: 0,
         reconnectEnabled: RECONNECT_ENABLED_DEFAULT, // <-- по умолчанию включён
-        restartAction: 'q' // Новый параметр: 'q' или 'rec' для действия при рестарте сервера
+        restartAction: 'q', // Новый параметр: 'q' или 'rec' для действия при рестарте сервера
+        accountType: null // Новое поле
     },
     nicknameLogged: false
 };
@@ -210,13 +212,12 @@ function setupAutoLogin(attempt = 1) {
                 // Уведомление через 3 секунды после успешного входа
                 setTimeout(() => {
                     showScreenNotification(
-                        "HASSLE", 
-                        "Скрипт загружен.<br>Меню /hb или Телеграмм.", 
-                        "FFFF00",   // жёлтый цвет
-                        6000        // видно 6 секунд (можно изменить)
+                        "HASSLE",
+                        "Скрипт загружен.<br>Меню /hb или Телеграмм.",
+                        "FFFF00", // жёлтый цвет
+                        6000 // видно 6 секунд (можно изменить)
                     );
                 }, 3000);
-
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
                 debugLog(errorMsg);
@@ -672,7 +673,7 @@ function updateAFKStatus(isNew = false) {
         });
     }
 }
-function activateAFKWithMode(mode, reconnect, restartAction, chatId, messageId) {
+function activateAFKWithMode(mode, reconnect, restartAction, chatId, messageId, accountType = null) {
     if (config.afkSettings.active) {
         sendToTelegram(`🔄 <b>AFK режим уже активирован для ${displayName}</b>`, false, null);
         return;
@@ -696,10 +697,22 @@ function activateAFKWithMode(mode, reconnect, restartAction, chatId, messageId) 
     config.afkCycle.mode = mode;
     config.afkCycle.reconnectEnabled = reconnect;
     config.afkCycle.restartAction = restartAction || 'q';
+    config.afkCycle.accountType = accountType; // Сохраняем тип аккаунта
+    
     startAFKCycle();
-    sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null);
-    // Возвращаемся в главное меню или скрываем кнопки
-    showGlobalFunctionsMenu(chatId, messageId, uniqueId);
+    
+    let accountTypeText = '';
+    if (accountType === 'acc1') {
+        accountTypeText = '\nТип: Аккаунт 1 (26 мин игры)';
+    } else if (accountType === 'acc2') {
+        accountTypeText = '\nТип: Аккаунт 2 (отложенный старт)';
+    }
+    
+    sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}${accountTypeText}\n📍 <b>Запущен AFK цикл для PayDay</b>`, false, null);
+    
+    if (chatId && messageId) {
+        showGlobalFunctionsMenu(chatId, messageId, uniqueId);
+    }
 }
 function startAFKCycle() {
     config.afkCycle.active = true;
@@ -738,8 +751,10 @@ function startPlayPhase() {
     if (!config.afkCycle.active) return;
     debugLog(`Начинаем игровую фазу для ${displayName}`);
     config.afkCycle.currentPlayTime = 0;
+    
     const requiredPlayTime = (config.afkCycle.mode === 'levelup') ? 10 * 60 * 1000 : 25 * 60 * 1000;
     let playDurationMs;
+    
     if (config.afkCycle.mode === 'fixed') {
         playDurationMs = 5 * 60 * 1000;
     } else if (config.afkCycle.mode === 'random') {
@@ -754,20 +769,27 @@ function startPlayPhase() {
         const minPossible = Math.min(minMin * 60 * 1000, maxPossible);
         playDurationMs = Math.floor(Math.random() * (maxPossible - minPossible + 1) + minPossible);
     } else {
-        // Без пауз: играем до requiredPlayTime
-        playDurationMs = requiredPlayTime - config.afkCycle.totalPlayTime;
+        // Без паузы: определяем длительность игры в зависимости от типа аккаунта
+        if (config.afkCycle.accountType === 'acc1' || config.afkCycle.accountType === 'acc2') {
+            playDurationMs = 26 * 60 * 1000; // 26 минут для обоих типов
+        } else {
+            playDurationMs = requiredPlayTime - config.afkCycle.totalPlayTime;
+        }
+        
         if (playDurationMs <= 0) {
             handleCycleEnd();
             return;
         }
     }
+    
     const durationMin = Math.floor(playDurationMs / 60000);
     const currentTime = getCurrentTimeString();
     config.afkCycle.playHistory.push(`▶️ Игровой режим [${durationMin} мин] в ${currentTime}`);
     if (config.afkCycle.playHistory.length > 3) {
-        config.afkCycle.playHistory.shift(); // Удаляем самую старую (сверху вниз)
+        config.afkCycle.playHistory.shift();
     }
-    updateAFKStatus(); // Обновляем статус-сообщение
+    updateAFKStatus();
+    
     try {
         if (typeof closeInterface === 'function') {
             closeInterface("PauseMenu");
@@ -776,6 +798,7 @@ function startPlayPhase() {
     } catch (e) {
         debugLog(`Ошибка при выходе из паузы: ${e.message}`);
     }
+    
     debugLog(`Игровая фаза: ${durationMin} минут`);
     config.afkCycle.playTimer = setTimeout(() => {
         config.afkCycle.totalPlayTime += playDurationMs;
@@ -811,17 +834,68 @@ function handleLevelUpEnd() {
     }
 }
 function handleNoneReconnectEnd() {
-    autoLoginConfig.enabled = false;
-    sendChatInput("/rec 5");
-    sendToTelegram(`🔄 <b>None: Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
-    const timePassed = Date.now() - config.afkCycle.startTime;
-    const timeToReconnect = 59 * 60 * 1000 - timePassed;
-    if (timeToReconnect > 0) {
+    const accountType = config.afkCycle.accountType;
+    
+    if (accountType === 'acc2') {
+        // Аккаунт 2: сразу выключаем автовход и делаем /rec 5
+        autoLoginConfig.enabled = false;
+        sendChatInput("/rec 5");
+        sendToTelegram(`🔄 <b>None (Acc2): Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
+        
+        // Через 26 мин включаем автовход и делаем /rec 5
         setTimeout(() => {
             autoLoginConfig.enabled = true;
             sendChatInput("/rec 5");
-            sendToTelegram(`🔄 <b>None: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
-        }, timeToReconnect);
+            sendToTelegram(`🔄 <b>None (Acc2): Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+            
+            // Начинаем отыгрывать 26 минут
+            setTimeout(() => {
+                // Через 26 мин снова выключаем автовход и делаем /rec 5
+                autoLoginConfig.enabled = false;
+                sendChatInput("/rec 5");
+                sendToTelegram(`🔄 <b>None (Acc2): Отключен автовход и отправлен /rec 5 после 26 мин (${displayName})</b>`);
+                
+                // К 59 минутам включаем автовход и делаем /rec 5
+                const timeToFinalReconnect = (59 * 60 * 1000) - (26 * 60 * 1000) - Date.now() + config.afkCycle.startTime;
+                setTimeout(() => {
+                    autoLoginConfig.enabled = true;
+                    sendChatInput("/rec 5");
+                    sendToTelegram(`🔄 <b>None (Acc2): Включен автовход и отправлен /rec 5 к 59 мин (${displayName})</b>`);
+                }, timeToFinalReconnect);
+            }, 26 * 60 * 1000);
+        }, 26 * 60 * 1000);
+        
+    } else if (accountType === 'acc1') {
+        // Аккаунт 1: отыгрываем 26 минут, потом выключаем автовход и делаем /rec 5
+        autoLoginConfig.enabled = false;
+        sendChatInput("/rec 5");
+        sendToTelegram(`🔄 <b>None (Acc1): Отключен автовход и отправлен /rec 5 после 26 мин (${displayName})</b>` + getAFKStatusText());
+        
+        // К 59 минутам включаем автовход и делаем /rec 5
+        const timePassed = Date.now() - config.afkCycle.startTime;
+        const timeToReconnect = 59 * 60 * 1000 - timePassed;
+        
+        if (timeToReconnect > 0) {
+            setTimeout(() => {
+                autoLoginConfig.enabled = true;
+                sendChatInput("/rec 5");
+                sendToTelegram(`🔄 <b>None (Acc1): Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+            }, timeToReconnect);
+        }
+    } else {
+        // Старое поведение без выбора типа аккаунта
+        autoLoginConfig.enabled = false;
+        sendChatInput("/rec 5");
+        sendToTelegram(`🔄 <b>None: Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
+        const timePassed = Date.now() - config.afkCycle.startTime;
+        const timeToReconnect = 59 * 60 * 1000 - timePassed;
+        if (timeToReconnect > 0) {
+            setTimeout(() => {
+                autoLoginConfig.enabled = true;
+                sendChatInput("/rec 5");
+                sendToTelegram(`🔄 <b>None: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+            }, timeToReconnect);
+        }
     }
 }
 function startPausePhase() {
@@ -1031,6 +1105,18 @@ function showAFKWithPausesSubMenu(chatId, messageId, uniqueIdParam) {
                 createButton("Рандомное время", `afk_n_random_${uniqueIdParam}`)
             ],
             [createButton("⬅️ Вернуться назад", `global_afk_n_${uniqueIdParam}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+function showAFKAccountTypeMenu(chatId, messageId, uniqueIdParam, selectedMode) {
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton("Аккаунт 1", `afk_acc1_${uniqueIdParam}_${selectedMode}`),
+                createButton("Аккаунт 2", `afk_acc2_${uniqueIdParam}_${selectedMode}`)
+            ],
+            [createButton("⬅️ Вернуться назад", `afk_n_without_pauses_${uniqueIdParam}`)]
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -1404,6 +1490,8 @@ function processUpdates(updates) {
             // Определяем глобальные команды, которые должны применяться ко всем аккаунтам
             const isGlobalCommand = message.startsWith('global_') ||
                 message.startsWith('afk_n_') ||
+                message.startsWith('afk_acc1_') ||
+                message.startsWith('afk_acc2_') ||
                 message.startsWith('restart_q_') ||
                 message.startsWith('restart_rec_') ||
                 message.startsWith('back_from_restart_') ||
@@ -1519,22 +1607,30 @@ function processUpdates(updates) {
                 const parts = message.split('_');
                 callbackUniqueId = parts[parts.length - 2];
                 const selectedMode = parts[parts.length - 1];
+                const accountType = selectedMode.includes('acc1') ? 'acc1' : (selectedMode.includes('acc2') ? 'acc2' : null);
+                const baseMode = selectedMode.replace('_acc1', '').replace('_acc2', '');
                 showRestartActionMenu(chatId, messageId, callbackUniqueId, selectedMode);
             } else if (message.startsWith('afk_n_reconnect_off_')) {
                 const parts = message.split('_');
                 callbackUniqueId = parts[parts.length - 2];
                 const selectedMode = parts[parts.length - 1];
-                activateAFKWithMode(selectedMode, false, 'q', chatId, messageId);
+                const accountType = selectedMode.includes('acc1') ? 'acc1' : (selectedMode.includes('acc2') ? 'acc2' : null);
+                const baseMode = selectedMode.replace('_acc1', '').replace('_acc2', '');
+                activateAFKWithMode(baseMode, false, 'q', chatId, messageId, accountType);
             } else if (message.startsWith('restart_q_')) {
                 const parts = message.split('_');
                 callbackUniqueId = parts[parts.length - 2];
                 const selectedMode = parts[parts.length - 1];
-                activateAFKWithMode(selectedMode, true, 'q', chatId, messageId);
+                const accountType = selectedMode.includes('acc1') ? 'acc1' : (selectedMode.includes('acc2') ? 'acc2' : null);
+                const baseMode = selectedMode.replace('_acc1', '').replace('_acc2', '');
+                activateAFKWithMode(baseMode, true, 'q', chatId, messageId, accountType);
             } else if (message.startsWith('restart_rec_')) {
                 const parts = message.split('_');
                 callbackUniqueId = parts[parts.length - 2];
                 const selectedMode = parts[parts.length - 1];
-                activateAFKWithMode(selectedMode, true, 'rec', chatId, messageId);
+                const accountType = selectedMode.includes('acc1') ? 'acc1' : (selectedMode.includes('acc2') ? 'acc2' : null);
+                const baseMode = selectedMode.replace('_acc1', '').replace('_acc2', '');
+                activateAFKWithMode(baseMode, true, 'rec', chatId, messageId, accountType);
             } else if (message.startsWith('back_from_restart_')) {
                 const parts = message.split('_');
                 callbackUniqueId = parts[parts.length - 2];
@@ -1547,6 +1643,23 @@ function processUpdates(updates) {
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
                 showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
+            } else if (message.startsWith('afk_n_without_pauses_')) {
+                if (config.autoReconnectEnabled) {
+                    // Показываем выбор типа аккаунта
+                    showAFKAccountTypeMenu(chatId, messageId, callbackUniqueId, 'none');
+                } else {
+                    activateAFKWithMode('none', false, 'q', chatId, messageId);
+                }
+            } else if (message.startsWith('afk_acc1_')) {
+                const parts = message.split('_');
+                callbackUniqueId = parts[2];
+                const selectedMode = parts[3];
+                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, `${selectedMode}_acc1`);
+            } else if (message.startsWith('afk_acc2_')) {
+                const parts = message.split('_');
+                callbackUniqueId = parts[2];
+                const selectedMode = parts[3];
+                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, `${selectedMode}_acc2`);
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -1634,11 +1747,7 @@ function processUpdates(updates) {
             } else if (message.startsWith(`afk_n_with_pauses_`)) {
                 showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`afk_n_without_pauses_`)) {
-                if (config.autoReconnectEnabled) {
-                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'none');
-                } else {
-                    activateAFKWithMode('none', false, 'q', chatId, messageId);
-                }
+                callbackUniqueId = message.replace('afk_n_without_pauses_', '');
             } else if (message.startsWith(`afk_n_fixed_`)) {
                 if (config.autoReconnectEnabled) {
                     showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'fixed');
@@ -1886,13 +1995,13 @@ function checkLocationRequest(msg, lowerCaseMessage, chatRadius) {
     const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
     const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word.toLowerCase()));
     const hasID = isTargetingPlayer(msg);
-   
+  
     // Строгая проверка: обязательно action keyword, если нет targeting
     const isValid = hasRoleKeyword && hasActionKeyword && (hasID || true); // Если нужно, уберите || true для еще большей строгости
-   
+  
     // Добавляем фильтр по радиусу чата (игнорируем UNKNOWN или SELF)
     const validRadius = (chatRadius === CHAT_RADIUS.RADIO || chatRadius === CHAT_RADIUS.CLOSE);
-   
+  
     return isValid && validRadius;
 }
 function isTargetingPlayer(msg) {
@@ -2366,7 +2475,7 @@ if (!initializeChatMonitor()) {
 // ==================== HB MENU SYSTEM ====================
 // Добавьте этот код в конец вашего основного скрипта
 // Константы для меню HB
-const HB_DIALOG_IDS =  {
+const HB_DIALOG_IDS = {
     MAIN: 900,
     CONTROLS: 901,
     LOCAL_FUNCTIONS: 902,
@@ -2550,6 +2659,24 @@ function showHBAFKPausesMenu() {
     });
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.AFK_PAUSES},2,"{00BFFF}AFK Ночь - Паузы","","Выбрать","Закрыть",0,0]`,
+        menuList,
+        0
+    );
+}
+// Меню выбора типа аккаунта
+function showHBAFKAccountTypeMenu() {
+    currentHBMenu = "afk_account_type";
+    currentHBPage = 0;
+    const menuItems = [
+        { name: "{FFFFFF}Аккаунт 1", action: "afk_acc1" },
+        { name: "{FFFFFF}Аккаунт 2", action: "afk_acc2" }
+    ];
+    let menuList = "{FFA500}< Назад<n>";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
+    window.addDialogInQueue(
+        `[914,2,"{00BFFF}AFK Ночь - Тип аккаунта","","Выбрать","Закрыть",0,0]`,
         menuList,
         0
     );
@@ -2827,12 +2954,22 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBAFKPausesMenu(), 100);
             } else if (listitem === 2) {
                 if (config.autoReconnectEnabled) {
-                    currentHBSelectedMode = 'none';
-                    setTimeout(() => showHBAFKReconnectMenu('none'), 100);
+                    setTimeout(() => showHBAFKAccountTypeMenu(), 100);
                 } else {
                     activateAFKWithMode('none', false, 'q', null, null);
                     showScreenNotification("Hassle", "AFK без пауз активирован");
                 }
+            }
+            break;
+        case 914: // HB_DIALOG_IDS для выбора типа аккаунта
+            if (listitem === 0) {
+                setTimeout(() => showHBAFKModesMenu(), 100);
+            } else if (listitem === 1) {
+                currentHBSelectedMode = 'none_acc1';
+                setTimeout(() => showHBAFKReconnectMenu('none_acc1'), 100);
+            } else if (listitem === 2) {
+                currentHBSelectedMode = 'none_acc2';
+                setTimeout(() => showHBAFKReconnectMenu('none_acc2'), 100);
             }
             break;
         case HB_DIALOG_IDS.AFK_PAUSES:
@@ -2925,57 +3062,3 @@ sendChatInput = window.sendChatInputCustom;
 sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 // ==================== END HB MENU SYSTEM ====================
-
-
-// ==================== Все режимы ====================
-/* // ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
-const originalSendChatInput = window.sendChatInputCustom || sendChatInput;
-window.sendChatInputCustom = function(e) {
-    const args = e.trim().split(" ");
-    // ===================== /test — ScreenNotification =====================
-    if (args[0] === "/test") {
-        try {
-            window.interface('ScreenNotification').add(
-                '[0, "Тест уведомления", "Это тестовый текст с переносом строки", "FF66FF", 5000]'
-            );
-            console.log('[TEST] ScreenNotification отправлен');
-        } catch (err) {
-            console.error('[TEST] Ошибка ScreenNotification:', err);
-        }
-        return;
-    }
-    // ===================== /test2 — GameText =====================
-    if (args[0] === "/test2") {
-        try {
-            window.interface('GameText').add(
-                '[0, "Большой GameText~n~~r~Красный~w~ и ~g~зелёный~w~ текст", 6000, 0, 0, 1, 1, 3.5]'
-            );
-            console.log('[TEST2] GameText отправлен');
-        } catch (err) {
-            console.error('[TEST2] Ошибка GameText:', err);
-        }
-        return;
-    }
-    // Для всех остальных команд — передаём дальше
-    if (typeof originalSendChatInput === 'function') {
-        originalSendChatInput(e);
-    }
-};
-sendChatInput = window.sendChatInputCustom;
-console.log('[TEST COMMANDS] /test и /test2 успешно загружены!');
-// ScreenNotification:
-// Формат: [позиция, "Заголовок", "Текст перенос", "ЦветHEX", время_мс]
-// Позиции:
-// 0 — Сверху (top)
-// 1 — Слева (left)
-// 2 — Снизу (bottom)
-// GameText:
-// Формат: [тип, "Текст~n~перенос~~r~цвет", длительность, offset, keyCode, force, звук, размер]
-// Типы (0-4):
-// 0 — Центр экрана (center-type)
-// 1 — Верх экрана (top-type)
-// 2 — Справа внизу (right-type)
-// 3 — Низ экрана (bottom-type)
-// 4 — Центр + ожидание клавиши (key-type)
-// Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
-*/
