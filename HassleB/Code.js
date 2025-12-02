@@ -923,7 +923,7 @@ function handlePayDayTimeMessage() {
             autoLoginConfig.enabled = true;
             sendChatInput("/rec 5");
             sendToTelegram(`🔄 <b>None Acc2: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
-            config.afkCycle.startTime = Date.now(); // Сбрасываем startTime на момент входа в 26 мин
+            // НЕ сбрасываем startTime для Acc2
             startPlayPhase();
         }, 26 * 60 * 1000);
     } else {
@@ -1584,7 +1584,9 @@ function processUpdates(updates) {
                 const parts = message.split('_');
                 callbackUniqueId = parts[parts.length - 2];
                 const selectedMode = parts[parts.length - 1];
-                if (selectedMode === 'levelup') {
+                if (selectedMode === 'none') {
+                    showAFKAccountMenu(chatId, messageId, callbackUniqueId, selectedMode);
+                } else if (endWith 'levelup') {
                     showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
                 } else {
                     showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
@@ -2431,6 +2433,7 @@ const HB_DIALOG_IDS =  {
 let currentHBMenu = null;
 let currentHBPage = 0;
 let currentHBSelectedMode = null;
+let currentHBAccountType = null;
 const HB_ITEMS_PER_PAGE = 6;
 // Функция для создания меню с пагинацией
 function createHBMenu(title, items, dialogId) {
@@ -2660,6 +2663,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
     if (button !== 1) {
         currentHBMenu = null;
         currentHBSelectedMode = null;
+        currentHBAccountType = null;
         return;
     }
     switch (dialogId) {
@@ -2942,9 +2946,11 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBAFKReconnectMenu(currentHBSelectedMode), 100);
             } else if (listitem === 1) {
                 // Аккаунт 1
+                currentHBAccountType = '1';
                 setTimeout(() => showHBAFKRestartMenu(currentHBSelectedMode), 100);
             } else if (listitem === 2) {
                 // Аккаунт 2
+                currentHBAccountType = '2';
                 setTimeout(() => showHBAFKRestartMenu(currentHBSelectedMode), 100);
             }
             break;
@@ -2957,16 +2963,16 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 }
             } else if (listitem === 1) {
                 // /q
-                const accountType = listitem === 1 ? '1' : '2'; // В зависимости от предыдущего выбора, но поскольку в handle, предполагаем по логике
-                activateAFKWithMode(currentHBSelectedMode, true, 'q', null, null, accountType);
+                activateAFKWithMode(currentHBSelectedMode, true, 'q', null, null, currentHBAccountType);
                 showScreenNotification("Hassle", "AFK режим активирован (/q при рестарте)");
                 currentHBSelectedMode = null;
+                currentHBAccountType = null;
             } else if (listitem === 2) {
                 // /rec
-                const accountType = listitem === 1 ? '1' : '2';
-                activateAFKWithMode(currentHBSelectedMode, true, 'rec', null, null, accountType);
+                activateAFKWithMode(currentHBSelectedMode, true, 'rec', null, null, currentHBAccountType);
                 showScreenNotification("Hassle", "AFK режим активирован (/rec при рестарте)");
                 currentHBSelectedMode = null;
+                currentHBAccountType = null;
             }
             break;
     }
