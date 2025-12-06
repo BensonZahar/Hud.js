@@ -4,7 +4,7 @@ const LAST_NAME = "";
 const CALLSIGN = "";
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
-const repo = 'Hud.js';
+const repo = 'Hud.jss';
 const folder = 'MVD AHK';
 const filename = 'mvd.js';
 // Функция загрузчика с retry
