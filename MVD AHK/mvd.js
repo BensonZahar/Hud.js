@@ -453,7 +453,7 @@ const startTracking = (id) => {
     }, 2000);
     
     // Интервал для обновления notification каждые 25 сек
-    refreshNotifInterval = setInterval(updateTrackingNotification, 25000);
+    refreshNotifInterval = setInterval(updateTrackingNotification, 2000);
     
     // Инициализируем notification (пока без ника)
     updateTrackingNotification();
@@ -1697,3 +1697,4 @@ console.log('[FILTER] /addfilter [слово] - добавить фильтр');
 console.log('[FILTER] /removefilter [слово] - удалить фильтр'); 
 console.log('[FILTER] /showfilters - показать все фильтры'); 
 console.log('[FILTER] /clearfilters - очистить все фильтры');
+
