@@ -275,14 +275,43 @@ const setupChatHandler = () => {
                     }, 1000);
                 }
             }
+
+            // ==================== ОТСЛЕЖИВАНИЕ ШТРАФОВ ====================
+            if (typeof message === 'string') {
+                // Проверка на успешную выдачу штрафа
+                if (message.includes('Вы получили премию к зарплате в размере')) {
+                    try {
+                        // Открываем InformationTimer на 5 минут (300 секунд)
+                        window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
+                        console.log('[FINE] InformationTimer запущен на 5 минут');
+                    } catch (err) {
+                        console.error('[FINE] Ошибка открытия InformationTimer:', err);
+                    }
+                }
+                
+                // Проверка на кулдаун штрафа
+                if (message.includes('Вы недавно выдавали штраф')) {
+                    try {
+                        window.interface('ScreenNotification').add(
+                            '[1, "Выдача штрафа", "У вас еще к/д на выдачу штрафа", "FF0000", 5000]'
+                        );
+                        console.log('[FINE] ScreenNotification: кулдаун штрафа');
+                    } catch (err) {
+                        console.error('[FINE] Ошибка ScreenNotification:', err);
+                    }
+                }
+            }
+            // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
         
             return originalAddFunction.apply(this, [message, ...args]);
         };
         console.log('[Auto-cuff] Обработчик чата успешно установлен');
+        console.log('[FINE] Отслеживание штрафов активировано');
     } else {
         setTimeout(setupChatHandler, 100);
     }
 };
+
 setupChatHandler();
 const getPaginatedMenu = (options) => {
     const start = currentPage * ITEMS_PER_PAGE;
@@ -1513,4 +1542,3 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
-
