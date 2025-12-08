@@ -223,6 +223,22 @@ const specialOptions = [
 ];
 const ITEMS_PER_PAGE = 6;
 const KOAP_LINES_PER_PAGE = 50; // Для пагинации КоАП
+// ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
+const messageFilters = [
+    "* Игрок слишком далеко"
+];
+
+function shouldBlockMessage(message) {
+    if (typeof message !== 'string') return false;
+    const lowerMsg = message.toLowerCase();
+    for (const filter of messageFilters) {
+        if (lowerMsg.includes(filter.toLowerCase())) {
+            console.log(`[FILTER] Заблокировано: "${filter}"`);
+            return true;
+        }
+    }
+    return false;
+}
 let currentPage = 0;
 let shownLicenseTypes = [];
 let shownMvdSubTypes = [];
@@ -235,6 +251,12 @@ let currentAction = null;
 let currentStroyAction = null;
 let tempHour = null;
 let scanInterval = null;
+let setmarkInterval = null;
+let pgInterval = null;
+let idPgInterval = null;
+let trackingNotificationOpen = false;
+let chaseNotificationOpen = false;
+let trackingNickname = null;
 let currentScanId = null;
 let autoCuffEnabled = false;
 let currentKoapType = null;
@@ -251,6 +273,11 @@ const setupChatHandler = () => {
         const originalAddFunction = window.interface('Hud').$refs.chat.add;
     
         window.interface('Hud').$refs.chat.add = function(message, ...args) {
+			// ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
+            if (shouldBlockMessage(message)) {
+                console.log('[FILTER] ✋ Сообщение заблокировано');
+                return;
+            }
             if (autoCuffEnabled && typeof message === 'string') {
                 const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
                 if (stunMatch) {
@@ -334,32 +361,134 @@ const getPaginatedKoap = () => {
     text += "<n><n>Введите: ID Стоимость Код (пример: 221 1500 12.1)<n>Или 'вперед'/'назад' для навигации.<n>Для поиска введите слово/текст.<n>Для полного списка: 'все'";
     return text;
 };
+// ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
+// ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
+const openTrackingNotification = (id) => {
+    try {
+        // Закрываем предыдущее если есть
+        if (trackingNotificationOpen) {
+            try {
+                window.closeInterface('ScreenNotification');
+            } catch (e) {
+                console.log('[TRACKING] Не удалось закрыть предыдущее уведомление');
+            }
+        }
+        
+        window.interface('ScreenNotification').add(
+            `[1, "Идет отслеживание", "ID: ${id}", "FF0000", 36000000]`
+        );
+        trackingNotificationOpen = true;
+        console.log('[TRACKING] ScreenNotification открыт (красный)');
+    } catch (err) {
+        console.error('[TRACKING] Ошибка открытия ScreenNotification:', err);
+    }
+};
+
+const openChaseNotification = (id) => {
+    try {
+        // Закрываем отслеживание
+        if (trackingNotificationOpen || chaseNotificationOpen) {
+            try {
+                window.closeInterface('ScreenNotification');
+            } catch (e) {
+                console.log('[CHASE] Не удалось закрыть предыдущее уведомление');
+            }
+            trackingNotificationOpen = false;
+        }
+        
+        window.interface('ScreenNotification').add(
+            `[1, "Начата погоня", "ID: ${id}", "0000FF", 36000000]`
+        );
+        chaseNotificationOpen = true;
+        console.log('[CHASE] ScreenNotification открыт (синий)');
+    } catch (err) {
+        console.error('[CHASE] Ошибка открытия ScreenNotification:', err);
+    }
+};
+
+const closeTrackingNotifications = () => {
+    try {
+        if (trackingNotificationOpen || chaseNotificationOpen) {
+            window.closeInterface('ScreenNotification');
+            trackingNotificationOpen = false;
+            chaseNotificationOpen = false;
+            console.log('[TRACKING] ScreenNotification закрыт');
+        }
+    } catch (err) {
+        console.error('[TRACKING] Ошибка закрытия ScreenNotification:', err);
+    }
+};
 const startTracking = (id) => {
+    // Очищаем старые интервалы
     if (scanInterval) {
         clearInterval(scanInterval);
         scanInterval = null;
     }
+    if (setmarkInterval) {
+        clearInterval(setmarkInterval);
+        setmarkInterval = null;
+    }
+    if (pgInterval) {
+        clearInterval(pgInterval);
+        pgInterval = null;
+    }
+    
     currentScanId = id;
     trackingName = `Отслеживание | {00FF00}Вкл`;
+    trackingNickname = null;
+    
+    // Открываем красное уведомление
+    openTrackingNotification(id);
+    
+    // Начальные команды
     sendMessagesWithDelay([
-        `/setmark ${currentScanId}`
-    ], [0, 1000, 0]);
-    scanInterval = setInterval(() => {
+        `/id ${currentScanId}`,      // Один раз для получения ника
+        `/setmark ${currentScanId}`,
+        `/pg ${currentScanId}`
+    ], [0, 500, 1000]);
+    
+    // Интервал /pg каждые 2 секунды
+    pgInterval = setInterval(() => {
+        if (currentScanId) {
+            sendChatInput(`/pg ${currentScanId}`);
+        }
+    }, 2000);
+    
+    // Интервал /setmark каждые 31 секунду
+    setmarkInterval = setInterval(() => {
         if (currentScanId) {
             sendChatInput(`/setmark ${currentScanId}`);
         }
     }, 31000);
+    
     setTimeout(() => {
         showMvdSubMenu(giveLicenseTo);
     }, 100);
 };
+
 const stopTracking = () => {
+    // Очищаем все интервалы
     if (scanInterval) {
         clearInterval(scanInterval);
         scanInterval = null;
     }
+    if (setmarkInterval) {
+        clearInterval(setmarkInterval);
+        setmarkInterval = null;
+    }
+    if (pgInterval) {
+        clearInterval(pgInterval);
+        pgInterval = null;
+    }
+    
+    // Закрываем все уведомления
+    closeTrackingNotifications();
+    
     currentScanId = null;
+    trackingNickname = null;
     trackingName = `Отслеживание | {FF0000}Выкл`;
+    
+    console.log('[TRACKING] Отслеживание остановлено');
 };
 const toggleAutoCuff = () => {
     autoCuffEnabled = !autoCuffEnabled;
