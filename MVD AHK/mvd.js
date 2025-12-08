@@ -271,13 +271,39 @@ window.addEventListener('keydown', function(e) {
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
         const originalAddFunction = window.interface('Hud').$refs.chat.add;
-    
+   
         window.interface('Hud').$refs.chat.add = function(message, ...args) {
-			// ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
+            // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
             if (shouldBlockMessage(message)) {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
                 return;
             }
+
+            // ==================== ОТСЛЕЖИВАНИЕ ПОГОНИ ====================
+            if (typeof message === 'string' && currentScanId) {
+                // Погоня началась или присоединились
+                if (message.includes('Вы начали погоню за игроком') || 
+                    message.includes('Вы присоединились к погоне')) {
+                    
+                    isInActiveChase = true;
+                    console.log('[CHASE] 🚨 Погоня активна - /pg отключен');
+                    
+                    // Открываем синее уведомление
+                    openChaseNotification(currentScanId);
+                }
+                
+                // Преступник ушел от погони
+                if (message.includes('Разыскиваемый ушел от погони!')) {
+                    isInActiveChase = false;
+                    console.log('[CHASE] ⚠️ Преступник ушел - /pg возобновлен');
+                    
+                    // Возвращаем красное уведомление
+                    openTrackingNotification(currentScanId);
+                }
+            }
+            // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ПОГОНИ ====================
+
+            // Auto-cuff logic
             if (autoCuffEnabled && typeof message === 'string') {
                 const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
                 if (stunMatch) {
@@ -286,7 +312,7 @@ const setupChatHandler = () => {
                         sendChatInput(`/id ${nickname}`);
                     }, 500);
                 }
-            
+           
                 const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
                 if (idMatch && idMatch[2]) {
                     const id = idMatch[2];
@@ -305,18 +331,15 @@ const setupChatHandler = () => {
 
             // ==================== ОТСЛЕЖИВАНИЕ ШТРАФОВ ====================
             if (typeof message === 'string') {
-                // Проверка на успешную выдачу штрафа
                 if (message.includes('Вы получили премию к зарплате в размере')) {
                     try {
-                        // Открываем InformationTimer на 5 минут (300 секунд)
                         window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
                         console.log('[FINE] InformationTimer запущен на 5 минут');
                     } catch (err) {
                         console.error('[FINE] Ошибка открытия InformationTimer:', err);
                     }
                 }
-                
-                // Проверка на кулдаун штрафа
+               
                 if (message.includes('Вы недавно выдавали штраф')) {
                     try {
                         window.interface('ScreenNotification').add(
@@ -329,16 +352,16 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
-        
+       
             return originalAddFunction.apply(this, [message, ...args]);
         };
         console.log('[Auto-cuff] Обработчик чата успешно установлен');
+        console.log('[CHASE] Отслеживание погони активировано');
         console.log('[FINE] Отслеживание штрафов активировано');
     } else {
         setTimeout(setupChatHandler, 100);
     }
 };
-
 setupChatHandler();
 const getPaginatedMenu = (options) => {
     const start = currentPage * ITEMS_PER_PAGE;
@@ -361,24 +384,33 @@ const getPaginatedKoap = () => {
     text += "<n><n>Введите: ID Стоимость Код (пример: 221 1500 12.1)<n>Или 'вперед'/'назад' для навигации.<n>Для поиска введите слово/текст.<n>Для полного списка: 'все'";
     return text;
 };
+
 // ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
-// ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
+let currentNotificationId = 0;
+let isInActiveChase = false; // Флаг активной погони
+
 const openTrackingNotification = (id) => {
     try {
-        // Закрываем предыдущее если есть
-        if (trackingNotificationOpen) {
-            try {
-                window.closeInterface('ScreenNotification');
-            } catch (e) {
-                console.log('[TRACKING] Не удалось закрыть предыдущее уведомление');
-            }
+        currentNotificationId++;
+        
+        const screenNotif = window.interface('ScreenNotification');
+        if (screenNotif && typeof screenNotif.hideAll === 'function') {
+            screenNotif.hideAll();
         }
         
-        window.interface('ScreenNotification').add(
-            `[1, "Идет отслеживание", "ID: ${id}", "FF0000", 36000000]`
-        );
-        trackingNotificationOpen = true;
-        console.log('[TRACKING] ScreenNotification открыт (красный)');
+        setTimeout(() => {
+            try {
+                window.interface('ScreenNotification').add(
+                    `[1, "Идет отслеживание", "ID: ${id}", "FF0000", 36000000]`
+                );
+                trackingNotificationOpen = true;
+                chaseNotificationOpen = false;
+                console.log('[TRACKING] ScreenNotification открыт (красный)');
+            } catch (err) {
+                console.error('[TRACKING] Ошибка при добавлении уведомления:', err);
+            }
+        }, 100);
+        
     } catch (err) {
         console.error('[TRACKING] Ошибка открытия ScreenNotification:', err);
     }
@@ -386,21 +418,26 @@ const openTrackingNotification = (id) => {
 
 const openChaseNotification = (id) => {
     try {
-        // Закрываем отслеживание
-        if (trackingNotificationOpen || chaseNotificationOpen) {
-            try {
-                window.closeInterface('ScreenNotification');
-            } catch (e) {
-                console.log('[CHASE] Не удалось закрыть предыдущее уведомление');
-            }
-            trackingNotificationOpen = false;
+        currentNotificationId++;
+        
+        const screenNotif = window.interface('ScreenNotification');
+        if (screenNotif && typeof screenNotif.hideAll === 'function') {
+            screenNotif.hideAll();
         }
         
-        window.interface('ScreenNotification').add(
-            `[1, "Начата погоня", "ID: ${id}", "0000FF", 36000000]`
-        );
-        chaseNotificationOpen = true;
-        console.log('[CHASE] ScreenNotification открыт (синий)');
+        setTimeout(() => {
+            try {
+                window.interface('ScreenNotification').add(
+                    `[1, "Начата погоня", "ID: ${id}", "0000FF", 36000000]`
+                );
+                trackingNotificationOpen = false;
+                chaseNotificationOpen = true;
+                console.log('[CHASE] ScreenNotification открыт (синий)');
+            } catch (err) {
+                console.error('[CHASE] Ошибка при добавлении уведомления:', err);
+            }
+        }, 100);
+        
     } catch (err) {
         console.error('[CHASE] Ошибка открытия ScreenNotification:', err);
     }
@@ -408,16 +445,18 @@ const openChaseNotification = (id) => {
 
 const closeTrackingNotifications = () => {
     try {
-        if (trackingNotificationOpen || chaseNotificationOpen) {
-            window.closeInterface('ScreenNotification');
+        const screenNotif = window.interface('ScreenNotification');
+        if (screenNotif && typeof screenNotif.hideAll === 'function') {
+            screenNotif.hideAll();
             trackingNotificationOpen = false;
             chaseNotificationOpen = false;
-            console.log('[TRACKING] ScreenNotification закрыт');
+            console.log('[TRACKING] Все уведомления закрыты через hideAll');
         }
     } catch (err) {
         console.error('[TRACKING] Ошибка закрытия ScreenNotification:', err);
     }
 };
+
 const startTracking = (id) => {
     // Очищаем старые интервалы
     if (scanInterval) {
@@ -432,35 +471,36 @@ const startTracking = (id) => {
         clearInterval(pgInterval);
         pgInterval = null;
     }
-    
+   
     currentScanId = id;
     trackingName = `Отслеживание | {00FF00}Вкл`;
     trackingNickname = null;
-    
+    isInActiveChase = false; // Сброс флага погони
+   
     // Открываем красное уведомление
     openTrackingNotification(id);
-    
+   
     // Начальные команды
     sendMessagesWithDelay([
-        `/id ${currentScanId}`,      // Один раз для получения ника
+        `/id ${currentScanId}`,
         `/setmark ${currentScanId}`,
         `/pg ${currentScanId}`
     ], [0, 500, 1000]);
-    
-    // Интервал /pg каждые 2 секунды
+   
+    // Интервал /pg каждые 2 секунды (только если НЕ в активной погоне)
     pgInterval = setInterval(() => {
-        if (currentScanId) {
+        if (currentScanId && !isInActiveChase) {
             sendChatInput(`/pg ${currentScanId}`);
         }
     }, 2000);
-    
+   
     // Интервал /setmark каждые 31 секунду
     setmarkInterval = setInterval(() => {
         if (currentScanId) {
             sendChatInput(`/setmark ${currentScanId}`);
         }
     }, 31000);
-    
+   
     setTimeout(() => {
         showMvdSubMenu(giveLicenseTo);
     }, 100);
@@ -480,14 +520,15 @@ const stopTracking = () => {
         clearInterval(pgInterval);
         pgInterval = null;
     }
-    
+   
     // Закрываем все уведомления
     closeTrackingNotifications();
-    
+   
     currentScanId = null;
     trackingNickname = null;
     trackingName = `Отслеживание | {FF0000}Выкл`;
-    
+    isInActiveChase = false;
+   
     console.log('[TRACKING] Отслеживание остановлено');
 };
 const toggleAutoCuff = () => {
