@@ -1712,3 +1712,172 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
+// ============================================
+// CUSTOM INTERFACES REGISTRATION SYSTEM
+// Добавьте свои интерфейсы сюда
+// ============================================
+
+// ============================================
+// 📦 СЕКЦИЯ 1: Компоненты (как td)
+// ============================================
+const customComponents = {
+    Theory2: p(() => d(() => import("./Theory2.js"), ["./Theory2.js", "./speed.js", "./Close.js", "./telegram-authenticator.js", "./long-arrow-left-secondary.js", "./close2.js", "./Button.js", "./donate.js", "./money.js", "./Button.css", "./Close.css", "./ScrollableContainer.js", "./dom.js", "./ScrollableContainer.css", "./Theory2.css"], import.meta.url)),
+    
+    CustomInterface1: p(() => d(() => import("./CustomInterface1.js"), ["./CustomInterface1.js", "./CustomInterface1.css"], import.meta.url)),
+    
+    MyAwesomeUI: p(() => d(() => import("./MyAwesomeUI.js"), ["./MyAwesomeUI.js", "./Button.js", "./Button.css", "./Close.js", "./Close.css", "./MyAwesomeUI.css"], import.meta.url))
+};
+
+// ============================================
+// ⚙️ СЕКЦИЯ 2: Конфигурация (как od)
+// ============================================
+const customConfig = {
+    Theory2: {
+        open: {
+            status: !1
+        },
+        show: !0,
+        options: {
+            hideHud: !0,
+            hideChat: !0
+        }
+    },
+    
+    CustomInterface1: {
+        open: {
+            status: !1
+        },
+        show: !0,
+        options: {
+            hideHud: !1,
+            hideChat: !1
+        }
+    },
+    
+    MyAwesomeUI: {
+        open: {
+            status: !1
+        },
+        show: !0,
+        options: {
+            hideHud: !0,
+            hideChat: !0,
+            showControlsButton: !0
+        }
+    }
+};
+
+// ============================================
+// 🔧 РЕГИСТРАЦИЯ
+// ============================================
+Object.keys(customConfig).forEach(name => {
+    td[name] = customComponents[name];
+    od[name] = customConfig[name];
+});
+// ============================================
+// 🔧 ФИКС ЗАКРЫТИЯ НА ESC ДЛЯ THEORY2
+// ============================================
+
+const originalCheckAndOpenPauseMenu = window.checkAndOpenPauseMenu;
+
+window.checkAndOpenPauseMenu = function(e) {
+    // Список интерфейсов, которые закрываются на ESC
+    const closeableInterfaces = ['Theory', 'Theory2', 'CustomInterface1', 'MyAwesomeUI'];
+    
+    if (e === KEY_CODE_ESC && !window.inputFocus) {
+        // Проверяем, открыт ли какой-то из наших интерфейсов
+        for (const interfaceName of closeableInterfaces) {
+            if (window.getInterfaceStatus(interfaceName)) {
+                window.closeInterface(interfaceName);
+                console.log(`[ESC] Закрыт: ${interfaceName}`);
+                return; // ❗ Важно! Не даём открыться PauseMenu
+            }
+        }
+    }
+    
+    // Вызываем оригинальную функцию
+    originalCheckAndOpenPauseMenu(e);
+};
+
+console.log('✅ Закрытие Theory2 на ESC активировано');
+
+console.log(`✅ Loaded ${Object.keys(customConfig).length} custom interfaces`);
+
+// ============================================
+// 🎮 КОМАНДА ДЛЯ ОТКРЫТИЯ ИНТЕРФЕЙСОВ
+// ============================================
+
+// Сохраняем оригинальную функцию
+const originalSendChatInputCustom = window.sendChatInputCustom || window.sendChatInput;
+
+window.sendChatInputCustom = function(e) {
+    const args = e.trim().split(" ");
+    
+    // ===================== /openint InterfaceName =====================
+    if (args[0] === "/openint") {
+        const interfaceName = args[1];
+        
+        if (!interfaceName) {
+            try {
+                window.interface('ScreenNotification').add(
+                    '[0, "Открытие интерфейса", "Использование: /openint <Название>", "FF0000", 5000]'
+                );
+            } catch (err) {
+                console.error('[OPENINT] Ошибка уведомления:', err);
+            }
+            return;
+        }
+        
+        // Проверяем существование интерфейса
+        if (window.App.components[interfaceName]) {
+            window.openInterface(interfaceName);
+            console.log(`✅ Открыт: ${interfaceName}`);
+            
+            try {
+                window.interface('ScreenNotification').add(
+                    `[0, "Открытие интерфейса", "Интерфейс '${interfaceName}' открыт", "00FF00", 3000]`
+                );
+            } catch (err) {
+                console.error('[OPENINT] Ошибка уведомления:', err);
+            }
+        } else {
+            console.error(`❌ Не найден: ${interfaceName}`);
+            
+            try {
+                window.interface('ScreenNotification').add(
+                    `[0, "Ошибка", "Интерфейс '${interfaceName}' не найден", "FF0000", 5000]`
+                );
+            } catch (err) {
+                console.error('[OPENINT] Ошибка уведомления:', err);
+            }
+        }
+        return;
+    }
+    
+    // ===================== /listint — список доступных интерфейсов =====================
+    if (args[0] === "/listint") {
+        const interfaces = Object.keys(window.App.components).join(", ");
+        console.log(`📋 Доступные интерфейсы: ${interfaces}`);
+        
+        try {
+            window.interface('ScreenNotification').add(
+                '[0, "Список интерфейсов", "Список выведен в консоль (F8)", "0000FF", 5000]'
+            );
+        } catch (err) {
+            console.error('[LISTINT] Ошибка уведомления:', err);
+        }
+        return;
+    }
+    
+    // Для всех остальных команд — передаём дальше
+    if (args[0] === "/dahk" || args[0] === "/mvdreset") {
+        originalSendChatInputCustom(e);
+    } else {
+        window.App.developmentMode || engine.trigger("SendChatInput", e);
+    }
+};
+
+// Обновляем глобальную функцию
+sendChatInput = window.sendChatInputCustom;
+
+console.log('✅ Команды /openint и /listint загружены!');
