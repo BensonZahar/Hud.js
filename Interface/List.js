@@ -2,69 +2,109 @@
 // 🌐 ФУНКЦИИ ЗАГРУЗКИ С GITHUB
 // ============================================
 
-async function loadCssFromGitHub(username, repo, folder, filename, retries = 5) {
-    const path = folder ? `${folder}/` : '';
-    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
-    
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
-            const cssText = await response.text();
-            const style = document.createElement('style');
-            style.setAttribute('data-source', `github:${username}/${repo}/${folder}/${filename}`);
-            style.textContent = cssText;
-            document.head.appendChild(style);
-            
-            console.log(`✅ CSS ${filename} загружен с GitHub`);
-            return true;
-        } catch (error) {
-            if (attempt < retries) {
-                console.log(`🔄 Повторная попытка загрузки CSS... (${attempt + 1}/${retries})`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
+function loadCssFromGitHub(username, repo, folder, filename, retries = 5) {
+    return new Promise((resolve, reject) => {
+        const path = folder ? `${encodeURIComponent(folder)}/` : '';
+        const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
+        
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        
+        xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                const style = document.createElement('style');
+                style.setAttribute('data-source', `github:${username}/${repo}/${folder}/${filename}`);
+                style.textContent = xhr.responseText;
+                document.head.appendChild(style);
+                
+                console.log(`✅ CSS ${filename} загружен с GitHub`);
+                resolve(true);
             } else {
-                console.error(`❌ Не удалось загрузить CSS ${filename}:`, error);
-                return false;
+                console.error(`❌ HTTP error! status: ${xhr.status} для ${url}`);
+                if (retries > 0) {
+                    console.log(`🔄 Повторная попытка CSS... Осталось попыток: ${retries - 1}`);
+                    setTimeout(() => {
+                        loadCssFromGitHub(username, repo, folder, filename, retries - 1)
+                            .then(resolve)
+                            .catch(reject);
+                    }, 2000);
+                } else {
+                    reject(new Error(`Не удалось загрузить CSS ${filename}`));
+                }
             }
-        }
-    }
+        };
+        
+        xhr.onerror = function() {
+            console.error(`❌ Ошибка сети при загрузке CSS ${filename}`);
+            if (retries > 0) {
+                console.log(`🔄 Повторная попытка CSS... Осталось попыток: ${retries - 1}`);
+                setTimeout(() => {
+                    loadCssFromGitHub(username, repo, folder, filename, retries - 1)
+                        .then(resolve)
+                        .catch(reject);
+                }, 2000);
+            } else {
+                reject(new Error(`Не удалось загрузить CSS ${filename}`));
+            }
+        };
+        
+        xhr.send();
+    });
 }
 
-async function loadJsFromGitHub(username, repo, folder, filename, retries = 5) {
-    const path = folder ? `${folder}/` : '';
-    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
-    
-    for (let attempt = 0; attempt <= retries; attempt++) {
-        try {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            
-            const jsText = await response.text();
-            console.log(`✅ JS ${filename} загружен с GitHub`);
-            return jsText;
-        } catch (error) {
-            if (attempt < retries) {
-                console.log(`🔄 Повторная попытка загрузки JS... (${attempt + 1}/${retries})`);
-                await new Promise(resolve => setTimeout(resolve, 2000));
+function loadJsFromGitHub(username, repo, folder, filename, retries = 5) {
+    return new Promise((resolve, reject) => {
+        const path = folder ? `${encodeURIComponent(folder)}/` : '';
+        const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
+        
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        
+        xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                console.log(`✅ JS ${filename} загружен с GitHub`);
+                resolve(xhr.responseText);
             } else {
-                console.error(`❌ Не удалось загрузить JS ${filename}:`, error);
-                return null;
+                console.error(`❌ HTTP error! status: ${xhr.status} для ${url}`);
+                if (retries > 0) {
+                    console.log(`🔄 Повторная попытка JS... Осталось попыток: ${retries - 1}`);
+                    setTimeout(() => {
+                        loadJsFromGitHub(username, repo, folder, filename, retries - 1)
+                            .then(resolve)
+                            .catch(reject);
+                    }, 2000);
+                } else {
+                    reject(new Error(`Не удалось загрузить JS ${filename}`));
+                }
             }
-        }
-    }
+        };
+        
+        xhr.onerror = function() {
+            console.error(`❌ Ошибка сети при загрузке JS ${filename}`);
+            if (retries > 0) {
+                console.log(`🔄 Повторная попытка JS... Осталось попыток: ${retries - 1}`);
+                setTimeout(() => {
+                    loadJsFromGitHub(username, repo, folder, filename, retries - 1)
+                        .then(resolve)
+                        .catch(reject);
+                }, 2000);
+            } else {
+                reject(new Error(`Не удалось загрузить JS ${filename}`));
+            }
+        };
+        
+        xhr.send();
+    });
 }
 
 // ============================================
-// 📦 СЕКЦИЯ 1: Регистрация кастомных интерфейсов
+// 📦 СЕКЦИЯ 1: Регистрация кастомных интерфейсов (БЕЗ import.meta)
 // ============================================
 
 const customComponents = {
-    Theory2: p(() => d(() => import("./Theory2.js"), ["./Theory2.js", "./speed.js", "./Close.js", "./telegram-authenticator.js", "./long-arrow-left-secondary.js", "./close2.js", "./Button.js", "./donate.js", "./money.js", "./Button.css", "./Close.css", "./ScrollableContainer.js", "./dom.js", "./ScrollableContainer.css", "./Theory2.css"], import.meta.url)),
-    
-    CustomInterface1: p(() => d(() => import("./CustomInterface1.js"), ["./CustomInterface1.js", "./CustomInterface1.css"], import.meta.url)),
-    
-    MyAwesomeUI: p(() => d(() => import("./MyAwesomeUI.js"), ["./MyAwesomeUI.js", "./Button.js", "./Button.css", "./Close.js", "./Close.css", "./MyAwesomeUI.css"], import.meta.url))
+    Theory2: () => import("./Theory2.js"),
+    CustomInterface1: () => import("./CustomInterface1.js"),
+    MyAwesomeUI: () => import("./MyAwesomeUI.js")
 };
 
 // ============================================
@@ -127,29 +167,33 @@ const customConfig = {
         
         console.log(`🔍 Проверка ${interfaceName}...`);
         
-        // Пробуем загрузить CSS
-        const cssLoaded = await loadCssFromGitHub(
-            githubConfig.username,
-            githubConfig.repo,
-            githubConfig.folder,
-            cssFileName
-        );
+        try {
+            // Пробуем загрузить CSS
+            await loadCssFromGitHub(
+                githubConfig.username,
+                githubConfig.repo,
+                githubConfig.folder,
+                cssFileName
+            );
+        } catch (error) {
+            console.log(`ℹ️ CSS ${cssFileName} не найден на GitHub, используем локальный`);
+        }
         
-        // Пробуем загрузить JS
-        const jsCode = await loadJsFromGitHub(
-            githubConfig.username,
-            githubConfig.repo,
-            githubConfig.folder,
-            jsFileName
-        );
-        
-        if (jsCode) {
-            try {
+        try {
+            // Пробуем загрузить JS
+            const jsCode = await loadJsFromGitHub(
+                githubConfig.username,
+                githubConfig.repo,
+                githubConfig.folder,
+                jsFileName
+            );
+            
+            if (jsCode) {
                 eval(jsCode);
                 console.log(`✅ ${interfaceName} загружен с GitHub`);
-            } catch (error) {
-                console.error(`❌ Ошибка выполнения ${jsFileName}:`, error);
             }
+        } catch (error) {
+            console.log(`ℹ️ JS ${jsFileName} не найден на GitHub, используем локальный`);
         }
     }
     
