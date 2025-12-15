@@ -3,18 +3,81 @@ const username = 'BensonZahar';
 const repo = 'Hud.js';
 const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
 
-// Установка хука на чат
-if (Ct?.methods?.add) {
-    const originalAdd = Ct.methods.add;
-    tt.methods.add = function(e, s, t) {
-        const result = originalAdd.call(this, e, s, t);
-        window.OnChatAddMessage?.(e, s, t);
-        return result;
-    };
-    console.log('Хук на чат установлен');
-} else {
-    console.error('Ct.methods.add не найден, хук не установлен');
+function setupChatHook() {
+    try {
+        // Ищем компонент чата в различных местах
+        const hudInstance = window.interface?.('Hud');
+        const chatComponent = hudInstance?.$refs?.radmir?.$refs?.chat || 
+                            hudInstance?.$refs?.hassle?.$refs?.chat;
+        
+        if (!chatComponent) {
+            console.warn('[CHAT HOOK] Компонент чата не найден, повтор через 1 сек');
+            setTimeout(setupChatHook, 1000);
+            return;
+        }
+
+        // Проверяем наличие метода add
+        if (typeof chatComponent.add !== 'function') {
+            console.warn('[CHAT HOOK] Метод add не найден, повтор через 1 сек');
+            setTimeout(setupChatHook, 1000);
+            return;
+        }
+
+        // Устанавливаем хук только если его еще нет
+        if (chatComponent.add._hooked) {
+            console.log('[CHAT HOOK] Хук уже установлен');
+            return;
+        }
+
+        const originalAdd = chatComponent.add;
+        chatComponent.add = function(e, s, t) {
+            // Вызываем оригинальный метод
+            const result = originalAdd.call(this, e, s, t);
+            
+            // Вызываем обработчик (если существует)
+            if (typeof window.OnChatAddMessage === 'function') {
+                try {
+                    window.OnChatAddMessage(e, s, t);
+                } catch (err) {
+                    console.error('[CHAT HOOK] Ошибка в OnChatAddMessage:', err);
+                }
+            }
+            
+            return result;
+        };
+        
+        // Помечаем, что хук установлен
+        chatComponent.add._hooked = true;
+        console.log('[CHAT HOOK] ✅ Хук успешно установлен на', chatComponent.$options.name || 'Chat');
+        
+    } catch (err) {
+        console.error('[CHAT HOOK] Ошибка установки:', err);
+        setTimeout(setupChatHook, 1000);
+    }
 }
+
+// Запускаем установку хука с задержкой после загрузки компонента
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        setTimeout(setupChatHook, 2000); // 2 секунды на инициализацию Vue
+    });
+} else {
+    setTimeout(setupChatHook, 2000);
+}
+
+// Дополнительная проверка через 5 секунд (если первая попытка не удалась)
+setTimeout(() => {
+    const hudInstance = window.interface?.('Hud');
+    const chatComponent = hudInstance?.$refs?.radmir?.$refs?.chat || 
+                        hudInstance?.$refs?.hassle?.$refs?.chat;
+    if (chatComponent && !chatComponent.add?._hooked) {
+        console.warn('[CHAT HOOK] Повторная попытка установки хука');
+        setupChatHook();
+    }
+}, 5000);
+
+console.log('[CHAT HOOK] Система перехвата чата загружена');
+// ==================== END CHAT HOOK SYSTEM ====================
 
 // Функция загрузчика с retry
 function loadScriptFromGitHub(filename, retries = 5) {
