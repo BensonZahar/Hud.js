@@ -3,60 +3,17 @@ const username = 'BensonZahar';
 const repo = 'Hud.js';
 const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
 
-// Установка хука на чат - УНИВЕРСАЛЬНАЯ ВЕРСИЯ
-// Старая версия: tt, Новая версия: Ct
-function setupChatHook() {
-    // Ищем компонент чата (Ct для новой версии, tt для старой)
-    const chatComponent = window.Ct || window.tt;
-    
-    if (chatComponent?.methods?.add) {
-        const originalAdd = chatComponent.methods.add;
-        
-        chatComponent.methods.add = function(e, s, t) {
-            // Вызываем оригинальный метод
-            const result = originalAdd.call(this, e, s, t);
-            
-            // ВАЖНО: Вызываем колбэк ПОСЛЕ выполнения оригинального метода
-            if (window.OnChatAddMessage) {
-                try {
-                    window.OnChatAddMessage(e, s, t);
-                } catch (err) {
-                    console.error('Ошибка в OnChatAddMessage:', err);
-                }
-            }
-            
-            return result;
-        };
-        
-        const componentName = window.Ct ? 'Ct (новая версия)' : 'tt (старая версия)';
-        console.log(`✅ Хук на чат установлен успешно (компонент: ${componentName})`);
-        return true;
-    }
-    
-    return false;
-}
-
-// Попытка установить хук сразу
-if (!setupChatHook()) {
-    console.warn('⚠️ Компонент чата не найден, пытаемся установить хук позже...');
-    
-    // Попытка установить хук позже
-    let attempts = 0;
-    const hookInterval = setInterval(() => {
-        attempts++;
-        
-        if (setupChatHook()) {
-            console.log('✅ Хук на чат установлен (повторная попытка)');
-            clearInterval(hookInterval);
-        } else if (attempts >= 20) {
-            console.error('❌ Не удалось установить хук после 20 попыток');
-            console.error('Доступные глобальные объекты:', {
-                Ct: typeof window.Ct,
-                tt: typeof window.tt
-            });
-            clearInterval(hookInterval);
-        }
-    }, 500);
+// Установка хука на чат
+if (Ct?.methods?.add) {
+    const originalAdd = Ct.methods.add;
+    Ct.methods.add = function(e, s, t) {
+        const result = originalAdd.call(this, e, s, t);
+        window.OnChatAddMessage?.(e, s, t);
+        return result;
+    };
+    console.log('Хук на чат установлен');
+} else {
+    console.error('Ct.methods.add не найден, хук не установлен');
 }
 
 // Функция загрузчика с retry
