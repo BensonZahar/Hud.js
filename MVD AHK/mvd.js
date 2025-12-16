@@ -1,3 +1,4 @@
+
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -117,9 +118,9 @@ function trackSkinId() {
     if (currentSkin !== null && currentSkin !== skinId) {
         // ВАЖНО: Приводим к числу сразу!
         skinId = Number(currentSkin);
-      
+     
         console.log(`🔍 Новый Skin ID обнаружен: ${skinId}`);
-      
+     
         // Проверяем, является ли скин МВД
         if (mvdSkins.includes(skinId)) {
             console.log(`✅ Скин ${skinId} - это МВД скин!`);
@@ -127,7 +128,7 @@ function trackSkinId() {
             console.log(`❌ Скин ${skinId} НЕ входит в список МВД`);
         }
     }
-  
+ 
     setTimeout(trackSkinId, 5000);
 }
 // 5. ЗАПУСК после загрузки
@@ -138,7 +139,7 @@ setTimeout(() => {
         // Приводим к числу сразу
         skinId = Number(initialSkin);
         console.log(`📌 Начальный Skin ID: ${skinId}`);
-      
+     
         if (mvdSkins.includes(skinId)) {
             console.log(`✅ Скин ${skinId} в списке МВД - меню /dahk доступно`);
         } else {
@@ -154,8 +155,7 @@ const licenseTypes = [
 ];
 const mvdSubTypes = [
     { name: "Повседневная", id: "povsednev" },
-    { name: "Строй", id: "stroy" },
-    { name: "ОМОН", id: "omon" }
+    { name: "Строй", id: "stroy" }
 ];
 let trackingName = `Отслеживание | {FF0000}Выкл`;
 let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
@@ -180,23 +180,6 @@ const povsednevOptions = [
     { name: "18. Сканирование отпечатков", action: "fingerprint" },
     { name: "19. Изъятие прав", action: "takeLicense", needsId: true },
     { name: "20. Права Миранды", action: "miranda" }
-];
-const omonOptions = [
-    { name: "1. Стандартное задержание", action: "omonStandard", needsId: true },
-    { name: "2. Проверка документов", action: "omonCheckDocs" },
-    { name: "3. Выход из ТС", action: "omonExitVehicle" },
-    { name: "4. Изучение документов", action: "omonStudyDocs" },
-    { name: "5. Объявление в розыск", action: "omonWanted", needsId: true },
-    { name: "6. Снятие маски", action: "omonRemoveMask", needsId: true },
-    { name: "7. Обыск", action: "omonSearch", needsId: true },
-    { name: "8. Доставка в участок", action: "omonArrest", needsId: true },
-    { name: "9. Разбитие стекла", action: "omonBreakGlass", needsId: true },
-    { name: "10. Выбивание двери", action: "omonBreakDoor", needsId: true },
-    { name: "11. Сканирование отпечатков", action: "omonFingerprint", needsId: true },
-    { name: "12. Посадка в машину", action: "omonPutInCar", needsId: true },
-    { name: "13. Выдача штрафа", action: "omonFine" },
-    { name: "14. Крик ОМОН", action: "omonShout" },
-    { name: "15. Показать ордер на обыск", action: "showWarrant" }
 ];
 const stroyOptions = [
     { name: "1. Объявление о строе (Основное)", action: "stroy1", needsInput: true },
@@ -227,7 +210,6 @@ const KOAP_LINES_PER_PAGE = 50; // Для пагинации КоАП
 const messageFilters = [
     "* Игрок слишком далеко"
 ];
-
 function shouldBlockMessage(message) {
     if (typeof message !== 'string') return false;
     const lowerMsg = message.toLowerCase();
@@ -271,38 +253,36 @@ window.addEventListener('keydown', function(e) {
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
         const originalAddFunction = window.interface('Hud').$refs.chat.add;
-   
+  
         window.interface('Hud').$refs.chat.add = function(message, ...args) {
             // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
             if (shouldBlockMessage(message)) {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
                 return;
             }
-
             // ==================== ОТСЛЕЖИВАНИЕ ПОГОНИ ====================
             if (typeof message === 'string' && currentScanId) {
                 // Погоня началась или присоединились
-                if (message.includes('Вы начали погоню за игроком') || 
+                if (message.includes('Вы начали погоню за игроком') ||
                     message.includes('Вы присоединились к погоне')) {
-                    
+                   
                     isInActiveChase = true;
                     console.log('[CHASE] 🚨 Погоня активна - /pg отключен');
-                    
+                   
                     // Открываем синее уведомление
                     openChaseNotification(currentScanId);
                 }
-                
+               
                 // Преступник ушел от погони
                 if (message.includes('Разыскиваемый ушел от погони!')) {
                     isInActiveChase = false;
                     console.log('[CHASE] ⚠️ Преступник ушел - /pg возобновлен');
-                    
+                   
                     // Возвращаем красное уведомление
                     openTrackingNotification(currentScanId);
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ПОГОНИ ====================
-
             // Auto-cuff logic
             if (autoCuffEnabled && typeof message === 'string') {
                 const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
@@ -312,7 +292,7 @@ const setupChatHandler = () => {
                         sendChatInput(`/id ${nickname}`);
                     }, 500);
                 }
-           
+          
                 const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
                 if (idMatch && idMatch[2]) {
                     const id = idMatch[2];
@@ -328,7 +308,6 @@ const setupChatHandler = () => {
                     }, 1000);
                 }
             }
-
             // ==================== ОТСЛЕЖИВАНИЕ ШТРАФОВ ====================
             if (typeof message === 'string') {
                 if (message.includes('Вы получили премию к зарплате в размере')) {
@@ -339,7 +318,7 @@ const setupChatHandler = () => {
                         console.error('[FINE] Ошибка открытия InformationTimer:', err);
                     }
                 }
-               
+              
                 if (message.includes('Вы недавно выдавали штраф')) {
                     try {
                         window.interface('ScreenNotification').add(
@@ -352,7 +331,7 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
-       
+      
             return originalAddFunction.apply(this, [message, ...args]);
         };
         console.log('[Auto-cuff] Обработчик чата успешно установлен');
@@ -384,20 +363,18 @@ const getPaginatedKoap = () => {
     text += "<n><n>Введите: ID Стоимость Код (пример: 221 1500 12.1)<n>Или 'вперед'/'назад' для навигации.<n>Для поиска введите слово/текст.<n>Для полного списка: 'все'";
     return text;
 };
-
 // ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
 let currentNotificationId = 0;
 let isInActiveChase = false; // Флаг активной погони
-
 const openTrackingNotification = (id) => {
     try {
         currentNotificationId++;
-        
+       
         const screenNotif = window.interface('ScreenNotification');
         if (screenNotif && typeof screenNotif.hideAll === 'function') {
             screenNotif.hideAll();
         }
-        
+       
         setTimeout(() => {
             try {
                 window.interface('ScreenNotification').add(
@@ -410,21 +387,20 @@ const openTrackingNotification = (id) => {
                 console.error('[TRACKING] Ошибка при добавлении уведомления:', err);
             }
         }, 100);
-        
+       
     } catch (err) {
         console.error('[TRACKING] Ошибка открытия ScreenNotification:', err);
     }
 };
-
 const openChaseNotification = (id) => {
     try {
         currentNotificationId++;
-        
+       
         const screenNotif = window.interface('ScreenNotification');
         if (screenNotif && typeof screenNotif.hideAll === 'function') {
             screenNotif.hideAll();
         }
-        
+       
         setTimeout(() => {
             try {
                 window.interface('ScreenNotification').add(
@@ -437,12 +413,11 @@ const openChaseNotification = (id) => {
                 console.error('[CHASE] Ошибка при добавлении уведомления:', err);
             }
         }, 100);
-        
+       
     } catch (err) {
         console.error('[CHASE] Ошибка открытия ScreenNotification:', err);
     }
 };
-
 const closeTrackingNotifications = () => {
     try {
         const screenNotif = window.interface('ScreenNotification');
@@ -456,7 +431,6 @@ const closeTrackingNotifications = () => {
         console.error('[TRACKING] Ошибка закрытия ScreenNotification:', err);
     }
 };
-
 const startTracking = (id) => {
     // Очищаем старые интервалы
     if (scanInterval) {
@@ -471,41 +445,40 @@ const startTracking = (id) => {
         clearInterval(pgInterval);
         pgInterval = null;
     }
-   
+  
     currentScanId = id;
     trackingName = `Отслеживание | {00FF00}Вкл`;
     trackingNickname = null;
     isInActiveChase = false; // Сброс флага погони
-   
+  
     // Открываем красное уведомление
     openTrackingNotification(id);
-   
+  
     // Начальные команды
     sendMessagesWithDelay([
         `/id ${currentScanId}`,
         `/setmark ${currentScanId}`,
         `/pg ${currentScanId}`
     ], [0, 500, 1000]);
-   
+  
     // Интервал /pg каждые 2 секунды (только если НЕ в активной погоне)
     pgInterval = setInterval(() => {
         if (currentScanId && !isInActiveChase) {
             sendChatInput(`/pg ${currentScanId}`);
         }
     }, 2000);
-   
+  
     // Интервал /setmark каждые 31 секунду
     setmarkInterval = setInterval(() => {
         if (currentScanId) {
             sendChatInput(`/setmark ${currentScanId}`);
         }
     }, 31000);
-   
+  
     setTimeout(() => {
         showMvdSubMenu(giveLicenseTo);
     }, 100);
 };
-
 const stopTracking = () => {
     // Очищаем все интервалы
     if (scanInterval) {
@@ -520,15 +493,15 @@ const stopTracking = () => {
         clearInterval(pgInterval);
         pgInterval = null;
     }
-   
+  
     // Закрываем все уведомления
     closeTrackingNotifications();
-   
+  
     currentScanId = null;
     trackingNickname = null;
     trackingName = `Отслеживание | {FF0000}Выкл`;
     isInActiveChase = false;
-   
+  
     console.log('[TRACKING] Отслеживание остановлено');
 };
 const toggleAutoCuff = () => {
@@ -578,7 +551,7 @@ const HandlePovsednevCommand = (optionIndex) => {
     if (adjustedIndex >= 0 && adjustedIndex < povsednevOptions.length) {
         const option = povsednevOptions[adjustedIndex];
         currentAction = option.action;
-    
+   
         if (option.needsId) {
             setTimeout(() => {
                 showIdInputDialog(giveLicenseTo);
@@ -589,50 +562,6 @@ const HandlePovsednevCommand = (optionIndex) => {
             }, 50);
         } else {
             executePovsednevAction(option.action, giveLicenseTo);
-        }
-    }
-};
-const HandleOmonCommand = (optionIndex) => {
-    const totalPages = Math.ceil(omonOptions.length / ITEMS_PER_PAGE);
-    const isBackButton = optionIndex === 0;
-    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-    if (isBackButton) {
-        if (currentPage > 0) {
-            currentPage--;
-            setTimeout(() => {
-                showOmonMenuPage(giveLicenseTo);
-            }, 50);
-        } else {
-            lastMenuType = null;
-            currentMenu = null;
-            setTimeout(() => {
-                showMvdSubMenu(giveLicenseTo);
-            }, 50);
-        }
-        return;
-    }
-    if (isForwardButton) {
-        currentPage++;
-        setTimeout(() => {
-            showOmonMenuPage(giveLicenseTo);
-        }, 50);
-        return;
-    }
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
-    if (adjustedIndex >= 0 && adjustedIndex < omonOptions.length) {
-        const option = omonOptions[adjustedIndex];
-        currentAction = option.action;
-    
-        if (option.needsId) {
-            setTimeout(() => {
-                showIdInputDialog(giveLicenseTo);
-            }, 50);
-        } else if (option.action === "omonFine") {
-            setTimeout(() => {
-                showKoapTypeMenu(giveLicenseTo);
-            }, 50);
-        } else {
-            executeOmonAction(option.action, giveLicenseTo);
         }
     }
 };
@@ -666,7 +595,7 @@ const HandleStroyCommand = (optionIndex) => {
     if (adjustedIndex >= 0 && adjustedIndex < stroyOptions.length) {
         const option = stroyOptions[adjustedIndex];
         currentStroyAction = option.action;
-    
+   
         if (option.needsInput) {
             setTimeout(() => {
                 showHourInputDialog(giveLicenseTo);
@@ -705,13 +634,6 @@ const HandleMvdSubCommand = (index) => {
             currentPage = 0;
             setTimeout(() => {
                 showStroyMenuPage(giveLicenseTo);
-            }, 50);
-            break;
-        case "omon":
-            lastMenuType = "omon";
-            currentPage = 0;
-            setTimeout(() => {
-                showOmonMenuPage(giveLicenseTo);
             }, 50);
             break;
         case "tracking":
@@ -896,29 +818,47 @@ const HandleKoapInput = (input) => {
 };
 const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
+    const isOmonSkin = skinId === 15340;
     switch (action) {
         case "greeting":
-            sendMessagesWithDelay([
-                `Здравия желаю, Вас беспокоит ${RANK} - ${FIRST_NAME} ${LAST_NAME}.`,
-                "/anim 1 7",
-                "/do Удостоверение в кармане.",
-                "/me засунул руку, затем резким движением достал удостоверение",
-                "/do Удостоверение в руке.",
-                "/me открыл удостоверение и показал человеку напротив",
-                `/doc ${targetId}`
-            ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
+            if (isOmonSkin) {
+                sendMessagesWithDelay([
+                    `Здравия желаю! Мой позывной ${CALLSIGN} отдел СОБР`,
+                    `/doc ${targetId}`,
+                    "Гражданин, предоставьте ваш паспорт.",
+                    "/n /pass [id] (id - ваш ник)"
+                ], [0, 1500, 1500, 1500]);
+            } else {
+                sendMessagesWithDelay([
+                    `Здравия желаю, Вас беспокоит ${RANK} - ${FIRST_NAME} ${LAST_NAME}.`,
+                    "/anim 1 7",
+                    "/do Удостоверение в кармане.",
+                    "/me засунул руку, затем резким движением достал удостоверение",
+                    "/do Удостоверение в руке.",
+                    "/me открыл удостоверение и показал человеку напротив",
+                    `/doc ${targetId}`
+                ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
+            }
             break;
-        
+       
         case "checkDocuments":
-            sendMessagesWithDelay([
-                "Будьте добры предъявить Ваши документы, а именно:",
-                "Паспорт, вод.права и документы на т/с.",
-                "/n /pass [id], /carpass [id]",
-                "А также, отстегните пожалуйста ремень безопасности.",
-                "/n /rem"
-            ], [0, 1000, 1000, 1000, 1000]);
+            if (isOmonSkin) {
+                sendMessagesWithDelay([
+                    "/s Работает СОБР, руки в гору!",
+                    "/s Если Вы убежите или попробуете это сделать я сочту это за 8.1 УК",
+                    "/s Готовим свои документы!"
+                ], [750, 1000, 1000]);
+            } else {
+                sendMessagesWithDelay([
+                    "Будьте добры предъявить Ваши документы, а именно:",
+                    "Паспорт, вод.права и документы на т/с.",
+                    "/n /pass [id], /carpass [id]",
+                    "А также, отстегните пожалуйста ремень безопасности.",
+                    "/n /rem"
+                ], [0, 1000, 1000, 1000, 1000]);
+            }
             break;
-        
+       
         case "studyDocuments":
             sendMessagesWithDelay([
                 "/me взял документы",
@@ -932,7 +872,7 @@ const executePovsednevAction = (action, targetId) => {
                 "/me вернул документы"
             ], [0, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]);
             break;
-        
+       
         case "wanted":
             sendMessagesWithDelay([
                 "/me взял рацию в руки",
@@ -942,7 +882,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/su ${targetId}`
             ], [0, 1000, 1000, 1000, 1000]);
             break;
-        
+       
         case "scanningTablet":
             sendMessagesWithDelay([
                 "/me достал фоторобот из кармана",
@@ -951,7 +891,7 @@ const executePovsednevAction = (action, targetId) => {
                 "Вы задержаны так как находитесь в федеральном розыске."
             ], [0, 1000, 1000, 1000]);
             break;
-        
+       
         case "cuffing":
             sendMessagesWithDelay([
                 "/do Наручники в руке.",
@@ -959,7 +899,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/cuff ${targetId}`
             ], [0, 300, 300]);
             break;
-        
+       
         case "putInCar":
             sendMessagesWithDelay([
                 "/me открыл дверь автомобиля",
@@ -968,7 +908,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/putpl ${targetId}`
             ], [0, 1000, 1000, 1000]);
             break;
-        
+       
         case "arrest":
             sendMessagesWithDelay([
                 "/me открыл двери ППС",
@@ -978,7 +918,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/arrest ${targetId}`
             ], [0, 1000, 1000, 1000, 1000]);
             break;
-        
+       
         case "uncuffing":
             sendMessagesWithDelay([
                 "/me снял наручники с преступника",
@@ -990,7 +930,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/escort ${targetId}`
             ], [0, 600, 600, 600, 600, 600, 600]);
             break;
-        
+       
         case "chase":
             sendMessagesWithDelay([
                 "/me взял рацию в руки",
@@ -999,7 +939,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/Pg ${targetId}`
             ], [0, 500, 500, 500]);
             break;
-        
+       
         case "search":
             sendMessagesWithDelay([
                 "Сейчас я проведу у вас обыск.",
@@ -1011,7 +951,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/search ${targetId}`
             ], [0, 1000, 1004, 1007, 1010, 1000, 1000]);
             break;
-        
+       
         case "escort":
             sendMessagesWithDelay([
                 "/me схватил задержанного за руки",
@@ -1019,7 +959,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/escort ${targetId}`
             ], [0, 300, 300]);
             break;
-        
+       
         case "clearWanted":
             sendMessagesWithDelay([
                 "/me взял рацию в руки, затем зажал кнопку",
@@ -1030,7 +970,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/clear ${targetId}`
             ], [0, 700, 700, 700, 700, 700]);
             break;
-        
+       
         case "confiscate":
             sendMessagesWithDelay([
                 "Я нащупал что то.",
@@ -1040,7 +980,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/remove ${targetId}`
             ], [0, 500, 500, 500, 500]);
             break;
-        
+       
         case "breakGlass":
             sendMessagesWithDelay([
                 "/me открыл дверь авто.",
@@ -1048,7 +988,7 @@ const executePovsednevAction = (action, targetId) => {
                 `/ejectout ${targetId}`
             ], [0, 300, 300]);
             break;
-        
+       
         case "removeMask":
             sendMessagesWithDelay([
                 "/do Человек напротив находится в маске.",
@@ -1057,7 +997,7 @@ const executePovsednevAction = (action, targetId) => {
                 "/n Команда для снятие маски: /reset или /maskoff"
             ], [0, 400, 400, 400]);
             break;
-        
+       
         case "fingerprint":
             sendMessagesWithDelay([
                 "/do Аппарат 'CТОЛ' в кармане.",
@@ -1069,7 +1009,7 @@ const executePovsednevAction = (action, targetId) => {
                 "/do Личность установлена."
             ], [0, 700, 700, 700, 700, 700, 700]);
             break;
-        
+       
         case "takeLicense":
             sendMessagesWithDelay([
                 "/me взял права, затем переложил их в левую руку",
@@ -1089,174 +1029,6 @@ const executePovsednevAction = (action, targetId) => {
                 "Его предоставит государство",
                 "Так-же все что вы скажете будет использовано против вас в суде"
             ], [0, 1500, 1500, 1500]);
-            break;
-    }
-};
-const executeOmonAction = (action, targetId) => {
-    if (!targetId) targetId = giveLicenseTo;
-    switch (action) {
-        case "omonStandard":
-            sendMessagesWithDelay([
-                "/s Всем стоять.",
-                "/s Всем лечь на пол.",
-                "/s Работает ОМОН.",
-                "/do Наручники свисают с пояса.",
-                "/me снял наручники с пояса",
-                "/do В руке наручники.",
-                "/me схватил человека за руку, затем заломил руку",
-                "/me заковал человека в наручники",
-                "/do Процесс...",
-                "/me начинает вести задержанного",
-                `/cuff ${targetId}`,
-                `/escort ${targetId}`
-            ], [0, 1000, 1000, 0, 900, 800, 800, 700, 700, 650, 1000, 1000]);
-            break;
-        
-        case "omonCheckDocs":
-            sendMessagesWithDelay([
-                `/s Работает сотрудник ОМОН | Позывной: '${CALLSIGN}'`,
-                "/s Предьявите пожалуйста ваши документы, удостоверяющие вашу личность.",
-                "/s Если вы в течении 30 секунд не предъявите мне документы я сочту это за 7.3 УК.",
-                "/s Если вы убежите или попробуете это сделать я сочту это за 8.1 УК."
-            ], [0, 500, 500, 500]);
-            break;
-        
-        case "omonExitVehicle":
-            sendMessagesWithDelay([
-                "/s Будьте добры, выйдите из своего транспортного средства."
-            ], [0]);
-            break;
-        
-        case "omonStudyDocs":
-            sendMessagesWithDelay([
-                "/me взял документы",
-                "/do Документы в руке.",
-                "/me открыл документы на нужной странице",
-                "/do Документы открыты.",
-                "/me осмотрел страницу",
-                "/do Страница осмотрена.",
-                "/me закрыл документы",
-                "/do Документы закрыты.",
-                "/me вернул документы"
-            ], [0, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]);
-            break;
-        
-        case "omonWanted":
-            sendMessagesWithDelay([
-                "/me взял рацию в руки",
-                "/do Рация в руках.",
-                "/me зажал кнопку",
-                "/do Кнопка зажата.",
-                "/me сообщил данные о нарушителе диспетчеру",
-                "/do Данные сообщены.",
-                "/do Нарушитель объявлен в розыск.",
-                `/su ${targetId}`
-            ], [0, 800, 800, 800, 800, 800, 800, 800]);
-            break;
-        
-        case "omonRemoveMask":
-            sendMessagesWithDelay([
-                "/do Маска на лице человека.",
-                "/me снял маску с лица человека",
-                "/anim 6 7",
-                "/do Маска снята.",
-                "/me положил маску в рюкзак с шевроном 'ОМОН'",
-                "/do Человек напротив без маски."
-            ], [0, 800, 800, 800, 800, 800]);
-            break;
-        
-        case "omonSearch":
-            sendMessagesWithDelay([
-                "/s СЕЙЧАС Я ПРОВЕДУ ОБЫСК, ПРОСЬБА НЕ ДВИГАТЬСЯ...",
-                "/me протянул руку в карман, затем взял Ордер",
-                "/do 'Орден на обыск признан №2024г., Губернатором Нижегородской области'.",
-                "/me показал документ человеку напротив",
-                "/do Перчатки с надписью 'ОМОН' на руках.",
-                "/me начал ощупывать человека напротив",
-                "/do Верхняя часть осмотрена.",
-                "/me начал щупать в области ног",
-                "/do Нижняя часть осмотрена.",
-                "/me усмехнулся",
-                `/search ${targetId}`
-            ], [0, 700, 900, 900, 800, 800, 800, 800, 800, 800, 800]);
-            break;
-        
-        case "omonArrest":
-            sendMessagesWithDelay([
-                "/me открыл двери МВД",
-                "/do Двери открыты.",
-                "/me провел человека в участок",
-                "/do Человек в участке.",
-                `/arrest ${targetId}`
-            ], [0, 1000, 1000, 1000, 1000]);
-            break;
-        
-        case "omonBreakGlass":
-            sendMessagesWithDelay([
-                "/me разбил окно прикладом",
-                "/do Окно разбито.",
-                "/me открывает дверь",
-                "/me вытащил подозреваемого из машины",
-                `/ejectout ${targetId}`
-            ], [0, 700, 700, 700, 700]);
-            break;
-        
-        case "omonBreakDoor":
-            sendMessagesWithDelay([
-                "/do Лом на земле.",
-                "/me взял лом в руки",
-                "/do Лом в руках.",
-                "/me начал ломать замок двери",
-                "/do Процесс..",
-                "/do Замок сломан.",
-                "/break_door"
-            ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
-            break;
-        
-        case "omonFingerprint":
-            sendMessagesWithDelay([
-                "/do Аппарат 'CТОЛ' в кармане.",
-                "/me резким движением достал Аппарат",
-                "/do Аппарат 'СТОЛ' в руке.",
-                "/me резким движением потянул руку гражданина напротив и приложил его палец к аппарату",
-                "/do Процесс сканирования начат.",
-                "/do Процесс завершен.",
-                "/do Личность установленна."
-            ], [0, 700, 700, 700, 700, 700, 700]);
-            break;
-        
-        case "omonPutInCar":
-            sendMessagesWithDelay([
-                "/do Двери автомобиля закрыты.",
-                "/me открыл дверь автомобиля",
-                "/do Дверь открыта.",
-                "/me наклонил голову преступника",
-                "/do Голова наклонена.",
-                "/me посадил преступника в патрульный автомобиль",
-                "/do Преступник в патрульном автомобиле.",
-                "/me закрыл дверь патрульного автомобиля",
-                "/do Дверь закрыта.",
-                `/putpl ${targetId}`
-            ], [0, 900, 900, 900, 900, 900, 900, 900, 900, 900]);
-            break;
-        
-        case "omonShout":
-            sendMessagesWithDelay([
-                "/s Всем лежать работает ОМОН.",
-                "/s В случае неподчинения вынужден буду открыть огонь на поражение."
-            ], [0, 1000]);
-            break;
-        case "showWarrant":
-            sendMessagesWithDelay([
-                "/me достал ордер на обыск",
-                "/do Ордер в руке.",
-                "/me показал ордер человеку напротив",
-                "/do Процесс...",
-                "/me положил ордер в рюкзак",
-                "/do Процесс...",
-                "/do Ордер в рюкзаке.",
-                "Я имею полное право вас обыскать"
-            ], [0, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
             break;
     }
 };
@@ -1389,16 +1161,6 @@ window.showPovsednevMenuPage = (e) => {
         0
     );
 };
-window.showOmonMenuPage = (e) => {
-    giveLicenseTo = e;
-    currentMenu = "omon";
-    const menuList = getPaginatedMenu(omonOptions);
-    window.addDialogInQueue(
-        `[670,2,"ОМОН (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
-        menuList,
-        0
-    );
-};
 window.showStroyMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "stroy";
@@ -1444,9 +1206,6 @@ window.showMvdSubMenu = (e) => {
     ];
     if (stroyRanks.includes(RANK)) {
         availableSub.push({ name: "Строй", id: "stroy" });
-    }
-    if (skinId === 15340) {
-        availableSub.push({ name: "ОМОН", id: "omon" });
     }
     availableSub.push({ name: trackingName, id: "tracking" });
     availableSub.push({ name: autoCuffName, id: "autocuff" });
@@ -1512,8 +1271,6 @@ window.sendClientEventCustom = (event, ...args) => {
             if (args[2] === 1 && giveLicenseTo !== -1 && currentAction) {
                 if (currentMenu === "povsednev") {
                     executePovsednevAction(currentAction, inputId);
-                } else if (currentMenu === "omon") {
-                    executeOmonAction(currentAction, inputId);
                 }
             }
             currentAction = null;
@@ -1527,12 +1284,6 @@ window.sendClientEventCustom = (event, ...args) => {
                 setTimeout(() => {
                     showMvdSubMenu(giveLicenseTo);
                 }, 50);
-            }
-        }
-        else if (args[1] === 670) { // Меню ОМОН
-            const optionIndex = args[3];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleOmonCommand(optionIndex);
             }
         }
         else if (args[1] === 671) { // Меню Строй
@@ -1616,8 +1367,6 @@ window.sendChatInputCustom = e => {
             }
             if (lastMenuType === "povsednev") {
                 showPovsednevMenuPage(args[1]);
-            } else if (lastMenuType === "omon") {
-                showOmonMenuPage(args[1]);
             } else if (lastMenuType === "stroy") {
                 showStroyMenuPage(args[1]);
             } else if (lastMenuType === "mvd_sub") {
@@ -1712,4 +1461,5 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
+
 
