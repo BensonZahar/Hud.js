@@ -190,5 +190,4 @@ if (!window.intBrowserKeyHandlerInstalled) {
    
     window.intBrowserKeyHandlerInstalled = true;
     console.log('⌨️ Обработчик клавиш ← → установлен');
-        }
-};
+}
