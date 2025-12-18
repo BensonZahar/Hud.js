@@ -1561,66 +1561,7 @@ if (!window.intBrowserKeyHandlerInstalled) {
     console.log('⌨️ Обработчик клавиш ← → установлен');
 }
 
-// ============================================
-// 🔧 ФУНКЦИИ УВЕДОМЛЕНИЙ
-// ============================================
-if (!window.resetScreenNotification) {
-    window.resetScreenNotification = function() {
-        try {
-            if (window.getInterfaceStatus && window.getInterfaceStatus('ScreenNotification')) {
-                window.closeInterface('ScreenNotification');
-            }
-           
-            setTimeout(() => {
-                try {
-                    window.openInterface('ScreenNotification');
-                    console.log('🔄 ScreenNotification перезапущен');
-                } catch (err) {
-                    console.error('❌ Ошибка открытия ScreenNotification:', err);
-                }
-            }, 50);
-        } catch (err) {
-            console.error('❌ Ошибка перезапуска ScreenNotification:', err);
-        }
-    };
-}
 
-if (!window.safeNotification) {
-    window.safeNotification = function(title, message, color = "00FFFF", duration = 3000) {
-        try {
-            window.resetScreenNotification();
-           
-            setTimeout(() => {
-                try {
-                    window.interface('ScreenNotification').add(
-                        `[0, "${title}", "${message}", "${color}", ${duration}]`
-                    );
-                } catch (err) {
-                    console.error('❌ Ошибка показа уведомления:', err);
-                    setTimeout(() => {
-                        try {
-                            window.interface('ScreenNotification').add(
-                                `[0, "${title}", "${message}", "${color}", ${duration}]`
-                            );
-                        } catch (e) {
-                            console.error('❌ Повторная ошибка уведомления:', e);
-                        }
-                    }, 1000);
-                }
-            }, 100);
-        } catch (err) {
-            console.error('❌ Критическая ошибка safeNotification:', err);
-        }
-    };
-}
-
-
-
-console.log('✅ Универсальный загрузчик интерфейсов загружен');
-console.log('📦 Кастомные интерфейсы: Theory2, CustomInterface1, MyAwesomeUI');
-console.log('📋 Команды: /intbrowse, /intstop, /openint, /closeint, /listint, /resetnotif');
-console.log('⌨️ Стрелки ← → для переключения, ESC для выхода');
-console.log('🔄 Полностью совместим с другими скриптами');
 sendChatInput = sendChatInputCustom;
 sendClientEvent = sendClientEventCustom;
 /*// ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
@@ -1675,4 +1616,5 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
+
 
