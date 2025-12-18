@@ -98,6 +98,69 @@ const ppsKoapLines = [
 ];
 // 2. ПЕРЕМЕННАЯ для хранения текущего скина
 let skinId = null;
+// ============================================
+// 📦 РЕГИСТРАЦИЯ КАСТОМНЫХ ИНТЕРФЕЙСОВ
+// ============================================
+(function() {
+    try {
+        // Проверяем доступность глобальных объектов
+        if (typeof window.td === 'undefined' || typeof window.od === 'undefined') {
+            console.warn('[INTERFACES] Глобальные объекты td/od не найдены, пропускаем регистрацию');
+            return;
+        }
+
+        const p = window.p || ((fn) => fn);
+        const d = window.d || ((fn) => fn);
+
+        // Кастомные компоненты
+        const customComponents = {
+            Theory2: p(() => d(() => import("./Theory2.js"), ["./Theory2.js", "./speed.js", "./Close.js", "./telegram-authenticator.js", "./long-arrow-left-secondary.js", "./close2.js", "./Button.js", "./donate.js", "./money.js", "./Button.css", "./Close.css", "./ScrollableContainer.js", "./dom.js", "./ScrollableContainer.css", "./Theory2.css"], import.meta.url)),
+            
+            CustomInterface1: p(() => d(() => import("./CustomInterface1.js"), ["./CustomInterface1.js", "./CustomInterface1.css"], import.meta.url)),
+            
+            MyAwesomeUI: p(() => d(() => import("./MyAwesomeUI.js"), ["./MyAwesomeUI.js", "./Button.js", "./Button.css", "./Close.js", "./Close.css", "./MyAwesomeUI.css"], import.meta.url))
+        };
+
+        // Конфигурация интерфейсов
+        const customConfig = {
+            Theory2: {
+                open: { status: false },
+                show: true,
+                options: { hideHud: true, hideChat: true }
+            },
+            
+            CustomInterface1: {
+                open: { status: false },
+                show: true,
+                options: { hideHud: false, hideChat: false }
+            },
+            
+            MyAwesomeUI: {
+                open: { status: false },
+                show: true,
+                options: { hideHud: true, hideChat: true, showControlsButton: true }
+            }
+        };
+
+        // Регистрация
+        let registered = 0;
+        Object.keys(customConfig).forEach(name => {
+            try {
+                window.td[name] = customComponents[name];
+                window.od[name] = customConfig[name];
+                registered++;
+                console.log(`[INTERFACES] ✅ Зарегистрирован: ${name}`);
+            } catch (err) {
+                console.error(`[INTERFACES] ❌ Ошибка регистрации ${name}:`, err);
+            }
+        });
+
+        console.log(`[INTERFACES] ✅ Зарегистрировано ${registered}/${Object.keys(customConfig).length} интерфейсов`);
+        
+    } catch (err) {
+        console.error('[INTERFACES] Критическая ошибка регистрации:', err);
+    }
+})();
 // 3. Функция получения скина
 function getSkinIdFromStore() {
     try {
@@ -1517,6 +1580,7 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
+
 
 
 
