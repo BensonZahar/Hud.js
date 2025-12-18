@@ -18,6 +18,53 @@ const rankTags = {
 };
 const mvdSkins = [15321, 15323, 15325, 15330, 15332, 15334, 15335, 190, 148, 15340, 15341, 15342, 15343, 15344, 15348, 15351];
 const stroyRanks = ["Капитан", "Майор", "Подполковник", "Полковник", "Генерал"];
+// ============================================
+// 📦 УНИВЕРСАЛЬНЫЙ ЗАГРУЗЧИК ИНТЕРФЕЙСОВ
+// ⚠️ Полностью совместим с другими скриптами
+// ============================================
+
+// ============================================
+// 📦 СЕКЦИЯ 1: Регистрация кастомных интерфейсов
+// ============================================
+const customComponents = {
+    Theory2: p(() => d(() => import("./Theory2.js"), ["./Theory2.js", "./speed.js", "./Close.js", "./telegram-authenticator.js", "./long-arrow-left-secondary.js", "./close2.js", "./Button.js", "./donate.js", "./money.js", "./Button.css", "./Close.css", "./ScrollableContainer.js", "./dom.js", "./ScrollableContainer.css", "./Theory2.css"], import.meta.url)),
+   
+    CustomInterface1: p(() => d(() => import("./CustomInterface1.js"), ["./CustomInterface1.js", "./CustomInterface1.css"], import.meta.url)),
+   
+    MyAwesomeUI: p(() => d(() => import("./MyAwesomeUI.js"), ["./MyAwesomeUI.js", "./Button.js", "./Button.css", "./Close.js", "./Close.css", "./MyAwesomeUI.css"], import.meta.url))
+};
+
+// ============================================
+// ⚙️ СЕКЦИЯ 2: Конфигурация интерфейсов
+// ============================================
+const customConfig = {
+    Theory2: {
+        open: { status: !1 },
+        show: !0,
+        options: { hideHud: !0, hideChat: !0 }
+    },
+   
+    CustomInterface1: {
+        open: { status: !1 },
+        show: !0,
+        options: { hideHud: !1, hideChat: !1 }
+    },
+   
+    MyAwesomeUI: {
+        open: { status: !1 },
+        show: !0,
+        options: { hideHud: !0, hideChat: !0, showControlsButton: !0 }
+    }
+};
+
+// ============================================
+// 🔧 РЕГИСТРАЦИЯ КАСТОМНЫХ ИНТЕРФЕЙСОВ
+// ============================================
+Object.keys(customConfig).forEach(name => {
+    td[name] = customComponents[name];
+    od[name] = customConfig[name];
+});
+console.log(`✅ Зарегистрировано ${Object.keys(customConfig).length} кастомных интерфейсов`);
 // КоАП тексты (сокращенные)
 const dpsKoapLines = [
     "{FFFFFF}Раздел наказаний за нарушение ПДД:",
@@ -1465,6 +1512,7 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
+
 
 
 
