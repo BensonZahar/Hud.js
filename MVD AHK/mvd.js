@@ -1410,7 +1410,58 @@ function sendMessagesWithDelay(messages, delays, index = 0) {
     }, delays[index]);
 }
 
+// ==================== КОМАНДА /openint ====================
+const originalSendChatInputForOpenInt = window.sendChatInputCustom || sendChatInput;
 
+window.sendChatInputCustom = function(e) {
+    const args = e.trim().split(" ");
+    
+    if (args[0] === "/openint") {
+        const interfaceName = args[1];
+        
+        if (!interfaceName) {
+            try {
+                window.interface('ScreenNotification').add(
+                    '[0, "OpenInterface", "Укажите название интерфейса\nПример: /openint Theory", "FF0000", 5000]'
+                );
+            } catch (err) {
+                console.error('[OPENINT] Ошибка уведомления:', err);
+            }
+            return;
+        }
+        
+        try {
+            window.openInterface(interfaceName);
+            console.log(`[OPENINT] Открыт интерфейс: ${interfaceName}`);
+            
+            try {
+                window.interface('ScreenNotification').add(
+                    `[0, "OpenInterface", "Интерфейс '${interfaceName}' открыт", "00FF00", 3000]`
+                );
+            } catch (err) {
+                console.error('[OPENINT] Ошибка уведомления:', err);
+            }
+        } catch (err) {
+            console.error(`[OPENINT] Ошибка открытия ${interfaceName}:`, err);
+            
+            try {
+                window.interface('ScreenNotification').add(
+                    `[0, "OpenInterface", "Ошибка открытия '${interfaceName}'", "FF0000", 5000]`
+                );
+            } catch (notifErr) {
+                console.error('[OPENINT] Ошибка уведомления:', notifErr);
+            }
+        }
+        return;
+    }
+    
+    // Для всех остальных команд — передаём дальше
+    if (typeof originalSendChatInputForOpenInt === 'function') {
+        originalSendChatInputForOpenInt(e);
+    }
+};
+
+sendChatInput = win
 sendChatInput = sendChatInputCustom;
 sendClientEvent = sendClientEventCustom;
 /*// ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
@@ -1465,6 +1516,7 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
+
 
 
 
