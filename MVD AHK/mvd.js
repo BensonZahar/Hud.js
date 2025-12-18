@@ -1,6 +1,3 @@
-
-
-
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1359,90 +1356,6 @@ window.sendClientEventCustom = (event, ...args) => {
 };
 window.sendChatInputCustom = e => {
     const args = e.split(" ");
-	    // ===================== /intbrowse - режим просмотра интерфейсов =====================
-    if (args[0] === "/intbrowse" || args[0] === "/intview") {
-      window.intBrowserList = Object.keys(window.App.components);
-      window.intBrowserIndex = 0;
-      window.intBrowserMode = true;
-      const firstInterface = window.intBrowserList[0];
-      try {
-        window.openInterface(firstInterface);
-        console.log(`🔍 Режим просмотра: ${window.intBrowserList.length} интерфейсов`);
-        console.log(`[1/${window.intBrowserList.length}] ${firstInterface}`);
-        console.log('⌨️ Используйте ← → для переключения, ESC для выхода');
-        if (window.safeNotification) {
-          window.safeNotification("Режим просмотра", `← → для переключения, ESC для выхода. [1/${window.intBrowserList.length}] ${firstInterface}`, "00FFFF", 5000);
-        }
-      } catch (err) { console.error(`Ошибка открытия ${firstInterface}:`, err); }
-      return true; // Команда обработана
-    }
-
-    // ===================== /intstop - выход из режима просмотра =====================
-    if (args[0] === "/intstop") {
-      if (window.intBrowserMode) {
-        try { window.closeInterface(window.intBrowserList[window.intBrowserIndex]); } catch (err) { console.error('Ошибка закрытия:', err); }
-        window.intBrowserMode = false;
-        console.log('⛔ Режим просмотра выключен');
-        if (window.safeNotification) { window.safeNotification("Режим просмотра", "Выключен", "FF6600", 3000); }
-      } else {
-        console.log('ℹ️ Режим просмотра не активен');
-      }
-      return true; // Команда обработана
-    }
-
-    // ===================== /resetnotif - перезапуск ScreenNotification =====================
-    if (args[0] === "/resetnotif") {
-      window.resetScreenNotification();
-      console.log('🔄 ScreenNotification перезапущен вручную');
-      setTimeout(() => {
-        if (window.safeNotification) { window.safeNotification("Тест уведомлений", "ScreenNotification работает корректно!", "00FF00", 3000); }
-      }, 200);
-      return true; // Команда обработана
-    }
-
-    // ===================== /openint InterfaceName =====================
-    if (args[0] === "/openint") {
-      const interfaceName = args[1];
-      if (!interfaceName) {
-        if (window.safeNotification) { window.safeNotification("Открытие интерфейса", "Использование: /openint <Название>", "FF0000", 5000); }
-        return true;
-      }
-      if (window.App.components[interfaceName]) {
-        window.openInterface(interfaceName);
-        console.log(`✅ Открыт: ${interfaceName}`);
-        if (window.safeNotification) { window.safeNotification("Открытие интерфейса", `Интерфейс '${interfaceName}' открыт`, "00FF00", 3000); }
-      } else {
-        console.error(`❌ Не найден: ${interfaceName}`);
-        if (window.safeNotification) { window.safeNotification("Ошибка", `Интерфейс '${interfaceName}' не найден`, "FF0000", 5000); }
-      }
-      return true;
-    }
-
-    // ===================== /closeint InterfaceName =====================
-    if (args[0] === "/closeint") {
-      const interfaceName = args[1];
-      if (!interfaceName) {
-        if (window.safeNotification) { window.safeNotification("Закрытие интерфейса", "Использование: /closeint <Название>", "FF0000", 5000); }
-        return true;
-      }
-      if (window.App.components[interfaceName]) {
-        window.closeInterface(interfaceName);
-        console.log(`✅ Закрыт: ${interfaceName}`);
-        if (window.safeNotification) { window.safeNotification("Закрытие интерфейса", `Интерфейс '${interfaceName}' закрыт`, "00FF00", 3000); }
-      } else {
-        console.error(`❌ Не найден: ${interfaceName}`);
-        if (window.safeNotification) { window.safeNotification("Ошибка", `Интерфейс '${interfaceName}' не найден`, "FF0000", 5000); }
-      }
-      return true;
-    }
-
-    // ===================== /listint — список доступных интерфейсов =====================
-    if (args[0] === "/listint") {
-      const interfaces = Object.keys(window.App.components).join(", ");
-      console.log(`📋 Доступные интерфейсы (${Object.keys(window.App.components).length}): ${interfaces}`);
-      if (window.safeNotification) { window.safeNotification("Список интерфейсов", `Найдено ${Object.keys(window.App.components).length} интерфейсов. Список в консоли (F8)`, "0000FF", 5000); }
-      return true;
-    }
     if (args[0] == "/dahk") {
         targetId = args[1];
         if (mvdSkins.includes(skinId)) {
@@ -1550,5 +1463,3 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
-
-
