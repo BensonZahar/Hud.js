@@ -1461,7 +1461,8 @@ window.sendChatInputCustom = function(e) {
     }
 };
 
-sendChatInput = win
+sendChatInput = window.sendChatInputCustom;
+console.log('[OPENINT] Команда /openint успешно загружена!');
 sendChatInput = sendChatInputCustom;
 sendClientEvent = sendClientEventCustom;
 /*// ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
@@ -1516,6 +1517,7 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
+
 
 
 
