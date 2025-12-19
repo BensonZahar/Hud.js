@@ -2240,12 +2240,22 @@ function initializeChatMonitor() {
             lowerCaseMessage.indexOf("готовность") !== -1 ||
             lowerCaseMessage.indexOf("конф") !== -1)
             && (chatRadius === CHAT_RADIUS.RADIO)) {
+            
+            // Проверяем, является ли сообщение только словом "строй" (и ничего больше)
+            const onlyStroyMessage = lowerCaseMessage.trim() === "строй";
+            
             debugLog('Обнаружен сбор/строй!');
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
-            setTimeout(() => {
-                performReconnect(5 * 60 * 1000);
-            }, 30);
+            
+            // Выполняем реконнект только если это НЕ просто слово "строй"
+            if (!onlyStroyMessage) {
+                setTimeout(() => {
+                    performReconnect(5 * 60 * 1000);
+                }, 30);
+            } else {
+                debugLog('Сообщение содержит только "строй" - реконнект не выполняется');
+            }
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
             lowerCaseMessage.indexOf("кикнул") !== -1 &&
