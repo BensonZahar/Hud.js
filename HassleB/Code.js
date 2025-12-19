@@ -140,7 +140,6 @@ const config = {
     lastPlayerId: null,
     govMessageTrackers: {},
     isSitting: false,
-    ignoredStroiNicknames: ['Denis_Bymer'], // <-- ДОБАВЬТЕ ЭТУ СТРОКУ
     afkCycle: {
         active: false,
         startTime: null,
@@ -2241,38 +2240,12 @@ function initializeChatMonitor() {
             lowerCaseMessage.indexOf("готовность") !== -1 ||
             lowerCaseMessage.indexOf("конф") !== -1)
             && (chatRadius === CHAT_RADIUS.RADIO)) {
-            
-            // Извлекаем ник отправителя из сообщения рации
-            const nicknameMatch = msg.match(/\]\s+([A-Za-z]+_[A-Za-z]+)\[/);
-            const senderNickname = nicknameMatch ? nicknameMatch[1] : null;
-            
-            // Проверяем, находится ли отправитель в списке игнорируемых
-            const isIgnoredSender = senderNickname && config.ignoredStroiNicknames.includes(senderNickname);
-            
-            if (isIgnoredSender) {
-                debugLog(`Сообщение от игнорируемого ника: ${senderNickname} - пропускаем`);
-                sendToTelegram(`🔕 <b>Строй от игнорируемого ника (${displayName})</b>\n👤 ${senderNickname}\n<code>${msg.replace(/</g, '&lt;')}</code>`, true); // silent notification
-            } else {
-                // Извлекаем текст сообщения после последнего двоеточия
-                const messageTextMatch = msg.match(/:\s*(.+)$/);
-                const messageText = messageTextMatch ? messageTextMatch[1].trim().toLowerCase() : lowerCaseMessage;
-                
-                // Проверяем, является ли сообщение только словом "строй"
-                const onlyStroyMessage = messageText === "строй";
-                
-                debugLog('Обнаружен сбор/строй!');
-                sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
-                
-                // Выполняем реконнект только если это НЕ просто слово "строй"
-                if (!onlyStroyMessage) {
-                    setTimeout(() => {
-                        performReconnect(5 * 60 * 1000);
-                    }, 30);
-                } else {
-                    debugLog('Сообщение содержит только "строй" - реконнект не выполняется');
-                }
-            }
+            debugLog('Обнаружен сбор/строй!');
+            sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
+            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
+            setTimeout(() => {
+                performReconnect(5 * 60 * 1000);
+            }, 30);
         }
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
             lowerCaseMessage.indexOf("кикнул") !== -1 &&
