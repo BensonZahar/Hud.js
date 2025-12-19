@@ -2241,8 +2241,12 @@ function initializeChatMonitor() {
             lowerCaseMessage.indexOf("конф") !== -1)
             && (chatRadius === CHAT_RADIUS.RADIO)) {
             
+            // Извлекаем текст сообщения после последнего двоеточия
+            const messageTextMatch = msg.match(/:\s*(.+)$/);
+            const messageText = messageTextMatch ? messageTextMatch[1].trim().toLowerCase() : lowerCaseMessage;
+            
             // Проверяем, является ли сообщение только словом "строй" (и ничего больше)
-            const onlyStroyMessage = lowerCaseMessage.trim() === "строй";
+            const onlyStroyMessage = messageText === "строй";
             
             debugLog('Обнаружен сбор/строй!');
             sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
