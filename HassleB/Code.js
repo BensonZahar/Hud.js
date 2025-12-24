@@ -2535,7 +2535,7 @@ if (!initializeChatMonitor()) {
             items: items
         };
         
-        debugLog(`Диалог ${id} отправлен в Telegram`);
+        debugLog(`[${displayName}] Диалог ${id} отправлен в Telegram`);
     }
 
     // Функция обработки callback для диалогов
@@ -2543,8 +2543,11 @@ if (!initializeChatMonitor()) {
         const parts = callbackData.split('_');
         const callbackUniqueId = parts[parts.length - 1];
         
+        // КРИТИЧЕСКИ ВАЖНО: проверяем uniqueId ДО любых действий
         if (callbackUniqueId !== uniqueId) {
-            debugLog('Callback не для этого аккаунта, игнорируем');
+            debugLog(`[DIALOG] Callback не для этого аккаунта (${displayName}). Ожидается: ${uniqueId}, получено: ${callbackUniqueId}`);
+            // Подтверждаем callback чтобы кнопка не висела
+            answerCallbackQuery(callbackQueryId);
             return;
         }
         
@@ -2552,39 +2555,39 @@ if (!initializeChatMonitor()) {
             const buttonIndex = parseInt(parts[2]);
             const dialogId = parseInt(parts[3]);
             
-            debugLog(`Нажата кнопка ${buttonIndex} для диалога ${dialogId}`);
+            debugLog(`[${displayName}] Нажата кнопка ${buttonIndex} для диалога ${dialogId}`);
             
             try {
                 const buttonValue = buttonIndex === 0 ? 1 : 0;
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, buttonValue, -1, "");
                 
-                answerCallbackQuery(callbackQueryId, `Кнопка нажата`);
+                answerCallbackQuery(callbackQueryId);
                 deleteMessage(chatId, messageId);
                 
                 sendToTelegram(`✅ <b>Кнопка нажата для диалога ${dialogId}</b>\n👤 ${displayName}`, true);
             } catch (error) {
-                debugLog(`Ошибка при обработке кнопки: ${error.message}`);
-                answerCallbackQuery(callbackQueryId, `Ошибка: ${error.message}`);
+                debugLog(`[${displayName}] Ошибка при обработке кнопки: ${error.message}`);
+                answerCallbackQuery(callbackQueryId);
             }
             
         } else if (parts[0] === 'dialog' && parts[1] === 'nav') {
             const direction = parseInt(parts[2]);
             const dialogId = parseInt(parts[3]);
             
-            debugLog(`Навигация ${direction === 0 ? 'назад' : 'вперед'} для диалога ${dialogId}`);
+            debugLog(`[${displayName}] Навигация ${direction === 0 ? 'назад' : 'вперед'} для диалога ${dialogId}`);
             
             try {
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnMultiDialogClickNavigButton", direction, dialogId, 0);
-                answerCallbackQuery(callbackQueryId, direction === 0 ? 'Назад' : 'Вперед');
+                answerCallbackQuery(callbackQueryId);
                 sendToTelegram(`↔️ <b>Навигация: ${direction === 0 ? 'Назад' : 'Вперед'}</b>\n👤 ${displayName}`, true);
             } catch (error) {
-                debugLog(`Ошибка при навигации: ${error.message}`);
-                answerCallbackQuery(callbackQueryId, `Ошибка: ${error.message}`);
+                debugLog(`[${displayName}] Ошибка при навигации: ${error.message}`);
+                answerCallbackQuery(callbackQueryId);
             }
             
         } else if (parts[0] === 'dialog' && parts[1] === 'select') {
             const dialogId = parseInt(parts[2]);
-            debugLog(`Запрос выбора элемента для диалога ${dialogId}`);
+            debugLog(`[${displayName}] Запрос выбора элемента для диалога ${dialogId}`);
             answerCallbackQuery(callbackQueryId);
             
             const requestMsg = `📋 <b>Введите номер элемента для выбора (${displayName}):</b>\n` +
@@ -2596,17 +2599,17 @@ if (!initializeChatMonitor()) {
             
         } else if (parts[0] === 'dialog' && parts[1] === 'close') {
             const dialogId = parseInt(parts[2]);
-            debugLog(`Закрытие диалога ${dialogId}`);
+            debugLog(`[${displayName}] Закрытие диалога ${dialogId}`);
             
             try {
                 window.closeLastDialog();
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 0, -1, "");
-                answerCallbackQuery(callbackQueryId, 'Диалог закрыт');
+                answerCallbackQuery(callbackQueryId);
                 deleteMessage(chatId, messageId);
                 sendToTelegram(`❌ <b>Диалог закрыт</b>\n👤 ${displayName}`, true);
             } catch (error) {
-                debugLog(`Ошибка при закрытии диалога: ${error.message}`);
-                answerCallbackQuery(callbackQueryId, `Ошибка: ${error.message}`);
+                debugLog(`[${displayName}] Ошибка при закрытии диалога: ${error.message}`);
+                answerCallbackQuery(callbackQueryId);
             }
         }
     }
@@ -2643,13 +2646,13 @@ if (!initializeChatMonitor()) {
                 paginate: [paginate1 || false, paginate2 || false]
             };
             
-            debugLog('Открыто диалоговое окно:');
+            debugLog(`[${displayName}] Открыто диалоговое окно:`);
             console.log(dialogData);
             
             sendDialogToTelegram(dialogData);
             
         } catch (error) {
-            debugLog(`Ошибка при обработке диалога: ${error.message}`);
+            debugLog(`[${displayName}] Ошибка при обработке диалога: ${error.message}`);
             console.error(error);
         }
         
@@ -2674,7 +2677,16 @@ if (!initializeChatMonitor()) {
                     const messageId = update.callback_query.message.message_id;
                     const callbackQueryId = update.callback_query.id;
                     
-                    handleDialogCallback(callbackData, chatId, messageId, callbackQueryId);
+                    // Проверяем uniqueId перед вызовом обработчика
+                    const parts = callbackData.split('_');
+                    const callbackUniqueId = parts[parts.length - 1];
+                    
+                    if (callbackUniqueId === uniqueId) {
+                        handleDialogCallback(callbackData, chatId, messageId, callbackQueryId);
+                    } else {
+                        debugLog(`[DIALOG] Игнорируем callback для другого аккаунта: ${callbackData}`);
+                        answerCallbackQuery(callbackQueryId);
+                    }
                 }
             }
             
@@ -2683,13 +2695,19 @@ if (!initializeChatMonitor()) {
                 const replyToText = update.message.reply_to_message.text || '';
                 
                 if (replyToText.includes('Введите номер элемента для выбора')) {
+                    // Проверяем, что сообщение адресовано этому аккаунту
+                    if (!replyToText.includes(displayName)) {
+                        debugLog(`[DIALOG] Игнорируем выбор элемента для другого аккаунта`);
+                        continue;
+                    }
+                    
                     const dialogIdMatch = replyToText.match(/Диалог ID: (\d+)/);
                     if (dialogIdMatch) {
                         const dialogId = parseInt(dialogIdMatch[1]);
                         const itemIndex = parseInt(update.message.text);
                         
                         if (!isNaN(itemIndex)) {
-                            debugLog(`Выбор элемента ${itemIndex} для диалога ${dialogId}`);
+                            debugLog(`[${displayName}] Выбор элемента ${itemIndex} для диалога ${dialogId}`);
                             
                             try {
                                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 1, itemIndex, "");
@@ -2706,7 +2724,7 @@ if (!initializeChatMonitor()) {
         }
     };
 
-    debugLog('[DIALOG MONITOR] Система управления диалогами успешно загружена');
+    debugLog(`[${displayName}] [DIALOG MONITOR] Система управления диалогами успешно загружена`);
 })();
 // ==================== END DIALOG MONITOR SYSTEM ====================
 // ==================== HB MENU SYSTEM ====================
