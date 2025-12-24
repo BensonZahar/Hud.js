@@ -2400,35 +2400,35 @@ if (!initializeChatMonitor()) {
 }
 // END INITIALIZATION MODULE //
 // ==================== DIALOG MONITOR SYSTEM ====================
+// Добавляем этот блок в конец основного скрипта MVD
 (function() {
     // Константы для диалогов
     const DIALOG_STORAGE = {
         lastDialog: null,
         messageIds: []
     };
-
     // Функция для отправки диалога в Telegram
     function sendDialogToTelegram(dialogData) {
         const { id, title, subtitle, type, buttons, items, paginate } = dialogData;
-        
+       
         let message = `🪟 <b>Диалоговое окно открыто</b>\n`;
         message += `👤 <b>Аккаунт:</b> ${displayName}\n\n`;
         message += `🆔 <b>Dialog ID:</b> ${id}\n`;
         message += `📝 <b>Тип:</b> <code>${type}</code>\n`;
-        
+       
         if (title && title.trim() !== "") {
             const cleanTitle = title.substring(0, 100);
             message += `🏷️ <b>Заголовок:</b> ${cleanTitle}\n`;
         }
-        
+       
         if (subtitle && subtitle.trim() !== "") {
             const cleanSubtitle = subtitle.substring(0, 100);
             message += `📄 <b>Подзаголовок:</b> ${cleanSubtitle}\n`;
         }
-        
+       
         if (items && items.length > 0) {
             message += `\n📊 <b>Элементов в списке:</b> ${items.length}\n`;
-            
+           
             if (items.length > 0 && items[0].length > 0) {
                 message += `\n<b>Первые элементы:</b>\n`;
                 const itemsToShow = Math.min(3, items.length);
@@ -2441,9 +2441,9 @@ if (!initializeChatMonitor()) {
                 }
             }
         }
-        
+       
         const inlineKeyboard = [];
-        
+       
         if (buttons && buttons.length > 0) {
             const buttonRow = [];
             buttons.forEach((buttonText, index) => {
@@ -2459,7 +2459,7 @@ if (!initializeChatMonitor()) {
                 inlineKeyboard.push(buttonRow);
             }
         }
-        
+       
         if (type.includes('list') && paginate && (paginate[0] || paginate[1])) {
             const navRow = [];
             if (paginate[0]) {
@@ -2478,28 +2478,28 @@ if (!initializeChatMonitor()) {
                 inlineKeyboard.push(navRow);
             }
         }
-        
+       
         if (type.includes('list') && items && items.length > 0) {
             inlineKeyboard.push([{
                 text: "📋 Выбрать элемент по номеру",
                 callback_data: `dialog_select_${id}_${uniqueId}`
             }]);
         }
-        
+       
         inlineKeyboard.push([{
             text: "❌ Закрыть диалог",
             callback_data: `dialog_close_${id}_${uniqueId}`
         }]);
-        
+       
         const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : null;
-        
+       
         // Удаляем предыдущие сообщения диалога
         if (DIALOG_STORAGE.messageIds.length > 0) {
             DIALOG_STORAGE.messageIds.forEach(({ chatId, messageId }) => {
                 deleteMessage(chatId, messageId);
             });
         }
-        
+       
         // Отправляем в Telegram
         DIALOG_STORAGE.messageIds = [];
         config.chatIds.forEach(chatId => {
@@ -2511,7 +2511,7 @@ if (!initializeChatMonitor()) {
                 disable_notification: false,
                 reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
             };
-            
+           
             const xhr = new XMLHttpRequest();
             xhr.open('POST', url, true);
             xhr.setRequestHeader('Content-Type', 'application/json');
@@ -2524,7 +2524,7 @@ if (!initializeChatMonitor()) {
             };
             xhr.send(JSON.stringify(payload));
         });
-        
+       
         DIALOG_STORAGE.lastDialog = {
             id: id,
             title: title,
@@ -2532,15 +2532,14 @@ if (!initializeChatMonitor()) {
             type: type,
             items: items
         };
-        
+       
         debugLog(`[${displayName}] Диалог ${id} отправлен в Telegram`);
     }
-
     // Функция обработки callback для диалогов
     function handleDialogCallback(callbackData, chatId, messageId, callbackQueryId) {
         const parts = callbackData.split('_');
         const callbackUniqueId = parts[parts.length - 1];
-        
+       
         // КРИТИЧЕСКИ ВАЖНО: проверяем uniqueId ДО любых действий
         if (callbackUniqueId !== uniqueId) {
             debugLog(`[DIALOG] Callback не для этого аккаунта (${displayName}). Ожидается: ${uniqueId}, получено: ${callbackUniqueId}`);
@@ -2548,102 +2547,79 @@ if (!initializeChatMonitor()) {
             answerCallbackQuery(callbackQueryId);
             return;
         }
-        
-        debugLog(`[DIALOG] Обработка callback: ${callbackData} для ${displayName}`);
-        
-        // Подтверждаем callback сразу
-        answerCallbackQuery(callbackQueryId);
-        
+       
         if (parts[0] === 'dialog' && parts[1] === 'btn') {
             const buttonIndex = parseInt(parts[2]);
             const dialogId = parseInt(parts[3]);
-            
+           
             debugLog(`[${displayName}] Нажата кнопка ${buttonIndex} для диалога ${dialogId}`);
-            
+           
             try {
                 const buttonValue = buttonIndex === 0 ? 1 : 0;
-                
-                // ВАЖНО: Используем правильную функцию из игры
-                if (typeof window.sendClientEvent === 'function') {
-                    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, buttonValue, -1, "");
-                    debugLog(`[${displayName}] sendClientEvent вызван: dialogId=${dialogId}, button=${buttonValue}`);
-                } else {
-                    debugLog(`[${displayName}] ОШИБКА: sendClientEvent не найден!`);
-                }
-                
-                // Закрываем диалог в игре
-                if (typeof window.closeLastDialog === 'function') {
-                    window.closeLastDialog();
-                }
-                
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, buttonValue, -1, "");
+               
+                answerCallbackQuery(callbackQueryId);
                 deleteMessage(chatId, messageId);
-                
-                sendToTelegram(`✅ <b>Кнопка ${buttonIndex === 0 ? 'Выбрать' : 'Закрыть'} нажата для диалога ${dialogId}</b>\n👤 ${displayName}`, true);
+               
+                sendToTelegram(`✅ <b>Кнопка нажата для диалога ${dialogId}</b>\n👤 ${displayName}`, true);
             } catch (error) {
                 debugLog(`[${displayName}] Ошибка при обработке кнопки: ${error.message}`);
-                console.error(error);
-                sendToTelegram(`❌ <b>Ошибка обработки кнопки:</b>\n${error.message}`, false);
+                answerCallbackQuery(callbackQueryId);
             }
-            
+           
         } else if (parts[0] === 'dialog' && parts[1] === 'nav') {
             const direction = parseInt(parts[2]);
             const dialogId = parseInt(parts[3]);
-            
+           
             debugLog(`[${displayName}] Навигация ${direction === 0 ? 'назад' : 'вперед'} для диалога ${dialogId}`);
-            
+           
             try {
-                if (typeof window.sendClientEvent === 'function') {
-                    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnMultiDialogClickNavigButton", direction, dialogId, 0);
-                }
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnMultiDialogClickNavigButton", direction, dialogId, 0);
+                answerCallbackQuery(callbackQueryId);
                 sendToTelegram(`↔️ <b>Навигация: ${direction === 0 ? 'Назад' : 'Вперед'}</b>\n👤 ${displayName}`, true);
             } catch (error) {
                 debugLog(`[${displayName}] Ошибка при навигации: ${error.message}`);
-                sendToTelegram(`❌ <b>Ошибка навигации:</b>\n${error.message}`, false);
+                answerCallbackQuery(callbackQueryId);
             }
-            
+           
         } else if (parts[0] === 'dialog' && parts[1] === 'select') {
             const dialogId = parseInt(parts[2]);
             debugLog(`[${displayName}] Запрос выбора элемента для диалога ${dialogId}`);
-            
+            answerCallbackQuery(callbackQueryId);
+           
             const requestMsg = `📋 <b>Введите номер элемента для выбора (${displayName}):</b>\n` +
                               `Диалог ID: ${dialogId}\n` +
                               `Доступно элементов: ${DIALOG_STORAGE.lastDialog && DIALOG_STORAGE.lastDialog.items ? DIALOG_STORAGE.lastDialog.items.length : 0}\n\n` +
                               `Ответьте на это сообщение числом от 0 до ${(DIALOG_STORAGE.lastDialog && DIALOG_STORAGE.lastDialog.items ? DIALOG_STORAGE.lastDialog.items.length : 1) - 1}`;
-            
+           
             sendToTelegram(requestMsg, false, { force_reply: true });
-            
+           
         } else if (parts[0] === 'dialog' && parts[1] === 'close') {
             const dialogId = parseInt(parts[2]);
             debugLog(`[${displayName}] Закрытие диалога ${dialogId}`);
-            
+           
             try {
-                if (typeof window.closeLastDialog === 'function') {
-                    window.closeLastDialog();
-                }
-                
-                if (typeof window.sendClientEvent === 'function') {
-                    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 0, -1, "");
-                }
-                
+                window.closeLastDialog();
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 0, -1, "");
+                answerCallbackQuery(callbackQueryId);
                 deleteMessage(chatId, messageId);
                 sendToTelegram(`❌ <b>Диалог закрыт</b>\n👤 ${displayName}`, true);
             } catch (error) {
                 debugLog(`[${displayName}] Ошибка при закрытии диалога: ${error.message}`);
-                sendToTelegram(`❌ <b>Ошибка закрытия диалога:</b>\n${error.message}`, false);
+                answerCallbackQuery(callbackQueryId);
             }
         }
     }
-
-    // Перехватываем addDialogInQueue
+    // Перехватываем originalAddDialogInQueue
     const originalAddDialogInQueue = window.addDialogInQueue;
     window.addDialogInQueue = function(dialogParams, stringParam, priority) {
         try {
             const params = JSON.parse(dialogParams);
             const [dialogId, dialogType, title, subtitle, button1, button2, paginate1, paginate2] = params;
-            
+           
             const DIALOG_TYPES = ["text", "input", "list_normal", "input_private", "list_title", "list_points", "image"];
             const typeString = DIALOG_TYPES[dialogType] || `unknown_${dialogType}`;
-            
+           
             let items = [];
             if (stringParam && stringParam.trim() !== "") {
                 const rows = stringParam.split("<n>");
@@ -2652,7 +2628,7 @@ if (!initializeChatMonitor()) {
                     return cols.map(col => col.replace(/{(?<color>......)}/g, '').trim());
                 }).filter(row => row.length > 0 && row[0] !== "");
             }
-            
+           
             const dialogData = {
                 id: dialogId,
                 type: typeString,
@@ -2665,101 +2641,94 @@ if (!initializeChatMonitor()) {
                 items: items,
                 paginate: [paginate1 || false, paginate2 || false]
             };
-            
+           
             debugLog(`[${displayName}] Открыто диалоговое окно:`);
             console.log(dialogData);
-            
+           
             sendDialogToTelegram(dialogData);
-            
+           
         } catch (error) {
             debugLog(`[${displayName}] Ошибка при обработке диалога: ${error.message}`);
             console.error(error);
         }
-        
+       
         return originalAddDialogInQueue.call(this, dialogParams, stringParam, priority);
     };
-
-    // Добавляем обработку dialog callback'ов в существующую функцию processUpdates
-    const originalProcessUpdatesDialog = window.processUpdates || processUpdates;
-    
+    // Сохраняем оригинальную функцию processUpdates ОДИН РАЗ
+    if (!window._originalProcessUpdates) {
+        window._originalProcessUpdates = processUpdates;
+    }
+    // ПОЛНОСТЬЮ переопределяем processUpdates
     window.processUpdates = function(updates) {
         for (const update of updates) {
-            // Обновляем lastUpdateId
-            const newUpdateId = update.update_id;
-            if (newUpdateId > config.lastUpdateId) {
-                config.lastUpdateId = newUpdateId;
-                setSharedLastUpdateId(newUpdateId);
-            }
-            
+            config.lastUpdateId = update.update_id;
+            setSharedLastUpdateId(config.lastUpdateId);
+           
             let chatId = null;
             if (update.message) {
                 chatId = update.message.chat.id;
             } else if (update.callback_query) {
                 chatId = update.callback_query.message.chat.id;
             }
-            
+           
             // Проверяем авторизацию чата
             if (!config.chatIds.includes(String(chatId))) {
                 debugLog(`Игнорируем обновление из неавторизованного чата: ${chatId}`);
                 continue;
             }
-            
-            // Обрабатываем callback для диалогов
+           
+            // СНАЧАЛА обрабатываем callback для диалогов
             if (update.callback_query) {
                 const callbackData = update.callback_query.data;
-                
+               
                 if (callbackData.startsWith('dialog_')) {
                     const messageId = update.callback_query.message.message_id;
                     const callbackQueryId = update.callback_query.id;
-                    
-                    // Извлекаем uniqueId из callback_data
                     const parts = callbackData.split('_');
-                    const callbackUniqueId = parts[parts.length - 1];
-                    
-                    debugLog(`[DIALOG] Получен callback: ${callbackData}`);
-                    debugLog(`[DIALOG] Текущий uniqueId: ${uniqueId}, callback uniqueId: ${callbackUniqueId}`);
-                    
-                    if (callbackUniqueId === uniqueId) {
-                        debugLog(`[DIALOG] UniqueId совпал! Обрабатываем callback`);
-                        handleDialogCallback(callbackData, chatId, messageId, callbackQueryId);
-                        // Пропускаем этот update для дальнейшей обработки
-                        continue;
+                    let callbackUniqueId;
+                    // Определяем uniqueId в зависимости от типа callback
+                    if (parts[1] === 'btn' || parts[1] === 'nav') {
+                        callbackUniqueId = parts.slice(4).join('_');
+                    } else if (parts[1] === 'select' || parts[1] === 'close') {
+                        callbackUniqueId = parts.slice(3).join('_');
                     } else {
-                        debugLog(`[DIALOG] Игнорируем callback для другого аккаунта`);
+                        // Неизвестный тип - игнорируем
                         answerCallbackQuery(callbackQueryId);
                         continue;
                     }
+                    // Проверяем совпадение uniqueId
+                    if (callbackUniqueId === uniqueId) {
+                        handleDialogCallback(callbackData, chatId, messageId, callbackQueryId);
+                    } else {
+                        debugLog(`[DIALOG] Игнорируем callback для другого аккаунта: ${callbackData}`);
+                        answerCallbackQuery(callbackQueryId);
+                    }
+                    // ВАЖНО: продолжаем, чтобы не обрабатывать этот update дальше
+                    continue;
                 }
             }
-            
+           
             // Обработка ответов на запрос выбора элемента
             if (update.message && update.message.reply_to_message) {
                 const replyToText = update.message.reply_to_message.text || '';
-                
+               
                 if (replyToText.includes('Введите номер элемента для выбора')) {
                     // Проверяем, что сообщение адресовано этому аккаунту
                     if (!replyToText.includes(displayName)) {
                         debugLog(`[DIALOG] Игнорируем выбор элемента для другого аккаунта`);
                         continue;
                     }
-                    
+                   
                     const dialogIdMatch = replyToText.match(/Диалог ID: (\d+)/);
                     if (dialogIdMatch) {
                         const dialogId = parseInt(dialogIdMatch[1]);
                         const itemIndex = parseInt(update.message.text);
-                        
+                       
                         if (!isNaN(itemIndex)) {
                             debugLog(`[${displayName}] Выбор элемента ${itemIndex} для диалога ${dialogId}`);
-                            
+                           
                             try {
-                                if (typeof window.sendClientEvent === 'function') {
-                                    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 1, itemIndex, "");
-                                }
-                                
-                                if (typeof window.closeLastDialog === 'function') {
-                                    window.closeLastDialog();
-                                }
-                                
+                                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 1, itemIndex, "");
                                 sendToTelegram(`✅ <b>Выбран элемент #${itemIndex}</b>\n👤 ${displayName}`, true);
                             } catch (error) {
                                 sendToTelegram(`❌ <b>Ошибка при выборе элемента:</b>\n${error.message}`, false);
@@ -2768,19 +2737,18 @@ if (!initializeChatMonitor()) {
                             sendToTelegram(`❌ <b>Неверный формат номера элемента</b>\nВведите число`, false);
                         }
                     }
-                    // Пропускаем этот update
+                    // ВАЖНО: продолжаем, чтобы не обрабатывать этот update дальше
                     continue;
                 }
             }
         }
-        
-        // Вызываем оригинальную функцию для обработки остальных команд
-        if (typeof originalProcessUpdatesDialog === 'function') {
-            originalProcessUpdatesDialog(updates);
+       
+        // ТЕПЕРЬ передаём все updates в оригинальную функцию для обработки остальных команд
+        if (typeof window._originalProcessUpdates === 'function') {
+            window._originalProcessUpdates(updates);
         }
     };
-
-    debugLog(`[${displayName}] [DIALOG MONITOR] СистемаFFFFFF управления диалогами успешно загружена`);
+    debugLog(`[${displayName}] [DIALOG MONITOR] Система управления диалогами успешно загружена`);
 })();
 // ==================== END DIALOG MONITOR SYSTEM ====================
 // ==================== HB MENU SYSTEM ====================
