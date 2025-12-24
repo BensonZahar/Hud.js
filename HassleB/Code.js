@@ -2780,7 +2780,7 @@ if (!initializeChatMonitor()) {
         }
     };
 
-    debugLog(`[${displayName}] [DIALOG MONITOR] Система управления диалогами успешно загружена`);
+    debugLog(`[${displayName}] [DIALOG MONITOR] СистемаFFFFFF управления диалогами успешно загружена`);
 })();
 // ==================== END DIALOG MONITOR SYSTEM ====================
 // ==================== HB MENU SYSTEM ====================
