@@ -2713,10 +2713,25 @@ window.addDialogInQueue = function(openParams, stringParam, priority) {
         
         if (DIALOG_MODULE_CONFIG.autoResponseEnabled) {
             setTimeout(() => {
-                const response = DIALOG_MODULE_CONFIG.defaultResponse;
-                dialogLog(`Автоответ на диалог ${dialogID}: кнопка ${response}`);
-                sendClientEvent("OnDialogResponse", dialogID, response, -1, "");
-                window.closeLastDialog();
+                try {
+                    const response = DIALOG_MODULE_CONFIG.defaultResponse;
+                    dialogLog(`Автоответ на диалог ${dialogID}: кнопка ${response}`);
+                    
+                    // Проверяем что диалог всё ещё открыт
+                    if (activeDialogs.has(dialogID)) {
+                        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogID, response, -1, "");
+                        
+                        setTimeout(() => {
+                            try {
+                                window.closeLastDialog();
+                            } catch (e) {
+                                dialogLog('Ошибка закрытия при автоответе:', e);
+                            }
+                        }, 100);
+                    }
+                } catch (error) {
+                    dialogLog('Ошибка автоответа:', error);
+                }
             }, 1000);
         }
         
@@ -2736,29 +2751,61 @@ window.handleDialogCallback = function(callbackData, chatId, messageId) {
     const dialogID = parseInt(parts[2]);
     const value = parseInt(parts[3]);
     
+    // Проверяем что диалог действительно существует
     const dialogData = activeDialogs.get(dialogID);
     
     if (!dialogData) {
-        dialogLog(`Диалог ${dialogID} не найден`);
-        sendToTelegram(`⚠️ <b>Ошибка:</b> Диалог ${dialogID} уже закрыт`, false, null);
+        dialogLog(`Диалог ${dialogID} не найден в активных`);
+        sendToTelegram(`⚠️ <b>Диалог уже закрыт (${displayName})</b>\nID: ${dialogID}`, false, null);
+        return;
+    }
+    
+    // Проверяем что диалог открыт в интерфейсе
+    if (!window.getInterfaceStatus || typeof window.closeLastDialog !== 'function') {
+        dialogLog('Отсутствуют необходимые функции интерфейса');
+        sendToTelegram(`❌ <b>Ошибка: недоступны функции интерфейса (${displayName})</b>`, false, null);
         return;
     }
     
     try {
+        // Дополнительная проверка безопасности
+        if (typeof gm === 'undefined' || !gm.EVENT_EXECUTE_PUBLIC) {
+            dialogLog('КРИТИЧЕСКАЯ ОШИБКА: gm объект не найден!');
+            sendToTelegram(`❌ <b>Критическая ошибка (${displayName})</b>\nОбъект gm недоступен`, false, null);
+            return;
+        }
+        
         if (action === 'button') {
             dialogLog(`Нажата кнопка ${value} в диалоге ${dialogID}`);
             
-            sendClientEvent("OnDialogResponse", dialogID, value, -1, "");
-            window.closeLastDialog();
-            
+            // Отправляем уведомление ПЕРЕД действием
             const buttonName = value === 1 ? dialogData.buttons[0] : dialogData.buttons[1];
             sendToTelegram(
-                `✅ <b>Выбрано:</b> ${cleanDialogText(buttonName)}\n` +
+                `⏳ <b>Обработка:</b> ${cleanDialogText(buttonName)}\n` +
                 `<b>Диалог:</b> ${cleanDialogText(dialogData.title)}\n` +
                 `<b>Аккаунт:</b> ${displayName}`,
                 false,
                 null
             );
+            
+            // ПРАВИЛЬНЫЙ формат вызова
+            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogID, value, -1, "");
+            
+            setTimeout(() => {
+                try {
+                    window.closeLastDialog();
+                    
+                    // Подтверждение после успешного выполнения
+                    sendToTelegram(
+                        `✅ <b>Выполнено:</b> ${cleanDialogText(buttonName)}\n` +
+                        `<b>Аккаунт:</b> ${displayName}`,
+                        true,
+                        null
+                    );
+                } catch (e) {
+                    dialogLog('Ошибка закрытия диалога:', e);
+                }
+            }, 100);
             
             deleteDialogFromTelegram(dialogData);
             activeDialogs.delete(dialogID);
@@ -2766,21 +2813,36 @@ window.handleDialogCallback = function(callbackData, chatId, messageId) {
         } else if (action === 'select') {
             dialogLog(`Выбран элемент ${value} в диалоге ${dialogID}`);
             
-            sendClientEvent("OnDialogResponse", dialogID, 1, value, "");
-            window.closeLastDialog();
-            
             const selectedItem = dialogData.items[value];
             const itemText = Array.isArray(selectedItem) 
                 ? selectedItem.map(col => cleanDialogText(col)).join(' | ')
                 : cleanDialogText(selectedItem);
             
+            // Уведомление перед действием
             sendToTelegram(
-                `✅ <b>Выбран элемент ${value + 1}:</b>\n${itemText}\n` +
-                `<b>Диалог:</b> ${cleanDialogText(dialogData.title)}\n` +
+                `⏳ <b>Выбираю элемент ${value + 1}:</b>\n${itemText}\n` +
                 `<b>Аккаунт:</b> ${displayName}`,
                 false,
                 null
             );
+            
+            // ПРАВИЛЬНЫЙ формат вызова с выбором элемента списка
+            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogID, 1, value, "");
+            
+            setTimeout(() => {
+                try {
+                    window.closeLastDialog();
+                    
+                    sendToTelegram(
+                        `✅ <b>Выбран элемент ${value + 1}</b>\n` +
+                        `<b>Аккаунт:</b> ${displayName}`,
+                        true,
+                        null
+                    );
+                } catch (e) {
+                    dialogLog('Ошибка закрытия диалога:', e);
+                }
+            }, 100);
             
             deleteDialogFromTelegram(dialogData);
             activeDialogs.delete(dialogID);
@@ -2788,23 +2850,50 @@ window.handleDialogCallback = function(callbackData, chatId, messageId) {
         } else if (action === 'paginate') {
             dialogLog(`Пагинация ${value} в диалоге ${dialogID}`);
             
-            sendClientEvent("OnMultiDialogClickNavigButton", value, dialogID, dialogData.priority);
-            window.closeLastDialog();
-            
             sendToTelegram(
-                `↔️ <b>Переключение:</b> ${value === 0 ? 'Назад' : 'Вперёд'}\n` +
+                `⏳ <b>Переключаю страницу:</b> ${value === 0 ? 'Назад' : 'Вперёд'}\n` +
                 `<b>Аккаунт:</b> ${displayName}`,
                 false,
                 null
             );
+            
+            // ПРАВИЛЬНЫЙ формат для пагинации
+            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnMultiDialogClickNavigButton", value, dialogID, dialogData.priority);
+            
+            setTimeout(() => {
+                try {
+                    window.closeLastDialog();
+                    
+                    sendToTelegram(
+                        `✅ <b>Страница переключена</b>\n` +
+                        `<b>Аккаунт:</b> ${displayName}`,
+                        true,
+                        null
+                    );
+                } catch (e) {
+                    dialogLog('Ошибка закрытия диалога:', e);
+                }
+            }, 100);
             
             deleteDialogFromTelegram(dialogData);
             activeDialogs.delete(dialogID);
         }
         
     } catch (error) {
-        dialogLog('Ошибка при обработке callback:', error);
-        sendToTelegram(`❌ <b>Ошибка обработки диалога ${dialogID}</b>\n${error.message}`, false, null);
+        dialogLog('КРИТИЧЕСКАЯ ОШИБКА при обработке callback:', error);
+        console.error('[DIALOG MODULE] Full error:', error);
+        console.error('[DIALOG MODULE] Stack trace:', error.stack);
+        
+        sendToTelegram(
+            `❌ <b>КРИТИЧЕСКАЯ ОШИБКА (${displayName})</b>\n` +
+            `Диалог ID: ${dialogID}\n` +
+            `Действие: ${action}\n` +
+            `Ошибка: ${error.name}\n` +
+            `Сообщение: ${error.message}\n\n` +
+            `Stack: ${error.stack ? error.stack.substring(0, 200) : 'N/A'}`,
+            false,
+            null
+        );
     }
 };
 
@@ -2872,6 +2961,25 @@ window.handleDialogModuleCommands = function(message, chatId) {
 
 console.log('[DIALOG MODULE] ✅ Модуль загружен');
 console.log('[DIALOG MODULE] 📝 Добавьте обработчики в processUpdates:');
+
+
+if (typeof sendToTelegram === 'function' && config.accountInfo.nickname) {
+    setTimeout(() => {
+        sendToTelegram(
+            `🖼️ <b>Модуль диалогов загружен</b>\n` +
+            `Аккаунт: ${displayName}\n` +
+            `Статус: ${DIALOG_MODULE_CONFIG.enabled ? '🟢 Активен' : '🔴 Неактивен'}\n\n` +
+            `📝 Команды:\n` +
+            `/dialog_status - статус\n` +
+            `/dialog_list - список диалогов\n` +
+            `/dialog_enable / disable - вкл/выкл`,
+            true,
+            null
+        );
+    }, 2000);
+}
+
+// ==================== END DIALOG MODULE ====================
 // ==================== HB MENU SYSTEM ====================
 // Добавьте этот код в конец вашего основного скрипта
 // Константы для меню HB
