@@ -1220,7 +1220,37 @@ function checkTelegramCommands() {
 function processUpdates(updates) {
     for (const update of updates) {
         config.lastUpdateId = update.update_id;
-        setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
+        setSharedLastUpdateId(config.lastUpdateId);
+        
+        // ========== ДОБАВЬТЕ ЭТО СЮДА ==========
+        
+        // Обработка диалоговых callback
+        if (update.callback_query) {
+            const callbackData = update.callback_query.data;
+            if (callbackData && callbackData.startsWith('dialog_')) {
+                const chatId = update.callback_query.message.chat.id;
+                const messageId = update.callback_query.message.message_id;
+                
+                if (config.chatIds.includes(String(chatId))) {
+                    window.handleDialogCallback(callbackData, chatId, messageId);
+                    answerCallbackQuery(update.callback_query.id);
+                    continue;
+                }
+            }
+        }
+        
+        // Обработка команд диалогов
+        if (update.message && update.message.text) {
+            const messageText = update.message.text.trim();
+            const messageChatId = update.message.chat.id;
+            
+            if (window.handleDialogModuleCommands(messageText, messageChatId)) {
+                continue;
+            }
+        }
+        
+        // ========== КОНЕЦ ДОБАВЛЕНИЯ ==========
+        
         let chatId = null;
         if (update.message) {
             chatId = update.message.chat.id;
@@ -2404,12 +2434,12 @@ if (!initializeChatMonitor()) {
 
 // Конфигурация модуля
 const DIALOG_MODULE_CONFIG = {
-    enabled: true, // Включить/выключить модуль
-    sendToTelegram: true, // Отправлять ли диалоги в Telegram
-    autoResponseEnabled: false, // Автоматически отвечать на диалоги
-    defaultResponse: 1, // Номер кнопки по умолчанию (0 или 1)
-    debugMode: true, // Режим отладки
-    maxMessageLength: 4000, // Максимальная длина сообщения Telegram
+    enabled: true,
+    sendToTelegram: true,
+    autoResponseEnabled: false,
+    defaultResponse: 1,
+    debugMode: true,
+    maxMessageLength: 4000,
 };
 
 // Хранилище активных диалогов
@@ -2434,11 +2464,10 @@ function dialogLog(message, data = null) {
     }
 }
 
-// Функция для очистки HTML тегов и форматирования
+// Функция для очистки HTML тегов
 function cleanDialogText(text) {
     if (!text) return '';
     
-    // Удаляем HTML теги, но сохраняем содержимое
     let cleaned = text
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/<p[^>]*>/gi, '')
@@ -2449,10 +2478,7 @@ function cleanDialogText(text) {
         .replace(/<\/div>/gi, '\n')
         .replace(/<[^>]+>/g, '');
     
-    // Удаляем цветовые коды игры {RRGGBB}
     cleaned = cleaned.replace(/\{[A-Fa-f0-9]{6}\}/g, '');
-    
-    // Удаляем множественные пробелы и переносы строк
     cleaned = cleaned
         .replace(/\s+/g, ' ')
         .replace(/\n\s*\n/g, '\n')
@@ -2464,55 +2490,11 @@ function cleanDialogText(text) {
 // Функция для форматирования текста для Telegram
 function formatForTelegram(text) {
     if (!text) return '';
-    
-    // Экранируем специальные символы HTML для Telegram
     return text
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
-}
-
-// Функция для создания краткого превью текста
-function createTextPreview(text, maxLength = 200) {
-    const cleaned = cleanDialogText(text);
-    if (cleaned.length <= maxLength) return cleaned;
-    return cleaned.substring(0, maxLength) + '...';
-}
-
-// Функция для обработки списков (list dialogs)
-function formatListItems(items, heads = null) {
-    if (!items || items.length === 0) return 'Пустой список';
-    
-    let formatted = '';
-    
-    // Если есть заголовки
-    if (heads && heads.length > 0) {
-        formatted += '<b>📋 Заголовки:</b>\n';
-        formatted += heads.map((h, i) => `${i + 1}. ${cleanDialogText(h)}`).join('\n');
-        formatted += '\n\n<b>📝 Элементы:</b>\n';
-    }
-    
-    // Форматируем элементы списка
-    items.slice(0, 10).forEach((item, index) => {
-        if (Array.isArray(item)) {
-            const itemText = item.map(col => cleanDialogText(col)).filter(t => t).join(' | ');
-            if (itemText) {
-                formatted += `${index + 1}. ${itemText}\n`;
-            }
-        } else {
-            const itemText = cleanDialogText(item);
-            if (itemText) {
-                formatted += `${index + 1}. ${itemText}\n`;
-            }
-        }
-    });
-    
-    if (items.length > 10) {
-        formatted += `\n... и ещё ${items.length - 10} элементов`;
-    }
-    
-    return formatted || 'Нет данных для отображения';
 }
 
 // Создание inline-клавиатуры для диалога
@@ -2522,7 +2504,7 @@ function createDialogKeyboard(dialogData) {
     
     // Для списков добавляем кнопки выбора элементов
     if (dialogType.includes('list') && items && items.length > 0) {
-        const maxButtons = Math.min(items.length, 5); // Показываем максимум 5 элементов
+        const maxButtons = Math.min(items.length, 5);
         const buttonsRow = [];
         
         for (let i = 0; i < maxButtons; i++) {
@@ -2536,7 +2518,6 @@ function createDialogKeyboard(dialogData) {
             keyboard.push(buttonsRow);
         }
         
-        // Добавляем кнопки пагинации если есть
         if (paginate && (paginate[0] || paginate[1])) {
             const paginateRow = [];
             if (paginate[0]) {
@@ -2586,9 +2567,8 @@ function sendDialogToTelegram(dialogData) {
         return;
     }
     
-    const { dialogID, dialogType, title, subtitle, content, buttons } = dialogData;
+    const { dialogID, dialogType, title, subtitle, content, buttons, items } = dialogData;
     
-    // Формируем сообщение
     let message = `🖼️ <b>Диалоговое окно [ID: ${dialogID}]</b>\n`;
     message += `📌 <b>Тип:</b> ${dialogType}\n`;
     message += `👤 <b>Аккаунт:</b> ${displayName}\n\n`;
@@ -2601,21 +2581,33 @@ function sendDialogToTelegram(dialogData) {
         message += `<i>${formatForTelegram(cleanDialogText(subtitle))}</i>\n\n`;
     }
     
-    if (content) {
-        const preview = createTextPreview(content, 500);
-        message += `📝 <b>Содержимое:</b>\n${formatForTelegram(preview)}\n\n`;
+    if (dialogType.includes('list') && items && items.length > 0) {
+        message += `📝 <b>Элементы (показано ${Math.min(items.length, 5)} из ${items.length}):</b>\n`;
+        items.slice(0, 5).forEach((item, index) => {
+            if (Array.isArray(item)) {
+                const itemText = item.map(col => cleanDialogText(col)).filter(t => t).join(' | ');
+                if (itemText) {
+                    message += `${index + 1}. ${formatForTelegram(itemText)}\n`;
+                }
+            } else {
+                const itemText = cleanDialogText(item);
+                if (itemText) {
+                    message += `${index + 1}. ${formatForTelegram(itemText)}\n`;
+                }
+            }
+        });
+    } else if (content) {
+        const preview = content.substring(0, 500);
+        message += `📝 ${formatForTelegram(cleanDialogText(preview))}\n`;
     }
     
-    // Ограничиваем длину сообщения
     if (message.length > DIALOG_MODULE_CONFIG.maxMessageLength) {
         message = message.substring(0, DIALOG_MODULE_CONFIG.maxMessageLength - 100) + '\n\n... (текст обрезан)';
     }
     
-    // Создаём клавиатуру
     const keyboard = createDialogKeyboard(dialogData);
     const replyMarkup = keyboard.length > 0 ? { inline_keyboard: keyboard } : null;
     
-    // Отправляем в Telegram
     config.chatIds.forEach(chatId => {
         const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
         const payload = {
@@ -2633,7 +2625,6 @@ function sendDialogToTelegram(dialogData) {
                 const data = JSON.parse(xhr.responseText);
                 dialogLog(`Диалог ${dialogID} отправлен в Telegram`, data.result.message_id);
                 
-                // Сохраняем ID сообщения для возможного удаления/редактирования
                 if (!dialogData.telegramMessageIds) {
                     dialogData.telegramMessageIds = [];
                 }
@@ -2641,18 +2632,13 @@ function sendDialogToTelegram(dialogData) {
                     chatId: chatId,
                     messageId: data.result.message_id
                 });
-            } else {
-                dialogLog(`Ошибка отправки диалога ${dialogID}:`, xhr.responseText);
             }
-        };
-        xhr.onerror = function() {
-            dialogLog(`Сетевая ошибка при отправке диалога ${dialogID}`);
         };
         xhr.send(JSON.stringify(payload));
     });
 }
 
-// Функция для удаления сообщения о диалоге из Telegram
+// Функция для удаления сообщения о диалоге
 function deleteDialogFromTelegram(dialogData) {
     if (!dialogData.telegramMessageIds) return;
     
@@ -2660,14 +2646,13 @@ function deleteDialogFromTelegram(dialogData) {
         deleteMessage(chatId, messageId);
     });
     
-    dialogLog(`Удалены сообщения диалога ${dialogData.dialogID} из Telegram`);
+    dialogLog(`Удалены сообщения диалога ${dialogData.dialogID}`);
 }
 
 // Перехватываем открытие диалогов
 const originalAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(openParams, stringParam, priority) {
     try {
-        // Парсим параметры диалога
         const params = JSON.parse(openParams);
         const dialogID = params[0];
         const typeIndex = params[1];
@@ -2678,7 +2663,6 @@ window.addDialogInQueue = function(openParams, stringParam, priority) {
         const button2 = params[5];
         const paginate = [params[6] || false, params[7] || false];
         
-        // Парсим содержимое
         let items = [];
         let heads = null;
         let content = '';
@@ -2686,7 +2670,6 @@ window.addDialogInQueue = function(openParams, stringParam, priority) {
         if (stringParam) {
             content = stringParam;
             
-            // Для списков парсим элементы
             if (dialogType.includes('list')) {
                 const rows = stringParam.split('<n>');
                 items = rows.map(row => {
@@ -2694,7 +2677,6 @@ window.addDialogInQueue = function(openParams, stringParam, priority) {
                     return cols;
                 }).filter(row => row.some(col => col.trim()));
                 
-                // Для list_title первая строка - заголовки
                 if (dialogType === 'list_title' && items.length > 0) {
                     heads = items[0];
                     items = items.slice(1);
@@ -2702,7 +2684,6 @@ window.addDialogInQueue = function(openParams, stringParam, priority) {
             }
         }
         
-        // Создаём объект с данными диалога
         const dialogData = {
             dialogID,
             typeIndex,
@@ -2719,21 +2700,17 @@ window.addDialogInQueue = function(openParams, stringParam, priority) {
             telegramMessageIds: []
         };
         
-        // Сохраняем в активные диалоги
         activeDialogs.set(dialogID, dialogData);
         
         dialogLog(`Открыт диалог ${dialogID} типа ${dialogType}`, {
             title: cleanDialogText(title),
-            buttons: [cleanDialogText(button1), cleanDialogText(button2)],
             itemsCount: items.length
         });
         
-        // Отправляем в Telegram
         if (DIALOG_MODULE_CONFIG.enabled) {
             sendDialogToTelegram(dialogData);
         }
         
-        // Автоматический ответ, если включен
         if (DIALOG_MODULE_CONFIG.autoResponseEnabled) {
             setTimeout(() => {
                 const response = DIALOG_MODULE_CONFIG.defaultResponse;
@@ -2747,31 +2724,28 @@ window.addDialogInQueue = function(openParams, stringParam, priority) {
         dialogLog('Ошибка при обработке диалога:', error);
     }
     
-    // Вызываем оригинальную функцию
     return originalAddDialogInQueue.call(this, openParams, stringParam, priority);
 };
 
-// Обработка callback_query от Telegram для управления диалогами
-function handleDialogCallback(callbackData, chatId, messageId) {
+// Обработка callback_query для диалогов
+window.handleDialogCallback = function(callbackData, chatId, messageId) {
     dialogLog('Получен callback для диалога:', callbackData);
     
-    // Парсим callback_data
     const parts = callbackData.split('_');
-    const action = parts[1]; // select, button, paginate
+    const action = parts[1];
     const dialogID = parseInt(parts[2]);
     const value = parseInt(parts[3]);
     
     const dialogData = activeDialogs.get(dialogID);
     
     if (!dialogData) {
-        dialogLog(`Диалог ${dialogID} не найден в активных диалогах`);
-        sendToTelegram(`⚠️ <b>Ошибка:</b> Диалог ${dialogID} уже закрыт или не существует`, false, null);
+        dialogLog(`Диалог ${dialogID} не найден`);
+        sendToTelegram(`⚠️ <b>Ошибка:</b> Диалог ${dialogID} уже закрыт`, false, null);
         return;
     }
     
     try {
         if (action === 'button') {
-            // Нажата основная кнопка (0 - отмена, 1 - подтверждение)
             dialogLog(`Нажата кнопка ${value} в диалоге ${dialogID}`);
             
             sendClientEvent("OnDialogResponse", dialogID, value, -1, "");
@@ -2786,12 +2760,10 @@ function handleDialogCallback(callbackData, chatId, messageId) {
                 null
             );
             
-            // Удаляем из активных и из Telegram
             deleteDialogFromTelegram(dialogData);
             activeDialogs.delete(dialogID);
             
         } else if (action === 'select') {
-            // Выбран элемент списка
             dialogLog(`Выбран элемент ${value} в диалоге ${dialogID}`);
             
             sendClientEvent("OnDialogResponse", dialogID, 1, value, "");
@@ -2810,80 +2782,47 @@ function handleDialogCallback(callbackData, chatId, messageId) {
                 null
             );
             
-            // Удаляем из активных и из Telegram
             deleteDialogFromTelegram(dialogData);
             activeDialogs.delete(dialogID);
             
         } else if (action === 'paginate') {
-            // Нажата кнопка пагинации
             dialogLog(`Пагинация ${value} в диалоге ${dialogID}`);
             
             sendClientEvent("OnMultiDialogClickNavigButton", value, dialogID, dialogData.priority);
             window.closeLastDialog();
             
             sendToTelegram(
-                `↔️ <b>Переключение страницы:</b> ${value === 0 ? 'Назад' : 'Вперёд'}\n` +
-                `<b>Диалог:</b> ${cleanDialogText(dialogData.title)}\n` +
+                `↔️ <b>Переключение:</b> ${value === 0 ? 'Назад' : 'Вперёд'}\n` +
                 `<b>Аккаунт:</b> ${displayName}`,
                 false,
                 null
             );
             
-            // Удаляем старое сообщение, новое создастся при открытии следующей страницы
             deleteDialogFromTelegram(dialogData);
             activeDialogs.delete(dialogID);
         }
         
     } catch (error) {
-        dialogLog('Ошибка при обработке callback диалога:', error);
-        sendToTelegram(
-            `❌ <b>Ошибка обработки диалога ${dialogID}</b>\n${error.message}\n` +
-            `<b>Аккаунт:</b> ${displayName}`,
-            false,
-            null
-        );
-    }
-}
-
-// Добавляем обработку callback_query в существующую функцию processUpdates
-const originalProcessUpdates = window.processUpdates || processUpdates;
-window.processUpdates = function(updates) {
-    for (const update of updates) {
-        if (update.callback_query) {
-            const callbackData = update.callback_query.data;
-            const chatId = update.callback_query.message.chat.id;
-            const messageId = update.callback_query.message.message_id;
-            
-            // Проверяем, это callback для диалога
-            if (callbackData && callbackData.startsWith('dialog_')) {
-                handleDialogCallback(callbackData, chatId, messageId);
-                answerCallbackQuery(update.callback_query.id);
-                continue;
-            }
-        }
-    }
-    
-    // Вызываем оригинальную функцию для обработки остальных update
-    if (typeof originalProcessUpdates === 'function') {
-        originalProcessUpdates.call(this, updates);
+        dialogLog('Ошибка при обработке callback:', error);
+        sendToTelegram(`❌ <b>Ошибка обработки диалога ${dialogID}</b>\n${error.message}`, false, null);
     }
 };
 
-// Команды для управления модулем через Telegram
-function handleDialogModuleCommands(message) {
-    if (message === '/dialog_enable') {
+// Команды управления модулем
+window.handleDialogModuleCommands = function(message, chatId) {
+    if (message === '/dialog_enable' || message.startsWith('/dialog_enable ')) {
         DIALOG_MODULE_CONFIG.enabled = true;
         sendToTelegram(`✅ <b>Модуль диалогов включен для ${displayName}</b>`, false, null);
         return true;
     }
     
-    if (message === '/dialog_disable') {
+    if (message === '/dialog_disable' || message.startsWith('/dialog_disable ')) {
         DIALOG_MODULE_CONFIG.enabled = false;
         sendToTelegram(`🔴 <b>Модуль диалогов выключен для ${displayName}</b>`, false, null);
         return true;
     }
     
-    if (message === '/dialog_status') {
+    if (message === '/dialog_status' || message.startsWith('/dialog_status ')) {
         const status = DIALOG_MODULE_CONFIG.enabled ? '🟢 Включен' : '🔴 Выключен';
         const activeCount = activeDialogs.size;
         
@@ -2903,15 +2842,14 @@ function handleDialogModuleCommands(message) {
         return true;
     }
     
-    if (message === '/dialog_list') {
+    if (message === '/dialog_list' || message.startsWith('/dialog_list ')) {
         if (activeDialogs.size === 0) {
             sendToTelegram(`ℹ️ <b>Нет активных диалогов (${displayName})</b>`, false, null);
         } else {
             let listMessage = `📋 <b>Активные диалоги (${displayName})</b>\n\n`;
             activeDialogs.forEach((data, id) => {
                 listMessage += `<b>ID ${id}:</b> ${cleanDialogText(data.title)}\n`;
-                listMessage += `Тип: ${data.dialogType}\n`;
-                listMessage += `Кнопки: ${cleanDialogText(data.buttons[0])} / ${cleanDialogText(data.buttons[1])}\n\n`;
+                listMessage += `Тип: ${data.dialogType}\n\n`;
             });
             sendToTelegram(listMessage, false, null);
         }
@@ -2919,63 +2857,21 @@ function handleDialogModuleCommands(message) {
     }
     
     if (message.startsWith('/dialog_auto_')) {
-        if (message === '/dialog_auto_on') {
+        if (message === '/dialog_auto_on' || message.startsWith('/dialog_auto_on ')) {
             DIALOG_MODULE_CONFIG.autoResponseEnabled = true;
-            sendToTelegram(`✅ <b>Автоответ на диалоги включен для ${displayName}</b>\nКнопка по умолчанию: ${DIALOG_MODULE_CONFIG.defaultResponse}`, false, null);
-        } else if (message === '/dialog_auto_off') {
+            sendToTelegram(`✅ <b>Автоответ включен для ${displayName}</b>\nКнопка: ${DIALOG_MODULE_CONFIG.defaultResponse}`, false, null);
+        } else if (message === '/dialog_auto_off' || message.startsWith('/dialog_auto_off ')) {
             DIALOG_MODULE_CONFIG.autoResponseEnabled = false;
-            sendToTelegram(`🔴 <b>Автоответ на диалоги выключен для ${displayName}</b>`, false, null);
+            sendToTelegram(`🔴 <b>Автоответ выключен для ${displayName}</b>`, false, null);
         }
         return true;
     }
     
     return false;
-}
-
-// Добавляем обработку команд в processUpdates
-const originalProcessUpdatesForCommands = window.processUpdates;
-window.processUpdates = function(updates) {
-    for (const update of updates) {
-        if (update.message && update.message.text) {
-            const message = update.message.text.trim();
-            if (handleDialogModuleCommands(message)) {
-                config.lastUpdateId = update.update_id;
-                setSharedLastUpdateId(config.lastUpdateId);
-                continue;
-            }
-        }
-    }
-    
-    if (typeof originalProcessUpdatesForCommands === 'function') {
-        originalProcessUpdatesForCommands.call(this, updates);
-    }
 };
 
-// Логируем успешную загрузку модуля
-console.log('[DIALOG MODULE] ✅ Модуль управления диалогами через Telegram загружен');
-console.log('[DIALOG MODULE] Доступные команды:');
-console.log('  /dialog_enable  - Включить модуль');
-console.log('  /dialog_disable - Выключить модуль');
-console.log('  /dialog_status  - Показать статус');
-console.log('  /dialog_list    - Список активных диалогов');
-console.log('  /dialog_auto_on - Включить автоответ');
-console.log('  /dialog_auto_off - Выключить автоответ');
-
-// Отправляем уведомление о загрузке модуля
-if (typeof sendToTelegram === 'function' && config.accountInfo.nickname) {
-    setTimeout(() => {
-        sendToTelegram(
-            `🖼️ <b>Модуль диалогов загружен</b>\n` +
-            `Аккаунт: ${displayName}\n` +
-            `Статус: ${DIALOG_MODULE_CONFIG.enabled ? '🟢 Активен' : '🔴 Неактивен'}\n\n` +
-            `Используйте /dialog_status для подробной информации`,
-            true,
-            null
-        );
-    }, 2000);
-}
-
-// ==================== END DIALOG WINDOW TELEGRAM CONTROL MODULE ====================
+console.log('[DIALOG MODULE] ✅ Модуль загружен');
+console.log('[DIALOG MODULE] 📝 Добавьте обработчики в processUpdates:');
 // ==================== HB MENU SYSTEM ====================
 // Добавьте этот код в конец вашего основного скрипта
 // Константы для меню HB
