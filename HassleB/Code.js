@@ -2399,6 +2399,316 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+// ==================== DIALOG MONITOR SYSTEM ====================
+// Добавляем этот блок в конец основного скрипта MVD
+
+(function() {
+    // Константы для диалогов
+    const DIALOG_STORAGE = {
+        lastDialog: null,
+        messageIds: []
+    };
+
+    // Функция для отправки диалога в Telegram
+    function sendDialogToTelegram(dialogData) {
+        const { id, title, subtitle, type, buttons, items, paginate } = dialogData;
+        
+        let message = `🪟 <b>Диалоговое окно открыто</b>\n`;
+        message += `👤 <b>Аккаунт:</b> ${displayName}\n\n`;
+        message += `🆔 <b>Dialog ID:</b> ${id}\n`;
+        message += `📝 <b>Тип:</b> <code>${type}</code>\n`;
+        
+        if (title && title.trim() !== "") {
+            const cleanTitle = title.substring(0, 100);
+            message += `🏷️ <b>Заголовок:</b> ${cleanTitle}\n`;
+        }
+        
+        if (subtitle && subtitle.trim() !== "") {
+            const cleanSubtitle = subtitle.substring(0, 100);
+            message += `📄 <b>Подзаголовок:</b> ${cleanSubtitle}\n`;
+        }
+        
+        if (items && items.length > 0) {
+            message += `\n📊 <b>Элементов в списке:</b> ${items.length}\n`;
+            
+            if (items.length > 0 && items[0].length > 0) {
+                message += `\n<b>Первые элементы:</b>\n`;
+                const itemsToShow = Math.min(3, items.length);
+                for (let i = 0; i < itemsToShow; i++) {
+                    const itemText = items[i].join(' | ').substring(0, 50);
+                    message += `${i + 1}. <code>${itemText}</code>\n`;
+                }
+                if (items.length > 3) {
+                    message += `... и еще ${items.length - 3} элементов\n`;
+                }
+            }
+        }
+        
+        const inlineKeyboard = [];
+        
+        if (buttons && buttons.length > 0) {
+            const buttonRow = [];
+            buttons.forEach((buttonText, index) => {
+                if (buttonText && buttonText.trim() !== "") {
+                    const cleanText = buttonText.replace(/{(?<color>......)}/g, '').trim();
+                    buttonRow.push({
+                        text: `${index === 0 ? '✅' : '❌'} ${cleanText}`,
+                        callback_data: `dialog_btn_${index}_${id}_${uniqueId}`
+                    });
+                }
+            });
+            if (buttonRow.length > 0) {
+                inlineKeyboard.push(buttonRow);
+            }
+        }
+        
+        if (type.includes('list') && paginate && (paginate[0] || paginate[1])) {
+            const navRow = [];
+            if (paginate[0]) {
+                navRow.push({
+                    text: "⬅️ Назад",
+                    callback_data: `dialog_nav_0_${id}_${uniqueId}`
+                });
+            }
+            if (paginate[1]) {
+                navRow.push({
+                    text: "Вперед ➡️",
+                    callback_data: `dialog_nav_1_${id}_${uniqueId}`
+                });
+            }
+            if (navRow.length > 0) {
+                inlineKeyboard.push(navRow);
+            }
+        }
+        
+        if (type.includes('list') && items && items.length > 0) {
+            inlineKeyboard.push([{
+                text: "📋 Выбрать элемент по номеру",
+                callback_data: `dialog_select_${id}_${uniqueId}`
+            }]);
+        }
+        
+        inlineKeyboard.push([{
+            text: "❌ Закрыть диалог",
+            callback_data: `dialog_close_${id}_${uniqueId}`
+        }]);
+        
+        const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : null;
+        
+        // Удаляем предыдущие сообщения диалога
+        if (DIALOG_STORAGE.messageIds.length > 0) {
+            DIALOG_STORAGE.messageIds.forEach(({ chatId, messageId }) => {
+                deleteMessage(chatId, messageId);
+            });
+        }
+        
+        // Отправляем в Telegram
+        DIALOG_STORAGE.messageIds = [];
+        config.chatIds.forEach(chatId => {
+            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+            const payload = {
+                chat_id: chatId,
+                text: message,
+                parse_mode: 'HTML',
+                disable_notification: false,
+                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+            };
+            
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
+                    const messageId = data.result.message_id;
+                    DIALOG_STORAGE.messageIds.push({ chatId, messageId });
+                }
+            };
+            xhr.send(JSON.stringify(payload));
+        });
+        
+        DIALOG_STORAGE.lastDialog = {
+            id: id,
+            title: title,
+            buttons: buttons,
+            type: type,
+            items: items
+        };
+        
+        debugLog(`Диалог ${id} отправлен в Telegram`);
+    }
+
+    // Функция обработки callback для диалогов
+    function handleDialogCallback(callbackData, chatId, messageId, callbackQueryId) {
+        const parts = callbackData.split('_');
+        const callbackUniqueId = parts[parts.length - 1];
+        
+        if (callbackUniqueId !== uniqueId) {
+            debugLog('Callback не для этого аккаунта, игнорируем');
+            return;
+        }
+        
+        if (parts[0] === 'dialog' && parts[1] === 'btn') {
+            const buttonIndex = parseInt(parts[2]);
+            const dialogId = parseInt(parts[3]);
+            
+            debugLog(`Нажата кнопка ${buttonIndex} для диалога ${dialogId}`);
+            
+            try {
+                const buttonValue = buttonIndex === 0 ? 1 : 0;
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, buttonValue, -1, "");
+                
+                answerCallbackQuery(callbackQueryId, `Кнопка нажата`);
+                deleteMessage(chatId, messageId);
+                
+                sendToTelegram(`✅ <b>Кнопка нажата для диалога ${dialogId}</b>\n👤 ${displayName}`, true);
+            } catch (error) {
+                debugLog(`Ошибка при обработке кнопки: ${error.message}`);
+                answerCallbackQuery(callbackQueryId, `Ошибка: ${error.message}`);
+            }
+            
+        } else if (parts[0] === 'dialog' && parts[1] === 'nav') {
+            const direction = parseInt(parts[2]);
+            const dialogId = parseInt(parts[3]);
+            
+            debugLog(`Навигация ${direction === 0 ? 'назад' : 'вперед'} для диалога ${dialogId}`);
+            
+            try {
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnMultiDialogClickNavigButton", direction, dialogId, 0);
+                answerCallbackQuery(callbackQueryId, direction === 0 ? 'Назад' : 'Вперед');
+                sendToTelegram(`↔️ <b>Навигация: ${direction === 0 ? 'Назад' : 'Вперед'}</b>\n👤 ${displayName}`, true);
+            } catch (error) {
+                debugLog(`Ошибка при навигации: ${error.message}`);
+                answerCallbackQuery(callbackQueryId, `Ошибка: ${error.message}`);
+            }
+            
+        } else if (parts[0] === 'dialog' && parts[1] === 'select') {
+            const dialogId = parseInt(parts[2]);
+            debugLog(`Запрос выбора элемента для диалога ${dialogId}`);
+            answerCallbackQuery(callbackQueryId);
+            
+            const requestMsg = `📋 <b>Введите номер элемента для выбора (${displayName}):</b>\n` +
+                              `Диалог ID: ${dialogId}\n` +
+                              `Доступно элементов: ${DIALOG_STORAGE.lastDialog && DIALOG_STORAGE.lastDialog.items ? DIALOG_STORAGE.lastDialog.items.length : 0}\n\n` +
+                              `Ответьте на это сообщение числом от 0 до ${(DIALOG_STORAGE.lastDialog && DIALOG_STORAGE.lastDialog.items ? DIALOG_STORAGE.lastDialog.items.length : 1) - 1}`;
+            
+            sendToTelegram(requestMsg, false, { force_reply: true });
+            
+        } else if (parts[0] === 'dialog' && parts[1] === 'close') {
+            const dialogId = parseInt(parts[2]);
+            debugLog(`Закрытие диалога ${dialogId}`);
+            
+            try {
+                window.closeLastDialog();
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 0, -1, "");
+                answerCallbackQuery(callbackQueryId, 'Диалог закрыт');
+                deleteMessage(chatId, messageId);
+                sendToTelegram(`❌ <b>Диалог закрыт</b>\n👤 ${displayName}`, true);
+            } catch (error) {
+                debugLog(`Ошибка при закрытии диалога: ${error.message}`);
+                answerCallbackQuery(callbackQueryId, `Ошибка: ${error.message}`);
+            }
+        }
+    }
+
+    // Перехватываем addDialogInQueue
+    const originalAddDialogInQueue = window.addDialogInQueue;
+    window.addDialogInQueue = function(dialogParams, stringParam, priority) {
+        try {
+            const params = JSON.parse(dialogParams);
+            const [dialogId, dialogType, title, subtitle, button1, button2, paginate1, paginate2] = params;
+            
+            const DIALOG_TYPES = ["text", "input", "list_normal", "input_private", "list_title", "list_points", "image"];
+            const typeString = DIALOG_TYPES[dialogType] || `unknown_${dialogType}`;
+            
+            let items = [];
+            if (stringParam && stringParam.trim() !== "") {
+                const rows = stringParam.split("<n>");
+                items = rows.map(row => {
+                    const cols = row.split("<t>");
+                    return cols.map(col => col.replace(/{(?<color>......)}/g, '').trim());
+                }).filter(row => row.length > 0 && row[0] !== "");
+            }
+            
+            const dialogData = {
+                id: dialogId,
+                type: typeString,
+                title: title.replace(/{(?<color>......)}/g, '').trim(),
+                subtitle: subtitle.replace(/{(?<color>......)}/g, '').trim(),
+                buttons: [
+                    button1.replace(/{(?<color>......)}/g, '').trim(),
+                    button2.replace(/{(?<color>......)}/g, '').trim()
+                ],
+                items: items,
+                paginate: [paginate1 || false, paginate2 || false]
+            };
+            
+            debugLog('Открыто диалоговое окно:');
+            console.log(dialogData);
+            
+            sendDialogToTelegram(dialogData);
+            
+        } catch (error) {
+            debugLog(`Ошибка при обработке диалога: ${error.message}`);
+            console.error(error);
+        }
+        
+        return originalAddDialogInQueue.call(this, dialogParams, stringParam, priority);
+    };
+
+    // Расширяем существующую функцию processUpdates
+    const originalProcessUpdatesLogic = processUpdates;
+    processUpdates = function(updates) {
+        // Сначала вызываем оригинальную логику
+        if (typeof originalProcessUpdatesLogic === 'function') {
+            originalProcessUpdatesLogic(updates);
+        }
+        
+        // Добавляем обработку диалоговых callback
+        for (const update of updates) {
+            if (update.callback_query) {
+                const callbackData = update.callback_query.data;
+                
+                if (callbackData.startsWith('dialog_')) {
+                    const chatId = update.callback_query.message.chat.id;
+                    const messageId = update.callback_query.message.message_id;
+                    const callbackQueryId = update.callback_query.id;
+                    
+                    handleDialogCallback(callbackData, chatId, messageId, callbackQueryId);
+                }
+            }
+            
+            // Обработка ответов на запрос выбора элемента
+            if (update.message && update.message.reply_to_message) {
+                const replyToText = update.message.reply_to_message.text || '';
+                
+                if (replyToText.includes('Введите номер элемента для выбора')) {
+                    const dialogIdMatch = replyToText.match(/Диалог ID: (\d+)/);
+                    if (dialogIdMatch) {
+                        const dialogId = parseInt(dialogIdMatch[1]);
+                        const itemIndex = parseInt(update.message.text);
+                        
+                        if (!isNaN(itemIndex)) {
+                            debugLog(`Выбор элемента ${itemIndex} для диалога ${dialogId}`);
+                            
+                            try {
+                                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 1, itemIndex, "");
+                                sendToTelegram(`✅ <b>Выбран элемент #${itemIndex}</b>\n👤 ${displayName}`, true);
+                            } catch (error) {
+                                sendToTelegram(`❌ <b>Ошибка при выборе элемента:</b>\n${error.message}`, false);
+                            }
+                        } else {
+                            sendToTelegram(`❌ <b>Неверный формат номера элемента</b>\nВведите число`, false);
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    debugLog('[DIALOG MONITOR] Система управления диалогами успешно загружена');
+})();
+// ==================== END DIALOG MONITOR SYSTEM ====================
 // ==================== HB MENU SYSTEM ====================
 // Добавьте этот код в конец вашего основного скрипта
 // Константы для меню HB
