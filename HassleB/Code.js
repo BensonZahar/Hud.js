@@ -2549,7 +2549,9 @@ if (!initializeChatMonitor()) {
             return;
         }
         
-        // Подтверждаем callback сразу после проверки
+        debugLog(`[DIALOG] Обработка callback: ${callbackData} для ${displayName}`);
+        
+        // Подтверждаем callback сразу
         answerCallbackQuery(callbackQueryId);
         
         if (parts[0] === 'dialog' && parts[1] === 'btn') {
@@ -2560,13 +2562,26 @@ if (!initializeChatMonitor()) {
             
             try {
                 const buttonValue = buttonIndex === 0 ? 1 : 0;
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, buttonValue, -1, "");
+                
+                // ВАЖНО: Используем правильную функцию из игры
+                if (typeof window.sendClientEvent === 'function') {
+                    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, buttonValue, -1, "");
+                    debugLog(`[${displayName}] sendClientEvent вызван: dialogId=${dialogId}, button=${buttonValue}`);
+                } else {
+                    debugLog(`[${displayName}] ОШИБКА: sendClientEvent не найден!`);
+                }
+                
+                // Закрываем диалог в игре
+                if (typeof window.closeLastDialog === 'function') {
+                    window.closeLastDialog();
+                }
                 
                 deleteMessage(chatId, messageId);
                 
-                sendToTelegram(`✅ <b>Кнопка нажата для диалога ${dialogId}</b>\n👤 ${displayName}`, true);
+                sendToTelegram(`✅ <b>Кнопка ${buttonIndex === 0 ? 'Выбрать' : 'Закрыть'} нажата для диалога ${dialogId}</b>\n👤 ${displayName}`, true);
             } catch (error) {
                 debugLog(`[${displayName}] Ошибка при обработке кнопки: ${error.message}`);
+                console.error(error);
                 sendToTelegram(`❌ <b>Ошибка обработки кнопки:</b>\n${error.message}`, false);
             }
             
@@ -2577,7 +2592,9 @@ if (!initializeChatMonitor()) {
             debugLog(`[${displayName}] Навигация ${direction === 0 ? 'назад' : 'вперед'} для диалога ${dialogId}`);
             
             try {
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnMultiDialogClickNavigButton", direction, dialogId, 0);
+                if (typeof window.sendClientEvent === 'function') {
+                    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnMultiDialogClickNavigButton", direction, dialogId, 0);
+                }
                 sendToTelegram(`↔️ <b>Навигация: ${direction === 0 ? 'Назад' : 'Вперед'}</b>\n👤 ${displayName}`, true);
             } catch (error) {
                 debugLog(`[${displayName}] Ошибка при навигации: ${error.message}`);
@@ -2600,8 +2617,14 @@ if (!initializeChatMonitor()) {
             debugLog(`[${displayName}] Закрытие диалога ${dialogId}`);
             
             try {
-                window.closeLastDialog();
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 0, -1, "");
+                if (typeof window.closeLastDialog === 'function') {
+                    window.closeLastDialog();
+                }
+                
+                if (typeof window.sendClientEvent === 'function') {
+                    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 0, -1, "");
+                }
+                
                 deleteMessage(chatId, messageId);
                 sendToTelegram(`❌ <b>Диалог закрыт</b>\n👤 ${displayName}`, true);
             } catch (error) {
@@ -2656,16 +2679,17 @@ if (!initializeChatMonitor()) {
         return originalAddDialogInQueue.call(this, dialogParams, stringParam, priority);
     };
 
-    // Сохраняем оригинальную функцию processUpdates ОДИН РАЗ
-    if (!window._originalProcessUpdates) {
-        window._originalProcessUpdates = processUpdates;
-    }
-
-    // ПОЛНОСТЬЮ переопределяем processUpdates
+    // Добавляем обработку dialog callback'ов в существующую функцию processUpdates
+    const originalProcessUpdatesDialog = window.processUpdates || processUpdates;
+    
     window.processUpdates = function(updates) {
         for (const update of updates) {
-            config.lastUpdateId = update.update_id;
-            setSharedLastUpdateId(config.lastUpdateId);
+            // Обновляем lastUpdateId
+            const newUpdateId = update.update_id;
+            if (newUpdateId > config.lastUpdateId) {
+                config.lastUpdateId = newUpdateId;
+                setSharedLastUpdateId(newUpdateId);
+            }
             
             let chatId = null;
             if (update.message) {
@@ -2680,7 +2704,7 @@ if (!initializeChatMonitor()) {
                 continue;
             }
             
-            // СНАЧАЛА обрабатываем callback для диалогов
+            // Обрабатываем callback для диалогов
             if (update.callback_query) {
                 const callbackData = update.callback_query.data;
                 
@@ -2698,12 +2722,13 @@ if (!initializeChatMonitor()) {
                     if (callbackUniqueId === uniqueId) {
                         debugLog(`[DIALOG] UniqueId совпал! Обрабатываем callback`);
                         handleDialogCallback(callbackData, chatId, messageId, callbackQueryId);
+                        // Пропускаем этот update для дальнейшей обработки
+                        continue;
                     } else {
                         debugLog(`[DIALOG] Игнорируем callback для другого аккаунта`);
                         answerCallbackQuery(callbackQueryId);
+                        continue;
                     }
-                    // ВАЖНО: продолжаем, чтобы не обрабатывать этот update дальше
-                    continue;
                 }
             }
             
@@ -2727,7 +2752,14 @@ if (!initializeChatMonitor()) {
                             debugLog(`[${displayName}] Выбор элемента ${itemIndex} для диалога ${dialogId}`);
                             
                             try {
-                                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 1, itemIndex, "");
+                                if (typeof window.sendClientEvent === 'function') {
+                                    window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 1, itemIndex, "");
+                                }
+                                
+                                if (typeof window.closeLastDialog === 'function') {
+                                    window.closeLastDialog();
+                                }
+                                
                                 sendToTelegram(`✅ <b>Выбран элемент #${itemIndex}</b>\n👤 ${displayName}`, true);
                             } catch (error) {
                                 sendToTelegram(`❌ <b>Ошибка при выборе элемента:</b>\n${error.message}`, false);
@@ -2736,15 +2768,15 @@ if (!initializeChatMonitor()) {
                             sendToTelegram(`❌ <b>Неверный формат номера элемента</b>\nВведите число`, false);
                         }
                     }
-                    // ВАЖНО: продолжаем, чтобы не обрабатывать этот update дальше
+                    // Пропускаем этот update
                     continue;
                 }
             }
         }
         
-        // ТЕПЕРЬ передаём все updates в оригинальную функцию для обработки остальных команд
-        if (typeof window._originalProcessUpdates === 'function') {
-            window._originalProcessUpdates(updates);
+        // Вызываем оригинальную функцию для обработки остальных команд
+        if (typeof originalProcessUpdatesDialog === 'function') {
+            originalProcessUpdatesDialog(updates);
         }
     };
 
