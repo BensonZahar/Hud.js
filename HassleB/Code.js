@@ -2659,25 +2659,39 @@ if (!initializeChatMonitor()) {
         return originalAddDialogInQueue.call(this, dialogParams, stringParam, priority);
     };
 
-    // Расширяем существующую функцию processUpdates
-    const originalProcessUpdatesLogic = processUpdates;
-    processUpdates = function(updates) {
-        // Сначала вызываем оригинальную логику
-        if (typeof originalProcessUpdatesLogic === 'function') {
-            originalProcessUpdatesLogic(updates);
-        }
-        
-        // Добавляем обработку диалоговых callback
+    // Сохраняем оригинальную функцию processUpdates ОДИН РАЗ
+    if (!window._originalProcessUpdates) {
+        window._originalProcessUpdates = processUpdates;
+    }
+
+    // ПОЛНОСТЬЮ переопределяем processUpdates
+    window.processUpdates = function(updates) {
         for (const update of updates) {
+            config.lastUpdateId = update.update_id;
+            setSharedLastUpdateId(config.lastUpdateId);
+            
+            let chatId = null;
+            if (update.message) {
+                chatId = update.message.chat.id;
+            } else if (update.callback_query) {
+                chatId = update.callback_query.message.chat.id;
+            }
+            
+            // Проверяем авторизацию чата
+            if (!config.chatIds.includes(String(chatId))) {
+                debugLog(`Игнорируем обновление из неавторизованного чата: ${chatId}`);
+                continue;
+            }
+            
+            // СНАЧАЛА обрабатываем callback для диалогов
             if (update.callback_query) {
                 const callbackData = update.callback_query.data;
                 
                 if (callbackData.startsWith('dialog_')) {
-                    const chatId = update.callback_query.message.chat.id;
                     const messageId = update.callback_query.message.message_id;
                     const callbackQueryId = update.callback_query.id;
                     
-                    // Проверяем uniqueId перед вызовом обработчика
+                    // Проверяем uniqueId
                     const parts = callbackData.split('_');
                     const callbackUniqueId = parts[parts.length - 1];
                     
@@ -2687,6 +2701,8 @@ if (!initializeChatMonitor()) {
                         debugLog(`[DIALOG] Игнорируем callback для другого аккаунта: ${callbackData}`);
                         answerCallbackQuery(callbackQueryId);
                     }
+                    // ВАЖНО: продолжаем, чтобы не обрабатывать этот update дальше
+                    continue;
                 }
             }
             
@@ -2719,12 +2735,19 @@ if (!initializeChatMonitor()) {
                             sendToTelegram(`❌ <b>Неверный формат номера элемента</b>\nВведите число`, false);
                         }
                     }
+                    // ВАЖНО: продолжаем, чтобы не обрабатывать этот update дальше
+                    continue;
                 }
             }
         }
+        
+        // ТЕПЕРЬ передаём все updates в оригинальную функцию для обработки остальных команд
+        if (typeof window._originalProcessUpdates === 'function') {
+            window._originalProcessUpdates(updates);
+        }
     };
 
-    debugLog(`[${displayName}] [DIALOG MONITOR] Система управления диалогами успешно загружена`);
+    debugLog(`[${displayName}] [DIALOG MONITOR] Системаf управления диалогами успешно загружена`);
 })();
 // ==================== END DIALOG MONITOR SYSTEM ====================
 // ==================== HB MENU SYSTEM ====================
