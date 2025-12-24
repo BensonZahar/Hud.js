@@ -1248,8 +1248,8 @@ function processUpdates(updates) {
                 continue;
             }
         }
-        
-        // ========== КОНЕЦ ДОБАВЛЕНИЯ ==========
+
+// === КОНЕЦ ДОБАВЛЕНИЯ ===
         
         let chatId = null;
         if (update.message) {
