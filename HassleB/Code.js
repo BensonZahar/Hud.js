@@ -2400,8 +2400,6 @@ if (!initializeChatMonitor()) {
 }
 // END INITIALIZATION MODULE //
 // ==================== DIALOG MONITOR SYSTEM ====================
-// Добавляем этот блок в конец основного скрипта MVD
-
 (function() {
     // Константы для диалогов
     const DIALOG_STORAGE = {
@@ -2551,6 +2549,9 @@ if (!initializeChatMonitor()) {
             return;
         }
         
+        // Подтверждаем callback сразу после проверки
+        answerCallbackQuery(callbackQueryId);
+        
         if (parts[0] === 'dialog' && parts[1] === 'btn') {
             const buttonIndex = parseInt(parts[2]);
             const dialogId = parseInt(parts[3]);
@@ -2561,13 +2562,12 @@ if (!initializeChatMonitor()) {
                 const buttonValue = buttonIndex === 0 ? 1 : 0;
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, buttonValue, -1, "");
                 
-                answerCallbackQuery(callbackQueryId);
                 deleteMessage(chatId, messageId);
                 
                 sendToTelegram(`✅ <b>Кнопка нажата для диалога ${dialogId}</b>\n👤 ${displayName}`, true);
             } catch (error) {
                 debugLog(`[${displayName}] Ошибка при обработке кнопки: ${error.message}`);
-                answerCallbackQuery(callbackQueryId);
+                sendToTelegram(`❌ <b>Ошибка обработки кнопки:</b>\n${error.message}`, false);
             }
             
         } else if (parts[0] === 'dialog' && parts[1] === 'nav') {
@@ -2578,17 +2578,15 @@ if (!initializeChatMonitor()) {
             
             try {
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnMultiDialogClickNavigButton", direction, dialogId, 0);
-                answerCallbackQuery(callbackQueryId);
                 sendToTelegram(`↔️ <b>Навигация: ${direction === 0 ? 'Назад' : 'Вперед'}</b>\n👤 ${displayName}`, true);
             } catch (error) {
                 debugLog(`[${displayName}] Ошибка при навигации: ${error.message}`);
-                answerCallbackQuery(callbackQueryId);
+                sendToTelegram(`❌ <b>Ошибка навигации:</b>\n${error.message}`, false);
             }
             
         } else if (parts[0] === 'dialog' && parts[1] === 'select') {
             const dialogId = parseInt(parts[2]);
             debugLog(`[${displayName}] Запрос выбора элемента для диалога ${dialogId}`);
-            answerCallbackQuery(callbackQueryId);
             
             const requestMsg = `📋 <b>Введите номер элемента для выбора (${displayName}):</b>\n` +
                               `Диалог ID: ${dialogId}\n` +
@@ -2604,12 +2602,11 @@ if (!initializeChatMonitor()) {
             try {
                 window.closeLastDialog();
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", dialogId, 0, -1, "");
-                answerCallbackQuery(callbackQueryId);
                 deleteMessage(chatId, messageId);
                 sendToTelegram(`❌ <b>Диалог закрыт</b>\n👤 ${displayName}`, true);
             } catch (error) {
                 debugLog(`[${displayName}] Ошибка при закрытии диалога: ${error.message}`);
-                answerCallbackQuery(callbackQueryId);
+                sendToTelegram(`❌ <b>Ошибка закрытия диалога:</b>\n${error.message}`, false);
             }
         }
     }
@@ -2691,14 +2688,18 @@ if (!initializeChatMonitor()) {
                     const messageId = update.callback_query.message.message_id;
                     const callbackQueryId = update.callback_query.id;
                     
-                    // Проверяем uniqueId
+                    // Извлекаем uniqueId из callback_data
                     const parts = callbackData.split('_');
                     const callbackUniqueId = parts[parts.length - 1];
                     
+                    debugLog(`[DIALOG] Получен callback: ${callbackData}`);
+                    debugLog(`[DIALOG] Текущий uniqueId: ${uniqueId}, callback uniqueId: ${callbackUniqueId}`);
+                    
                     if (callbackUniqueId === uniqueId) {
+                        debugLog(`[DIALOG] UniqueId совпал! Обрабатываем callback`);
                         handleDialogCallback(callbackData, chatId, messageId, callbackQueryId);
                     } else {
-                        debugLog(`[DIALOG] Игнорируем callback для другого аккаунта: ${callbackData}`);
+                        debugLog(`[DIALOG] Игнорируем callback для другого аккаунта`);
                         answerCallbackQuery(callbackQueryId);
                     }
                     // ВАЖНО: продолжаем, чтобы не обрабатывать этот update дальше
@@ -2747,7 +2748,7 @@ if (!initializeChatMonitor()) {
         }
     };
 
-    debugLog(`[${displayName}] [DIALOG MONITOR] Системаf управления диалогами успешно загружена`);
+    debugLog(`[${displayName}] [DIALOG MONITOR] Система управления диалогами успешно загружена`);
 })();
 // ==================== END DIALOG MONITOR SYSTEM ====================
 // ==================== HB MENU SYSTEM ====================
