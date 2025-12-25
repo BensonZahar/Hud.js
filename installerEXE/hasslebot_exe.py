@@ -53,7 +53,7 @@ class MEmuHudManager:
         self.full_logging = False
         self.debug_allowed = False
         self.launch_allowed = False
-        self.bot_token = os.getenv("BOT_TOKEN", "8184449811:AAE-nssyxdjAGnCkNCKTMN8rc2xgWEaVOFA")
+        self.bot_token = os.getenv("BOT_TOKEN", "8512909288:AAEoTnIgdkvmrZ6DIVEgVFnG97tOzQQK3KU")
         self.chat_id = os.getenv("CHAT_ID", "1046461621")
         self.telegram_message_id = None
         self.waiting_message_id = None
