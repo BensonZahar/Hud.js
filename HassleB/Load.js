@@ -4,16 +4,16 @@ const repo = 'Hud.js';
 const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
 
 // Установка хука на чат
-if (Ct?.methods?.add) {
-    const originalAdd = Ct.methods.add;
-    Ct.methods.add = function(e, s, t) {
+if (vt?.methods?.add) {
+    const originalAdd = vt.methods.add;
+    vt.methods.add = function(e, s, t) {
         const result = originalAdd.call(this, e, s, t);
         window.OnChatAddMessage?.(e, s, t);
         return result;
     };
     console.log('Хук на чат установлен');
 } else {
-    console.error('Ct.methods.add не найден, хук не установлен');
+    console.error('vt.methods.add не найден, хук не установлен');
 }
 
 // Функция загрузчика с retry
