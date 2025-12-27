@@ -2019,6 +2019,197 @@ function checkGovMessageConditions(msg, senderName, senderId) {
 }
 // END MESSAGE PROCESSING MODULE //
 // START CHAT MONITOR MODULE //
+// ==================== SMART STROI SYSTEM ====================
+
+// Флаг для отслеживания ожидания PayDay
+let waitingForPayDay = false;
+let stroiReconnectTimer = null;
+
+// Функция для получения текущих минут
+function getCurrentMinutes() {
+    return new Date().getMinutes();
+}
+
+// Функция для проверки, скоро ли PayDay (в пределах 7 минут до :00)
+function isPayDayApproaching() {
+    const currentMinutes = getCurrentMinutes();
+    // Проверяем если осталось менее 7 минут до PayDay
+    return currentMinutes >= 53 || currentMinutes === 0;
+}
+
+// Функция для получения времени до 58 минуты в миллисекундах
+function getTimeUntil58Minutes() {
+    const now = new Date();
+    const currentMinutes = now.getMinutes();
+    const currentSeconds = now.getSeconds();
+    
+    if (currentMinutes >= 58) {
+        // Уже 58-59 минут, заходим через 10 секунд
+        return 10000;
+    }
+    
+    // Рассчитываем время до 58 минуты
+    const minutesUntil58 = 58 - currentMinutes;
+    const secondsUntil58 = minutesUntil58 * 60 - currentSeconds;
+    
+    // Вычитаем ~60 секунд на реконнект (с запасом)
+    const timeToStart = (secondsUntil58 - 60) * 1000;
+    
+    // Минимум 5 секунд, максимум рассчитанное время
+    return Math.max(5000, timeToStart);
+}
+
+// Функция для получения времени до следующего PayDay в миллисекундах
+function getTimeUntilPayDay() {
+    const now = new Date();
+    const currentMinutes = now.getMinutes();
+    const currentSeconds = now.getSeconds();
+    
+    let minutesUntilPayDay;
+    if (currentMinutes === 0) {
+        minutesUntilPayDay = 0;
+    } else {
+        minutesUntilPayDay = 60 - currentMinutes;
+    }
+    
+    const secondsUntilPayDay = minutesUntilPayDay * 60 - currentSeconds;
+    return secondsUntilPayDay * 1000;
+}
+
+// Улучшенная функция реконнекта при строе
+function performStroiReconnect() {
+    const currentMinutes = getCurrentMinutes();
+    
+    // Если уже ждём PayDay - игнорируем повторные сообщения о строе
+    if (waitingForPayDay) {
+        debugLog(`Игнорируем повторное сообщение о строе - уже ждём PayDay`);
+        sendToTelegram(
+            `🔕 <b>Повторный строй проигнорирован (${displayName})</b>\n` +
+            `💰 Уже ждём PayDay, реконнект запланирован`,
+            true, // silent
+            null
+        );
+        return;
+    }
+    
+    if (isPayDayApproaching()) {
+        // Если осталось менее 7 минут до PayDay
+        const timeToStart = getTimeUntil58Minutes();
+        const timeUntilPayDay = getTimeUntilPayDay();
+        const minutesLeft = Math.ceil(timeUntilPayDay / 60000);
+        const startInSeconds = Math.ceil(timeToStart / 1000);
+        
+        waitingForPayDay = true; // Устанавливаем флаг ожидания
+        
+        debugLog(`Строй обнаружен в ${currentMinutes} минут, PayDay через ${minutesLeft} мин - выполняем реконнект с расчётом времени`);
+        
+        sendToTelegram(
+            `⚠️ <b>Строй обнаружен (${displayName})</b>\n` +
+            `🕐 Текущее время: ${currentMinutes} минут\n` +
+            `⏰ До PayDay: ${minutesLeft} мин\n` +
+            `🔄 Реконнект через ${startInSeconds} сек (заход в ~58 мин)\n` +
+            `💰 После захода ждём PayDay`,
+            false, 
+            null
+        );
+        
+        // Отключаем автовход и отправляем /rec 5 с расчётом времени
+        stroiReconnectTimer = setTimeout(() => {
+            autoLoginConfig.enabled = false;
+            sendChatInput("/rec 5");
+            
+            const nowMinutes = getCurrentMinutes();
+            sendToTelegram(
+                `🔄 <b>Отключён автовход и отправлен /rec 5 (${displayName})</b>\n` +
+                `🕐 Текущее время: ${nowMinutes} минут\n` +
+                `⏰ Ждём ~60 сек на реконнект, затем включим автовход`,
+                false,
+                null
+            );
+            
+            // Через 60 секунд (время реконнекта) включаем автовход и /rec 5
+            setTimeout(() => {
+                autoLoginConfig.enabled = true;
+                sendChatInput("/rec 5");
+                
+                const loginMinutes = getCurrentMinutes();
+                sendToTelegram(
+                    `✅ <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
+                    `🕐 Текущее время: ${loginMinutes} минут\n` +
+                    `💰 Готовы к получению PayDay`,
+                    false,
+                    null
+                );
+                
+                // Ждём PayDay + 15 секунд на обработку
+                const remainingTimeToPayDay = getTimeUntilPayDay();
+                setTimeout(() => {
+                    debugLog(`PayDay должен быть получен, выполняем финальный реконнект`);
+                    
+                    // Выключаем автовход и отправляем /rec 5 (чтобы не наказали)
+                    autoLoginConfig.enabled = false;
+                    sendChatInput("/rec 5");
+                    
+                    sendToTelegram(
+                        `💰 <b>PayDay получен! (${displayName})</b>\n` +
+                        `🔄 Отключён автовход и отправлен /rec 5\n` +
+                        `⏰ Через 2 минуты вернёмся на строй`,
+                        false,
+                        null
+                    );
+                    
+                    // Через 2 минуты включаем автовход и возвращаемся
+                    setTimeout(() => {
+                        autoLoginConfig.enabled = true;
+                        sendChatInput("/rec 5");
+                        
+                        waitingForPayDay = false; // Снимаем флаг ожидания
+                        
+                        sendToTelegram(
+                            `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
+                            `✅ Включён автовход и отправлен /rec 5\n` +
+                            `📢 Готовы к новым строям`,
+                            false,
+                            null
+                        );
+                    }, 2 * 60 * 1000); // 2 минуты
+                    
+                }, remainingTimeToPayDay + 15000); // PayDay + 15 секунд
+                
+            }, 60 * 1000); // 60 секунд на реконнект
+            
+        }, timeToStart);
+        
+    } else {
+        // Если до PayDay больше 7 минут - стандартный реконнект
+        debugLog(`Строй обнаружен в ${currentMinutes} минут, до PayDay далеко - стандартный реконнект`);
+        
+        sendToTelegram(
+            `📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n` +
+            `🕐 Текущее время: ${currentMinutes} минут\n` +
+            `⏰ До PayDay: ${60 - currentMinutes} мин\n` +
+            `🔄 Выполняем стандартный реконнект`,
+            false,
+            null
+        );
+        
+        setTimeout(() => {
+            performReconnect(5 * 60 * 1000);
+        }, 30);
+    }
+}
+
+// Функция для отмены ожидания PayDay (на случай нештатных ситуаций)
+function cancelStroiReconnect() {
+    if (stroiReconnectTimer) {
+        clearTimeout(stroiReconnectTimer);
+        stroiReconnectTimer = null;
+    }
+    waitingForPayDay = false;
+    debugLog('Отменено ожидание PayDay после строя');
+}
+
+// ==================== END SMART STROI SYSTEM ====================
 function initializeChatMonitor() {
     if (typeof sendChatInput === 'undefined') {
         const errorMsg = '❌ <b>Ошибка</b>\nsendChatInput не найден';
@@ -2235,45 +2426,57 @@ function initializeChatMonitor() {
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
             }
         }
-        if (!isNonRPMessage(msg) && getHighRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
-            (lowerCaseMessage.indexOf("строй") !== -1 ||
-            lowerCaseMessage.indexOf("сбор") !== -1 ||
-            lowerCaseMessage.indexOf("готовность") !== -1 ||
-            lowerCaseMessage.indexOf("конф") !== -1)
-            && (chatRadius === CHAT_RADIUS.RADIO)) {
-            
-            // Извлекаем ник отправителя из сообщения рации
-            const nicknameMatch = msg.match(/\]\s+([A-Za-z]+_[A-Za-z]+)\[/);
-            const senderNickname = nicknameMatch ? nicknameMatch[1] : null;
-            
-            // Проверяем, находится ли отправитель в списке игнорируемых
-            const isIgnoredSender = senderNickname && config.ignoredStroiNicknames.includes(senderNickname);
-            
-            if (isIgnoredSender) {
-                debugLog(`Сообщение от игнорируемого ника: ${senderNickname} - пропускаем`);
-                sendToTelegram(`🔕 <b>Строй от игнорируемого ника (${displayName})</b>\n👤 ${senderNickname}\n<code>${msg.replace(/</g, '&lt;')}</code>`, true); // silent notification
-            } else {
-                // Извлекаем текст сообщения после последнего двоеточия
-                const messageTextMatch = msg.match(/:\s*(.+)$/);
-                const messageText = messageTextMatch ? messageTextMatch[1].trim().toLowerCase() : lowerCaseMessage;
-                
-                // Проверяем, является ли сообщение только словом "строй"
-                const onlyStroyMessage = messageText === "строй";
-                
-                debugLog('Обнаружен сбор/строй!');
-                sendToTelegram(`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`);
-                window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
-                
-                // Выполняем реконнект только если это НЕ просто слово "строй"
-                if (!onlyStroyMessage) {
-                    setTimeout(() => {
-                        performReconnect(5 * 60 * 1000);
-                    }, 30);
-                } else {
-                    debugLog('Сообщение содержит только "строй" - реконнект не выполняется');
-                }
-            }
-        }
+		if (!isNonRPMessage(msg) && getHighRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
+			(lowerCaseMessage.indexOf("строй") !== -1 ||
+			lowerCaseMessage.indexOf("сбор") !== -1 ||
+			lowerCaseMessage.indexOf("готовность") !== -1 ||
+			lowerCaseMessage.indexOf("конф") !== -1)
+			&& (chatRadius === CHAT_RADIUS.RADIO)) {
+			
+			// Извлекаем ник отправителя из сообщения рации
+			const nicknameMatch = msg.match(/\]\s+([A-Za-z]+_[A-Za-z]+)\[/);
+			const senderNickname = nicknameMatch ? nicknameMatch[1] : null;
+			
+			// Проверяем, находится ли отправитель в списке игнорируемых
+			const isIgnoredSender = senderNickname && config.ignoredStroiNicknames.includes(senderNickname);
+			
+			if (isIgnoredSender) {
+				debugLog(`Сообщение от игнорируемого ника: ${senderNickname} - пропускаем`);
+				sendToTelegram(`🔕 <b>Строй от игнорируемого ника (${displayName})</b>\n👤 ${senderNickname}\n<code>${msg.replace(/</g, '&lt;')}</code>`, true);
+			} else {
+				// Извлекаем текст сообщения после последнего двоеточия
+				const messageTextMatch = msg.match(/:\s*(.+)$/);
+				const messageText = messageTextMatch ? messageTextMatch[1].trim().toLowerCase() : lowerCaseMessage;
+				
+				// Проверяем, является ли сообщение только словом "строй"
+				const onlyStroyMessage = messageText === "строй";
+				
+				debugLog('Обнаружен сбор/строй!');
+				
+				const currentMinutes = getCurrentMinutes();
+				const payDayStatus = isPayDayApproaching() 
+					? `⏰ <b>БЛИЗКО К PAYDAY (${currentMinutes} мин)</b>` 
+					: `🕐 До PayDay: ${60 - currentMinutes} мин`;
+				
+				// Если не ждём PayDay - показываем обычное уведомление
+				if (!waitingForPayDay) {
+					sendToTelegram(
+						`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n` +
+						`${payDayStatus}\n` +
+						`<code>${msg.replace(/</g, '&lt;')}</code>`
+					);
+					
+					window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
+				}
+				
+				// Выполняем умный реконнект только если это НЕ просто слово "строй"
+				if (!onlyStroyMessage) {
+					performStroiReconnect();
+				} else {
+					debugLog('Сообщение содержит только "строй" - реконнект не выполняется');
+				}
+			}
+		}
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
             lowerCaseMessage.indexOf("кикнул") !== -1 &&
             msg.includes(config.accountInfo.nickname)) {
