@@ -2032,6 +2032,7 @@ function checkGovMessageConditions(msg, senderName, senderId) {
     return true;
 }
 // END MESSAGE PROCESSING MODULE //
+
 // START CHAT MONITOR MODULE //
 // ==================== SMART STROI SYSTEM ====================
 
@@ -2047,8 +2048,9 @@ function getCurrentMinutes() {
 // Функция для проверки, скоро ли PayDay (в пределах 7 минут до :00)
 function isPayDayApproaching() {
     const currentMinutes = getCurrentMinutes();
-    // Проверяем если осталось менее 7 минут до PayDay
-    return currentMinutes >= 53 || currentMinutes === 0;
+    // PayDay только с 53 по 59 минуту включительно
+    // НЕ в 0-6 минут нового часа
+    return currentMinutes >= 53 && currentMinutes <= 59;
 }
 
 // Функция для получения времени до 58 минуты в миллисекундах
@@ -2107,7 +2109,7 @@ function performStroiReconnect() {
     }
     
     if (isPayDayApproaching()) {
-        // Если осталось менее 7 минут до PayDay
+        // Если осталось менее 7 минут до PayDay (53-59 минуты)
         const timeToStart = getTimeUntil58Minutes();
         const timeUntilPayDay = getTimeUntilPayDay();
         const minutesLeft = Math.ceil(timeUntilPayDay / 60000);
@@ -2195,7 +2197,7 @@ function performStroiReconnect() {
         }, timeToStart);
         
     } else {
-        // Если до PayDay больше 7 минут - стандартный реконнект
+        // Если до PayDay далеко (0-52 минуты) - стандартный реконнект
         debugLog(`Строй обнаружен в ${currentMinutes} минут, до PayDay далеко - стандартный реконнект`);
         
         sendToTelegram(
