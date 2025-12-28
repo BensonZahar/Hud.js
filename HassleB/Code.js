@@ -2234,7 +2234,7 @@ function initializeChatMonitor() {
         const currentTime = Date.now();
         const chatRadius = getChatRadius(i);
         // Для отладки, выводим сообщения в чат
-        // console.log(msg); // сооб в чат
+        console.log(msg); // сооб в чат
         // Проверка сообщения "Текущее время:" для AFK
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
             handlePayDayTimeMessage();
