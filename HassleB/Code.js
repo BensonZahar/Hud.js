@@ -1919,59 +1919,73 @@ function processSalaryAndBalance(msg) {
         debugLog('PayDay пропущен: уведомления выкл');
         return;
     }
+    
     // Проверка на новые тексты (отрицательные сценарии)
     if (msg.includes("Для получения зарплаты необходимо находиться в игре минимум 25 минут")) {
         debugLog(`Обнаружено предупреждение о 25 минутах`);
         const message = `- PayDay | ${displayName}:\nДля получения зарплаты необходимо находиться в игре минимум 25 минут`;
         sendToTelegram(message);
-        config.lastSalaryInfo = null; // Сброс, чтобы избежать конфликтов
+        config.lastSalaryInfo = null;
         return;
     }
+    
     if (msg.includes("Вы не должны находиться на паузе для получения зарплаты")) {
         debugLog(`Обнаружено предупреждение о паузе`);
         const message = `- PayDay | ${displayName}:\nВы не должны находиться на паузе для получения зарплаты`;
         sendToTelegram(message);
-        config.lastSalaryInfo = null; // Сброс
+        config.lastSalaryInfo = null;
         return;
     }
+    
     if (msg.includes("Для получения опыта необходимо находиться в игре минимум 10 минут")) {
         debugLog(`Обнаружено предупреждение о 10 минутах для опыта`);
         const message = `- PayDay | ${displayName}:\nДля получения опыта необходимо находиться в игре минимум 10 минут`;
         sendToTelegram(message);
-        config.lastSalaryInfo = null; // Сброс
+        config.lastSalaryInfo = null;
         return;
     }
-    const salaryMatch = msg.match(/Зарплата: \{[\w]+\}(\d+) руб/);
+    
+    // Regex для зарплаты с учетом цветовых кодов
+    // Ищем: Зарплата: {цвет}число руб
+    const salaryMatch = msg.match(/Зарплата:\s*\{[A-Fa-f0-9]{6}\}([\d.]+)\s*руб/);
     if (salaryMatch) {
-        debugLog(`Зарплата спарсена: ${salaryMatch[1]}`);
+        const salary = salaryMatch[1]; // Оставляем как есть с точками
+        debugLog(`Зарплата спарсена: ${salary}`);
         config.lastSalaryInfo = config.lastSalaryInfo || {};
-        config.lastSalaryInfo.salary = salaryMatch[1];
-        debugLog(`Обнаружена зарплата: ${salaryMatch[1]} руб`);
-        config.afkCycle.totalSalary += parseInt(salaryMatch[1]);
-        updateAFKStatus(); // Обновляем статус для отображения накопленной зарплаты
+        config.lastSalaryInfo.salary = salary;
+        debugLog(`Обнаружена зарплата: ${salary} руб`);
+        // Для подсчета totalSalary убираем точки
+        config.afkCycle.totalSalary += parseInt(salary.replace(/\./g, ''));
+        updateAFKStatus();
     }
-    const balanceMatch = msg.match(/Текущий баланс счета: \{[\w]+\}(\d+) руб/);
+    
+    // Regex для баланса с учетом цветовых кодов
+    // Ищем: Текущий баланс счета: {цвет}число руб
+    const balanceMatch = msg.match(/Текущий баланс счета:\s*\{[A-Fa-f0-9]{6}\}([\d.]+)\s*руб/);
     if (balanceMatch) {
-        debugLog(`Баланс спарсен: ${balanceMatch[1]}`);
+        const balance = balanceMatch[1]; // Оставляем как есть с точками
+        debugLog(`Баланс спарсен: ${balance}`);
         config.lastSalaryInfo = config.lastSalaryInfo || {};
-        config.lastSalaryInfo.balance = balanceMatch[1];
-        debugLog(`Обнаружен баланс счета: ${balanceMatch[1]} руб`);
+        config.lastSalaryInfo.balance = balance;
+        debugLog(`Обнаружен баланс счета: ${balance} руб`);
     }
+    
     if (config.lastSalaryInfo && config.lastSalaryInfo.salary && config.lastSalaryInfo.balance) {
         let message = `+ PayDay | ${displayName}:\nЗарплата: ${config.lastSalaryInfo.salary} руб\nБаланс счета: ${config.lastSalaryInfo.balance} руб`;
+        
         if (config.afkCycle.active) {
             message += getAFKStatusText();
-            // Удаляем оригинальные статус-сообщения AFK
             config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
                 deleteMessage(chatId, messageId);
             });
             config.afkCycle.statusMessageIds = [];
-            // Удаляем предыдущие PayDay сообщения, если есть
+            
             globalState.lastPaydayMessageIds.forEach(({ chatId, messageId }) => {
                 deleteMessage(chatId, messageId);
             });
             globalState.lastPaydayMessageIds = [];
         }
+        
         sendToTelegram(message);
         config.lastSalaryInfo = null;
     }
