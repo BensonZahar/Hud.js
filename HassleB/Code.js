@@ -2039,6 +2039,7 @@ function checkGovMessageConditions(msg, senderName, senderId) {
 // Флаг для отслеживания ожидания PayDay
 let waitingForPayDay = false;
 let stroiReconnectTimer = null;
+let payDayResetTimer = null;
 
 // Функция для получения текущих минут
 function getCurrentMinutes() {
@@ -2051,6 +2052,16 @@ function isPayDayApproaching() {
     // PayDay только с 53 по 59 минуту включительно
     // НЕ в 0-6 минут нового часа
     return currentMinutes >= 53 && currentMinutes <= 59;
+}
+
+// Функция для сброса флага PayDay
+function resetPayDayFlag() {
+    waitingForPayDay = false;
+    if (payDayResetTimer) {
+        clearTimeout(payDayResetTimer);
+        payDayResetTimer = null;
+    }
+    debugLog('Флаг ожидания PayDay сброшен');
 }
 
 // Функция для получения времени до 58 минуты в миллисекундах
@@ -2117,6 +2128,13 @@ function performStroiReconnect() {
         
         waitingForPayDay = true; // Устанавливаем флаг ожидания
         
+        // Устанавливаем таймер для автоматического сброса флага через 5 минут
+        // (на случай если что-то пойдёт не так)
+        payDayResetTimer = setTimeout(() => {
+            resetPayDayFlag();
+            debugLog('Автоматический сброс флага PayDay по таймауту');
+        }, 5 * 60 * 1000);
+        
         debugLog(`Строй обнаружен в ${currentMinutes} минут, PayDay через ${minutesLeft} мин - выполняем реконнект с расчётом времени`);
         
         sendToTelegram(
@@ -2179,7 +2197,7 @@ function performStroiReconnect() {
                         autoLoginConfig.enabled = true;
                         sendChatInput("/rec 5");
                         
-                        waitingForPayDay = false; // Снимаем флаг ожидания
+                        resetPayDayFlag(); // Сбрасываем флаг ожидания
                         
                         sendToTelegram(
                             `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
@@ -2221,7 +2239,7 @@ function cancelStroiReconnect() {
         clearTimeout(stroiReconnectTimer);
         stroiReconnectTimer = null;
     }
-    waitingForPayDay = false;
+    resetPayDayFlag();
     debugLog('Отменено ожидание PayDay после строя');
 }
 
