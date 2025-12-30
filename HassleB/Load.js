@@ -26,6 +26,35 @@ function findChatObject() {
     return null;
 }
 
+// Поиск по специфическим значениям из кода
+function findChatObjectBySignature() {
+    for (let key in window) {
+        try {
+            const obj = window[key];
+            if (obj && 
+                typeof obj === 'object' && 
+                obj.components && 
+                obj.data && 
+                typeof obj.data === 'function') {
+                
+                // Проверяем наличие характерных свойств
+                const dataResult = obj.data();
+                if (dataResult.MAX_INPUT_LENGTH === 512 && 
+                    dataResult.messages && 
+                    Array.isArray(dataResult.messages)) {
+                    
+                    console.log(`✅ Найден объект чата по сигнатуре: ${key}`);
+                    return obj;
+                }
+            }
+        } catch (e) {
+            // Игнорируем ошибки
+        }
+    }
+    return null;
+}
+
+
 // Установка хука на чат с автопоиском
 function setupChatHook() {
     const chatObject = findChatObject();
