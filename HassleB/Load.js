@@ -3,93 +3,17 @@ const username = 'BensonZahar';
 const repo = 'Hud.js';
 const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
 
-// Функция для поиска объекта чата по сигнатуре
-function findChatObject() {
-    // Ищем в глобальном объекте window
-    for (let key in window) {
-        try {
-            const obj = window[key];
-            // Проверяем, что это объект с нужной структурой
-            if (obj && 
-                typeof obj === 'object' && 
-                obj.methods && 
-                typeof obj.methods === 'object' &&
-                typeof obj.methods.add === 'function') {
-                
-                console.log(`✅ Найден объект чата: ${key}`);
-                return obj;
-            }
-        } catch (e) {
-            // Игнорируем ошибки доступа к свойствам
-        }
-    }
-    return null;
-}
-
-// Поиск по специфическим значениям из кода
-function findChatObjectBySignature() {
-    for (let key in window) {
-        try {
-            const obj = window[key];
-            if (obj && 
-                typeof obj === 'object' && 
-                obj.components && 
-                obj.data && 
-                typeof obj.data === 'function') {
-                
-                // Проверяем наличие характерных свойств
-                const dataResult = obj.data();
-                if (dataResult.MAX_INPUT_LENGTH === 512 && 
-                    dataResult.messages && 
-                    Array.isArray(dataResult.messages)) {
-                    
-                    console.log(`✅ Найден объект чата по сигнатуре: ${key}`);
-                    return obj;
-                }
-            }
-        } catch (e) {
-            // Игнорируем ошибки
-        }
-    }
-    return null;
-}
-
-
-// Установка хука на чат с автопоиском
-function setupChatHook() {
-    const chatObject = findChatObject();
-    
-    if (chatObject && chatObject.methods && chatObject.methods.add) {
-        const originalAdd = chatObject.methods.add;
-        
-        chatObject.methods.add = function(e, s, t) {
-            const result = originalAdd.call(this, e, s, t);
-            
-            // Вызываем наш кастомный обработчик
-            if (window.OnChatAddMessage) {
-                window.OnChatAddMessage(e, s, t);
-            }
-            
-            return result;
-        };
-        
-        console.log('✅ Хук на чат установлен успешно');
-        return true;
-    } else {
-        console.error('❌ Объект чата не найден');
-        return false;
-    }
-}
-
-// Пытаемся установить хук
-if (!setupChatHook()) {
-    // Если не получилось сразу, пробуем через небольшую задержку
-    console.log('🔄 Повторная попытка через 1 секунду...');
-    setTimeout(() => {
-        if (!setupChatHook()) {
-            console.error('❌ Не удалось установить хук на чат');
-        }
-    }, 1000);
+// Установка хука на чат
+if (vt?.methods?.add) {
+    const originalAdd = vt.methods.add;
+    vt.methods.add = function(e, s, t) {
+        const result = originalAdd.call(this, e, s, t);
+        window.OnChatAddMessage?.(e, s, t);
+        return result;
+    };
+    console.log('Хук на чат установлен');
+} else {
+    console.error('vt.methods.add не найден, хук не установлен');
 }
 
 // Функция загрузчика с retry
