@@ -2383,6 +2383,57 @@ function initializeChatMonitor() {
                 }, twoMinDelay);
             }
         }
+		// ОТЛАДКА: Выводим ВСЕ сообщения с цветом фракции МЗ
+		if (config.currentFaction === 'mz') {
+		    const mzColor = factions.mz.color;
+		    const normalizedMzColor = normalizeColor(mzColor);
+		    const normalizedMsgColor = normalizeColor(i);
+		    
+		    debugLog(`=== ОТЛАДКА МЗ ===`);
+		    debugLog(`Текущая фракция: ${config.currentFaction}`);
+		    debugLog(`Цвет фракции МЗ: ${mzColor} -> ${normalizedMzColor}`);
+		    debugLog(`Цвет сообщения: ${i} -> ${normalizedMsgColor}`);
+		    debugLog(`Радиус чата: ${chatRadius} (нужен CLOSE=${CHAT_RADIUS.CLOSE})`);
+		    debugLog(`Сообщение: "${msg}"`);
+		    debugLog(`govMessagesEnabled: ${config.govMessagesEnabled}`);
+		    
+		    // Проверяем совпадение цветов
+		    if (normalizedMzColor === normalizedMsgColor) {
+		        debugLog(`✅ ЦВЕТ СОВПАЛ! Проверяем regex...`);
+		        
+		        const govMessageRegex = new RegExp(`^\\- (.+?) \\{${mzColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
+		        debugLog(`Regex pattern: ${govMessageRegex}`);
+		        
+		        const govMatch = msg.match(govMessageRegex);
+		        if (govMatch) {
+		            debugLog(`✅ REGEX СРАБОТАЛ!`);
+		            debugLog(`Текст: ${govMatch[1]}, Отправитель: ${govMatch[2]}, ID: ${govMatch[3]}`);
+		        } else {
+		            debugLog(`❌ REGEX НЕ СРАБОТАЛ`);
+		            debugLog(`Пробуем упрощенный regex...`);
+		            
+		            // Пробуем более простой regex
+		            const simpleRegex = /\{([A-Fa-f0-9]{6})\}\(\{v:([^}]+)\}\)\[(\d+)\]/;
+		            const simpleMatch = msg.match(simpleRegex);
+		            if (simpleMatch) {
+		                debugLog(`✅ Упрощенный regex сработал!`);
+		                debugLog(`Цвет: ${simpleMatch[1]}, Имя: ${simpleMatch[2]}, ID: ${simpleMatch[3]}`);
+		            } else {
+		                debugLog(`❌ Даже упрощенный regex не сработал`);
+		            }
+		        }
+		        
+		        // Проверяем радиус
+		        if (chatRadius === CHAT_RADIUS.CLOSE) {
+		            debugLog(`✅ Радиус CLOSE подтвержден`);
+		        } else {
+		            debugLog(`❌ Радиус не CLOSE! Текущий: ${chatRadius}`);
+		        }
+		    } else {
+		        debugLog(`❌ Цвета не совпали`);
+		    }
+		    debugLog(`=== КОНЕЦ ОТЛАДКИ МЗ ===`);
+		}
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
             factionColor = factions[config.currentFaction].color;
