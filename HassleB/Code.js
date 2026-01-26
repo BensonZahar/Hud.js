@@ -2,6 +2,7 @@ const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
     '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
     '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
+    '9': '8549354393:AAH3KUXtuSBZJ4SO4qw5s5WmWJ9_kypclBY',
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 // остальное в /list
