@@ -1,8 +1,26 @@
+
+// ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
+// ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
+// 
+// Проблема: Когда работают несколько аккаунтов, все они создавали
+// одинаковый запрос "Введите ответ для..." и все обрабатывали одно 
+// и то же сообщение, из-за чего приходилось отправлять ответ дважды.
+//
+// Решение: Добавлен уникальный идентификатор 🔑 ID: к каждому запросу.
+// Теперь каждый аккаунт проверяет, что ответ предназначен именно ему.
+//
+// Изменения внесены в:
+// 1. Запрос на ответ администратору (строка ~1673)
+// 2. Обработка ответа администратору (строка ~1257)
+// 3. Запрос на ввод сообщения (строка ~1589)
+// 4. Обработка ввода сообщения (строка ~1241)
+// ===========================================================
+
 const SERVER_TOKENS = {
     '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
     '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
     '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
-    '9': '8549354393:AAH3KUXtuSBZJ4SO4qw5s5WmWJ9_kypclBY',
+	'9': '8549354393:AAH3KUXtuSBZJ4SO4qw5s5WmWJ9_kypclBY',
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
 // остальное в /list
@@ -599,7 +617,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1239,7 +1257,8 @@ function processUpdates(updates) {
             if (update.message.reply_to_message) {
                 const replyToText = update.message.reply_to_message.text || '';
                 // Ответ на запрос сообщения для чата
-                if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`)) {
+                if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`) && 
+                    replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка сообщения: ${textToSend}`);
@@ -1255,7 +1274,8 @@ function processUpdates(updates) {
                     continue;
                 }
                 // Ответ на запрос ответа администратору
-                if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`)) {
+                if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`) && 
+                    replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка ответа: ${textToSend}`);
@@ -1586,7 +1606,7 @@ function processUpdates(updates) {
             } else if (message.startsWith(`hide_controls_`)) {
                 hideControlsMenu(chatId, messageId);
             } else if (message.startsWith(`request_chat_message_`)) {
-                const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)`;
+                const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)\n🔑 ID: ${uniqueId}`;
                 sendToTelegram(requestMsg, false, {
                     force_reply: true
                 });
@@ -1671,7 +1691,7 @@ function processUpdates(updates) {
                     });
                 }
             } else if (message.startsWith("admin_reply_")) {
-                const requestMsg = `✉️ Введите ответ для ${displayName}:`;
+                const requestMsg = `✉️ Введите ответ для ${displayName}:\n🔑 ID: ${uniqueId}`;
                 sendToTelegram(requestMsg, false, {
                     force_reply: true
                 });
