@@ -1,3 +1,4 @@
+
 // ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
 // ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
 // 
@@ -22,146 +23,6 @@ const SERVER_TOKENS = {
 	'9': '8549354393:AAH3KUXtuSBZJ4SO4qw5s5WmWJ9_kypclBY',
     '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
-
-// ==================== СИСТЕМА ИНИЦИАЛИЗАЦИИ УПРАВЛЕНИЯ ====================
-const controlSystem = {
-    initialized: false,
-    warmupAttempts: 0,
-    maxWarmupAttempts: 3
-};
-
-// Функция инициализации системы управления
-function initializeControlSystem() {
-    if (controlSystem.initialized) {
-        return Promise.resolve(true);
-    }
-    
-    console.log('[CONTROL-INIT] 🎮 Начинаем инициализацию системы управления...');
-    
-    return new Promise((resolve) => {
-        const warmupKeys = ['<Keyboard>/w', '<Keyboard>/a', '<Keyboard>/s', '<Keyboard>/d'];
-        let currentKey = 0;
-        
-        const warmupInterval = setInterval(() => {
-            if (currentKey >= warmupKeys.length) {
-                clearInterval(warmupInterval);
-                controlSystem.initialized = true;
-                controlSystem.warmupAttempts++;
-                console.log('[CONTROL-INIT] ✅ Система управления инициализирована');
-                resolve(true);
-                return;
-            }
-            
-            try {
-                const key = warmupKeys[currentKey];
-                // Очень короткий импульс (50мс) для активации системы
-                if (typeof window.onScreenControlTouchStart === 'function') {
-                    window.onScreenControlTouchStart(key);
-                    setTimeout(() => {
-                        if (typeof window.onScreenControlTouchEnd === 'function') {
-                            window.onScreenControlTouchEnd(key);
-                        }
-                    }, 50);
-                }
-                console.log(`[CONTROL-INIT] 🔧 Разминка клавиши: ${key}`);
-                currentKey++;
-            } catch (err) {
-                console.error(`[CONTROL-INIT] ⚠️ Ошибка при разминке: ${err.message}`);
-                currentKey++;
-            }
-        }, 100); // 100мс между клавишами
-    });
-}
-
-// Улучшенная функция отправки клавиши с множественными методами
-async function sendKeyPress(keyBinding, duration = 1000, actionName = "действие") {
-    // Проверяем инициализацию системы
-    if (!controlSystem.initialized) {
-        console.log(`[KEY-PRESS] ⏳ Система не инициализирована, выполняем инициализацию для "${actionName}"...`);
-        await initializeControlSystem();
-        // Небольшая пауза после инициализации
-        await new Promise(resolve => setTimeout(resolve, 200));
-    }
-    
-    try {
-        console.log(`[KEY-PRESS] 📤 Отправка клавиши: ${keyBinding} (${duration}мс) для "${actionName}"`);
-        
-        let success = false;
-        
-        // Метод 1: Основной метод через onScreenControlTouchStart
-        if (typeof window.onScreenControlTouchStart === 'function') {
-            try {
-                window.onScreenControlTouchStart(keyBinding);
-                success = true;
-                console.log(`[KEY-PRESS] ✅ Метод 1 (onScreenControl): успешно`);
-            } catch (err) {
-                console.warn(`[KEY-PRESS] ⚠️ Метод 1 (onScreenControl): ${err.message}`);
-            }
-        }
-        
-        // Метод 2: Резервный через sendKeyEvent (если доступен и метод 1 не сработал)
-        if (!success && typeof window.sendKeyEvent === 'function') {
-            try {
-                // Преобразуем binding в keyCode
-                const keyMap = {
-                    '<Keyboard>/w': 87,      // W
-                    '<Keyboard>/a': 65,      // A
-                    '<Keyboard>/s': 83,      // S
-                    '<Keyboard>/d': 68,      // D
-                    '<Keyboard>/leftShift': 16,  // Shift
-                    '<Keyboard>/c': 67,      // C
-                    '<Mouse>/leftButton': 1  // Left Mouse
-                };
-                
-                const keyCode = keyMap[keyBinding];
-                if (keyCode) {
-                    window.sendKeyEvent(keyCode);
-                    success = true;
-                    console.log(`[KEY-PRESS] ✅ Метод 2 (sendKeyEvent): успешно (код: ${keyCode})`);
-                }
-            } catch (err) {
-                console.warn(`[KEY-PRESS] ⚠️ Метод 2 (sendKeyEvent): ${err.message}`);
-            }
-        }
-        
-        // Метод 3: Через sendClientKeyEvent (если доступен и предыдущие не сработали)
-        if (!success && typeof window.sendClientKeyEvent === 'function') {
-            try {
-                const keyName = keyBinding.replace('<Keyboard>/', '').replace('<Mouse>/', '');
-                window.sendClientKeyEvent(keyName);
-                success = true;
-                console.log(`[KEY-PRESS] ✅ Метод 3 (sendClientKeyEvent): успешно`);
-            } catch (err) {
-                console.warn(`[KEY-PRESS] ⚠️ Метод 3 (sendClientKeyEvent): ${err.message}`);
-            }
-        }
-        
-        if (!success) {
-            console.error(`[KEY-PRESS] ❌ Все методы отправки не сработали для ${keyBinding}`);
-            return false;
-        }
-        
-        // Удерживаем клавишу заданное время
-        await new Promise(resolve => setTimeout(resolve, duration));
-        
-        // Отпускаем клавишу (только для Метода 1)
-        if (typeof window.onScreenControlTouchEnd === 'function') {
-            try {
-                window.onScreenControlTouchEnd(keyBinding);
-                console.log(`[KEY-PRESS] ✅ Клавиша отпущена: ${keyBinding}`);
-            } catch (err) {
-                console.warn(`[KEY-PRESS] ⚠️ Ошибка при отпускании: ${err.message}`);
-            }
-        }
-        
-        return true;
-    } catch (err) {
-        console.error(`[KEY-PRESS] ❌ Критическая ошибка при отправке клавиши: ${err.message}`);
-        return false;
-    }
-}
-// ==================== END СИСТЕМА ИНИЦИАЛИЗАЦИИ ====================
-
 // остальное в /list
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
@@ -3075,8 +2936,8 @@ function showHBAFKRestartMenu(selectedMode) {
     );
 }
 // Обработчик выбора в меню
-async function handleHBMenuSelection(dialogId, button, listitem) {
-    console.log(`[HB-MENU] 📋 dialogId=${dialogId}, button=${button}, listitem=${listitem}`);
+function handleHBMenuSelection(dialogId, button, listitem) {
+    console.log(`HB Menu: dialogId=${dialogId}, button=${button}, listitem=${listitem}`);
     if (button !== 1) {
         currentHBMenu = null;
         currentHBSelectedMode = null;
@@ -3209,80 +3070,99 @@ async function handleHBMenuSelection(dialogId, button, listitem) {
         case HB_DIALOG_IDS.MOVEMENT_CONTROLS:
             if (listitem === 0) {
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
-                return;
-            }
-            
-            // Определяем параметры движения
-            const movements = {
-                1: { key: '<Keyboard>/w', duration: 1000, name: 'Вперед', emoji: '🔼' },
-                2: { key: '<Keyboard>/a', duration: 1000, name: 'Влево', emoji: '◀️' },
-                3: { key: '<Keyboard>/d', duration: 1000, name: 'Вправо', emoji: '▶️' },
-                4: { key: '<Keyboard>/s', duration: 1000, name: 'Назад', emoji: '🔽' },
-                5: { key: '<Keyboard>/leftShift', duration: 500, name: 'Прыжок', emoji: '🆙' },
-                6: { key: '<Mouse>/leftButton', duration: 100, name: 'Удар', emoji: '👊' },
-                7: { key: '<Keyboard>/c', duration: 500, name: config.isSitting ? 'Встать' : 'Сесть', emoji: '✅' }
-            };
-            
-            const movement = movements[listitem];
-            if (!movement) {
-                console.warn(`[HB-MOVEMENT] ⚠️ Неизвестный пункт движения: ${listitem}`);
-                return;
-            }
-            
-            try {
-                console.log(`[HB-MOVEMENT] 🎯 Выполняется: ${movement.name}`);
-                
-                // Используем улучшенную функцию отправки клавиши
-                const success = await sendKeyPress(movement.key, movement.duration, movement.name);
-                
-                if (success) {
-                    // Обновляем состояние сидения для пункта 7
-                    if (listitem === 7) {
-                        config.isSitting = !config.isSitting;
-                    }
-                    
-                    // Показываем уведомление
-                    if (typeof showScreenNotification === 'function') {
-                        showScreenNotification("Hassle", `${movement.name} выполнен${listitem === 7 ? 'о' : ''}`);
-                    }
-                    
-                    // Отправляем в Telegram
-                    if (typeof sendToTelegram === 'function') {
-                        sendToTelegram(`${movement.emoji} <b>${movement.name} для ${displayName}</b>`, false, null);
-                    }
-                    
-                    console.log(`[HB-MOVEMENT] ✅ ${movement.name} успешно выполнен`);
-                } else {
-                    console.error(`[HB-MOVEMENT] ❌ Ошибка выполнения: ${movement.name}`);
-                    
-                    if (typeof showScreenNotification === 'function') {
-                        showScreenNotification("Hassle", `Ошибка: ${movement.name}`);
-                    }
-                    
-                    if (typeof sendToTelegram === 'function') {
-                        sendToTelegram(`❌ <b>Ошибка выполнения: ${movement.name}</b>`, false, null);
-                    }
+            } else if (listitem === 1) {
+                // Вперед
+                try {
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
+                    showScreenNotification("Hassle", "Движение вперед выполнено");
+                    sendToTelegram(`🚶 <b>Движение вперед для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
                 }
-                
-                // Возвращаемся в меню движения с небольшой задержкой
-                setTimeout(() => {
-                    if (typeof showHBMovementMenu === 'function') {
-                        showHBMovementMenu();
-                    }
-                }, 150);
-                
-            } catch (err) {
-                console.error(`[HB-MOVEMENT] 💥 Критическая ошибка при выполнении ${movement.name}: ${err.message}`);
-                
-                if (typeof sendToTelegram === 'function') {
-                    sendToTelegram(`❌ <b>Критическая ошибка:</b> ${err.message}`, false, null);
+            } else if (listitem === 2) {
+                // Влево
+                try {
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
+                    showScreenNotification("Hassle", "Движение влево выполнено");
+                    sendToTelegram(`🚶 <b>Движение влево для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
                 }
-                
-                setTimeout(() => {
-                    if (typeof showHBMovementMenu === 'function') {
-                        showHBMovementMenu();
-                    }
-                }, 150);
+            } else if (listitem === 3) {
+                // Вправо
+                try {
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
+                    showScreenNotification("Hassle", "Движение вправо выполнено");
+                    sendToTelegram(`🚶 <b>Движение вправо для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
+            } else if (listitem === 4) {
+                // Назад
+                try {
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
+                    showScreenNotification("Hassle", "Движение назад выполнено");
+                    sendToTelegram(`🚶 <b>Движение назад для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
+            } else if (listitem === 5) {
+                // Прыжок
+                try {
+                    window.onScreenControlTouchStart("<Keyboard>/leftShift");
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Keyboard>/leftShift");
+                    }, 500);
+                    showScreenNotification("Hassle", "Прыжок выполнен");
+                    sendToTelegram(`🆙 <b>Прыжок для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
+            } else if (listitem === 6) {
+                // Удар
+                try {
+                    window.onScreenControlTouchStart("<Mouse>/leftButton");
+                    setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+                    showScreenNotification("Hassle", "Удар выполнен");
+                    sendToTelegram(`👊 <b>Удар для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
+            } else if (listitem === 7) {
+                // Сесть/Встать
+                try {
+                    window.onScreenControlTouchStart("<Keyboard>/c");
+                    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+                    config.isSitting = !config.isSitting;
+                    const actionText = config.isSitting ? 'Сесть' : 'Встать';
+                    showScreenNotification("Hassle", `Команда "${actionText}" выполнена`);
+                    sendToTelegram(`✅ <b>Команда "${actionText}" для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
             }
             break;
         case HB_DIALOG_IDS.AFK_MODES:
@@ -3389,42 +3269,6 @@ window.sendClientEventCustom = function(event, ...args) {
 sendChatInput = window.sendChatInputCustom;
 sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
-
-// ==================== АВТОИНИЦИАЛИЗАЦИЯ СИСТЕМЫ УПРАВЛЕНИЯ ====================
-setTimeout(() => {
-    console.log('[STARTUP] 🚀 Запуск автоматической инициализации системы управления...');
-    initializeControlSystem().then(() => {
-        console.log('[STARTUP] ✅ Система управления готова к работе');
-        console.log('[STARTUP] 🎮 Движение через Telegram активно');
-        
-        // Отправляем уведомление в Telegram
-        if (typeof sendToTelegram === 'function' && typeof displayName !== 'undefined') {
-            sendToTelegram(
-                `🎮 <b>HassleBot: Система управления инициализирована</b>\n\n` +
-                `📱 Аккаунт: ${displayName}\n` +
-                `✅ Движение через Telegram готово к использованию\n` +
-                `🔄 Используйте /hb для доступа к меню\n\n` +
-                `<i>Все команды движения теперь работают с первого раза!</i>`,
-                false,
-                null
-            );
-        }
-    }).catch(err => {
-        console.error(`[STARTUP] ❌ Ошибка инициализации: ${err.message}`);
-        
-        if (typeof sendToTelegram === 'function') {
-            sendToTelegram(`⚠️ <b>Ошибка инициализации движения:</b> ${err.message}`, false, null);
-        }
-    });
-}, 5000); // Задержка 5 секунд после загрузки
-
-console.log('[HASSLEBOT] =====================================');
-console.log('[HASSLEBOT] ✅ Улучшенная система движения загружена');
-console.log('[HASSLEBOT] 🎯 Движение через Telegram работает с первого раза!');
-console.log('[HASSLEBOT] 🔧 Используйте /hb для открытия меню');
-console.log('[HASSLEBOT] =====================================');
-// ==================== END АВТОИНИЦИАЛИЗАЦИЯ ====================
-
 // ==================== END HB MENU SYSTEM ====================
 
 
