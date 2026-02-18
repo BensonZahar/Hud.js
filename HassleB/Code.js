@@ -622,7 +622,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX99 TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1214,13 +1214,13 @@ function hideControlsMenu(chatId, messageId) {
 // END MENU MODULE //
 // START TELEGRAM COMMANDS MODULE //
 function checkTelegramCommands() {
-    config.lastUpdateId = getSharedLastUpdateId(); // Загружаем shared значение
-    // Long polling: timeout=25 — Telegram держит соединение открытым до 25 сек
-    // и мгновенно возвращает ответ при появлении новых обновлений
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=25`;
+    // Каждый аккаунт использует СВОЙ независимый lastUpdateId.
+    // Это позволяет всем аккаунтам видеть ВСЕ обновления независимо друг от друга.
+    // Каждый аккаунт реагирует только на свои команды (проверка uniqueId / isForThisBot).
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
-    xhr.timeout = 30000; // 30 сек таймаут XHR (больше чем timeout=25 Telegram)
+    xhr.timeout = 10000;
     xhr.onload = function() {
         if (xhr.status === 200) {
             try {
@@ -1232,24 +1232,21 @@ function checkTelegramCommands() {
                 debugLog('Ошибка парсинга ответа Telegram:', e);
             }
         }
-        // Сразу запускаем следующий запрос — long polling работает непрерывно
-        checkTelegramCommands();
+        setTimeout(checkTelegramCommands, 300);
     };
     xhr.ontimeout = function() {
-        debugLog('Long polling таймаут, перезапускаем...');
-        checkTelegramCommands();
+        debugLog('Таймаут запроса, перезапускаем...');
+        setTimeout(checkTelegramCommands, 1000);
     };
     xhr.onerror = function(error) {
         debugLog('Ошибка при проверке команд:', error);
-        // При ошибке сети — небольшая пауза перед повтором
         setTimeout(checkTelegramCommands, 3000);
     };
     xhr.send();
 }
 function processUpdates(updates) {
     for (const update of updates) {
-        config.lastUpdateId = update.update_id;
-        setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
+        config.lastUpdateId = update.update_id; // Каждый аккаунт двигает свой offset независимо
         let chatId = null;
         if (update.message) {
             chatId = update.message.chat.id;
