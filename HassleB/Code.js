@@ -1,3 +1,4 @@
+
 // ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
 // ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
 // 
@@ -382,166 +383,6 @@ function showScreenNotification(title, text, color = "FFFF00", duration = 3000) 
         debugLog(`Ошибка ScreenNotification: ${err.message}`);
     }
 }
-// ═══════════════════════════════════════════════════════════════════════════
-// ФИКС 1: Активация input-системы при потере фокуса окна (Telegram-движение)
-// ═══════════════════════════════════════════════════════════════════════════
-let _inputLastActivated = 0;
-let _inputSystemReady = false;
-
-document.addEventListener('mousedown', function() { _inputSystemReady = true; });
-document.addEventListener('touchstart', function() { _inputSystemReady = true; }, true);
-document.addEventListener('visibilitychange', function() {
-    if (document.hidden) _inputSystemReady = false;
-});
-window.addEventListener('blur', function() { _inputSystemReady = false; });
-window.addEventListener('focus', function() { _inputSystemReady = true; });
-
-function activateInputSystem() {
-    const now = Date.now();
-    if (_inputSystemReady && (now - _inputLastActivated) < 3000) return;
-    try {
-        const target = document.querySelector('.hud-iface') || document.body;
-        const cx = Math.floor(window.innerWidth / 2);
-        const cy = Math.floor(window.innerHeight / 2);
-        const touch = new Touch({
-            identifier: now,
-            target: target,
-            clientX: cx, clientY: cy,
-            screenX: cx, screenY: cy,
-            pageX: cx,   pageY: cy,
-            radiusX: 1, radiusY: 1, rotationAngle: 0, force: 1
-        });
-        target.dispatchEvent(new TouchEvent('touchstart', {
-            bubbles: true, cancelable: true,
-            touches: [touch], targetTouches: [touch], changedTouches: [touch]
-        }));
-        target.dispatchEvent(new TouchEvent('touchend', {
-            bubbles: true, cancelable: true,
-            touches: [], targetTouches: [], changedTouches: [touch]
-        }));
-        if (typeof window.onScreenJoystickCreate === 'function') {
-            window.onScreenJoystickCreate("<Gamepad>/leftStick");
-        }
-        if (typeof window.onScreenButtonCreate === 'function') {
-            window.onScreenButtonCreate("<Keyboard>/c");
-            window.onScreenButtonCreate("<Keyboard>/Space");
-        }
-        _inputLastActivated = now;
-        _inputSystemReady = true;
-        debugLog('[HassleBot] Input система переактивирована (потеря фокуса)');
-    } catch (e) {
-        debugLog('[HassleBot] Ошибка активации input системы: ' + e.message);
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// ФИКС 2: Зависание джойстика при одновременном управлении двумя аккаунтами
-// ───────────────────────────────────────────────────────────────────────────
-// Проблема: Hud.js не проверяет changedTouches в обработчике touchend
-// джойстика. NoxPlayer передаёт касания правого окна в левое — левый
-// джойстик сбрасывается от чужого touchend, но движок продолжает
-// держать leftStick нажатым → персонаж бежит без остановки.
-//
-// Решение: патчим addEventListener ДО монтирования Vue-компонента,
-// добавляем проверку идентификатора пальца, отслеживаем состояние
-// движка и восстанавливаем его через watchdog.
-// ═══════════════════════════════════════════════════════════════════════════
-let _joystickEngineActive = false;
-let _joystickTouchId     = null;
-let _telegramMoveActive  = false;
-
-// --- Патч onScreenControl: отслеживаем состояние движка ---
-(function() {
-    function patchWhenReady() {
-        if (typeof window.onScreenControlTouchStart !== 'function') {
-            setTimeout(patchWhenReady, 200);
-            return;
-        }
-        const _origStart = window.onScreenControlTouchStart;
-        const _origEnd   = window.onScreenControlTouchEnd;
-        const _origMove  = window.onScreenControlTouchMove;
-
-        window.onScreenControlTouchStart = function(control) {
-            if (control === '<Gamepad>/leftStick') _joystickEngineActive = true;
-            return _origStart && _origStart.call(this, control);
-        };
-        window.onScreenControlTouchEnd = function(control) {
-            if (control === '<Gamepad>/leftStick') {
-                _joystickEngineActive = false;
-                _joystickTouchId = null;
-            }
-            return _origEnd && _origEnd.call(this, control);
-        };
-        window.onScreenControlTouchMove = function(control, x, y) {
-            return _origMove && _origMove.call(this, control, x, y);
-        };
-    }
-    patchWhenReady();
-})();
-
-// --- Патч addEventListener: перехватываем joystick-container до монтирования ---
-// Добавляем проверку changedTouches, которой нет в оригинальном Hud.js
-(function() {
-    const _origAdd = EventTarget.prototype.addEventListener;
-    EventTarget.prototype.addEventListener = function(type, fn, opts) {
-        const el = this;
-
-        if (type === 'touchstart') {
-            const _origFn = fn;
-            fn = function(e) {
-                if (el.classList && el.classList.contains('joystick-container')) {
-                    // Запоминаем палец который захватил наш джойстик
-                    if (_joystickTouchId === null && e.touches.length > 0) {
-                        _joystickTouchId = e.touches[e.touches.length - 1].identifier;
-                    }
-                }
-                return _origFn.call(this, e);
-            };
-        }
-
-        if (type === 'touchend') {
-            const _origFn = fn;
-            fn = function(e) {
-                if (el.classList && el.classList.contains('joystick-container')) {
-                    // Если джойстик ещё не захватил палец — обрабатываем как обычно
-                    if (_joystickTouchId === null) {
-                        return _origFn.call(this, e);
-                    }
-                    // Проверяем: этот touchend от НАШЕГО пальца?
-                    const changedIds = new Set(
-                        Array.from(e.changedTouches).map(function(t) { return t.identifier; })
-                    );
-                    if (!changedIds.has(_joystickTouchId)) {
-                        // Чужой палец (другой аккаунт) — игнорируем!
-                        return;
-                    }
-                    // Наш палец поднялся — сбрасываем и обрабатываем
-                    _joystickTouchId = null;
-                }
-                return _origFn.call(this, e);
-            };
-        }
-
-        return _origAdd.call(this, type, fn, opts);
-    };
-})();
-
-// --- Watchdog: если все пальцы убраны, а движок держит leftStick — восстанавливаем ---
-window.addEventListener('touchend', function(e) {
-    if (_telegramMoveActive) return;
-    if (e.touches.length === 0 && _joystickEngineActive) {
-        setTimeout(function() {
-            // Повторная проверка через 150мс (на случай мгновенного нового касания)
-            if (_joystickEngineActive) {
-                window.onScreenControlTouchEnd('<Gamepad>/leftStick');
-                window.onScreenControlTouchEnd('<Keyboard>/c');
-                window.onScreenControlTouchEnd('<Keyboard>/Space');
-                _joystickTouchId = null;
-                debugLog('[HassleBot] Watchdog: джойстик был завис — восстановлен');
-            }
-        }, 150);
-    }
-}, true);
 // END DEBUG AND UTILS MODULE //
 // START PLAYER INFO MODULE //
 function getPlayerIdFromHUD() {
@@ -1857,13 +1698,10 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_forward_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    _telegramMoveActive = true;
-                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
                     setTimeout(() => {
                         window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-                        _telegramMoveActive = false;
                     }, 500);
                     sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -1875,13 +1713,10 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_back_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    _telegramMoveActive = true;
-                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
                     setTimeout(() => {
                         window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-                        _telegramMoveActive = false;
                     }, 500);
                     sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -1893,13 +1728,10 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_left_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    _telegramMoveActive = true;
-                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
                     setTimeout(() => {
                         window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-                        _telegramMoveActive = false;
                     }, 500);
                     sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -1911,13 +1743,10 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_right_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    _telegramMoveActive = true;
-                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
                     setTimeout(() => {
                         window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-                        _telegramMoveActive = false;
                     }, 500);
                     sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -3244,13 +3073,10 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 1) {
                 // Вперед
                 try {
-                    _telegramMoveActive = true;
-                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
                     setTimeout(() => {
                         window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-                        _telegramMoveActive = false;
                     }, 500);
                     showScreenNotification("Hassle", "Движение вперед выполнено");
                     sendToTelegram(`🚶 <b>Движение вперед для ${displayName}</b>`, false, null);
@@ -3261,13 +3087,10 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 2) {
                 // Влево
                 try {
-                    _telegramMoveActive = true;
-                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
                     setTimeout(() => {
                         window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-                        _telegramMoveActive = false;
                     }, 500);
                     showScreenNotification("Hassle", "Движение влево выполнено");
                     sendToTelegram(`🚶 <b>Движение влево для ${displayName}</b>`, false, null);
@@ -3278,13 +3101,10 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 3) {
                 // Вправо
                 try {
-                    _telegramMoveActive = true;
-                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
                     setTimeout(() => {
                         window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-                        _telegramMoveActive = false;
                     }, 500);
                     showScreenNotification("Hassle", "Движение вправо выполнено");
                     sendToTelegram(`🚶 <b>Движение вправо для ${displayName}</b>`, false, null);
@@ -3295,13 +3115,10 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 4) {
                 // Назад
                 try {
-                    _telegramMoveActive = true;
-                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
                     setTimeout(() => {
                         window.onScreenControlTouchEnd("<Gamepad>/leftStick");
-                        _telegramMoveActive = false;
                     }, 500);
                     showScreenNotification("Hassle", "Движение назад выполнено");
                     sendToTelegram(`🚶 <b>Движение назад для ${displayName}</b>`, false, null);
