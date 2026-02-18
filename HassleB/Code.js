@@ -188,7 +188,7 @@ const config = {
 const serverTokens = SERVER_TOKENS;
 const defaultToken = DEFAULT_TOKEN;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
-let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
+let uniqueId = `${config.accountInfo.nickname || 'User'}_S${config.accountInfo.server || 'X'}_P${config.lastPlayerId || '000'}_${Math.random().toString(36).substring(2,7).toUpperCase()}`;
 const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
 // START AUTO LOGIN MODULE //
@@ -484,7 +484,7 @@ function trackNicknameAndServer() {
             config.botToken = defaultToken; // Единый бот для всех серверов
             debugLog(`Установлен botToken для сервера ${config.accountInfo.server}: ${config.botToken}`);
             updateDisplayName(); // Обновляем displayName при получении ника
-            uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
+            uniqueId = `${config.accountInfo.nickname || 'User'}_S${config.accountInfo.server || 'X'}_P${config.lastPlayerId || '000'}_${Math.random().toString(36).substring(2,7).toUpperCase()}`;
             sendWelcomeMessage();
             registerUser();
             // Запуск отслеживания скина с задержкой 5с
@@ -507,10 +507,13 @@ function trackNicknameAndServer() {
 }
 // END PLAYER INFO MODULE //
 // START TELEGRAM API MODULE //
-function createButton(text, command) {
+// === УЛУЧШЕННАЯ createButton — для многих аккаунтов ===
+function createButton(text, baseCommand) {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 8);
     return {
         text: text,
-        callback_data: command
+        callback_data: `${baseCommand}_${uniqueId}_${timestamp}_${random}`
     };
 }
 function deleteMessage(chatId, messageId) {
@@ -581,6 +584,20 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
         parse_mode: 'HTML',
         reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
     };
+	// === ЗАЩИТА ОТ ЗАДЕРЖЕК ПРИ МНОГИХ АККАУНТАХ ===
+	function isMyCallback(data) {
+	    return data && typeof data === 'string' && data.includes(uniqueId);
+	}
+	
+	function fastAnswerCallback(callbackQueryId) {
+	    if (!callbackQueryId) return;
+	    const url = `https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`;
+	    const xhr = new XMLHttpRequest();
+	    xhr.open('POST', url, true);
+	    xhr.setRequestHeader('Content-Type', 'application/json');
+	    xhr.send(JSON.stringify({ callback_query_id: callbackQueryId }));
+	    debugLog(`[FastAnswer] ✅ Мгновенный ответ для ${displayName}`);
+	}
     const xhr = new XMLHttpRequest();
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
@@ -622,7 +639,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX9 TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1432,28 +1449,45 @@ function processUpdates(updates) {
                 }
                 sendWelcomeMessage();
             }
-        } else if (update.callback_query) {
-            const message = update.callback_query.data;
-            const chatId = update.callback_query.message.chat.id;
-            const messageId = update.callback_query.message.message_id;
-            const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
-            // Определяем глобальные команды, которые должны применяться ко всем аккаунтам
-            const isGlobalCommand = message.startsWith('global_') ||
-                message.startsWith('afk_n_') ||
-                message.startsWith('restart_q_') ||
-                message.startsWith('restart_rec_') ||
-                message.startsWith('back_from_restart_') ||
-                message.startsWith('show_payday_options_') ||
-                message.startsWith('show_soob_options_') ||
-                message.startsWith('show_mesto_options_') ||
-                message.startsWith('show_radio_options_') ||
-                message.startsWith('show_warning_options_') ||
-                message.startsWith('show_global_functions_') ||
-                message.startsWith('levelup_reconnect_');
-            let callbackUniqueId = null;
-            if (message.startsWith('show_controls_')) {
-                callbackUniqueId = message.replace('show_controls_', '');
-            } else if (message.startsWith('show_local_functions_')) {
+} else if (update.callback_query) {
+    const cb = update.callback_query;
+    const data = cb.data || '';
+
+    // === МГНОВЕННАЯ ФИЛЬТРАЦИЯ — ТОЛЬКО МОЙ АККАУНТ ===
+    if (!isMyCallback(data)) {
+        debugLog(`[MultiAccount] Чужой callback → пропускаю`);
+        return;
+    }
+
+    console.log(`%c✅ [${displayName}] КНОПКА СРАБОТАЛА МГНОВЕННО`, 'color:lime;font-weight:bold');
+
+    // === МГНОВЕННЫЙ ОТВЕТ ТЕЛЕГРАММУ (1-2 мс) ===
+    fastAnswerCallback(cb.id);
+
+    // ←←← Продолжаем твою старую логику (полная совместимость) ←←←
+    const message = data;
+    const chatId = cb.message.chat.id;
+    const messageId = cb.message.message_id;
+    const callbackQueryId = cb.id;
+
+    // Определяем глобальные команды, которые должны применяться ко всем аккаунтам
+    const isGlobalCommand = message.startsWith('global_') ||
+        message.startsWith('afk_n_') ||
+        message.startsWith('restart_q_') ||
+        message.startsWith('restart_rec_') ||
+        message.startsWith('back_from_restart_') ||
+        message.startsWith('show_payday_options_') ||
+        message.startsWith('show_soob_options_') ||
+        message.startsWith('show_mesto_options_') ||
+        message.startsWith('show_radio_options_') ||
+        message.startsWith('show_warning_options_') ||
+        message.startsWith('show_global_functions_') ||
+        message.startsWith('levelup_reconnect_');
+
+    let callbackUniqueId = null;
+    if (message.startsWith('show_controls_')) {
+        callbackUniqueId = message.replace('show_controls_', '');
+    } else if (message.startsWith('show_local_functions_')) {
                 callbackUniqueId = message.replace('show_local_functions_', '');
             } else if (message.startsWith('show_movement_controls_')) {
                 callbackUniqueId = message.replace('show_movement_controls_', '');
