@@ -383,9 +383,13 @@ function showScreenNotification(title, text, color = "FFFF00", duration = 3000) 
     }
 }
 // ─── ФИКС ДВИЖЕНИЯ ЧЕРЕЗ TELEGRAM ───────────────────────────────────────────
-// Игра требует первого touchstart на .hud-iface чтобы "проснуться".
-// Пока этого не произошло — onScreenControlTouchStart игнорируется движком.
+// При потере фокуса окна (клик на другой аккаунт) input-система засыпает.
+// Сбрасываем флаг по событию blur, чтобы при следующей команде всё переинициализировалось.
 let inputSystemActivated = false;
+
+window.addEventListener('blur', function() {
+    inputSystemActivated = false;
+});
 
 function activateInputSystem() {
     if (inputSystemActivated) return;
@@ -411,7 +415,6 @@ function activateInputSystem() {
             bubbles: true, cancelable: true,
             touches: [], targetTouches: [], changedTouches: [touch]
         }));
-        // Пересоздаём контролы на всякий случай
         if (typeof window.onScreenJoystickCreate === 'function') {
             window.onScreenJoystickCreate("<Gamepad>/leftStick");
         }
@@ -660,7 +663,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX22 TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
