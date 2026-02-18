@@ -25,54 +25,7 @@ const SERVER_TOKENS = {
 };
 // остальное в /list
 // END CONSTANTS MODULE //
-// ==================== WAKE-UP INPUT FIX ====================
-// Решает проблему "движение по ТГ не работает, пока не потыкаешь экран"
-function wakeUpGameInput() {
-    try {
-        const centerX = window.innerWidth * 0.5;
-        const centerY = window.innerHeight * 0.6; // чуть ниже центра, чтобы не попадать на чат
 
-        const fakeTouch = {
-            identifier: 9999,
-            clientX: centerX,
-            clientY: centerY,
-            screenX: centerX,
-            screenY: centerY,
-            pageX: centerX,
-            pageY: centerY,
-            radiusX: 2,
-            radiusY: 2,
-            rotationAngle: 0,
-            force: 1
-        };
-
-        // touchstart
-        const startEvent = new TouchEvent('touchstart', {
-            bubbles: true,
-            cancelable: true,
-            touches: [fakeTouch],
-            changedTouches: [fakeTouch],
-            targetTouches: [fakeTouch]
-        });
-        document.documentElement.dispatchEvent(startEvent);
-
-        // touchend через 35мс
-        setTimeout(() => {
-            const endEvent = new TouchEvent('touchend', {
-                bubbles: true,
-                cancelable: true,
-                touches: [],
-                changedTouches: [fakeTouch],
-                targetTouches: []
-            });
-            document.documentElement.dispatchEvent(endEvent);
-        }, 35);
-
-        debugLog('✅ Input wake-up выполнен (dummy tap)');
-    } catch (err) {
-        debugLog('❌ Wake-up error: ' + err.message);
-    }
-}
 // START GLOBAL STATE MODULE //
 const globalState = {
     awaitingAfkAccount: false,
@@ -420,6 +373,62 @@ function normalizeToCyrillic(text) {
     };
     return text.split('').map(char => map[char] || char).join('');
 }
+// ═══════════════════════════════════════════════════════
+// АКТИВАЦИЯ INPUT СИСТЕМЫ (фикс для движения через Telegram)
+// ═══════════════════════════════════════════════════════
+let inputSystemActivated = false;
+
+function activateInputSystem() {
+    if (inputSystemActivated) return;
+    
+    try {
+        // Находим элемент .hud-iface — именно на него слушает HUD
+        const hudIface = document.querySelector('.hud-iface');
+        const target = hudIface || document.body;
+        
+        // Симулируем touchstart так же, как это делает реальный палец
+        const touch = new Touch({
+            identifier: Date.now(),
+            target: target,
+            clientX: Math.floor(window.innerWidth / 2),
+            clientY: Math.floor(window.innerHeight / 2),
+            screenX: Math.floor(window.innerWidth / 2),
+            screenY: Math.floor(window.innerHeight / 2),
+            pageX:   Math.floor(window.innerWidth / 2),
+            pageY:   Math.floor(window.innerHeight / 2),
+            radiusX: 1, radiusY: 1, rotationAngle: 0, force: 1
+        });
+        
+        const touchStartEvent = new TouchEvent('touchstart', {
+            bubbles: true,
+            cancelable: true,
+            touches: [touch],
+            targetTouches: [touch],
+            changedTouches: [touch]
+        });
+        target.dispatchEvent(touchStartEvent);
+        
+        // Сразу отпускаем
+        const touchEndEvent = new TouchEvent('touchend', {
+            bubbles: true,
+            cancelable: true,
+            touches: [],
+            targetTouches: [],
+            changedTouches: [touch]
+        });
+        target.dispatchEvent(touchEndEvent);
+
+        // Также создаём/пересоздаём джойстик на всякий случай
+        window.onScreenJoystickCreate?.("<Gamepad>/leftStick");
+        window.onScreenButtonCreate?.("<Keyboard>/c");
+        window.onScreenButtonCreate?.("<Keyboard>/Space");
+        
+        inputSystemActivated = true;
+        console.log('[HassleBot] Input система активирована');
+    } catch (e) {
+        console.warn('[HassleBot] Не удалось активировать input систему:', e);
+    }
+}
 // Функция для показа ScreenNotification
 function showScreenNotification(title, text, color = "FFFF00", duration = 3000) {
     try {
@@ -665,7 +674,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX2 TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
