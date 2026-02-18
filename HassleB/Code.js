@@ -1456,7 +1456,7 @@ function processUpdates(updates) {
     // === МГНОВЕННАЯ ФИЛЬТРАЦИЯ — ТОЛЬКО МОЙ АККАУНТ ===
     if (!isMyCallback(data)) {
         debugLog(`[MultiAccount] Чужой callback → пропускаю`);
-        return;
+        continue;                    // ←←← ИСПРАВИЛИ НА continue (главное исправление!)
     }
 
     console.log(`%c✅ [${displayName}] КНОПКА СРАБОТАЛА МГНОВЕННО`, 'color:lime;font-weight:bold');
@@ -1464,13 +1464,12 @@ function processUpdates(updates) {
     // === МГНОВЕННЫЙ ОТВЕТ ТЕЛЕГРАММУ (1-2 мс) ===
     fastAnswerCallback(cb.id);
 
-    // ←←← Продолжаем твою старую логику (полная совместимость) ←←←
+    // ←←← Продолжаем твою оригинальную логику ←←←
     const message = data;
     const chatId = cb.message.chat.id;
     const messageId = cb.message.message_id;
     const callbackQueryId = cb.id;
 
-    // Определяем глобальные команды, которые должны применяться ко всем аккаунтам
     const isGlobalCommand = message.startsWith('global_') ||
         message.startsWith('afk_n_') ||
         message.startsWith('restart_q_') ||
@@ -1488,30 +1487,81 @@ function processUpdates(updates) {
     if (message.startsWith('show_controls_')) {
         callbackUniqueId = message.replace('show_controls_', '');
     } else if (message.startsWith('show_local_functions_')) {
-                callbackUniqueId = message.replace('show_local_functions_', '');
-            } else if (message.startsWith('show_movement_controls_')) {
-                callbackUniqueId = message.replace('show_movement_controls_', '');
-            } else if (message.startsWith("show_movement_")) {
-                callbackUniqueId = message.replace('show_movement_', '');
-            } else if (message.startsWith('hide_controls_')) {
-                callbackUniqueId = message.replace('hide_controls_', '');
-            } else if (message.startsWith('request_chat_message_')) {
-                callbackUniqueId = message.replace('request_chat_message_', '');
-            } else if (message.startsWith('local_soob_on_')) {
-                callbackUniqueId = message.replace('local_soob_on_', '');
-            } else if (message.startsWith('local_soob_off_')) {
-                callbackUniqueId = message.replace('local_soob_off_', '');
-            } else if (message.startsWith('local_mesto_on_')) {
-                callbackUniqueId = message.replace('local_mesto_on_', '');
-            } else if (message.startsWith('local_mesto_off_')) {
-                callbackUniqueId = message.replace('local_mesto_off_', '');
-            } else if (message.startsWith('local_radio_on_')) {
-                callbackUniqueId = message.replace('local_radio_on_', '');
-            } else if (message.startsWith('local_radio_off_')) {
-                callbackUniqueId = message.replace('local_radio_off_', '');
-            } else if (message.startsWith('local_warning_on_')) {
-                callbackUniqueId = message.replace('local_warning_on_', '');
-            } else if (message.startsWith('local_warning_off_')) {
+        callbackUniqueId = message.replace('show_local_functions_', '');
+    } else if (message.startsWith('show_movement_controls_')) {
+        callbackUniqueId = message.replace('show_movement_controls_', '');
+    } else if (message.startsWith("show_movement_")) {
+        callbackUniqueId = message.replace('show_movement_', '');
+    } else if (message.startsWith('hide_controls_')) {
+        callbackUniqueId = message.replace('hide_controls_', '');
+    } else if (message.startsWith('request_chat_message_')) {
+        callbackUniqueId = message.replace('request_chat_message_', '');
+    } else if (message.startsWith('local_soob_on_')) {
+        callbackUniqueId = message.replace('local_soob_on_', '');
+    } else if (message.startsWith('local_soob_off_')) {
+        callbackUniqueId = message.replace('local_soob_off_', '');
+    } else if (message.startsWith('local_mesto_on_')) {
+        callbackUniqueId = message.replace('local_mesto_on_', '');
+    } else if (message.startsWith('local_mesto_off_')) {
+        callbackUniqueId = message.replace('local_mesto_off_', '');
+    } else if (message.startsWith('local_radio_on_')) {
+        callbackUniqueId = message.replace('local_radio_on_', '');
+    } else if (message.startsWith('local_radio_off_')) {
+        callbackUniqueId = message.replace('local_radio_off_', '');
+    } else if (message.startsWith('local_warning_on_')) {
+        callbackUniqueId = message.replace('local_warning_on_', '');
+    } else if (message.startsWith('local_warning_off_')) {
+        callbackUniqueId = message.replace('local_warning_off_', '');
+    } else if (message.startsWith('move_forward_')) {
+        callbackUniqueId = message.replace('move_forward_', '').replace('_notification', '');
+    } else if (message.startsWith('move_back_')) {
+        callbackUniqueId = message.replace('move_back_', '').replace('_notification', '');
+    } else if (message.startsWith('move_left_')) {
+        callbackUniqueId = message.replace('move_left_', '').replace('_notification', '');
+    } else if (message.startsWith('move_right_')) {
+        callbackUniqueId = message.replace('move_right_', '').replace('_notification', '');
+    } else if (message.startsWith('move_jump_')) {
+        callbackUniqueId = message.replace('move_jump_', '').replace('_notification', '');
+    } else if (message.startsWith('move_punch_')) {
+        callbackUniqueId = message.replace('move_punch_', '').replace('_notification', '');
+    } else if (message.startsWith('move_sit_')) {
+        callbackUniqueId = message.replace('move_sit_', '').replace('_notification', '');
+    } else if (message.startsWith('move_stand_')) {
+        callbackUniqueId = message.replace('move_stand_', '').replace('_notification', '');
+    } else if (message.startsWith('admin_reply_')) {
+        callbackUniqueId = message.replace('admin_reply_', '');
+    } else if (message.startsWith('back_to_notification_')) {
+        callbackUniqueId = message.replace('back_to_notification_', '');
+    } else if (message.startsWith('show_local_soob_options_')) {
+        callbackUniqueId = message.replace('show_local_soob_options_', '');
+    } else if (message.startsWith('show_local_mesto_options_')) {
+        callbackUniqueId = message.replace('show_local_mesto_options_', '');
+    } else if (message.startsWith('show_local_radio_options_')) {
+        callbackUniqueId = message.replace('show_local_radio_options_', '');
+    } else if (message.startsWith('show_local_warning_options_')) {
+        callbackUniqueId = message.replace('show_local_warning_options_', '');
+    } else if (message.startsWith('global_p_on_')) {
+        callbackUniqueId = message.replace('global_p_on_', '');
+    } else if (message.startsWith('global_p_off_')) {
+        callbackUniqueId = message.replace('global_p_off_', '');
+    } else if (message.startsWith('global_soob_on_')) {
+        callbackUniqueId = message.replace('global_soob_on_', '');
+    } else if (message.startsWith('global_soob_off_')) {
+        callbackUniqueId = message.replace('global_soob_off_', '');
+    } else if (message.startsWith('global_mesto_on_')) {
+        callbackUniqueId = message.replace('global_mesto_on_', '');
+    } else if (message.startsWith('global_mesto_off_')) {
+        callbackUniqueId = message.replace('global_mesto_off_', '');
+    } else if (message.startsWith('global_radio_on_')) {
+        callbackUniqueId = message.replace('global_radio_on_', '');
+    } else if (message.startsWith('global_radio_off_')) {
+        callbackUniqueId = message.replace('global_radio_off_', '');
+    } else if (message.startsWith('global_warning_on_')) {
+        callbackUniqueId = message.replace('global_warning_on_', '');
+    }
+
+    // ←←← ЗДЕСЬ ОСТАВЛЯЕШЬ ВСЁ, ЧТО БЫЛО У ТЕБЯ ДАЛЬШЕ (switch, вызовы showHB..., activateAFKWithMode и т.д.) ←←←
+} else if (message.startsWith('local_warning_off_')) {
                 callbackUniqueId = message.replace('local_warning_off_', '');
             } else if (message.startsWith('move_forward_')) {
                 callbackUniqueId = message.replace('move_forward_', '').replace('_notification', '');
