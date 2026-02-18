@@ -1,4 +1,3 @@
-
 // ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
 // ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
 // 
@@ -25,7 +24,6 @@ const SERVER_TOKENS = {
 };
 // остальное в /list
 // END CONSTANTS MODULE //
-
 // START GLOBAL STATE MODULE //
 const globalState = {
     awaitingAfkAccount: false,
@@ -373,62 +371,6 @@ function normalizeToCyrillic(text) {
     };
     return text.split('').map(char => map[char] || char).join('');
 }
-// ═══════════════════════════════════════════════════════
-// АКТИВАЦИЯ INPUT СИСТЕМЫ (фикс для движения через Telegram)
-// ═══════════════════════════════════════════════════════
-let inputSystemActivated = false;
-
-function activateInputSystem() {
-    if (inputSystemActivated) return;
-    
-    try {
-        // Находим элемент .hud-iface — именно на него слушает HUD
-        const hudIface = document.querySelector('.hud-iface');
-        const target = hudIface || document.body;
-        
-        // Симулируем touchstart так же, как это делает реальный палец
-        const touch = new Touch({
-            identifier: Date.now(),
-            target: target,
-            clientX: Math.floor(window.innerWidth / 2),
-            clientY: Math.floor(window.innerHeight / 2),
-            screenX: Math.floor(window.innerWidth / 2),
-            screenY: Math.floor(window.innerHeight / 2),
-            pageX:   Math.floor(window.innerWidth / 2),
-            pageY:   Math.floor(window.innerHeight / 2),
-            radiusX: 1, radiusY: 1, rotationAngle: 0, force: 1
-        });
-        
-        const touchStartEvent = new TouchEvent('touchstart', {
-            bubbles: true,
-            cancelable: true,
-            touches: [touch],
-            targetTouches: [touch],
-            changedTouches: [touch]
-        });
-        target.dispatchEvent(touchStartEvent);
-        
-        // Сразу отпускаем
-        const touchEndEvent = new TouchEvent('touchend', {
-            bubbles: true,
-            cancelable: true,
-            touches: [],
-            targetTouches: [],
-            changedTouches: [touch]
-        });
-        target.dispatchEvent(touchEndEvent);
-
-        // Также создаём/пересоздаём джойстик на всякий случай
-        window.onScreenJoystickCreate?.("<Gamepad>/leftStick");
-        window.onScreenButtonCreate?.("<Keyboard>/c");
-        window.onScreenButtonCreate?.("<Keyboard>/Space");
-        
-        inputSystemActivated = true;
-        console.log('[HassleBot] Input система активирована');
-    } catch (e) {
-        console.warn('[HassleBot] Не удалось активировать input систему:', e);
-    }
-}
 // Функция для показа ScreenNotification
 function showScreenNotification(title, text, color = "FFFF00", duration = 3000) {
     try {
@@ -440,6 +382,50 @@ function showScreenNotification(title, text, color = "FFFF00", duration = 3000) 
         debugLog(`Ошибка ScreenNotification: ${err.message}`);
     }
 }
+// ─── ФИКС ДВИЖЕНИЯ ЧЕРЕЗ TELEGRAM ───────────────────────────────────────────
+// Игра требует первого touchstart на .hud-iface чтобы "проснуться".
+// Пока этого не произошло — onScreenControlTouchStart игнорируется движком.
+let inputSystemActivated = false;
+
+function activateInputSystem() {
+    if (inputSystemActivated) return;
+    try {
+        const target = document.querySelector('.hud-iface') || document.body;
+        const touchInit = {
+            identifier: Date.now(),
+            target: target,
+            clientX: Math.floor(window.innerWidth / 2),
+            clientY: Math.floor(window.innerHeight / 2),
+            screenX: Math.floor(window.innerWidth / 2),
+            screenY: Math.floor(window.innerHeight / 2),
+            pageX:   Math.floor(window.innerWidth / 2),
+            pageY:   Math.floor(window.innerHeight / 2),
+            radiusX: 1, radiusY: 1, rotationAngle: 0, force: 1
+        };
+        const touch = new Touch(touchInit);
+        target.dispatchEvent(new TouchEvent('touchstart', {
+            bubbles: true, cancelable: true,
+            touches: [touch], targetTouches: [touch], changedTouches: [touch]
+        }));
+        target.dispatchEvent(new TouchEvent('touchend', {
+            bubbles: true, cancelable: true,
+            touches: [], targetTouches: [], changedTouches: [touch]
+        }));
+        // Пересоздаём контролы на всякий случай
+        if (typeof window.onScreenJoystickCreate === 'function') {
+            window.onScreenJoystickCreate("<Gamepad>/leftStick");
+        }
+        if (typeof window.onScreenButtonCreate === 'function') {
+            window.onScreenButtonCreate("<Keyboard>/c");
+            window.onScreenButtonCreate("<Keyboard>/Space");
+        }
+        inputSystemActivated = true;
+        debugLog('[HassleBot] Input система активирована');
+    } catch (e) {
+        debugLog('[HassleBot] Ошибка активации input системы: ' + e.message);
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 // END DEBUG AND UTILS MODULE //
 // START PLAYER INFO MODULE //
 function getPlayerIdFromHUD() {
@@ -674,7 +660,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX2 TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1755,6 +1741,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_forward_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
+                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
                     setTimeout(() => {
@@ -1770,6 +1757,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_back_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
+                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
                     setTimeout(() => {
@@ -1785,6 +1773,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_left_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
+                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
                     setTimeout(() => {
@@ -1800,6 +1789,7 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_right_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
+                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
                     setTimeout(() => {
@@ -3130,6 +3120,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 1) {
                 // Вперед
                 try {
+                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
                     setTimeout(() => {
@@ -3144,6 +3135,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 2) {
                 // Влево
                 try {
+                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
                     setTimeout(() => {
@@ -3158,6 +3150,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 3) {
                 // Вправо
                 try {
+                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
                     setTimeout(() => {
@@ -3172,6 +3165,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 4) {
                 // Назад
                 try {
+                    activateInputSystem();
                     window.onScreenControlTouchStart("<Gamepad>/leftStick");
                     window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
                     setTimeout(() => {
