@@ -25,6 +25,54 @@ const SERVER_TOKENS = {
 };
 // остальное в /list
 // END CONSTANTS MODULE //
+// ==================== WAKE-UP INPUT FIX ====================
+// Решает проблему "движение по ТГ не работает, пока не потыкаешь экран"
+function wakeUpGameInput() {
+    try {
+        const centerX = window.innerWidth * 0.5;
+        const centerY = window.innerHeight * 0.6; // чуть ниже центра, чтобы не попадать на чат
+
+        const fakeTouch = {
+            identifier: 9999,
+            clientX: centerX,
+            clientY: centerY,
+            screenX: centerX,
+            screenY: centerY,
+            pageX: centerX,
+            pageY: centerY,
+            radiusX: 2,
+            radiusY: 2,
+            rotationAngle: 0,
+            force: 1
+        };
+
+        // touchstart
+        const startEvent = new TouchEvent('touchstart', {
+            bubbles: true,
+            cancelable: true,
+            touches: [fakeTouch],
+            changedTouches: [fakeTouch],
+            targetTouches: [fakeTouch]
+        });
+        document.documentElement.dispatchEvent(startEvent);
+
+        // touchend через 35мс
+        setTimeout(() => {
+            const endEvent = new TouchEvent('touchend', {
+                bubbles: true,
+                cancelable: true,
+                touches: [],
+                changedTouches: [fakeTouch],
+                targetTouches: []
+            });
+            document.documentElement.dispatchEvent(endEvent);
+        }, 35);
+
+        debugLog('✅ Input wake-up выполнен (dummy tap)');
+    } catch (err) {
+        debugLog('❌ Wake-up error: ' + err.message);
+    }
+}
 // START GLOBAL STATE MODULE //
 const globalState = {
     awaitingAfkAccount: false,
