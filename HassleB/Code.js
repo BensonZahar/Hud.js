@@ -652,7 +652,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX3 TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1252,7 +1252,8 @@ function hideControlsMenu(chatId, messageId) {
 
 let _isPollingStarted = false;
 let _followerTimer = null;
-let _lastProcessedUpdateId = 0; // каждый экземпляр отслеживает что уже обработал
+let _lastProcessedUpdateId = 0;
+let _leaderBanUntil = 0; // время до которого нельзя становиться лидером
 
 function checkTelegramCommands() {
     if (_isPollingStarted) return;
@@ -1266,7 +1267,6 @@ function _startPollingLoop() {
         setTimeout(_startPollingLoop, 1000);
         return;
     }
-    // Пробуем стать лидером
     if (_tryBecomeLeader()) {
         debugLog(`[${_instanceId}] 👑 Стал лидером для токена ...${_getTokenSuffix()}`);
         _runAsLeader();
@@ -1276,12 +1276,9 @@ function _startPollingLoop() {
     }
 }
 
-// ЛИДЕР: делает long poll, пишет updates в localStorage
 function _runAsLeader() {
-    // Запускаем heartbeat чтобы удерживать лидерство
     const hbTimer = setInterval(() => {
         if (!_isLeader()) {
-            // Потеряли лидерство (другой экземпляр перехватил) — переключаемся
             clearInterval(hbTimer);
             debugLog(`[${_instanceId}] Потеряно лидерство — переключаемся в фолловер`);
             _runAsFollower();
@@ -1289,14 +1286,12 @@ function _runAsLeader() {
         }
         _heartbeat();
     }, _HEARTBEAT_INTERVAL);
-
     _doLeaderPoll();
 }
 
 function _doLeaderPoll() {
     if (!_isLeader()) {
-        // Больше не лидер
-        debugLog(`[${_instanceId}] Больше не лидер — останавливаем leader poll`);
+        debugLog(`[${_instanceId}] Больше не лидер`);
         _runAsFollower();
         return;
     }
@@ -1310,9 +1305,7 @@ function _doLeaderPoll() {
             try {
                 const data = JSON.parse(xhr.responseText);
                 if (data.ok && data.result.length > 0) {
-                    // Сохраняем updates в localStorage для фолловеров
                     _publishUpdates(data.result);
-                    // Сами тоже обрабатываем
                     processUpdates(data.result);
                 }
             } catch (e) {
@@ -1320,9 +1313,19 @@ function _doLeaderPoll() {
             }
             _doLeaderPoll();
         } else if (xhr.status === 409) {
-            // 409: кто-то другой уже polling — отдаём лидерство и идём в фолловер
-            debugLog(`[${_instanceId}] 409 — отдаём лидерство`);
-            localStorage.removeItem(_leaderKey());
+            // 409 = Telegram говорит что уже есть активный getUpdates для этого токена.
+            // Значит реальный лидер — кто-то другой (другой аккаунт на том же сервере).
+            // Ставим бан на 60с — не пытаться стать лидером снова.
+            // НЕ удаляем чужой ключ лидера.
+            debugLog(`[${_instanceId}] 409 — другой уже polling, уходим в фолловер на 60с`);
+            _leaderBanUntil = Date.now() + 60000;
+            // Удаляем только СВОЙ ключ если вдруг записали его
+            try {
+                const val = localStorage.getItem(_leaderKey());
+                if (val && JSON.parse(val).id === _instanceId) {
+                    localStorage.removeItem(_leaderKey());
+                }
+            } catch(e) {}
             _runAsFollower();
         } else {
             debugLog('Leader poll HTTP ошибка: ' + xhr.status);
@@ -1334,37 +1337,34 @@ function _doLeaderPoll() {
     xhr.send();
 }
 
-// Публикуем updates в localStorage для фолловеров
 function _publishUpdates(updates) {
     const key = _updatesKey();
     let stored = [];
     try { stored = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
-    // Добавляем новые, не дублируем
     for (const u of updates) {
-        if (!stored.find(x => x.update_id === u.update_id)) {
-            stored.push(u);
-        }
+        if (!stored.find(x => x.update_id === u.update_id)) stored.push(u);
     }
-    // Оставляем только последние 50 для экономии памяти
     if (stored.length > 50) stored = stored.slice(-50);
     localStorage.setItem(key, JSON.stringify(stored));
 }
 
-// ФОЛЛОВЕР: читает updates из localStorage каждые 300мс
 function _runAsFollower() {
     if (_followerTimer) clearInterval(_followerTimer);
     _followerTimer = setInterval(() => {
-        // Если лидер умер — пробуем занять его место
-        const val = localStorage.getItem(_leaderKey());
-        const leaderAlive = val && (Date.now() - JSON.parse(val).ts < _LEADER_TTL);
-        if (!leaderAlive && _tryBecomeLeader()) {
-            clearInterval(_followerTimer);
-            _followerTimer = null;
-            debugLog(`[${_instanceId}] 👑 Лидер умер — берём лидерство`);
-            _runAsLeader();
-            return;
+        // Пробуем стать лидером только если: не забанены И нет живого лидера
+        if (Date.now() > _leaderBanUntil) {
+            try {
+                const val = localStorage.getItem(_leaderKey());
+                const leaderAlive = val && (Date.now() - JSON.parse(val).ts < _LEADER_TTL);
+                if (!leaderAlive && _tryBecomeLeader()) {
+                    clearInterval(_followerTimer);
+                    _followerTimer = null;
+                    debugLog(`[${_instanceId}] 👑 Лидер умер — берём лидерство`);
+                    _runAsLeader();
+                    return;
+                }
+            } catch(e) {}
         }
-        // Читаем новые updates
         _readFollowerUpdates();
     }, 300);
 }
@@ -1373,7 +1373,6 @@ function _readFollowerUpdates() {
     const key = _updatesKey();
     let stored = [];
     try { stored = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) { return; }
-    // Фильтруем только то что мы ещё не обрабатывали
     const newUpdates = stored.filter(u => u.update_id > _lastProcessedUpdateId);
     if (newUpdates.length > 0) {
         newUpdates.sort((a, b) => a.update_id - b.update_id);
