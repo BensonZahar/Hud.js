@@ -622,7 +622,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX99 TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1214,39 +1214,37 @@ function hideControlsMenu(chatId, messageId) {
 // END MENU MODULE //
 // START TELEGRAM COMMANDS MODULE //
 function checkTelegramCommands() {
-    // Каждый аккаунт использует СВОЙ независимый lastUpdateId.
-    // Это позволяет всем аккаунтам видеть ВСЕ обновления независимо друг от друга.
-    // Каждый аккаунт реагирует только на свои команды (проверка uniqueId / isForThisBot).
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}`;
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
-    xhr.timeout = 10000;
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            try {
-                const data = JSON.parse(xhr.responseText);
-                if (data.ok && data.result.length > 0) {
-                    processUpdates(data.result);
+    // Случайная задержка 0-500 мс для снижения race condition
+    const randomDelay = Math.floor(Math.random() * 500);
+    setTimeout(() => {
+        config.lastUpdateId = getSharedLastUpdateId(); // Загружаем shared значение
+        const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}`;
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data.ok && data.result.length > 0) {
+                        processUpdates(data.result);
+                    }
+                } catch (e) {
+                    debugLog('Ошибка парсинга ответа Telegram:', e);
                 }
-            } catch (e) {
-                debugLog('Ошибка парсинга ответа Telegram:', e);
             }
-        }
-        setTimeout(checkTelegramCommands, 300);
-    };
-    xhr.ontimeout = function() {
-        debugLog('Таймаут запроса, перезапускаем...');
-        setTimeout(checkTelegramCommands, 1000);
-    };
-    xhr.onerror = function(error) {
-        debugLog('Ошибка при проверке команд:', error);
-        setTimeout(checkTelegramCommands, 3000);
-    };
-    xhr.send();
+            setTimeout(checkTelegramCommands, config.checkInterval);
+        };
+        xhr.onerror = function(error) {
+            debugLog('Ошибка при проверке команд:', error);
+            setTimeout(checkTelegramCommands, config.checkInterval);
+        };
+        xhr.send();
+    }, randomDelay);
 }
 function processUpdates(updates) {
     for (const update of updates) {
-        config.lastUpdateId = update.update_id; // Каждый аккаунт двигает свой offset независимо
+        config.lastUpdateId = update.update_id;
+        setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
         let chatId = null;
         if (update.message) {
             chatId = update.message.chat.id;
