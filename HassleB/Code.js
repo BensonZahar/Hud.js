@@ -324,21 +324,50 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 };
 // END AUTO LOGIN MODULE //
 // START SHARED STORAGE MODULE //
-// У каждого сервера свой токен бота (SERVER_TOKENS).
-// Поэтому lastUpdateId хранится отдельно для каждого токена —
-// иначе бот сервера 9 затирает offset бота сервера 4 и команды теряются.
-function _getTokenKey() {
-    // Используем последние 8 символов токена как уникальный суффикс
+// Каждый токен имеет свой namespace в localStorage.
+// Система лидер/фолловер: только ОДИН экземпляр на токен делает
+// реальный HTTP-запрос к Telegram. Остальные читают из localStorage.
+// Это исключает 409 конфликты и задержки.
+function _getTokenSuffix() {
     const token = config.botToken || defaultToken || '';
-    return 'tg_bot_upd_' + token.slice(-8);
+    return token.slice(-8);
 }
 function getSharedLastUpdateId() {
-    return parseInt(localStorage.getItem(_getTokenKey()) || '0', 10);
+    return parseInt(localStorage.getItem('tg_upd_' + _getTokenSuffix()) || '0', 10);
 }
 function setSharedLastUpdateId(id) {
-    localStorage.setItem(_getTokenKey(), id.toString());
-    debugLog(`Обновлён lastUpdateId [${_getTokenKey()}]: ${id}`);
+    localStorage.setItem('tg_upd_' + _getTokenSuffix(), id.toString());
 }
+// Лидер: экземпляр который сейчас делает long poll для этого токена
+// Хранит timestamp последнего "пульса". Если пульс старше 20с — лидер упал.
+const _LEADER_TTL = 20000; // 20 секунд
+const _HEARTBEAT_INTERVAL = 8000; // обновляем каждые 8с
+function _leaderKey() { return 'tg_leader_' + _getTokenSuffix(); }
+function _updatesKey() { return 'tg_updates_' + _getTokenSuffix(); }
+function _isLeader() {
+    const val = localStorage.getItem(_leaderKey());
+    if (!val) return false;
+    const { id, ts } = JSON.parse(val);
+    return id === _instanceId && (Date.now() - ts < _LEADER_TTL);
+}
+function _tryBecomeLeader() {
+    const val = localStorage.getItem(_leaderKey());
+    if (val) {
+        const { id, ts } = JSON.parse(val);
+        // Чужой живой лидер — не претендуем
+        if (id !== _instanceId && Date.now() - ts < _LEADER_TTL) return false;
+    }
+    // Нет лидера или лидер умер — занимаем место
+    localStorage.setItem(_leaderKey(), JSON.stringify({ id: _instanceId, ts: Date.now() }));
+    return true;
+}
+function _heartbeat() {
+    if (_isLeader()) {
+        localStorage.setItem(_leaderKey(), JSON.stringify({ id: _instanceId, ts: Date.now() }));
+    }
+}
+// Уникальный ID этого экземпляра (tab/window)
+const _instanceId = Math.random().toString(36).slice(2);
 // END SHARED STORAGE MODULE //
 // START DEBUG AND UTILS MODULE //
 function debugLog(message) {
@@ -623,7 +652,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX3 TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1214,66 +1243,154 @@ function hideControlsMenu(chatId, messageId) {
 }
 // END MENU MODULE //
 // START TELEGRAM COMMANDS MODULE //
-// ==================== LONG POLLING ====================
-// Telegram держит соединение открытым до 10 секунд и отвечает
-// МГНОВЕННО при появлении нового апдейта.
-// Задержка реакции на кнопки = ~50мс вместо 0-2000мс.
-let _isLongPollingActive = false;
+// ==================== LEADER / FOLLOWER POLLING ====================
+// Проблема: несколько аккаунтов на одном сервере = один токен = 409 конфликт.
+// Решение: только ОДИН экземпляр (лидер) делает long poll.
+//   Лидер пишет полученные updates в localStorage.
+//   Фолловеры читают из localStorage каждые 300мс и обрабатывают сами.
+// Результат: нет 409, нет задержек, все экземпляры реагируют мгновенно.
+
+let _isPollingStarted = false;
+let _followerTimer = null;
+let _lastProcessedUpdateId = 0; // каждый экземпляр отслеживает что уже обработал
 
 function checkTelegramCommands() {
-    if (_isLongPollingActive) return;
-    _isLongPollingActive = true;
-    _doLongPoll();
+    if (_isPollingStarted) return;
+    _isPollingStarted = true;
+    _lastProcessedUpdateId = getSharedLastUpdateId();
+    _startPollingLoop();
 }
 
-function _doLongPoll() {
+function _startPollingLoop() {
     if (!config.botToken) {
-        // Токен ещё не получен — ждём
-        setTimeout(_doLongPoll, 1000);
+        setTimeout(_startPollingLoop, 1000);
         return;
     }
-    // Читаем актуальный offset для ЭТОГО токена
+    // Пробуем стать лидером
+    if (_tryBecomeLeader()) {
+        debugLog(`[${_instanceId}] 👑 Стал лидером для токена ...${_getTokenSuffix()}`);
+        _runAsLeader();
+    } else {
+        debugLog(`[${_instanceId}] 👥 Режим фолловера для токена ...${_getTokenSuffix()}`);
+        _runAsFollower();
+    }
+}
+
+// ЛИДЕР: делает long poll, пишет updates в localStorage
+function _runAsLeader() {
+    // Запускаем heartbeat чтобы удерживать лидерство
+    const hbTimer = setInterval(() => {
+        if (!_isLeader()) {
+            // Потеряли лидерство (другой экземпляр перехватил) — переключаемся
+            clearInterval(hbTimer);
+            debugLog(`[${_instanceId}] Потеряно лидерство — переключаемся в фолловер`);
+            _runAsFollower();
+            return;
+        }
+        _heartbeat();
+    }, _HEARTBEAT_INTERVAL);
+
+    _doLeaderPoll();
+}
+
+function _doLeaderPoll() {
+    if (!_isLeader()) {
+        // Больше не лидер
+        debugLog(`[${_instanceId}] Больше не лидер — останавливаем leader poll`);
+        _runAsFollower();
+        return;
+    }
     const offset = getSharedLastUpdateId() + 1;
-    // timeout=10: Telegram ждёт до 10с и отвечает сразу при новом апдейте
     const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${offset}&timeout=10`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
-    xhr.timeout = 15000; // 15с — чуть больше чем timeout=10
+    xhr.timeout = 15000;
     xhr.onload = function() {
         if (xhr.status === 200) {
             try {
                 const data = JSON.parse(xhr.responseText);
                 if (data.ok && data.result.length > 0) {
+                    // Сохраняем updates в localStorage для фолловеров
+                    _publishUpdates(data.result);
+                    // Сами тоже обрабатываем
                     processUpdates(data.result);
                 }
             } catch (e) {
-                debugLog('Ошибка парсинга ответа Telegram: ' + e);
+                debugLog('Ошибка парсинга: ' + e);
             }
+            _doLeaderPoll();
         } else if (xhr.status === 409) {
-            // Другой аккаунт с тем же токеном уже делает long poll
-            debugLog('Long poll 409 конфликт — пауза 5с');
-            setTimeout(_doLongPoll, 5000);
-            return;
+            // 409: кто-то другой уже polling — отдаём лидерство и идём в фолловер
+            debugLog(`[${_instanceId}] 409 — отдаём лидерство`);
+            localStorage.removeItem(_leaderKey());
+            _runAsFollower();
         } else {
-            debugLog('Long poll ошибка HTTP: ' + xhr.status);
+            debugLog('Leader poll HTTP ошибка: ' + xhr.status);
+            _doLeaderPoll();
         }
-        // Сразу начинаем следующий запрос без задержки
-        _doLongPoll();
     };
-    xhr.ontimeout = function() {
-        debugLog('Long poll timeout — переподключаемся');
-        _doLongPoll();
-    };
-    xhr.onerror = function() {
-        debugLog('Long poll ошибка сети — повтор через 3с');
-        setTimeout(_doLongPoll, 3000);
-    };
+    xhr.ontimeout = function() { _doLeaderPoll(); };
+    xhr.onerror = function() { setTimeout(_doLeaderPoll, 3000); };
     xhr.send();
+}
+
+// Публикуем updates в localStorage для фолловеров
+function _publishUpdates(updates) {
+    const key = _updatesKey();
+    let stored = [];
+    try { stored = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
+    // Добавляем новые, не дублируем
+    for (const u of updates) {
+        if (!stored.find(x => x.update_id === u.update_id)) {
+            stored.push(u);
+        }
+    }
+    // Оставляем только последние 50 для экономии памяти
+    if (stored.length > 50) stored = stored.slice(-50);
+    localStorage.setItem(key, JSON.stringify(stored));
+}
+
+// ФОЛЛОВЕР: читает updates из localStorage каждые 300мс
+function _runAsFollower() {
+    if (_followerTimer) clearInterval(_followerTimer);
+    _followerTimer = setInterval(() => {
+        // Если лидер умер — пробуем занять его место
+        const val = localStorage.getItem(_leaderKey());
+        const leaderAlive = val && (Date.now() - JSON.parse(val).ts < _LEADER_TTL);
+        if (!leaderAlive && _tryBecomeLeader()) {
+            clearInterval(_followerTimer);
+            _followerTimer = null;
+            debugLog(`[${_instanceId}] 👑 Лидер умер — берём лидерство`);
+            _runAsLeader();
+            return;
+        }
+        // Читаем новые updates
+        _readFollowerUpdates();
+    }, 300);
+}
+
+function _readFollowerUpdates() {
+    const key = _updatesKey();
+    let stored = [];
+    try { stored = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) { return; }
+    // Фильтруем только то что мы ещё не обрабатывали
+    const newUpdates = stored.filter(u => u.update_id > _lastProcessedUpdateId);
+    if (newUpdates.length > 0) {
+        newUpdates.sort((a, b) => a.update_id - b.update_id);
+        processUpdates(newUpdates);
+    }
 }
 function processUpdates(updates) {
     for (const update of updates) {
         config.lastUpdateId = update.update_id;
-        setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
+        // Обновляем shared offset (лидер и фолловер)
+        if (update.update_id > getSharedLastUpdateId()) {
+            setSharedLastUpdateId(update.update_id);
+        }
+        // Обновляем локальный счётчик этого экземпляра
+        if (update.update_id > _lastProcessedUpdateId) {
+            _lastProcessedUpdateId = update.update_id;
+        }
         let chatId = null;
         if (update.message) {
             chatId = update.message.chat.id;
