@@ -324,13 +324,20 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 };
 // END AUTO LOGIN MODULE //
 // START SHARED STORAGE MODULE //
-// Новая функция для shared lastUpdateId через localStorage
+// У каждого сервера свой токен бота (SERVER_TOKENS).
+// Поэтому lastUpdateId хранится отдельно для каждого токена —
+// иначе бот сервера 9 затирает offset бота сервера 4 и команды теряются.
+function _getTokenKey() {
+    // Используем последние 8 символов токена как уникальный суффикс
+    const token = config.botToken || defaultToken || '';
+    return 'tg_bot_upd_' + token.slice(-8);
+}
 function getSharedLastUpdateId() {
-    return parseInt(localStorage.getItem('tg_bot_last_update_id') || '0', 10);
+    return parseInt(localStorage.getItem(_getTokenKey()) || '0', 10);
 }
 function setSharedLastUpdateId(id) {
-    localStorage.setItem('tg_bot_last_update_id', id);
-    debugLog(`Обновлён shared lastUpdateId: ${id}`);
+    localStorage.setItem(_getTokenKey(), id.toString());
+    debugLog(`Обновлён lastUpdateId [${_getTokenKey()}]: ${id}`);
 }
 // END SHARED STORAGE MODULE //
 // START DEBUG AND UTILS MODULE //
@@ -616,7 +623,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX0 TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1225,9 +1232,10 @@ function _doLongPoll() {
         setTimeout(_doLongPoll, 1000);
         return;
     }
-    config.lastUpdateId = getSharedLastUpdateId();
+    // Читаем актуальный offset для ЭТОГО токена
+    const offset = getSharedLastUpdateId() + 1;
     // timeout=10: Telegram ждёт до 10с и отвечает сразу при новом апдейте
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=10`;
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${offset}&timeout=10`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
     xhr.timeout = 15000; // 15с — чуть больше чем timeout=10
@@ -1243,7 +1251,6 @@ function _doLongPoll() {
             }
         } else if (xhr.status === 409) {
             // Другой аккаунт с тем же токеном уже делает long poll
-            // Ждём 5с и пробуем снова
             debugLog('Long poll 409 конфликт — пауза 5с');
             setTimeout(_doLongPoll, 5000);
             return;
