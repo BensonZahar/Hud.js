@@ -652,7 +652,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX7 TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1588,19 +1588,12 @@ function processUpdates(updates) {
             // Это убирает "крутилку" на кнопке мгновенно.
             // В оригинале он вызывался в конце, поэтому кнопка "висела".
             answerCallbackQuery(callbackQueryId);
-            // Определяем глобальные команды, которые должны применяться ко всем аккаунтам
-            const isGlobalCommand = message.startsWith('global_') ||
-                message.startsWith('afk_n_') ||
-                message.startsWith('restart_q_') ||
-                message.startsWith('restart_rec_') ||
-                message.startsWith('back_from_restart_') ||
-                message.startsWith('show_payday_options_') ||
-                message.startsWith('show_soob_options_') ||
-                message.startsWith('show_mesto_options_') ||
-                message.startsWith('show_radio_options_') ||
-                message.startsWith('show_warning_options_') ||
-                message.startsWith('show_global_functions_') ||
-                message.startsWith('levelup_reconnect_');
+            // ВАЖНО: глобальными считаются ТОЛЬКО команды без uniqueId в данных.
+            // Все команды с uniqueId (show_payday_options_, show_global_functions_ и т.д.)
+            // содержат uniqueId аккаунта и должны обрабатываться ТОЛЬКО нужным аккаунтом.
+            // Если пометить их как "глобальные" — оба аккаунта будут редактировать одно
+            // сообщение одновременно и перетирать изменения друг друга.
+            const isGlobalCommand = message.startsWith('global_');
             let callbackUniqueId = null;
             if (message.startsWith('show_controls_')) {
                 callbackUniqueId = message.replace('show_controls_', '');
@@ -1703,45 +1696,36 @@ function processUpdates(updates) {
             } else if (message.startsWith('show_global_functions_')) {
                 callbackUniqueId = message.replace('show_global_functions_', '');
             } else if (message.startsWith('afk_n_reconnect_on_')) {
-                const parts = message.split('_');
-                callbackUniqueId = parts[parts.length - 2];
-                const selectedMode = parts[parts.length - 1];
-                showRestartActionMenu(chatId, messageId, callbackUniqueId, selectedMode);
+                // Формат: afk_n_reconnect_on_UNIQUEID_MODE (mode = last segment after last _)
+                const withoutPrefix = message.replace('afk_n_reconnect_on_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
             } else if (message.startsWith('afk_n_reconnect_off_')) {
-                const parts = message.split('_');
-                callbackUniqueId = parts[parts.length - 2];
-                const selectedMode = parts[parts.length - 1];
-                activateAFKWithMode(selectedMode, false, 'q', chatId, messageId);
+                const withoutPrefix = message.replace('afk_n_reconnect_off_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
             } else if (message.startsWith('restart_q_')) {
-                const parts = message.split('_');
-                callbackUniqueId = parts[parts.length - 2];
-                const selectedMode = parts[parts.length - 1];
-                activateAFKWithMode(selectedMode, true, 'q', chatId, messageId);
+                const withoutPrefix = message.replace('restart_q_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
             } else if (message.startsWith('restart_rec_')) {
-                const parts = message.split('_');
-                callbackUniqueId = parts[parts.length - 2];
-                const selectedMode = parts[parts.length - 1];
-                activateAFKWithMode(selectedMode, true, 'rec', chatId, messageId);
+                const withoutPrefix = message.replace('restart_rec_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
             } else if (message.startsWith('back_from_restart_')) {
-                const parts = message.split('_');
-                callbackUniqueId = parts[parts.length - 2];
-                const selectedMode = parts[parts.length - 1];
-                if (selectedMode === 'levelup') {
-                    showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
-                } else {
-                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
-                }
+                const withoutPrefix = message.replace('back_from_restart_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
-                showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
+            // Только два случая: глобальная команда (global_*) ИЛИ uniqueId совпадает.
+            // Проверка по тексту сообщения убрана — она ненадёжна:
+            // displayName содержит ID (Rahim[441]) которого нет в тексте сообщения,
+            // и при быстром переключении между аккаунтами ID ещё не определён.
             const isForThisBot = isGlobalCommand ||
-                (callbackUniqueId && callbackUniqueId === uniqueId) ||
-                (update.callback_query.message.text && update.callback_query.message.text.includes(displayName)) ||
-                (update.callback_query.message.reply_to_message &&
-                update.callback_query.message.reply_to_message.text &&
-                update.callback_query.message.reply_to_message.text.includes(displayName));
+                (callbackUniqueId && callbackUniqueId === uniqueId);
             if (!isForThisBot) {
                 debugLog(`Игнорируем callback_query, так как он не для этого бота (${displayName}): ${message}`);
                 // answerCallbackQuery уже вызван выше
@@ -2012,6 +1996,37 @@ function processUpdates(updates) {
                 config.warningNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
+            } else if (message.startsWith('afk_n_reconnect_on_')) {
+                const withoutPrefix = message.replace('afk_n_reconnect_on_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
+                showRestartActionMenu(chatId, messageId, callbackUniqueId, selectedMode);
+            } else if (message.startsWith('afk_n_reconnect_off_')) {
+                const withoutPrefix = message.replace('afk_n_reconnect_off_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
+                activateAFKWithMode(selectedMode, false, 'q', chatId, messageId);
+            } else if (message.startsWith('restart_q_')) {
+                const withoutPrefix = message.replace('restart_q_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
+                activateAFKWithMode(selectedMode, true, 'q', chatId, messageId);
+            } else if (message.startsWith('restart_rec_')) {
+                const withoutPrefix = message.replace('restart_rec_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
+                activateAFKWithMode(selectedMode, true, 'rec', chatId, messageId);
+            } else if (message.startsWith('back_from_restart_')) {
+                const withoutPrefix = message.replace('back_from_restart_', '');
+                const lastUnderscore = withoutPrefix.lastIndexOf('_');
+                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
+                if (selectedMode === 'levelup') {
+                    showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
+                } else {
+                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
+                }
+            } else if (message.startsWith('global_levelup_')) {
+                showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
             }
             // answerCallbackQuery уже был вызван в начале обработки
         }
