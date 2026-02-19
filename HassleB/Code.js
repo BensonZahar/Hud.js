@@ -652,7 +652,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX7 TG</b>\n` +
+    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1289,6 +1289,12 @@ function _runAsLeader() {
     _doLeaderPoll();
 }
 
+// SHORT POLL INTERVAL — вместо long poll (timeout=10с) используем короткий интервал.
+// Long poll блокировал получение следующего update на 10с если предыдущий только что пришёл.
+// Short poll с 500мс даёт мгновенную реакцию при быстром нажатии кнопок.
+const _POLL_INTERVAL = 500; // мс между запросами к Telegram
+let _leaderPollTimer = null;
+
 function _doLeaderPoll() {
     if (!_isLeader()) {
         debugLog(`[${_instanceId}] Больше не лидер`);
@@ -1296,10 +1302,11 @@ function _doLeaderPoll() {
         return;
     }
     const offset = getSharedLastUpdateId() + 1;
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${offset}&timeout=10`;
+    // timeout=0 — не блокируем, сразу возвращаем что есть
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${offset}&timeout=0`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
-    xhr.timeout = 15000;
+    xhr.timeout = 5000;
     xhr.onload = function() {
         if (xhr.status === 200) {
             try {
@@ -1307,19 +1314,22 @@ function _doLeaderPoll() {
                 if (data.ok && data.result.length > 0) {
                     _publishUpdates(data.result);
                     processUpdates(data.result);
+                    // Если пришли данные — сразу делаем следующий запрос (не ждём интервал)
+                    // чтобы не пропустить батч из нескольких updates
+                    if (!_isLeader()) { _runAsFollower(); return; }
+                    _leaderPollTimer = setTimeout(_doLeaderPoll, 100);
+                    return;
                 }
             } catch (e) {
                 debugLog('Ошибка парсинга: ' + e);
             }
-            _doLeaderPoll();
+            // Нет новых updates — ждём интервал
+            if (!_isLeader()) { _runAsFollower(); return; }
+            _leaderPollTimer = setTimeout(_doLeaderPoll, _POLL_INTERVAL);
         } else if (xhr.status === 409) {
-            // 409 = Telegram говорит что уже есть активный getUpdates для этого токена.
-            // Значит реальный лидер — кто-то другой (другой аккаунт на том же сервере).
-            // Ставим бан на 60с — не пытаться стать лидером снова.
-            // НЕ удаляем чужой ключ лидера.
+            // 409 = другой аккаунт уже делает getUpdates для этого токена
             debugLog(`[${_instanceId}] 409 — другой уже polling, уходим в фолловер на 60с`);
             _leaderBanUntil = Date.now() + 60000;
-            // Удаляем только СВОЙ ключ если вдруг записали его
             try {
                 const val = localStorage.getItem(_leaderKey());
                 if (val && JSON.parse(val).id === _instanceId) {
@@ -1329,11 +1339,18 @@ function _doLeaderPoll() {
             _runAsFollower();
         } else {
             debugLog('Leader poll HTTP ошибка: ' + xhr.status);
-            _doLeaderPoll();
+            if (!_isLeader()) { _runAsFollower(); return; }
+            _leaderPollTimer = setTimeout(_doLeaderPoll, _POLL_INTERVAL * 2);
         }
     };
-    xhr.ontimeout = function() { _doLeaderPoll(); };
-    xhr.onerror = function() { setTimeout(_doLeaderPoll, 3000); };
+    xhr.ontimeout = function() {
+        if (!_isLeader()) { _runAsFollower(); return; }
+        _leaderPollTimer = setTimeout(_doLeaderPoll, _POLL_INTERVAL);
+    };
+    xhr.onerror = function() {
+        if (!_isLeader()) { _runAsFollower(); return; }
+        _leaderPollTimer = setTimeout(_doLeaderPoll, 3000);
+    };
     xhr.send();
 }
 
