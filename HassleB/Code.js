@@ -1,3 +1,4 @@
+
 // ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
 // ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
 // 
@@ -324,50 +325,14 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 };
 // END AUTO LOGIN MODULE //
 // START SHARED STORAGE MODULE //
-// Каждый токен имеет свой namespace в localStorage.
-// Система лидер/фолловер: только ОДИН экземпляр на токен делает
-// реальный HTTP-запрос к Telegram. Остальные читают из localStorage.
-// Это исключает 409 конфликты и задержки.
-function _getTokenSuffix() {
-    const token = config.botToken || defaultToken || '';
-    return token.slice(-8);
-}
+// Новая функция для shared lastUpdateId через localStorage
 function getSharedLastUpdateId() {
-    return parseInt(localStorage.getItem('tg_upd_' + _getTokenSuffix()) || '0', 10);
+    return parseInt(localStorage.getItem('tg_bot_last_update_id') || '0', 10);
 }
 function setSharedLastUpdateId(id) {
-    localStorage.setItem('tg_upd_' + _getTokenSuffix(), id.toString());
+    localStorage.setItem('tg_bot_last_update_id', id);
+    debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
-// Лидер: экземпляр который сейчас делает long poll для этого токена
-// Хранит timestamp последнего "пульса". Если пульс старше 20с — лидер упал.
-const _LEADER_TTL = 20000; // 20 секунд
-const _HEARTBEAT_INTERVAL = 8000; // обновляем каждые 8с
-function _leaderKey() { return 'tg_leader_' + _getTokenSuffix(); }
-function _updatesKey() { return 'tg_updates_' + _getTokenSuffix(); }
-function _isLeader() {
-    const val = localStorage.getItem(_leaderKey());
-    if (!val) return false;
-    const { id, ts } = JSON.parse(val);
-    return id === _instanceId && (Date.now() - ts < _LEADER_TTL);
-}
-function _tryBecomeLeader() {
-    const val = localStorage.getItem(_leaderKey());
-    if (val) {
-        const { id, ts } = JSON.parse(val);
-        // Чужой живой лидер — не претендуем
-        if (id !== _instanceId && Date.now() - ts < _LEADER_TTL) return false;
-    }
-    // Нет лидера или лидер умер — занимаем место
-    localStorage.setItem(_leaderKey(), JSON.stringify({ id: _instanceId, ts: Date.now() }));
-    return true;
-}
-function _heartbeat() {
-    if (_isLeader()) {
-        localStorage.setItem(_leaderKey(), JSON.stringify({ id: _instanceId, ts: Date.now() }));
-    }
-}
-// Уникальный ID этого экземпляра (tab/window)
-const _instanceId = Math.random().toString(36).slice(2);
 // END SHARED STORAGE MODULE //
 // START DEBUG AND UTILS MODULE //
 function debugLog(message) {
@@ -652,7 +617,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | BotFIX TG</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1243,170 +1208,38 @@ function hideControlsMenu(chatId, messageId) {
 }
 // END MENU MODULE //
 // START TELEGRAM COMMANDS MODULE //
-// ==================== LEADER / FOLLOWER POLLING ====================
-// Проблема: несколько аккаунтов на одном сервере = один токен = 409 конфликт.
-// Решение: только ОДИН экземпляр (лидер) делает long poll.
-//   Лидер пишет полученные updates в localStorage.
-//   Фолловеры читают из localStorage каждые 300мс и обрабатывают сами.
-// Результат: нет 409, нет задержек, все экземпляры реагируют мгновенно.
-
-let _isPollingStarted = false;
-let _followerTimer = null;
-let _lastProcessedUpdateId = 0;
-let _leaderBanUntil = 0; // время до которого нельзя становиться лидером
-
 function checkTelegramCommands() {
-    if (_isPollingStarted) return;
-    _isPollingStarted = true;
-    _lastProcessedUpdateId = getSharedLastUpdateId();
-    _startPollingLoop();
-}
-
-function _startPollingLoop() {
-    if (!config.botToken) {
-        setTimeout(_startPollingLoop, 1000);
-        return;
-    }
-    if (_tryBecomeLeader()) {
-        debugLog(`[${_instanceId}] 👑 Стал лидером для токена ...${_getTokenSuffix()}`);
-        _runAsLeader();
-    } else {
-        debugLog(`[${_instanceId}] 👥 Режим фолловера для токена ...${_getTokenSuffix()}`);
-        _runAsFollower();
-    }
-}
-
-function _runAsLeader() {
-    const hbTimer = setInterval(() => {
-        if (!_isLeader()) {
-            clearInterval(hbTimer);
-            debugLog(`[${_instanceId}] Потеряно лидерство — переключаемся в фолловер`);
-            _runAsFollower();
-            return;
-        }
-        _heartbeat();
-    }, _HEARTBEAT_INTERVAL);
-    _doLeaderPoll();
-}
-
-// SHORT POLL INTERVAL — вместо long poll (timeout=10с) используем короткий интервал.
-// Long poll блокировал получение следующего update на 10с если предыдущий только что пришёл.
-// Short poll с 500мс даёт мгновенную реакцию при быстром нажатии кнопок.
-const _POLL_INTERVAL = 500; // мс между запросами к Telegram
-let _leaderPollTimer = null;
-
-function _doLeaderPoll() {
-    if (!_isLeader()) {
-        debugLog(`[${_instanceId}] Больше не лидер`);
-        _runAsFollower();
-        return;
-    }
-    const offset = getSharedLastUpdateId() + 1;
-    // timeout=0 — не блокируем, сразу возвращаем что есть
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${offset}&timeout=0`;
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
-    xhr.timeout = 5000;
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            try {
-                const data = JSON.parse(xhr.responseText);
-                if (data.ok && data.result.length > 0) {
-                    _publishUpdates(data.result);
-                    processUpdates(data.result);
-                    // Если пришли данные — сразу делаем следующий запрос (не ждём интервал)
-                    // чтобы не пропустить батч из нескольких updates
-                    if (!_isLeader()) { _runAsFollower(); return; }
-                    _leaderPollTimer = setTimeout(_doLeaderPoll, 100);
-                    return;
+    // Случайная задержка 0-500 мс для снижения race condition
+    const randomDelay = Math.floor(Math.random() * 500);
+    setTimeout(() => {
+        config.lastUpdateId = getSharedLastUpdateId(); // Загружаем shared значение
+        const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}`;
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data.ok && data.result.length > 0) {
+                        processUpdates(data.result);
+                    }
+                } catch (e) {
+                    debugLog('Ошибка парсинга ответа Telegram:', e);
                 }
-            } catch (e) {
-                debugLog('Ошибка парсинга: ' + e);
             }
-            // Нет новых updates — ждём интервал
-            if (!_isLeader()) { _runAsFollower(); return; }
-            _leaderPollTimer = setTimeout(_doLeaderPoll, _POLL_INTERVAL);
-        } else if (xhr.status === 409) {
-            // 409 = другой аккаунт уже делает getUpdates для этого токена
-            debugLog(`[${_instanceId}] 409 — другой уже polling, уходим в фолловер на 60с`);
-            _leaderBanUntil = Date.now() + 60000;
-            try {
-                const val = localStorage.getItem(_leaderKey());
-                if (val && JSON.parse(val).id === _instanceId) {
-                    localStorage.removeItem(_leaderKey());
-                }
-            } catch(e) {}
-            _runAsFollower();
-        } else {
-            debugLog('Leader poll HTTP ошибка: ' + xhr.status);
-            if (!_isLeader()) { _runAsFollower(); return; }
-            _leaderPollTimer = setTimeout(_doLeaderPoll, _POLL_INTERVAL * 2);
-        }
-    };
-    xhr.ontimeout = function() {
-        if (!_isLeader()) { _runAsFollower(); return; }
-        _leaderPollTimer = setTimeout(_doLeaderPoll, _POLL_INTERVAL);
-    };
-    xhr.onerror = function() {
-        if (!_isLeader()) { _runAsFollower(); return; }
-        _leaderPollTimer = setTimeout(_doLeaderPoll, 3000);
-    };
-    xhr.send();
-}
-
-function _publishUpdates(updates) {
-    const key = _updatesKey();
-    let stored = [];
-    try { stored = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) {}
-    for (const u of updates) {
-        if (!stored.find(x => x.update_id === u.update_id)) stored.push(u);
-    }
-    if (stored.length > 50) stored = stored.slice(-50);
-    localStorage.setItem(key, JSON.stringify(stored));
-}
-
-function _runAsFollower() {
-    if (_followerTimer) clearInterval(_followerTimer);
-    _followerTimer = setInterval(() => {
-        // Пробуем стать лидером только если: не забанены И нет живого лидера
-        if (Date.now() > _leaderBanUntil) {
-            try {
-                const val = localStorage.getItem(_leaderKey());
-                const leaderAlive = val && (Date.now() - JSON.parse(val).ts < _LEADER_TTL);
-                if (!leaderAlive && _tryBecomeLeader()) {
-                    clearInterval(_followerTimer);
-                    _followerTimer = null;
-                    debugLog(`[${_instanceId}] 👑 Лидер умер — берём лидерство`);
-                    _runAsLeader();
-                    return;
-                }
-            } catch(e) {}
-        }
-        _readFollowerUpdates();
-    }, 300);
-}
-
-function _readFollowerUpdates() {
-    const key = _updatesKey();
-    let stored = [];
-    try { stored = JSON.parse(localStorage.getItem(key) || '[]'); } catch(e) { return; }
-    const newUpdates = stored.filter(u => u.update_id > _lastProcessedUpdateId);
-    if (newUpdates.length > 0) {
-        newUpdates.sort((a, b) => a.update_id - b.update_id);
-        processUpdates(newUpdates);
-    }
+            setTimeout(checkTelegramCommands, config.checkInterval);
+        };
+        xhr.onerror = function(error) {
+            debugLog('Ошибка при проверке команд:', error);
+            setTimeout(checkTelegramCommands, config.checkInterval);
+        };
+        xhr.send();
+    }, randomDelay);
 }
 function processUpdates(updates) {
     for (const update of updates) {
         config.lastUpdateId = update.update_id;
-        // Обновляем shared offset (лидер и фолловер)
-        if (update.update_id > getSharedLastUpdateId()) {
-            setSharedLastUpdateId(update.update_id);
-        }
-        // Обновляем локальный счётчик этого экземпляра
-        if (update.update_id > _lastProcessedUpdateId) {
-            _lastProcessedUpdateId = update.update_id;
-        }
+        setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
         let chatId = null;
         if (update.message) {
             chatId = update.message.chat.id;
@@ -1599,18 +1432,19 @@ function processUpdates(updates) {
             const chatId = update.callback_query.message.chat.id;
             const messageId = update.callback_query.message.message_id;
             const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
-            
-            // ==================== КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ====================
-            // answerCallbackQuery вызывается СРАЗУ — до любых проверок и обработки.
-            // Это убирает "крутилку" на кнопке мгновенно.
-            // В оригинале он вызывался в конце, поэтому кнопка "висела".
-            answerCallbackQuery(callbackQueryId);
-            // ВАЖНО: глобальными считаются ТОЛЬКО команды без uniqueId в данных.
-            // Все команды с uniqueId (show_payday_options_, show_global_functions_ и т.д.)
-            // содержат uniqueId аккаунта и должны обрабатываться ТОЛЬКО нужным аккаунтом.
-            // Если пометить их как "глобальные" — оба аккаунта будут редактировать одно
-            // сообщение одновременно и перетирать изменения друг друга.
-            const isGlobalCommand = message.startsWith('global_');
+            // Определяем глобальные команды, которые должны применяться ко всем аккаунтам
+            const isGlobalCommand = message.startsWith('global_') ||
+                message.startsWith('afk_n_') ||
+                message.startsWith('restart_q_') ||
+                message.startsWith('restart_rec_') ||
+                message.startsWith('back_from_restart_') ||
+                message.startsWith('show_payday_options_') ||
+                message.startsWith('show_soob_options_') ||
+                message.startsWith('show_mesto_options_') ||
+                message.startsWith('show_radio_options_') ||
+                message.startsWith('show_warning_options_') ||
+                message.startsWith('show_global_functions_') ||
+                message.startsWith('levelup_reconnect_');
             let callbackUniqueId = null;
             if (message.startsWith('show_controls_')) {
                 callbackUniqueId = message.replace('show_controls_', '');
@@ -1713,39 +1547,49 @@ function processUpdates(updates) {
             } else if (message.startsWith('show_global_functions_')) {
                 callbackUniqueId = message.replace('show_global_functions_', '');
             } else if (message.startsWith('afk_n_reconnect_on_')) {
-                // Формат: afk_n_reconnect_on_UNIQUEID_MODE (mode = last segment after last _)
-                const withoutPrefix = message.replace('afk_n_reconnect_on_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
+                const parts = message.split('_');
+                callbackUniqueId = parts[parts.length - 2];
+                const selectedMode = parts[parts.length - 1];
+                showRestartActionMenu(chatId, messageId, callbackUniqueId, selectedMode);
             } else if (message.startsWith('afk_n_reconnect_off_')) {
-                const withoutPrefix = message.replace('afk_n_reconnect_off_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
+                const parts = message.split('_');
+                callbackUniqueId = parts[parts.length - 2];
+                const selectedMode = parts[parts.length - 1];
+                activateAFKWithMode(selectedMode, false, 'q', chatId, messageId);
             } else if (message.startsWith('restart_q_')) {
-                const withoutPrefix = message.replace('restart_q_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
+                const parts = message.split('_');
+                callbackUniqueId = parts[parts.length - 2];
+                const selectedMode = parts[parts.length - 1];
+                activateAFKWithMode(selectedMode, true, 'q', chatId, messageId);
             } else if (message.startsWith('restart_rec_')) {
-                const withoutPrefix = message.replace('restart_rec_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
+                const parts = message.split('_');
+                callbackUniqueId = parts[parts.length - 2];
+                const selectedMode = parts[parts.length - 1];
+                activateAFKWithMode(selectedMode, true, 'rec', chatId, messageId);
             } else if (message.startsWith('back_from_restart_')) {
-                const withoutPrefix = message.replace('back_from_restart_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                callbackUniqueId = withoutPrefix.substring(0, lastUnderscore);
+                const parts = message.split('_');
+                callbackUniqueId = parts[parts.length - 2];
+                const selectedMode = parts[parts.length - 1];
+                if (selectedMode === 'levelup') {
+                    showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
+                } else {
+                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
+                }
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
+                showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
-            // Только два случая: глобальная команда (global_*) ИЛИ uniqueId совпадает.
-            // Проверка по тексту сообщения убрана — она ненадёжна:
-            // displayName содержит ID (Rahim[441]) которого нет в тексте сообщения,
-            // и при быстром переключении между аккаунтами ID ещё не определён.
             const isForThisBot = isGlobalCommand ||
-                (callbackUniqueId && callbackUniqueId === uniqueId);
+                (callbackUniqueId && callbackUniqueId === uniqueId) ||
+                (update.callback_query.message.text && update.callback_query.message.text.includes(displayName)) ||
+                (update.callback_query.message.reply_to_message &&
+                update.callback_query.message.reply_to_message.text &&
+                update.callback_query.message.reply_to_message.text.includes(displayName));
             if (!isForThisBot) {
                 debugLog(`Игнорируем callback_query, так как он не для этого бота (${displayName}): ${message}`);
-                // answerCallbackQuery уже вызван выше
+                // Всё равно подтверждаем, чтобы кнопка не висела
+                answerCallbackQuery(callbackQueryId);
                 continue;
             }
             // Обработка команд
@@ -2013,39 +1857,9 @@ function processUpdates(updates) {
                 config.warningNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
-            } else if (message.startsWith('afk_n_reconnect_on_')) {
-                const withoutPrefix = message.replace('afk_n_reconnect_on_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
-                showRestartActionMenu(chatId, messageId, callbackUniqueId, selectedMode);
-            } else if (message.startsWith('afk_n_reconnect_off_')) {
-                const withoutPrefix = message.replace('afk_n_reconnect_off_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
-                activateAFKWithMode(selectedMode, false, 'q', chatId, messageId);
-            } else if (message.startsWith('restart_q_')) {
-                const withoutPrefix = message.replace('restart_q_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
-                activateAFKWithMode(selectedMode, true, 'q', chatId, messageId);
-            } else if (message.startsWith('restart_rec_')) {
-                const withoutPrefix = message.replace('restart_rec_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
-                activateAFKWithMode(selectedMode, true, 'rec', chatId, messageId);
-            } else if (message.startsWith('back_from_restart_')) {
-                const withoutPrefix = message.replace('back_from_restart_', '');
-                const lastUnderscore = withoutPrefix.lastIndexOf('_');
-                const selectedMode = withoutPrefix.substring(lastUnderscore + 1);
-                if (selectedMode === 'levelup') {
-                    showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
-                } else {
-                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
-                }
-            } else if (message.startsWith('global_levelup_')) {
-                showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
             }
-            // answerCallbackQuery уже был вызван в начале обработки
+            // Подтверждаем callback_query после обработки
+            answerCallbackQuery(callbackQueryId);
         }
     }
 }
