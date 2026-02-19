@@ -1,3 +1,4 @@
+
 // ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
 // ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
 // 
@@ -15,20 +16,14 @@
 // 4. Обработка ввода сообщения (строка ~1241)
 // ===========================================================
 
-// ==================== ЕДИНЫЙ БОТ ДЛЯ ВСЕХ СЕРВЕРОВ ====================
-// Все аккаунты используют один общий бот (DEFAULT_TOKEN).
-const DEFAULT_TOKEN = '8529447880:AAEtUVsZL35FjcDhSJR9IwGtsorP9gyIrsU';
-
-// Серверные токены сохранены на случай возврата к раздельным ботам.
-// Чтобы активировать — раскомментируйте нужные строки и замените DEFAULT_TOKEN ниже.
 const SERVER_TOKENS = {
-//    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
-//    '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
-//    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
-//    '9': '8549354393:AAH3KUXtuSBZJ4SO4qw5s5WmWJ9_kypclBY',
-//    '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
+    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
+    '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
+    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
+	'9': '8549354393:AAH3KUXtuSBZJ4SO4qw5s5WmWJ9_kypclBY',
+    '12': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'
 };
-// ========================================================================
+// остальное в /list
 // END CONSTANTS MODULE //
 // START GLOBAL STATE MODULE //
 const globalState = {
@@ -481,7 +476,7 @@ function trackNicknameAndServer() {
             config.nicknameLogged = true;
             config.accountInfo.nickname = nickname;
             config.accountInfo.server = serverId.toString();
-            config.botToken = defaultToken; // Единый бот для всех серверов
+            config.botToken = serverTokens[config.accountInfo.server] || defaultToken;
             debugLog(`Установлен botToken для сервера ${config.accountInfo.server}: ${config.botToken}`);
             updateDisplayName(); // Обновляем displayName при получении ника
             uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
