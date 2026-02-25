@@ -75,7 +75,7 @@ class MEmuHudManager:
         self.use_callsign = False # Флаг для использования позывного
         # GUI Components
         self.root = ctk.CTk()
-        self.root.title("HASSLE BOT by konst")
+        self.root.title("HASSLE BOT by konst2")
         self.root.geometry("700x600")
         try:
             icon_path = resource_path("icon.ico")
@@ -92,7 +92,7 @@ class MEmuHudManager:
         self.main_frame = ctk.CTkScrollableFrame(self.root, corner_radius=10)
         self.main_frame.grid(padx=20, pady=20, sticky="nsew")
         self.main_frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self.main_frame, text="HASSLE BOT by konst", font=("Arial", 20, "bold")).grid(row=0, column=0, pady=10)
+        ctk.CTkLabel(self.main_frame, text="HASSLE BOT by konst2", font=("Arial", 20, "bold")).grid(row=0, column=0, pady=10)
         self.status_text = ctk.CTkTextbox(self.main_frame, height=300, width=600, corner_radius=10)
         self.status_text.grid(row=1, column=0, pady=10, sticky="ew")
         self.activate_launch_permission()
@@ -234,7 +234,9 @@ class MEmuHudManager:
     def detect_app_folders(self, *args):
         if self.select_connection():
             try:
-                cmd = [self.adb_path] + self.device_param + ["shell", "ls", self.storage_path]
+                # ИСПРАВЛЕНО: флаг -1 гарантирует одну запись на строку,
+                # чтобы com.xiaomi.* не "прилипали" к com.hassle.online*
+                cmd = [self.adb_path] + self.device_param + ["shell", "ls", "-1", self.storage_path]
                 result = subprocess.run(cmd, capture_output=True, text=True,
                                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
                 if result.returncode == 0:
@@ -1196,7 +1198,9 @@ class MEmuHudManager:
     def get_hassle_folders(self, param=None, storage=None):
         param = param or self.device_param
         storage = storage or self.storage_path
-        cmd = [self.adb_path] + param + ["shell", "ls", storage]
+        # ИСПРАВЛЕНО: флаг -1 гарантирует одну запись на строку,
+        # чтобы com.xiaomi.* не "прилипали" к com.hassle.online*
+        cmd = [self.adb_path] + param + ["shell", "ls", "-1", storage]
         result = subprocess.run(cmd, capture_output=True, text=True,
                                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
         if result.returncode == 0:
@@ -1206,7 +1210,9 @@ class MEmuHudManager:
     def get_renamed_hassle_folders(self, param=None, storage=None):
         param = param or self.device_param
         storage = storage or self.storage_path
-        cmd = [self.adb_path] + param + ["shell", "ls", storage]
+        # ИСПРАВЛЕНО: флаг -1 гарантирует одну запись на строку,
+        # чтобы com.xiaomi.* не "прилипали" к 1com.hassle.online*
+        cmd = [self.adb_path] + param + ["shell", "ls", "-1", storage]
         result = subprocess.run(cmd, capture_output=True, text=True,
                                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
         if result.returncode == 0:
