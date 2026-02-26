@@ -75,7 +75,7 @@ class MEmuHudManager:
         self.use_callsign = False # Флаг для использования позывного
         # GUI Components
         self.root = ctk.CTk()
-        self.root.title("HASSLE BOT by konst2")
+        self.root.title("HASSLE BOT by konst3")
         self.root.geometry("700x600")
         try:
             icon_path = resource_path("icon.ico")
@@ -92,7 +92,7 @@ class MEmuHudManager:
         self.main_frame = ctk.CTkScrollableFrame(self.root, corner_radius=10)
         self.main_frame.grid(padx=20, pady=20, sticky="nsew")
         self.main_frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self.main_frame, text="HASSLE BOT by konst2", font=("Arial", 20, "bold")).grid(row=0, column=0, pady=10)
+        ctk.CTkLabel(self.main_frame, text="HASSLE BOT by konst3", font=("Arial", 20, "bold")).grid(row=0, column=0, pady=10)
         self.status_text = ctk.CTkTextbox(self.main_frame, height=300, width=600, corner_radius=10)
         self.status_text.grid(row=1, column=0, pady=10, sticky="ew")
         self.activate_launch_permission()
@@ -863,30 +863,58 @@ class MEmuHudManager:
         return False
     def check_nox_device(self):
         if not self.full_logging:
-            self.log("Проверка подключения...")
+            self.log("Проверка подключения к NOX...")
         else:
             self.log("Проверка подключения к NOX...")
-        nox_ports = ["62001", "62025", "62026", "62027"]
+
+        # Перезапускаем ADB сервер чтобы избежать конфликта с nox_adb
+        try:
+            subprocess.run([self.adb_path, "kill-server"],
+                         capture_output=True, timeout=5,
+                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            time.sleep(1)
+            subprocess.run([self.adb_path, "start-server"],
+                         capture_output=True, timeout=5,
+                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            time.sleep(1)
+        except Exception:
+            pass
+
+        # NOX использует разные порты в зависимости от версии
+        nox_ports = ["62001", "62025", "62026", "62027", "5555", "7555"]
         for port in nox_ports:
             try:
-                subprocess.run([self.adb_path, "connect", f"127.0.0.1:{port}"],
-                             capture_output=True, timeout=10,
-                             creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                result = subprocess.run([self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
-                                      capture_output=True, text=True, timeout=10,
-                                      creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-     
-                if result.returncode == 0:
+                connect_result = subprocess.run(
+                    [self.adb_path, "connect", f"127.0.0.1:{port}"],
+                    capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+
+                if self.full_logging:
+                    self.log(f"[DEBUG] connect {port}: {connect_result.stdout.strip()}")
+
+                # Даём NOX время ответить после connect
+                time.sleep(1.5)
+
+                result = subprocess.run(
+                    [self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
+                    capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+
+                if result.returncode == 0 and "device" in result.stdout:
                     self.device_param = ["-s", f"127.0.0.1:{port}"]
                     if not self.full_logging:
-                        self.log("[√] Успешно: Подключено к эмулятору NOX")
+                        self.log(f"[√] Успешно: Подключено к эмулятору NOX (порт {port})")
                     else:
-                        self.log("[√] Выполнено: Подключено к эмулятору NOX")
+                        self.log(f"[√] Выполнено: Подключено к эмулятору NOX (порт {port})")
                     return True
-         
-            except Exception:
+
+            except Exception as e:
+                if self.full_logging:
+                    self.log(f"[DEBUG] Порт {port} недоступен: {e}")
                 continue
+
         self.log("[X] Ошибка: Эмулятор NOX не отвечает")
+        self.log("[!] Проверьте: 1) NOX запущен? 2) В NOX включён ADB (Настройки > Рабочий стол > Открыть ADB)?")
         return False
     def select_app_folder(self):
         return self.app_var.get()
