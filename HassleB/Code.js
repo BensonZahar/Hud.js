@@ -34,12 +34,6 @@ const globalState = {
     isPrison: false // Новый флаг для посадки в тюрьму
 };
 // END GLOBAL STATE MODULE //
-// START PENDING INPUTS MODULE (iOS fix) //
-// Хранит ожидаемые вводы для совместимости с iOS (без reply)
-// Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
-const pendingInputs = {};
-const PENDING_INPUT_TTL = 5 * 60 * 1000; // 5 минут
-// END PENDING INPUTS MODULE //
 // START CHAT RADIUS MODULE //
 const CHAT_RADIUS = {
     SELF: 0,
@@ -524,7 +518,7 @@ function deleteMessage(chatId, messageId) {
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify(payload));
 }
-function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
+function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null, replyToMessageId = null) {
     config.chatIds.forEach(chatId => {
         const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
         const payload = {
@@ -532,7 +526,8 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
             text: message,
             parse_mode: 'HTML',
             disable_notification: silent,
-            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined,
+            reply_to_message_id: replyToMessageId || undefined
         };
         const xhr = new XMLHttpRequest();
         xhr.open('POST', url, true);
@@ -622,7 +617,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+    const message = `🟢 <b>Hassle | Bot TGIOS2</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1258,34 +1253,6 @@ function processUpdates(updates) {
         }
         if (update.message) {
             const message = update.message.text ? update.message.text.trim() : '';
-            // ===== iOS FIX: Проверяем pendingInputs если нет reply_to_message =====
-            if (!update.message.reply_to_message && message) {
-                const pendingKey = `${chatId}_${uniqueId}`;
-                const pending = pendingInputs[pendingKey];
-                if (pending && (Date.now() - pending.timestamp < PENDING_INPUT_TTL)) {
-                    delete pendingInputs[pendingKey];
-                    if (pending.type === 'chat_message') {
-                        debugLog(`[${displayName}] (iOS) Отправка сообщения: ${message}`);
-                        try {
-                            sendChatInput(message);
-                            sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${message.replace(/</g, '&lt;')}</code>`, false, null);
-                        } catch (err) {
-                            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`, false, null);
-                        }
-                        continue;
-                    } else if (pending.type === 'admin_reply') {
-                        debugLog(`[${displayName}] (iOS) Отправка ответа: ${message}`);
-                        try {
-                            sendChatInput(message);
-                            sendToTelegram(`✅ <b>Ответ отправлен ${displayName}:</b>\n<code>${message.replace(/</g, '&lt;')}</code>`, false, null);
-                        } catch (err) {
-                            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ответ\n<code>${err.message}</code>`, false, null);
-                        }
-                        continue;
-                    }
-                }
-            }
-            // ===== END iOS FIX =====
             // Проверяем, является ли сообщение ответом на запрос ввода
             if (update.message.reply_to_message) {
                 const replyToText = update.message.reply_to_message.text || '';
@@ -1640,13 +1607,10 @@ function processUpdates(updates) {
                 hideControlsMenu(chatId, messageId);
             } else if (message.startsWith(`request_chat_message_`)) {
                 const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)\n🔑 ID: ${uniqueId}`;
-                // iOS fix: сохраняем ожидание ввода
-                config.chatIds.forEach(cId => {
-                    pendingInputs[`${cId}_${uniqueId}`] = { type: 'chat_message', timestamp: Date.now() };
-                });
                 sendToTelegram(requestMsg, false, {
-                    force_reply: true
-                });
+                    force_reply: true,
+                    selective: true
+                }, null, messageId);
             } else if (message.startsWith(`show_payday_options_`)) {
                 showPayDayOptionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`show_soob_options_`)) {
@@ -1729,13 +1693,10 @@ function processUpdates(updates) {
                 }
             } else if (message.startsWith("admin_reply_")) {
                 const requestMsg = `✉️ Введите ответ для ${displayName}:\n🔑 ID: ${uniqueId}`;
-                // iOS fix: сохраняем ожидание ввода
-                config.chatIds.forEach(cId => {
-                    pendingInputs[`${cId}_${uniqueId}`] = { type: 'admin_reply', timestamp: Date.now() };
-                });
                 sendToTelegram(requestMsg, false, {
-                    force_reply: true
-                });
+                    force_reply: true,
+                    selective: true
+                }, null, messageId);
             } else if (message.startsWith("move_forward_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
