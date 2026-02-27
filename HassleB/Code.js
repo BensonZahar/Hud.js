@@ -38,7 +38,7 @@ const globalState = {
 // Хранит ожидаемые вводы для совместимости с iOS (без reply)
 // Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
 const pendingInputs = {};
-const PENDING_INPUT_TTL = 5 * 60 * 1000; // 5 минут
+const PENDING_INPUT_TTL = 45 * 1000; // 45 секунд (было 5 минут — слишком долго для мультиаккаунта)
 // END PENDING INPUTS MODULE //
 // START CHAT RADIUS MODULE //
 const CHAT_RADIUS = {
@@ -1263,6 +1263,11 @@ function processUpdates(updates) {
                 const pendingKey = `${chatId}_${uniqueId}`;
                 const pending = pendingInputs[pendingKey];
                 if (pending && (Date.now() - pending.timestamp < PENDING_INPUT_TTL)) {
+                    // Доп. защита: сообщение пользователя должно быть отправлено ПОСЛЕ создания pending-записи
+                    const msgDate = (update.message.date || 0) * 1000; // Telegram date в секундах
+                    if (msgDate < pending.timestamp) {
+                        debugLog(`[${displayName}] (iOS) Пропуск устаревшей pending-записи: сообщение (${msgDate}) старше pending (${pending.timestamp})`);
+                    } else {
                     delete pendingInputs[pendingKey];
                     if (pending.type === 'chat_message') {
                         debugLog(`[${displayName}] (iOS) Отправка сообщения: ${message}`);
@@ -1283,6 +1288,7 @@ function processUpdates(updates) {
                         }
                         continue;
                     }
+                    }
                 }
             }
             // ===== END iOS FIX =====
@@ -1293,6 +1299,8 @@ function processUpdates(updates) {
                 if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`) && 
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
+                    // Очищаем pendingInputs чтобы iOS-фоллбэк не сработал повторно
+                    delete pendingInputs[`${chatId}_${uniqueId}`];
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка сообщения: ${textToSend}`);
                         try {
@@ -1310,6 +1318,8 @@ function processUpdates(updates) {
                 if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`) && 
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
+                    // Очищаем pendingInputs чтобы iOS-фоллбэк не сработал повторно
+                    delete pendingInputs[`${chatId}_${uniqueId}`];
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка ответа: ${textToSend}`);
                         try {
