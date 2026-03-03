@@ -540,15 +540,20 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         xhr.onload = function() {
             if (xhr.status === 200) {
                 debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
-                const data = JSON.parse(xhr.responseText);
-                const messageId = data.result.message_id;
-                // Сохраняем ID приветственного сообщения
-                if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
-                    globalState.lastWelcomeMessageId = messageId;
-                }
-                // Сохраняем ID PayDay сообщения
-                if (message.includes('+ PayDay |')) {
-                    globalState.lastPaydayMessageIds.push({ chatId, messageId });
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    const messageId = data.result && data.result.message_id;
+                    if (!messageId) return;
+                    // Сохраняем ID приветственного сообщения
+                    if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
+                        globalState.lastWelcomeMessageId = messageId;
+                    }
+                    // Сохраняем ID PayDay сообщения
+                    if (message.includes('+ PayDay |')) {
+                        globalState.lastPaydayMessageIds.push({ chatId, messageId });
+                    }
+                } catch (e) {
+                    debugLog(`Ошибка парсинга ответа sendToTelegram (чат ${chatId}): ${e.message}`);
                 }
             } else {
                 debugLog(`Ошибка Telegram API для чата ${chatId}:`, xhr.status, xhr.responseText);
@@ -691,10 +696,16 @@ function updateAFKStatus(isNew = false) {
             xhr.setRequestHeader('Content-Type', 'application/json');
             xhr.onload = function() {
                 if (xhr.status === 200) {
-                    const data = JSON.parse(xhr.responseText);
-                    const messageId = data.result.message_id;
-                    config.afkCycle.statusMessageIds.push({ chatId, messageId });
-                    debugLog(`Новое AFK статус-сообщение отправлено в чат ${chatId}: ID ${messageId}`);
+                    try {
+                        const data = JSON.parse(xhr.responseText);
+                        const messageId = data.result && data.result.message_id;
+                        if (messageId) {
+                            config.afkCycle.statusMessageIds.push({ chatId, messageId });
+                            debugLog(`Новое AFK статус-сообщение отправлено в чат ${chatId}: ID ${messageId}`);
+                        }
+                    } catch (e) {
+                        debugLog(`Ошибка парсинга ответа AFK статус (чат ${chatId}): ${e.message}`);
+                    }
                 }
             };
             xhr.send(JSON.stringify(payload));
