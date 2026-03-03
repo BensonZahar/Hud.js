@@ -540,20 +540,15 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         xhr.onload = function() {
             if (xhr.status === 200) {
                 debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
-                try {
-                    const data = JSON.parse(xhr.responseText);
-                    const messageId = data.result && data.result.message_id;
-                    if (!messageId) return;
-                    // Сохраняем ID приветственного сообщения
-                    if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
-                        globalState.lastWelcomeMessageId = messageId;
-                    }
-                    // Сохраняем ID PayDay сообщения
-                    if (message.includes('+ PayDay |')) {
-                        globalState.lastPaydayMessageIds.push({ chatId, messageId });
-                    }
-                } catch (e) {
-                    debugLog(`Ошибка парсинга ответа sendToTelegram (чат ${chatId}): ${e.message}`);
+                const data = JSON.parse(xhr.responseText);
+                const messageId = data.result.message_id;
+                // Сохраняем ID приветственного сообщения
+                if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
+                    globalState.lastWelcomeMessageId = messageId;
+                }
+                // Сохраняем ID PayDay сообщения
+                if (message.includes('+ PayDay |')) {
+                    globalState.lastPaydayMessageIds.push({ chatId, messageId });
                 }
             } else {
                 debugLog(`Ошибка Telegram API для чата ${chatId}:`, xhr.status, xhr.responseText);
@@ -696,16 +691,10 @@ function updateAFKStatus(isNew = false) {
             xhr.setRequestHeader('Content-Type', 'application/json');
             xhr.onload = function() {
                 if (xhr.status === 200) {
-                    try {
-                        const data = JSON.parse(xhr.responseText);
-                        const messageId = data.result && data.result.message_id;
-                        if (messageId) {
-                            config.afkCycle.statusMessageIds.push({ chatId, messageId });
-                            debugLog(`Новое AFK статус-сообщение отправлено в чат ${chatId}: ID ${messageId}`);
-                        }
-                    } catch (e) {
-                        debugLog(`Ошибка парсинга ответа AFK статус (чат ${chatId}): ${e.message}`);
-                    }
+                    const data = JSON.parse(xhr.responseText);
+                    const messageId = data.result.message_id;
+                    config.afkCycle.statusMessageIds.push({ chatId, messageId });
+                    debugLog(`Новое AFK статус-сообщение отправлено в чат ${chatId}: ID ${messageId}`);
                 }
             };
             xhr.send(JSON.stringify(payload));
@@ -2071,37 +2060,7 @@ function processSalaryAndBalance(msg) {
         
         sendToTelegram(message);
         config.lastSalaryInfo = null;
-        
-        // Если ждали PayDay после строя (быстрый путь) — выходим СРАЗУ
-        if (waitingForStroiPayDay) {
-            waitingForStroiPayDay = false;
-            debugLog(`PayDay получен во время строя — немедленный выход`);
-            
-            autoLoginConfig.enabled = false;
-            sendChatInput("/rec 5");
-            
-            sendToTelegram(
-                `💰 <b>PayDay получен! (${displayName})</b>\n` +
-                `🔄 Отключён автовход и отправлен /rec 5\n` +
-                `⏰ Через 2 минуты вернёмся на строй`,
-                false,
-                null
-            );
-            
-            setTimeout(() => {
-                autoLoginConfig.enabled = true;
-                sendChatInput("/rec 5");
-                resetPayDayFlag();
-                
-                sendToTelegram(
-                    `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
-                    `✅ Включён автовход и отправлен /rec 5\n` +
-                    `📢 Готовы к новым строям`,
-                    false,
-                    null
-                );
-            }, 2 * 60 * 1000); // 2 минуты
-        }
+    }
 }
 function checkGovMessageConditions(msg, senderName, senderId) {
     if (!config.govMessagesEnabled) return false;
@@ -2153,8 +2112,6 @@ function checkGovMessageConditions(msg, senderName, senderId) {
 let waitingForPayDay = false;
 let stroiReconnectTimer = null;
 let payDayResetTimer = null;
-// Флаг: ждём PayDay после строя (быстрый путь :59), чтобы выйти сразу после получения
-let waitingForStroiPayDay = false;
 
 // Функция для получения текущих минут
 function getCurrentMinutes() {
@@ -2262,92 +2219,70 @@ function performStroiReconnect() {
             null
         );
         
-        // Отправляем /rec 5 с расчётом времени
+        // Отключаем автовход и отправляем /rec 5 с расчётом времени
         stroiReconnectTimer = setTimeout(() => {
-            const nowMinutes = getCurrentMinutes();
-            const timeUntilPD = getTimeUntilPayDay();
+            autoLoginConfig.enabled = false;
+            sendChatInput("/rec 5");
             
-            // ИСПРАВЛЕНИЕ: если до PayDay меньше 90 секунд (случай ~:59 мин),
-            // НЕ отключаем автовход — бот переподключится за ~15 сек и успеет войти ДО PayDay.
-            // При старом подходе: отключали автовход → ждали 60 сек → включали + /rec 5 →
-            // бот входил в 12:00:25, уже ПОСЛЕ PayDay в 12:00:00.
-            if (timeUntilPD < 90000) {
-                // БЫСТРЫЙ ПУТЬ: автовход остаётся включён, один /rec 5
-                // Реконнект занимает ~15 сек → бот войдёт ДО PayDay
+            const nowMinutes = getCurrentMinutes();
+            sendToTelegram(
+                `🔄 <b>Отключён автовход и отправлен /rec 5 (${displayName})</b>\n` +
+                `🕐 Текущее время: ${nowMinutes} минут\n` +
+                `⏰ Ждём ~60 сек на реконнект, затем включим автовход`,
+                false,
+                null
+            );
+            
+            // Через 60 секунд (время реконнекта) включаем автовход и /rec 5
+            setTimeout(() => {
                 autoLoginConfig.enabled = true;
                 sendChatInput("/rec 5");
-                waitingForStroiPayDay = true; // Выход произойдёт сразу в processSalaryAndBalance
                 
+                const loginMinutes = getCurrentMinutes();
                 sendToTelegram(
-                    `🔄 <b>Отправлен /rec 5 с автовходом (${displayName})</b>\n` +
-                    `🕐 Текущее время: ${nowMinutes} минут\n` +
-                    `⚡ PayDay через ~${Math.ceil(timeUntilPD / 1000)} сек — быстрый реконнект (~15 сек)\n` +
-                    `💰 Войдём до PayDay и получим зарплату`,
+                    `✅ <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
+                    `🕐 Текущее время: ${loginMinutes} минут\n` +
+                    `💰 Готовы к получению PayDay`,
                     false,
                     null
                 );
                 
-            } else {
-                // СТАНДАРТНЫЙ ПУТЬ: до PayDay > 90 сек (минуты :53–:57)
-                // Отключаем автовход, ждём 60 сек, затем включаем + /rec 5
-                autoLoginConfig.enabled = false;
-                sendChatInput("/rec 5");
-                
-                sendToTelegram(
-                    `🔄 <b>Отключён автовход и отправлен /rec 5 (${displayName})</b>\n` +
-                    `🕐 Текущее время: ${nowMinutes} минут\n` +
-                    `⏰ Ждём ~60 сек на реконнект, затем включим автовход`,
-                    false,
-                    null
-                );
-                
-                // Через 60 секунд включаем автовход и /rec 5
+                // Ждём PayDay + 15 секунд на обработку
+                const remainingTimeToPayDay = getTimeUntilPayDay();
                 setTimeout(() => {
-                    autoLoginConfig.enabled = true;
+                    debugLog(`PayDay должен быть получен, выполняем финальный реконнект`);
+                    
+                    // Выключаем автовход и отправляем /rec 5 (чтобы не наказали)
+                    autoLoginConfig.enabled = false;
                     sendChatInput("/rec 5");
                     
-                    const loginMinutes = getCurrentMinutes();
                     sendToTelegram(
-                        `✅ <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
-                        `🕐 Текущее время: ${loginMinutes} минут\n` +
-                        `💰 Готовы к получению PayDay`,
+                        `💰 <b>PayDay получен! (${displayName})</b>\n` +
+                        `🔄 Отключён автовход и отправлен /rec 5\n` +
+                        `⏰ Через 2 минуты вернёмся на строй`,
                         false,
                         null
                     );
                     
-                    // Ждём PayDay + 15 секунд на обработку
-                    const remainingTimeToPayDay = Math.max(getTimeUntilPayDay(), 0);
+                    // Через 2 минуты включаем автовход и возвращаемся
                     setTimeout(() => {
-                        debugLog(`PayDay должен быть получен, выполняем финальный реконнект`);
-                        autoLoginConfig.enabled = false;
+                        autoLoginConfig.enabled = true;
                         sendChatInput("/rec 5");
                         
+                        resetPayDayFlag(); // Сбрасываем флаг ожидания
+                        
                         sendToTelegram(
-                            `💰 <b>PayDay получен! (${displayName})</b>\n` +
-                            `🔄 Отключён автовход и отправлен /rec 5\n` +
-                            `⏰ Через 2 минуты вернёмся на строй`,
+                            `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
+                            `✅ Включён автовход и отправлен /rec 5\n` +
+                            `📢 Готовы к новым строям`,
                             false,
                             null
                         );
-                        
-                        setTimeout(() => {
-                            autoLoginConfig.enabled = true;
-                            sendChatInput("/rec 5");
-                            resetPayDayFlag();
-                            
-                            sendToTelegram(
-                                `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
-                                `✅ Включён автовход и отправлен /rec 5\n` +
-                                `📢 Готовы к новым строям`,
-                                false,
-                                null
-                            );
-                        }, 2 * 60 * 1000); // 2 минуты
-                        
-                    }, remainingTimeToPayDay + 15000); // PayDay + 15 секунд
+                    }, 2 * 60 * 1000); // 2 минуты
                     
-                }, 60 * 1000); // 60 секунд на реконнект
-            }
+                }, remainingTimeToPayDay + 15000); // PayDay + 15 секунд
+                
+            }, 60 * 1000); // 60 секунд на реконнект
             
         }, timeToStart);
         
