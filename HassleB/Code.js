@@ -2060,7 +2060,37 @@ function processSalaryAndBalance(msg) {
         
         sendToTelegram(message);
         config.lastSalaryInfo = null;
-    }
+        
+        // Если ждали PayDay после строя (быстрый путь) — выходим СРАЗУ
+        if (waitingForStroiPayDay) {
+            waitingForStroiPayDay = false;
+            debugLog(`PayDay получен во время строя — немедленный выход`);
+            
+            autoLoginConfig.enabled = false;
+            sendChatInput("/rec 5");
+            
+            sendToTelegram(
+                `💰 <b>PayDay получен! (${displayName})</b>\n` +
+                `🔄 Отключён автовход и отправлен /rec 5\n` +
+                `⏰ Через 2 минуты вернёмся на строй`,
+                false,
+                null
+            );
+            
+            setTimeout(() => {
+                autoLoginConfig.enabled = true;
+                sendChatInput("/rec 5");
+                resetPayDayFlag();
+                
+                sendToTelegram(
+                    `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
+                    `✅ Включён автовход и отправлен /rec 5\n` +
+                    `📢 Готовы к новым строям`,
+                    false,
+                    null
+                );
+            }, 2 * 60 * 1000); // 2 минуты
+        }
 }
 function checkGovMessageConditions(msg, senderName, senderId) {
     if (!config.govMessagesEnabled) return false;
@@ -2112,6 +2142,8 @@ function checkGovMessageConditions(msg, senderName, senderId) {
 let waitingForPayDay = false;
 let stroiReconnectTimer = null;
 let payDayResetTimer = null;
+// Флаг: ждём PayDay после строя (быстрый путь :59), чтобы выйти сразу после получения
+let waitingForStroiPayDay = false;
 
 // Функция для получения текущих минут
 function getCurrentMinutes() {
@@ -2219,70 +2251,92 @@ function performStroiReconnect() {
             null
         );
         
-        // Отключаем автовход и отправляем /rec 5 с расчётом времени
+        // Отправляем /rec 5 с расчётом времени
         stroiReconnectTimer = setTimeout(() => {
-            autoLoginConfig.enabled = false;
-            sendChatInput("/rec 5");
-            
             const nowMinutes = getCurrentMinutes();
-            sendToTelegram(
-                `🔄 <b>Отключён автовход и отправлен /rec 5 (${displayName})</b>\n` +
-                `🕐 Текущее время: ${nowMinutes} минут\n` +
-                `⏰ Ждём ~60 сек на реконнект, затем включим автовход`,
-                false,
-                null
-            );
+            const timeUntilPD = getTimeUntilPayDay();
             
-            // Через 60 секунд (время реконнекта) включаем автовход и /rec 5
-            setTimeout(() => {
+            // ИСПРАВЛЕНИЕ: если до PayDay меньше 90 секунд (случай ~:59 мин),
+            // НЕ отключаем автовход — бот переподключится за ~15 сек и успеет войти ДО PayDay.
+            // При старом подходе: отключали автовход → ждали 60 сек → включали + /rec 5 →
+            // бот входил в 12:00:25, уже ПОСЛЕ PayDay в 12:00:00.
+            if (timeUntilPD < 90000) {
+                // БЫСТРЫЙ ПУТЬ: автовход остаётся включён, один /rec 5
+                // Реконнект занимает ~15 сек → бот войдёт ДО PayDay
                 autoLoginConfig.enabled = true;
                 sendChatInput("/rec 5");
+                waitingForStroiPayDay = true; // Выход произойдёт сразу в processSalaryAndBalance
                 
-                const loginMinutes = getCurrentMinutes();
                 sendToTelegram(
-                    `✅ <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
-                    `🕐 Текущее время: ${loginMinutes} минут\n` +
-                    `💰 Готовы к получению PayDay`,
+                    `🔄 <b>Отправлен /rec 5 с автовходом (${displayName})</b>\n` +
+                    `🕐 Текущее время: ${nowMinutes} минут\n` +
+                    `⚡ PayDay через ~${Math.ceil(timeUntilPD / 1000)} сек — быстрый реконнект (~15 сек)\n` +
+                    `💰 Войдём до PayDay и получим зарплату`,
                     false,
                     null
                 );
                 
-                // Ждём PayDay + 15 секунд на обработку
-                const remainingTimeToPayDay = getTimeUntilPayDay();
+            } else {
+                // СТАНДАРТНЫЙ ПУТЬ: до PayDay > 90 сек (минуты :53–:57)
+                // Отключаем автовход, ждём 60 сек, затем включаем + /rec 5
+                autoLoginConfig.enabled = false;
+                sendChatInput("/rec 5");
+                
+                sendToTelegram(
+                    `🔄 <b>Отключён автовход и отправлен /rec 5 (${displayName})</b>\n` +
+                    `🕐 Текущее время: ${nowMinutes} минут\n` +
+                    `⏰ Ждём ~60 сек на реконнект, затем включим автовход`,
+                    false,
+                    null
+                );
+                
+                // Через 60 секунд включаем автовход и /rec 5
                 setTimeout(() => {
-                    debugLog(`PayDay должен быть получен, выполняем финальный реконнект`);
-                    
-                    // Выключаем автовход и отправляем /rec 5 (чтобы не наказали)
-                    autoLoginConfig.enabled = false;
+                    autoLoginConfig.enabled = true;
                     sendChatInput("/rec 5");
                     
+                    const loginMinutes = getCurrentMinutes();
                     sendToTelegram(
-                        `💰 <b>PayDay получен! (${displayName})</b>\n` +
-                        `🔄 Отключён автовход и отправлен /rec 5\n` +
-                        `⏰ Через 2 минуты вернёмся на строй`,
+                        `✅ <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
+                        `🕐 Текущее время: ${loginMinutes} минут\n` +
+                        `💰 Готовы к получению PayDay`,
                         false,
                         null
                     );
                     
-                    // Через 2 минуты включаем автовход и возвращаемся
+                    // Ждём PayDay + 15 секунд на обработку
+                    const remainingTimeToPayDay = Math.max(getTimeUntilPayDay(), 0);
                     setTimeout(() => {
-                        autoLoginConfig.enabled = true;
+                        debugLog(`PayDay должен быть получен, выполняем финальный реконнект`);
+                        autoLoginConfig.enabled = false;
                         sendChatInput("/rec 5");
                         
-                        resetPayDayFlag(); // Сбрасываем флаг ожидания
-                        
                         sendToTelegram(
-                            `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
-                            `✅ Включён автовход и отправлен /rec 5\n` +
-                            `📢 Готовы к новым строям`,
+                            `💰 <b>PayDay получен! (${displayName})</b>\n` +
+                            `🔄 Отключён автовход и отправлен /rec 5\n` +
+                            `⏰ Через 2 минуты вернёмся на строй`,
                             false,
                             null
                         );
-                    }, 2 * 60 * 1000); // 2 минуты
+                        
+                        setTimeout(() => {
+                            autoLoginConfig.enabled = true;
+                            sendChatInput("/rec 5");
+                            resetPayDayFlag();
+                            
+                            sendToTelegram(
+                                `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
+                                `✅ Включён автовход и отправлен /rec 5\n` +
+                                `📢 Готовы к новым строям`,
+                                false,
+                                null
+                            );
+                        }, 2 * 60 * 1000); // 2 минуты
+                        
+                    }, remainingTimeToPayDay + 15000); // PayDay + 15 секунд
                     
-                }, remainingTimeToPayDay + 15000); // PayDay + 15 секунд
-                
-            }, 60 * 1000); // 60 секунд на реконнект
+                }, 60 * 1000); // 60 секунд на реконнект
+            }
             
         }, timeToStart);
         
