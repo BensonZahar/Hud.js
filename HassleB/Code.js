@@ -1944,6 +1944,33 @@ function getHighRankKeywords() {
         .filter(([rankNum]) => parseInt(rankNum) >= 6) // Только 6-10
         .map(([, rank]) => rank.toLowerCase());
 }
+// Возвращает все звания 6-10 ранга из ВСЕХ фракций (для проверки рации)
+function getAllHighRankKeywords() {
+    const highRanks = [];
+    for (const faction in factions) {
+        const ranks = factions[faction].ranks;
+        for (const rankNum in ranks) {
+            if (parseInt(rankNum) >= 6) {
+                highRanks.push(ranks[rankNum].toLowerCase());
+            }
+        }
+    }
+    return highRanks;
+}
+// Проверяет, отправлено ли радиосообщение игроком с 6-10 рангом (любой фракции)
+// Формат: [R] <Звание> <Ник>[ID]: текст  или  [R] <Звание> [{цвет}Фракция{цвет}] <Ник>[ID]: текст
+function isHighRankRadioMessage(msg) {
+    const radioMatch = msg.match(/^\[R\]\s+(.+)/i);
+    if (!radioMatch) return false;
+    const afterR = radioMatch[1].toLowerCase();
+    const highRanks = getAllHighRankKeywords();
+    // Сортируем по убыванию длины, чтобы "заместитель глав врача" проверялось раньше "заместитель"
+    highRanks.sort((a, b) => b.length - a.length);
+    return highRanks.some(rank => {
+        // После звания должен идти пробел или двоеточие (не вхождение внутри слова)
+        return afterR.startsWith(rank + ' ') || afterR.startsWith(rank + ':');
+    });
+}
 function checkRoleAndActionConditions(lowerCaseMessage) {
     const rankKeywords = getRankKeywords();
     const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
@@ -2682,7 +2709,9 @@ function initializeChatMonitor() {
                     ]
                 ]
             };
-            sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
+            // Звук только если отправитель имеет звание 6-10 ранга
+            const radioHighRank = isHighRankRadioMessage(msg);
+            sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
         }
         // Проверка выговоров (динамически только для определённой фракции)
         if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
