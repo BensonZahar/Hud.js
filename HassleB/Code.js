@@ -2205,6 +2205,7 @@ function getTimeUntilPayDay() {
 // Улучшенная функция реконнекта при строе
 function performStroiReconnect() {
     const currentMinutes = getCurrentMinutes();
+    const currentSeconds = new Date().getSeconds();
     
     // Если уже ждём PayDay - игнорируем повторные сообщения о строе
     if (waitingForPayDay) {
@@ -2219,85 +2220,114 @@ function performStroiReconnect() {
     }
     
     if (isPayDayApproaching()) {
-        // Если осталось менее 7 минут до PayDay (53-59 минуты)
-        const timeToStart = getTimeUntil58Minutes();
-        const timeUntilPayDay = getTimeUntilPayDay();
-        const minutesLeft = Math.ceil(timeUntilPayDay / 60000);
-        const startInSeconds = Math.ceil(timeToStart / 1000);
-        
+        // Реальное время входа в игру после /rec 5 — ~30 секунд
+        const RECONNECT_TIME = 30 * 1000;
+        const timeToPayDay = getTimeUntilPayDay();
+        const minutesLeft = Math.ceil(timeToPayDay / 60000);
+
+        // Если до PayDay меньше 30 секунд — не успеем переподключиться, остаёмся в игре
+        if (timeToPayDay < RECONNECT_TIME) {
+            debugLog(`До PayDay менее 30 сек — реконнект не выполняем, остаёмся в игре`);
+            sendToTelegram(
+                `⚠️ <b>Строй (${displayName})</b>\n` +
+                `🕐 Текущее время: ${currentMinutes} мин ${currentSeconds} сек\n` +
+                `⏰ До PayDay менее 30 сек — остаёмся в игре!`,
+                false, null
+            );
+            return;
+        }
+
+        // Расчёт времён:
+        // Цель: быть В ИГРЕ ровно в :00
+        // Для этого нужно включить автовход за RECONNECT_TIME (30 сек) до PayDay
+        // Отключиться нужно минимум за (RECONNECT_TIME + 5 сек) до включения автовхода
+
+        // Когда отключаться: за 60 сек до PayDay (30 сек на авторизации + 30 сек вход)
+        const timeToDisconnect = Math.max(0, timeToPayDay - 60 * 1000);
+
+        // Сколько ждать ПОСЛЕ отключения перед включением автовхода
+        // = timeToPayDay - timeToDisconnect - RECONNECT_TIME
+        // Минимум 5 сек (чтобы точно попасть на экран авторизации после /rec 5)
+        const waitAfterDisconnect = Math.max(5 * 1000, timeToPayDay - timeToDisconnect - RECONNECT_TIME);
+
+        const disconnectInSeconds = Math.ceil(timeToDisconnect / 1000);
+        const totalSecondsToLogin = Math.ceil((timeToDisconnect + waitAfterDisconnect) / 1000);
+
         waitingForPayDay = true; // Устанавливаем флаг ожидания
-        
-        // Устанавливаем таймер для автоматического сброса флага через 5 минут
-        // (на случай если что-то пойдёт не так)
+
+        // Автосброс флага через 5 минут на случай нештатных ситуаций
         payDayResetTimer = setTimeout(() => {
             resetPayDayFlag();
             debugLog('Автоматический сброс флага PayDay по таймауту');
         }, 5 * 60 * 1000);
-        
-        debugLog(`Строй обнаружен в ${currentMinutes} минут, PayDay через ${minutesLeft} мин - выполняем реконнект с расчётом времени`);
-        
+
+        debugLog(`Строй обнаружен в ${currentMinutes}:${currentSeconds}, PayDay через ${minutesLeft} мин — реконнект через ${disconnectInSeconds} сек, автовход через ${totalSecondsToLogin} сек`);
+
         sendToTelegram(
             `⚠️ <b>Строй обнаружен (${displayName})</b>\n` +
-            `🕐 Текущее время: ${currentMinutes} минут\n` +
+            `🕐 Текущее время: ${currentMinutes} мин ${currentSeconds} сек\n` +
             `⏰ До PayDay: ${minutesLeft} мин\n` +
-            `🔄 Реконнект через ${startInSeconds} сек (заход в ~58 мин)\n` +
-            `💰 После захода ждём PayDay`,
-            false, 
+            `🔌 Реконнект через ${disconnectInSeconds} сек\n` +
+            `🔑 Автовход через ${totalSecondsToLogin} сек (за ~30 сек до PayDay)`,
+            false,
             null
         );
-        
-        // Отключаем автовход и отправляем /rec 5 с расчётом времени
+
+        // Шаг 1: Отключаемся в нужное время
         stroiReconnectTimer = setTimeout(() => {
             autoLoginConfig.enabled = false;
             sendChatInput("/rec 5");
-            
+
             const nowMinutes = getCurrentMinutes();
+            const nowSecs = new Date().getSeconds();
             sendToTelegram(
-                `🔄 <b>Отключён автовход и отправлен /rec 5 (${displayName})</b>\n` +
-                `🕐 Текущее время: ${nowMinutes} минут\n` +
-                `⏰ Ждём ~60 сек на реконнект, затем включим автовход`,
+                `🔄 <b>Отключён автовход, отправлен /rec 5 (${displayName})</b>\n` +
+                `🕐 Текущее время: ${nowMinutes} мин ${nowSecs} сек\n` +
+                `⏰ Висим на авторизации. Автовход включим через ${Math.ceil(waitAfterDisconnect / 1000)} сек`,
                 false,
                 null
             );
-            
-            // Через 60 секунд (время реконнекта) включаем автовход и /rec 5
+
+            // Шаг 2: Включаем автовход за 30 сек до PayDay
+            // НЕ шлём /rec 5 снова — мы уже на экране авторизации после первого!
+            // Просто вызываем setupAutoLogin() чтобы ввести пароль на открытом экране.
             setTimeout(() => {
                 autoLoginConfig.enabled = true;
-                sendChatInput("/rec 5");
-                
+                setupAutoLogin(); // Вводим пароль на уже открытом экране авторизации
+
                 const loginMinutes = getCurrentMinutes();
+                const loginSecs = new Date().getSeconds();
                 sendToTelegram(
-                    `✅ <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
-                    `🕐 Текущее время: ${loginMinutes} минут\n` +
-                    `💰 Готовы к получению PayDay`,
+                    `✅ <b>Автовход включён, входим в игру (${displayName})</b>\n` +
+                    `🕐 Текущее время: ${loginMinutes} мин ${loginSecs} сек\n` +
+                    `💰 PayDay через ~30 сек — должны успеть!`,
                     false,
                     null
                 );
-                
-                // Ждём PayDay + 15 секунд на обработку
+
+                // Шаг 3: Ждём PayDay + 15 секунд на обработку
                 const remainingTimeToPayDay = getTimeUntilPayDay();
                 setTimeout(() => {
                     debugLog(`PayDay должен быть получен, выполняем финальный реконнект`);
-                    
-                    // Выключаем автовход и отправляем /rec 5 (чтобы не наказали)
+
                     autoLoginConfig.enabled = false;
                     sendChatInput("/rec 5");
-                    
+
                     sendToTelegram(
                         `💰 <b>PayDay получен! (${displayName})</b>\n` +
                         `🔄 Отключён автовход и отправлен /rec 5\n` +
-                        `⏰ Через 2 минуты вернёмся на строй`,
+                        `⏰ Через 2 минуты вернёмся`,
                         false,
                         null
                     );
-                    
-                    // Через 2 минуты включаем автовход и возвращаемся
+
+                    // Шаг 4: Через 2 минуты возвращаемся
                     setTimeout(() => {
                         autoLoginConfig.enabled = true;
                         sendChatInput("/rec 5");
-                        
+
                         resetPayDayFlag(); // Сбрасываем флаг ожидания
-                        
+
                         sendToTelegram(
                             `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
                             `✅ Включён автовход и отправлен /rec 5\n` +
@@ -2306,12 +2336,12 @@ function performStroiReconnect() {
                             null
                         );
                     }, 2 * 60 * 1000); // 2 минуты
-                    
+
                 }, remainingTimeToPayDay + 15000); // PayDay + 15 секунд
-                
-            }, 60 * 1000); // 60 секунд на реконнект
-            
-        }, timeToStart);
+
+            }, waitAfterDisconnect); // Динамический расчёт — за 30 сек до PayDay
+
+        }, timeToDisconnect > 0 ? timeToDisconnect : 100);
         
     } else {
         // Если до PayDay далеко (0-52 минуты) - стандартный реконнект
