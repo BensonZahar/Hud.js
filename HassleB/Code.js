@@ -1098,6 +1098,14 @@ function showLocalFunctionsMenu(chatId, messageId) {
         sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
         return;
     }
+    const isPaused = !!window.getInterfaceStatus("PauseMenu");
+    const isAutoLoginDisabled = !autoLoginConfig.enabled;
+    const pauseBtn = isPaused
+        ? createButton("▶️ Выйти с паузы", `local_pause_toggle_${uniqueId}`)
+        : createButton("⏸️ Уйти на паузу", `local_pause_toggle_${uniqueId}`);
+    const autoLoginBtn = isAutoLoginDisabled
+        ? createButton("✅ Выйти с автр.", `local_autologin_toggle_${uniqueId}`)
+        : createButton("🚫 Уйти на автр.", `local_autologin_toggle_${uniqueId}`);
     const replyMarkup = {
         inline_keyboard: [
             [createButton("🚶 Движение", `show_movement_controls_${uniqueId}`)],
@@ -1106,6 +1114,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
             [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
             [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
             [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
+            [pauseBtn, autoLoginBtn],
             [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
         ]
     };
@@ -1229,7 +1238,8 @@ function getNotificationReplyMarkup() {
                 createButton("📝 Ответить", `admin_reply_${uniqueId}`),
                 createButton("🚶 Движения", `show_movement_${uniqueId}`)
             ],
-            [pauseBtn, autoLoginBtn]
+            [pauseBtn, autoLoginBtn],
+            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
         ]
     };
 }
@@ -1539,6 +1549,10 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('local_warning_on_', '');
             } else if (message.startsWith('local_warning_off_')) {
                 callbackUniqueId = message.replace('local_warning_off_', '');
+            } else if (message.startsWith('local_pause_toggle_')) {
+                callbackUniqueId = message.replace('local_pause_toggle_', '');
+            } else if (message.startsWith('local_autologin_toggle_')) {
+                callbackUniqueId = message.replace('local_autologin_toggle_', '');
             } else if (message.startsWith('move_forward_')) {
                 callbackUniqueId = message.replace('move_forward_', '').replace('_notification', '');
             } else if (message.startsWith('move_back_')) {
@@ -1960,6 +1974,33 @@ function processUpdates(updates) {
                 config.warningNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
+            } else if (message.startsWith("local_pause_toggle_")) {
+                // Переключение паузы из меню Функции
+                const isPaused = !!window.getInterfaceStatus("PauseMenu");
+                try {
+                    if (isPaused) {
+                        closeInterface("PauseMenu");
+                        sendToTelegram(`▶️ <b>Вышли из паузы (${displayName})</b>`, true, null);
+                    } else {
+                        openInterface("PauseMenu");
+                        sendToTelegram(`⏸️ <b>Вошли в паузу (${displayName})</b>`, true, null);
+                    }
+                } catch(e) {
+                    sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null);
+                }
+                setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 300);
+            } else if (message.startsWith("local_autologin_toggle_")) {
+                // Переключение автовхода из меню Функции
+                if (autoLoginConfig.enabled) {
+                    autoLoginConfig.enabled = false;
+                    sendChatInput("/rec 5");
+                    sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                } else {
+                    autoLoginConfig.enabled = true;
+                    sendChatInput("/rec 5");
+                    sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                }
+                setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 100);
             }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
