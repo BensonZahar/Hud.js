@@ -1212,6 +1212,28 @@ function hideControlsMenu(chatId, messageId) {
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 // END MENU MODULE //
+// START NOTIFICATION BUTTONS HELPER //
+// Возвращает разметку кнопок для уведомлений (Ответить, Движения, Пауза, Авторизация)
+function getNotificationReplyMarkup() {
+    const isPaused = !!window.getInterfaceStatus("PauseMenu");
+    const isAutoLoginDisabled = !autoLoginConfig.enabled;
+    const pauseBtn = isPaused
+        ? createButton("▶️ Выйти с паузы", `pause_exit_${uniqueId}`)
+        : createButton("⏸️ Уйти на паузу", `pause_enter_${uniqueId}`);
+    const autoLoginBtn = isAutoLoginDisabled
+        ? createButton("✅ Выйти с автр.", `autologin_on_${uniqueId}`)
+        : createButton("🚫 Уйти на автр.", `autologin_off_${uniqueId}`);
+    return {
+        inline_keyboard: [
+            [
+                createButton("📝 Ответить", `admin_reply_${uniqueId}`),
+                createButton("🚶 Движения", `show_movement_${uniqueId}`)
+            ],
+            [pauseBtn, autoLoginBtn]
+        ]
+    };
+}
+// END NOTIFICATION BUTTONS HELPER //
 // START TELEGRAM COMMANDS MODULE //
 function checkTelegramCommands() {
     // Случайная задержка 0-500 мс для снижения race condition
@@ -1537,6 +1559,14 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('admin_reply_', '');
             } else if (message.startsWith('back_to_notification_')) {
                 callbackUniqueId = message.replace('back_to_notification_', '');
+            } else if (message.startsWith('pause_enter_')) {
+                callbackUniqueId = message.replace('pause_enter_', '');
+            } else if (message.startsWith('pause_exit_')) {
+                callbackUniqueId = message.replace('pause_exit_', '');
+            } else if (message.startsWith('autologin_off_')) {
+                callbackUniqueId = message.replace('autologin_off_', '');
+            } else if (message.startsWith('autologin_on_')) {
+                callbackUniqueId = message.replace('autologin_on_', '');
             } else if (message.startsWith('show_local_soob_options_')) {
                 callbackUniqueId = message.replace('show_local_soob_options_', '');
             } else if (message.startsWith('show_local_mesto_options_')) {
@@ -1859,15 +1889,37 @@ function processUpdates(updates) {
                     sendToTelegram(errorMsg, false, null);
                 }
             } else if (message.startsWith("back_to_notification_")) {
-                const replyMarkup = {
-                    inline_keyboard: [
-                        [
-                            createButton("📝 Ответить", `admin_reply_${callbackUniqueId}`),
-                            createButton("🚶 Движения", `show_movement_${callbackUniqueId}`)
-                        ]
-                    ]
-                };
-                editMessageReplyMarkup(chatId, messageId, replyMarkup);
+                editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
+            } else if (message.startsWith("pause_enter_")) {
+                // Уйти на паузу
+                try {
+                    openInterface("PauseMenu");
+                    sendToTelegram(`⏸️ <b>Вошли в паузу (${displayName})</b>`, true, null);
+                } catch(e) {
+                    sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null);
+                }
+                setTimeout(() => editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup()), 300);
+            } else if (message.startsWith("pause_exit_")) {
+                // Выйти с паузы
+                try {
+                    closeInterface("PauseMenu");
+                    sendToTelegram(`▶️ <b>Вышли из паузы (${displayName})</b>`, true, null);
+                } catch(e) {
+                    sendToTelegram(`❌ <b>Ошибка выхода из паузы (${displayName}):</b> ${e.message}`, false, null);
+                }
+                setTimeout(() => editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup()), 300);
+            } else if (message.startsWith("autologin_off_")) {
+                // Уйти на авторизацию (отключить автовход + /rec 5)
+                autoLoginConfig.enabled = false;
+                sendChatInput("/rec 5");
+                sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
+            } else if (message.startsWith("autologin_on_")) {
+                // Вернуться с авторизации (включить автовход + /rec 5)
+                autoLoginConfig.enabled = true;
+                sendChatInput("/rec 5");
+                sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
             } else if (message.startsWith("show_local_soob_options_")) {
                 showLocalSoobOptionsMenu(chatId, messageId);
             } else if (message.startsWith("show_local_mesto_options_")) {
@@ -2087,6 +2139,12 @@ function processSalaryAndBalance(msg) {
         
         sendToTelegram(message);
         config.lastSalaryInfo = null;
+
+        // Если ждём PayDay после строя — выходим из игры НЕМЕДЛЕННО
+        if (waitingForPayDay) {
+            debugLog('PayDay получен во время ожидания после строя — выходим немедленно');
+            exitAfterStroiPayDay('processSalaryAndBalance');
+        }
     }
 }
 function checkGovMessageConditions(msg, senderName, senderId) {
@@ -2139,6 +2197,8 @@ function checkGovMessageConditions(msg, senderName, senderId) {
 let waitingForPayDay = false;
 let stroiReconnectTimer = null;
 let payDayResetTimer = null;
+let stroiKeepAliveTimer = null;  // Таймер для повторных /rec 5 пока ждём на авторизации
+let stroiAutoLoginTimer = null;  // Таймер для включения автовхода перед PayDay
 
 // Функция для получения текущих минут
 function getCurrentMinutes() {
@@ -2156,10 +2216,10 @@ function isPayDayApproaching() {
 // Функция для сброса флага PayDay
 function resetPayDayFlag() {
     waitingForPayDay = false;
-    if (payDayResetTimer) {
-        clearTimeout(payDayResetTimer);
-        payDayResetTimer = null;
-    }
+    if (payDayResetTimer) { clearTimeout(payDayResetTimer); payDayResetTimer = null; }
+    if (stroiKeepAliveTimer) { clearTimeout(stroiKeepAliveTimer); stroiKeepAliveTimer = null; }
+    if (stroiAutoLoginTimer) { clearTimeout(stroiAutoLoginTimer); stroiAutoLoginTimer = null; }
+    if (stroiReconnectTimer) { clearTimeout(stroiReconnectTimer); stroiReconnectTimer = null; }
     debugLog('Флаг ожидания PayDay сброшен');
 }
 
@@ -2204,56 +2264,26 @@ function getTimeUntilPayDay() {
 
 // Улучшенная функция реконнекта при строе
 function performStroiReconnect() {
-    const currentMinutes = getCurrentMinutes();
-    const currentSeconds = new Date().getSeconds();
-    
+    const now = new Date();
+    const currentMinutes = now.getMinutes();
+    const currentSeconds = now.getSeconds();
+
     // Если уже ждём PayDay - игнорируем повторные сообщения о строе
     if (waitingForPayDay) {
         debugLog(`Игнорируем повторное сообщение о строе - уже ждём PayDay`);
         sendToTelegram(
             `🔕 <b>Повторный строй проигнорирован (${displayName})</b>\n` +
             `💰 Уже ждём PayDay, реконнект запланирован`,
-            true, // silent
-            null
+            true, null
         );
         return;
     }
-    
+
     if (isPayDayApproaching()) {
-        // Реальное время входа в игру после /rec 5 — ~30 секунд
-        const RECONNECT_TIME = 30 * 1000;
         const timeToPayDay = getTimeUntilPayDay();
         const minutesLeft = Math.ceil(timeToPayDay / 60000);
 
-        // Если до PayDay меньше 30 секунд — не успеем переподключиться, остаёмся в игре
-        if (timeToPayDay < RECONNECT_TIME) {
-            debugLog(`До PayDay менее 30 сек — реконнект не выполняем, остаёмся в игре`);
-            sendToTelegram(
-                `⚠️ <b>Строй (${displayName})</b>\n` +
-                `🕐 Текущее время: ${currentMinutes} мин ${currentSeconds} сек\n` +
-                `⏰ До PayDay менее 30 сек — остаёмся в игре!`,
-                false, null
-            );
-            return;
-        }
-
-        // Расчёт времён:
-        // Цель: быть В ИГРЕ ровно в :00
-        // Для этого нужно включить автовход за RECONNECT_TIME (30 сек) до PayDay
-        // Отключиться нужно минимум за (RECONNECT_TIME + 5 сек) до включения автовхода
-
-        // Когда отключаться: за 60 сек до PayDay (30 сек на авторизации + 30 сек вход)
-        const timeToDisconnect = Math.max(0, timeToPayDay - 60 * 1000);
-
-        // Сколько ждать ПОСЛЕ отключения перед включением автовхода
-        // = timeToPayDay - timeToDisconnect - RECONNECT_TIME
-        // Минимум 5 сек (чтобы точно попасть на экран авторизации после /rec 5)
-        const waitAfterDisconnect = Math.max(5 * 1000, timeToPayDay - timeToDisconnect - RECONNECT_TIME);
-
-        const disconnectInSeconds = Math.ceil(timeToDisconnect / 1000);
-        const totalSecondsToLogin = Math.ceil((timeToDisconnect + waitAfterDisconnect) / 1000);
-
-        waitingForPayDay = true; // Устанавливаем флаг ожидания
+        waitingForPayDay = true;
 
         // Автосброс флага через 5 минут на случай нештатных ситуаций
         payDayResetTimer = setTimeout(() => {
@@ -2261,101 +2291,48 @@ function performStroiReconnect() {
             debugLog('Автоматический сброс флага PayDay по таймауту');
         }, 5 * 60 * 1000);
 
-        debugLog(`Строй обнаружен в ${currentMinutes}:${currentSeconds}, PayDay через ${minutesLeft} мин — реконнект через ${disconnectInSeconds} сек, автовход через ${totalSecondsToLogin} сек`);
+        // ШАГ 1: Немедленно отключаемся
+        autoLoginConfig.enabled = false;
+        sendChatInput("/rec 5");
 
         sendToTelegram(
             `⚠️ <b>Строй обнаружен (${displayName})</b>\n` +
             `🕐 Текущее время: ${currentMinutes} мин ${currentSeconds} сек\n` +
             `⏰ До PayDay: ${minutesLeft} мин\n` +
-            `🔌 Реконнект через ${disconnectInSeconds} сек\n` +
-            `🔑 Автовход через ${totalSecondsToLogin} сек (за ~30 сек до PayDay)`,
-            false,
-            null
+            `🔌 /rec 5 отправлен — ждём на авторизации\n` +
+            `🔑 Переподключимся за 60 сек до PayDay`,
+            false, null
         );
 
-        // Шаг 1: Отключаемся в нужное время
-        stroiReconnectTimer = setTimeout(() => {
-            autoLoginConfig.enabled = false;
+        // ШАГ 2: За 60 секунд до PayDay — включаем автовход и /rec 5
+        const timeToReconnect = Math.max(1000, timeToPayDay - 60 * 1000);
+
+        stroiAutoLoginTimer = setTimeout(() => {
+            autoLoginConfig.enabled = true;
             sendChatInput("/rec 5");
 
-            const nowMinutes = getCurrentMinutes();
-            const nowSecs = new Date().getSeconds();
+            const loginMinutes = getCurrentMinutes();
+            const loginSecs = new Date().getSeconds();
             sendToTelegram(
-                `🔄 <b>Отключён автовход, отправлен /rec 5 (${displayName})</b>\n` +
-                `🕐 Текущее время: ${nowMinutes} мин ${nowSecs} сек\n` +
-                `⏰ Висим на авторизации. Автовход включим через ${Math.ceil(waitAfterDisconnect / 1000)} сек`,
-                false,
-                null
+                `🔄 <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
+                `🕐 Текущее время: ${loginMinutes} мин ${loginSecs} сек\n` +
+                `💰 PayDay через ~60 сек — входим в игру`,
+                false, null
             );
+        }, timeToReconnect);
 
-            // Шаг 2: Включаем автовход за 30 сек до PayDay
-            // НЕ шлём /rec 5 снова — мы уже на экране авторизации после первого!
-            // Просто вызываем setupAutoLogin() чтобы ввести пароль на открытом экране.
-            setTimeout(() => {
-                autoLoginConfig.enabled = true;
-                setupAutoLogin(); // Вводим пароль на уже открытом экране авторизации
-
-                const loginMinutes = getCurrentMinutes();
-                const loginSecs = new Date().getSeconds();
-                sendToTelegram(
-                    `✅ <b>Автовход включён, входим в игру (${displayName})</b>\n` +
-                    `🕐 Текущее время: ${loginMinutes} мин ${loginSecs} сек\n` +
-                    `💰 PayDay через ~30 сек — должны успеть!`,
-                    false,
-                    null
-                );
-
-                // Шаг 3: Ждём PayDay + 15 секунд на обработку
-                const remainingTimeToPayDay = getTimeUntilPayDay();
-                setTimeout(() => {
-                    debugLog(`PayDay должен быть получен, выполняем финальный реконнект`);
-
-                    autoLoginConfig.enabled = false;
-                    sendChatInput("/rec 5");
-
-                    sendToTelegram(
-                        `💰 <b>PayDay получен! (${displayName})</b>\n` +
-                        `🔄 Отключён автовход и отправлен /rec 5\n` +
-                        `⏰ Через 2 минуты вернёмся`,
-                        false,
-                        null
-                    );
-
-                    // Шаг 4: Через 2 минуты возвращаемся
-                    setTimeout(() => {
-                        autoLoginConfig.enabled = true;
-                        sendChatInput("/rec 5");
-
-                        resetPayDayFlag(); // Сбрасываем флаг ожидания
-
-                        sendToTelegram(
-                            `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
-                            `✅ Включён автовход и отправлен /rec 5\n` +
-                            `📢 Готовы к новым строям`,
-                            false,
-                            null
-                        );
-                    }, 2 * 60 * 1000); // 2 минуты
-
-                }, remainingTimeToPayDay + 15000); // PayDay + 15 секунд
-
-            }, waitAfterDisconnect); // Динамический расчёт — за 30 сек до PayDay
-
-        }, timeToDisconnect > 0 ? timeToDisconnect : 100);
-        
     } else {
-        // Если до PayDay далеко (0-52 минуты) - стандартный реконнект
+        // До PayDay далеко (0-52 минуты) — стандартный реконнект
         debugLog(`Строй обнаружен в ${currentMinutes} минут, до PayDay далеко - стандартный реконнект`);
-        
+
         sendToTelegram(
             `📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n` +
             `🕐 Текущее время: ${currentMinutes} минут\n` +
             `⏰ До PayDay: ${60 - currentMinutes} мин\n` +
             `🔄 Выполняем стандартный реконнект`,
-            false,
-            null
+            false, null
         );
-        
+
         setTimeout(() => {
             performReconnect(5 * 60 * 1000);
         }, 30);
@@ -2371,6 +2348,47 @@ function cancelStroiReconnect() {
     resetPayDayFlag();
     debugLog('Отменено ожидание PayDay после строя');
 }
+
+// Выход из игры сразу после получения PayDay при строе
+function exitAfterStroiPayDay(source) {
+    if (!waitingForPayDay) return; // Уже обработано
+    debugLog(`exitAfterStroiPayDay вызван из: ${source}`);
+
+    // Останавливаем все таймеры ожидания
+    if (stroiReconnectTimer) { clearTimeout(stroiReconnectTimer); stroiReconnectTimer = null; }
+    if (stroiKeepAliveTimer) { clearTimeout(stroiKeepAliveTimer); stroiKeepAliveTimer = null; }
+    if (stroiAutoLoginTimer) { clearTimeout(stroiAutoLoginTimer); stroiAutoLoginTimer = null; }
+
+    // Немедленно выходим из игры
+    autoLoginConfig.enabled = false;
+    sendChatInput("/rec 5");
+
+    const exitMinutes = getCurrentMinutes();
+    const exitSecs = new Date().getSeconds();
+    sendToTelegram(
+        `💰 <b>PayDay получен — выходим СРАЗУ! (${displayName})</b>\n` +
+        `🕐 Время выхода: ${exitMinutes} мин ${exitSecs} сек\n` +
+        `🔄 Отключён автовход и отправлен /rec 5\n` +
+        `⏰ Вернёмся через 2 минуты`,
+        false, null
+    );
+
+    // Через 2 минуты включаем автовход и возвращаемся
+    setTimeout(() => {
+        autoLoginConfig.enabled = true;
+        sendChatInput("/rec 5");
+
+        resetPayDayFlag(); // Сбрасываем флаг ожидания
+
+        sendToTelegram(
+            `🔄 <b>Возвращаемся после строя (${displayName})</b>\n` +
+            `✅ Включён автовход и отправлен /rec 5\n` +
+            `📢 Готовы к новым строям`,
+            false, null
+        );
+    }, 2 * 60 * 1000);
+}
+
 
 // ==================== END SMART STROI SYSTEM ====================
 function initializeChatMonitor() {
@@ -2445,27 +2463,13 @@ function initializeChatMonitor() {
         }
         if (lowerCaseMessage.includes("зареспавнил вас")) {
             debugLog(`Обнаружен респавн для ${displayName}!`);
-            const replyMarkup = {
-                inline_keyboard: [
-                    [
-                        createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-                        createButton("🚶 Движения", `show_movement_${uniqueId}`)
-                    ]
-                ]
-            };
+            const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`🔄 <b>Вас зареспавнили!! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
         }
         if (lowerCaseMessage.includes("вы были кикнуты по подозрению в читерстве")) {
             debugLog(`Обнаружен кик анти-читом для ${displayName}!`);
-            const replyMarkup = {
-                inline_keyboard: [
-                    [
-                        createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-                        createButton("🚶 Движения", `show_movement_${uniqueId}`)
-                    ]
-                ]
-            };
+            const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`🚫 <b>Вас кикнул анти-чит! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             setTimeout(() => {
@@ -2480,14 +2484,7 @@ function initializeChatMonitor() {
             const prisonMinutes = parseInt(prisonMatch[3]);
             const reason = prisonMatch[4];
             debugLog(`Обнаружена посадка в тюрьму для ${displayName} на ${prisonMinutes} мин!`);
-            const replyMarkup = {
-                inline_keyboard: [
-                    [
-                        createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-                        createButton("🚶 Движения", `show_movement_${uniqueId}`)
-                    ]
-                ]
-            };
+            const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`🚨 <b>Посадили в тюрьму! (${displayName})</b>\nАдмин: ${adminName}\nВремя: ${prisonMinutes} мин\nПричина: ${reason}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             globalState.isPrison = true; // Устанавливаем флаг для игнора /rec при следующем кике
@@ -2576,14 +2573,7 @@ function initializeChatMonitor() {
             // Проверяем, что сообщение отправлено из радиуса CLOSE
             if (chatRadius === CHAT_RADIUS.CLOSE) {
                 if (checkGovMessageConditions(messageText, senderName, senderId)) {
-                    const replyMarkup = {
-                        inline_keyboard: [
-                            [
-                                createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-                                createButton("🚶 Движения", `show_movement_${uniqueId}`)
-                            ]
-                        ]
-                    };
+                    const replyMarkup = getNotificationReplyMarkup();
                     sendToTelegram(`🏛️ <b>Сообщение от сотрудника фракции (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`, false, replyMarkup);
                 }
             }
@@ -2611,14 +2601,7 @@ function initializeChatMonitor() {
                 config.podbrosCounter++;
                 if (config.podbrosCounter <= 2) {
                     debugLog('Обнаружен подброс!');
-                    const replyMarkup = {
-                        inline_keyboard: [
-                            [
-                                createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-                                createButton("🚶 Движения", `show_movement_${uniqueId}`)
-                            ]
-                        ]
-                    };
+                    const replyMarkup = getNotificationReplyMarkup();
                     sendToTelegram(`🚨 <b>Обнаружен подброс! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
                     window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
                 }
@@ -2628,14 +2611,7 @@ function initializeChatMonitor() {
                 config.lastPodbrosTime = currentTime;
             } else {
                 debugLog('Обнаружен администратор!');
-                const replyMarkup = {
-                    inline_keyboard: [
-                        [
-                            createButton("📝 Ответить администратору", `admin_reply_${uniqueId}`),
-                            createButton("🚶 Движения", `show_movement_${uniqueId}`)
-                        ]
-                    ]
-                };
+                const replyMarkup = getNotificationReplyMarkup();
                 sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
             }
@@ -2695,14 +2671,7 @@ function initializeChatMonitor() {
             lowerCaseMessage.indexOf("кикнул") !== -1 &&
             msg.includes(config.accountInfo.nickname)) {
             debugLog(`Обнаружен кик ${displayName}!`);
-            const replyMarkup = {
-                inline_keyboard: [
-                    [
-                        createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-                        createButton("🚶 Движения", `show_movement_${uniqueId}`)
-                    ]
-                ]
-            };
+            const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`💢 <b>КИК АДМИНИСТРАТОРА! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             if (!globalState.isPrison) {
@@ -2713,14 +2682,7 @@ function initializeChatMonitor() {
         }
         if (!isNonRPMessage(msg) && checkLocationRequest(msg, lowerCaseMessage, chatRadius)) {
             debugLog('Обнаружен запрос местоположения!');
-            const replyMarkup = {
-                inline_keyboard: [
-                    [
-                        createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-                        createButton("🚶 Движения", `show_movement_${uniqueId}`)
-                    ]
-                ]
-            };
+            const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`📍 <b>Обнаружен запрос местоположения (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
         }
         if (!isNonRPMessage(msg) && checkAFKConditions(msg, lowerCaseMessage)) {
@@ -2731,14 +2693,7 @@ function initializeChatMonitor() {
         // Проверка сообщений с рации
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
             debugLog('Обнаружено сообщение с рации!');
-            const replyMarkup = {
-                inline_keyboard: [
-                    [
-                        createButton("📝 Ответить", `admin_reply_${uniqueId}`),
-                        createButton("🚶 Движения", `show_movement_${uniqueId}`)
-                    ]
-                ]
-            };
+            const replyMarkup = getNotificationReplyMarkup();
             // Звук только если отправитель имеет звание 6-10 ранга
             const radioHighRank = isHighRankRadioMessage(msg);
             sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
