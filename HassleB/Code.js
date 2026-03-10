@@ -524,73 +524,6 @@ function deleteMessage(chatId, messageId) {
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify(payload));
 }
-// Функция спам-пингов при обнаружении администратора
-// Отправляет 15 сообщений по одному каждые 2 секунды.
-// Каждое НОВОЕ сообщение ждёт ответа от API, сохраняет свой message_id,
-// а затем через 2 секунды удаляет себя и отправляет следующее.
-// Последнее (15-е) сообщение остаётся.
-function sendAdminSpamAlert(adminMsg) {
-    const TOTAL_PINGS = 15;
-    const INTERVAL_MS = 2000;
-    const replyMarkup = getNotificationReplyMarkup();
-
-    // Запускаем цепочку для каждого чата независимо
-    config.chatIds.forEach(chatId => {
-        let pingCount = 0;
-        let lastMessageId = null;
-
-        function sendPing() {
-            pingCount++;
-            const pingText =
-                `⚠️ <b>АДМИН! ОТВЕТЬ! (${pingCount}/${TOTAL_PINGS})</b>\n` +
-                `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
-                `<code>${adminMsg.replace(/</g, '&lt;')}</code>`;
-
-            // Сначала удаляем предыдущее ping-сообщение
-            if (lastMessageId) {
-                deleteMessage(chatId, lastMessageId);
-                lastMessageId = null;
-            }
-
-            // Отправляем новое
-            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
-            const payload = {
-                chat_id: chatId,
-                text: pingText,
-                parse_mode: 'HTML',
-                disable_notification: false,
-                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-            };
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', url, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    try {
-                        const data = JSON.parse(xhr.responseText);
-                        lastMessageId = data.result.message_id;
-                    } catch (e) {
-                        debugLog(`[AdminSpam] Ошибка парсинга: ${e.message}`);
-                    }
-                }
-                // Следующий пинг запускается только ПОСЛЕ получения ID текущего
-                if (pingCount < TOTAL_PINGS) {
-                    setTimeout(sendPing, INTERVAL_MS);
-                }
-                // Последнее сообщение (15-е) НЕ удаляем — оно остаётся
-            };
-            xhr.onerror = function() {
-                debugLog(`[AdminSpam] Ошибка сети при пинге ${pingCount}`);
-                if (pingCount < TOTAL_PINGS) {
-                    setTimeout(sendPing, INTERVAL_MS);
-                }
-            };
-            xhr.send(JSON.stringify(payload));
-        }
-
-        sendPing();
-    });
-}
 function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
     config.chatIds.forEach(chatId => {
         const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
@@ -1472,7 +1405,22 @@ function processUpdates(updates) {
                 }
             }
             // Глобальные команды (работают на все аккаунты)
-            if (message === '/p_off') {
+            if (message === '/reload') {
+                // Перезагрузка скриптов — каждый аккаунт реагирует только на свой chatId
+                sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
+                debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
+                setTimeout(() => {
+                    try {
+                        if (typeof window.initializeScripts === 'function') {
+                            window.initializeScripts();
+                        } else {
+                            sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
+                        }
+                    } catch (err) {
+                        sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
+                    }
+                }, 500);
+            } else if (message === '/p_off') {
                 config.paydayNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
@@ -2722,8 +2670,6 @@ function initializeChatMonitor() {
                 const replyMarkup = getNotificationReplyMarkup();
                 sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
-                // 15 пингов каждые 2 сек — каждый удаляет предыдущий, последний остаётся
-                sendAdminSpamAlert(msg);
             }
         }
 		if (!isNonRPMessage(msg) && getHighRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
