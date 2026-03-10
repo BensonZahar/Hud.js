@@ -532,7 +532,7 @@ function deleteMessage(chatId, messageId) {
 // Следующий пинг запускается строго внутри onload, после получения message_id.
 // Последнее (15-е) сообщение остаётся навсегда.
 function sendAdminSpamAlert(adminMsg) {
-    const TOTAL_PINGS = 15;
+    const TOTAL_PINGS = 9;
     const INTERVAL_MS = 2000;
     const replyMarkup = getNotificationReplyMarkup();
 
@@ -687,7 +687,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot TG</b>\n` +
+    const message = `🟢 <b>Hassle | Bot 2026</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2725,7 +2725,11 @@ function initializeChatMonitor() {
             (msg.includes("[A]") && msg.includes("((")) ||
             (lowerCaseMessage.includes("подбросил") &&
             (currentTime - config.lastPodbrosTime > config.podbrosCooldown || config.podbrosCounter < 2))) {
-            if (lowerCaseMessage.includes("подбросил")) {
+            // Игнорируем сообщения от департамента [D] с розовым цветом {FF8877}
+            const isDepartmentMessage = msg.includes('[D]') && msg.includes('{FF8877}');
+            if (isDepartmentMessage) {
+                debugLog('Сообщение от департамента [D] — игнорируем');
+            } else if (lowerCaseMessage.includes("подбросил")) {
                 config.podbrosCounter++;
                 if (config.podbrosCounter <= 2) {
                     debugLog('Обнаружен подброс!');
@@ -2742,7 +2746,7 @@ function initializeChatMonitor() {
                 const replyMarkup = getNotificationReplyMarkup();
                 sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
-                // 15 пингов каждые 2 сек — каждый удаляет предыдущий, последний остаётся
+                // 9 пингов каждые 2 сек — каждый удаляет предыдущий, последний остаётся
                 sendAdminSpamAlert(msg);
             }
         }
