@@ -524,6 +524,57 @@ function deleteMessage(chatId, messageId) {
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify(payload));
 }
+// Функция спам-пингов при обнаружении администратора
+// Отправляет 15 сообщений по одному в секунду, каждое удаляет предыдущее
+function sendAdminSpamAlert(adminMsg) {
+    const TOTAL_PINGS = 15;
+    let currentPing = 0;
+    const chatStates = {}; // chatId -> id последнего ping-сообщения
+
+    function sendNextPing() {
+        if (currentPing >= TOTAL_PINGS) return;
+        currentPing++;
+
+        const pingText = `🔴 <b>⚠️ АДМИН! ОТВЕТЬ! (${displayName})</b>\n🔔 Пинг ${currentPing}/${TOTAL_PINGS}\n<code>${adminMsg.replace(/</g, '&lt;')}</code>`;
+
+        config.chatIds.forEach(chatId => {
+            // Удаляем предыдущий пинг
+            if (chatStates[chatId]) {
+                deleteMessage(chatId, chatStates[chatId]);
+                chatStates[chatId] = null;
+            }
+
+            // Отправляем новый пинг
+            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+            const payload = {
+                chat_id: chatId,
+                text: pingText,
+                parse_mode: 'HTML',
+                disable_notification: false
+            };
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    try {
+                        const data = JSON.parse(xhr.responseText);
+                        chatStates[chatId] = data.result.message_id;
+                    } catch (e) {
+                        debugLog(`[AdminSpam] Ошибка парсинга ответа: ${e.message}`);
+                    }
+                }
+            };
+            xhr.send(JSON.stringify(payload));
+        });
+
+        if (currentPing < TOTAL_PINGS) {
+            setTimeout(sendNextPing, 1000);
+        }
+    }
+
+    sendNextPing();
+}
 function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
     config.chatIds.forEach(chatId => {
         const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
@@ -2655,6 +2706,8 @@ function initializeChatMonitor() {
                 const replyMarkup = getNotificationReplyMarkup();
                 sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+                // 15 пингов по 1 в секунду — каждый удаляет предыдущий, основное сообщение выше остаётся
+                sendAdminSpamAlert(msg);
             }
         }
 		if (!isNonRPMessage(msg) && getHighRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
