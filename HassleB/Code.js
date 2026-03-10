@@ -437,12 +437,12 @@ function updateFaction() {
 }
 function trackSkinId() {
     if (!config.trackSkinId) return;
-    if (window._hassleReloading) return; // Стоп при перезагрузке
+    if (window._hassleReloading) return;
     const currentSkin = getSkinIdFromStore();
     if (currentSkin !== null && currentSkin !== config.accountInfo.skinId) {
         config.accountInfo.skinId = currentSkin;
         debugLog(`Обнаружен новый Skin ID (поллинг): ${currentSkin}`);
-        updateFaction();
+        updateFaction(); // Обновляем фракцию
     }
     setTimeout(trackSkinId, config.skinCheckInterval);
 }
@@ -460,7 +460,7 @@ window.setPlayerSkinId = function(skinId) {
 };
 function trackPlayerId() {
     if (!config.trackPlayerId) return;
-    if (window._hassleReloading) return; // Стоп при перезагрузке
+    if (window._hassleReloading) return;
     const currentId = getPlayerIdFromHUD();
     if (currentId && currentId !== config.lastPlayerId) {
         debugLog(`Обнаружен новый ID (HUD): ${currentId}`);
@@ -475,7 +475,7 @@ function updateDisplayName() {
     debugLog(`Обновлён displayName: ${displayName}`);
 }
 function trackNicknameAndServer() {
-    if (window._hassleReloading) return; // Стоп при перезагрузке
+    if (window._hassleReloading) return;
     try {
         const nickname = window.interface("Menu").$store.getters["menu/nickName"];
         const serverId = window.interface("Menu").$store.getters["menu/selectedServer"];
@@ -526,6 +526,68 @@ function deleteMessage(chatId, messageId) {
     xhr.open('POST', url, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
     xhr.send(JSON.stringify(payload));
+}
+// Функция спам-пингов при обнаружении администратора.
+// Отправляет 15 сообщений каждые 2 секунды — каждое удаляет предыдущее.
+// Следующий пинг запускается строго внутри onload, после получения message_id.
+// Последнее (15-е) сообщение остаётся навсегда.
+function sendAdminSpamAlert(adminMsg) {
+    const TOTAL_PINGS = 15;
+    const INTERVAL_MS = 2000;
+    const replyMarkup = getNotificationReplyMarkup();
+
+    config.chatIds.forEach(chatId => {
+        let pingCount = 0;
+        let lastMessageId = null;
+
+        function sendPing() {
+            if (window._hassleReloading) return;
+            pingCount++;
+            const pingText =
+                `⚠️ <b>АДМИН! ОТВЕТЬ! (${pingCount}/${TOTAL_PINGS})</b>\n` +
+                `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
+                `<code>${adminMsg.replace(/</g, '&lt;')}</code>`;
+
+            if (lastMessageId) {
+                deleteMessage(chatId, lastMessageId);
+                lastMessageId = null;
+            }
+
+            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+            const payload = {
+                chat_id: chatId,
+                text: pingText,
+                parse_mode: 'HTML',
+                disable_notification: false,
+                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+            };
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    try {
+                        const data = JSON.parse(xhr.responseText);
+                        lastMessageId = data.result.message_id;
+                    } catch (e) {
+                        debugLog(`[AdminSpam] Ошибка парсинга: ${e.message}`);
+                    }
+                }
+                if (pingCount < TOTAL_PINGS) {
+                    setTimeout(sendPing, INTERVAL_MS);
+                }
+            };
+            xhr.onerror = function() {
+                debugLog(`[AdminSpam] Ошибка сети при пинге ${pingCount}`);
+                if (pingCount < TOTAL_PINGS) {
+                    setTimeout(sendPing, INTERVAL_MS);
+                }
+            };
+            xhr.send(JSON.stringify(payload));
+        }
+
+        sendPing();
+    });
 }
 function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
     config.chatIds.forEach(chatId => {
@@ -1249,7 +1311,7 @@ function getNotificationReplyMarkup() {
 // END NOTIFICATION BUTTONS HELPER //
 // START TELEGRAM COMMANDS MODULE //
 function checkTelegramCommands() {
-    if (window._hassleReloading) return; // Стоп при перезагрузке
+    if (window._hassleReloading) return;
     // Случайная задержка 0-500 мс для снижения race condition
     const randomDelay = Math.floor(Math.random() * 500);
     setTimeout(() => {
@@ -1415,10 +1477,9 @@ function processUpdates(updates) {
                 } else {
                     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
                     debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
-                    // Останавливаем все циклы текущего экземпляра
                     window._hassleReloading = true;
                     setTimeout(() => {
-                        window._hassleReloading = false; // Сбросим флаг — новый Code.js сам всё запустит
+                        window._hassleReloading = false;
                         try {
                             if (typeof window.initializeScripts === 'function') {
                                 window.initializeScripts();
@@ -2681,6 +2742,8 @@ function initializeChatMonitor() {
                 const replyMarkup = getNotificationReplyMarkup();
                 sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+                // 15 пингов каждые 2 сек — каждый удаляет предыдущий, последний остаётся
+                sendAdminSpamAlert(msg);
             }
         }
 		if (!isNonRPMessage(msg) && getHighRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
