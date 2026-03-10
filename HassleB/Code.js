@@ -525,32 +525,41 @@ function deleteMessage(chatId, messageId) {
     xhr.send(JSON.stringify(payload));
 }
 // Функция спам-пингов при обнаружении администратора
-// Отправляет 15 сообщений по одному в секунду, каждое удаляет предыдущее
+// Отправляет 15 сообщений по одному каждые 2 секунды.
+// Каждое НОВОЕ сообщение ждёт ответа от API, сохраняет свой message_id,
+// а затем через 2 секунды удаляет себя и отправляет следующее.
+// Последнее (15-е) сообщение остаётся.
 function sendAdminSpamAlert(adminMsg) {
     const TOTAL_PINGS = 15;
-    let currentPing = 0;
-    const chatStates = {}; // chatId -> id последнего ping-сообщения
+    const INTERVAL_MS = 2000;
+    const replyMarkup = getNotificationReplyMarkup();
 
-    function sendNextPing() {
-        if (currentPing >= TOTAL_PINGS) return;
-        currentPing++;
+    // Запускаем цепочку для каждого чата независимо
+    config.chatIds.forEach(chatId => {
+        let pingCount = 0;
+        let lastMessageId = null;
 
-        const pingText = `🔴 <b>⚠️ АДМИН! ОТВЕТЬ! (${displayName})</b>\n🔔 Пинг ${currentPing}/${TOTAL_PINGS}\n<code>${adminMsg.replace(/</g, '&lt;')}</code>`;
+        function sendPing() {
+            pingCount++;
+            const pingText =
+                `⚠️ <b>АДМИН! ОТВЕТЬ! (${pingCount}/${TOTAL_PINGS})</b>\n` +
+                `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
+                `<code>${adminMsg.replace(/</g, '&lt;')}</code>`;
 
-        config.chatIds.forEach(chatId => {
-            // Удаляем предыдущий пинг
-            if (chatStates[chatId]) {
-                deleteMessage(chatId, chatStates[chatId]);
-                chatStates[chatId] = null;
+            // Сначала удаляем предыдущее ping-сообщение
+            if (lastMessageId) {
+                deleteMessage(chatId, lastMessageId);
+                lastMessageId = null;
             }
 
-            // Отправляем новый пинг
+            // Отправляем новое
             const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
             const payload = {
                 chat_id: chatId,
                 text: pingText,
                 parse_mode: 'HTML',
-                disable_notification: false
+                disable_notification: false,
+                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
             };
             const xhr = new XMLHttpRequest();
             xhr.open('POST', url, true);
@@ -559,21 +568,28 @@ function sendAdminSpamAlert(adminMsg) {
                 if (xhr.status === 200) {
                     try {
                         const data = JSON.parse(xhr.responseText);
-                        chatStates[chatId] = data.result.message_id;
+                        lastMessageId = data.result.message_id;
                     } catch (e) {
-                        debugLog(`[AdminSpam] Ошибка парсинга ответа: ${e.message}`);
+                        debugLog(`[AdminSpam] Ошибка парсинга: ${e.message}`);
                     }
+                }
+                // Следующий пинг запускается только ПОСЛЕ получения ID текущего
+                if (pingCount < TOTAL_PINGS) {
+                    setTimeout(sendPing, INTERVAL_MS);
+                }
+                // Последнее сообщение (15-е) НЕ удаляем — оно остаётся
+            };
+            xhr.onerror = function() {
+                debugLog(`[AdminSpam] Ошибка сети при пинге ${pingCount}`);
+                if (pingCount < TOTAL_PINGS) {
+                    setTimeout(sendPing, INTERVAL_MS);
                 }
             };
             xhr.send(JSON.stringify(payload));
-        });
-
-        if (currentPing < TOTAL_PINGS) {
-            setTimeout(sendNextPing, 1000);
         }
-    }
 
-    sendNextPing();
+        sendPing();
+    });
 }
 function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
     config.chatIds.forEach(chatId => {
@@ -2706,7 +2722,7 @@ function initializeChatMonitor() {
                 const replyMarkup = getNotificationReplyMarkup();
                 sendToTelegram(`🚨 <b>Обнаружен администратор! (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
-                // 15 пингов по 1 в секунду — каждый удаляет предыдущий, основное сообщение выше остаётся
+                // 15 пингов каждые 2 сек — каждый удаляет предыдущий, последний остаётся
                 sendAdminSpamAlert(msg);
             }
         }
