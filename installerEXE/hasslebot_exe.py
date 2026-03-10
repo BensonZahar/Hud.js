@@ -1273,6 +1273,11 @@ class MEmuHudManager:
             self.replace_with_code(pkg)
         self.mod_done = False
         self.root.after(0, self.update_gui)
+    def simple_obfuscate(self, code):
+        """Python-реализация simpleEncode из encode.js"""
+        codes = [ord(c) for c in code]
+        return f"eval([{','.join(map(str, codes))}].map(function(c){{return String.fromCharCode(c)}}).join(''));"
+
     def replace_with_code(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
         source_file = f"{target_path}/Hud.js"
