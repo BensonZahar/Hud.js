@@ -127,5 +127,9 @@ async function initializeScripts() {
     }
 }
 
+// Экспортируем в глобальную область для доступа из Code.js
+window.CURRENT_USER = currentUser;
+window.initializeScripts = initializeScripts;
+
 // Запуск загрузчика
 initializeScripts();
