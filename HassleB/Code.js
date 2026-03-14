@@ -687,7 +687,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot 2026</b>\n` +
+    const message = `🟢 <b>Hassle | Bot 2026PRAVA</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -3539,15 +3539,136 @@ const VEHICLE_KEY_MAP = {
     '<Keyboard>/h':          '📢 Гудок',
 };
 
-const _origTouchStart = window.onScreenControlTouchStart;
+const vehicleTracker = {
+    active: false,
+    log: [],
+    startTime: null,
+    keyPressTime: {}
+};
+
+function _vehicleTimestamp() {
+    const now = new Date();
+    return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(now.getMilliseconds()).padStart(3,'0')}`;
+}
+
+// Перехват нажатий
+const _origVehicleTouchStart = window.onScreenControlTouchStart;
 window.onScreenControlTouchStart = function(control, ...args) {
-    if (VEHICLE_KEY_MAP[control]) {
-        console.log(`[🚗 АВТО] ${VEHICLE_KEY_MAP[control]} | ${control}`);
+    if (vehicleTracker.active && VEHICLE_KEY_MAP[control]) {
+        const now = Date.now();
+        vehicleTracker.keyPressTime[control] = now;
+        const offsetMs = now - vehicleTracker.startTime;
+        console.log(`[🚗 АВТО] ▼ НАЖАТО   | ${_vehicleTimestamp()} | +${offsetMs}мс | ${VEHICLE_KEY_MAP[control]}`);
+        vehicleTracker.log.push({ type: 'press', control, label: VEHICLE_KEY_MAP[control], offsetMs });
     }
-    if (typeof _origTouchStart === 'function') {
-        return _origTouchStart.call(this, control, ...args);
+    if (typeof _origVehicleTouchStart === 'function') {
+        return _origVehicleTouchStart.call(this, control, ...args);
     }
 };
 
-console.log('[🚗 АВТО] Трекер загружен');
+// Перехват отпусканий
+const _origVehicleTouchEnd = window.onScreenControlTouchEnd;
+window.onScreenControlTouchEnd = function(control, ...args) {
+    if (vehicleTracker.active && VEHICLE_KEY_MAP[control]) {
+        const now = Date.now();
+        const heldMs = vehicleTracker.keyPressTime[control] ? now - vehicleTracker.keyPressTime[control] : 0;
+        const offsetMs = now - vehicleTracker.startTime;
+        delete vehicleTracker.keyPressTime[control];
+        console.log(`[🚗 АВТО] ▲ ОТПУЩЕНО | ${_vehicleTimestamp()} | +${offsetMs}мс | зажато: ${heldMs}мс | ${VEHICLE_KEY_MAP[control]}`);
+        vehicleTracker.log.push({ type: 'release', control, label: VEHICLE_KEY_MAP[control], offsetMs, heldMs });
+    }
+    if (typeof _origVehicleTouchEnd === 'function') {
+        return _origVehicleTouchEnd.call(this, control, ...args);
+    }
+};
+
+// Старт записи
+function vehicleTrackStart() {
+    vehicleTracker.active = true;
+    vehicleTracker.log = [];
+    vehicleTracker.startTime = Date.now();
+    vehicleTracker.keyPressTime = {};
+    showScreenNotification("Hassle", "🚗 Запись маршрута начата", "00FF00", 3000);
+    console.log('[🚗 АВТО] ▶ Запись начата');
+}
+
+// Конец записи + отправка в Telegram
+function vehicleTrackEnd() {
+    if (!vehicleTracker.active) {
+        showScreenNotification("Hassle", "Запись не была запущена", "FF0000", 3000);
+        return;
+    }
+
+    vehicleTracker.active = false;
+    const totalMs = Date.now() - vehicleTracker.startTime;
+    const log = vehicleTracker.log;
+
+    console.log('[🚗 АВТО] ⏹ Запись остановлена');
+    console.table(log);
+
+    if (log.length === 0) {
+        showScreenNotification("Hassle", "Лог пустой, нечего отправлять", "FF6600", 3000);
+        return;
+    }
+
+    // Формируем читаемый текст лога
+    let lines = `🚗 <b>Маршрут записан (${displayName})</b>\n`;
+    lines += `⏱ Длительность: <b>${(totalMs / 1000).toFixed(1)}с</b> | Событий: <b>${log.length}</b>\n\n`;
+    lines += `<code>`;
+
+    for (const entry of log) {
+        if (entry.type === 'press') {
+            lines += `+${String(entry.offsetMs).padStart(6)}мс  ▼  ${entry.label}\n`;
+        } else {
+            lines += `+${String(entry.offsetMs).padStart(6)}мс  ▲  ${entry.label} [${entry.heldMs}мс]\n`;
+        }
+    }
+
+    lines += `</code>`;
+
+    // Telegram лимит ~4096 символов — если лог большой, режем на части
+    const MAX_LEN = 3800;
+    if (lines.length <= MAX_LEN) {
+        sendToTelegram(lines, false, null);
+    } else {
+        // Шлём заголовок отдельно, потом куски лога
+        sendToTelegram(`🚗 <b>Маршрут записан (${displayName})</b>\n⏱ ${(totalMs/1000).toFixed(1)}с | ${log.length} событий\n📋 Лог разбит на части:`, false, null);
+        const codeLines = log.map(entry =>
+            entry.type === 'press'
+                ? `+${String(entry.offsetMs).padStart(6)}мс  ▼  ${entry.label}`
+                : `+${String(entry.offsetMs).padStart(6)}мс  ▲  ${entry.label} [${entry.heldMs}мс]`
+        );
+        let chunk = '<code>';
+        for (const line of codeLines) {
+            if ((chunk + line + '\n</code>').length > MAX_LEN) {
+                sendToTelegram(chunk + '</code>', false, null);
+                chunk = '<code>';
+            }
+            chunk += line + '\n';
+        }
+        if (chunk !== '<code>') sendToTelegram(chunk + '</code>', false, null);
+    }
+
+    showScreenNotification("Hassle", `🚗 Лог отправлен (${log.length} событий)`, "00FF00", 4000);
+}
+
+// Встраиваемся в существующий перехват sendChatInputCustom
+const _origSendChatInputVehicle = window.sendChatInputCustom || sendChatInput;
+window.sendChatInputCustom = function(e) {
+    const cmd = e.trim().toLowerCase();
+    if (cmd === '/pstart') {
+        vehicleTrackStart();
+        return; // не отправляем команду в игру
+    }
+    if (cmd === '/pend') {
+        vehicleTrackEnd();
+        return;
+    }
+    if (typeof _origSendChatInputVehicle === 'function') {
+        return _origSendChatInputVehicle(e);
+    }
+};
+sendChatInput = window.sendChatInputCustom;
+
+console.log('[🚗 АВТО] Трекер загружен. /pstart — начать запись, /pend — остановить и отправить в TG');
 // ==================== END VEHICLE CONTROL TRACKER ====================
