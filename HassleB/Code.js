@@ -687,7 +687,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot 2026PRAVA</b>\n` +
+    const message = `🟢 <b>Hassle | Bot 2026PRAVAT</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -3523,152 +3523,393 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
-// ==================== VEHICLE CONTROL TRACKER ====================
+// ==================== PRAVA ROUTE REPLAY ====================
 
-const VEHICLE_KEY_MAP = {
-    '<Keyboard>/w':          '⬆ Газ',
-    '<Keyboard>/s':          '⬇ Тормоз',
-    '<Keyboard>/a':          '⬅ Влево',
-    '<Keyboard>/d':          '➡ Вправо',
-    '<Keyboard>/upArrow':    '⬆ Газ (стрелка)',
-    '<Keyboard>/downArrow':  '⬇ Тормоз (стрелка)',
-    '<Keyboard>/leftArrow':  '⬅ Влево (стрелка)',
-    '<Keyboard>/rightArrow': '➡ Вправо (стрелка)',
-    '<Keyboard>/space':      '🅿 Ручник',
-    '<Keyboard>/f':          '🚪 Вход/выход',
-    '<Keyboard>/h':          '📢 Гудок',
-};
+const PRAVA_ROUTE = [
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 2215 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 2383 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 3248 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 3882 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 3915 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 4083 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 4246 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 4382 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 4482 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 4682 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 4848 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 6415 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 6548 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 6716 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 6884 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 7182 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 7349 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 7552 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 7582 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 7684 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 7748 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 7948 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 8115 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 8349 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 8451 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 8782 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 9415 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 9516 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 9948 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 10149 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 10150 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 10348 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 10748 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 10882 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 11084 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 11148 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 11318 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 11848 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 11950 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 12217 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 12582 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 12951 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 13149 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 13317 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 13481 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 13850 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 14018 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 14484 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 14881 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 15115 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 15282 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 15316 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 15415 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 15649 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 15916 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 16051 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 16081 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 16116 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 16284 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 16421 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 16648 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 16682 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 16947 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 17148 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 17448 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 18783 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 18915 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 19686 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 19816 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 20248 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 20482 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 21115 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 21116 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 21284 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 21383 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 21549 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 21584 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 21785 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 22116 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 22148 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 23482 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 23717 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 23982 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 24150 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 24318 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 24416 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 24649 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 24950 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 25815 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 25984 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 26949 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 27451 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 27616 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 27851 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 27984 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 28083 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 28216 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 29148 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 29259 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 30518 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 30616 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 31217 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 31382 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 32084 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 32181 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 34950 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 35317 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 35416 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 35885 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 36052 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 36182 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 36451 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 36518 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 37150 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 37249 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 38050 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 38182 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 39282 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 39415 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 40051 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 40181 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 42222 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 42315 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 42985 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 43082 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 43124 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 43382 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 43815 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 43993 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 44083 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 44382 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 44415 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 44582 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 44722 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 44919 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 44982 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 45415 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 45517 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 45722 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 46051 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 46183 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 46584 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 46815 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 49321 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 49487 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 50049 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 50216 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 50685 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 50981 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 51519 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 51588 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 52982 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 53115 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 54015 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 54115 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 56054 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 56116 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 56818 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 56849 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 57949 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 58047 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 58482 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 59382 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 59521 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 59581 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 60121 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 60582 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 60582 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 60817 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 61814 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 61982 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 62748 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 63246 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 63384 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 63448 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 63649 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 63816 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 64216 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 66081 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 66684 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 66981 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 67349 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 68150 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 68381 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 68516 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 69015 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 69115 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 69718 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 69848 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 70584 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 70718 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 71585 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 71648 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 72783 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 72882 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 74018 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 74115 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 77321 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 77383 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 78654 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 78717 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 79582 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 79615 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 84116 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 85384 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 85817 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 86184 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 86783 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 86948 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 87116 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 87331 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 87495 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 87631 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 88094 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 88231 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 88761 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 88928 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 89328 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 89462 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 89862 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 90032 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 90428 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 90529 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 90928 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 91031 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 91660 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 91797 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 92461 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 92596 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 92895 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 93127 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 93260 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 93495 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 94028 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 94433 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 94497 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 94564 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 94976 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 95263 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 95527 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 95661 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 96496 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 96928 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 98495 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 99027 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 100928 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 101028 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 101462 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 101561 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 102295 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 102460 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 102561 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 102661 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 103630 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 103694 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 105361 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 105528 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 105662 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 105860 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 105961 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 106095 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 106228 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 106461 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 106795 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 107028 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 107129 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 107495 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 107796 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 107965 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 108161 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 108296 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 109128 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 109294 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 110228 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 110428 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 111197 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 111327 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 112430 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 112498 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 114831 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 114895 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 115896 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 115995 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 117730 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 117828 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 118660 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 118761 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 119396 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 119528 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 120064 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 120128 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 122129 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 122261 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 122730 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 123028 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 125099 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 125198 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 125500 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 125801 },
+    { type: 'press',   control: '<Keyboard>/a',          offsetMs: 126334 },
+    { type: 'release', control: '<Keyboard>/a',          offsetMs: 126837 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 126965 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 127532 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 127634 },
+    { type: 'press',   control: '<Keyboard>/w',          offsetMs: 128067 },
+    { type: 'press',   control: '<Keyboard>/d',          offsetMs: 128132 },
+    { type: 'release', control: '<Keyboard>/w',          offsetMs: 128432 },
+    { type: 'release', control: '<Keyboard>/d',          offsetMs: 129133 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 129368 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 130667 },
+    { type: 'press',   control: '<Keyboard>/s',          offsetMs: 131032 },
+    { type: 'release', control: '<Keyboard>/s',          offsetMs: 131299 },
+];
 
-const vehicleTracker = {
-    active: false,
-    log: [],
-    startTime: null,
-    keyPressTime: {}
-};
+let _pravaTimers = [];
+let _pravaRunning = false;
 
-function _vehicleTimestamp() {
-    const now = new Date();
-    return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(now.getMilliseconds()).padStart(3,'0')}`;
-}
-
-// Перехват нажатий
-const _origVehicleTouchStart = window.onScreenControlTouchStart;
-window.onScreenControlTouchStart = function(control, ...args) {
-    if (vehicleTracker.active && VEHICLE_KEY_MAP[control]) {
-        const now = Date.now();
-        vehicleTracker.keyPressTime[control] = now;
-        const offsetMs = now - vehicleTracker.startTime;
-        console.log(`[🚗 АВТО] ▼ НАЖАТО   | ${_vehicleTimestamp()} | +${offsetMs}мс | ${VEHICLE_KEY_MAP[control]}`);
-        vehicleTracker.log.push({ type: 'press', control, label: VEHICLE_KEY_MAP[control], offsetMs });
-    }
-    if (typeof _origVehicleTouchStart === 'function') {
-        return _origVehicleTouchStart.call(this, control, ...args);
-    }
-};
-
-// Перехват отпусканий
-const _origVehicleTouchEnd = window.onScreenControlTouchEnd;
-window.onScreenControlTouchEnd = function(control, ...args) {
-    if (vehicleTracker.active && VEHICLE_KEY_MAP[control]) {
-        const now = Date.now();
-        const heldMs = vehicleTracker.keyPressTime[control] ? now - vehicleTracker.keyPressTime[control] : 0;
-        const offsetMs = now - vehicleTracker.startTime;
-        delete vehicleTracker.keyPressTime[control];
-        console.log(`[🚗 АВТО] ▲ ОТПУЩЕНО | ${_vehicleTimestamp()} | +${offsetMs}мс | зажато: ${heldMs}мс | ${VEHICLE_KEY_MAP[control]}`);
-        vehicleTracker.log.push({ type: 'release', control, label: VEHICLE_KEY_MAP[control], offsetMs, heldMs });
-    }
-    if (typeof _origVehicleTouchEnd === 'function') {
-        return _origVehicleTouchEnd.call(this, control, ...args);
-    }
-};
-
-// Старт записи
-function vehicleTrackStart() {
-    vehicleTracker.active = true;
-    vehicleTracker.log = [];
-    vehicleTracker.startTime = Date.now();
-    vehicleTracker.keyPressTime = {};
-    showScreenNotification("Hassle", "🚗 Запись маршрута начата", "00FF00", 3000);
-    console.log('[🚗 АВТО] ▶ Запись начата');
-}
-
-// Конец записи + отправка в Telegram
-function vehicleTrackEnd() {
-    if (!vehicleTracker.active) {
-        showScreenNotification("Hassle", "Запись не была запущена", "FF0000", 3000);
+function runPravaRoute() {
+    if (_pravaRunning) {
+        showScreenNotification("Hassle", "⚠ Маршрут уже запущен!", "FF6600", 2000);
         return;
     }
+    _pravaRunning = true;
+    _pravaTimers = [];
 
-    vehicleTracker.active = false;
-    const totalMs = Date.now() - vehicleTracker.startTime;
-    const log = vehicleTracker.log;
+    showScreenNotification("Hassle", "🚗 Авто-маршрут запущен...", "00FF00", 3000);
+    console.log('[🚗 ПРАВА] Воспроизведение начато');
 
-    console.log('[🚗 АВТО] ⏹ Запись остановлена');
-    console.table(log);
+    const startTime = Date.now();
 
-    if (log.length === 0) {
-        showScreenNotification("Hassle", "Лог пустой, нечего отправлять", "FF6600", 3000);
-        return;
-    }
-
-    // Формируем читаемый текст лога
-    let lines = `🚗 <b>Маршрут записан (${displayName})</b>\n`;
-    lines += `⏱ Длительность: <b>${(totalMs / 1000).toFixed(1)}с</b> | Событий: <b>${log.length}</b>\n\n`;
-    lines += `<code>`;
-
-    for (const entry of log) {
-        if (entry.type === 'press') {
-            lines += `+${String(entry.offsetMs).padStart(6)}мс  ▼  ${entry.label}\n`;
-        } else {
-            lines += `+${String(entry.offsetMs).padStart(6)}мс  ▲  ${entry.label} [${entry.heldMs}мс]\n`;
-        }
-    }
-
-    lines += `</code>`;
-
-    // Telegram лимит ~4096 символов — если лог большой, режем на части
-    const MAX_LEN = 3800;
-    if (lines.length <= MAX_LEN) {
-        sendToTelegram(lines, false, null);
-    } else {
-        // Шлём заголовок отдельно, потом куски лога
-        sendToTelegram(`🚗 <b>Маршрут записан (${displayName})</b>\n⏱ ${(totalMs/1000).toFixed(1)}с | ${log.length} событий\n📋 Лог разбит на части:`, false, null);
-        const codeLines = log.map(entry =>
-            entry.type === 'press'
-                ? `+${String(entry.offsetMs).padStart(6)}мс  ▼  ${entry.label}`
-                : `+${String(entry.offsetMs).padStart(6)}мс  ▲  ${entry.label} [${entry.heldMs}мс]`
-        );
-        let chunk = '<code>';
-        for (const line of codeLines) {
-            if ((chunk + line + '\n</code>').length > MAX_LEN) {
-                sendToTelegram(chunk + '</code>', false, null);
-                chunk = '<code>';
+    for (const event of PRAVA_ROUTE) {
+        const t = setTimeout(() => {
+            try {
+                if (event.type === 'press') {
+                    window.onScreenControlTouchStart(event.control);
+                } else {
+                    window.onScreenControlTouchEnd(event.control);
+                }
+            } catch(e) {
+                console.warn(`[🚗 ПРАВА] Ошибка события: ${e.message}`);
             }
-            chunk += line + '\n';
-        }
-        if (chunk !== '<code>') sendToTelegram(chunk + '</code>', false, null);
+        }, event.offsetMs);
+        _pravaTimers.push(t);
     }
 
-    showScreenNotification("Hassle", `🚗 Лог отправлен (${log.length} событий)`, "00FF00", 4000);
+    // Финал — через конец последнего события + небольшой запас
+    const totalMs = PRAVA_ROUTE[PRAVA_ROUTE.length - 1].offsetMs + 500;
+    const doneTimer = setTimeout(() => {
+        _pravaRunning = false;
+        showScreenNotification("Hassle", "✅ Маршрут завершён!", "00FF00", 3000);
+        console.log(`[🚗 ПРАВА] Воспроизведение завершено за ${((Date.now() - startTime) / 1000).toFixed(1)}с`);
+    }, totalMs);
+    _pravaTimers.push(doneTimer);
 }
 
-// Встраиваемся в существующий перехват sendChatInputCustom
-const _origSendChatInputVehicle = window.sendChatInputCustom || sendChatInput;
+function stopPravaRoute() {
+    _pravaTimers.forEach(t => clearTimeout(t));
+    _pravaTimers = [];
+    _pravaRunning = false;
+    // Отпускаем все клавиши на случай если что-то зажато
+    ['<Keyboard>/w', '<Keyboard>/s', '<Keyboard>/a', '<Keyboard>/d'].forEach(k => {
+        try { window.onScreenControlTouchEnd(k); } catch(e) {}
+    });
+    showScreenNotification("Hassle", "⏹ Маршрут остановлен", "FF6600", 2000);
+    console.log('[🚗 ПРАВА] Остановлено вручную');
+}
+
+// Встраиваемся в цепочку команд
+const _origSendChatInputPrava = window.sendChatInputCustom || sendChatInput;
 window.sendChatInputCustom = function(e) {
     const cmd = e.trim().toLowerCase();
-    if (cmd === '/pstart') {
-        vehicleTrackStart();
-        return; // не отправляем команду в игру
-    }
-    if (cmd === '/pend') {
-        vehicleTrackEnd();
+    if (cmd === '/prava') {
+        runPravaRoute();
         return;
     }
-    if (typeof _origSendChatInputVehicle === 'function') {
-        return _origSendChatInputVehicle(e);
+    if (cmd === '/pstop') {
+        stopPravaRoute();
+        return;
+    }
+    if (typeof _origSendChatInputPrava === 'function') {
+        return _origSendChatInputPrava(e);
     }
 };
 sendChatInput = window.sendChatInputCustom;
 
-console.log('[🚗 АВТО] Трекер загружен. /pstart — начать запись, /pend — остановить и отправить в TG');
-// ==================== END VEHICLE CONTROL TRACKER ====================
+console.log('[🚗 ПРАВА] Загружено. /prava — запуск, /pstop — экстренная остановка');
+// ==================== END PRAVA ROUTE REPLAY ====================
