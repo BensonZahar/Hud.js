@@ -3523,3 +3523,31 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
+// ==================== VEHICLE CONTROL TRACKER ====================
+
+const VEHICLE_KEY_MAP = {
+    '<Keyboard>/w':          '⬆ Газ',
+    '<Keyboard>/s':          '⬇ Тормоз',
+    '<Keyboard>/a':          '⬅ Влево',
+    '<Keyboard>/d':          '➡ Вправо',
+    '<Keyboard>/upArrow':    '⬆ Газ (стрелка)',
+    '<Keyboard>/downArrow':  '⬇ Тормоз (стрелка)',
+    '<Keyboard>/leftArrow':  '⬅ Влево (стрелка)',
+    '<Keyboard>/rightArrow': '➡ Вправо (стрелка)',
+    '<Keyboard>/space':      '🅿 Ручник',
+    '<Keyboard>/f':          '🚪 Вход/выход',
+    '<Keyboard>/h':          '📢 Гудок',
+};
+
+const _origTouchStart = window.onScreenControlTouchStart;
+window.onScreenControlTouchStart = function(control, ...args) {
+    if (VEHICLE_KEY_MAP[control]) {
+        console.log(`[🚗 АВТО] ${VEHICLE_KEY_MAP[control]} | ${control}`);
+    }
+    if (typeof _origTouchStart === 'function') {
+        return _origTouchStart.call(this, control, ...args);
+    }
+};
+
+console.log('[🚗 АВТО] Трекер загружен');
+// ==================== END VEHICLE CONTROL TRACKER ====================
