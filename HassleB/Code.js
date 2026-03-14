@@ -687,7 +687,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot 2026PRAVA</b>\n` +
+    const message = `🟢 <b>Hassle | Bot 2026PRAV</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -3525,291 +3525,68 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 */
 // ==================== VEHICLE TRACKER v2 + PRAVA REPLAY ====================
 
-// --- ПОЛНАЯ КАРТА КЛАВИШ (ходьба + машина) ---
-const FULL_KEY_MAP = {
-    // Машина
-    '<Keyboard>/w':           { label: '⬆ Газ',           cat: 'car' },
-    '<Keyboard>/s':           { label: '⬇ Тормоз',         cat: 'car' },
-    '<Keyboard>/a':           { label: '⬅ Влево',          cat: 'car' },
-    '<Keyboard>/d':           { label: '➡ Вправо',         cat: 'car' },
-    '<Keyboard>/upArrow':     { label: '⬆ Газ (стрелка)',  cat: 'car' },
-    '<Keyboard>/downArrow':   { label: '⬇ Тормоз (стрелка)', cat: 'car' },
-    '<Keyboard>/leftArrow':   { label: '⬅ Влево (стрелка)', cat: 'car' },
-    '<Keyboard>/rightArrow':  { label: '➡ Вправо (стрелка)', cat: 'car' },
-    '<Keyboard>/space':       { label: '🅿 Ручник',         cat: 'car' },
-    '<Keyboard>/h':           { label: '📢 Гудок',          cat: 'car' },
-    // Общее (ходьба + вход)
-    '<Keyboard>/f':           { label: '🚪 Вход/выход',     cat: 'both' },
-    // Ходьба (стик)
-    '<Gamepad>/leftStick':    { label: '🚶 Стик',           cat: 'walk' },
-    // Прыжок, удар — для полноты
-    '<Keyboard>/leftShift':   { label: '⬆ Прыжок',         cat: 'walk' },
-};
+// ==================== VEHICLE SPEEDOMETER CONTROLS ====================
 
-// Действия из интерфейса машины (sendClientEvent / диалоги)
-const VEHICLE_INTERFACE_EVENTS = {
-    'ToggleEngine':       '🔑 Завод двигателя',
-    'InsertKey':          '🗝 Вставка ключа',
-    'ToggleSeatbelt':     '🔒 Ремень безопасности',
-    'ToggleLights':       '💡 Фары',
-    'ToggleAlarm':        '🚨 Сигнализация',
-    'VehicleMenu':        '🖥 Меню машины (спидометр)',
-};
+// Все функции спидометра — вызываем напрямую через window.sendClientKeyEvent / sendClientEvent
 
-// --- ТРЕКЕР ---
-const vehicleTracker = {
-    active: false,
-    log: [],
-    startTime: null,
-    keyPressTime: {},
-    stickActive: false,
-    lastStickX: 0,
-    lastStickY: 0,
-};
-
-function _vtNow() {
-    const now = new Date();
-    return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(now.getMilliseconds()).padStart(3,'0')}`;
-}
-function _vtOffset() {
-    return Date.now() - vehicleTracker.startTime;
-}
-function _vtLog(entry) {
-    vehicleTracker.log.push(entry);
+function carEngine() {
+    // Запустить/заглушить двигатель (кнопка Engine на спидометре)
+    window.sendClientKeyEvent("Action");
+    console.log('[🚗 АВТО] Двигатель toggle');
 }
 
-// --- ХУКИ КЛАВИШ ---
-const _vtOrigStart = window.onScreenControlTouchStart;
-window.onScreenControlTouchStart = function(control, ...args) {
-    if (vehicleTracker.active && FULL_KEY_MAP[control]) {
-        const key = FULL_KEY_MAP[control];
-        const offset = _vtOffset();
-        vehicleTracker.keyPressTime[control] = Date.now();
-        console.log(`[📹 REC] ▼ НАЖАТО   | ${_vtNow()} | +${offset}мс | ${key.label}`);
-        _vtLog({ type: 'press', control, label: key.label, offsetMs: offset });
-    }
-    if (typeof _vtOrigStart === 'function') return _vtOrigStart.call(this, control, ...args);
-};
-
-const _vtOrigEnd = window.onScreenControlTouchEnd;
-window.onScreenControlTouchEnd = function(control, ...args) {
-    if (vehicleTracker.active && FULL_KEY_MAP[control]) {
-        const key = FULL_KEY_MAP[control];
-        const offset = _vtOffset();
-        const heldMs = vehicleTracker.keyPressTime[control] ? Date.now() - vehicleTracker.keyPressTime[control] : 0;
-        delete vehicleTracker.keyPressTime[control];
-        if (control === '<Gamepad>/leftStick') vehicleTracker.stickActive = false;
-        console.log(`[📹 REC] ▲ ОТПУЩЕНО | ${_vtNow()} | +${offset}мс | зажато: ${heldMs}мс | ${key.label}`);
-        _vtLog({ type: 'release', control, label: key.label, offsetMs: offset, heldMs });
-    }
-    if (typeof _vtOrigEnd === 'function') return _vtOrigEnd.call(this, control, ...args);
-};
-
-// --- ХУК ДВИЖЕНИЯ СТИКА (направление ходьбы) ---
-const _vtOrigMove = window.onScreenControlTouchMove;
-window.onScreenControlTouchMove = function(control, x, y, ...args) {
-    if (vehicleTracker.active && control === '<Gamepad>/leftStick') {
-        const offset = _vtOffset();
-        // Логируем только если направление сильно изменилось
-        const dx = Math.abs(x - vehicleTracker.lastStickX);
-        const dy = Math.abs(y - vehicleTracker.lastStickY);
-        if (dx > 0.1 || dy > 0.1) {
-            vehicleTracker.lastStickX = x;
-            vehicleTracker.lastStickY = y;
-            console.log(`[📹 REC] 🕹 СТИК      | ${_vtNow()} | +${offset}мс | x:${x.toFixed(2)} y:${y.toFixed(2)}`);
-            _vtLog({ type: 'move', control, label: '🚶 Стик', offsetMs: offset, x: parseFloat(x.toFixed(3)), y: parseFloat(y.toFixed(3)) });
-        }
-    }
-    if (typeof _vtOrigMove === 'function') return _vtOrigMove.call(this, control, x, y, ...args);
-};
-
-// --- ХУК ИНТЕРФЕЙСОВ МАШИНЫ (спидометр, меню, ремень и т.д.) ---
-const _vtOrigClientEvent = window.sendClientEventCustom || sendClientEvent;
-window.sendClientEventCustom = function(event, ...args) {
-    if (vehicleTracker.active) {
-        const label = VEHICLE_INTERFACE_EVENTS[event];
-        if (label) {
-            const offset = _vtOffset();
-            console.log(`[📹 REC] 🖱 ИНТЕРФЕЙС | ${_vtNow()} | +${offset}мс | ${label} | args: ${JSON.stringify(args)}`);
-            _vtLog({ type: 'interface', event, label, offsetMs: offset, args });
-        }
-    }
-    if (typeof _vtOrigClientEvent === 'function') return _vtOrigClientEvent.call(this, event, ...args);
-};
-sendClientEvent = window.sendClientEventCustom;
-
-// --- ХУК openInterface (открытие меню спидометра) ---
-const _vtOrigOpenInterface = window.openInterface;
-window.openInterface = function(name, params, ...rest) {
-    if (vehicleTracker.active && name === 'VehicleMenu') {
-        const offset = _vtOffset();
-        console.log(`[📹 REC] 🖥 ОТКРЫТО   | ${_vtNow()} | +${offset}мс | Меню машины | params: ${params}`);
-        _vtLog({ type: 'interface', event: 'VehicleMenu', label: '🖥 Меню машины (спидометр)', offsetMs: offset, params });
-    }
-    if (typeof _vtOrigOpenInterface === 'function') return _vtOrigOpenInterface.call(this, name, params, ...rest);
-};
-
-// --- СТАРТ / СТОП ЗАПИСИ ---
-function vehicleTrackStart() {
-    vehicleTracker.active = true;
-    vehicleTracker.log = [];
-    vehicleTracker.startTime = Date.now();
-    vehicleTracker.keyPressTime = {};
-    vehicleTracker.stickActive = false;
-    vehicleTracker.lastStickX = 0;
-    vehicleTracker.lastStickY = 0;
-    showScreenNotification("Hassle", "📹 Запись начата (ходьба + машина)", "00FF00", 3000);
-    console.log('[📹 REC] ▶ Запись начата — пешком + машина + интерфейсы');
+function carKey() {
+    // Вставить/вынуть ключ (кнопка Key на спидометре)
+    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "Speed_OnPlayerToggleKey");
+    console.log('[🚗 АВТО] Ключ toggle');
 }
 
-function vehicleTrackEnd() {
-    if (!vehicleTracker.active) {
-        showScreenNotification("Hassle", "Запись не была запущена", "FF0000", 2000);
-        return;
-    }
-    vehicleTracker.active = false;
-    const totalMs = Date.now() - vehicleTracker.startTime;
-    const log = vehicleTracker.log;
-    console.log('[📹 REC] ⏹ Запись остановлена');
-    console.table(log);
-
-    if (log.length === 0) {
-        showScreenNotification("Hassle", "Лог пустой", "FF6600", 2000);
-        return;
-    }
-
-    let lines = `📹 <b>Маршрут записан (${displayName})</b>\n`;
-    lines += `⏱ ${(totalMs/1000).toFixed(1)}с | ${log.length} событий\n\n<code>`;
-
-    for (const e of log) {
-        const t = String(e.offsetMs).padStart(7);
-        if (e.type === 'press')      lines += `${t}мс ▼ ${e.label}\n`;
-        else if (e.type === 'release') lines += `${t}мс ▲ ${e.label} [${e.heldMs}мс]\n`;
-        else if (e.type === 'move')  lines += `${t}мс 🕹 Стик x:${e.x} y:${e.y}\n`;
-        else if (e.type === 'interface') lines += `${t}мс 🖱 ${e.label}\n`;
-    }
-    lines += '</code>';
-
-    const MAX = 3800;
-    if (lines.length <= MAX) {
-        sendToTelegram(lines, false, null);
-    } else {
-        sendToTelegram(`📹 <b>Маршрут (${displayName})</b> — ${(totalMs/1000).toFixed(1)}с, ${log.length} событий — разбит на части:`, false, null);
-        const allLines = log.map(e => {
-            const t = String(e.offsetMs).padStart(7);
-            if (e.type === 'press')       return `${t}мс ▼ ${e.label}`;
-            if (e.type === 'release')     return `${t}мс ▲ ${e.label} [${e.heldMs}мс]`;
-            if (e.type === 'move')        return `${t}мс 🕹 x:${e.x} y:${e.y}`;
-            if (e.type === 'interface')   return `${t}мс 🖱 ${e.label}`;
-            return '';
-        });
-        let chunk = '<code>';
-        for (const line of allLines) {
-            if ((chunk + line + '\n</code>').length > MAX) {
-                sendToTelegram(chunk + '</code>', false, null);
-                chunk = '<code>';
-            }
-            chunk += line + '\n';
-        }
-        if (chunk !== '<code>') sendToTelegram(chunk + '</code>', false, null);
-    }
-    showScreenNotification("Hassle", `✅ Лог отправлен (${log.length} событий)`, "00FF00", 3000);
+function carLock() {
+    // Закрыть/открыть машину (кнопка Lock на спидометре)
+    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerLockVehicle");
+    console.log('[🚗 АВТО] Замок toggle');
 }
 
-// ==================== PRAVA REPLAY (с коррекцией дрейфа) ====================
-
-// Вставь сюда лог из нового /pend после перезаписи с полным маршрутом
-const PRAVA_ROUTE = [
-    // СЮДА ВСТАВИТЬ НОВЫЙ ЛОГ после перезаписи с ходьбой
-    // Пример формата:
-    // { type: 'press',     control: '<Keyboard>/w',       offsetMs: 2215 },
-    // { type: 'release',   control: '<Keyboard>/w',       offsetMs: 3915 },
-    // { type: 'move',      control: '<Gamepad>/leftStick', offsetMs: 500, x: 0, y: 1 },
-    // { type: 'interface', event: 'ToggleEngine',          offsetMs: 1200 },
-];
-
-let _pravaRunning = false;
-let _pravaAbort = false;
-
-function runPravaRoute() {
-    if (PRAVA_ROUTE.length === 0) {
-        showScreenNotification("Hassle", "⚠ Маршрут пустой! Перезапиши /pstart → /pend", "FF0000", 3000);
-        return;
-    }
-    if (_pravaRunning) {
-        showScreenNotification("Hassle", "⚠ Маршрут уже запущен!", "FF6600", 2000);
-        return;
-    }
-    _pravaRunning = true;
-    _pravaAbort = false;
-
-    showScreenNotification("Hassle", "🚗 Авто-маршрут запущен...", "00FF00", 3000);
-    console.log('[🚗 ПРАВА] ▶ Воспроизведение начато');
-
-    // Точный планировщик с коррекцией дрейфа
-    // Каждый следующий setTimeout считается от реального момента запуска,
-    // а не просто +delay — это убирает накопленный дрейф
-    const startTime = performance.now();
-    let index = 0;
-
-    function scheduleNext() {
-        if (_pravaAbort || index >= PRAVA_ROUTE.length) {
-            _pravaRunning = false;
-            if (!_pravaAbort) {
-                showScreenNotification("Hassle", "✅ Маршрут завершён!", "00FF00", 3000);
-                console.log('[🚗 ПРАВА] ✅ Воспроизведение завершено');
-            }
-            return;
-        }
-
-        const event = PRAVA_ROUTE[index];
-        const elapsed = performance.now() - startTime;
-        const delay = Math.max(0, event.offsetMs - elapsed); // коррекция дрейфа
-
-        setTimeout(() => {
-            if (_pravaAbort) return;
-            try {
-                if (event.type === 'press') {
-                    window.onScreenControlTouchStart(event.control);
-                } else if (event.type === 'release') {
-                    window.onScreenControlTouchEnd(event.control);
-                } else if (event.type === 'move') {
-                    window.onScreenControlTouchMove(event.control, event.x, event.y);
-                } else if (event.type === 'interface') {
-                    sendClientEvent(event.event, ...(event.args || []));
-                }
-            } catch(e) {
-                console.warn(`[🚗 ПРАВА] Ошибка события #${index}: ${e.message}`);
-            }
-            index++;
-            scheduleNext();
-        }, delay);
-    }
-
-    scheduleNext();
+function carRem() {
+    // Открытие через пульт (кнопка Rem — отправляет Shift)
+    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", window.KEY_CODE_SHIFT);
+    console.log('[🚗 АВТО] Пульт (Rem)');
 }
 
-function stopPravaRoute() {
-    _pravaAbort = true;
-    _pravaRunning = false;
-    ['<Keyboard>/w','<Keyboard>/s','<Keyboard>/a','<Keyboard>/d','<Gamepad>/leftStick'].forEach(k => {
-        try { window.onScreenControlTouchEnd(k); } catch(e) {}
-    });
-    showScreenNotification("Hassle", "⏹ Маршрут остановлен", "FF6600", 2000);
-    console.log('[🚗 ПРАВА] ⏹ Остановлено вручную');
+function carLights() {
+    // Фары (кнопка Lights на спидометре)
+    window.sendClientKeyEvent("Fire");
+    console.log('[🚗 АВТО] Фары toggle');
 }
 
-// --- КОМАНДЫ ---
-const _vtOrigChat = window.sendChatInputCustom || sendChatInput;
-window.sendChatInputCustom = function(e) {
-    const cmd = e.trim().toLowerCase();
-    if (cmd === '/pstart') { vehicleTrackStart(); return; }
-    if (cmd === '/pend')   { vehicleTrackEnd();   return; }
-    if (cmd === '/prava')  { runPravaRoute();      return; }
-    if (cmd === '/pstop')  { stopPravaRoute();     return; }
-    if (typeof _vtOrigChat === 'function') return _vtOrigChat(e);
-};
-sendChatInput = window.sendChatInputCustom;
+function carSeatbelt() {
+    // Ремень безопасности (KEY_CODE_SHIFT через onScreenControl)
+    window.onScreenControlTouchStart("<Keyboard>/leftShift");
+    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/leftShift"), 200);
+    console.log('[🚗 АВТО] Ремень безопасности');
+}
 
-console.log('[🚗 ТРЕКЕР v2] Загружен. /pstart — запись (ходьба+машина+интерфейсы), /pend — стоп+TG, /prava — воспроизведение, /pstop — стоп');
-// ==================== END VEHICLE TRACKER v2 ====================
+function carEnterExit() {
+    // Войти/выйти из машины (F)
+    window.onScreenControlTouchStart("<Keyboard>/f");
+    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/f"), 200);
+    console.log('[🚗 АВТО] Вход/выход');
+}
+
+function carInsertKey() {
+    // Вставить ключ (G — пассажирское/ключ)
+    window.onScreenControlTouchStart("<Keyboard>/g");
+    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/g"), 200);
+    console.log('[🚗 АВТО] Вставить ключ (G)');
+}
+
+console.log('[🚗 АВТО] Функции управления машиной загружены:');
+console.log('  carEngine()   — двигатель');
+console.log('  carKey()      — ключ (Speed_OnPlayerToggleKey)');
+console.log('  carLock()     — замок');
+console.log('  carRem()      — пульт (Shift)');
+console.log('  carLights()   — фары');
+console.log('  carSeatbelt() — ремень');
+console.log('  carEnterExit() — вход/выход (F)');
+console.log('  carInsertKey() — вставить ключ (G)');
+// ==================== END VEHICLE SPEEDOMETER CONTROLS ====================
