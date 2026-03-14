@@ -687,7 +687,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot 2026PRAV</b>\n` +
+    const message = `🟢 <b>Hassle | Bot 2026P</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -3523,70 +3523,3 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
-// ==================== VEHICLE TRACKER v2 + PRAVA REPLAY ====================
-
-// ==================== VEHICLE SPEEDOMETER CONTROLS ====================
-
-// Все функции спидометра — вызываем напрямую через window.sendClientKeyEvent / sendClientEvent
-
-function carEngine() {
-    // Запустить/заглушить двигатель (кнопка Engine на спидометре)
-    window.sendClientKeyEvent("Action");
-    console.log('[🚗 АВТО] Двигатель toggle');
-}
-
-function carKey() {
-    // Вставить/вынуть ключ (кнопка Key на спидометре)
-    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "Speed_OnPlayerToggleKey");
-    console.log('[🚗 АВТО] Ключ toggle');
-}
-
-function carLock() {
-    // Закрыть/открыть машину (кнопка Lock на спидометре)
-    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerLockVehicle");
-    console.log('[🚗 АВТО] Замок toggle');
-}
-
-function carRem() {
-    // Открытие через пульт (кнопка Rem — отправляет Shift)
-    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", window.KEY_CODE_SHIFT);
-    console.log('[🚗 АВТО] Пульт (Rem)');
-}
-
-function carLights() {
-    // Фары (кнопка Lights на спидометре)
-    window.sendClientKeyEvent("Fire");
-    console.log('[🚗 АВТО] Фары toggle');
-}
-
-function carSeatbelt() {
-    // Ремень безопасности (KEY_CODE_SHIFT через onScreenControl)
-    window.onScreenControlTouchStart("<Keyboard>/leftShift");
-    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/leftShift"), 200);
-    console.log('[🚗 АВТО] Ремень безопасности');
-}
-
-function carEnterExit() {
-    // Войти/выйти из машины (F)
-    window.onScreenControlTouchStart("<Keyboard>/f");
-    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/f"), 200);
-    console.log('[🚗 АВТО] Вход/выход');
-}
-
-function carInsertKey() {
-    // Вставить ключ (G — пассажирское/ключ)
-    window.onScreenControlTouchStart("<Keyboard>/g");
-    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/g"), 200);
-    console.log('[🚗 АВТО] Вставить ключ (G)');
-}
-
-console.log('[🚗 АВТО] Функции управления машиной загружены:');
-console.log('  carEngine()   — двигатель');
-console.log('  carKey()      — ключ (Speed_OnPlayerToggleKey)');
-console.log('  carLock()     — замок');
-console.log('  carRem()      — пульт (Shift)');
-console.log('  carLights()   — фары');
-console.log('  carSeatbelt() — ремень');
-console.log('  carEnterExit() — вход/выход (F)');
-console.log('  carInsertKey() — вставить ключ (G)');
-// ==================== END VEHICLE SPEEDOMETER CONTROLS ====================
