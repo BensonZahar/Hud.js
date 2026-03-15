@@ -16,7 +16,7 @@
 // ===========================================================
 
 const SERVER_TOKENS = {
-    '3': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
+    '4': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
     '5': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',
     '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',
 	'9': '8549354393:AAH3KUXtuSBZJ4SO4qw5s5WmWJ9_kypclBY',
@@ -687,7 +687,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot 2026P</b>\n` +
+    const message = `🟢 <b>Hassle | Bot 2026</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
