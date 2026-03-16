@@ -64,7 +64,6 @@ class MEmuHudManager:
         self.last_commit_info = ""
         self.load_commit_info = ""
         self.script_commit_info = ""
-        self.mod_done = False
         self.skip_warning_file = self.script_dir / "skip_warning.json"
         self.skip_warning = self.load_skip_warning()
 
@@ -202,6 +201,21 @@ class MEmuHudManager:
                                   values=[],
                                   variable=self.app_var, width=300)
         self.app_menu.grid(row=6, column=0, pady=5)
+
+        # Для владельца — выбор пользователя прямо в GUI
+        if self.is_owner_ip() and self.code_files:
+            user_names = [f.get('user', f['name'].replace('.js', '')) for f in self.code_files]
+            ctk.CTkLabel(self.main_frame, text="Пользователь:").grid(row=8, column=0, pady=(10, 2))
+            self.owner_user_var = ctk.StringVar(value=self.selected_code_name or user_names[0])
+            user_menu = ctk.CTkComboBox(self.main_frame,
+                                        values=user_names,
+                                        variable=self.owner_user_var,
+                                        width=300,
+                                        command=self._on_owner_user_change)
+            user_menu.grid(row=9, column=0, pady=2)
+            # Устанавливаем текущее значение
+            self._on_owner_user_change(self.owner_user_var.get())
+
         commit_label_text = ""
         if self.last_commit_info:
             commit_label_text += f"Выбранный код: {self.last_commit_info}\n"
@@ -214,6 +228,11 @@ class MEmuHudManager:
             commit_label_text = "Нет информации о коммите"
         ctk.CTkLabel(self.main_frame, text=commit_label_text).grid(row=2, column=0, pady=5)
         self.update_gui()
+
+    def _on_owner_user_change(self, value):
+        self.selected_code_name = value
+        if self.full_logging:
+            self.log(f"Пользователь выбран: {value}")
     def detect_app_folders(self, *args):
         if self.select_connection():
             try:
@@ -250,16 +269,9 @@ class MEmuHudManager:
         if self.full_logging:
             ctk.CTkButton(btn_frame, text="Скачать Hud.js", command=lambda: self.execute_action("4"), width=140).grid(row=1, column=0, padx=5, pady=5)
         ctk.CTkButton(btn_frame, text="Проверка файлов", command=lambda: self.execute_action("3"), width=140).grid(row=1, column=1, padx=5, pady=5)
-        ctk.CTkButton(btn_frame, text="Перенос фулл Hassle на Hassle Rec", fg_color="#8B00FF", hover_color="#6A00CC",
-                      command=lambda: self.execute_action("mod"), width=140).grid(row=2, column=0, padx=5, pady=5, columnspan=2)
         if self.debug_allowed:
-            ctk.CTkButton(btn_frame, text="Активировать отладку", command=self.activate_debug_mode, width=140).grid(row=3, column=0, padx=5, pady=5)
-        if self.mod_done:
-            ctk.CTkButton(btn_frame, text="Вписать код", command=lambda: self.execute_action("insert_code"), width=140).grid(row=3, column=1, padx=5, pady=5)
-        else:
-            ctk.CTkButton(btn_frame, text="Выход", command=self.on_close, width=140).grid(row=3, column=1, padx=5, pady=5)
-        ctk.CTkButton(btn_frame, text="Перенос из MEmu в Nox", fg_color="#FF00FF", hover_color="#CC00CC",
-                      command=lambda: self.execute_action("transfer"), width=140).grid(row=4, column=0, padx=5, pady=5, columnspan=2)
+            ctk.CTkButton(btn_frame, text="Активировать отладку", command=self.activate_debug_mode, width=140).grid(row=2, column=0, padx=5, pady=5)
+        ctk.CTkButton(btn_frame, text="Выход", command=self.on_close, width=140).grid(row=2, column=1, padx=5, pady=5)
     def send_telegram_message(self, stage="launch", message_id=None, verdict=None):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         device_name = platform.node()
@@ -590,7 +602,25 @@ class MEmuHudManager:
             messagebox.showerror("Ошибка", "ADB не найден. Перезапустите программу.")
             return
         self.log("[√] Успешно: Система готова")
+    def is_owner_ip(self):
+        try:
+            ip = socket.gethostbyname(socket.gethostname())
+            return ip.startswith("192.168.100.")
+        except:
+            return False
+
     def activate_launch_permission(self):
+        if self.is_owner_ip():
+            self.log("[√] Локальная сеть — автоматический запуск с отладкой")
+            self.launch_allowed = True
+            self.full_logging = True
+            self.debug_allowed = True
+            if self.fetch_code_files():
+                self.root.after(0, self.finalize_launch)
+            else:
+                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
+                self.root.after(2000, self.on_close)
+            return
         message_id = self.send_telegram_message()
         if not message_id:
             self.log("[X] Ошибка: Не удалось отправить сообщение в Telegram")
@@ -916,14 +946,14 @@ class MEmuHudManager:
                 return
           
             # Для hassle режима проверяем selected_code_name (имя пользователя)
-            if action not in ["mod", "3", "insert_code", "transfer"] and not self.selected_code_name:
+            if action not in ["3"] and not self.selected_code_name:
                 self.log("[X] Ошибка: Пользователь не выбран")
                 return
-            if action not in ["transfer"] and not self.select_connection():
+            if not self.select_connection():
                 self.log("[X] Ошибка: Устройство не подключено")
                 return
             app_folder = self.select_app_folder()
-            if action not in ["mod", "insert_code", "transfer"] and not app_folder:
+            if action not in [] and not app_folder:
                 self.log("[X] Ошибка: Папка приложения не выбрана")
                 return
             if self.full_logging and self.selected_code_name:
@@ -936,73 +966,7 @@ class MEmuHudManager:
                 self.check_files(app_folder)
             elif action == "4":
                 self.simple_download(app_folder)
-            elif action == "mod":
-                self.show_transfer_dialog()
-            elif action == "insert_code":
-                self.insert_code_after_mod()
-            elif action == "transfer":
-                self.show_transfer_memu_nox_dialog()
         threading.Thread(target=run_action, daemon=True).start()
-    def show_transfer_dialog(self):
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Перенос фулл Hassle на Hassle Rec")
-        dialog.geometry("560x360")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self.root)
-        dialog.lift()
-        scroll_frame = ctk.CTkScrollableFrame(dialog, width=520, height=220)
-        scroll_frame.pack(pady=20, padx=20, fill="both", expand=True)
-        text = ("Если у вас полностью скаченный (внутри) оригинальный Hassle, "
-                "и Hassle 2 (Наша старая версия) , заменится на Hassle с рекконектом "
-                "без заново скачки файлов")
-        ctk.CTkLabel(
-            scroll_frame,
-            text=text,
-            font=("Segoe UI", 15),
-            wraplength=500,
-            justify="center",
-            anchor="center"
-        ).pack(pady=(30, 20))
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=10)
-        ctk.CTkButton(btn_frame, text="Назад", width=160, command=dialog.destroy).grid(row=0, column=0, padx=20)
-        ctk.CTkButton(btn_frame, text="Начать", width=160,
-                      fg_color="#8B00FF", hover_color="#6A00CC",
-                      command=lambda: [dialog.destroy(), self.mod_hassle()]).grid(row=0, column=1, padx=20)
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (560 // 2)
-        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (360 // 2)
-        dialog.geometry(f"+{x}+{y}")
-    def show_transfer_memu_nox_dialog(self):
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Перенос из MEmu в Nox")
-        dialog.geometry("560x360")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self.root)
-        dialog.lift()
-        scroll_frame = ctk.CTkScrollableFrame(dialog, width=520, height=220)
-        scroll_frame.pack(pady=20, padx=20, fill="both", expand=True)
-        text = ("Перенос папок и APK из MEmu в Nox с переименованием: добавить '1' перед переносом и убрать после.")
-        ctk.CTkLabel(
-            scroll_frame,
-            text=text,
-            font=("Segoe UI", 15),
-            wraplength=500,
-            justify="center",
-            anchor="center"
-        ).pack(pady=(30, 20))
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=10)
-        ctk.CTkButton(btn_frame, text="Назад", width=160, command=dialog.destroy).grid(row=0, column=0, padx=20)
-        ctk.CTkButton(btn_frame, text="Начать", width=160,
-                      fg_color="#FF00FF", hover_color="#CC00CC",
-                      command=lambda: [dialog.destroy(), self.transfer_memu_to_nox()]).grid(row=0, column=1, padx=20)
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (560 // 2)
-        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (360 // 2)
-        dialog.geometry(f"+{x}+{y}")
     def show_replace_warning(self, app_folder):
         dialog = ctk.CTkToplevel(self.root)
         dialog.title("Выбор аккаунта")
@@ -1116,276 +1080,6 @@ class MEmuHudManager:
             folders = [f.strip() for f in result.stdout.splitlines() if f.strip().startswith("com.hassle.online") and not f.strip().startswith("1com.hassle.online")]
             return folders
         return []
-    def get_renamed_hassle_folders(self, param=None, storage=None):
-        param = param or self.device_param
-        storage = storage or self.storage_path
-        # ИСПРАВЛЕНО: флаг -1 гарантирует одну запись на строку,
-        # чтобы com.xiaomi.* не "прилипали" к 1com.hassle.online*
-        cmd = [self.adb_path] + param + ["shell", "ls", "-1", storage]
-        result = subprocess.run(cmd, capture_output=True, text=True,
-                                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-        if result.returncode == 0:
-            folders = [f.strip() for f in result.stdout.splitlines() if f.strip().startswith("1com.hassle.online")]
-            return folders
-        return []
-    def mod_hassle(self):
-        if not self.select_connection():
-            self.log("[X] Устройство не подключено")
-            return
-        base_path = self.storage_path
-        packages = self.get_hassle_folders()
-        renamed_count = 0
-        uninstalled_count = 0
-        for pkg in packages:
-            old_data_path = f"{base_path}/{pkg}"
-            new_pkg = f"1{pkg}"
-            new_data_path = f"{base_path}/{new_pkg}"
-            try:
-                cmd_check = [self.adb_path] + self.device_param + ["shell", "test", "-d", old_data_path, "&&", "echo", "exists"]
-                result = subprocess.run(cmd_check, capture_output=True, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if "exists" not in result.stdout:
-                    self.log(f"[!] Папка {pkg} не найдена — пропускаем")
-                    continue
-                cmd_check_new = [self.adb_path] + self.device_param + ["shell", "test", "-d", new_data_path, "&&", "echo", "exists"]
-                result_new = subprocess.run(cmd_check_new, capture_output=True, text=True,
-                                            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if "exists" in result_new.stdout:
-                    self.log(f"[!] Папка {new_pkg} уже существует — пропускаем переименование")
-                else:
-                    self.log(f"Переименование {pkg} → {new_pkg}...")
-                    cmd_mv = [self.adb_path] + self.device_param + ["shell", "mv", old_data_path, new_data_path]
-                    mv_result = subprocess.run(cmd_mv, capture_output=True, text=True,
-                                               creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                    if mv_result.returncode == 0:
-                        self.log(f"[√] Папка переименована: {pkg} → {new_pkg}")
-                        renamed_count += 1
-                    else:
-                        self.log(f"[X] Не удалось переименовать папку: {mv_result.stderr.strip()}")
-                self.log(f"Удаление приложения {pkg}...")
-                cmd_uninstall = [self.adb_path] + self.device_param + ["shell", "pm", "uninstall", pkg]
-                uninstall_result = subprocess.run(cmd_uninstall, capture_output=True, text=True,
-                                                  creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if uninstall_result.returncode == 0 and "Success" in uninstall_result.stdout:
-                    self.log(f"[√] Приложение удалено: {pkg}")
-                    uninstalled_count += 1
-                elif "not installed" in uninstall_result.stderr:
-                    self.log(f"[!] Приложение {pkg} уже не установлено")
-                else:
-                    self.log(f"[X] Не удалось удалить {pkg}: {uninstall_result.stderr.strip()}")
-            except Exception as e:
-                self.log(f"[X] Ошибка при обработке {pkg}: {e}")
-        summary = []
-        if renamed_count > 0:
-            summary.append(f"Переименовано папок: {renamed_count}")
-        if uninstalled_count > 0:
-            summary.append(f"Удалено приложений: {uninstalled_count}")
-        if not summary:
-            summary.append("Нечего делать")
-        result_text = "\n".join(summary)
-        self.log(f"[!] Результат: {result_text}")
-        messagebox.showinfo(
-            "Перенос фулл Hassle на Hassle Rec",
-            f"ГОТОВО!\n\n{result_text}\n\n"
-            "• Кэш сохранён в новых папках\n"
-            "• Приложения удалены\n"
-            "• Установите приложения и нажмите кнопку Вписать код"
-        )
-        self.mod_done = True
-        self.root.after(0, self.update_gui)
-    def transfer_memu_to_nox(self):
-        if not self.memu_path or not self.nox_path:
-            self.log("[X] Ошибка: Не найдены эмуляторы MEmu или NOX")
-            return
-        current_adb = self.adb_path
-        current_param = self.device_param[:]
-        current_storage = self.storage_path
-        self.adb_path = self.memu_adb
-        if not self.check_memu_device():
-            self.log("[X] Не удалось подключиться к MEmu")
-            self.adb_path = current_adb
-            self.device_param = current_param
-            self.storage_path = current_storage
-            return
-        memu_param = self.device_param[:]
-        memu_storage = self.storage_path
-        packages = self.get_hassle_folders(memu_param, memu_storage)
-        renamed = []
-        for pkg in packages:
-            old_path = f"{memu_storage}/{pkg}"
-            new_path = f"{memu_storage}/1{pkg}"
-            cmd_check = [self.adb_path] + memu_param + ["shell", "test", "-d", old_path, "&& echo exists"]
-            result = subprocess.run(cmd_check, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if "exists" in result.stdout:
-                cmd_mv = [self.adb_path] + memu_param + ["shell", "mv", old_path, new_path]
-                mv_res = subprocess.run(cmd_mv, capture_output=True, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if mv_res.returncode == 0:
-                    self.log(f"[√] Переименовано в MEmu: {pkg} -> 1{pkg}")
-                    renamed.append(pkg)
-                else:
-                    self.log(f"[X] Не удалось переименовать {pkg} в MEmu: {mv_res.stderr.strip()}")
-            else:
-                self.log(f"[!] Папка {pkg} не найдена в MEmu")
-        apk_files = {}
-        for pkg in packages:
-            cmd_path = [self.adb_path] + memu_param + ["shell", "pm", "path", pkg]
-            res = subprocess.run(cmd_path, capture_output=True, text=True,
-                                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if res.returncode == 0 and "package:" in res.stdout:
-                apk_path = res.stdout.strip().split(":", 1)[1]
-                local_apk = self.script_dir / f"{pkg}.apk"
-                cmd_pull = [self.adb_path] + memu_param + ["pull", apk_path, str(local_apk)]
-                pull_res = subprocess.run(cmd_pull, capture_output=True, text=True,
-                                          creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if pull_res.returncode == 0:
-                    self.log(f"[√] APK pulled из MEmu: {pkg}")
-                    apk_files[pkg] = local_apk
-                else:
-                    self.log(f"[X] Не удалось pull APK {pkg} из MEmu: {pull_res.stderr.strip()}")
-            else:
-                self.log(f"[!] APK не найден для {pkg} в MEmu")
-        temp_folders = {}
-        for pkg in renamed:
-            remote_path = f"{memu_storage}/1{pkg}"
-            temp_dir = tempfile.mkdtemp()
-            local_folder = Path(temp_dir) / f"1{pkg}"
-            os.mkdir(local_folder)
-            cmd_pull = [self.adb_path] + memu_param + ["pull", remote_path + "/", str(local_folder)]
-            pull_res = subprocess.run(cmd_pull, capture_output=True, text=True,
-                                      creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if pull_res.returncode == 0:
-                self.log(f"[√] Папка pulled из MEmu: 1{pkg}")
-                temp_folders[pkg] = local_folder
-            else:
-                self.log(f"[X] Не удалось pull папку 1{pkg} из MEmu: {pull_res.stderr.strip()}")
-        self.adb_path = self.nox_adb
-        if not self.check_nox_device():
-            self.log("[X] Не удалось подключиться к Nox")
-            for local_apk in apk_files.values():
-                if os.path.exists(local_apk):
-                    os.remove(local_apk)
-            for _, local_folder in temp_folders.items():
-                if os.path.exists(local_folder.parent):
-                    shutil.rmtree(local_folder.parent)
-            self.adb_path = current_adb
-            self.device_param = current_param
-            self.storage_path = current_storage
-            return
-        nox_param = self.device_param[:]
-        nox_storage = self.storage_path
-        for pkg, local_apk in apk_files.items():
-            cmd_un = [self.adb_path] + nox_param + ["uninstall", pkg]
-            un_res = subprocess.run(cmd_un, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if un_res.returncode == 0 or "not installed" in un_res.stderr:
-                self.log(f"[√] Uninstall {pkg} в Nox (если был)")
-            else:
-                self.log(f"[!] Предупреждение: Не удалось uninstall {pkg} в Nox")
-            cmd_install = [self.adb_path] + nox_param + ["install", str(local_apk)]
-            ins_res = subprocess.run(cmd_install, capture_output=True, text=True,
-                                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if ins_res.returncode == 0:
-                self.log(f"[√] APK installed в Nox: {pkg}")
-            else:
-                self.log(f"[X] Не удалось install {pkg} в Nox: {ins_res.stderr.strip()}")
-        for pkg, local_folder in temp_folders.items():
-            remote_path = f"{nox_storage}/1{pkg}"
-            cmd_rm = [self.adb_path] + nox_param + ["shell", "rm", "-rf", remote_path]
-            rm_res = subprocess.run(cmd_rm, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if rm_res.returncode == 0:
-                self.log(f"[√] Удалена существующая папка 1{pkg} в Nox (если была)")
-            cmd_push = [self.adb_path] + nox_param + ["push", str(local_folder) + "/", remote_path]
-            push_res = subprocess.run(cmd_push, capture_output=True, text=True,
-                                      creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            if push_res.returncode == 0:
-                self.log(f"[√] Папка pushed в Nox: 1{pkg}")
-            else:
-                self.log(f"[X] Не удалось push 1{pkg} в Nox: {push_res.stderr.strip()}")
-        for pkg in renamed:
-            if pkg in temp_folders:
-                old_path = f"{nox_storage}/1{pkg}"
-                new_path = f"{nox_storage}/{pkg}"
-                cmd_check_new = [self.adb_path] + nox_param + ["shell", "test", "-d", new_path, "&& echo exists"]
-                result_new = subprocess.run(cmd_check_new, capture_output=True, text=True,
-                                            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if "exists" in result_new.stdout:
-                    self.log(f"Удаление существующей папки {pkg} в Nox...")
-                    cmd_rm_new = [self.adb_path] + nox_param + ["shell", "rm", "-rf", new_path]
-                    rm_new_res = subprocess.run(cmd_rm_new, capture_output=True, text=True,
-                                                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                    if rm_new_res.returncode == 0:
-                        self.log(f"[√] Удалена существующая папка {pkg} в Nox")
-                    else:
-                        self.log(f"[X] Не удалось удалить {pkg} в Nox: {rm_new_res.stderr.strip()}")
-                        continue
-                cmd_mv = [self.adb_path] + nox_param + ["shell", "mv", old_path, new_path]
-                mv_res = subprocess.run(cmd_mv, capture_output=True, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if mv_res.returncode == 0:
-                    self.log(f"[√] Переименовано в Nox: 1{pkg} -> {pkg}")
-                else:
-                    self.log(f"[X] Не удалось переименовать в Nox 1{pkg}: {mv_res.stderr.strip()}")
-        self.adb_path = current_adb
-        self.device_param = current_param
-        self.storage_path = current_storage
-        for local_apk in apk_files.values():
-            if os.path.exists(local_apk):
-                os.remove(local_apk)
-        for _, local_folder in temp_folders.items():
-            if os.path.exists(local_folder.parent):
-                shutil.rmtree(local_folder.parent)
-        self.log("[√] Перенос из MEmu в Nox завершен")
-        messagebox.showinfo("Перенос из MEmu в Nox", "ГОТОВО! Папки и APK перенесены.")
-    def insert_code_after_mod(self):
-        if not self.select_connection():
-            self.log("[X] Устройство не подключено")
-            return
-        base_path = self.storage_path
-        renamed_packages = self.get_renamed_hassle_folders()
-        renamed_back_count = 0
-        for old_pkg in renamed_packages:
-            new_pkg = old_pkg[1:]
-            old_data_path = f"{base_path}/{old_pkg}"
-            new_data_path = f"{base_path}/{new_pkg}"
-            try:
-                cmd_check = [self.adb_path] + self.device_param + ["shell", "test", "-d", old_data_path, "&&", "echo", "exists"]
-                result = subprocess.run(cmd_check, capture_output=True, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if "exists" not in result.stdout:
-                    self.log(f"[!] Папка {old_pkg} не найдена — пропускаем")
-                    continue
-                cmd_check_new = [self.adb_path] + self.device_param + ["shell", "test", "-d", new_data_path, "&&", "echo", "exists"]
-                result_new = subprocess.run(cmd_check_new, capture_output=True, text=True,
-                                            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if "exists" in result_new.stdout:
-                    self.log(f"Удаление существующей папки {new_pkg}...")
-                    cmd_rm_new = [self.adb_path] + self.device_param + ["shell", "rm", "-rf", new_data_path]
-                    rm_new_result = subprocess.run(cmd_rm_new, capture_output=True, text=True,
-                                                   creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                    if rm_new_result.returncode == 0:
-                        self.log(f"[√] Удалена существующая папка: {new_pkg}")
-                    else:
-                        self.log(f"[X] Не удалось удалить папку {new_pkg}: {rm_new_result.stderr.strip()}")
-                        continue
-                self.log(f"Переименование обратно {old_pkg} → {new_pkg}...")
-                cmd_mv = [self.adb_path] + self.device_param + ["shell", "mv", old_data_path, new_data_path]
-                mv_result = subprocess.run(cmd_mv, capture_output=True, text=True,
-                                           creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if mv_result.returncode == 0:
-                    self.log(f"[√] Папка переименована обратно: {old_pkg} → {new_pkg}")
-                    renamed_back_count += 1
-                else:
-                    self.log(f"[X] Не удалось переименовать папку: {mv_result.stderr.strip()}")
-            except Exception as e:
-                self.log(f"[X] Ошибка при обработке {old_pkg}: {e}")
-        new_packages = self.get_hassle_folders()
-        for pkg in new_packages:
-            self.replace_with_code(pkg)
-        self.mod_done = False
-        self.root.after(0, self.update_gui)
     def simple_obfuscate(self, code):
         """Python-реализация simpleEncode из encode.js"""
         codes = [ord(c) for c in code]
