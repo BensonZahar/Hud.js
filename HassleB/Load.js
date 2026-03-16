@@ -2,6 +2,7 @@
 const username = 'BensonZahar';
 const repo = 'Hud.js';
 const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
+const accountNumber = ''; // НОМЕР АККАУНТА (1–8) — устанавливается установщиком автоматически
 
 // Установка хука на чат
 if (vt?.methods?.add) {
@@ -82,6 +83,16 @@ function applyUserConfig() {
     window.PASSWORD = userConfig.PASSWORD;
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
     
+    // Устанавливаем номер аккаунта и соответствующий бот-токен
+    window.ACCOUNT_NUMBER = accountNumber;
+    if (accountNumber && window.ACCOUNT_BOT_TOKENS && window.ACCOUNT_BOT_TOKENS[accountNumber]) {
+        window.ACCOUNT_TOKEN = window.ACCOUNT_BOT_TOKENS[accountNumber];
+        console.log(`✅ Токен для аккаунта #${accountNumber} установлен`);
+    } else {
+        window.ACCOUNT_TOKEN = null;
+        console.warn(`⚠️ Токен для аккаунта #${accountNumber} не найден, используется DEFAULT_TOKEN`);
+    }
+    
     console.log(`✅ Конфигурация для пользователя "${currentUser}" применена:`, {
         chatIds: userConfig.CHAT_IDS,
         password: '***' + userConfig.PASSWORD.slice(-4),
@@ -129,6 +140,7 @@ async function initializeScripts() {
 
 // Экспортируем в глобальную область для доступа из Code.js
 window.CURRENT_USER = currentUser;
+window.ACCOUNT_NUMBER = accountNumber;
 window.initializeScripts = initializeScripts;
 
 // Запуск загрузчика
