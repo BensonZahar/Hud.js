@@ -86,7 +86,7 @@ class MEmuHudManager:
             "green":    "#00d4aa",
         }
 
-        W, H = 400, 490
+        W, H = 420, 580
         self.root = ctk.CTk()
         self.root.title("HassleBot")
         self.root.resizable(False, False)
@@ -106,7 +106,13 @@ class MEmuHudManager:
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
 
-        self.main_frame = ctk.CTkFrame(self.root, fg_color=self.C["bg"], corner_radius=0)
+        self.main_frame = ctk.CTkScrollableFrame(
+            self.root,
+            fg_color=self.C["bg"],
+            corner_radius=0,
+            scrollbar_button_color=self.C["border"],
+            scrollbar_button_hover_color=self.C["accent"],
+        )
         self.main_frame.grid(sticky="nsew")
         self.main_frame.grid_columnconfigure(0, weight=1)
 
@@ -132,7 +138,7 @@ class MEmuHudManager:
         # ── Лог ────────────────────────────────────────────────
         self.status_text = ctk.CTkTextbox(
             self.main_frame,
-            height=80,
+            height=90,
             corner_radius=8,
             fg_color=self.C["card"],
             text_color=self.C["accent2"],
@@ -142,6 +148,21 @@ class MEmuHudManager:
             scrollbar_button_color=self.C["border"],
         )
         self.status_text.grid(row=1, column=0, padx=14, pady=(12, 0), sticky="ew")
+
+        # Правое меню для копирования логов
+        import tkinter as tk
+        self._log_menu = tk.Menu(self.root, tearoff=0,
+                                 bg=self.C["card"], fg=self.C["text"],
+                                 activebackground=self.C["accent"],
+                                 activeforeground="white",
+                                 bd=0, relief="flat")
+        self._log_menu.add_command(label="  Копировать", command=self._log_copy)
+        self._log_menu.add_command(label="  Выделить всё", command=self._log_select_all)
+        self._log_menu.add_separator()
+        self._log_menu.add_command(label="  Очистить лог", command=self._log_clear)
+
+        self.status_text._textbox.bind("<Button-3>", self._log_show_menu)
+        self.status_text._textbox.bind("<Control-a>", lambda e: self._log_select_all())
 
         self.activate_launch_permission()
     def load_skip_warning(self):
@@ -240,9 +261,9 @@ class MEmuHudManager:
         return f"{formatted_date}: {message}"
     def setup_gui(self):
         # Убираем всё кроме шапки (row=0) и лога (row=1)
-        for w in self.main_frame.winfo_children():
+        for w in list(self.main_frame.winfo_children()):
             info = w.grid_info()
-            if info.get('row', 0) not in (0, 1):
+            if info and info.get('row', 0) not in (0, 1):
                 w.destroy()
 
         C = self.C
@@ -355,8 +376,9 @@ class MEmuHudManager:
             self.app_menu.configure(values=[])
             self.app_var.set("")
     def update_gui(self):
-        for w in self.main_frame.winfo_children():
-            if w.grid_info().get('row', 0) == 5:
+        for w in list(self.main_frame.winfo_children()):
+            info = w.grid_info()
+            if info and info.get('row', 0) == 5:
                 w.destroy()
 
         C = self.C
@@ -805,6 +827,28 @@ class MEmuHudManager:
             self.root.update()
         else:
             print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
+
+    def _log_show_menu(self, event):
+        try:
+            self._log_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._log_menu.grab_release()
+
+    def _log_copy(self):
+        try:
+            text = self.status_text._textbox.get("sel.first", "sel.last")
+        except Exception:
+            text = self.status_text._textbox.get("1.0", "end")
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+
+    def _log_select_all(self):
+        self.status_text._textbox.tag_add("sel", "1.0", "end")
+        self.status_text._textbox.mark_set("insert", "1.0")
+        self.status_text._textbox.see("insert")
+
+    def _log_clear(self):
+        self.status_text.delete("1.0", "end")
     def on_close(self):
         self.delete_telegram_message()
         self.root.destroy()
@@ -1131,86 +1175,72 @@ class MEmuHudManager:
                 self.simple_download(app_folder)
         threading.Thread(target=run_action, daemon=True).start()
     def show_replace_warning(self, app_folder):
+        C = self.C
         dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Выбор аккаунта")
-        dialog.geometry("580x480")
+        dialog.title("")
         dialog.resizable(False, False)
         dialog.grab_set()
         dialog.transient(self.root)
+        dialog.configure(fg_color=C["bg"])
+        dialog.update_idletasks()
+
+        DW, DH = 340, 230
+        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
+        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
+        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
         dialog.lift()
 
-        # Предупреждение (если не скрыто)
-        if not self.skip_warning:
-            scroll_frame = ctk.CTkScrollableFrame(dialog, width=540, height=160)
-            scroll_frame.pack(pady=(15, 5), padx=20, fill="x")
-            text = ("Если у вас не скачен Hassle с реконнектом установите "
-                    "(если у вас скачены наши прошлые версии Hassle то вам нужна кнопка "
-                    "Перенос фулл Hassle на Hassle Rec")
-            ctk.CTkLabel(
-                scroll_frame,
-                text=text,
-                font=("Segoe UI", 14),
-                wraplength=500,
-                justify="center",
-                anchor="center"
-            ).pack(pady=(10, 5))
-            code_info = f"Используется версия кода: {self.selected_code_name or 'не выбрана'}"
-            ctk.CTkLabel(
-                scroll_frame,
-                text=code_info,
-                font=("Segoe UI", 13, "bold"),
-                text_color="#8B00FF"
-            ).pack(pady=(0, 10))
+        # Заголовок
+        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=40)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="Выбор аккаунта",
+                     font=("Segoe UI", 12, "bold"),
+                     text_color=C["text"]).pack(side="left", padx=14, pady=8)
+        ctk.CTkLabel(hdr, text=f"игрок: {self.selected_code_name or '—'}",
+                     font=("Segoe UI", 10),
+                     text_color=C["muted"]).pack(side="right", padx=14)
 
-        # Выбор номера аккаунта
-        ctk.CTkLabel(
-            dialog,
-            text="Выберите номер аккаунта:",
-            font=("Segoe UI", 15, "bold")
-        ).pack(pady=(10, 5))
+        # Сетка кнопок аккаунтов
+        ctk.CTkLabel(dialog, text="Выберите номер аккаунта",
+                     font=("Segoe UI", 11),
+                     text_color=C["subtext"]).pack(pady=(12, 6))
 
         acc_var = ctk.StringVar(value=self.selected_account_number or '')
-
-        btn_acc_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_acc_frame.pack(pady=5)
+        grid = ctk.CTkFrame(dialog, fg_color="transparent")
+        grid.pack()
         acc_buttons = {}
+
         def select_acc(n):
             acc_var.set(n)
             for num, btn in acc_buttons.items():
+                sel = (num == n)
                 btn.configure(
-                    fg_color="#1f6aa5" if num == n else "transparent",
-                    border_width=2 if num == n else 1,
-                    text_color="white" if num == n else ("white" if ctk.get_appearance_mode() == "Dark" else "black")
+                    fg_color=C["accent"] if sel else C["card"],
+                    border_color=C["accent"] if sel else C["border"],
+                    text_color="white"
                 )
 
         for i in range(1, 9):
             n = str(i)
-            is_selected = (n == acc_var.get())
+            is_sel = (n == acc_var.get())
             btn = ctk.CTkButton(
-                btn_acc_frame,
-                text=f"#{n}",
-                width=55,
-                height=40,
-                font=("Segoe UI", 14, "bold"),
-                fg_color="#1f6aa5" if is_selected else "transparent",
-                border_width=2 if is_selected else 1,
+                grid, text=f"#{n}",
+                width=32, height=32,
+                font=("Segoe UI", 12, "bold"),
+                fg_color=C["accent"] if is_sel else C["card"],
+                hover_color="#5a52e0",
+                border_width=1,
+                border_color=C["accent"] if is_sel else C["border"],
+                corner_radius=6,
                 command=lambda x=n: select_acc(x)
             )
-            btn.grid(row=0, column=i-1, padx=4, pady=5)
+            btn.grid(row=0, column=i-1, padx=3)
             acc_buttons[n] = btn
 
-        # Чекбокс "не показывать снова"
-        skip_var = ctk.BooleanVar(value=False)
-        if not self.skip_warning:
-            ctk.CTkCheckBox(
-                dialog,
-                text="Не сообщать следующий раз",
-                variable=skip_var,
-                font=("Segoe UI", 13)
-            ).pack(pady=8)
-
-        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_frame.pack(pady=10)
+        # Нижние кнопки
+        bot = ctk.CTkFrame(dialog, fg_color="transparent")
+        bot.pack(pady=(14, 0))
 
         def on_start():
             chosen = acc_var.get()
@@ -1218,11 +1248,19 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Номер аккаунта не выбран")
                 return
             self.selected_account_number = chosen
-            if skip_var.get():
-                self.skip_warning = True
-                self.save_skip_warning(True)
             dialog.destroy()
             self.replace_with_code(app_folder)
+
+        ctk.CTkButton(bot, text="Отмена", width=120, height=32,
+                      font=("Segoe UI", 11),
+                      fg_color="transparent", hover_color=C["surface"],
+                      text_color=C["muted"], corner_radius=8,
+                      command=dialog.destroy).grid(row=0, column=0, padx=6)
+        ctk.CTkButton(bot, text="▶  Установить", width=140, height=32,
+                      font=("Segoe UI", 11, "bold"),
+                      fg_color=C["accent"], hover_color="#5a52e0",
+                      text_color="white", corner_radius=8,
+                      command=on_start).grid(row=0, column=1, padx=6)
 
         ctk.CTkButton(btn_frame, text="Назад", width=160, command=dialog.destroy).grid(row=0, column=0, padx=25)
         ctk.CTkButton(btn_frame, text="Начать", width=160, command=on_start).grid(row=0, column=1, padx=25)
