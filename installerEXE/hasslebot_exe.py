@@ -508,12 +508,12 @@ class MEmuHudManager:
                                 self.last_commit_info = self.fetch_last_commit("Load.js", "HassleB")
                               
                                 if not self.full_logging:
-                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Пользователь {u} выбран. Выбор номера аккаунта..."))
+                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Пользователь {u} выбран. Ожидание выбора режима отладки..."))
                                 else:
-                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Выбран пользователь: {u}. Ожидание выбора номера аккаунта..."))
+                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Выбран пользователь: {u}. Ожидание выбора режима отладки..."))
                               
-                                self.root.after(0, lambda: self.send_account_choice_message(self.telegram_message_id))
-                                self.root.after(0, self.wait_for_account_choice)
+                                self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
+                                self.root.after(0, self.wait_for_debug_choice)
                                 return
                             else:
                                 self.log("[X] Ошибка: Неверный выбор пользователя")
@@ -1004,56 +1004,105 @@ class MEmuHudManager:
         y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (360 // 2)
         dialog.geometry(f"+{x}+{y}")
     def show_replace_warning(self, app_folder):
-        if self.skip_warning:
-            self.replace_with_code(app_folder)
-            return
         dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Предупреждение")
-        dialog.geometry("580x420")
+        dialog.title("Выбор аккаунта")
+        dialog.geometry("580x480")
         dialog.resizable(False, False)
         dialog.grab_set()
         dialog.transient(self.root)
         dialog.lift()
-        scroll_frame = ctk.CTkScrollableFrame(dialog, width=540, height=250)
-        scroll_frame.pack(pady=20, padx=20, fill="both", expand=True)
-        text = ("Если у вас не скачен Hassle с реконнектом установите "
-                "(если у вас скачены наши прошлые версии Hassle то вам нужна кнопка "
-                "Перенос фулл Hassle на Hassle Rec")
+
+        # Предупреждение (если не скрыто)
+        if not self.skip_warning:
+            scroll_frame = ctk.CTkScrollableFrame(dialog, width=540, height=160)
+            scroll_frame.pack(pady=(15, 5), padx=20, fill="x")
+            text = ("Если у вас не скачен Hassle с реконнектом установите "
+                    "(если у вас скачены наши прошлые версии Hassle то вам нужна кнопка "
+                    "Перенос фулл Hassle на Hassle Rec")
+            ctk.CTkLabel(
+                scroll_frame,
+                text=text,
+                font=("Segoe UI", 14),
+                wraplength=500,
+                justify="center",
+                anchor="center"
+            ).pack(pady=(10, 5))
+            code_info = f"Используется версия кода: {self.selected_code_name or 'не выбрана'}"
+            ctk.CTkLabel(
+                scroll_frame,
+                text=code_info,
+                font=("Segoe UI", 13, "bold"),
+                text_color="#8B00FF"
+            ).pack(pady=(0, 10))
+
+        # Выбор номера аккаунта
         ctk.CTkLabel(
-            scroll_frame,
-            text=text,
-            font=("Segoe UI", 15),
-            wraplength=520,
-            justify="center",
-            anchor="center"
-        ).pack(pady=(30, 15))
-        code_info = f"Используется версия кода: {self.selected_code_name or 'не выбрана'}"
-        ctk.CTkLabel(
-            scroll_frame,
-            text=code_info,
-            font=("Segoe UI", 14, "bold"),
-            text_color="#8B00FF"
-        ).pack(pady=(0, 20))
-        skip_var = ctk.BooleanVar(value=False)
-        ctk.CTkCheckBox(
             dialog,
-            text="Не сообщать следующий раз",
-            variable=skip_var,
-            font=("Segoe UI", 14)
-        ).pack(pady=10)
+            text="Выберите номер аккаунта:",
+            font=("Segoe UI", 15, "bold")
+        ).pack(pady=(10, 5))
+
+        acc_var = ctk.StringVar(value=self.selected_account_number or '')
+
+        btn_acc_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_acc_frame.pack(pady=5)
+        acc_buttons = {}
+        def select_acc(n):
+            acc_var.set(n)
+            for num, btn in acc_buttons.items():
+                btn.configure(
+                    fg_color="#1f6aa5" if num == n else "transparent",
+                    border_width=2 if num == n else 1,
+                    text_color="white" if num == n else ("white" if ctk.get_appearance_mode() == "Dark" else "black")
+                )
+
+        for i in range(1, 9):
+            n = str(i)
+            is_selected = (n == acc_var.get())
+            btn = ctk.CTkButton(
+                btn_acc_frame,
+                text=f"#{n}",
+                width=55,
+                height=40,
+                font=("Segoe UI", 14, "bold"),
+                fg_color="#1f6aa5" if is_selected else "transparent",
+                border_width=2 if is_selected else 1,
+                command=lambda x=n: select_acc(x)
+            )
+            btn.grid(row=0, column=i-1, padx=4, pady=5)
+            acc_buttons[n] = btn
+
+        # Чекбокс "не показывать снова"
+        skip_var = ctk.BooleanVar(value=False)
+        if not self.skip_warning:
+            ctk.CTkCheckBox(
+                dialog,
+                text="Не сообщать следующий раз",
+                variable=skip_var,
+                font=("Segoe UI", 13)
+            ).pack(pady=8)
+
         btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_frame.pack(pady=10)
+
         def on_start():
+            chosen = acc_var.get()
+            if not chosen:
+                self.log("[X] Ошибка: Номер аккаунта не выбран")
+                return
+            self.selected_account_number = chosen
             if skip_var.get():
                 self.skip_warning = True
                 self.save_skip_warning(True)
             dialog.destroy()
             self.replace_with_code(app_folder)
+
         ctk.CTkButton(btn_frame, text="Назад", width=160, command=dialog.destroy).grid(row=0, column=0, padx=25)
         ctk.CTkButton(btn_frame, text="Начать", width=160, command=on_start).grid(row=0, column=1, padx=25)
+
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (580 // 2)
-        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (420 // 2)
+        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (480 // 2)
         dialog.geometry(f"+{x}+{y}")
     def get_hassle_folders(self, param=None, storage=None):
         param = param or self.device_param
