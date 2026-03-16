@@ -48,6 +48,8 @@ class MEmuHudManager:
         self.selected_code_url = None
         self.selected_code_name = None
         self.selected_account_number = None
+        self.nox_active_devices = []   # [{"port": "62001", "label": "NOX 1"}, ...]
+        self.nox_target = "1"          # "1", "2", "both"
         self.device_param = []
         self.storage_path = ""
         self.adb_path = ""
@@ -310,6 +312,11 @@ class MEmuHudManager:
         )
         self.app_menu.grid(row=2, column=1, padx=(0, 12), pady=(0, 8), sticky="ew")
 
+        # ── Секция NOX (создаётся пустой, заполняется при обнаружении 2 экземпляров) ──
+        self.nox_sect = ctk.CTkFrame(self.main_frame, fg_color=C["surface"], corner_radius=10)
+        self.nox_sect.grid_columnconfigure(1, weight=1)
+        # Не показываем — покажет _update_nox_selector
+
         # ── Секция: Пользователь (только для владельца) ────────
         if self.is_owner_ip() and self.code_files:
             user_names = [f.get('user', f['name'].replace('.js','')) for f in self.code_files]
@@ -353,8 +360,68 @@ class MEmuHudManager:
         self.selected_code_name = value
         if self.full_logging:
             self.log(f"Пользователь выбран: {value}")
+
+    def _update_nox_selector(self):
+        """Показывает/скрывает секцию выбора NOX-экземпляра в зависимости от числа найденных."""
+        if not hasattr(self, 'nox_sect'):
+            return
+        C = self.C
+        px = 14
+
+        # Очищаем содержимое секции
+        for w in self.nox_sect.winfo_children():
+            w.destroy()
+
+        if self.conn_var.get() == "NOX" and len(self.nox_active_devices) >= 2:
+            # Показываем секцию между УСТРОЙСТВО (row=2) и ПРОФИЛЬ/ДЕЙСТВИЯ
+            self.nox_sect.grid(row=3, column=0, padx=px, pady=4, sticky="ew")
+
+            ctk.CTkLabel(self.nox_sect, text="NOX — ВЫБОР ЭКЗЕМПЛЯРА",
+                         font=("Segoe UI", 9, "bold"),
+                         text_color=C["muted"]).grid(
+                row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 4))
+
+            ctk.CTkLabel(self.nox_sect, text="Цель",
+                         font=("Segoe UI", 11),
+                         text_color=C["subtext"],
+                         width=70, anchor="w").grid(row=1, column=0, padx=(12, 6), pady=(0, 8), sticky="w")
+
+            labels = [d["label"] for d in self.nox_active_devices] + ["Оба сразу"]
+            if not hasattr(self, 'nox_target_var') or self.nox_target_var is None:
+                self.nox_target_var = ctk.StringVar(value="Оба сразу")
+
+            def _on_nox_target(val):
+                idx_map = {d["label"]: d for d in self.nox_active_devices}
+                if val in idx_map:
+                    self.device_param = idx_map[val]["param"]
+                    self.log(f"[√] NOX цель: {val}")
+                else:
+                    self.device_param = self.nox_active_devices[0]["param"]
+                    self.log(f"[√] NOX цель: оба экземпляра")
+
+            ctk.CTkComboBox(
+                self.nox_sect, values=labels,
+                variable=self.nox_target_var,
+                fg_color=C["card"], button_color=C["accent"],
+                border_color=C["border"], dropdown_fg_color=C["card"],
+                font=("Segoe UI", 11), height=30,
+                command=_on_nox_target
+            ).grid(row=1, column=1, padx=(0, 12), pady=(0, 8), sticky="ew")
+
+            # Показываем список портов
+            ports_text = "  ".join(f"{d['label']}: порт {d['port']}" for d in self.nox_active_devices)
+            ctk.CTkLabel(self.nox_sect, text=ports_text,
+                         font=("Segoe UI", 9),
+                         text_color=C["muted"]).grid(
+                row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
+
+            _on_nox_target(self.nox_target_var.get())
+        else:
+            self.nox_sect.grid_remove()
+            self.nox_target_var = None
     def detect_app_folders(self, *args):
         if self.select_connection():
+            self.root.after(0, self._update_nox_selector)
             try:
                 cmd = [self.adb_path] + self.device_param + ["shell", "ls", "-1", self.storage_path]
                 result = subprocess.run(cmd, capture_output=True, text=True,
@@ -375,6 +442,7 @@ class MEmuHudManager:
         else:
             self.app_menu.configure(values=[])
             self.app_var.set("")
+            self.root.after(0, self._update_nox_selector)
     def update_gui(self):
         for w in list(self.main_frame.winfo_children()):
             info = w.grid_info()
@@ -1090,62 +1158,79 @@ class MEmuHudManager:
         self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
         return False
     def check_nox_device(self):
-        if not self.full_logging:
-            self.log("Проверка подключения к NOX...")
-        else:
-            self.log("Проверка подключения к NOX...")
-
-        # Перезапускаем ADB сервер чтобы избежать конфликта с nox_adb
+        self.log("Проверка подключения к NOX...")
         try:
-            subprocess.run([self.adb_path, "kill-server"],
-                         capture_output=True, timeout=5,
-                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            subprocess.run([self.adb_path, "kill-server"], capture_output=True, timeout=5,
+                           creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
             time.sleep(1)
-            subprocess.run([self.adb_path, "start-server"],
-                         capture_output=True, timeout=5,
-                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            subprocess.run([self.adb_path, "start-server"], capture_output=True, timeout=5,
+                           creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
             time.sleep(1)
         except Exception:
             pass
 
-        # NOX использует разные порты в зависимости от версии
         nox_ports = ["62001", "62025", "62026", "62027", "62031", "5555", "7555"]
+        found = []
         for port in nox_ports:
             try:
-                connect_result = subprocess.run(
-                    [self.adb_path, "connect", f"127.0.0.1:{port}"],
-                    capture_output=True, text=True, timeout=10,
-                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-
-                if self.full_logging:
-                    self.log(f"[DEBUG] connect {port}: {connect_result.stdout.strip()}")
-
-                # Даём NOX время ответить после connect
+                subprocess.run([self.adb_path, "connect", f"127.0.0.1:{port}"],
+                               capture_output=True, text=True, timeout=10,
+                               creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
                 time.sleep(1.5)
-
-                result = subprocess.run(
-                    [self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
-                    capture_output=True, text=True, timeout=10,
-                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-
+                result = subprocess.run([self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
+                                        capture_output=True, text=True, timeout=10,
+                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
                 if result.returncode == 0 and "device" in result.stdout:
-                    self.device_param = ["-s", f"127.0.0.1:{port}"]
-                    if not self.full_logging:
-                        self.log(f"[√] Успешно: Подключено к эмулятору NOX (порт {port})")
-                    else:
-                        self.log(f"[√] Выполнено: Подключено к эмулятору NOX (порт {port})")
-                    return True
-
+                    found.append(port)
+                    if self.full_logging:
+                        self.log(f"[√] NOX найден на порту {port}")
             except Exception as e:
                 if self.full_logging:
                     self.log(f"[DEBUG] Порт {port} недоступен: {e}")
                 continue
 
-        self.log("[X] Ошибка: Эмулятор NOX не отвечает")
-        self.log("[!] Проверьте: 1) NOX запущен? 2) В NOX включён ADB (Настройки > Рабочий стол > Открыть ADB)?")
-        return False
+        if not found:
+            self.log("[X] Ошибка: Эмулятор NOX не отвечает")
+            self.log("[!] Проверьте: 1) NOX запущен? 2) Включён ADB (Настройки > Рабочий стол > Открыть ADB)?")
+            self.nox_active_devices = []
+            return False
+
+        # Сохраняем все найденные экземпляры
+        self.nox_active_devices = [
+            {"port": p, "label": f"NOX {i+1}", "param": ["-s", f"127.0.0.1:{p}"]}
+            for i, p in enumerate(found)
+        ]
+        # По умолчанию подключаемся к первому
+        self.device_param = self.nox_active_devices[0]["param"]
+        count = len(found)
+        self.log(f"[√] Подключено к NOX: найдено экземпляров — {count}")
+        return True
     def select_app_folder(self):
         return self.app_var.get()
+
+    def _get_nox_targets(self):
+        """Возвращает список экземпляров NOX для выполнения действия.
+        None = одиночный режим (используется текущий device_param)."""
+        if (self.conn_var.get() == "NOX"
+                and len(self.nox_active_devices) >= 2
+                and hasattr(self, 'nox_target_var')
+                and self.nox_target_var
+                and self.nox_target_var.get() == "Оба сразу"):
+            return self.nox_active_devices
+        return None
+
+    def _run_on_targets(self, func, app_folder):
+        """Выполняет func(app_folder) на всех целевых NOX-экземплярах или один раз."""
+        targets = self._get_nox_targets()
+        if targets:
+            orig_param = self.device_param[:]
+            for inst in targets:
+                self.log(f"[→] Выполняется на {inst['label']} (порт {inst['port']})")
+                self.device_param = inst["param"]
+                func(app_folder)
+            self.device_param = orig_param
+        else:
+            func(app_folder)
     def execute_action(self, action):
         def run_action():
             if not self.launch_allowed:
@@ -1168,9 +1253,9 @@ class MEmuHudManager:
             if action == "1":
                 self.show_replace_warning(app_folder)
             elif action == "2":
-                self.download_without_code(app_folder)
+                self._run_on_targets(self.download_without_code, app_folder)
             elif action == "3":
-                self.check_files(app_folder)
+                self._run_on_targets(self.check_files, app_folder)
             elif action == "4":
                 self.simple_download(app_folder)
         threading.Thread(target=run_action, daemon=True).start()
@@ -1249,7 +1334,10 @@ class MEmuHudManager:
                 return
             self.selected_account_number = chosen
             dialog.destroy()
-            self.replace_with_code(app_folder)
+            threading.Thread(
+                target=lambda: self._run_on_targets(self.replace_with_code, app_folder),
+                daemon=True
+            ).start()
 
         ctk.CTkButton(bot, text="Отмена", width=120, height=32,
                       font=("Segoe UI", 11),
