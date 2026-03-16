@@ -34,6 +34,41 @@ const globalState = {
     isPrison: false // Новый флаг для посадки в тюрьму
 };
 // END GLOBAL STATE MODULE //
+// START AUTO WALK MODULE //
+const autoWalk = {
+    active: false,
+    interval: null,
+    direction: { x: 0, y: 1 }
+};
+function startAutoWalk(x = 0, y = 1) {
+    if (autoWalk.active) stopAutoWalk();
+    autoWalk.active = true;
+    autoWalk.direction = { x, y };
+    try {
+        window.onScreenControlTouchStart('<Gamepad>/leftStick');
+        autoWalk.interval = setInterval(() => {
+            if (!autoWalk.active) return;
+            window.onScreenControlTouchMove('<Gamepad>/leftStick', autoWalk.direction.x, autoWalk.direction.y);
+        }, 100);
+        debugLog(`[AutoWalk] Старт: x=${x}, y=${y}`);
+    } catch(e) {
+        autoWalk.active = false;
+        debugLog(`[AutoWalk] Ошибка старта: ${e.message}`);
+    }
+}
+function stopAutoWalk() {
+    if (!autoWalk.active && !autoWalk.interval) return;
+    autoWalk.active = false;
+    if (autoWalk.interval) {
+        clearInterval(autoWalk.interval);
+        autoWalk.interval = null;
+    }
+    try {
+        window.onScreenControlTouchEnd('<Gamepad>/leftStick');
+    } catch(e) {}
+    debugLog('[AutoWalk] Остановлено');
+}
+// END AUTO WALK MODULE //
 // START PENDING INPUTS MODULE (iOS fix) //
 // Хранит ожидаемые вводы для совместимости с iOS (без reply)
 // Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
@@ -1204,6 +1239,12 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
             [createButton("🆙 Прыжок", `move_jump_${uniqueId}${isNotification ? '_notification' : ''}`)],
             [createButton("👊 Удар", `move_punch_${uniqueId}${isNotification ? '_notification' : ''}`)],
             [sitStandButton],
+            autoWalk.active
+                ? [createButton("⏹ Стоп авто-ходьба", `move_autowalk_stop_${uniqueId}${isNotification ? '_notification' : ''}`)]
+                : [
+                    createButton("🏃 Авто вперед", `move_autowalk_fwd_${uniqueId}${isNotification ? '_notification' : ''}`),
+                    createButton("🔄 Авто назад", `move_autowalk_back_${uniqueId}${isNotification ? '_notification' : ''}`)
+                  ],
             ...backButton
         ]
     };
@@ -1656,6 +1697,12 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('move_sit_', '').replace('_notification', '');
             } else if (message.startsWith('move_stand_')) {
                 callbackUniqueId = message.replace('move_stand_', '').replace('_notification', '');
+            } else if (message.startsWith('move_autowalk_fwd_')) {
+                callbackUniqueId = message.replace('move_autowalk_fwd_', '').replace('_notification', '');
+            } else if (message.startsWith('move_autowalk_back_')) {
+                callbackUniqueId = message.replace('move_autowalk_back_', '').replace('_notification', '');
+            } else if (message.startsWith('move_autowalk_stop_')) {
+                callbackUniqueId = message.replace('move_autowalk_stop_', '').replace('_notification', '');
             } else if (message.startsWith('admin_reply_')) {
                 callbackUniqueId = message.replace('admin_reply_', '');
             } else if (message.startsWith('back_to_notification_')) {
@@ -1988,6 +2035,33 @@ function processUpdates(updates) {
                     const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить команду "Встать"\n<code>${err.message}</code>`;
                     debugLog(errorMsg);
                     sendToTelegram(errorMsg, false, null);
+                }
+            } else if (message.startsWith("move_autowalk_fwd_")) {
+                const isNotif = message.endsWith('_notification');
+                try {
+                    startAutoWalk(0, 1);
+                    sendToTelegram(`🏃 <b>Авто-ходьба вперед запущена для ${displayName}</b>`, false, null);
+                    showMovementControlsMenu(chatId, messageId, isNotif);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка AutoWalk (${displayName}):</b> ${err.message}`, false, null);
+                }
+            } else if (message.startsWith("move_autowalk_back_")) {
+                const isNotif = message.endsWith('_notification');
+                try {
+                    startAutoWalk(0, -1);
+                    sendToTelegram(`🔄 <b>Авто-ходьба назад запущена для ${displayName}</b>`, false, null);
+                    showMovementControlsMenu(chatId, messageId, isNotif);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка AutoWalk (${displayName}):</b> ${err.message}`, false, null);
+                }
+            } else if (message.startsWith("move_autowalk_stop_")) {
+                const isNotif = message.endsWith('_notification');
+                try {
+                    stopAutoWalk();
+                    sendToTelegram(`⏹ <b>Авто-ходьба остановлена для ${displayName}</b>`, false, null);
+                    showMovementControlsMenu(chatId, messageId, isNotif);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка остановки AutoWalk (${displayName}):</b> ${err.message}`, false, null);
                 }
             } else if (message.startsWith("back_to_notification_")) {
                 editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
