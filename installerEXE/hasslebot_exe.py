@@ -68,27 +68,81 @@ class MEmuHudManager:
         self.skip_warning = self.load_skip_warning()
 
         # GUI Components
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
+
+        # ── Палитра ────────────────────────────────────────────
+        self.C = {
+            "bg":       "#0e0e18",
+            "surface":  "#161625",
+            "card":     "#1c1c30",
+            "border":   "#2a2a45",
+            "accent":   "#6c63ff",
+            "accent2":  "#00d4aa",
+            "muted":    "#4a4a6a",
+            "text":     "#e2e2f0",
+            "subtext":  "#8888aa",
+            "red":      "#ff5c5c",
+            "green":    "#00d4aa",
+        }
+
+        W, H = 400, 490
         self.root = ctk.CTk()
-        self.root.title("HASSLE BOT by konst2")
-        self.root.geometry("700x600")
+        self.root.title("HassleBot")
+        self.root.resizable(False, False)
+        self.root.configure(fg_color=self.C["bg"])
+        self.root.update_idletasks()
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        self.root.geometry(f"{W}x{H}+{(sw-W)//2}+{(sh-H)//2}")
         try:
             icon_path = resource_path("icon.ico")
             if os.path.exists(icon_path):
                 self.root.iconbitmap(icon_path)
-            else:
-                print(f"[X] Файл иконки {icon_path} не найден")
-        except Exception as e:
-            print(f"[X] Ошибка установки иконки: {e}")
+        except Exception:
+            pass
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
-        # Инициализация минимального GUI
+
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
-        self.main_frame = ctk.CTkScrollableFrame(self.root, corner_radius=10)
-        self.main_frame.grid(padx=20, pady=20, sticky="nsew")
+
+        self.main_frame = ctk.CTkFrame(self.root, fg_color=self.C["bg"], corner_radius=0)
+        self.main_frame.grid(sticky="nsew")
         self.main_frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self.main_frame, text="HASSLE BOT by konst2", font=("Arial", 20, "bold")).grid(row=0, column=0, pady=10)
-        self.status_text = ctk.CTkTextbox(self.main_frame, height=300, width=600, corner_radius=10)
-        self.status_text.grid(row=1, column=0, pady=10, sticky="ew")
+
+        # ── Шапка ──────────────────────────────────────────────
+        hdr = ctk.CTkFrame(self.main_frame, fg_color=self.C["surface"],
+                           corner_radius=0, height=48)
+        hdr.grid(row=0, column=0, sticky="ew")
+        hdr.grid_columnconfigure(1, weight=1)
+        hdr.grid_propagate(False)
+
+        dot = ctk.CTkFrame(hdr, width=8, height=8, corner_radius=4,
+                           fg_color=self.C["accent"])
+        dot.grid(row=0, column=0, padx=(16, 6), pady=14)
+        dot.grid_propagate(False)
+
+        ctk.CTkLabel(hdr, text="HASSLE BOT",
+                     font=("Segoe UI", 13, "bold"),
+                     text_color=self.C["text"]).grid(row=0, column=1, sticky="w")
+        ctk.CTkLabel(hdr, text="by konst2",
+                     font=("Segoe UI", 10),
+                     text_color=self.C["muted"]).grid(row=0, column=2, padx=16)
+
+        # ── Лог ────────────────────────────────────────────────
+        self.status_text = ctk.CTkTextbox(
+            self.main_frame,
+            height=80,
+            corner_radius=8,
+            fg_color=self.C["card"],
+            text_color=self.C["accent2"],
+            font=("Consolas", 10),
+            border_width=1,
+            border_color=self.C["border"],
+            scrollbar_button_color=self.C["border"],
+        )
+        self.status_text.grid(row=1, column=0, padx=14, pady=(12, 0), sticky="ew")
+
         self.activate_launch_permission()
     def load_skip_warning(self):
         if self.skip_warning_file.exists():
@@ -185,48 +239,93 @@ class MEmuHudManager:
         message = commit['message']
         return f"{formatted_date}: {message}"
     def setup_gui(self):
-        for widget in self.main_frame.winfo_children():
-            if widget != self.status_text and widget.grid_info().get('row') != 0:
-                widget.destroy()
-        ctk.CTkLabel(self.main_frame, text="Тип подключения:").grid(row=3, column=0, pady=5)
-        self.conn_var = ctk.StringVar(value="1 - Физическое устройство")
-        self.conn_menu = ctk.CTkComboBox(self.main_frame,
-                                   values=["1 - Физическое устройство", "2 - Клонированное хранилище (999)", "3 - Эмулятор MEmu", "4 - Эмулятор NOX"],
-                                   variable=self.conn_var, width=300)
-        self.conn_menu.grid(row=4, column=0, pady=5)
-        self.conn_var.trace("w", self.detect_app_folders)
-        ctk.CTkLabel(self.main_frame, text="Папка приложения:").grid(row=5, column=0, pady=5)
-        self.app_var = ctk.StringVar(value="")
-        self.app_menu = ctk.CTkComboBox(self.main_frame,
-                                  values=[],
-                                  variable=self.app_var, width=300)
-        self.app_menu.grid(row=6, column=0, pady=5)
+        # Убираем всё кроме шапки (row=0) и лога (row=1)
+        for w in self.main_frame.winfo_children():
+            info = w.grid_info()
+            if info.get('row', 0) not in (0, 1):
+                w.destroy()
 
-        # Для владельца — выбор пользователя прямо в GUI
+        C = self.C
+        px = 14  # единый горизонтальный отступ
+
+        # ── Секция: Подключение ────────────────────────────────
+        sect1 = ctk.CTkFrame(self.main_frame, fg_color=C["surface"],
+                             corner_radius=10)
+        sect1.grid(row=2, column=0, padx=px, pady=(10, 4), sticky="ew")
+        sect1.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(sect1, text="УСТРОЙСТВО",
+                     font=("Segoe UI", 9, "bold"),
+                     text_color=C["muted"]).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 4))
+
+        ctk.CTkLabel(sect1, text="Тип",
+                     font=("Segoe UI", 11),
+                     text_color=C["subtext"],
+                     width=70, anchor="w").grid(row=1, column=0, padx=(12, 6), pady=4, sticky="w")
+        self.conn_var = ctk.StringVar(value="Физическое")
+        self.conn_menu = ctk.CTkComboBox(
+            sect1,
+            values=["Физическое", "Клон (999)", "MEmu", "NOX"],
+            variable=self.conn_var,
+            fg_color=C["card"], button_color=C["accent"],
+            border_color=C["border"], dropdown_fg_color=C["card"],
+            font=("Segoe UI", 11), height=30
+        )
+        self.conn_menu.grid(row=1, column=1, padx=(0, 12), pady=4, sticky="ew")
+        self.conn_var.trace("w", self.detect_app_folders)
+
+        ctk.CTkLabel(sect1, text="Папка",
+                     font=("Segoe UI", 11),
+                     text_color=C["subtext"],
+                     width=70, anchor="w").grid(row=2, column=0, padx=(12, 6), pady=(0, 8), sticky="w")
+        self.app_var = ctk.StringVar(value="")
+        self.app_menu = ctk.CTkComboBox(
+            sect1, values=[],
+            variable=self.app_var,
+            fg_color=C["card"], button_color=C["accent"],
+            border_color=C["border"], dropdown_fg_color=C["card"],
+            font=("Segoe UI", 11), height=30
+        )
+        self.app_menu.grid(row=2, column=1, padx=(0, 12), pady=(0, 8), sticky="ew")
+
+        # ── Секция: Пользователь (только для владельца) ────────
         if self.is_owner_ip() and self.code_files:
-            user_names = [f.get('user', f['name'].replace('.js', '')) for f in self.code_files]
-            ctk.CTkLabel(self.main_frame, text="Пользователь:").grid(row=8, column=0, pady=(10, 2))
+            user_names = [f.get('user', f['name'].replace('.js','')) for f in self.code_files]
+            sect_u = ctk.CTkFrame(self.main_frame, fg_color=C["surface"], corner_radius=10)
+            sect_u.grid(row=3, column=0, padx=px, pady=4, sticky="ew")
+            sect_u.grid_columnconfigure(1, weight=1)
+
+            ctk.CTkLabel(sect_u, text="ПРОФИЛЬ",
+                         font=("Segoe UI", 9, "bold"),
+                         text_color=C["muted"]).grid(
+                row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 4))
+
+            ctk.CTkLabel(sect_u, text="Игрок",
+                         font=("Segoe UI", 11),
+                         text_color=C["subtext"],
+                         width=70, anchor="w").grid(row=1, column=0, padx=(12, 6), pady=(0, 8), sticky="w")
             self.owner_user_var = ctk.StringVar(value=self.selected_code_name or user_names[0])
-            user_menu = ctk.CTkComboBox(self.main_frame,
-                                        values=user_names,
-                                        variable=self.owner_user_var,
-                                        width=300,
-                                        command=self._on_owner_user_change)
-            user_menu.grid(row=9, column=0, pady=2)
-            # Устанавливаем текущее значение
+            ctk.CTkComboBox(
+                sect_u, values=user_names,
+                variable=self.owner_user_var,
+                fg_color=C["card"], button_color=C["accent"],
+                border_color=C["border"], dropdown_fg_color=C["card"],
+                font=("Segoe UI", 11), height=30,
+                command=self._on_owner_user_change
+            ).grid(row=1, column=1, padx=(0, 12), pady=(0, 8), sticky="ew")
             self._on_owner_user_change(self.owner_user_var.get())
 
-        commit_label_text = ""
-        if self.last_commit_info:
-            commit_label_text += f"Выбранный код: {self.last_commit_info}\n"
-        if self.full_logging:
-            if self.load_commit_info:
-                commit_label_text += f"Load.js: {self.load_commit_info}\n"
-            if self.script_commit_info:
-                commit_label_text += f"hasslebot_exe.py: {self.script_commit_info}\n"
-        if not commit_label_text:
-            commit_label_text = "Нет информации о коммите"
-        ctk.CTkLabel(self.main_frame, text=commit_label_text).grid(row=2, column=0, pady=5)
+        # ── Инфо о коммите (только с отладкой) ────────────────
+        if self.full_logging and self.last_commit_info:
+            ctk.CTkLabel(
+                self.main_frame,
+                text=f"↑ {self.last_commit_info}",
+                font=("Segoe UI", 9),
+                text_color=C["muted"],
+                wraplength=370, justify="left"
+            ).grid(row=4, column=0, padx=px, pady=(0, 2), sticky="w")
+
         self.update_gui()
 
     def _on_owner_user_change(self, value):
@@ -236,8 +335,6 @@ class MEmuHudManager:
     def detect_app_folders(self, *args):
         if self.select_connection():
             try:
-                # ИСПРАВЛЕНО: флаг -1 гарантирует одну запись на строку,
-                # чтобы com.xiaomi.* не "прилипали" к com.hassle.online*
                 cmd = [self.adb_path] + self.device_param + ["shell", "ls", "-1", self.storage_path]
                 result = subprocess.run(cmd, capture_output=True, text=True,
                                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
@@ -258,20 +355,86 @@ class MEmuHudManager:
             self.app_menu.configure(values=[])
             self.app_var.set("")
     def update_gui(self):
-        for widget in self.main_frame.winfo_children():
-            if isinstance(widget, ctk.CTkFrame) and widget.grid_info().get('row') == 7:
-                widget.destroy()
-        btn_frame = ctk.CTkFrame(self.main_frame, fg_color="transparent")
-        btn_frame.grid(row=7, column=0, pady=20, sticky="ew")
-        btn_frame.grid_columnconfigure((0, 1), weight=1)
-        ctk.CTkButton(btn_frame, text="Заменить на файл с кодом", command=lambda: self.execute_action("1"), width=140).grid(row=0, column=0, padx=5, pady=5)
-        ctk.CTkButton(btn_frame, text="Убрать код - Заменить на файл без кода", command=lambda: self.execute_action("2"), width=140).grid(row=0, column=1, padx=5, pady=5)
+        for w in self.main_frame.winfo_children():
+            if w.grid_info().get('row', 0) == 5:
+                w.destroy()
+
+        C = self.C
+        px = 14
+
+        # ── Кнопки действий ────────────────────────────────────
+        acts = ctk.CTkFrame(self.main_frame, fg_color=C["surface"], corner_radius=10)
+        acts.grid(row=5, column=0, padx=px, pady=4, sticky="ew")
+        acts.grid_columnconfigure((0, 1), weight=1)
+
+        ctk.CTkLabel(acts, text="ДЕЙСТВИЯ",
+                     font=("Segoe UI", 9, "bold"),
+                     text_color=C["muted"]).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 6))
+
+        # Установить код
+        ctk.CTkButton(
+            acts,
+            text="▶  Установить код",
+            font=("Segoe UI", 12, "bold"),
+            fg_color=C["accent"], hover_color="#5a52e0",
+            text_color="white", height=36, corner_radius=8,
+            command=lambda: self.execute_action("1")
+        ).grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="ew")
+
+        # Убрать код
+        ctk.CTkButton(
+            acts,
+            text="✕  Убрать код",
+            font=("Segoe UI", 11),
+            fg_color=C["card"], hover_color=C["border"],
+            text_color=C["subtext"], height=30, corner_radius=8,
+            border_width=1, border_color=C["border"],
+            command=lambda: self.execute_action("2")
+        ).grid(row=2, column=0, padx=(10, 4), pady=(0, 4), sticky="ew")
+
+        # Проверка файлов
+        ctk.CTkButton(
+            acts,
+            text="⟳  Проверить",
+            font=("Segoe UI", 11),
+            fg_color=C["card"], hover_color=C["border"],
+            text_color=C["subtext"], height=30, corner_radius=8,
+            border_width=1, border_color=C["border"],
+            command=lambda: self.execute_action("3")
+        ).grid(row=2, column=1, padx=(4, 10), pady=(0, 4), sticky="ew")
+
         if self.full_logging:
-            ctk.CTkButton(btn_frame, text="Скачать Hud.js", command=lambda: self.execute_action("4"), width=140).grid(row=1, column=0, padx=5, pady=5)
-        ctk.CTkButton(btn_frame, text="Проверка файлов", command=lambda: self.execute_action("3"), width=140).grid(row=1, column=1, padx=5, pady=5)
+            ctk.CTkButton(
+                acts,
+                text="↓  Скачать Hud.js",
+                font=("Segoe UI", 11),
+                fg_color=C["card"], hover_color=C["border"],
+                text_color=C["subtext"], height=30, corner_radius=8,
+                border_width=1, border_color=C["border"],
+                command=lambda: self.execute_action("4")
+            ).grid(row=3, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="ew")
+
         if self.debug_allowed:
-            ctk.CTkButton(btn_frame, text="Активировать отладку", command=self.activate_debug_mode, width=140).grid(row=2, column=0, padx=5, pady=5)
-        ctk.CTkButton(btn_frame, text="Выход", command=self.on_close, width=140).grid(row=2, column=1, padx=5, pady=5)
+            ctk.CTkButton(
+                acts,
+                text="🛠  Включить отладку",
+                font=("Segoe UI", 11),
+                fg_color=C["card"], hover_color=C["border"],
+                text_color=C["accent2"], height=30, corner_radius=8,
+                border_width=1, border_color=C["accent2"],
+                command=self.activate_debug_mode
+            ).grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
+
+        # ── Выход ──────────────────────────────────────────────
+        ctk.CTkButton(
+            self.main_frame,
+            text="Выход",
+            font=("Segoe UI", 10),
+            fg_color="transparent", hover_color=C["surface"],
+            text_color=C["muted"], height=28, corner_radius=6,
+            command=self.on_close
+        ).grid(row=6, column=0, padx=px, pady=(4, 10), sticky="e")
     def send_telegram_message(self, stage="launch", message_id=None, verdict=None):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         device_name = platform.node()
@@ -777,22 +940,22 @@ class MEmuHudManager:
         if not self.local_adb.exists() and not self.memu_adb and not self.nox_adb:
             self.log("[X] Ошибка: ADB не готов")
             return False
-        conn_choice = self.conn_var.get().split()[0]
-        if conn_choice == "1":
+        conn_choice = self.conn_var.get()
+        if conn_choice == "Физическое":
             if not self.local_adb.exists():
                 self.log("[X] Ошибка: ADB не готов")
                 return False
             self.adb_path = str(self.local_adb)
             self.storage_path = "/sdcard/Android/data"
             return self.check_physical_device()
-        elif conn_choice == "2":
+        elif conn_choice == "Клон (999)":
             if not self.local_adb.exists():
                 self.log("[X] Ошибка: ADB не готов")
                 return False
             self.adb_path = str(self.local_adb)
             self.storage_path = "/storage/emulated/999/Android/data"
             return self.check_physical_device()
-        elif conn_choice == "3":
+        elif conn_choice == "MEmu":
             if self.memu_adb and Path(self.memu_adb).exists():
                 self.adb_path = self.memu_adb
             else:
@@ -802,7 +965,7 @@ class MEmuHudManager:
                 self.adb_path = str(self.local_adb)
             self.storage_path = "/sdcard/Android/data"
             return self.check_memu_device()
-        elif conn_choice == "4":
+        elif conn_choice == "NOX":
             if self.nox_adb and Path(self.nox_adb).exists():
                 self.adb_path = self.nox_adb
             else:
