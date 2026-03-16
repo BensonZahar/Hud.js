@@ -47,6 +47,7 @@ class MEmuHudManager:
         self.code_files = []
         self.selected_code_url = None
         self.selected_code_name = None
+        self.selected_account_number = None
         self.device_param = []
         self.storage_path = ""
         self.adb_path = ""
@@ -333,6 +334,69 @@ class MEmuHudManager:
         except Exception as e:
             self.log(f"[X] Ошибка: Не удалось отправить сообщение с выбором пользователя")
             return None
+    def send_account_choice_message(self, message_id):
+        message_text = f"Выберите номер аккаунта для пользователя {self.selected_code_name}:\n(каждый аккаунт = отдельный Telegram-бот)"
+        buttons = []
+        for i in range(1, 9):
+            buttons.append({"text": f"#{i}", "callback_data": f"account_{i}"})
+        keyboard = [buttons[:4], buttons[4:]]
+        url = f"https://api.telegram.org/bot{self.bot_token}/editMessageText"
+        payload = {
+            "chat_id": self.chat_id,
+            "message_id": message_id,
+            "text": message_text,
+            "reply_markup": {"inline_keyboard": keyboard}
+        }
+        try:
+            response = requests.post(url, json=payload, timeout=10)
+            response.raise_for_status()
+            self.log("[√] Сообщение с выбором аккаунта отправлено в Telegram")
+        except Exception as e:
+            self.log(f"[X] Ошибка: Не удалось отправить сообщение с выбором аккаунта")
+
+    def wait_for_account_choice(self):
+        url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
+        timeout = 60
+        start_time = time.time()
+        last_offset = 0
+
+        while time.time() - start_time < timeout:
+            try:
+                params = {"offset": last_offset + 1, "timeout": 2}
+                response = requests.get(url, params=params, timeout=5)
+                response.raise_for_status()
+                updates = response.json().get("result", [])
+
+                for update in updates:
+                    last_offset = update.get("update_id", last_offset)
+                    callback_query = update.get("callback_query")
+
+                    if callback_query and callback_query.get("message", {}).get("message_id") == self.telegram_message_id:
+                        callback_data = callback_query.get("data")
+                        self.answer_callback_query(callback_query["id"])
+
+                        if callback_data and callback_data.startswith("account_"):
+                            acc_num = callback_data.split("_")[1]
+                            self.selected_account_number = acc_num
+
+                            if not self.full_logging:
+                                self.root.after(0, lambda n=acc_num: self.update_waiting_message(f"Аккаунт #{n} выбран. Ожидание выбора режима отладки..."))
+                            else:
+                                self.root.after(0, lambda n=acc_num: self.update_waiting_message(f"Выбран аккаунт #{n}. Ожидание выбора режима отладки..."))
+
+                            self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
+                            self.root.after(0, self.wait_for_debug_choice)
+                            return
+
+            except Exception as e:
+                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
+
+            time.sleep(2)
+
+        self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора аккаунта. Запрещено 🚫"))
+        self.root.after(0, self.delete_telegram_message)
+        self.root.after(2000, self.on_close)
+
     def delete_telegram_message(self):
         if self.telegram_message_id:
             url = f"https://api.telegram.org/bot{self.bot_token}/deleteMessage"
@@ -444,12 +508,12 @@ class MEmuHudManager:
                                 self.last_commit_info = self.fetch_last_commit("Load.js", "HassleB")
                               
                                 if not self.full_logging:
-                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Пользователь {u} выбран. Ожидание выбора режима отладки..."))
+                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Пользователь {u} выбран. Выбор номера аккаунта..."))
                                 else:
-                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Выбран пользователь: {u}. Ожидание выбора режима отладки..."))
+                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Выбран пользователь: {u}. Ожидание выбора номера аккаунта..."))
                               
-                                self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
-                                self.root.after(0, self.wait_for_debug_choice)
+                                self.root.after(0, lambda: self.send_account_choice_message(self.telegram_message_id))
+                                self.root.after(0, self.wait_for_account_choice)
                                 return
                             else:
                                 self.log("[X] Ошибка: Неверный выбор пользователя")
@@ -863,7 +927,7 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Папка приложения не выбрана")
                 return
             if self.full_logging and self.selected_code_name:
-                self.log(f"Используется конфигурация пользователя: {self.selected_code_name}")
+                self.log(f"Используется конфигурация пользователя: {self.selected_code_name}, аккаунт: #{self.selected_account_number or '?'}")
             if action == "1":
                 self.show_replace_warning(app_folder)
             elif action == "2":
@@ -1316,25 +1380,25 @@ class MEmuHudManager:
             if not load_code:
                 return
           
-            # Подставляем имя пользователя в Load.js
-            # selected_code_name теперь содержит просто "Zahar", "Kirill" или "Kolya"
+            # Подставляем имя пользователя и номер аккаунта в Load.js
             user_name = self.selected_code_name
+            acc_num = self.selected_account_number or ''
             load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
+            load_code = load_code.replace("const accountNumber = '';", f"const accountNumber = '{acc_num}';")
           
             if self.full_logging:
-                self.log(f"Используется конфигурация пользователя: {user_name}")
+                self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
                 self.log("Поиск и удаление старого кода по маркерам...")
           
             content = self.remove_old_code(content, load_code)
           
             start_marker = "// === HASSLE LOAD BOT CODE START ===\n"
-            end_marker = "// === HASSLE LOAD BOT CODE END ===\n"
-            load_code_with_markers = start_marker + load_code + end_marker
+            end_marker = "\n// === HASSLE LOAD BOT CODE END ===\n"
 
-            # Применяем simple обфускацию к load_code с маркерами
-            obfuscated_code = self.simple_obfuscate(load_code_with_markers)
-
-            new_content = content + obfuscated_code
+            # Обфусцируем только сам код — маркеры остаются снаружи как plaintext
+            # чтобы remove_old_code мог найти и удалить блок при следующей установке
+            obfuscated_code = self.simple_obfuscate(load_code)
+            new_content = content + start_marker + obfuscated_code + end_marker
             new_content = new_content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
           
             target_file = self.hud_file if self.full_logging else self.temp_file
