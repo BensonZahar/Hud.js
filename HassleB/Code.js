@@ -123,7 +123,7 @@ const userConfig = {
     keywords: [],
     clearDelay: 3000,
     maxAttempts: 15,
-    checkInterval: 1500,
+    checkInterval: 2000, // пауза перед retry только при ошибке сети
     debug: true,
     podbrosCooldown: 30000,
     afkSettings: {},
@@ -680,7 +680,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot 2026</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1305,32 +1305,35 @@ function getNotificationReplyMarkup() {
 // START TELEGRAM COMMANDS MODULE //
 function checkTelegramCommands() {
     if (window._hassleReloading) return;
-    // Случайная задержка 0-500 мс для снижения race condition
-    const randomDelay = Math.floor(Math.random() * 500);
-    setTimeout(() => {
-        config.lastUpdateId = getSharedLastUpdateId(); // Загружаем shared значение
-        const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}`;
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                try {
-                    const data = JSON.parse(xhr.responseText);
-                    if (data.ok && data.result.length > 0) {
-                        processUpdates(data.result);
-                    }
-                } catch (e) {
-                    debugLog('Ошибка парсинга ответа Telegram:', e);
+    // У каждого аккаунта свой бот — race condition невозможен, random delay не нужен
+    config.lastUpdateId = getSharedLastUpdateId();
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=25`;
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.timeout = 30000; // 30с — чуть больше чем timeout=25 у Telegram
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            try {
+                const data = JSON.parse(xhr.responseText);
+                if (data.ok && data.result.length > 0) {
+                    processUpdates(data.result);
                 }
+            } catch (e) {
+                debugLog('Ошибка парсинга ответа Telegram:', e);
             }
-            setTimeout(checkTelegramCommands, config.checkInterval);
-        };
-        xhr.onerror = function(error) {
-            debugLog('Ошибка при проверке команд:', error);
-            setTimeout(checkTelegramCommands, config.checkInterval);
-        };
-        xhr.send();
-    }, randomDelay);
+        }
+        // Сразу следующий запрос — задержка не нужна, long-polling сам ждёт
+        setTimeout(checkTelegramCommands, 0);
+    };
+    xhr.onerror = function(error) {
+        debugLog('Ошибка при проверке команд:', error);
+        setTimeout(checkTelegramCommands, config.checkInterval);
+    };
+    xhr.ontimeout = function() {
+        debugLog('Long-polling timeout, перезапуск...');
+        setTimeout(checkTelegramCommands, 0);
+    };
+    xhr.send();
 }
 function processUpdates(updates) {
     for (const update of updates) {
