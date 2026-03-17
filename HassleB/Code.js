@@ -680,7 +680,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2 P</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -3519,13 +3519,11 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
-// ==================== УЛУЧШЕННЫЙ VEHICLE CONTROL TRACKER (точный для replay) ====================
-// ✅ Исправлена точность тайминга (performance.now() + Date.now())
-// ✅ Полная цепочка оригинальных хуков (не ломает HB-меню и другие перехваты)
-// ✅ Лог сохраняется в window.lastVehicleLog (для /preplay)
-// ✅ Replay-команда /preplay — повторяет маршрут ОДИН В ОДИН с точностью до 1 мс
-// ✅ В консоль + Telegram (с читаемым логом)
-// ✅ Расширенный список клавиш транспорта
+// ==================== УЛУЧШЕННЫЙ VEHICLE CONTROL TRACKER v2.1 (фикс 656+ событий) ====================
+// ✅ Точный тайминг (performance.now())
+// ✅ Лог сохраняется в window.lastVehicleLog
+// ✅ /preplay повторяет маршрут ОДИН В ОДИН
+// ✅ Большой лог (656 событий) разбивается на части + задержка 800мс
 
 const VEHICLE_KEY_MAP = {
     '<Keyboard>/w': '⬆ Газ (W)',
@@ -3539,16 +3537,16 @@ const VEHICLE_KEY_MAP = {
     '<Keyboard>/space': '🅿 Ручник (Space)',
     '<Keyboard>/f': '🚪 Вход/выход (F)',
     '<Keyboard>/h': '📢 Гудок (H)',
-    '<Keyboard>/x': '🔄 Смена вида (X)', // если используется
+    '<Keyboard>/x': '🔄 Смена вида (X)',
     '<Keyboard>/c': '🪑 Сесть/встать (C)'
 };
 
 const vehicleTracker = {
     active: false,
-    log: [],                    // [{type:'press'|'release', control, label, offsetMs, heldMs?, timestamp}]
-    startTimePerf: 0,           // performance.now() для супер-точной разницы
+    log: [],
+    startTimePerf: 0,
     startTimeDate: 0,
-    keyPressTime: {}            // {control: startPerf}
+    keyPressTime: {}
 };
 
 function _vehicleTimestamp() {
@@ -3556,55 +3554,35 @@ function _vehicleTimestamp() {
     return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}.${String(now.getMilliseconds()).padStart(3,'0')}`;
 }
 
-// === ПЕРЕХВАТ НАЖАТИЙ (с цепочкой оригиналов) ===
+// Перехват нажатий
 const _origVehicleTouchStart = window.onScreenControlTouchStart || function(){};
 window.onScreenControlTouchStart = function(control, ...args) {
     if (vehicleTracker.active && VEHICLE_KEY_MAP[control]) {
         const nowPerf = performance.now();
-        const nowDate = Date.now();
         vehicleTracker.keyPressTime[control] = nowPerf;
-
         const offsetMs = Math.round(nowPerf - vehicleTracker.startTimePerf);
         console.log(`[🚗 АВТО] ▼ НАЖАТО | ${_vehicleTimestamp()} | +${offsetMs}мс | ${VEHICLE_KEY_MAP[control]}`);
-
-        vehicleTracker.log.push({
-            type: 'press',
-            control,
-            label: VEHICLE_KEY_MAP[control],
-            offsetMs,
-            timestamp: nowDate
-        });
+        vehicleTracker.log.push({ type: 'press', control, label: VEHICLE_KEY_MAP[control], offsetMs });
     }
     return _origVehicleTouchStart.call(this, control, ...args);
 };
 
-// === ПЕРЕХВАТ ОТПУСКАНИЙ ===
+// Перехват отпусканий
 const _origVehicleTouchEnd = window.onScreenControlTouchEnd || function(){};
 window.onScreenControlTouchEnd = function(control, ...args) {
     if (vehicleTracker.active && VEHICLE_KEY_MAP[control]) {
         const nowPerf = performance.now();
-        const nowDate = Date.now();
         const startPerf = vehicleTracker.keyPressTime[control] || nowPerf;
         const heldMs = Math.round(nowPerf - startPerf);
         const offsetMs = Math.round(nowPerf - vehicleTracker.startTimePerf);
-
         delete vehicleTracker.keyPressTime[control];
-
         console.log(`[🚗 АВТО] ▲ ОТПУЩЕНО | ${_vehicleTimestamp()} | +${offsetMs}мс | зажато ${heldMs}мс | ${VEHICLE_KEY_MAP[control]}`);
-
-        vehicleTracker.log.push({
-            type: 'release',
-            control,
-            label: VEHICLE_KEY_MAP[control],
-            offsetMs,
-            heldMs,
-            timestamp: nowDate
-        });
+        vehicleTracker.log.push({ type: 'release', control, label: VEHICLE_KEY_MAP[control], offsetMs, heldMs });
     }
     return _origVehicleTouchEnd.call(this, control, ...args);
 };
 
-// === СТАРТ ЗАПИСИ ===
+// Старт записи
 function vehicleTrackStart() {
     if (vehicleTracker.active) {
         showScreenNotification("Hassle", "🚗 Запись уже идёт!", "FF6600", 2000);
@@ -3615,12 +3593,27 @@ function vehicleTrackStart() {
     vehicleTracker.startTimePerf = performance.now();
     vehicleTracker.startTimeDate = Date.now();
     vehicleTracker.keyPressTime = {};
-
     showScreenNotification("Hassle", "🚗 Запись маршрута НАЧАТА\n/pstart — уже записано", "00FF00", 4000);
-    console.log('[🚗 АВТО] ▶ ЗАПИСЬ НАЧАТА (performance.now() для точности)');
+    console.log('[🚗 АВТО] ▶ ЗАПИСЬ НАЧАТА');
 }
 
-// === КОНЕЦ ЗАПИСИ + ОТПРАВКА ===
+// Отправка большого лога по частям
+async function sendLargeLogToTelegram(header, codeLines) {
+    const MAX = 1500;
+    let chunk = '<code>';
+    for (const line of codeLines) {
+        if ((chunk + line + '\n</code>').length > MAX) {
+            await new Promise(r => setTimeout(() => { sendToTelegram(chunk + '</code>', false, null); r(); }, 800));
+            chunk = '<code>';
+        }
+        chunk += line + '\n';
+    }
+    if (chunk !== '<code>') {
+        await new Promise(r => setTimeout(() => { sendToTelegram(chunk + '</code>', false, null); r(); }, 800));
+    }
+}
+
+// Конец записи
 function vehicleTrackEnd() {
     if (!vehicleTracker.active) {
         showScreenNotification("Hassle", "Запись не запущена (/pstart)", "FF0000", 3000);
@@ -3628,89 +3621,54 @@ function vehicleTrackEnd() {
     }
     vehicleTracker.active = false;
     const totalMs = Math.round(performance.now() - vehicleTracker.startTimePerf);
+    window.lastVehicleLog = [...vehicleTracker.log];
 
-    console.log(`[🚗 АВТО] ⏹ ЗАПИСЬ ЗАВЕРШЕНА | ${totalMs}мс | событий: ${vehicleTracker.log.length}`);
-    console.table(vehicleTracker.log);
+    const header = `🚗 <b>Маршрут записан (${displayName})</b>\n⏱ Длительность: <b>${(totalMs / 1000).toFixed(2)} сек</b> | Событий: <b>${vehicleTracker.log.length}</b>\n\n`;
+    sendToTelegram(header, false, null);
 
-    window.lastVehicleLog = [...vehicleTracker.log]; // сохраняем для /preplay
+    const codeLines = vehicleTracker.log.map(e => 
+        e.type === 'press' 
+            ? `+${String(e.offsetMs).padStart(6)}мс ▼ ${e.label}`
+            : `+${String(e.offsetMs).padStart(6)}мс ▲ ${e.label} [зажато ${e.heldMs}мс]`
+    );
 
-    // Формируем красивый лог для TG
-    let lines = `🚗 <b>Маршрут записан (${displayName})</b>\n`;
-    lines += `⏱ Длительность: <b>${(totalMs / 1000).toFixed(2)} сек</b> | Событий: <b>${vehicleTracker.log.length}</b>\n\n<code>`;
-
-    for (const e of vehicleTracker.log) {
-        if (e.type === 'press') {
-            lines += `+${String(e.offsetMs).padStart(6)}мс ▼ ${e.label}\n`;
-        } else {
-            lines += `+${String(e.offsetMs).padStart(6)}мс ▲ ${e.label} [зажато ${e.heldMs}мс]\n`;
-        }
-    }
-    lines += `</code>`;
-
-    sendToTelegram(lines, false, null);
-
-    showScreenNotification("Hassle", `🚗 Лог сохранён (${vehicleTracker.log.length} событий)\n/preplay — повторить`, "00FF00", 5000);
+    sendLargeLogToTelegram(header, codeLines).then(() => {
+        showScreenNotification("Hassle", `🚗 Лог отправлен (${vehicleTracker.log.length} событий)\n/preplay — повторить`, "00FF00", 5000);
+    });
 }
 
-// === REPLAY (повтор маршрута ОДИН В ОДИН) ===
+// Replay (повтор один в один)
 function vehicleReplay() {
     const log = window.lastVehicleLog;
     if (!log || log.length === 0) {
-        showScreenNotification("Hassle", "Нет сохранённого маршрута!\nСначала /pstart → /pend", "FF0000", 4000);
+        showScreenNotification("Hassle", "Нет сохранённого маршрута!\n/pstart → /pend", "FF0000", 4000);
         return;
     }
-
     const replayStart = performance.now();
-    console.log(`[🚗 АВТО] ▶ REPLAY НАЧАТ (${log.length} действий)`);
-
-    log.forEach((entry, i) => {
-        const delay = Math.max(0, entry.offsetMs); // точный offset от начала записи
+    console.log(`[🚗 REPLAY] ▶ Запущен (${log.length} действий)`);
+    log.forEach(entry => {
         setTimeout(() => {
-            const currentOffset = Math.round(performance.now() - replayStart);
             if (entry.type === 'press') {
                 window.onScreenControlTouchStart(entry.control);
-                console.log(`[REPLAY] ▼ +${currentOffset}мс | ${entry.label}`);
             } else {
                 window.onScreenControlTouchEnd(entry.control);
-                console.log(`[REPLAY] ▲ +${currentOffset}мс | ${entry.label} (зажато ${entry.heldMs}мс)`);
             }
-        }, delay);
+        }, Math.max(0, entry.offsetMs));
     });
-
     showScreenNotification("Hassle", `🚗 REPLAY запущен (${log.length} действий)`, "00FFFF", 3000);
 }
 
-// === ИНТЕГРАЦИЯ В ЧАТ-КОМАНДЫ (цепочка с HB-меню) ===
+// Интеграция в чат
 const _origSendChatInputVehicle = window.sendChatInputCustom || sendChatInput;
 window.sendChatInputCustom = function(e) {
     const cmd = e.trim().toLowerCase();
-
-    if (cmd === '/pstart') {
-        vehicleTrackStart();
-        return;
-    }
-    if (cmd === '/pend') {
-        vehicleTrackEnd();
-        return;
-    }
-    if (cmd === '/preplay') {
-        vehicleReplay();
-        return;
-    }
-
-    // передаём дальше (HB-меню, /hb и т.д.)
-    if (typeof _origSendChatInputVehicle === 'function') {
-        return _origSendChatInputVehicle(e);
-    }
+    if (cmd === '/pstart') { vehicleTrackStart(); return; }
+    if (cmd === '/pend')   { vehicleTrackEnd(); return; }
+    if (cmd === '/preplay') { vehicleReplay(); return; }
+    if (typeof _origSendChatInputVehicle === 'function') return _origSendChatInputVehicle(e);
 };
-
-// Применяем перехват
 sendChatInput = window.sendChatInputCustom;
 
-console.log('[🚗 АВТО ТРЕКЕР v2] Загружен!');
-console.log('Команды:');
-console.log('   /pstart  — начать запись маршрута');
-console.log('   /pend    — остановить + отправить в TG + сохранить');
-console.log('   /preplay — повторить последний маршрут ОДИН В ОДИН');
-showScreenNotification("Hassle", "🚗 Авто-трекер v2 загружен\n/pstart /pend /preplay", "00FFAA", 6000);
-// ==================== END УЛУЧШЕННЫЙ VEHICLE CONTROL TRACKER ====================
+console.log('[🚗 АВТО ТРЕКЕР v2.1] Загружен! Команды: /pstart /pend /preplay');
+showScreenNotification("Hassle", "🚗 Трекер v2.1 готов (656+ событий OK)", "00FFAA", 6000);
+// ==================== END УЛУЧШЕННЫЙ VEHICLE CONTROL TRACKER v2.1 ====================
