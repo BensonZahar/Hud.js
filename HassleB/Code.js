@@ -601,7 +601,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
                 const data = JSON.parse(xhr.responseText);
                 const messageId = data.result.message_id;
                 // Сохраняем ID приветственного сообщения
-                if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
+                if (message.includes('Hassle | BotA TG') && message.includes('Текущие настройки')) {
                     globalState.lastWelcomeMessageId = messageId;
                 }
                 // Сохраняем ID PayDay сообщения
@@ -2190,6 +2190,13 @@ function isTargetingPlayer(msg) {
     return idFormats.some(format => msg.match(new RegExp(`\\[${format}\\]|\\b${format}\\b`)));
 }
 function processSalaryAndBalance(msg) {
+    // ========== ЛОГИРОВАНИЕ ОТЫГРАННОГО ВРЕМЕНИ ==========
+    const _salaryKeywords = ["зарплат", "баланс", "payday", "25 минут", "10 минут", "на паузе", "неактивны", "текущее время"];
+    if (_salaryKeywords.some(kw => msg.toLowerCase().includes(kw))) {
+        console.log(`[💰 processSalaryAndBalance] Получено сообщение: "${msg}"`);
+    }
+    // ======================================================
+
     if (!config.paydayNotifications) {
         debugLog('PayDay пропущен: уведомления выкл');
         return;
@@ -2198,6 +2205,7 @@ function processSalaryAndBalance(msg) {
     // Проверка на новые тексты (отрицательные сценарии)
     if (msg.includes("Для получения зарплаты необходимо находиться в игре минимум 25 минут")) {
         debugLog(`Обнаружено предупреждение о 25 минутах`);
+        console.log(`[⚠️ МАЛО ВРЕМЕНИ] Отыгранное время < 25 минут → зарплата не выдана (${displayName})`);
         const message = `- PayDay | ${displayName}:\nДля получения зарплаты необходимо находиться в игре минимум 25 минут`;
         sendToTelegram(message);
         config.lastSalaryInfo = null;
@@ -2206,6 +2214,7 @@ function processSalaryAndBalance(msg) {
     
     if (msg.includes("Вы не должны находиться на паузе для получения зарплаты")) {
         debugLog(`Обнаружено предупреждение о паузе`);
+        console.log(`[⚠️ ПАУЗА] Игрок на паузе → зарплата не выдана (${displayName})`);
         const message = `- PayDay | ${displayName}:\nВы не должны находиться на паузе для получения зарплаты`;
         sendToTelegram(message);
         config.lastSalaryInfo = null;
@@ -2214,6 +2223,7 @@ function processSalaryAndBalance(msg) {
     
     if (msg.includes("Для получения опыта необходимо находиться в игре минимум 10 минут")) {
         debugLog(`Обнаружено предупреждение о 10 минутах для опыта`);
+        console.log(`[⚠️ МАЛО ВРЕМЕНИ ДЛЯ ОПЫТА] Отыгранное время < 10 минут → опыт не выдан (${displayName})`);
         const message = `- PayDay | ${displayName}:\nДля получения опыта необходимо находиться в игре минимум 10 минут`;
         sendToTelegram(message);
         config.lastSalaryInfo = null;
@@ -2226,6 +2236,7 @@ function processSalaryAndBalance(msg) {
     if (salaryMatch) {
         const salary = salaryMatch[1]; // Оставляем как есть с точками
         debugLog(`Зарплата спарсена: ${salary}`);
+        console.log(`[✅ ЗАРПЛАТА] ${salary} руб → аккаунт: ${displayName}`);
         config.lastSalaryInfo = config.lastSalaryInfo || {};
         config.lastSalaryInfo.salary = salary;
         debugLog(`Обнаружена зарплата: ${salary} руб`);
@@ -2240,6 +2251,7 @@ function processSalaryAndBalance(msg) {
     if (balanceMatch) {
         const balance = balanceMatch[1]; // Оставляем как есть с точками
         debugLog(`Баланс спарсен: ${balance}`);
+        console.log(`[✅ БАЛАНС СЧЁТА] ${balance} руб → аккаунт: ${displayName}`);
         config.lastSalaryInfo = config.lastSalaryInfo || {};
         config.lastSalaryInfo.balance = balance;
         debugLog(`Обнаружен баланс счета: ${balance} руб`);
@@ -2540,8 +2552,17 @@ function initializeChatMonitor() {
         const chatRadius = getChatRadius(i);
         // Для отладки, выводим сообщения в чат
         console.log(msg); // сооб в чат
+
+        // ========== ЛОГИРОВАНИЕ ОТЫГРАННОГО ВРЕМЕНИ ==========
+        const _timeKeywords = ["Текущее время:", "отыгранное", "PayDay", "Зарплата:", "баланс счета", "25 минут", "10 минут", "на паузе", "неактивны"];
+        if (_timeKeywords.some(kw => msg.toLowerCase().includes(kw.toLowerCase()))) {
+            console.log(`[⏱️ ВРЕМЯ/ЗАРПЛАТА] [${config.accountInfo.nickname}] Цвет: ${i} | Радиус: ${chatRadius} | Сообщение: ${msg}`);
+        }
+        // ======================================================
+
         // Проверка сообщения "Текущее время:" для AFK
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
+            console.log(`[⏰ ТЕКУЩЕЕ ВРЕМЯ ОБНАРУЖЕНО] AFK активен → запускаем handlePayDayTimeMessage`);
             handlePayDayTimeMessage();
         }
         // Проверка сообщения о возобновлении работы сервера для AFK
@@ -2851,6 +2872,7 @@ function initializeChatMonitor() {
         }
         if (msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")) {
             debugLog('Обнаружено предупреждение о неактивности!');
+            console.log(`[🔴 ОТЫГРАННОЕ ВРЕМЯ ОБНУЛЕНО] Игрок неактивен → время сброшено (${displayName})`);
             sendToTelegram(`⚠️ Вы были неактивны долгое время. Отыгранное время для PayDay обнулено (${displayName})`, false, null);
         }
     };
@@ -3466,6 +3488,70 @@ sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 // ==================== END HB MENU SYSTEM ====================
 
+
+// ==================== ЛОГИРОВАНИЕ HUD ВРЕМЕНИ ====================
+// Перехватываем методы showTime / hideTime / updateTime / setTime
+// у Vue-компонента HUD, как только он появится в window.App
+(function hookHudTimeMethods() {
+    function tryHook() {
+        try {
+            const hud = window.App && window.App.components && window.App.components['hud'];
+            if (!hud) {
+                setTimeout(tryHook, 1000);
+                return;
+            }
+
+            const comp = hud.instance || hud; // зависит от версии
+
+            // showTime
+            if (comp.showTime && !comp._showTimeHooked) {
+                const orig = comp.showTime.bind(comp);
+                comp.showTime = function() {
+                    console.log('[⏱️ HUD TIME] showTime() → блок времени ПОКАЗАН');
+                    return orig();
+                };
+                comp._showTimeHooked = true;
+            }
+
+            // hideTime
+            if (comp.hideTime && !comp._hideTimeHooked) {
+                const orig = comp.hideTime.bind(comp);
+                comp.hideTime = function() {
+                    console.log('[⏱️ HUD TIME] hideTime() → блок времени СКРЫТ');
+                    return orig();
+                };
+                comp._hideTimeHooked = true;
+            }
+
+            // updateTime
+            if (comp.updateTime && !comp._updateTimeHooked) {
+                const orig = comp.updateTime.bind(comp);
+                comp.updateTime = function(val) {
+                    console.log(`[⏱️ HUD TIME] updateTime("${val}") → time.string обновлён`);
+                    return orig(val);
+                };
+                comp._updateTimeHooked = true;
+            }
+
+            // setTime
+            if (comp.setTime && !comp._setTimeHooked) {
+                const orig = comp.setTime.bind(comp);
+                comp.setTime = function(val) {
+                    console.log(`[⏱️ HUD TIME] setTime("${val}") → time.current обновлён`);
+                    return orig(val);
+                };
+                comp._setTimeHooked = true;
+            }
+
+            console.log('[⏱️ HUD TIME] Хуки на showTime/hideTime/updateTime/setTime установлены');
+        } catch (e) {
+            console.warn('[⏱️ HUD TIME] Ошибка при установке хуков:', e.message);
+            setTimeout(tryHook, 1000);
+        }
+    }
+    setTimeout(tryHook, 2000); // небольшая задержка, чтобы HUD успел смонтироваться
+})();
+// ==================== КОНЕЦ ЛОГИРОВАНИЯ HUD ВРЕМЕНИ ====================
 
 // ==================== Все режимы ====================
 /* // ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
