@@ -2105,6 +2105,14 @@ function registerUser() {
 function isNonRPMessage(message) {
     return message.includes('((') && message.includes('))');
 }
+// Фильтр системных сообщений рации (Приказ от, Часовой и т.д.) — не отправлять в Telegram
+const SYSTEM_RADIO_PATTERNS = [
+    /^\[R\]\s+Приказ от\b/i,
+    /^\[R\]\s+Часовой\s*:/i,
+];
+function isSystemRadioMessage(message) {
+    return SYSTEM_RADIO_PATTERNS.some(pattern => pattern.test(message));
+}
 function checkIDFormats(message) {
     const idRegex = /(\d-\d-\d|\d{3})/g;
     const matches = message.match(idRegex);
@@ -2821,7 +2829,7 @@ function initializeChatMonitor() {
             sendToTelegram(`⚡ <b>Автоматически отправлено ${reconnectionCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
         }
         // Проверка сообщений с рации
-        if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg)) {
+        if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg) && !isSystemRadioMessage(msg)) {
             debugLog('Обнаружено сообщение с рации!');
             const replyMarkup = getNotificationReplyMarkup();
             // Звук только если отправитель имеет звание 6-10 ранга
