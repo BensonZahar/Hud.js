@@ -8,9 +8,9 @@ const ACCOUNT_BOT_TOKENS = {
     '3': '8641308857:AAGyBkHJu3OGLiDZD8bXbIfFJuOEh2_dz-Y',
     '4': '8437476753:AAHiWXIFByf2s2TCO7JbKVj4LMKO_plrAKk',
     '5': '8709864021:AAHCs8QCioLBWfUJLyqxVuS_TCqDIbc3Naw',
-    '6': '7318283272:AAEpKje_GRsGwYJj1GROy9jovLayo--i4QY',   // СТАРЫЙ (бывший сервер 6) — заменить
-    '7': '8549354393:AAH3KUXtuSBZJ4SO4qw5s5WmWJ9_kypclBY',   // СТАРЫЙ (бывший сервер 9) — заменить
-    '8': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU'    // СТАРЫЙ (бывший сервер 12) — заменить
+    '6': '8692734140:AAEHthG-PpPOoY_0qmG25bzHafLIlcErs3M',   // СТАРЫЙ (бывший сервер 6) — заменить
+    '7': '8770179898:AAEm93rbx8VGvuTJJX0grD47WSQf1LCvTcI',   // СТАРЫЙ (бывший сервер 9) — заменить
+    '8': '8789490440:AAHpJUJ4650E2SP62bDn7GEVggD9fiIYh54'    // СТАРЫЙ (бывший сервер 12) — заменить
 };
 window.ACCOUNT_BOT_TOKENS = ACCOUNT_BOT_TOKENS;
 
