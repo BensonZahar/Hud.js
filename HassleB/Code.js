@@ -2107,7 +2107,7 @@ function isNonRPMessage(message) {
 }
 // Фильтр системных сообщений рации (Приказ от, Часовой и т.д.) — не отправлять в Telegram
 const SYSTEM_RADIO_PATTERNS = [
-    /^\[R\]\s+Приказ от\b/i,
+    /^\[R\]\s+Приказ от\s/i,
     /^\[R\]\s+Часовой\s*:/i,
 ];
 function isSystemRadioMessage(message) {
