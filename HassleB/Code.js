@@ -2417,11 +2417,11 @@ function performStroiReconnect() {
 
         waitingForPayDay = true;
 
-        // Автосброс флага через 5 минут на случай нештатных ситуаций
-        payDayResetTimer = setTimeout(() => {
-            resetPayDayFlag();
-            debugLog('Автоматический сброс флага PayDay по таймауту');
-        }, 5 * 60 * 1000);
+		// Стало — после PayDay + запас:
+		payDayResetTimer = setTimeout(() => {
+		    resetPayDayFlag();
+		    debugLog('Автоматический сброс флага PayDay по таймауту');
+		}, timeToPayDay + 2 * 60 * 1000);
 
         // ШАГ 1: Немедленно отключаемся
         autoLoginConfig.enabled = false;
