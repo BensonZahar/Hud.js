@@ -680,7 +680,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v23</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1381,6 +1381,22 @@ function processUpdates(updates) {
                             sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ответ\n<code>${err.message}</code>`, false, null);
                         }
                         continue;
+                    } else if (pending.type === 'window_input') {
+                        debugLog(`[${displayName}] (iOS) Ввод текста в диалог: ${message}`);
+                        if (windowDialogState.active && windowDialogState.type === 'input') {
+                            const ok = submitWindowInput(message);
+                            sendToTelegram(
+                                ok
+                                    ? `✅ <b>Текст введён в диалог ${displayName}:</b>\n<code>${message.replace(/</g, '&lt;')}</code>`
+                                    : `❌ <b>Ошибка ввода в диалог ${displayName}</b>`,
+                                false, null
+                            );
+                            windowDialogState.active = false;
+                            windowDialogState.awaitingInput = false;
+                        } else {
+                            sendToTelegram(`⚠️ <b>Нет активного InputWindow (${displayName})</b>`, false, null);
+                        }
+                        continue;
                     }
                     }
                 }
@@ -1424,6 +1440,27 @@ function processUpdates(updates) {
                             debugLog(errorMsg);
                             sendToTelegram(errorMsg, false, null);
                         }
+                    }
+                    continue;
+                }
+                // Ответ на запрос ввода текста в диалоговое окно
+                if (replyToText.includes(`✏️ <b>Введите текст для диалогового окна (${displayName}):`) &&
+                    replyToText.includes(`🔑 ID: ${uniqueId}`)) {
+                    delete pendingInputs[`${chatId}_${uniqueId}`];
+                    const textToEnter = message.trim();
+                    if (textToEnter && windowDialogState.active && windowDialogState.type === 'input') {
+                        debugLog(`[${displayName}] Ввод текста в диалог: ${textToEnter}`);
+                        const ok = submitWindowInput(textToEnter);
+                        sendToTelegram(
+                            ok
+                                ? `✅ <b>Текст введён в диалог ${displayName}:</b>\n<code>${textToEnter.replace(/</g, '&lt;')}</code>`
+                                : `❌ <b>Ошибка ввода в диалог ${displayName}</b>`,
+                            false, null
+                        );
+                        windowDialogState.active = false;
+                        windowDialogState.awaitingInput = false;
+                    } else if (!windowDialogState.active) {
+                        sendToTelegram(`⚠️ <b>Диалог уже закрыт (${displayName})</b>`, false, null);
                     }
                     continue;
                 }
@@ -1748,6 +1785,14 @@ function processUpdates(updates) {
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
                 showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
+            } else if (message.startsWith('window_btn_left_')) {
+                callbackUniqueId = message.replace('window_btn_left_', '');
+            } else if (message.startsWith('window_btn_right_')) {
+                callbackUniqueId = message.replace('window_btn_right_', '');
+            } else if (message.startsWith('window_input_text_')) {
+                callbackUniqueId = message.replace('window_input_text_', '');
+            } else if (message.startsWith('window_close_')) {
+                callbackUniqueId = message.replace('window_close_', '');
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -2084,6 +2129,50 @@ function processUpdates(updates) {
                     sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 }
                 setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 100);
+            } else if (message.startsWith("window_btn_left_")) {
+                // Нажать левую кнопку диалогового окна (OK / Enter)
+                if (windowDialogState.active) {
+                    const ok = pressWindowLeftButton();
+                    const btnName = (windowDialogState.buttons && windowDialogState.buttons[0]) || 'OK';
+                    updateWindowTelegramMessage(
+                        ok
+                            ? `✅ <b>Нажата кнопка "${btnName}" в диалоге (${displayName})</b>`
+                            : `⚠️ <b>Диалог уже закрыт или недоступен (${displayName})</b>`
+                    );
+                    windowDialogState.active = false;
+                } else {
+                    updateWindowTelegramMessage(`⚠️ <b>Нет активного диалогового окна (${displayName})</b>`);
+                }
+            } else if (message.startsWith("window_btn_right_")) {
+                // Нажать правую кнопку диалога (Отмена / ESC)
+                if (windowDialogState.active) {
+                    const ok = pressWindowRightButton();
+                    const btnName = (windowDialogState.buttons && windowDialogState.buttons[1]) || 'Отмена';
+                    updateWindowTelegramMessage(
+                        ok
+                            ? `✅ <b>Нажата кнопка "${btnName}" в диалоге (${displayName})</b>`
+                            : `⚠️ <b>Диалог уже закрыт или недоступен (${displayName})</b>`
+                    );
+                    windowDialogState.active = false;
+                } else {
+                    updateWindowTelegramMessage(`⚠️ <b>Нет активного диалогового окна (${displayName})</b>`);
+                }
+            } else if (message.startsWith("window_input_text_")) {
+                // Запросить ввод текста для InputWindow через force_reply
+                if (windowDialogState.active && windowDialogState.type === 'input') {
+                    windowDialogState.awaitingInput = true;
+                    const requestMsg = `✏️ <b>Введите текст для диалогового окна (${displayName}):</b>\n🔑 ID: ${uniqueId}`;
+                    config.chatIds.forEach(cId => {
+                        pendingInputs[`${cId}_${uniqueId}`] = { type: 'window_input', timestamp: Date.now() };
+                    });
+                    sendToTelegram(requestMsg, false, { force_reply: true });
+                } else {
+                    sendToTelegram(`⚠️ <b>Нет активного InputWindow (${displayName})</b>`, false, null);
+                }
+            } else if (message.startsWith("window_close_")) {
+                // Закрыть диалоговое окно
+                closeWindowDialog();
+                updateWindowTelegramMessage(`🚫 <b>Диалоговое окно закрыто (${displayName})</b>`);
             }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
@@ -3473,6 +3562,303 @@ sendChatInput = window.sendChatInputCustom;
 sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 // ==================== END HB MENU SYSTEM ====================
+
+// ==================== START WINDOW DIALOG MODULE ====================
+// Управление диалоговыми окнами (Window / InputWindow) через Telegram
+// Перехватывает openInterface("Window", ...) и openInterface("InputWindow", ...)
+// Отправляет содержимое + кнопки в TG, обрабатывает ответы
+
+const windowDialogState = {
+    active: false,          // Есть ли открытое диалоговое окно
+    type: null,             // 'text' | 'input'
+    title: '',
+    subtitle: '',
+    content: '',
+    buttons: [],            // ['OK', 'Отмена'] и т.п.
+    interfaceName: null,    // 'Window' | 'InputWindow' | ...
+    instanceRef: null,      // ссылка на Vue-экземпляр диалога
+    tgMessageId: null,      // message_id уведомления в TG (для редактирования)
+    awaitingInput: false,   // ждём текст от пользователя
+};
+
+// Парсим параметры Window / InputWindow из JSON-строки (как это делает игра)
+function parseWindowParams(params) {
+    try {
+        const p = typeof params === 'string' ? JSON.parse(params) : params;
+        // Разные форматы: массив или объект
+        if (Array.isArray(p)) {
+            return {
+                title:    p[0] || '',
+                subtitle: p[1] || '',
+                items:    p[2] || [],   // для text-window: массив строк/массивов
+                text:     p[2] || [],   // для input-window: текст описания
+                buttons:  p[3] || ['OK', ''],
+                isPrivate: p[4] || false,
+            };
+        }
+        return {
+            title:    p.title    || '',
+            subtitle: p.subtitle || '',
+            items:    p.items    || [],
+            text:     p.text     || [],
+            buttons:  p.buttons  || ['OK', ''],
+            isPrivate: p.private || false,
+        };
+    } catch(e) {
+        debugLog(`[Window] Ошибка парсинга параметров: ${e.message}`);
+        return { title: '', subtitle: '', items: [], text: [], buttons: ['OK', ''], isPrivate: false };
+    }
+}
+
+// Форматируем содержимое окна в читаемый текст для TG
+function formatWindowContent(parsed, type) {
+    let lines = [];
+    if (type === 'input') {
+        // text — массив массивов строк
+        const textArr = parsed.text || parsed.items || [];
+        if (Array.isArray(textArr)) {
+            textArr.forEach(row => {
+                if (Array.isArray(row)) {
+                    lines.push(row.join('  '));
+                } else if (typeof row === 'string' && row.trim()) {
+                    lines.push(row);
+                }
+            });
+        }
+    } else {
+        // items — массив массивов (таблица)
+        const items = parsed.items || [];
+        if (Array.isArray(items)) {
+            items.forEach(row => {
+                if (Array.isArray(row)) {
+                    lines.push(row.filter(c => c !== '').join(' | '));
+                } else if (typeof row === 'string' && row.trim()) {
+                    lines.push(row);
+                }
+            });
+        }
+    }
+    return lines.join('\n');
+}
+
+// Отправляет диалоговое окно в Telegram
+function sendWindowToTelegram(parsed, type) {
+    const title    = (parsed.title    || '').replace(/<[^>]+>/g, '').trim();
+    const subtitle = (parsed.subtitle || '').replace(/<[^>]+>/g, '').trim();
+    const content  = formatWindowContent(parsed, type);
+    const buttons  = parsed.buttons || ['OK', ''];
+
+    let text = `🪟 <b>Диалоговое окно | ${displayName}</b>\n`;
+    if (title)    text += `\n📌 <b>${title}</b>`;
+    if (subtitle) text += `\n<i>${subtitle}</i>`;
+    if (content)  text += `\n\n${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}`;
+
+    if (type === 'input') {
+        text += `\n\n<i>✏️ Требуется ввод текста</i>`;
+    }
+
+    // Кнопки: левая (OK/Enter) + правая (Отмена/ESC) + Закрыть
+    const keyboard = [];
+    const row1 = [];
+    if (buttons[0] && buttons[0] !== '') {
+        row1.push(createButton(`✅ ${buttons[0]}`, `window_btn_left_${uniqueId}`));
+    }
+    if (buttons[1] && buttons[1] !== '') {
+        row1.push(createButton(`❌ ${buttons[1]}`, `window_btn_right_${uniqueId}`));
+    }
+    if (row1.length > 0) keyboard.push(row1);
+    if (type === 'input') {
+        keyboard.push([createButton(`✏️ Ввести текст`, `window_input_text_${uniqueId}`)]);
+    }
+    keyboard.push([createButton(`🚫 Закрыть окно`, `window_close_${uniqueId}`)]);
+
+    const replyMarkup = { inline_keyboard: keyboard };
+
+    config.chatIds.forEach(chatId => {
+        const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+        const payload = {
+            chat_id: chatId,
+            text: text,
+            parse_mode: 'HTML',
+            disable_notification: false,
+            reply_markup: JSON.stringify(replyMarkup)
+        };
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    windowDialogState.tgMessageId = data.result.message_id;
+                } catch(e) {}
+            }
+        };
+        xhr.send(JSON.stringify(payload));
+    });
+}
+
+// Обновляет TG-сообщение после действия (показывает статус)
+function updateWindowTelegramMessage(statusText) {
+    if (!windowDialogState.tgMessageId) return;
+    config.chatIds.forEach(chatId => {
+        const url = `https://api.telegram.org/bot${config.botToken}/editMessageText`;
+        const payload = {
+            chat_id: chatId,
+            message_id: windowDialogState.tgMessageId,
+            text: statusText,
+            parse_mode: 'HTML',
+            reply_markup: JSON.stringify({ inline_keyboard: [] })
+        };
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(JSON.stringify(payload));
+    });
+}
+
+// Нажать левую кнопку диалога (OK / Enter)
+function pressWindowLeftButton() {
+    try {
+        const inst = windowDialogState.instanceRef;
+        if (inst && typeof inst.onLeftButton === 'function') {
+            inst.onLeftButton();
+            debugLog('[Window] Нажата левая кнопка');
+            return true;
+        }
+        // Попытка через DOM: нажать первую кнопку с Enter / KeyCode
+        const btns = document.querySelectorAll('.window .window__buttons button, .window .window__buttons .containered-button');
+        if (btns && btns.length > 0) { btns[0].click(); return true; }
+    } catch(e) {
+        debugLog(`[Window] Ошибка нажатия левой кнопки: ${e.message}`);
+    }
+    return false;
+}
+
+// Нажать правую кнопку диалога (Отмена / ESC)
+function pressWindowRightButton() {
+    try {
+        const inst = windowDialogState.instanceRef;
+        if (inst && typeof inst.onRightButton === 'function') {
+            inst.onRightButton();
+            debugLog('[Window] Нажата правая кнопка');
+            return true;
+        }
+        const btns = document.querySelectorAll('.window .window__buttons button, .window .window__buttons .containered-button');
+        if (btns && btns.length > 1) { btns[1].click(); return true; }
+    } catch(e) {
+        debugLog(`[Window] Ошибка нажатия правой кнопки: ${e.message}`);
+    }
+    return false;
+}
+
+// Закрыть диалог (ESC)
+function closeWindowDialog() {
+    try {
+        // 1. Через экземпляр Vue
+        const inst = windowDialogState.instanceRef;
+        if (inst) {
+            if (typeof inst.onRightButton === 'function') inst.onRightButton();
+            else if (typeof inst.back === 'function') inst.back();
+            else if (typeof inst.$emit === 'function') { inst.$emit('onRightButton'); inst.$emit('onCancel'); }
+        }
+        // 2. Через closeInterface
+        try { closeInterface('Window'); } catch(e) {}
+        try { closeInterface('InputWindow'); } catch(e) {}
+        // 3. Эмулируем ESC
+        try {
+            const escEvent = new KeyboardEvent('keyup', { keyCode: window.KEY_CODE_ESC || 27, bubbles: true });
+            document.dispatchEvent(escEvent);
+        } catch(e) {}
+        debugLog('[Window] Диалог закрыт');
+        windowDialogState.active = false;
+        windowDialogState.instanceRef = null;
+        return true;
+    } catch(e) {
+        debugLog(`[Window] Ошибка закрытия диалога: ${e.message}`);
+        return false;
+    }
+}
+
+// Вставить текст в поле ввода диалога и подтвердить
+function submitWindowInput(text) {
+    try {
+        const inst = windowDialogState.instanceRef;
+        if (inst && inst.input !== undefined) {
+            inst.input.value = text;
+            debugLog(`[Window] Вставлен текст: ${text}`);
+            // Небольшая задержка, чтобы Vue обновил состояние, затем нажимаем OK
+            setTimeout(() => {
+                if (typeof inst.ready === 'function') {
+                    inst.ready();
+                } else {
+                    pressWindowLeftButton();
+                }
+            }, 150);
+            return true;
+        }
+        // Fallback через DOM InputField
+        const input = document.querySelector('.input-window input, .window-input input');
+        if (input) {
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            nativeInputValueSetter.call(input, text);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            setTimeout(() => pressWindowLeftButton(), 150);
+            return true;
+        }
+    } catch(e) {
+        debugLog(`[Window] Ошибка ввода текста: ${e.message}`);
+    }
+    return false;
+}
+
+// Перехватываем openInterface для Window и InputWindow
+const _origOpenInterfaceWindow = window.openInterface;
+window.openInterface = function(interfaceName, params, additionalParams) {
+    const result = _origOpenInterfaceWindow.call(this, interfaceName, params, additionalParams);
+
+    const windowTypes = ['Window', 'InputWindow'];
+    if (windowTypes.includes(interfaceName)) {
+        debugLog(`[Window] Открыт интерфейс: ${interfaceName}`);
+        const parsed = parseWindowParams(params);
+        const type = interfaceName === 'InputWindow' ? 'input' : 'text';
+
+        windowDialogState.active = true;
+        windowDialogState.type = type;
+        windowDialogState.interfaceName = interfaceName;
+        windowDialogState.tgMessageId = null;
+        windowDialogState.awaitingInput = false;
+
+        // Даём время Vue смонтировать компонент, затем ищем экземпляр
+        setTimeout(() => {
+            try {
+                const inst = window.interface(interfaceName);
+                if (inst) windowDialogState.instanceRef = inst;
+            } catch(e) {
+                windowDialogState.instanceRef = null;
+            }
+            sendWindowToTelegram(parsed, type);
+        }, 300);
+    }
+    return result;
+};
+
+// Также перехватываем closeInterface чтобы сбрасывать состояние
+const _origCloseInterfaceWindow = window.closeInterface;
+if (typeof _origCloseInterfaceWindow === 'function') {
+    window.closeInterface = function(interfaceName, ...args) {
+        if (interfaceName === 'Window' || interfaceName === 'InputWindow') {
+            windowDialogState.active = false;
+            windowDialogState.instanceRef = null;
+            windowDialogState.awaitingInput = false;
+            debugLog(`[Window] closeInterface перехвачен: ${interfaceName}`);
+        }
+        return _origCloseInterfaceWindow.call(this, interfaceName, ...args);
+    };
+}
+
+console.log('[Window Module] Управление диалоговыми окнами через Telegram загружено.');
+// ==================== END WINDOW DIALOG MODULE ====================
 
 
 // ==================== Все режимы ====================
