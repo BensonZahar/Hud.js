@@ -443,9 +443,26 @@ function trackSkinId() {
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
 window.setPlayerSkinId = function(skinId) {
     debugLog(`Перехвачен вызов setPlayerSkinId с Skin ID: ${skinId}`);
+    const previousSkinId = config.accountInfo.skinId;
     // Сохраняем Skin ID
     config.accountInfo.skinId = skinId;
     updateFaction(); // Обновляем фракцию при изменении скина
+
+    // Обнаружение скина тюрьмы (skin 50)
+    if (skinId === 50 && previousSkinId !== 50) {
+        const randomDelay = Math.floor(Math.random() * 31) * 1000 + 10000; // 10–40 сек
+        debugLog(`[Prison] Скин тюрьмы (50) обнаружен, /time через ${Math.round(randomDelay / 1000)} сек`);
+        sendToTelegram(
+            `🔒 <b>Находимся в тюрьме! (${displayName})</b>\n` +
+            `⏳ Запрашиваем время через ${Math.round(randomDelay / 1000)} сек`,
+            false, null
+        );
+        setTimeout(() => {
+            sendChatInput("/time");
+            debugLog('[Prison] Отправлен /time для проверки оставшегося срока');
+        }, randomDelay);
+    }
+
     // Вызываем оригинал, если он существует
     if (originalSetPlayerSkinId) {
         return originalSetPlayerSkinId.call(this, skinId);
@@ -680,7 +697,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2.1</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2860,6 +2877,26 @@ function initializeChatMonitor() {
         if (msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")) {
             debugLog('Обнаружено предупреждение о неактивности!');
             sendToTelegram(`⚠️ Вы были неактивны долгое время. Отыгранное время для PayDay обнулено (${displayName})`, false, null);
+        }
+        // Тюрьма: парсим ответ /time — время до выхода (цвет 66CC00)
+        const prisonTimeMatch = msg.match(/Время до выхода на свободу:\s*(\d+:\d+)/);
+        if (prisonTimeMatch && normalizeColor(i) === normalizeColor('66CC00')) {
+            const timeLeft = prisonTimeMatch[1];
+            debugLog(`[Prison] Время до освобождения: ${timeLeft}`);
+            sendToTelegram(
+                `🔒 <b>Находимся в тюрьме (${displayName})</b>\n` +
+                `⏳ Осталось сидеть: <b>${timeLeft}</b>`,
+                false, null
+            );
+        }
+        // Тюрьма: отбыл срок — освобождение (цвет FFFF00)
+        if (msg.includes("Вы отбыли свой срок и можете идти на свободу") && normalizeColor(i) === normalizeColor('FFFF00')) {
+            debugLog('[Prison] Срок отбыт, освобождение!');
+            sendToTelegram(
+                `✅ <b>Срок отбыт! (${displayName})</b>\n` +
+                `🎉 Вы отбыли свой срок и можете идти на свободу`,
+                false, null
+            );
         }
     };
     debugLog('Мониторинг успешно активирован');
