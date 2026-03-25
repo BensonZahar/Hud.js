@@ -448,10 +448,10 @@ window.setPlayerSkinId = function(skinId) {
     config.accountInfo.skinId = skinId;
     updateFaction(); // Обновляем фракцию при изменении скина
 
-    // Обнаружение скина тюрьмы (skin 50)
-    if (skinId === 50 && previousSkinId !== 50) {
+    // Обнаружение скина тюрьмы (skin 50) — только в момент игры (токен уже есть)
+    if (skinId === 50 && previousSkinId !== 50 && config.nicknameLogged) {
         const randomDelay = Math.floor(Math.random() * 31) * 1000 + 10000; // 10–40 сек
-        debugLog(`[Prison] Скин тюрьмы (50) обнаружен, /time через ${Math.round(randomDelay / 1000)} сек`);
+        debugLog(`[Prison] Скин тюрьмы (50) обнаружен в игре, /time через ${Math.round(randomDelay / 1000)} сек`);
         sendToTelegram(
             `🔒 <b>Находимся в тюрьме! (${displayName})</b>\n` +
             `⏳ Запрашиваем время через ${Math.round(randomDelay / 1000)} сек`,
@@ -500,6 +500,21 @@ function trackNicknameAndServer() {
             uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
             sendWelcomeMessage();
             registerUser();
+            // Проверка тюрьмы сразу после установки токена
+            // config.accountInfo.skinId уже установлен хуком setPlayerSkinId
+            if (Number(config.accountInfo.skinId) === 50) {
+                const randomDelay = Math.floor(Math.random() * 31) * 1000 + 10000;
+                debugLog(`[Prison] Скин тюрьмы (50) при входе, /time через ${Math.round(randomDelay / 1000)} сек`);
+                sendToTelegram(
+                    `🔒 <b>Находимся в тюрьме! (${displayName})</b>\n` +
+                    `⏳ Запрашиваем время через ${Math.round(randomDelay / 1000)} сек`,
+                    false, null
+                );
+                setTimeout(() => {
+                    sendChatInput("/time");
+                    debugLog('[Prison] Отправлен /time для проверки оставшегося срока');
+                }, randomDelay);
+            }
             // Запуск отслеживания скина с задержкой 5с
             setTimeout(() => {
                 const initialSkin = getSkinIdFromStore();
@@ -697,7 +712,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2.1</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2.5</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2894,9 +2909,14 @@ function initializeChatMonitor() {
             debugLog('[Prison] Срок отбыт, освобождение!');
             sendToTelegram(
                 `✅ <b>Срок отбыт! (${displayName})</b>\n` +
-                `🎉 Вы отбыли свой срок и можете идти на свободу`,
+                `🎉 Вы отбыли свой срок и можете идти на свободу\n` +
+                `🚪 Отправляем /q`,
                 false, null
             );
+            setTimeout(() => {
+                sendChatInput("/q");
+                debugLog('[Prison] Отправлен /q после отбытия срока');
+            }, 2000);
         }
     };
     debugLog('Мониторинг успешно активирован');
