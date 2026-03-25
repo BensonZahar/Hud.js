@@ -23,7 +23,9 @@ const globalState = {
     afkTargetAccount: null,
     lastWelcomeMessageId: null,
     lastPaydayMessageIds: [],
-    isPrison: false // Новый флаг для посадки в тюрьму
+    isPrison: false,       // Флаг для игнора /rec при кике после посадки
+    inPrison: false,       // Активный режим тюрьмы (скин 50)
+    prisonTimeRequested: false // Флаг: уже запросили /time
 };
 // END GLOBAL STATE MODULE //
 // START PENDING INPUTS MODULE (iOS fix) //
@@ -436,6 +438,14 @@ function trackSkinId() {
         config.accountInfo.skinId = currentSkin;
         debugLog(`Обнаружен новый Skin ID (поллинг): ${currentSkin}`);
         updateFaction(); // Обновляем фракцию
+        // Проверка скина заключённого
+        if (Number(currentSkin) === 50) {
+            startPrisonMode();
+        } else if (globalState.inPrison) {
+            globalState.inPrison = false;
+            globalState.prisonTimeRequested = false;
+            debugLog(`[PRISON] Скин сменился на ${currentSkin} — режим тюрьмы деактивирован`);
+        }
     }
     setTimeout(trackSkinId, config.skinCheckInterval);
 }
@@ -443,26 +453,17 @@ function trackSkinId() {
 let originalSetPlayerSkinId = window.setPlayerSkinId; // Сохраняем оригинал, если он существует
 window.setPlayerSkinId = function(skinId) {
     debugLog(`Перехвачен вызов setPlayerSkinId с Skin ID: ${skinId}`);
-    const previousSkinId = config.accountInfo.skinId;
     // Сохраняем Skin ID
     config.accountInfo.skinId = skinId;
     updateFaction(); // Обновляем фракцию при изменении скина
-
-    // Обнаружение скина тюрьмы (skin 50) — только в момент игры (токен уже есть)
-    if (skinId === 50 && previousSkinId !== 50 && config.nicknameLogged) {
-        const randomDelay = Math.floor(Math.random() * 31) * 1000 + 10000; // 10–40 сек
-        debugLog(`[Prison] Скин тюрьмы (50) обнаружен в игре, /time через ${Math.round(randomDelay / 1000)} сек`);
-        sendToTelegram(
-            `🔒 <b>Находимся в тюрьме! (${displayName})</b>\n` +
-            `⏳ Запрашиваем время через ${Math.round(randomDelay / 1000)} сек`,
-            false, null
-        );
-        setTimeout(() => {
-            sendChatInput("/time");
-            debugLog('[Prison] Отправлен /time для проверки оставшегося срока');
-        }, randomDelay);
+    // Проверка скина заключённого (50 = тюремный скин)
+    if (Number(skinId) === 50) {
+        setTimeout(() => startPrisonMode(), 3000); // Небольшая задержка для стабилизации игры
+    } else if (globalState.inPrison) {
+        globalState.inPrison = false;
+        globalState.prisonTimeRequested = false;
+        debugLog(`[PRISON] Скин сменился на ${skinId} — режим тюрьмы деактивирован`);
     }
-
     // Вызываем оригинал, если он существует
     if (originalSetPlayerSkinId) {
         return originalSetPlayerSkinId.call(this, skinId);
@@ -500,21 +501,6 @@ function trackNicknameAndServer() {
             uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
             sendWelcomeMessage();
             registerUser();
-            // Проверка тюрьмы сразу после установки токена
-            // config.accountInfo.skinId уже установлен хуком setPlayerSkinId
-            if (Number(config.accountInfo.skinId) === 50) {
-                const randomDelay = Math.floor(Math.random() * 31) * 1000 + 10000;
-                debugLog(`[Prison] Скин тюрьмы (50) при входе, /time через ${Math.round(randomDelay / 1000)} сек`);
-                sendToTelegram(
-                    `🔒 <b>Находимся в тюрьме! (${displayName})</b>\n` +
-                    `⏳ Запрашиваем время через ${Math.round(randomDelay / 1000)} сек`,
-                    false, null
-                );
-                setTimeout(() => {
-                    sendChatInput("/time");
-                    debugLog('[Prison] Отправлен /time для проверки оставшегося срока');
-                }, randomDelay);
-            }
             // Запуск отслеживания скина с задержкой 5с
             setTimeout(() => {
                 const initialSkin = getSkinIdFromStore();
@@ -522,6 +508,10 @@ function trackNicknameAndServer() {
                     config.accountInfo.skinId = initialSkin;
                     debugLog(`Initial Skin ID after login: ${initialSkin}`);
                     updateFaction(); // Обновляем фракцию
+                    // Проверка: если скин 50 при входе = аккаунт в тюрьме
+                    if (Number(initialSkin) === 50) {
+                        startPrisonMode();
+                    }
                 }
                 trackSkinId();
             }, 5000);
@@ -712,7 +702,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2.5</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2555,6 +2545,26 @@ function exitAfterStroiPayDay(source) {
 
 
 // ==================== END SMART STROI SYSTEM ====================
+// ==================== PRISON MODULE ====================
+// Запускается при обнаружении скина 50 (заключённый) — при входе или смене скина
+function startPrisonMode() {
+    if (globalState.inPrison) return; // Уже в режиме тюрьмы
+    globalState.inPrison = true;
+    globalState.prisonTimeRequested = false;
+    debugLog(`[PRISON] Обнаружен скин заключённого (50). Запускаем режим тюрьмы для ${displayName}`);
+    sendToTelegram(`🔒 <b>Находимся в тюрьме (${displayName})</b>\nЗапрашиваем оставшееся время...`, false, null);
+    // Отправляем /time через рандомное время 10–40 секунд
+    const delay = Math.floor(Math.random() * (40000 - 10000 + 1)) + 10000;
+    debugLog(`[PRISON] Запрос /time через ${Math.round(delay / 1000)} сек`);
+    setTimeout(() => {
+        if (globalState.inPrison && !globalState.prisonTimeRequested) {
+            globalState.prisonTimeRequested = true;
+            sendChatInput("/time");
+            debugLog(`[PRISON] Команда /time отправлена`);
+        }
+    }, delay);
+}
+// ==================== END PRISON MODULE ====================
 function initializeChatMonitor() {
     if (typeof sendChatInput === 'undefined') {
         const errorMsg = '❌ <b>Ошибка</b>\nsendChatInput не найден';
@@ -2651,27 +2661,40 @@ function initializeChatMonitor() {
             const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(`🚨 <b>Посадили в тюрьму! (${displayName})</b>\nАдмин: ${adminName}\nВремя: ${prisonMinutes} мин\nПричина: ${reason}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, replyMarkup);
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
-            globalState.isPrison = true; // Устанавливаем флаг для игнора /rec при следующем кике
-            setTimeout(() => { globalState.isPrison = false; }, 10000); // Сбрасываем флаг через 10 сек (на случай кика)
-            // Логика обработки тюрьмы
-            const twoMinDelay = 2 * 60 * 1000;
-            const prisonTimeMs = prisonMinutes * 60 * 1000;
-            if (config.autoReconnectEnabled) {
-                setTimeout(() => {
-                    autoLoginConfig.enabled = true;
-                    sendChatInput("/rec 5");
-                    sendToTelegram(`🔄 <b>Отправлен /rec 5 после 2 мин (${displayName})</b>`);
-                    setTimeout(() => {
-                        sendChatInput("/q");
-                        sendToTelegram(`✅ <b>Отправлено /q после отсидки (${displayName})</b>`);
-                    }, prisonTimeMs);
-                }, twoMinDelay);
-            } else {
-                setTimeout(() => {
-                    sendChatInput("/q");
-                    sendToTelegram(`✅ <b>Отправлено /q после 2 мин (${displayName})</b>`);
-                }, twoMinDelay);
+            globalState.isPrison = true; // Флаг для игнора /rec при кике
+            setTimeout(() => { globalState.isPrison = false; }, 10000); // Сбрасываем через 10 сек
+            // Запускаем режим тюрьмы — запрашиваем /time через 10–40 сек (мы ещё в игре, скин уже 50)
+            globalState.inPrison = true;
+            globalState.prisonTimeRequested = false;
+            const prisonDelay = Math.floor(Math.random() * (40000 - 10000 + 1)) + 10000;
+            debugLog(`[PRISON] Запрос /time через ${Math.round(prisonDelay / 1000)} сек (после посадки)`);
+            setTimeout(() => {
+                if (globalState.inPrison && !globalState.prisonTimeRequested) {
+                    globalState.prisonTimeRequested = true;
+                    sendChatInput("/time");
+                    debugLog(`[PRISON] Команда /time отправлена после посадки`);
+                }
+            }, prisonDelay);
+        }
+        // Обработка ответа на /time — время до выхода из тюрьмы (цвет 66CC00)
+        const normalizedMsgColor = normalizeColor(i);
+        if (normalizedMsgColor === '0x66CC00' && msg.includes("Время до выхода на свободу:")) {
+            const timeMatch = msg.match(/Время до выхода на свободу:\s*(\d+:\d+)/);
+            if (timeMatch && globalState.inPrison) {
+                const remainingTime = timeMatch[1];
+                debugLog(`[PRISON] Время до выхода: ${remainingTime}`);
+                sendToTelegram(`⏰ <b>Время до выхода из тюрьмы (${displayName}):</b>\n🔒 Осталось: ${remainingTime}`, false, null);
             }
+        }
+        // Обработка освобождения из тюрьмы (цвет FFFF00)
+        if (normalizedMsgColor === '0xFFFF00' && msg.includes("Вы отбыли свой срок и можете идти на свободу")) {
+            debugLog(`[PRISON] Срок отсижен! Выходим из игры...`);
+            globalState.inPrison = false;
+            globalState.prisonTimeRequested = false;
+            sendToTelegram(`✅ <b>Срок отсижен! Выходим из игры (${displayName})</b>`, false, null);
+            setTimeout(() => {
+                sendChatInput("/q");
+            }, 1000);
         }
 		// ОТЛАДКА: Выводим ВСЕ сообщения с цветом фракции МЗ
 		if (config.currentFaction === 'mz') {
@@ -2892,31 +2915,6 @@ function initializeChatMonitor() {
         if (msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")) {
             debugLog('Обнаружено предупреждение о неактивности!');
             sendToTelegram(`⚠️ Вы были неактивны долгое время. Отыгранное время для PayDay обнулено (${displayName})`, false, null);
-        }
-        // Тюрьма: парсим ответ /time — время до выхода (цвет 66CC00)
-        const prisonTimeMatch = msg.match(/Время до выхода на свободу:\s*(\d+:\d+)/);
-        if (prisonTimeMatch && normalizeColor(i) === normalizeColor('66CC00')) {
-            const timeLeft = prisonTimeMatch[1];
-            debugLog(`[Prison] Время до освобождения: ${timeLeft}`);
-            sendToTelegram(
-                `🔒 <b>Находимся в тюрьме (${displayName})</b>\n` +
-                `⏳ Осталось сидеть: <b>${timeLeft}</b>`,
-                false, null
-            );
-        }
-        // Тюрьма: отбыл срок — освобождение (цвет FFFF00)
-        if (msg.includes("Вы отбыли свой срок и можете идти на свободу") && normalizeColor(i) === normalizeColor('FFFF00')) {
-            debugLog('[Prison] Срок отбыт, освобождение!');
-            sendToTelegram(
-                `✅ <b>Срок отбыт! (${displayName})</b>\n` +
-                `🎉 Вы отбыли свой срок и можете идти на свободу\n` +
-                `🚪 Отправляем /q`,
-                false, null
-            );
-            setTimeout(() => {
-                sendChatInput("/q");
-                debugLog('[Prison] Отправлен /q после отбытия срока');
-            }, 2000);
         }
     };
     debugLog('Мониторинг успешно активирован');
