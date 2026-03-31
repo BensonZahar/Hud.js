@@ -525,15 +525,23 @@ class MEmuHudManager:
             text_color=C["muted"], height=28, corner_radius=6,
             command=self.on_close
         ).grid(row=6, column=0, padx=px, pady=(4, 10), sticky="e")
-    def send_telegram_message(self, stage="launch", message_id=None, verdict=None):
+    def send_telegram_message(self, stage="launch", message_id=None, verdict=None, extra_ip=None):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         device_name = platform.node()
-        try:
-            device_ip = socket.gethostbyname(socket.gethostname())
-        except:
-            device_ip = "unknown"
+        device_ip = extra_ip if extra_ip else self.get_public_ip()
         if stage == "launch":
             message_text = f"[{current_time}] Запрос на запуск HASSLE BOT by konst с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+            buttons = [
+                {"text": "Разрешить ✅", "callback_data": "allow_launch"},
+                {"text": "Запретить 🚫", "callback_data": "deny_launch"}
+            ]
+        elif stage == "unknown_ip":
+            message_text = (
+                f"[{current_time}] ⚠️ НЕИЗВЕСТНЫЙ IP!\n"
+                f"Устройство: {device_name}\n"
+                f"IP: {device_ip}\n"
+                f"Этот IP не в белом списке. Разрешить запуск HASSLE BOT?"
+            )
             buttons = [
                 {"text": "Разрешить ✅", "callback_data": "allow_launch"},
                 {"text": "Запретить 🚫", "callback_data": "deny_launch"}
@@ -855,14 +863,53 @@ class MEmuHudManager:
             messagebox.showerror("Ошибка", "ADB не найден. Перезапустите программу.")
             return
         self.log("[√] Успешно: Система готова")
+    def get_public_ip(self):
+        """Получаем реальный публичный IP через внешний сервис."""
+        services = [
+            "https://api.ipify.org",
+            "https://icanhazip.com",
+            "https://ifconfig.me/ip",
+        ]
+        for url in services:
+            try:
+                r = requests.get(url, timeout=5)
+                ip = r.text.strip()
+                if ip:
+                    return ip
+            except Exception:
+                continue
+        # Фолбэк — локальный IP (если нет интернета)
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except Exception:
+            return "unknown"
+
     def is_owner_ip(self):
         try:
-            ip = socket.gethostbyname(socket.gethostname())
+            ip = self.get_public_ip()
             return ip.startswith("192.168.100.")
         except:
             return False
 
+    def is_kirill_ip(self):
+        try:
+            ip = self.get_public_ip()
+            # Кирилл — конкретный диапазон, не весь 192.168.1.*
+            return ip.startswith("192.168.1.")
+        except:
+            return False
+
+    def is_kolya_ip(self):
+        try:
+            ip = self.get_public_ip()
+            return ip.startswith("178.120.1.")
+        except:
+            return False
+
     def activate_launch_permission(self):
+        public_ip = self.get_public_ip()
+        self.log(f"Публичный IP: {public_ip}")
+
         if self.is_owner_ip():
             self.log("[√] Локальная сеть — автоматический запуск с отладкой")
             self.launch_allowed = True
@@ -874,7 +921,34 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Не удалось загрузить конфигурации")
                 self.root.after(2000, self.on_close)
             return
-        message_id = self.send_telegram_message()
+        elif self.is_kolya_ip():
+            self.log("[√] Известный IP (Kolya) — автоматический запуск без отладки")
+            self.launch_allowed = True
+            self.full_logging = False
+            self.debug_allowed = False
+            if self.fetch_code_files():
+                self.selected_code_name = "Kolya"
+                self.root.after(0, self.finalize_launch)
+            else:
+                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
+                self.root.after(2000, self.on_close)
+            return
+        elif self.is_kirill_ip():
+            self.log("[√] Известный IP (Kirill) — автоматический запуск без отладки")
+            self.launch_allowed = True
+            self.full_logging = False
+            self.debug_allowed = False
+            if self.fetch_code_files():
+                self.selected_code_name = "Kirill"
+                self.root.after(0, self.finalize_launch)
+            else:
+                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
+                self.root.after(2000, self.on_close)
+            return
+
+        # Неизвестный IP — отправляем уведомление владельцу и ждём подтверждения
+        self.log(f"[!] Неизвестный IP ({public_ip}) — запрос на подтверждение владельцем...")
+        message_id = self.send_telegram_message(stage="unknown_ip", extra_ip=public_ip)
         if not message_id:
             self.log("[X] Ошибка: Не удалось отправить сообщение в Telegram")
             self.root.after(2000, self.on_close)
