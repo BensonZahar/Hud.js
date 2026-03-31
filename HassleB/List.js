@@ -21,7 +21,7 @@ const USER_CONFIGS = {
         RECONNECT_ENABLED_DEFAULT: true
     },
     'Kirill': {
-        CHAT_IDS: ['-1003202329790'],
+        CHAT_IDS: ['-1003040555627'],
         PASSWORD: '09230923',
         RECONNECT_ENABLED_DEFAULT: false
     },
