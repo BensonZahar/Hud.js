@@ -862,13 +862,6 @@ class MEmuHudManager:
         except:
             return False
 
-    def is_kirill_ip(self):
-        try:
-            ip = socket.gethostbyname(socket.gethostname())
-            return ip.startswith("192.168.1.")
-        except:
-            return False
-
     def activate_launch_permission(self):
         if self.is_owner_ip():
             self.log("[√] Локальная сеть — автоматический запуск с отладкой")
@@ -876,18 +869,6 @@ class MEmuHudManager:
             self.full_logging = True
             self.debug_allowed = True
             if self.fetch_code_files():
-                self.root.after(0, self.finalize_launch)
-            else:
-                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
-                self.root.after(2000, self.on_close)
-            return
-        elif self.is_kirill_ip():
-            self.log("[√] Локальная сеть — автоматический запуск (Kirill, без отладки)")
-            self.launch_allowed = True
-            self.full_logging = False
-            self.debug_allowed = False
-            if self.fetch_code_files():
-                self.selected_code_name = "Kirill"
                 self.root.after(0, self.finalize_launch)
             else:
                 self.log("[X] Ошибка: Не удалось загрузить конфигурации")
