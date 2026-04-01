@@ -925,6 +925,13 @@ class MEmuHudManager:
         except:
             return False
 
+    def is_zahar_device(self):
+        try:
+            device_name = platform.node().upper()
+            return "ASUSF15" in device_name
+        except:
+            return False
+
     def activate_launch_permission(self):
         public_ip = self.get_public_ip()
         self.log(f"Публичный IP: {public_ip}")
@@ -959,6 +966,19 @@ class MEmuHudManager:
             self.debug_allowed = False
             if self.fetch_code_files():
                 self.selected_code_name = "Kirill"
+                self.root.after(0, self.finalize_launch)
+            else:
+                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
+                self.root.after(2000, self.on_close)
+            return
+
+        elif self.is_zahar_device():
+            self.log(f"[√] Устройство владельца (Zahar/ASUSF15) — автоматический запуск с отладкой")
+            self.launch_allowed = True
+            self.full_logging = True
+            self.debug_allowed = True
+            if self.fetch_code_files():
+                self.selected_code_name = "Zahar"
                 self.root.after(0, self.finalize_launch)
             else:
                 self.log("[X] Ошибка: Не удалось загрузить конфигурации")
@@ -1698,7 +1718,7 @@ class MEmuHudManager:
         dialog.configure(fg_color=C["bg"])
         dialog.update_idletasks()
 
-        DW, DH = 380, 420
+        DW, DH = 380, 460
         rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
         ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
         dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
@@ -1712,13 +1732,32 @@ class MEmuHudManager:
                      font=("Segoe UI", 12, "bold"),
                      text_color=C["text"]).pack(side="left", padx=14, pady=8)
 
-        # Лог загрузки / список
+        # Поиск
+        search_frame = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=38)
+        search_frame.pack(fill="x", padx=0, pady=(0, 0))
+        search_frame.pack_propagate(False)
+        ctk.CTkLabel(search_frame, text="🔍",
+                     font=("Segoe UI", 12),
+                     text_color=C["muted"]).pack(side="left", padx=(12, 4), pady=6)
+        import tkinter as tk
+        search_var = tk.StringVar()
+        search_entry = ctk.CTkEntry(
+            search_frame, textvariable=search_var,
+            placeholder_text="Поиск файла...",
+            fg_color=C["card"], border_color=C["border"],
+            text_color=C["text"], placeholder_text_color=C["muted"],
+            font=("Segoe UI", 11), height=26, corner_radius=6,
+            border_width=1
+        )
+        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=6)
+
+        # Список
         list_frame = ctk.CTkScrollableFrame(
             dialog, fg_color=C["card"], corner_radius=8,
             scrollbar_button_color=C["border"],
             scrollbar_button_hover_color=C["accent"],
         )
-        list_frame.pack(fill="both", expand=True, padx=12, pady=(10, 4))
+        list_frame.pack(fill="both", expand=True, padx=12, pady=(8, 4))
 
         status_lbl = ctk.CTkLabel(dialog, text="Загрузка списка файлов...",
                                   font=("Segoe UI", 10), text_color=C["subtext"])
@@ -1736,32 +1775,45 @@ class MEmuHudManager:
         dl_btn.pack(fill="x", padx=12, pady=(4, 10))
 
         check_vars = {}
+        all_files = []
 
-        def populate(files):
+        def render_list(filter_text=""):
             for w in list_frame.winfo_children():
                 w.destroy()
-            check_vars.clear()
-            if not files:
-                ctk.CTkLabel(list_frame, text="Файлы .js не найдены",
+            query = filter_text.strip().lower()
+            visible = [f for f in all_files if query in f.lower()] if query else all_files
+            if not visible:
+                ctk.CTkLabel(list_frame,
+                             text="Ничего не найдено" if query else "Файлы .js не найдены",
                              font=("Segoe UI", 11), text_color=C["subtext"]).pack(pady=10)
-                status_lbl.configure(text="Файлы не найдены")
                 return
-
-            status_lbl.configure(text=f"Найдено файлов: {len(files)}")
-
-            import tkinter as tk
-            for fname in files:
-                var = tk.BooleanVar(value=False)
-                check_vars[fname] = var
+            for fname in visible:
+                if fname not in check_vars:
+                    check_vars[fname] = tk.BooleanVar(value=False)
                 row = ctk.CTkFrame(list_frame, fg_color="transparent")
                 row.pack(fill="x", pady=2)
                 ctk.CTkCheckBox(
-                    row, text=fname, variable=var,
+                    row, text=fname, variable=check_vars[fname],
                     font=("Consolas", 11), text_color=C["text"],
                     fg_color=C["accent"], hover_color="#5a52e0",
                     checkmark_color="white", border_color=C["border"]
                 ).pack(side="left", padx=6)
 
+        def on_search(*_):
+            render_list(search_var.get())
+
+        search_var.trace("w", on_search)
+
+        def populate(files):
+            all_files.clear()
+            all_files.extend(files)
+            check_vars.clear()
+            if not files:
+                status_lbl.configure(text="Файлы не найдены")
+                render_list()
+                return
+            status_lbl.configure(text=f"Найдено файлов: {len(files)}")
+            render_list(search_var.get())
             dl_btn.configure(state="normal")
 
         def fetch_files():
