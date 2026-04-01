@@ -1667,13 +1667,21 @@ class MEmuHudManager:
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
         source_file = f"{target_path}/Hud.js"
         try:
+            desktop = Path.home() / "Desktop"
+            if not desktop.exists():
+                desktop = Path.home() / "Рабочий стол"
+            if not desktop.exists():
+                desktop = Path.home()
+            hassle_folder = desktop / "HassleBot"
+            hassle_folder.mkdir(exist_ok=True)
+            save_path = hassle_folder / "Hud.js"
             self.log(f"Скачивание файла {source_file}...")
-            cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.hud_file)]
+            cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(save_path)]
             result = subprocess.run(cmd, capture_output=True, text=True,
                                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
  
             if result.returncode == 0:
-                self.log(f"[√] Успешно! Файл скачан: {self.hud_file}")
+                self.log(f"[√] Успешно! Файл скачан: {save_path}")
             else:
                 self.log(f"[X] Ошибка скачивания файла")
      
