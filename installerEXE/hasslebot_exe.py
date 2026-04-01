@@ -641,24 +641,26 @@ class MEmuHudManager:
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 60
         start_time = time.time()
-        last_offset = 0
+        last_offset = self._get_fresh_offset()
 
         while time.time() - start_time < timeout:
             try:
-                params = {"offset": last_offset + 1, "timeout": 5}
+                params = {"offset": last_offset, "timeout": 5}
                 response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
 
                 for update in updates:
-                    last_offset = update.get("update_id", last_offset)
+                    last_offset = update.get("update_id", last_offset) + 1
                     callback_query = update.get("callback_query")
+                    if not callback_query:
+                        continue
+                    if callback_query.get("message", {}).get("message_id") != self.telegram_message_id:
+                        continue
+                    callback_data = callback_query.get("data", "")
+                    self.answer_callback_query(callback_query["id"])
 
-                    if callback_query and callback_query.get("message", {}).get("message_id") == self.telegram_message_id:
-                        callback_data = callback_query.get("data")
-                        self.answer_callback_query(callback_query["id"])
-
-                        if callback_data and callback_data.startswith("account_"):
+                    if callback_data and callback_data.startswith("account_"):
                             acc_num = callback_data.split("_")[1]
                             self.selected_account_number = acc_num
 
@@ -668,7 +670,7 @@ class MEmuHudManager:
                                 self.root.after(0, lambda n=acc_num: self.update_waiting_message(f"Выбран аккаунт #{n}. Ожидание выбора режима отладки..."))
 
                             self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
-                            self.root.after(0, self.wait_for_debug_choice)
+                            threading.Thread(target=self.wait_for_debug_choice, daemon=True).start()
                             return
 
             except Exception as e:
@@ -706,41 +708,56 @@ class MEmuHudManager:
             self.log("[√] Callback подтвержден")
         except Exception as e:
             self.log(f"[X] Ошибка подтверждения callback: {e}")
+    def _get_fresh_offset(self):
+        """Получает последний update_id чтобы игнорировать старые апдейты."""
+        try:
+            url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
+            r = requests.get(url, params={"offset": -1, "timeout": 0}, timeout=5)
+            updates = r.json().get("result", [])
+            if updates:
+                return updates[-1]["update_id"] + 1
+        except Exception:
+            pass
+        return 0
+
     def wait_for_telegram_response(self):
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 30
         start_time = time.time()
-        last_offset = 0
+        last_offset = self._get_fresh_offset()
         while time.time() - start_time < timeout:
             try:
-                params = {"offset": last_offset + 1, "timeout": 5}
+                params = {"offset": last_offset, "timeout": 5}
                 response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
                 for update in updates:
-                    last_offset = update.get("update_id", last_offset)
+                    last_offset = update.get("update_id", last_offset) + 1
                     callback_query = update.get("callback_query")
-                    if callback_query and callback_query.get("message", {}).get("message_id") == self.telegram_message_id:
-                        callback_data = callback_query.get("data")
-                        self.answer_callback_query(callback_query["id"])
-                        if callback_data == "allow_launch":
-                            self.launch_allowed = True
-                            self.root.after(0, lambda: self.update_waiting_message("Разрешение получено. Загрузка файлов кода..."))
-                            if self.fetch_code_files():
-                                self.root.after(0, lambda: self.send_code_choice_message(self.telegram_message_id))
-                                self.root.after(0, self.wait_for_code_choice)
-                            else:
-                                self.root.after(0, lambda: self.update_waiting_message("Ошибка загрузки файлов. Запрещено 🚫"))
-                                self.root.after(0, self.delete_telegram_message)
-                                self.root.after(2000, self.on_close)
-                            return
-                        elif callback_data == "deny_launch":
-                            self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
+                    if not callback_query:
+                        continue
+                    if callback_query.get("message", {}).get("message_id") != self.telegram_message_id:
+                        continue
+                    callback_data = callback_query.get("data")
+                    self.answer_callback_query(callback_query["id"])
+                    if callback_data == "allow_launch":
+                        self.launch_allowed = True
+                        self.root.after(0, lambda: self.update_waiting_message("Разрешение получено. Загрузка файлов кода..."))
+                        if self.fetch_code_files():
+                            self.root.after(0, lambda: self.send_code_choice_message(self.telegram_message_id))
+                            threading.Thread(target=self.wait_for_code_choice, daemon=True).start()
+                        else:
+                            self.root.after(0, lambda: self.update_waiting_message("Ошибка загрузки файлов. Запрещено 🚫"))
                             self.root.after(0, self.delete_telegram_message)
                             self.root.after(2000, self.on_close)
-                            return
-            except Exception as e:
-                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
+                        return
+                    elif callback_data == "deny_launch":
+                        self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
+                        self.root.after(0, self.delete_telegram_message)
+                        self.root.after(2000, self.on_close)
+                        return
+            except Exception:
+                pass
         self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
@@ -748,61 +765,49 @@ class MEmuHudManager:
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 60
         start_time = time.time()
-        last_offset = 0
-      
+        last_offset = self._get_fresh_offset()
+
         while time.time() - start_time < timeout:
             try:
-                params = {"offset": last_offset + 1, "timeout": 5}
+                params = {"offset": last_offset, "timeout": 5}
                 response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
-              
+
                 for update in updates:
-                    last_offset = update.get("update_id", last_offset)
+                    last_offset = update.get("update_id", last_offset) + 1
                     callback_query = update.get("callback_query")
-                  
-                    if callback_query and callback_query.get("message", {}).get("message_id") == self.telegram_message_id:
-                        callback_data = callback_query.get("data")
-                        self.answer_callback_query(callback_query["id"])
-                      
+                    if not callback_query:
+                        continue
+                    if callback_query.get("message", {}).get("message_id") != self.telegram_message_id:
+                        continue
+                    callback_data = callback_query.get("data", "")
+                    self.answer_callback_query(callback_query["id"])
+
                     if callback_data.startswith("code_"):
                         try:
                             index = int(callback_data.split("_")[1])
                             if 0 <= index < len(self.code_files):
-                                # ВАЖНО: Получаем имя пользователя из словаря
                                 selected_file = self.code_files[index]
                                 selected_user = selected_file.get('user', selected_file['name'].replace('.js', ''))
-                              
-                                # Сохраняем только имя пользователя (без .js)
                                 self.selected_code_name = selected_user
                                 self.selected_code_url = None
-                              
-                                # Логирование для проверки
                                 if self.full_logging:
-                                    self.log(f"[DEBUG] Выбран индекс: {index}")
-                                    self.log(f"[DEBUG] Файл: {selected_file}")
-                                    self.log(f"[DEBUG] Пользователь: {selected_user}")
-                                    self.log(f"[DEBUG] selected_code_name установлен в: {self.selected_code_name}")
-                              
-                                # Получаем информацию о последнем коммите Load.js
+                                    self.log(f"[DEBUG] Выбран индекс: {index}, пользователь: {selected_user}")
                                 self.last_commit_info = self.fetch_last_commit("Load.js", "HassleB")
-                              
-                                if not self.full_logging:
-                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Пользователь {u} выбран. Ожидание выбора режима отладки..."))
-                                else:
-                                    self.root.after(0, lambda u=selected_user: self.update_waiting_message(f"Выбран пользователь: {u}. Ожидание выбора режима отладки..."))
-                              
+                                msg = f"Пользователь {selected_user} выбран. Ожидание выбора режима отладки..."
+                                self.root.after(0, lambda m=msg: self.update_waiting_message(m))
                                 self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
-                                self.root.after(0, self.wait_for_debug_choice)
+                                threading.Thread(target=self.wait_for_debug_choice, daemon=True).start()
                                 return
                             else:
                                 self.log("[X] Ошибка: Неверный выбор пользователя")
                         except ValueError as e:
-                            self.log(f"[X] Ошибка: Ошибка обработки выбора пользователя: {e}")
-          
-            except Exception as e:
-                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
-      
+                            self.log(f"[X] Ошибка обработки выбора пользователя: {e}")
+
+            except Exception:
+                pass
+
         self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора пользователя. Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
@@ -810,36 +815,39 @@ class MEmuHudManager:
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 30
         start_time = time.time()
-        last_offset = 0
+        last_offset = self._get_fresh_offset()
         while time.time() - start_time < timeout:
             try:
-                params = {"offset": last_offset + 1, "timeout": 5}
+                params = {"offset": last_offset, "timeout": 5}
                 response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
                 for update in updates:
-                    last_offset = update.get("update_id", last_offset)
+                    last_offset = update.get("update_id", last_offset) + 1
                     callback_query = update.get("callback_query")
-                    if callback_query and callback_query.get("message", {}).get("message_id") == self.telegram_message_id:
-                        callback_data = callback_query.get("data")
-                        self.answer_callback_query(callback_query["id"])
-                        if callback_data == "with_debug":
-                            self.full_logging = True
-                            self.debug_allowed = True
-                            self.root.after(0, lambda: self.update_waiting_message("Разрешено с отладкой 🛠️"))
-                            self.root.after(0, lambda: self.log("Режим отладки включен: полные логи и скачивание файлов активны"))
-                            self.send_telegram_message(stage="final", message_id=self.telegram_message_id, verdict="с отладкой 🛠️")
-                            self.root.after(2000, self.finalize_launch)
-                            return
-                        elif callback_data == "without_debug":
-                            self.debug_allowed = False
-                            self.root.after(0, lambda: self.update_waiting_message("Разрешено без отладки 🚫"))
-                            self.root.after(0, lambda: self.log("Запуск без отладки"))
-                            self.send_telegram_message(stage="final", message_id=self.telegram_message_id, verdict="без отладки 🚫")
-                            self.root.after(2000, self.finalize_launch)
-                            return
-            except Exception as e:
-                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
+                    if not callback_query:
+                        continue
+                    if callback_query.get("message", {}).get("message_id") != self.telegram_message_id:
+                        continue
+                    callback_data = callback_query.get("data", "")
+                    self.answer_callback_query(callback_query["id"])
+                    if callback_data == "with_debug":
+                        self.full_logging = True
+                        self.debug_allowed = True
+                        self.root.after(0, lambda: self.update_waiting_message("Разрешено с отладкой 🛠️"))
+                        self.root.after(0, lambda: self.log("Режим отладки включен"))
+                        self.send_telegram_message(stage="final", message_id=self.telegram_message_id, verdict="с отладкой 🛠️")
+                        self.root.after(2000, self.finalize_launch)
+                        return
+                    elif callback_data == "without_debug":
+                        self.debug_allowed = False
+                        self.root.after(0, lambda: self.update_waiting_message("Разрешено без отладки 🚫"))
+                        self.root.after(0, lambda: self.log("Запуск без отладки"))
+                        self.send_telegram_message(stage="final", message_id=self.telegram_message_id, verdict="без отладки 🚫")
+                        self.root.after(2000, self.finalize_launch)
+                        return
+            except Exception:
+                pass
         self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
