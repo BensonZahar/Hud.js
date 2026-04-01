@@ -48,6 +48,7 @@ class MEmuHudManager:
         self.selected_code_url = None
         self.selected_code_name = None
         self.selected_account_number = None
+        self.user_token_counts = {}  # кол-во токенов по пользователям
         self.nox_active_devices = []   # [{"port": "62001", "label": "NOX 1"}, ...]
         self.nox_target = "1"          # "1", "2", "both"
         self.device_param = []
@@ -205,6 +206,23 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Пользователи не найдены в List.js")
                 return False
           
+            # Парсим кол-во BOT_TOKENS на каждого пользователя
+            self.user_token_counts = {}
+            for user in users:
+                user_pos = list_content.find(f"'{user}'")
+                if user_pos == -1:
+                    user_pos = list_content.find(f'"{user}"')
+                chunk = list_content[user_pos:user_pos + 1200]
+                import re as _re
+                m = _re.search(r"BOT_TOKENS\s*:\s*\{([^}]+)\}", chunk, _re.DOTALL)
+                if m:
+                    keys = _re.findall(r"['\"]\d+[\'\"]", m.group(1))
+                    self.user_token_counts[user] = len(keys)
+                else:
+                    self.user_token_counts[user] = 8  # fallback
+                if self.full_logging:
+                    self.log(f"[DEBUG] {user}: токенов = {self.user_token_counts[user]}")
+
             # Формируем список "файлов" на основе пользователей
             self.code_files = []
             for idx, user in enumerate(users):
@@ -619,10 +637,11 @@ class MEmuHudManager:
             return None
     def send_account_choice_message(self, message_id):
         message_text = f"Выберите номер аккаунта для пользователя {self.selected_code_name}:\n(каждый аккаунт = отдельный Telegram-бот)"
+        acc_count = self.user_token_counts.get(self.selected_code_name, 8)
         buttons = []
-        for i in range(1, 9):
+        for i in range(1, acc_count + 1):
             buttons.append({"text": f"#{i}", "callback_data": f"account_{i}"})
-        keyboard = [buttons[:4], buttons[4:]]
+        keyboard = [buttons[:4], buttons[4:]] if len(buttons) > 4 else [buttons]
         url = f"https://api.telegram.org/bot{self.bot_token}/editMessageText"
         payload = {
             "chat_id": self.chat_id,
@@ -1407,6 +1426,7 @@ class MEmuHudManager:
                      font=("Segoe UI", 11),
                      text_color=C["subtext"]).pack(pady=(12, 6))
 
+        acc_count = self.user_token_counts.get(self.selected_code_name, 8)
         acc_var = ctk.StringVar(value=self.selected_account_number or '')
         grid = ctk.CTkFrame(dialog, fg_color="transparent")
         grid.pack()
@@ -1422,7 +1442,7 @@ class MEmuHudManager:
                     text_color="white"
                 )
 
-        for i in range(1, 9):
+        for i in range(1, acc_count + 1):
             n = str(i)
             is_sel = (n == acc_var.get())
             btn = ctk.CTkButton(
