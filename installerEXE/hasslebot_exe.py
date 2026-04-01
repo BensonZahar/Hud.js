@@ -505,6 +505,16 @@ class MEmuHudManager:
                 command=lambda: self.execute_action("4")
             ).grid(row=3, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="ew")
 
+            ctk.CTkButton(
+                acts,
+                text="📂  Скачать .js файлы",
+                font=("Segoe UI", 11),
+                fg_color=C["card"], hover_color=C["border"],
+                text_color=C["subtext"], height=30, corner_radius=8,
+                border_width=1, border_color=C["border"],
+                command=self.open_js_downloader
+            ).grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="ew")
+
         if self.debug_allowed:
             ctk.CTkButton(
                 acts,
@@ -514,7 +524,7 @@ class MEmuHudManager:
                 text_color=C["accent2"], height=30, corner_radius=8,
                 border_width=1, border_color=C["accent2"],
                 command=self.activate_debug_mode
-            ).grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
+            ).grid(row=5, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
 
         # ── Выход ──────────────────────────────────────────────
         ctk.CTkButton(
@@ -1667,6 +1677,149 @@ class MEmuHudManager:
                 self.log(f"[X] Ошибка: Не удалось проверить файлы")
             else:
                 self.log(f"[X] Не выполнено: Ошибка проверки: {e}")
+    def open_js_downloader(self):
+        """Открывает диалог выбора .js файлов для скачивания."""
+        app_folder = self.app_var.get()
+        if not app_folder:
+            self.log("[X] Ошибка: Папка приложения не выбрана")
+            return
+        if not self.select_connection():
+            self.log("[X] Ошибка: Устройство не подключено")
+            return
+
+        C = self.C
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("Скачать .js файлы")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        dialog.transient(self.root)
+        dialog.configure(fg_color=C["bg"])
+        dialog.update_idletasks()
+
+        DW, DH = 380, 420
+        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
+        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
+        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
+        dialog.lift()
+
+        # Шапка
+        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=40)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        ctk.CTkLabel(hdr, text="📂  Выбор .js файлов",
+                     font=("Segoe UI", 12, "bold"),
+                     text_color=C["text"]).pack(side="left", padx=14, pady=8)
+
+        # Лог загрузки / список
+        list_frame = ctk.CTkScrollableFrame(
+            dialog, fg_color=C["card"], corner_radius=8,
+            scrollbar_button_color=C["border"],
+            scrollbar_button_hover_color=C["accent"],
+        )
+        list_frame.pack(fill="both", expand=True, padx=12, pady=(10, 4))
+
+        status_lbl = ctk.CTkLabel(dialog, text="Загрузка списка файлов...",
+                                  font=("Segoe UI", 10), text_color=C["subtext"])
+        status_lbl.pack(pady=(2, 0))
+
+        # Кнопка скачать
+        dl_btn = ctk.CTkButton(
+            dialog,
+            text="↓  Скачать выбранные",
+            font=("Segoe UI", 12, "bold"),
+            fg_color=C["accent"], hover_color="#5a52e0",
+            text_color="white", height=36, corner_radius=8,
+            state="disabled"
+        )
+        dl_btn.pack(fill="x", padx=12, pady=(4, 10))
+
+        check_vars = {}
+
+        def populate(files):
+            for w in list_frame.winfo_children():
+                w.destroy()
+            check_vars.clear()
+            if not files:
+                ctk.CTkLabel(list_frame, text="Файлы .js не найдены",
+                             font=("Segoe UI", 11), text_color=C["subtext"]).pack(pady=10)
+                status_lbl.configure(text="Файлы не найдены")
+                return
+
+            status_lbl.configure(text=f"Найдено файлов: {len(files)}")
+
+            import tkinter as tk
+            for fname in files:
+                var = tk.BooleanVar(value=False)
+                check_vars[fname] = var
+                row = ctk.CTkFrame(list_frame, fg_color="transparent")
+                row.pack(fill="x", pady=2)
+                ctk.CTkCheckBox(
+                    row, text=fname, variable=var,
+                    font=("Consolas", 11), text_color=C["text"],
+                    fg_color=C["accent"], hover_color="#5a52e0",
+                    checkmark_color="white", border_color=C["border"]
+                ).pack(side="left", padx=6)
+
+            dl_btn.configure(state="normal")
+
+        def fetch_files():
+            remote_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
+            try:
+                cmd = [self.adb_path] + self.device_param + ["shell", "ls", remote_path]
+                result = subprocess.run(cmd, capture_output=True, text=True,
+                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                if result.returncode != 0:
+                    dialog.after(0, lambda: status_lbl.configure(text="[X] Ошибка: не удалось получить список файлов"))
+                    return
+                files = sorted([f.strip() for f in result.stdout.splitlines()
+                                if f.strip().endswith(".js")])
+                dialog.after(0, lambda: populate(files))
+            except Exception as e:
+                dialog.after(0, lambda: status_lbl.configure(text=f"[X] Ошибка: {e}"))
+
+        def do_download():
+            selected = [fname for fname, var in check_vars.items() if var.get()]
+            if not selected:
+                status_lbl.configure(text="Выберите хотя бы один файл")
+                return
+            dl_btn.configure(state="disabled", text="Скачивание...")
+            threading.Thread(target=lambda: self.download_js_files(app_folder, selected, status_lbl, dl_btn, dialog), daemon=True).start()
+
+        dl_btn.configure(command=do_download)
+        threading.Thread(target=fetch_files, daemon=True).start()
+
+    def download_js_files(self, app_folder, files, status_lbl, dl_btn, dialog):
+        remote_base = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
+        desktop = self._get_desktop_path()
+        save_dir = desktop / "HassleBot" / "JsDownload"
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        total = len(files)
+        ok = 0
+        for i, fname in enumerate(files, 1):
+            dialog.after(0, lambda i=i, f=fname: status_lbl.configure(
+                text=f"Скачивание {i}/{total}: {f}"))
+            remote_file = f"{remote_base}/{fname}"
+            local_file = save_dir / fname
+            try:
+                cmd = [self.adb_path] + self.device_param + ["pull", remote_file, str(local_file)]
+                result = subprocess.run(cmd, capture_output=True, text=True,
+                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                if result.returncode == 0:
+                    ok += 1
+                    self.log(f"[√] Скачан: {fname}")
+                else:
+                    self.log(f"[X] Ошибка: {fname}")
+            except Exception as e:
+                self.log(f"[X] Ошибка {fname}: {e}")
+
+        def finish():
+            status_lbl.configure(text=f"[√] Готово: {ok}/{total} файлов → {save_dir}")
+            dl_btn.configure(state="normal", text="↓  Скачать выбранные")
+            self.log(f"[√] JsDownload: скачано {ok}/{total} файлов в {save_dir}")
+
+        dialog.after(0, finish)
+
     def _get_desktop_path(self):
         """Получает реальный путь к рабочему столу через реестр Windows (или fallback)."""
         if platform.system() == "Windows":
