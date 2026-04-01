@@ -862,6 +862,13 @@ class MEmuHudManager:
         if not self.check_adb_exists():
             messagebox.showerror("Ошибка", "ADB не найден. Перезапустите программу.")
             return
+        # Прогреваем ADB-сервер заранее, чтобы первое подключение было быстрым
+        try:
+            subprocess.run([str(self.local_adb), "start-server"],
+                           capture_output=True, timeout=10,
+                           creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+        except Exception:
+            pass
         self.log("[√] Успешно: Система готова")
     def get_public_ip(self):
         """Получаем реальный публичный IP через внешний сервис."""
@@ -1660,6 +1667,22 @@ class MEmuHudManager:
                 self.log(f"[X] Ошибка: Не удалось проверить файлы")
             else:
                 self.log(f"[X] Не выполнено: Ошибка проверки: {e}")
+    def _get_desktop_path(self):
+        """Получает реальный путь к рабочему столу через реестр Windows (или fallback)."""
+        if platform.system() == "Windows":
+            try:
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders")
+                desktop, _ = winreg.QueryValueEx(key, "Desktop")
+                winreg.CloseKey(key)
+                return Path(desktop)
+            except Exception:
+                pass
+        for candidate in [Path.home() / "Desktop", Path.home() / "Рабочий стол"]:
+            if candidate.exists():
+                return candidate
+        return Path.home()
     def simple_download(self, app_folder):
         if not self.full_logging:
             self.log("[X] Ошибка: Скачивание отключено")
@@ -1667,11 +1690,7 @@ class MEmuHudManager:
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
         source_file = f"{target_path}/Hud.js"
         try:
-            desktop = Path.home() / "Desktop"
-            if not desktop.exists():
-                desktop = Path.home() / "Рабочий стол"
-            if not desktop.exists():
-                desktop = Path.home()
+            desktop = self._get_desktop_path()
             hassle_folder = desktop / "HassleBot"
             hassle_folder.mkdir(exist_ok=True)
             save_path = hassle_folder / "Hud.js"
