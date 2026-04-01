@@ -79,18 +79,18 @@ function applyUserConfig() {
     
     // Применяем константы глобально
     window.CHAT_IDS = userConfig.CHAT_IDS;
-    window.DEFAULT_TOKEN = userConfig.DEFAULT_TOKEN;
     window.PASSWORD = userConfig.PASSWORD;
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
     
-    // Устанавливаем номер аккаунта и соответствующий бот-токен
+    // Устанавливаем номер аккаунта и соответствующий бот-токен из конфига пользователя
     window.ACCOUNT_NUMBER = accountNumber;
-    if (accountNumber && window.ACCOUNT_BOT_TOKENS && window.ACCOUNT_BOT_TOKENS[accountNumber]) {
-        window.ACCOUNT_TOKEN = window.ACCOUNT_BOT_TOKENS[accountNumber];
-        console.log(`✅ Токен для аккаунта #${accountNumber} установлен`);
+    const userBotTokens = userConfig.BOT_TOKENS || {};
+    if (accountNumber && userBotTokens[accountNumber]) {
+        window.ACCOUNT_TOKEN = userBotTokens[accountNumber];
+        console.log(`✅ Токен для аккаунта #${accountNumber} (${currentUser}) установлен`);
     } else {
         window.ACCOUNT_TOKEN = null;
-        console.warn(`⚠️ Токен для аккаунта #${accountNumber} не найден, используется DEFAULT_TOKEN`);
+        console.warn(`⚠️ Токен для аккаунта #${accountNumber} у пользователя "${currentUser}" не найден`);
     }
     
     console.log(`✅ Конфигурация для пользователя "${currentUser}" применена:`, {
