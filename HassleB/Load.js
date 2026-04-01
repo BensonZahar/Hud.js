@@ -79,6 +79,7 @@ function applyUserConfig() {
     
     // Применяем константы глобально
     window.CHAT_IDS = userConfig.CHAT_IDS;
+    window.DEFAULT_TOKEN = null; // Не используется — токены берутся из BOT_TOKENS пользователя
     window.PASSWORD = userConfig.PASSWORD;
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
     
