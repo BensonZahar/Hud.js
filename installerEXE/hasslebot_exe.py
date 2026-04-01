@@ -645,8 +645,8 @@ class MEmuHudManager:
 
         while time.time() - start_time < timeout:
             try:
-                params = {"offset": last_offset + 1, "timeout": 2}
-                response = requests.get(url, params=params, timeout=5)
+                params = {"offset": last_offset + 1, "timeout": 5}
+                response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
 
@@ -673,8 +673,6 @@ class MEmuHudManager:
 
             except Exception as e:
                 self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
-
-            time.sleep(2)
 
         self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора аккаунта. Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
@@ -715,8 +713,8 @@ class MEmuHudManager:
         last_offset = 0
         while time.time() - start_time < timeout:
             try:
-                params = {"offset": last_offset + 1, "timeout": 2}
-                response = requests.get(url, params=params, timeout=5)
+                params = {"offset": last_offset + 1, "timeout": 5}
+                response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
                 for update in updates:
@@ -743,7 +741,6 @@ class MEmuHudManager:
                             return
             except Exception as e:
                 self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
-            time.sleep(2)
         self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
@@ -755,8 +752,8 @@ class MEmuHudManager:
       
         while time.time() - start_time < timeout:
             try:
-                params = {"offset": last_offset + 1, "timeout": 2}
-                response = requests.get(url, params=params, timeout=5)
+                params = {"offset": last_offset + 1, "timeout": 5}
+                response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
               
@@ -805,8 +802,6 @@ class MEmuHudManager:
           
             except Exception as e:
                 self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
-          
-            time.sleep(2)
       
         self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора пользователя. Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
@@ -818,8 +813,8 @@ class MEmuHudManager:
         last_offset = 0
         while time.time() - start_time < timeout:
             try:
-                params = {"offset": last_offset + 1, "timeout": 2}
-                response = requests.get(url, params=params, timeout=5)
+                params = {"offset": last_offset + 1, "timeout": 5}
+                response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
                 for update in updates:
@@ -845,7 +840,6 @@ class MEmuHudManager:
                             return
             except Exception as e:
                 self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
-            time.sleep(2)
         self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
@@ -1791,7 +1785,7 @@ class MEmuHudManager:
     def download_js_files(self, app_folder, files, status_lbl, dl_btn, dialog):
         remote_base = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
         desktop = self._get_desktop_path()
-        save_dir = desktop / "HassleBot" / "JsDownload"
+        save_dir = desktop / "HassleBot" / self._get_device_folder_name() / "JsDownload"
         save_dir.mkdir(parents=True, exist_ok=True)
 
         total = len(files)
@@ -1820,6 +1814,16 @@ class MEmuHudManager:
 
         dialog.after(0, finish)
 
+    def _get_device_folder_name(self):
+        """Возвращает имя папки по типу выбранного устройства."""
+        mapping = {
+            "Физическое": "Физическое",
+            "Клон (999)": "Клон",
+            "MEmu": "MEmu",
+            "NOX": "NOX",
+        }
+        return mapping.get(self.conn_var.get(), "Устройство")
+
     def _get_desktop_path(self):
         """Получает реальный путь к рабочему столу через реестр Windows (или fallback)."""
         if platform.system() == "Windows":
@@ -1844,8 +1848,8 @@ class MEmuHudManager:
         source_file = f"{target_path}/Hud.js"
         try:
             desktop = self._get_desktop_path()
-            hassle_folder = desktop / "HassleBot"
-            hassle_folder.mkdir(exist_ok=True)
+            hassle_folder = desktop / "HassleBot" / self._get_device_folder_name()
+            hassle_folder.mkdir(parents=True, exist_ok=True)
             save_path = hassle_folder / "Hud.js"
             self.log(f"Скачивание файла {source_file}...")
             cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(save_path)]
