@@ -1231,36 +1231,39 @@ class MEmuHudManager:
                 continue
         self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
         return False
+    def _is_port_open(self, port, host="127.0.0.1", timeout=0.5):
+        """Быстрая проверка: открыт ли TCP-порт (без ADB)."""
+        try:
+            with socket.create_connection((host, int(port)), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
     def check_nox_device(self):
         self.log("Проверка подключения к NOX...")
-        try:
-            subprocess.run([self.adb_path, "kill-server"], capture_output=True, timeout=5,
-                           creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            time.sleep(1)
-            subprocess.run([self.adb_path, "start-server"], capture_output=True, timeout=5,
-                           creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-            time.sleep(1)
-        except Exception:
-            pass
 
         nox_ports = ["62001", "62025", "62026", "62027", "62031", "5555", "7555"]
         found = []
         for port in nox_ports:
+            # Быстрый socket-пинг: если порт закрыт — пропускаем без вызова ADB
+            if not self._is_port_open(port):
+                if self.full_logging:
+                    self.log(f"[DEBUG] Порт {port} закрыт, пропуск")
+                continue
+            if self.full_logging:
+                self.log(f"[√] NOX найден на порту {port}")
             try:
                 subprocess.run([self.adb_path, "connect", f"127.0.0.1:{port}"],
-                               capture_output=True, text=True, timeout=10,
+                               capture_output=True, text=True, timeout=5,
                                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                time.sleep(1.5)
                 result = subprocess.run([self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
-                                        capture_output=True, text=True, timeout=10,
+                                        capture_output=True, text=True, timeout=5,
                                         creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
                 if result.returncode == 0 and "device" in result.stdout:
                     found.append(port)
-                    if self.full_logging:
-                        self.log(f"[√] NOX найден на порту {port}")
             except Exception as e:
                 if self.full_logging:
-                    self.log(f"[DEBUG] Порт {port} недоступен: {e}")
+                    self.log(f"[DEBUG] Порт {port} — ошибка ADB: {e}")
                 continue
 
         if not found:
