@@ -702,7 +702,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v3</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -3834,7 +3834,8 @@ function dlgRespond(dialogId, response, listitem, inputText) {
         return;
     }
     try {
-        sendClientEvent('event', 'OnDialogResponse',
+        // Используем ОРИГИНАЛЬНЫЙ sendClientEvent — не патченую версию
+        _dlgOrigSendClientEvent('event', 'OnDialogResponse',
             dialogId, response, listitem, inputText || '');
         debugLog(`[DLG] Ответ: id=${dialogId} resp=${response} item=${listitem} input="${inputText}"`);
     } catch (err) {
@@ -3851,6 +3852,11 @@ function dlgRespond(dialogId, response, listitem, inputText) {
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
     try {
+        // Bug fix: dialogParams может быть false (дефолтный параметр)
+        if (!dialogParams || typeof dialogParams !== 'string') {
+            return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+        }
+
         const parsed   = JSON.parse(dialogParams.trim());
         const dialogId = parseInt(parsed[0]);
         const style    = parseInt(parsed[1]);
@@ -3873,7 +3879,9 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                         style === DIALOG_STYLE.TABLIST ||
                         style === DIALOG_STYLE.TABLIST_HEADERS)) {
 
-            const allItems = content.split('<n>')
+            // Bug fix: content может быть массивом [], а не строкой
+            const contentStr = Array.isArray(content) ? content.join('<n>') : String(content);
+            const allItems = contentStr.split('<n>')
                 .map(dlgStripColors)
                 .filter(s => s.length > 0);
 
@@ -3917,6 +3925,8 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 };
 
 // ── Хук sendClientEvent — фиксируем закрытие диалогов из игры ─
+// Сохраняем ОРИГИНАЛЬНЫЙ sendClientEvent ДО любых замен
+const _dlgOrigSendClientEvent = sendClientEvent;
 
 const _dlgOrigSCE = window.sendClientEventCustom;
 window.sendClientEventCustom = function(event, ...args) {
@@ -3924,13 +3934,18 @@ window.sendClientEventCustom = function(event, ...args) {
         const respondedId = parseInt(args[1]);
         if ((respondedId < DLG_HB_MIN || respondedId > DLG_HB_MAX) &&
             dlg.active && dlg.dialogId === respondedId) {
-            // FIX v2: Игрок сам ответил в игре — закрываем без Telegram-уведомления
+            // Игрок сам ответил в игре — закрываем без Telegram-уведомления
             dlgClose(false);
         }
     }
-    return _dlgOrigSCE.call(this, event, ...args);
+    // Безопасный вызов оригинала — используем сохранённый sendClientEvent
+    if (typeof _dlgOrigSCE === 'function') {
+        return _dlgOrigSCE.call(this, event, ...args);
+    }
+    return _dlgOrigSendClientEvent.call(this, event, ...args);
 };
-sendClientEvent = window.sendClientEventCustom;
+// НЕ заменяем глобальный sendClientEvent — это вызывало рекурсию и краш
+// sendClientEvent = window.sendClientEventCustom; // УБРАНО — было причиной краша
 
 // ── Обработчик Telegram-коллбэков ────────────────────────────
 
