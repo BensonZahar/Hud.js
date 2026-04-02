@@ -702,7 +702,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v3</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -3619,11 +3619,12 @@ const dlg = {
     style:         null,
     title:         '',
     info:          '',
-    headers:       [],   // Заголовки колонок для TABLIST_HEADERS (style=5)
-    items:         [],   // Только ДАННЫЕ (заголовок уже отделён)
+    contentText:   '',  // FIX: текст для INPUT/MSGBOX/PASSWORD диалогов
+    headers:       [],
+    items:         [],
     button1:       '',
     button2:       '',
-    tgMsgs:        [],   // [{chatId, messageId}]
+    tgMsgs:        [],
     page:          0,
     awaitingInput: false
 };
@@ -3681,8 +3682,10 @@ function dlgBuildText() {
 
     if (dlg.title) text += `📌 <b>${dlgHtml(dlg.title)}</b>\n`;
 
-    // info может быть многострочным после исправления dlgStripColors
-    if (dlg.info) {
+    // FIX: текст диалога для INPUT/MSGBOX/PASSWORD (хранится в contentText)
+    if (dlg.contentText) {
+        text += `${dlgHtml(dlg.contentText)}\n`;
+    } else if (dlg.info) {
         text += `${dlgHtml(dlg.info)}\n`;
     }
 
@@ -3743,7 +3746,9 @@ function dlgBuildKeyboard() {
             kb.push(nav);
         }
 
-        if (dlg.button2) kb.push([createButton(`❌ ${dlg.button2}`, `dlg_btn2_${uid}`)]);
+        // FIX: если button2 пустая — сервер всё равно показывает "Назад", добавляем fallback
+        const b2label = dlg.button2 || 'Назад';
+        kb.push([createButton(`❌ ${b2label}`, `dlg_btn2_${uid}`)]);
 
     // ── INPUT / PASSWORD ────────────────────────────────────────
     } else if (dlg.style === DIALOG_STYLE.INPUT ||
@@ -3752,15 +3757,17 @@ function dlgBuildKeyboard() {
         const icon = dlg.style === DIALOG_STYLE.PASSWORD ? '🔐' : '✏️';
         kb.push([createButton(`${icon} Ввести текст`, `dlg_input_${uid}`)]);
 
-        const btnRow = [];
-        if (dlg.button2) btnRow.push(createButton(`❌ ${dlg.button2}`, `dlg_btn2_${uid}`));
-        if (btnRow.length) kb.push(btnRow);
+        // FIX: всегда показываем кнопку отмены, даже если button2 пустая
+        const cancelLabel = dlg.button2 || 'Назад';
+        kb.push([createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`)]);
 
     // ── MSGBOX ──────────────────────────────────────────────────
     } else {
         const btnRow = [];
         if (dlg.button1) btnRow.push(createButton(`✅ ${dlg.button1}`, `dlg_btn1_${uid}`));
-        if (dlg.button2) btnRow.push(createButton(`❌ ${dlg.button2}`, `dlg_btn2_${uid}`));
+        // FIX: всегда показываем кнопку отмены, даже если button2 пустая
+        const cancelLabel = dlg.button2 || 'Закрыть';
+        btnRow.push(createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`));
         if (btnRow.length) kb.push(btnRow);
     }
 
@@ -3817,6 +3824,8 @@ function dlgClose(showClosedMsg = true) {
         });
     }
     dlg.tgMsgs = [];
+    // FIX: закрываем Vue-компонент диалога в игре (иначе игра крашит)
+    try { window.closeLastDialog(); } catch(e) {}
     debugLog('[DLG] Диалог завершён');
 }
 
@@ -3825,7 +3834,7 @@ function dlgClose(showClosedMsg = true) {
  * FIX v2: Защита — проверяем dlg.active перед вызовом
  */
 function dlgRespond(dialogId, response, listitem, inputText) {
-    // FIX v2: Если диалог уже закрыт — не отправляем, это вызовет краш
+    // Если диалог уже закрыт — не отправляем
     if (!dlg.active && response !== 0) {
         debugLog(`[DLG] dlgRespond: диалог ${dialogId} уже не активен, пропускаем`);
         sendToTelegram(
@@ -3834,8 +3843,11 @@ function dlgRespond(dialogId, response, listitem, inputText) {
         return;
     }
     try {
-        // Используем ОРИГИНАЛЬНЫЙ sendClientEvent — не патченую версию
-        _dlgOrigSendClientEvent('event', 'OnDialogResponse',
+        // Используем gm.EVENT_EXECUTE_PUBLIC как в Window.js, с fallback
+        const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+            ? window.gm.EVENT_EXECUTE_PUBLIC
+            : 'server';
+        _dlgOrigSendClientEvent(evtType, 'OnDialogResponse',
             dialogId, response, listitem, inputText || '');
         debugLog(`[DLG] Ответ: id=${dialogId} resp=${response} item=${listitem} input="${inputText}"`);
     } catch (err) {
@@ -3867,9 +3879,18 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         }
 
         const title   = dlgStripColors(parsed[2] || '');
-        const info    = dlgStripColors(parsed[3] || ''); // FIX v2: теперь текст сохраняется
+        const info    = dlgStripColors(parsed[3] || '');
         const button1 = dlgStripColors(parsed[4] || '');
         const button2 = dlgStripColors(parsed[5] || '');
+
+        // FIX: для INPUT/MSGBOX/PASSWORD — текст диалога хранится в content/stringParam
+        let contentText = '';
+        if (style === DIALOG_STYLE.INPUT ||
+            style === DIALOG_STYLE.MSGBOX ||
+            style === DIALOG_STYLE.PASSWORD) {
+            const rawContent = Array.isArray(content) ? content.join('') : String(content || '');
+            contentText = dlgStripColors(rawContent.split('<n>').join('\n')).trim();
+        }
 
         // ── FIX v2: Разделяем заголовок и данные для TABLIST_HEADERS ──
         let items   = [];
@@ -3903,6 +3924,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         dlg.style         = style;
         dlg.title         = title;
         dlg.info          = info;
+        dlg.contentText   = contentText; // FIX: текст для INPUT/MSGBOX/PASSWORD
         dlg.headers       = headers;
         dlg.items         = items;
         dlg.button1       = button1;
@@ -3964,14 +3986,16 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
     // ── Button1 ───────────────────────────────────────────────
     if (data.startsWith(`dlg_btn1_${uid}`)) {
         const btn = dlg.button1;
-        dlgRespond(dlg.dialogId, 1, 0, '');
+        // FIX: listitem=-1 для не-списочных диалогов (как делает Window.js)
+        dlgRespond(dlg.dialogId, 1, -1, '');
         sendToTelegram(`✅ <b>«${dlgHtml(btn)}» нажата (${displayName})</b>`, false, null);
         dlgClose();
 
     // ── Button2 (отмена) ──────────────────────────────────────
     } else if (data.startsWith(`dlg_btn2_${uid}`)) {
-        const btn = dlg.button2;
-        dlgRespond(dlg.dialogId, 0, 0, '');
+        const btn = dlg.button2 || 'Назад';
+        // FIX: listitem=-1 для отмены (как делает Window.js)
+        dlgRespond(dlg.dialogId, 0, -1, '');
         sendToTelegram(`❌ <b>«${dlgHtml(btn)}» нажата (${displayName})</b>`, false, null);
         dlgClose();
 
