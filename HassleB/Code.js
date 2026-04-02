@@ -3582,3 +3582,487 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 4 — Центр + ожидание клавиши (key-type)
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
+
+// ==================== DIALOG MONITOR MODULE ====================
+// Перехват серверных диалогов игры и управление ими через Telegram
+// Расположение: в самом конце Code.js (после // END HB MENU SYSTEM)
+// ================================================================
+
+// ── Константы ──────────────────────────────────────────────────
+const DIALOG_STYLE = {
+    MSGBOX:           0,
+    INPUT:            1,
+    LIST:             2,
+    PASSWORD:         3,
+    TABLIST:          4,
+    TABLIST_HEADERS:  5
+};
+
+const DLG_ITEMS_PER_PAGE = 8;   // Элементов списка на одну страницу в Telegram
+const DLG_LABEL_MAX_LEN  = 24;  // Максимальная длина подписи кнопки-элемента
+
+// Диапазон ID диалогов HB-меню — их мы не трогаем
+const DLG_HB_MIN = 900;
+const DLG_HB_MAX = 913;
+
+// ── Состояние текущего серверного диалога ──────────────────────
+const dlg = {
+    active:        false,
+    dialogId:      null,
+    style:         null,
+    title:         '',
+    info:          '',
+    items:         [],   // Элементы списка (для style 2/4/5)
+    button1:       '',
+    button2:       '',
+    tgMsgs:        [],   // [{chatId, messageId}] — Telegram-сообщения диалога
+    page:          0,    // Текущая страница пагинации
+    awaitingInput: false // Ожидаем текстовый ввод от пользователя
+};
+
+// ── Вспомогательные функции ────────────────────────────────────
+
+/** Убирает цветовые коды {RRGGBB} из текста игры */
+function dlgStripColors(text) {
+    return (text || '').replace(/\{[A-Fa-f0-9]{6}\}/g, '').trim();
+}
+
+/** Экранирует HTML-спецсимволы для Telegram */
+function dlgHtml(text) {
+    return (text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+/** Иконка и тип диалога по style */
+function dlgStyleLabel(style) {
+    const MAP = {
+        0: '📋 Сообщение',
+        1: '✏️ Ввод текста',
+        2: '📜 Список',
+        3: '🔐 Ввод пароля',
+        4: '📊 Таблица',
+        5: '📊 Таблица'
+    };
+    return MAP[style] || '💬 Диалог';
+}
+
+// ── Формирование текста и клавиатуры ──────────────────────────
+
+function dlgBuildText() {
+    const totalPages = Math.ceil(dlg.items.length / DLG_ITEMS_PER_PAGE);
+    const startIdx   = dlg.page * DLG_ITEMS_PER_PAGE;
+    const endIdx     = Math.min(startIdx + DLG_ITEMS_PER_PAGE, dlg.items.length);
+
+    let text = `🗔 <b>Диалог — ${displayName}</b>  <i>${dlgStyleLabel(dlg.style)}</i>\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━\n`;
+    if (dlg.title) text += `📌 <b>${dlgHtml(dlg.title)}</b>\n`;
+    if (dlg.info)  text += `${dlgHtml(dlg.info)}\n`;
+
+    if (dlg.items.length > 0) {
+        const pageLabel = totalPages > 1
+            ? ` (стр. ${dlg.page + 1}/${totalPages})`
+            : '';
+        text += `\n<b>Пункты${pageLabel}:</b>\n`;
+        for (let i = startIdx; i < endIdx; i++) {
+            text += `${i + 1}. ${dlgHtml(dlg.items[i])}\n`;
+        }
+    }
+
+    if (dlg.style === DIALOG_STYLE.INPUT || dlg.style === DIALOG_STYLE.PASSWORD) {
+        text += `\n💡 <i>Нажмите «Ввести», введите текст в ответном сообщении и он будет отправлен в диалог</i>`;
+    }
+
+    return text;
+}
+
+function dlgBuildKeyboard() {
+    const uid = uniqueId;
+    const kb  = [];
+    const startIdx = dlg.page * DLG_ITEMS_PER_PAGE;
+    const endIdx   = Math.min(startIdx + DLG_ITEMS_PER_PAGE, dlg.items.length);
+
+    // ── LIST / TABLIST ──────────────────────────────────────────
+    if (dlg.style === DIALOG_STYLE.LIST ||
+        dlg.style === DIALOG_STYLE.TABLIST ||
+        dlg.style === DIALOG_STYLE.TABLIST_HEADERS) {
+
+        // Кнопки элементов по 2 в ряд
+        for (let i = startIdx; i < endIdx; i += 2) {
+            const lbl1 = `${i + 1}. ${dlg.items[i].substring(0, DLG_LABEL_MAX_LEN)}`;
+            const row  = [createButton(lbl1, `dlg_item_${i}_${uid}`)];
+            if (i + 1 < endIdx) {
+                const lbl2 = `${i + 2}. ${dlg.items[i + 1].substring(0, DLG_LABEL_MAX_LEN)}`;
+                row.push(createButton(lbl2, `dlg_item_${i + 1}_${uid}`));
+            }
+            kb.push(row);
+        }
+
+        // Пагинация
+        const totalPages = Math.ceil(dlg.items.length / DLG_ITEMS_PER_PAGE);
+        if (totalPages > 1) {
+            const nav = [];
+            if (dlg.page > 0)
+                nav.push(createButton('◀️ Назад', `dlg_page_${dlg.page - 1}_${uid}`));
+            nav.push(createButton(`📄 ${dlg.page + 1}/${totalPages}`, `dlg_noop_${uid}`));
+            if (dlg.page < totalPages - 1)
+                nav.push(createButton('▶️ Далее', `dlg_page_${dlg.page + 1}_${uid}`));
+            kb.push(nav);
+        }
+
+        // Кнопка отмены (button2), если есть
+        if (dlg.button2) {
+            kb.push([createButton(`❌ ${dlg.button2}`, `dlg_btn2_${uid}`)]);
+        }
+
+    // ── INPUT / PASSWORD ────────────────────────────────────────
+    } else if (dlg.style === DIALOG_STYLE.INPUT ||
+               dlg.style === DIALOG_STYLE.PASSWORD) {
+
+        const icon = dlg.style === DIALOG_STYLE.PASSWORD ? '🔐' : '✏️';
+        kb.push([createButton(`${icon} Ввести текст`, `dlg_input_${uid}`)]);
+
+        const btnRow = [];
+        if (dlg.button2) btnRow.push(createButton(`❌ ${dlg.button2}`, `dlg_btn2_${uid}`));
+        if (btnRow.length) kb.push(btnRow);
+
+    // ── MSGBOX ──────────────────────────────────────────────────
+    } else {
+        const btnRow = [];
+        if (dlg.button1) btnRow.push(createButton(`✅ ${dlg.button1}`, `dlg_btn1_${uid}`));
+        if (dlg.button2) btnRow.push(createButton(`❌ ${dlg.button2}`, `dlg_btn2_${uid}`));
+        if (btnRow.length) kb.push(btnRow);
+    }
+
+    return { inline_keyboard: kb };
+}
+
+// ── Telegram-операции ─────────────────────────────────────────
+
+/** Отправляет новое сообщение с диалогом в каждый чат из config.chatIds */
+function dlgSendToTelegram() {
+    // Удаляем старые сообщения этого диалога
+    dlg.tgMsgs.forEach(({ chatId, messageId }) => deleteMessage(chatId, messageId));
+    dlg.tgMsgs = [];
+
+    const text     = dlgBuildText();
+    const keyboard = dlgBuildKeyboard();
+
+    config.chatIds.forEach(chatId => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/sendMessage`, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    dlg.tgMsgs.push({ chatId, messageId: data.result.message_id });
+                    debugLog(`[DLG] Отправлено в чат ${chatId}: msg ${data.result.message_id}`);
+                } catch (e) {}
+            }
+        };
+        xhr.send(JSON.stringify({
+            chat_id:      chatId,
+            text:         text,
+            parse_mode:   'HTML',
+            reply_markup: JSON.stringify(keyboard)
+        }));
+    });
+}
+
+/** Редактирует существующие Telegram-сообщения диалога (пагинация) */
+function dlgUpdateTelegram() {
+    const text     = dlgBuildText();
+    const keyboard = dlgBuildKeyboard();
+    dlg.tgMsgs.forEach(({ chatId, messageId }) => {
+        editMessageText(chatId, messageId, text, keyboard);
+    });
+}
+
+/**
+ * Завершает диалог: сбрасывает состояние и опционально
+ * обновляет Telegram-сообщение с пометкой «закрыт»
+ */
+function dlgClose(showClosedMsg = true) {
+    if (!dlg.active) return;
+    dlg.active        = false;
+    dlg.awaitingInput = false;
+
+    if (showClosedMsg) {
+        dlg.tgMsgs.forEach(({ chatId, messageId }) => {
+            editMessageText(chatId, messageId,
+                `✅ <b>Диалог закрыт — ${displayName}</b>`, null);
+        });
+    }
+    dlg.tgMsgs = [];
+    debugLog('[DLG] Диалог завершён');
+}
+
+/** Отправляет ответ сервера на диалог через sendClientEvent */
+function dlgRespond(dialogId, response, listitem, inputText) {
+    try {
+        // response: 1 = Button1 (Confirm), 0 = Button2 (Cancel/Close)
+        sendClientEvent('event', 'OnDialogResponse',
+            dialogId, response, listitem, inputText || '');
+        debugLog(`[DLG] Ответ: id=${dialogId} resp=${response} item=${listitem} input="${inputText}"`);
+    } catch (err) {
+        debugLog(`[DLG] Ошибка ответа: ${err.message}`);
+        sendToTelegram(
+            `❌ <b>Ошибка ответа на диалог (${displayName}):</b>\n` +
+            `<code>${err.message.replace(/</g, '&lt;')}</code>`,
+            false, null);
+    }
+}
+
+// ── Хук addDialogInQueue ──────────────────────────────────────
+
+const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
+window.addDialogInQueue = function(dialogParams, content, priority) {
+    try {
+        // Парсим строку вида: [id, style, "Title", "Info", "Btn1", "Btn2", 0, 0]
+        const parsed   = JSON.parse(dialogParams.trim());
+        const dialogId = parseInt(parsed[0]);
+        const style    = parseInt(parsed[1]);
+
+        // HB-диалоги (900–913) пропускаем без изменений
+        if (dialogId >= DLG_HB_MIN && dialogId <= DLG_HB_MAX) {
+            return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+        }
+
+        const title   = dlgStripColors(parsed[2] || '');
+        const info    = dlgStripColors(parsed[3] || '');
+        const button1 = dlgStripColors(parsed[4] || '');
+        const button2 = dlgStripColors(parsed[5] || '');
+
+        // Парсим элементы для LIST / TABLIST
+        let items = [];
+        if (content && (style === DIALOG_STYLE.LIST ||
+                        style === DIALOG_STYLE.TABLIST ||
+                        style === DIALOG_STYLE.TABLIST_HEADERS)) {
+            items = content.split('<n>')
+                .map(dlgStripColors)
+                .filter(s => s.length > 0);
+        }
+
+        // Сохраняем состояние
+        dlg.active        = true;
+        dlg.dialogId      = dialogId;
+        dlg.style         = style;
+        dlg.title         = title;
+        dlg.info          = info;
+        dlg.items         = items;
+        dlg.button1       = button1;
+        dlg.button2       = button2;
+        dlg.page          = 0;
+        dlg.awaitingInput = false;
+
+        debugLog(`[DLG] Перехвачен диалог: id=${dialogId}, style=${style}, ` +
+                 `title="${title}", items=${items.length}`);
+
+        dlgSendToTelegram();
+
+    } catch (err) {
+        debugLog(`[DLG] Ошибка перехвата addDialogInQueue: ${err.message}`);
+    }
+
+    // Всегда вызываем оригинальный addDialogInQueue
+    return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+};
+
+// ── Хук sendClientEvent — фиксируем закрытие диалогов из игры ─
+
+const _dlgOrigSCE = window.sendClientEventCustom;
+window.sendClientEventCustom = function(event, ...args) {
+    // OnDialogResponse от самого игрока (не через Telegram)
+    if (args[0] === 'OnDialogResponse') {
+        const respondedId = parseInt(args[1]);
+        // Только серверные диалоги (не HB)
+        if ((respondedId < DLG_HB_MIN || respondedId > DLG_HB_MAX) &&
+            dlg.active && dlg.dialogId === respondedId) {
+            dlgClose(false); // Закрыть без правки Telegram-сообщения
+        }
+    }
+    return _dlgOrigSCE.call(this, event, ...args);
+};
+// Обновляем глобальную ссылку
+sendClientEvent = window.sendClientEventCustom;
+
+// ── Обработчик Telegram-коллбэков диалога ────────────────────
+
+function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
+    const uid = uniqueId;
+
+    // Нет активного диалога (кроме noop)
+    if (!dlg.active && !data.startsWith(`dlg_noop_`)) {
+        sendToTelegram(
+            `⚠️ <b>Нет активного диалога (${displayName})</b>\n` +
+            `<i>Возможно, диалог уже закрыт</i>`,
+            false, null);
+        answerCallbackQuery(callbackQueryId);
+        return;
+    }
+
+    // ── Button1 (подтверждение) ──────────────────────────────
+    if (data.startsWith(`dlg_btn1_${uid}`)) {
+        const btn = dlg.button1;
+        dlgRespond(dlg.dialogId, 1, 0, '');
+        sendToTelegram(`✅ <b>«${dlgHtml(btn)}» нажата (${displayName})</b>`, false, null);
+        dlgClose();
+
+    // ── Button2 (отмена) ─────────────────────────────────────
+    } else if (data.startsWith(`dlg_btn2_${uid}`)) {
+        const btn = dlg.button2;
+        dlgRespond(dlg.dialogId, 0, 0, '');
+        sendToTelegram(`❌ <b>«${dlgHtml(btn)}» нажата (${displayName})</b>`, false, null);
+        dlgClose();
+
+    // ── Выбор элемента списка ────────────────────────────────
+    } else if (data.startsWith(`dlg_item_`)) {
+        const match = data.match(/^dlg_item_(\d+)_/);
+        if (match) {
+            const idx      = parseInt(match[1]);
+            const itemName = dlg.items[idx] || '';
+            dlgRespond(dlg.dialogId, 1, idx, itemName);
+            sendToTelegram(
+                `✅ <b>Выбран пункт ${idx + 1}: «${dlgHtml(itemName)}» (${displayName})</b>`,
+                false, null);
+            dlgClose();
+        }
+
+    // ── Пагинация ────────────────────────────────────────────
+    } else if (data.startsWith(`dlg_page_`)) {
+        const match = data.match(/^dlg_page_(\d+)_/);
+        if (match) {
+            dlg.page = parseInt(match[1]);
+            dlgUpdateTelegram();
+        }
+
+    // ── Запрос ввода текста ──────────────────────────────────
+    } else if (data.startsWith(`dlg_input_${uid}`)) {
+        dlg.awaitingInput = true;
+        const isPass = dlg.style === DIALOG_STYLE.PASSWORD;
+        const prompt =
+            `✉️ ${isPass ? 'Введите пароль' : 'Введите текст'} для диалога ` +
+            `<b>"${dlgHtml(dlg.title)}"</b> (${displayName}):\n` +
+            `🔑 DLG_UID: ${uid}`;
+
+        // iOS fix — сохраняем pending для случая без reply_to_message
+        config.chatIds.forEach(cId => {
+            pendingInputs[`dlg_input_${cId}_${uid}`] = {
+                type: 'dialog_input', timestamp: Date.now()
+            };
+        });
+
+        sendToTelegram(prompt, false, { force_reply: true });
+
+    // ── Noop (кнопка-счётчик страниц) ────────────────────────
+    } else if (data.startsWith(`dlg_noop_${uid}`)) {
+        // Ничего не делаем
+    }
+
+    answerCallbackQuery(callbackQueryId);
+}
+
+// ── Обёртка processUpdates: перехватываем dlg_* ДО оригинала ─
+
+const _dlgOrigProcessUpdates = processUpdates;
+
+processUpdates = function(updates) {
+    const passThrough = [];
+
+    for (const update of updates) {
+        let consumed = false;
+
+        // Определяем chatId для проверки авторизации
+        let updateChatId = null;
+        if (update.message)         updateChatId = update.message.chat.id;
+        else if (update.callback_query) updateChatId = update.callback_query.message.chat.id;
+
+        if (updateChatId && !config.chatIds.includes(String(updateChatId))) {
+            passThrough.push(update);
+            continue;
+        }
+
+        // ── Текстовые сообщения: ввод для диалога ─────────────
+        if (update.message && !consumed) {
+            const msgText   = update.message.text ? update.message.text.trim() : '';
+            const msgChatId = update.message.chat.id;
+
+            // Вариант 1: стандартный reply (Android / Desktop)
+            if (update.message.reply_to_message && msgText && dlg.awaitingInput) {
+                const replyText = update.message.reply_to_message.text || '';
+                if (replyText.includes(`DLG_UID: ${uniqueId}`)) {
+                    delete pendingInputs[`dlg_input_${msgChatId}_${uniqueId}`];
+                    dlg.awaitingInput = false;
+                    dlgRespond(dlg.dialogId, 1, 0, msgText);
+                    sendToTelegram(
+                        `✅ <b>Текст отправлен в диалог (${displayName}):</b>\n` +
+                        `<code>${dlgHtml(msgText)}</code>`,
+                        false, null);
+                    dlgClose();
+                    config.lastUpdateId = update.update_id;
+                    setSharedLastUpdateId(config.lastUpdateId);
+                    consumed = true;
+                }
+            }
+
+            // Вариант 2: iOS fix — нет reply_to_message, но есть pendingInput
+            if (!consumed && !update.message.reply_to_message && msgText) {
+                const pendingKey = `dlg_input_${msgChatId}_${uniqueId}`;
+                const pending    = pendingInputs[pendingKey];
+                if (pending && (Date.now() - pending.timestamp < PENDING_INPUT_TTL)) {
+                    const msgDate = (update.message.date || 0) * 1000;
+                    if (msgDate >= pending.timestamp) {
+                        delete pendingInputs[pendingKey];
+                        dlg.awaitingInput = false;
+                        dlgRespond(dlg.dialogId, 1, 0, msgText);
+                        sendToTelegram(
+                            `✅ <b>Текст отправлен в диалог (${displayName}):</b>\n` +
+                            `<code>${dlgHtml(msgText)}</code>`,
+                            false, null);
+                        dlgClose();
+                        config.lastUpdateId = update.update_id;
+                        setSharedLastUpdateId(config.lastUpdateId);
+                        consumed = true;
+                    }
+                }
+            }
+        }
+
+        // ── Callback-query: dlg_* ──────────────────────────────
+        if (!consumed && update.callback_query) {
+            const cbData      = update.callback_query.data;
+            const cbChatId    = update.callback_query.message.chat.id;
+            const cbMessageId = update.callback_query.message.message_id;
+            const cbQueryId   = update.callback_query.id;
+
+            if (cbData.startsWith('dlg_')) {
+                // Проверяем: это наш uniqueId?
+                const isOurs =
+                    cbData.endsWith(`_${uniqueId}`) ||
+                    cbData.includes(`_${uniqueId}_`);
+
+                if (isOurs) {
+                    handleDialogTgCallback(cbData, cbChatId, cbMessageId, cbQueryId);
+                } else {
+                    // Чужой аккаунт — просто подтверждаем нажатие
+                    answerCallbackQuery(cbQueryId);
+                }
+                config.lastUpdateId = update.update_id;
+                setSharedLastUpdateId(config.lastUpdateId);
+                consumed = true;
+            }
+        }
+
+        if (!consumed) passThrough.push(update);
+    }
+
+    // Остальные обновления — в оригинальный processUpdates
+    if (passThrough.length > 0) {
+        _dlgOrigProcessUpdates(passThrough);
+    }
+};
+
+debugLog('[DLG] Dialog Monitor модуль загружен. Серверные диалоги будут отправляться в Telegram.');
+// ==================== END DIALOG MONITOR MODULE ====================
