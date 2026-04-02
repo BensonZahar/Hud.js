@@ -25,7 +25,8 @@ const globalState = {
     lastPaydayMessageIds: [],
     isPrison: false,       // Флаг для игнора /rec при кике после посадки
     inPrison: false,       // Активный режим тюрьмы (скин 50)
-    prisonTimeRequested: false // Флаг: уже запросили /time
+    prisonTimeRequested: false, // Флаг: уже запросили /time
+    prisonTimeTimer: null  // Таймер периодического опроса /time
 };
 // END GLOBAL STATE MODULE //
 // START PENDING INPUTS MODULE (iOS fix) //
@@ -442,9 +443,10 @@ function trackSkinId() {
         if (Number(currentSkin) === 50) {
             startPrisonMode();
         } else if (globalState.inPrison) {
-            globalState.inPrison = false;
-            globalState.prisonTimeRequested = false;
-            debugLog(`[PRISON] Скин сменился на ${currentSkin} — режим тюрьмы деактивирован`);
+                globalState.inPrison = false;
+                globalState.prisonTimeRequested = false;
+                stopPrisonTimePolling();
+                debugLog(`[PRISON] Скин сменился на ${currentSkin} — режим тюрьмы деактивирован`);
         }
     }
     setTimeout(trackSkinId, config.skinCheckInterval);
@@ -462,6 +464,7 @@ window.setPlayerSkinId = function(skinId) {
     } else if (globalState.inPrison) {
         globalState.inPrison = false;
         globalState.prisonTimeRequested = false;
+        stopPrisonTimePolling();
         debugLog(`[PRISON] Скин сменился на ${skinId} — режим тюрьмы деактивирован`);
     }
     // Вызываем оригинал, если он существует
@@ -2546,23 +2549,61 @@ function exitAfterStroiPayDay(source) {
 
 // ==================== END SMART STROI SYSTEM ====================
 // ==================== PRISON MODULE ====================
+
+// Одиночный запрос /time через рандомную задержку 10–40 сек
+function schedulePrisonTimeCheck() {
+    const delay = Math.floor(Math.random() * (40000 - 10000 + 1)) + 10000;
+    debugLog(`[PRISON] Разовый запрос /time через ${Math.round(delay / 1000)} сек`);
+    setTimeout(() => {
+        if (globalState.inPrison) {
+            sendChatInput("/time");
+            debugLog(`[PRISON] Команда /time отправлена`);
+        }
+    }, delay);
+}
+
+// Периодический опрос /time каждые ~30 мин с рандомным смещением ±1–2 мин
+function startPrisonTimePolling() {
+    stopPrisonTimePolling(); // Сбрасываем предыдущий таймер если был
+    function scheduleNext() {
+        const baseInterval = 30 * 60 * 1000;                          // 30 минут
+        const minOffset    = 60 * 1000;                                // 1 мин
+        const maxOffset    = 2 * 60 * 1000;                           // 2 мин
+        const offset       = Math.floor(Math.random() * (maxOffset - minOffset + 1)) + minOffset;
+        const sign         = Math.random() < 0.5 ? 1 : -1;
+        const interval     = baseInterval + sign * offset;
+        debugLog(`[PRISON] Следующий /time через ${Math.round(interval / 60000)} мин`);
+        globalState.prisonTimeTimer = setTimeout(() => {
+            if (globalState.inPrison) {
+                sendChatInput("/time");
+                debugLog(`[PRISON] Периодический /time отправлен`);
+                scheduleNext();
+            }
+        }, interval);
+    }
+    scheduleNext();
+}
+
+// Остановка периодического опроса
+function stopPrisonTimePolling() {
+    if (globalState.prisonTimeTimer) {
+        clearTimeout(globalState.prisonTimeTimer);
+        globalState.prisonTimeTimer = null;
+        debugLog(`[PRISON] Периодический опрос /time остановлен`);
+    }
+}
+
 // Запускается при обнаружении скина 50 (заключённый) — при входе или смене скина
 function startPrisonMode() {
     if (globalState.inPrison) return; // Уже в режиме тюрьмы
     globalState.inPrison = true;
     globalState.prisonTimeRequested = false;
     debugLog(`[PRISON] Обнаружен скин заключённого (50). Запускаем режим тюрьмы для ${displayName}`);
-    sendToTelegram(`🔒 <b>Находимся в тюрьме (${displayName})</b>\nЗапрашиваем оставшееся время...`, false, null);
-    // Отправляем /time через рандомное время 10–40 секунд
-    const delay = Math.floor(Math.random() * (40000 - 10000 + 1)) + 10000;
-    debugLog(`[PRISON] Запрос /time через ${Math.round(delay / 1000)} сек`);
-    setTimeout(() => {
-        if (globalState.inPrison && !globalState.prisonTimeRequested) {
-            globalState.prisonTimeRequested = true;
-            sendChatInput("/time");
-            debugLog(`[PRISON] Команда /time отправлена`);
-        }
-    }, delay);
+    sendToTelegram(`🔒 <b>Находимся в тюрьме (${displayName})</b>\nЗапрашиваем оставшееся время...`, true, null);
+    // Первый разовый запрос /time через 10–40 сек
+    schedulePrisonTimeCheck();
+    // Периодические запросы /time каждые ~30 мин
+    startPrisonTimePolling();
 }
 // ==================== END PRISON MODULE ====================
 function initializeChatMonitor() {
@@ -2663,18 +2704,18 @@ function initializeChatMonitor() {
             window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/kick.mp3", false, 1.0);
             globalState.isPrison = true; // Флаг для игнора /rec при кике
             setTimeout(() => { globalState.isPrison = false; }, 10000); // Сбрасываем через 10 сек
-            // Запускаем режим тюрьмы — запрашиваем /time через 10–40 сек (мы ещё в игре, скин уже 50)
-            globalState.inPrison = true;
-            globalState.prisonTimeRequested = false;
-            const prisonDelay = Math.floor(Math.random() * (40000 - 10000 + 1)) + 10000;
-            debugLog(`[PRISON] Запрос /time через ${Math.round(prisonDelay / 1000)} сек (после посадки)`);
+            // Запускаем режим тюрьмы — первый /time + периодический поллинг каждые ~30 мин
+            startPrisonMode();
+            // Реконнект /rec через 2 минуты — беспалевно, автовход включён, продолжаем отсидку
+            debugLog(`[PRISON] Планируем реконнект /rec через 2 минуты`);
             setTimeout(() => {
-                if (globalState.inPrison && !globalState.prisonTimeRequested) {
-                    globalState.prisonTimeRequested = true;
-                    sendChatInput("/time");
-                    debugLog(`[PRISON] Команда /time отправлена после посадки`);
+                if (globalState.inPrison) {
+                    autoLoginConfig.enabled = true;
+                    sendChatInput("/rec 5");
+                    sendToTelegram(`🔄 <b>Реконнект в тюрьме (${displayName})</b>\nОтправлен /rec — продолжаем отсидку`, true, null);
+                    debugLog(`[PRISON] /rec 5 отправлен для беспалевного реконнекта`);
                 }
-            }, prisonDelay);
+            }, 2 * 60 * 1000); // 2 минуты
         }
         // Обработка ответа на /time — время до выхода из тюрьмы (цвет 66CC00)
         const normalizedMsgColor = normalizeColor(i);
@@ -2689,6 +2730,7 @@ function initializeChatMonitor() {
         // Обработка освобождения из тюрьмы (цвет FFFF00)
         if (normalizedMsgColor === '0xFFFF00' && msg.includes("Вы отбыли свой срок и можете идти на свободу")) {
             debugLog(`[PRISON] Срок отсижен! Выходим из игры...`);
+            stopPrisonTimePolling();
             globalState.inPrison = false;
             globalState.prisonTimeRequested = false;
             sendToTelegram(`✅ <b>Срок отсижен! Выходим из игры (${displayName})</b>`, false, null);
