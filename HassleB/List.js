@@ -23,9 +23,8 @@ const USER_CONFIGS = {
         RECONNECT_ENABLED_DEFAULT: false,
         // Токены Telegram-ботов для аккаунтов Кирилла (вставь свои)
         BOT_TOKENS: {
-            '1': 'PLACEHOLDER_KIRILL_1',
-            '2': 'PLACEHOLDER_KIRILL_2',
-            '3': 'PLACEHOLDER_KIRILL_3'
+            '1': '8767167726:AAGGJAiqJFG35jUB88oBLsLGmPzOcDM5bFw',
+            '2': '8758742069:AAEMupQ5zMQRRTfitPElhgPuFv_hZomYDac'
         }
     },
     'Kolya': {
