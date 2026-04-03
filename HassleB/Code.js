@@ -2623,7 +2623,7 @@ function initializeChatMonitor() {
         };
     };
     window.OnChatAddMessage = function(e, i, t) {
-        debugLog(`Чат-сообщение: ${e} | Цвет: ${i} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
+        debugLog(`Чат-сообщение: ${e} | Цвет: ${normalizeColor(i).replace('0x', '')} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
         const msg = String(e);
         const normalizedMsg = normalizeToCyrillic(msg);
         const lowerCaseMessage = normalizedMsg.toLowerCase();
@@ -2823,6 +2823,7 @@ function initializeChatMonitor() {
             }, config.clearDelay);
         }
         if ((lowerCaseMessage.indexOf("администратор") !== -1 && lowerCaseMessage.indexOf("для") !== -1) ||
+            normalizeColor(i) === '0xFF9945' ||
             (msg.includes("[A]") && msg.includes("((")) ||
             (lowerCaseMessage.includes("подбросил") &&
             (currentTime - config.lastPodbrosTime > config.podbrosCooldown || config.podbrosCounter < 2))) {
