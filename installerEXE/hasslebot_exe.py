@@ -929,14 +929,6 @@ class MEmuHudManager:
         except:
             return False
 
-    def is_kirill_ip(self):
-        try:
-            ip = self.get_public_ip()
-            # Кирилл — конкретный диапазон, не весь 192.168.1.*
-            return ip.startswith("192.168.1.")
-        except:
-            return False
-
     def is_kolya_ip(self):
         try:
             ip = self.get_public_ip()
@@ -978,19 +970,6 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Не удалось загрузить конфигурации")
                 self.root.after(2000, self.on_close)
             return
-        elif self.is_kirill_ip():
-            self.log("[√] Известный IP (Kirill) — автоматический запуск без отладки")
-            self.launch_allowed = True
-            self.full_logging = False
-            self.debug_allowed = False
-            if self.fetch_code_files():
-                self.selected_code_name = "Kirill"
-                self.root.after(0, self.finalize_launch)
-            else:
-                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
-                self.root.after(2000, self.on_close)
-            return
-
         elif self.is_zahar_device():
             self.log(f"[√] Устройство владельца (Zahar/ASUSF15) — автоматический запуск с отладкой")
             self.launch_allowed = True
