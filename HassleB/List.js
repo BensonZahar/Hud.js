@@ -17,16 +17,6 @@ const USER_CONFIGS = {
             '8': '8789490440:AAHpJUJ4650E2SP62bDn7GEVggD9fiIYh54'
         }
     },
-    'Kirill1': {
-        CHAT_IDS: ['-1003202329790'],
-        PASSWORD: '09230923',
-        RECONNECT_ENABLED_DEFAULT: false,
-        // Токены Telegram-ботов для аккаунтов Кирилла (вставь свои)
-        BOT_TOKENS: {
-            '1': '8767167726:AAGGJAiqJFG35jUB88oBLsLGmPzOcDM5bFw',
-            '2': '8758742069:AAEMupQ5zMQRRTfitPElhgPuFv_hZomYDac'
-        }
-    },
     'Kolya': {
         CHAT_IDS: ['-1003102212423'],
         PASSWORD: 'kol16052011',
