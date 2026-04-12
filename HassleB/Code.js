@@ -2825,6 +2825,7 @@ function initializeChatMonitor() {
         if ((lowerCaseMessage.indexOf("администратор") !== -1 && lowerCaseMessage.indexOf("для") !== -1) ||
             normalizeColor(i) === '0xFF9945' ||
             (msg.includes("[A]") && msg.includes("((")) ||
+            /\{FF4444\}\[Уведомление от администратора\] \{FFFFFF\}Администратор .+\[\d+\]:/.test(msg) ||
             (lowerCaseMessage.includes("подбросил") &&
             (currentTime - config.lastPodbrosTime > config.podbrosCooldown || config.podbrosCounter < 2))) {
             // Игнорируем сообщения от департамента [D] с розовым цветом {FF8877}
