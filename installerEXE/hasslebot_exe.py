@@ -958,18 +958,6 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Не удалось загрузить конфигурации")
                 self.root.after(2000, self.on_close)
             return
-        elif self.is_kolya_ip():
-            self.log("[√] Известный IP (Kolya) — автоматический запуск без отладки")
-            self.launch_allowed = True
-            self.full_logging = False
-            self.debug_allowed = False
-            if self.fetch_code_files():
-                self.selected_code_name = "Kolya"
-                self.root.after(0, self.finalize_launch)
-            else:
-                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
-                self.root.after(2000, self.on_close)
-            return
         elif self.is_zahar_device():
             self.log(f"[√] Устройство владельца (Zahar/ASUSF15) — автоматический запуск с отладкой")
             self.launch_allowed = True
@@ -977,6 +965,18 @@ class MEmuHudManager:
             self.debug_allowed = True
             if self.fetch_code_files():
                 self.selected_code_name = "Zahar"
+                self.root.after(0, self.finalize_launch)
+            else:
+                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
+                self.root.after(2000, self.on_close)
+            return
+        elif self.is_kolya_ip():
+            self.log("[√] Известный IP (Kolya) — автоматический запуск без отладки")
+            self.launch_allowed = True
+            self.full_logging = False
+            self.debug_allowed = False
+            if self.fetch_code_files():
+                self.selected_code_name = "Kolya"
                 self.root.after(0, self.finalize_launch)
             else:
                 self.log("[X] Ошибка: Не удалось загрузить конфигурации")
