@@ -706,7 +706,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2.1</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1034,9 +1034,9 @@ function handlePayDayTimeMessage() {
 }
 // END AFK MODULE //
 // ==================== START PAYDAY CYCLE MODULE ====================
-// Цикл: вход → 30с → отыгровка 25-26 мин → /q на авторизацию → ждём :59 → вход → пэйдэй → повтор
-// Включение через кнопку/команду → срабатывает на ВСЕХ аккаунтах (общий chatId, isGlobalCommand)
-// Аккаунты заходят со сдвигом 20-25 сек × (номер - 1), localStorage НЕ используется
+// Цикл: вход → 30с → отыгровка 25-26 мин → авторизация → ждём :59 → вход → пэйдэй → повтор
+// Включение/выключение на одном аккаунте → все аккаунты реагируют (общий chatId)
+// Аккаунты заходят со сдвигом 20-25 сек (по номеру аккаунта), localStorage НЕ используется
 
 const pdCycle = {
     active: false,
@@ -1048,45 +1048,56 @@ const pdCycle = {
     cycleCount: 0
 };
 
-// Сдвиг входа: (accountNumber - 1) × 20–25 сек — чтобы 8 аккаунтов не заходили одновременно
-function pdcGetStaggerMs() {
+// Сдвиг для данного аккаунта: (номер - 1) × 20-25 сек, чтоб не заходили одновременно
+// Стаггер при первом старте: 20–25 сек между аккаунтами
+function pdcGetStartStagger() {
     const num = parseInt(window.ACCOUNT_NUMBER) || 1;
     const perAcc = Math.floor(Math.random() * 5001) + 20000; // 20 000 – 25 000 мс
     return (num - 1) * perAcc;
 }
+// Стаггер при реконнекте перед пэйдэем: 5–10 сек между аккаунтами
+// #1=0с, #2=5-10с, ..., #8=35-70с — все в игре до :00
+function pdcGetReconnectStagger() {
+    const num = parseInt(window.ACCOUNT_NUMBER) || 1;
+    const perAcc = Math.floor(Math.random() * 5001) + 5000; // 5 000 – 10 000 мс
+    return (num - 1) * perAcc;
+}
 
-// Миллисекунды до следующей :59:00 (точное время входа перед PayDay)
-function pdcMsUntil59() {
-    const now  = new Date();
-    const min  = now.getMinutes();
-    const sec  = now.getSeconds();
-    const ms   = now.getMilliseconds();
-    const minsTo59 = (min === 59) ? 0 : (min < 59 ? 59 - min : 60 - min + 59);
-    let result = minsTo59 * 60000 - sec * 1000 - ms;
-    if (result <= 0) result += 60 * 60000; // следующий час
+// Миллисекунды до следующей :59:00
+// Сколько мс до момента когда надо слать /rec 5 перед пэйдэем.
+// PayDay в :00, /rec 5 занимает ~25 сек → шлём за 85 сек до :00 (= :58:35)
+// Аналогично строю: строй шлёт за 60 сек, мы шлём на 25 сек раньше с учётом подключения
+function pdcMsUntilReenter() {
+    const now    = new Date();
+    const nowMs  = now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds();
+    const hourMs = 60 * 60000;
+    let msUntil00 = hourMs - nowMs;          // мс до следующего :00:00
+    if (msUntil00 <= 0) msUntil00 += hourMs;
+    let result = msUntil00 - 85000;          // за 85 сек до :00
+    if (result <= 0) result += hourMs;       // уже прошло — следующий час
     return result;
 }
 
-// Очистка всех таймеров цикла
+// Очистить все таймеры цикла
 function pdcClearTimers() {
     ['playTimer', 'authTimer', 'startTimer'].forEach(t => {
         if (pdCycle[t]) { clearTimeout(pdCycle[t]); pdCycle[t] = null; }
     });
 }
 
-// Запуск цикла (кнопка/команда — глобальная, срабатывает на всех аккаунтах)
+// Запустить цикл (из кнопки или команды — все аккаунты получают через общий chatId)
 function pdcStart() {
     if (pdCycle.active) {
         sendToTelegram(`⏱️ <b>PayDay цикл уже активен (${displayName})</b>`, true, null);
         return;
     }
     pdcClearTimers();
-    pdCycle.active     = true;
-    pdCycle.phase      = 'initial';
+    pdCycle.active   = true;
+    pdCycle.phase    = 'initial';
     pdCycle.cycleCount = 0;
 
-    const stagger    = pdcGetStaggerMs();
-    const totalDelay = stagger + 30000; // сдвиг аккаунта + 30 сек после входа
+    const stagger = pdcGetStartStagger();
+    const totalDelay = stagger + 30000; // сдвиг + 30 сек после входа
 
     sendToTelegram(
         `⏱️ <b>PayDay цикл запущен! (${displayName})</b>\n` +
@@ -1094,7 +1105,8 @@ function pdcStart() {
         `▶️ Отыгровка начнётся через ${Math.round(totalDelay / 1000)} сек`,
         true, null
     );
-    debugLog(`[PDC] Старт. #${window.ACCOUNT_NUMBER || '?'}, задержка ${Math.round(totalDelay / 1000)}с`);
+
+    debugLog(`[PDC] Старт. Аккаунт #${window.ACCOUNT_NUMBER || '?'}, задержка ${Math.round(totalDelay / 1000)}с`);
     pdCycle.startTimer = setTimeout(() => pdcBeginPlay(), totalDelay);
 }
 
@@ -1103,17 +1115,17 @@ function pdcBeginPlay() {
     if (!pdCycle.active) return;
     pdcClearTimers();
 
-    // Снимаем паузу если стоит
+    // Выходим с паузы если вдруг на ней
     try { if (typeof closeInterface === 'function') closeInterface("PauseMenu"); } catch(e) {}
 
     pdCycle.cycleCount++;
-    pdCycle.phase         = 'playing';
-    pdCycle.playStartTime = Date.now();
+    pdCycle.phase          = 'playing';
+    pdCycle.playStartTime  = Date.now();
 
-    // Рандом 25:00 – 26:00 мин в миллисекундах
-    const playMs = 25 * 60000 + Math.floor(Math.random() * 60001);
-    const minStr = Math.floor(playMs / 60000);
-    const secStr = Math.floor((playMs % 60000) / 1000);
+    // Рандом 25:00 – 26:00 (в миллисекундах)
+    const playMs  = 25 * 60000 + Math.floor(Math.random() * 60001);
+    const minStr  = Math.floor(playMs / 60000);
+    const secStr  = Math.floor((playMs % 60000) / 1000);
 
     sendToTelegram(
         `▶️ <b>Отыгровка #${pdCycle.cycleCount} (${displayName})</b>\n` +
@@ -1121,6 +1133,7 @@ function pdcBeginPlay() {
         true, null
     );
     debugLog(`[PDC] Отыгровка #${pdCycle.cycleCount}: ${minStr}м ${secStr}с`);
+
     pdCycle.playTimer = setTimeout(() => pdcEndPlay(), playMs);
 }
 
@@ -1130,28 +1143,30 @@ function pdcEndPlay() {
     pdcClearTimers();
     pdCycle.phase = 'auth_wait';
 
-    // Отключаем автологин — не заходим сразу после /q
+    // Как в строе: отключаем автовход и /rec 5 — висим на авторизации
     autoLoginConfig.enabled = false;
-    try { sendChatInput('/q'); } catch(e) { debugLog(`[PDC] Ошибка /q: ${e.message}`); }
+    sendChatInput('/rec 5');
 
-    const stagger  = pdcGetStaggerMs();
-    const msTo59   = pdcMsUntil59();
-    const totalMs  = msTo59 + stagger;
-    const minLeft  = Math.floor(msTo59 / 60000);
-    const secLeft  = Math.floor((msTo59 % 60000) / 1000);
+    // Реконнект: за 85 сек до :00 (= :58:35) + индивидуальный сдвиг 5–10 сек
+    // Аккаунт #1 в :58:35, #2 в :58:40–45, ..., #8 в :59:20–27 — все до :00
+    const reStagger  = pdcGetReconnectStagger();
+    const totalMs    = pdcMsUntilReenter() + reStagger;
+    const minLeft    = Math.floor(totalMs / 60000);
+    const secLeft    = Math.floor((totalMs % 60000) / 1000);
 
     sendToTelegram(
         `🔒 <b>Авторизация (${displayName})</b>\n` +
         `✅ Отыгровка #${pdCycle.cycleCount} завершена\n` +
-        `⏰ Вход через ${minLeft} мин ${secLeft} сек (в :59)\n` +
-        `🔢 Сдвиг аккаунта #${window.ACCOUNT_NUMBER || '?'}: +${Math.round(stagger / 1000)} сек`,
+        `⏰ /rec 5 через ${minLeft} мин ${secLeft} сек\n` +
+        `🔢 Сдвиг #${window.ACCOUNT_NUMBER || '?'}: +${Math.round(reStagger / 1000)} сек от :58:35`,
         true, null
     );
-    debugLog(`[PDC] Авторизация. До :59 = ${minLeft}м, стаггер = ${Math.round(stagger / 1000)}с`);
+    debugLog(`[PDC] Ждём авторизации. До реконнекта: ${minLeft}м ${secLeft}с, сдвиг: ${Math.round(reStagger/1000)}с`);
+
     pdCycle.authTimer = setTimeout(() => pdcReenter(), totalMs);
 }
 
-// Входим на сервер в :59 + сдвиг аккаунта
+// Входим на сервер (в :59 + сдвиг аккаунта)
 function pdcReenter() {
     if (!pdCycle.active) return;
     pdcClearTimers();
@@ -1159,26 +1174,32 @@ function pdcReenter() {
 
     sendToTelegram(
         `🔓 <b>Вход на сервер (${displayName})</b>\n` +
-        `💰 Аккаунт #${window.ACCOUNT_NUMBER || '?'} — ждём PayDay в :00...`,
+        `💰 Аккаунт #${window.ACCOUNT_NUMBER || '?'} — ждём PayDay в :00...\n` +
+        `🔑 Включён автовход и отправлен /rec 5`,
         true, null
     );
-    debugLog(`[PDC] Вход на сервер. #${window.ACCOUNT_NUMBER || '?'}`);
+    debugLog(`[PDC] Вход на сервер. Аккаунт #${window.ACCOUNT_NUMBER || '?'}`);
+
+    // Как в строе: включаем автовход и /rec 5 — заходим на сервер
     autoLoginConfig.enabled = true;
-    initializeAutoLogin();
+    sendChatInput('/rec 5');
 }
 
-// Вызывается из processSalaryAndBalance при получении PayDay пока phase === 'reconnecting'
+// Вызывается из processSalaryAndBalance когда PayDay получен и цикл в фазе 'reconnecting'
 function pdcOnPayDayReceived() {
-    if (!pdCycle.active || pdCycle.phase !== 'reconnecting') return;
+    if (!pdCycle.active) return;
+    if (pdCycle.phase !== 'reconnecting') return;
     pdcClearTimers();
-    pdCycle.phase = 'initial'; // промежуточная фаза до pdcBeginPlay
 
+    pdCycle.phase = 'playing'; // временно, до начала реального beginPlay через 30с
+
+    debugLog('[PDC] PayDay получен — новая отыгровка через 30 сек');
     sendToTelegram(
         `💰 <b>PayDay получен! (${displayName})</b>\n` +
         `▶️ Новая отыгровка начнётся через 30 сек`,
         true, null
     );
-    debugLog('[PDC] PayDay получен — новая отыгровка через 30 сек');
+
     pdCycle.startTimer = setTimeout(() => pdcBeginPlay(), 30000);
 }
 
@@ -1192,14 +1213,10 @@ function pdcStop() {
     debugLog('[PDC] Цикл остановлен');
 }
 
-// Меню управления (редактирует текущее сообщение)
+// Меню управления циклом
 function showPdcMenu(chatId, messageId, uid) {
-    const phaseNames = {
-        idle: 'выключен', initial: 'старт', playing: 'отыгровка',
-        auth_wait: 'авторизация', reconnecting: 'вход'
-    };
     const status = pdCycle.active
-        ? `🟢 Активен | ${phaseNames[pdCycle.phase] || pdCycle.phase} | Цикл #${pdCycle.cycleCount}`
+        ? `🟢 Активен | Фаза: ${pdCycle.phase} | Цикл #${pdCycle.cycleCount}`
         : '🔴 Выключен';
     const replyMarkup = {
         inline_keyboard: [
@@ -1213,8 +1230,7 @@ function showPdcMenu(chatId, messageId, uid) {
     editMessageText(chatId, messageId,
         `⏱️ <b>PayDay цикл (${displayName})</b>\n` +
         `Статус: ${status}\n\n` +
-        `<i>Вход → 30с → отыгровка 25-26 мин → авторизация → :59 → пэйдэй → повтор\n` +
-        `Каждый аккаунт заходит со сдвигом 20-25 сек × номер</i>`,
+        `<i>Вход→30с→отыгровка 25-26 мин→авторизация→:59→пэйдэй→повтор</i>`,
         replyMarkup
     );
 }
@@ -2506,7 +2522,7 @@ function processSalaryAndBalance(msg) {
         sendToTelegram(message);
         config.lastSalaryInfo = null;
 
-        // PayDay цикл — запускаем новую отыгровку
+        // PayDay цикл — новая отыгровка
         if (pdCycle.active && pdCycle.phase === 'reconnecting') {
             pdcOnPayDayReceived();
         }
