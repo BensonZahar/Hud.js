@@ -326,12 +326,13 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 };
 // END AUTO LOGIN MODULE //
 // START SHARED STORAGE MODULE //
-// Новая функция для shared lastUpdateId через localStorage
+// localStorage не работает в CEF-среде — используем in-memory переменную
+let _sharedLastUpdateId = 0;
 function getSharedLastUpdateId() {
-    return parseInt(localStorage.getItem('tg_bot_last_update_id') || '0', 10);
+    return _sharedLastUpdateId;
 }
 function setSharedLastUpdateId(id) {
-    localStorage.setItem('tg_bot_last_update_id', id);
+    _sharedLastUpdateId = id;
     debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
 // END SHARED STORAGE MODULE //
@@ -1032,6 +1033,192 @@ function handlePayDayTimeMessage() {
     startPlayPhase();
 }
 // END AFK MODULE //
+// ==================== START PAYDAY CYCLE MODULE ====================
+// Цикл: вход → 30с → отыгровка 25-26 мин → /q на авторизацию → ждём :59 → вход → пэйдэй → повтор
+// Включение через кнопку/команду → срабатывает на ВСЕХ аккаунтах (общий chatId, isGlobalCommand)
+// Аккаунты заходят со сдвигом 20-25 сек × (номер - 1), localStorage НЕ используется
+
+const pdCycle = {
+    active: false,
+    phase: 'idle',    // 'idle' | 'initial' | 'playing' | 'auth_wait' | 'reconnecting'
+    playTimer: null,
+    authTimer: null,
+    startTimer: null,
+    playStartTime: null,
+    cycleCount: 0
+};
+
+// Сдвиг входа: (accountNumber - 1) × 20–25 сек — чтобы 8 аккаунтов не заходили одновременно
+function pdcGetStaggerMs() {
+    const num = parseInt(window.ACCOUNT_NUMBER) || 1;
+    const perAcc = Math.floor(Math.random() * 5001) + 20000; // 20 000 – 25 000 мс
+    return (num - 1) * perAcc;
+}
+
+// Миллисекунды до следующей :59:00 (точное время входа перед PayDay)
+function pdcMsUntil59() {
+    const now  = new Date();
+    const min  = now.getMinutes();
+    const sec  = now.getSeconds();
+    const ms   = now.getMilliseconds();
+    const minsTo59 = (min === 59) ? 0 : (min < 59 ? 59 - min : 60 - min + 59);
+    let result = minsTo59 * 60000 - sec * 1000 - ms;
+    if (result <= 0) result += 60 * 60000; // следующий час
+    return result;
+}
+
+// Очистка всех таймеров цикла
+function pdcClearTimers() {
+    ['playTimer', 'authTimer', 'startTimer'].forEach(t => {
+        if (pdCycle[t]) { clearTimeout(pdCycle[t]); pdCycle[t] = null; }
+    });
+}
+
+// Запуск цикла (кнопка/команда — глобальная, срабатывает на всех аккаунтах)
+function pdcStart() {
+    if (pdCycle.active) {
+        sendToTelegram(`⏱️ <b>PayDay цикл уже активен (${displayName})</b>`, true, null);
+        return;
+    }
+    pdcClearTimers();
+    pdCycle.active     = true;
+    pdCycle.phase      = 'initial';
+    pdCycle.cycleCount = 0;
+
+    const stagger    = pdcGetStaggerMs();
+    const totalDelay = stagger + 30000; // сдвиг аккаунта + 30 сек после входа
+
+    sendToTelegram(
+        `⏱️ <b>PayDay цикл запущен! (${displayName})</b>\n` +
+        `🔢 Аккаунт #${window.ACCOUNT_NUMBER || '?'}, сдвиг: ${Math.round(stagger / 1000)} сек\n` +
+        `▶️ Отыгровка начнётся через ${Math.round(totalDelay / 1000)} сек`,
+        true, null
+    );
+    debugLog(`[PDC] Старт. #${window.ACCOUNT_NUMBER || '?'}, задержка ${Math.round(totalDelay / 1000)}с`);
+    pdCycle.startTimer = setTimeout(() => pdcBeginPlay(), totalDelay);
+}
+
+// Начало фазы отыгровки 25–26 минут
+function pdcBeginPlay() {
+    if (!pdCycle.active) return;
+    pdcClearTimers();
+
+    // Снимаем паузу если стоит
+    try { if (typeof closeInterface === 'function') closeInterface("PauseMenu"); } catch(e) {}
+
+    pdCycle.cycleCount++;
+    pdCycle.phase         = 'playing';
+    pdCycle.playStartTime = Date.now();
+
+    // Рандом 25:00 – 26:00 мин в миллисекундах
+    const playMs = 25 * 60000 + Math.floor(Math.random() * 60001);
+    const minStr = Math.floor(playMs / 60000);
+    const secStr = Math.floor((playMs % 60000) / 1000);
+
+    sendToTelegram(
+        `▶️ <b>Отыгровка #${pdCycle.cycleCount} (${displayName})</b>\n` +
+        `⏱ ${minStr} мин ${secStr} сек`,
+        true, null
+    );
+    debugLog(`[PDC] Отыгровка #${pdCycle.cycleCount}: ${minStr}м ${secStr}с`);
+    pdCycle.playTimer = setTimeout(() => pdcEndPlay(), playMs);
+}
+
+// Конец отыгровки → выход из игры, ждём :59
+function pdcEndPlay() {
+    if (!pdCycle.active) return;
+    pdcClearTimers();
+    pdCycle.phase = 'auth_wait';
+
+    // Отключаем автологин — не заходим сразу после /q
+    autoLoginConfig.enabled = false;
+    try { sendChatInput('/q'); } catch(e) { debugLog(`[PDC] Ошибка /q: ${e.message}`); }
+
+    const stagger  = pdcGetStaggerMs();
+    const msTo59   = pdcMsUntil59();
+    const totalMs  = msTo59 + stagger;
+    const minLeft  = Math.floor(msTo59 / 60000);
+    const secLeft  = Math.floor((msTo59 % 60000) / 1000);
+
+    sendToTelegram(
+        `🔒 <b>Авторизация (${displayName})</b>\n` +
+        `✅ Отыгровка #${pdCycle.cycleCount} завершена\n` +
+        `⏰ Вход через ${minLeft} мин ${secLeft} сек (в :59)\n` +
+        `🔢 Сдвиг аккаунта #${window.ACCOUNT_NUMBER || '?'}: +${Math.round(stagger / 1000)} сек`,
+        true, null
+    );
+    debugLog(`[PDC] Авторизация. До :59 = ${minLeft}м, стаггер = ${Math.round(stagger / 1000)}с`);
+    pdCycle.authTimer = setTimeout(() => pdcReenter(), totalMs);
+}
+
+// Входим на сервер в :59 + сдвиг аккаунта
+function pdcReenter() {
+    if (!pdCycle.active) return;
+    pdcClearTimers();
+    pdCycle.phase = 'reconnecting';
+
+    sendToTelegram(
+        `🔓 <b>Вход на сервер (${displayName})</b>\n` +
+        `💰 Аккаунт #${window.ACCOUNT_NUMBER || '?'} — ждём PayDay в :00...`,
+        true, null
+    );
+    debugLog(`[PDC] Вход на сервер. #${window.ACCOUNT_NUMBER || '?'}`);
+    autoLoginConfig.enabled = true;
+    initializeAutoLogin();
+}
+
+// Вызывается из processSalaryAndBalance при получении PayDay пока phase === 'reconnecting'
+function pdcOnPayDayReceived() {
+    if (!pdCycle.active || pdCycle.phase !== 'reconnecting') return;
+    pdcClearTimers();
+    pdCycle.phase = 'initial'; // промежуточная фаза до pdcBeginPlay
+
+    sendToTelegram(
+        `💰 <b>PayDay получен! (${displayName})</b>\n` +
+        `▶️ Новая отыгровка начнётся через 30 сек`,
+        true, null
+    );
+    debugLog('[PDC] PayDay получен — новая отыгровка через 30 сек');
+    pdCycle.startTimer = setTimeout(() => pdcBeginPlay(), 30000);
+}
+
+// Остановка цикла
+function pdcStop() {
+    pdcClearTimers();
+    pdCycle.active = false;
+    pdCycle.phase  = 'idle';
+    autoLoginConfig.enabled = true; // Возвращаем автологин
+    sendToTelegram(`⏹️ <b>PayDay цикл остановлен (${displayName})</b>`, false, null);
+    debugLog('[PDC] Цикл остановлен');
+}
+
+// Меню управления (редактирует текущее сообщение)
+function showPdcMenu(chatId, messageId, uid) {
+    const phaseNames = {
+        idle: 'выключен', initial: 'старт', playing: 'отыгровка',
+        auth_wait: 'авторизация', reconnecting: 'вход'
+    };
+    const status = pdCycle.active
+        ? `🟢 Активен | ${phaseNames[pdCycle.phase] || pdCycle.phase} | Цикл #${pdCycle.cycleCount}`
+        : '🔴 Выключен';
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton("▶️ Запустить", `pdc_start_${uid}`),
+                createButton("⏹️ Остановить", `pdc_stop_${uid}`)
+            ],
+            [createButton("⬅️ Назад", `show_global_functions_${uid}`)]
+        ]
+    };
+    editMessageText(chatId, messageId,
+        `⏱️ <b>PayDay цикл (${displayName})</b>\n` +
+        `Статус: ${status}\n\n` +
+        `<i>Вход → 30с → отыгровка 25-26 мин → авторизация → :59 → пэйдэй → повтор\n` +
+        `Каждый аккаунт заходит со сдвигом 20-25 сек × номер</i>`,
+        replyMarkup
+    );
+}
+// ==================== END PAYDAY CYCLE MODULE ====================
 // START MENU MODULE //
 function showControlsMenu(chatId, messageId) {
     if (!config.accountInfo.nickname) {
@@ -1058,6 +1245,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
             createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
             createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
         ],
+        [createButton("⏱️ PayDay Цикл", `show_pdc_menu_${uniqueIdParam}`)],
     ];
     if (config.autoReconnectEnabled) {
         inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
@@ -1517,6 +1705,10 @@ function processUpdates(updates) {
                 config.paydayNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
+            } else if (message === '/pdc_start') {
+                pdcStart();
+            } else if (message === '/pdc_stop') {
+                pdcStop();
             } else if (message === '/p_on') {
                 config.paydayNotifications = true;
                 sendToTelegram(`🔔 <b>Уведомления о PayDay включены для ${displayName}</b>`, false, null);
@@ -1627,7 +1819,10 @@ function processUpdates(updates) {
                 message.startsWith('show_radio_options_') ||
                 message.startsWith('show_warning_options_') ||
                 message.startsWith('show_global_functions_') ||
-                message.startsWith('levelup_reconnect_');
+                message.startsWith('levelup_reconnect_') ||
+                message.startsWith('show_pdc_menu_') ||
+                message.startsWith('pdc_start_') ||
+                message.startsWith('pdc_stop_');
             let callbackUniqueId = null;
             if (message.startsWith('show_controls_')) {
                 callbackUniqueId = message.replace('show_controls_', '');
@@ -1773,6 +1968,12 @@ function processUpdates(updates) {
             } else if (message.startsWith('global_levelup_')) {
                 callbackUniqueId = message.replace('global_levelup_', '');
                 showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
+            } else if (message.startsWith('show_pdc_menu_')) {
+                callbackUniqueId = message.replace('show_pdc_menu_', '');
+            } else if (message.startsWith('pdc_start_')) {
+                callbackUniqueId = message.replace('pdc_start_', '');
+            } else if (message.startsWith('pdc_stop_')) {
+                callbackUniqueId = message.replace('pdc_stop_', '');
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -1861,6 +2062,14 @@ function processUpdates(updates) {
                 sendWelcomeMessage();
             } else if (message.startsWith(`global_afk_n_`)) {
                 showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith('show_pdc_menu_')) {
+                showPdcMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith('pdc_start_')) {
+                pdcStart();
+                setTimeout(() => showPdcMenu(chatId, messageId, callbackUniqueId), 300);
+            } else if (message.startsWith('pdc_stop_')) {
+                pdcStop();
+                setTimeout(() => showPdcMenu(chatId, messageId, callbackUniqueId), 300);
             } else if (message.startsWith(`afk_n_with_pauses_`)) {
                 showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`afk_n_without_pauses_`)) {
@@ -2296,6 +2505,11 @@ function processSalaryAndBalance(msg) {
         
         sendToTelegram(message);
         config.lastSalaryInfo = null;
+
+        // PayDay цикл — запускаем новую отыгровку
+        if (pdCycle.active && pdCycle.phase === 'reconnecting') {
+            pdcOnPayDayReceived();
+        }
 
         // Если ждём PayDay после строя — выходим из игры НЕМЕДЛЕННО
         if (waitingForPayDay) {
