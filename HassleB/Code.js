@@ -237,6 +237,8 @@ function setupAutoLogin(attempt = 1) {
             try {
                 loginInstance.onClickEvent("play");
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
+                // PDC: если строй прервал отыгровку — возобновляем
+                setTimeout(() => pdcOnReloginAfterStroi(), 3000);
                 // Уведомление через 3 секунды после успешного входа
                 setTimeout(() => {
                     showScreenNotification(
@@ -706,7 +708,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2.1</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1040,12 +1042,14 @@ function handlePayDayTimeMessage() {
 
 const pdCycle = {
     active: false,
-    phase: 'idle',    // 'idle' | 'initial' | 'playing' | 'auth_wait' | 'reconnecting'
+    phase: 'idle',    // 'idle' | 'initial' | 'playing' | 'auth_wait' | 'reconnecting' | 'stroi_interrupted'
     playTimer: null,
     authTimer: null,
     startTimer: null,
     playStartTime: null,
-    cycleCount: 0
+    cycleCount: 0,
+    totalPlayedMs: 0,    // накопленное игровое время с последнего PayDay
+    stroiInterrupted: false  // флаг: строй прервал отыгровку
 };
 
 // Сдвиг для данного аккаунта: (номер - 1) × 20-25 сек, чтоб не заходили одновременно
@@ -1085,6 +1089,125 @@ function pdcClearTimers() {
     });
 }
 
+// Сколько мс до следующего :00:00
+function pdcMsUntil00() {
+    const now   = new Date();
+    const nowMs = now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds();
+    let result  = 60 * 60000 - nowMs;
+    if (result <= 0) result += 60 * 60000;
+    return result;
+}
+
+// Сохраняем отыгранное время текущей сессии в totalPlayedMs
+// (вызывать перед любым прерыванием play-фазы)
+function pdcSnapshotPlay() {
+    if (pdCycle.phase === 'playing' && pdCycle.playStartTime) {
+        const elapsed = Date.now() - pdCycle.playStartTime;
+        pdCycle.totalPlayedMs += elapsed;
+        pdCycle.playStartTime = null;
+        debugLog(`[PDC] Snapshot: +${Math.round(elapsed/1000)}с → итого ${Math.round(pdCycle.totalPlayedMs/1000)}с`);
+    }
+}
+
+// Вызывается из performStroiReconnect когда PDC-цикл активен и мы в фазе 'playing'
+function pdcOnStroiInterrupt() {
+    if (!pdCycle.active || pdCycle.phase !== 'playing') return;
+    pdcClearTimers();      // останавливаем playTimer — строй сам управляет реконнектом
+    pdcSnapshotPlay();     // сохраняем сколько отыграли
+
+    pdCycle.phase            = 'stroi_interrupted';
+    pdCycle.stroiInterrupted = true;
+
+    const playedMin  = Math.floor(pdCycle.totalPlayedMs / 60000);
+    const playedSec  = Math.floor((pdCycle.totalPlayedMs % 60000) / 1000);
+    const remaining  = Math.max(0, 25 * 60000 - pdCycle.totalPlayedMs);
+    const remMin     = Math.floor(remaining / 60000);
+    const remSec     = Math.floor((remaining % 60000) / 1000);
+
+    sendToTelegram(
+        `⚠️ <b>Строй прервал отыгровку! (${displayName})</b>
+` +
+        `✅ Отыграно: ${playedMin} мин ${playedSec} сек
+` +
+        `⏳ Осталось: ${remMin} мин ${remSec} сек до 25 мин
+` +
+        `🔄 Строй обрабатывает реконнект — после входа продолжим`,
+        false, null
+    );
+    debugLog(`[PDC] Строй прервал. Отыграно ${playedMin}м ${playedSec}с, осталось ${remMin}м ${remSec}с`);
+}
+
+// Вызывается из setupAutoLogin после успешного входа в игру
+// Если строй прервал отыгровку — возобновляем
+function pdcOnReloginAfterStroi() {
+    if (!pdCycle.active || !pdCycle.stroiInterrupted) return;
+    pdCycle.stroiInterrupted = false;
+
+    const remaining = Math.max(0, 25 * 60000 - pdCycle.totalPlayedMs);
+    const msUntil00 = pdcMsUntil00();
+    // Запас: 90с (85с до :00 + ~5с на вход+загрузку)
+    const BUFFER_MS = 90000;
+
+    if (remaining === 0) {
+        // Уже отыграли 25 мин — просто ждём пэйдэй
+        pdCycle.phase = 'reconnecting';
+        const minLeft = Math.floor(msUntil00 / 60000);
+        const secLeft = Math.floor((msUntil00 % 60000) / 1000);
+        sendToTelegram(
+            `✅ <b>Вернулись после строя (${displayName})</b>
+` +
+            `💰 25 мин уже отыграны — ждём PayDay через ${minLeft} мин ${secLeft} сек`,
+            false, null
+        );
+        return;
+    }
+
+    if (msUntil00 - BUFFER_MS >= remaining) {
+        // Успеваем доиграть
+        const remMin = Math.floor(remaining / 60000);
+        const remSec = Math.floor((remaining % 60000) / 1000);
+        sendToTelegram(
+            `▶️ <b>Возобновляем отыгровку после строя (${displayName})</b>
+` +
+            `⏳ Осталось доиграть: ${remMin} мин ${remSec} сек
+` +
+            `🕐 До PayDay: ${Math.floor((msUntil00)/60000)} мин`,
+            false, null
+        );
+        debugLog(`[PDC] Возобновляем: осталось ${remMin}м ${remSec}с, до :00 ${Math.floor(msUntil00/60000)}м`);
+        // Не прибавляем cycleCount — это продолжение той же отыгровки
+        pdCycle.phase         = 'playing';
+        pdCycle.playStartTime = Date.now();
+        pdCycle.playTimer     = setTimeout(() => pdcEndPlay(), remaining);
+    } else if (msUntil00 > BUFFER_MS + 5 * 60000) {
+        // Времени мало, но хоть что-то доиграем (> 5 мин до :00)
+        const canPlay = msUntil00 - BUFFER_MS;
+        const canMin  = Math.floor(canPlay / 60000);
+        const canSec  = Math.floor((canPlay % 60000) / 1000);
+        sendToTelegram(
+            `⚠️ <b>Не успеваем доиграть 25 мин (${displayName})</b>
+` +
+            `⏳ Нужно ещё: ${Math.floor(remaining/60000)} мин, есть: ${canMin} мин ${canSec} сек
+` +
+            `▶️ Играем сколько успеем`,
+            false, null
+        );
+        pdCycle.phase         = 'playing';
+        pdCycle.playStartTime = Date.now();
+        pdCycle.playTimer     = setTimeout(() => pdcEndPlay(), canPlay);
+    } else {
+        // До :00 < 5 мин — уже не успеть ничего, просто ждём
+        pdCycle.phase = 'reconnecting';
+        sendToTelegram(
+            `⏰ <b>До PayDay меньше 5 мин (${displayName})</b>
+` +
+            `💤 Ждём пэйдэй — не успеваем набрать 25 мин`,
+            false, null
+        );
+        debugLog(`[PDC] До :00 < 5 мин — ждём пэйдэй без отыгровки`);
+    }
+}
+
 // Запустить цикл (из кнопки или команды — все аккаунты получают через общий chatId)
 function pdcStart() {
     if (pdCycle.active) {
@@ -1110,7 +1233,7 @@ function pdcStart() {
     pdCycle.startTimer = setTimeout(() => pdcBeginPlay(), totalDelay);
 }
 
-// Начало фазы отыгровки 25–26 минут
+// Начало фазы отыгровки
 function pdcBeginPlay() {
     if (!pdCycle.active) return;
     pdcClearTimers();
@@ -1119,28 +1242,49 @@ function pdcBeginPlay() {
     try { if (typeof closeInterface === 'function') closeInterface("PauseMenu"); } catch(e) {}
 
     pdCycle.cycleCount++;
-    pdCycle.phase          = 'playing';
-    pdCycle.playStartTime  = Date.now();
+    pdCycle.phase         = 'playing';
+    pdCycle.playStartTime = Date.now();
 
-    // Рандом 25:00 – 26:00 (в миллисекундах)
-    const playMs  = 25 * 60000 + Math.floor(Math.random() * 60001);
-    const minStr  = Math.floor(playMs / 60000);
-    const secStr  = Math.floor((playMs % 60000) / 1000);
+    const REQUIRED_MS = 25 * 60000;
+    const remaining   = Math.max(0, REQUIRED_MS - pdCycle.totalPlayedMs);
+
+    let playMs;
+    if (remaining <= 0) {
+        // Уже отыграно 25+ мин (напр. сразу после строя) — не нужна отыгровка
+        pdCycle.phase = 'reconnecting';
+        sendToTelegram(
+            `✅ <b>25 мин уже отыграны (${displayName})</b>\n` +
+            `💰 Ждём PayDay`,
+            true, null
+        );
+        debugLog(`[PDC] 25 мин уже набраны (${Math.round(pdCycle.totalPlayedMs/60000)} мин), ждём PayDay`);
+        return;
+    }
+
+    // Рандом +0–60с сверху только если это первая отыгровка без накопленного времени
+    const extra  = (pdCycle.totalPlayedMs === 0) ? Math.floor(Math.random() * 60001) : 0;
+    playMs       = remaining + extra;
+
+    const minStr = Math.floor(playMs / 60000);
+    const secStr = Math.floor((playMs % 60000) / 1000);
+    const playedMin = Math.floor(pdCycle.totalPlayedMs / 60000);
 
     sendToTelegram(
         `▶️ <b>Отыгровка #${pdCycle.cycleCount} (${displayName})</b>\n` +
-        `⏱ ${minStr} мин ${secStr} сек`,
+        `⏱ ${minStr} мин ${secStr} сек` +
+        (pdCycle.totalPlayedMs > 0 ? `\n📊 Уже отыграно: ${playedMin} мин` : ''),
         true, null
     );
-    debugLog(`[PDC] Отыгровка #${pdCycle.cycleCount}: ${minStr}м ${secStr}с`);
+    debugLog(`[PDC] Отыгровка #${pdCycle.cycleCount}: ${minStr}м ${secStr}с (накоплено ${playedMin}м)`);
 
     pdCycle.playTimer = setTimeout(() => pdcEndPlay(), playMs);
 }
 
-// Конец отыгровки → выход из игры, ждём :59
+// Конец отыгровки → выход из игры, ждём :58:35
 function pdcEndPlay() {
     if (!pdCycle.active) return;
     pdcClearTimers();
+    pdcSnapshotPlay();    // сохраняем время текущей сессии
     pdCycle.phase = 'auth_wait';
 
     // Как в строе: отключаем автовход и /rec 5 — висим на авторизации
@@ -1185,15 +1329,21 @@ function pdcReenter() {
     sendChatInput('/rec 5');
 }
 
-// Вызывается из processSalaryAndBalance когда PayDay получен и цикл в фазе 'reconnecting'
+// Вызывается из processSalaryAndBalance когда PayDay получен и цикл активен
 function pdcOnPayDayReceived() {
     if (!pdCycle.active) return;
-    if (pdCycle.phase !== 'reconnecting') return;
+    // Принимаем PayDay в любой фазе кроме idle и auth_wait
+    if (pdCycle.phase === 'idle' || pdCycle.phase === 'auth_wait') return;
     pdcClearTimers();
+    pdcSnapshotPlay(); // на случай если таймер не успел сработать
 
-    pdCycle.phase = 'playing'; // временно, до начала реального beginPlay через 30с
+    // Сбрасываем накопленное время — новый часовой цикл
+    pdCycle.totalPlayedMs    = 0;
+    pdCycle.playStartTime    = null;
+    pdCycle.stroiInterrupted = false;
+    pdCycle.phase            = 'initial';
 
-    debugLog('[PDC] PayDay получен — новая отыгровка через 30 сек');
+    debugLog('[PDC] PayDay получен — сброс времени, новая отыгровка через 30 сек');
     sendToTelegram(
         `💰 <b>PayDay получен! (${displayName})</b>\n` +
         `▶️ Новая отыгровка начнётся через 30 сек`,
@@ -1206,9 +1356,12 @@ function pdcOnPayDayReceived() {
 // Остановка цикла
 function pdcStop() {
     pdcClearTimers();
-    pdCycle.active = false;
-    pdCycle.phase  = 'idle';
-    autoLoginConfig.enabled = true; // Возвращаем автологин
+    pdcSnapshotPlay();
+    pdCycle.active           = false;
+    pdCycle.phase            = 'idle';
+    pdCycle.totalPlayedMs    = 0;
+    pdCycle.stroiInterrupted = false;
+    autoLoginConfig.enabled  = true; // Возвращаем автологин
     sendToTelegram(`⏹️ <b>PayDay цикл остановлен (${displayName})</b>`, false, null);
     debugLog('[PDC] Цикл остановлен');
 }
@@ -2654,6 +2807,11 @@ function performStroiReconnect() {
     const now = new Date();
     const currentMinutes = now.getMinutes();
     const currentSeconds = now.getSeconds();
+
+    // Если PDC-цикл активен и мы в фазе отыгровки — сохраняем прогресс
+    if (pdCycle.active && pdCycle.phase === 'playing') {
+        pdcOnStroiInterrupt();
+    }
 
     // Если уже ждём PayDay - игнорируем повторные сообщения о строе
     if (waitingForPayDay) {
