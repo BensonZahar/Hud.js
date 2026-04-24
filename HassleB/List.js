@@ -5,6 +5,7 @@ const USER_CONFIGS = {
         CHAT_IDS: ['-1003040555627'],
         PASSWORD: 'zahar2007',
         RECONNECT_ENABLED_DEFAULT: true,
+
         // Токены Telegram-ботов для аккаунтов Захара (1–8)
         BOT_TOKENS: {
             '1': '8335162903:AAEIIBJJwJybcfk3sZBrMhv3hWm2u4FeRHY',
@@ -15,17 +16,33 @@ const USER_CONFIGS = {
             '6': '8692734140:AAEHthG-PpPOoY_0qmG25bzHafLIlcErs3M',
             '7': '8770179898:AAEm93rbx8VGvuTJJX0grD47WSQf1LCvTcI',
             '8': '8789490440:AAHpJUJ4650E2SP62bDn7GEVggD9fiIYh54'
-        }
+        },
+
+        // ── Приветственные темы ─────────────────────────────────────────────
+        // name      — точное название темы в Telegram (регистр важен)
+        // threadId  — ID темы (number или null).
+        //             null = автопоиск через getUpdates.
+        //             Если автопоиск не нашёл — тема пропускается.
+        //             Укажите число как запасной вариант, например: 101953
+        // ───────────────────────────────────────────────────────────────────
+        GREETING_TOPICS: [
+            { name: 'Офф уведы', threadId: null }
+        ]
     },
+
     'Kolya': {
         CHAT_IDS: ['-1003102212423'],
         PASSWORD: 'kol16052011',
         RECONNECT_ENABLED_DEFAULT: true,
-        // Токены Telegram-ботов для аккаунтов Коли (вставь свои)
+
         BOT_TOKENS: {
             '1': '8763868535:AAHa4Gi99nxYnCKsV1dtv5dqgRlYwl8LVxQ',
             '2': '8747381594:AAFDESDmTnG0lHdbpEB_87rxd5db3zjmV2I'
-        }
+        },
+
+        GREETING_TOPICS: [
+            { name: 'Офф уведы', threadId: null }
+        ]
     }
 };
 
