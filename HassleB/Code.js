@@ -2143,6 +2143,10 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('pdc_start_', '');
             } else if (message.startsWith('pdc_stop_')) {
                 callbackUniqueId = message.replace('pdc_stop_', '');
+            } else if (message.startsWith('prison_reconnect_')) {
+                callbackUniqueId = message.replace('prison_reconnect_', '');
+            } else if (message.startsWith('prison_quit_')) {
+                callbackUniqueId = message.replace('prison_quit_', '');
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -2487,6 +2491,23 @@ function processUpdates(updates) {
                     sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 }
                 setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 100);
+            } else if (message.startsWith('prison_reconnect_')) {
+                // Кнопка "Выйти с автр." — включаем автовход и делаем /rec 5
+                autoLoginConfig.enabled = true;
+                debugLog(`[PRISON] "Выйти с автр." нажата — включаем автовход, отправляем /rec 5`);
+                sendToTelegram(`🔓 <b>Автовход включён (${displayName})</b>\nПодключаемся к серверу...`, false, null);
+                deleteMessage(chatId, messageId);
+                setTimeout(() => {
+                    sendChatInput("/rec 5");
+                }, 500);
+            } else if (message.startsWith('prison_quit_')) {
+                // Кнопка "Выйти с игры" — /q
+                debugLog(`[PRISON] "Выйти с игры" нажата — отправляем /q`);
+                sendToTelegram(`🚪 <b>Выходим из игры (${displayName})</b>`, false, null);
+                deleteMessage(chatId, messageId);
+                setTimeout(() => {
+                    sendChatInput("/q");
+                }, 500);
             }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
@@ -3117,14 +3138,36 @@ function initializeChatMonitor() {
         }
         // Обработка освобождения из тюрьмы (цвет FFFF00)
         if (normalizedMsgColor === '0xFFFF00' && msg.includes("Вы отбыли свой срок и можете идти на свободу")) {
-            debugLog(`[PRISON] Срок отсижен! Выходим из игры...`);
+            debugLog(`[PRISON] Срок отсижен!`);
             stopPrisonTimePolling();
             globalState.inPrison = false;
             globalState.prisonTimeRequested = false;
-            sendToTelegram(`✅ <b>Срок отсижен! Выходим из игры (${displayName})</b>`, false, null);
-            setTimeout(() => {
-                sendChatInput("/q");
-            }, 1000);
+
+            if (RECONNECT_ENABLED_DEFAULT) {
+                // Отключаем автовход, делаем /rec 5, ждём команды из Telegram
+                autoLoginConfig.enabled = false;
+                debugLog(`[PRISON] Автовход отключён. Отправляем /rec 5 и ждём выбора из Telegram`);
+                const prisonExitButtons = {
+                    inline_keyboard: [[
+                        createButton('🔓 Выйти с автр.', `prison_reconnect_${uniqueId}`),
+                        createButton('🚪 Выйти с игры', `prison_quit_${uniqueId}`)
+                    ]]
+                };
+                sendToTelegram(
+                    `✅ <b>Срок отсижен! (${displayName})</b>\n` +
+                    `⏸ Автовход отключён — висим на авторизации.\n` +
+                    `Выберите действие:`,
+                    false, prisonExitButtons
+                );
+                setTimeout(() => {
+                    sendChatInput("/rec 5");
+                }, 1000);
+            } else {
+                sendToTelegram(`✅ <b>Срок отсижен! Выходим из игры (${displayName})</b>`, false, null);
+                setTimeout(() => {
+                    sendChatInput("/q");
+                }, 1000);
+            }
         }
 		// ОТЛАДКА: Выводим ВСЕ сообщения с цветом фракции МЗ
 		if (config.currentFaction === 'mz') {
