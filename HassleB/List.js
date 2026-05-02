@@ -3,6 +3,7 @@
 const USER_CONFIGS = {
     'Zahar': {
         CHAT_IDS: ['-1003040555627'],
+        OFF_UVED_TOPIC_ID: '101953', // Офф уведы (радио 1–10 ранг без строя/местоположения)
         PASSWORD: 'zahar2007',
         RECONNECT_ENABLED_DEFAULT: true,
         // Токены Telegram-ботов для аккаунтов Захара (1–8)
