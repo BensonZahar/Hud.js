@@ -145,7 +145,9 @@ const userConfig = {
     notificationDeleteDelay: 5000,
     trackSkinId: true,
     skinCheckInterval: 5000,
-    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- используем константу
+    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT, // <-- используем константу
+    offUvedyThreadId: null,    // Thread ID темы "Офф уведы" (ищется автоматически по имени)
+    offUvedySearchDone: false  // Флаг: уже сделали первичный поиск
 };
 const config = {
     ...userConfig,
@@ -730,8 +732,38 @@ function sendWelcomeMessage() {
             sendToTelegram(message, false, replyMarkup);
         }
     });
+    // Первый поиск темы "Офф уведы" — выполняется единожды после входа в игру
+    probeOffUvedyTopicOnce();
 }
 // END WELCOME MESSAGE MODULE //
+// START OFF-UVEDY STARTUP PROBE //
+// Выполняется один раз после установки botToken — читает pending-обновления
+// (не потребляет их) и ищет тему "Офф уведы" среди последних сообщений.
+function probeOffUvedyTopicOnce() {
+    if (config.offUvedySearchDone || config.offUvedyThreadId) return;
+    config.offUvedySearchDone = true;
+    if (!config.botToken) return;
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?limit=100`;
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            try {
+                const data = JSON.parse(xhr.responseText);
+                if (data.ok && data.result.length > 0) {
+                    discoverOffUvedyTopicFromUpdates(data.result);
+                }
+                if (!config.offUvedyThreadId) {
+                    debugLog('[OffUvedy] Тема "Офф уведы" не найдена при запуске — ждём сообщений в теме');
+                }
+            } catch(e) {
+                debugLog('[OffUvedy] Ошибка probe: ' + e.message);
+            }
+        }
+    };
+    xhr.send();
+}
+// END OFF-UVEDY STARTUP PROBE //
 // START AFK MODULE //
 // Функция для обновления статуса AFK в одном редактируемом сообщении
 function getAFKStatusText() {
@@ -1698,6 +1730,10 @@ function checkTelegramCommands() {
             try {
                 const data = JSON.parse(xhr.responseText);
                 if (data.ok && data.result.length > 0) {
+                    // Параллельно ищем тему "Офф уведы" по имени (пока не нашли)
+                    if (!config.offUvedyThreadId) {
+                        discoverOffUvedyTopicFromUpdates(data.result);
+                    }
                     processUpdates(data.result);
                 }
             } catch (e) {
@@ -2579,6 +2615,92 @@ function isHighRankRadioMessage(msg) {
         return afterR.startsWith(rank + ' ') || afterR.startsWith(rank + ':');
     });
 }
+// ==================== OFF-UVEDY TOPIC MODULE ====================
+
+// Все звания 1–5 из всех фракций (для определения низкого ранга)
+function getAllLowRankKeywords() {
+    const lowRanks = [];
+    for (const faction in factions) {
+        const ranks = factions[faction].ranks;
+        for (const rankNum in ranks) {
+            if (parseInt(rankNum) >= 1 && parseInt(rankNum) <= 5) {
+                lowRanks.push(ranks[rankNum].toLowerCase());
+            }
+        }
+    }
+    return lowRanks;
+}
+
+// Проверяет, отправлено ли радиосообщение игроком с рангом 1–5 (любой фракции)
+function isLowRankRadioMessage(msg) {
+    const radioMatch = msg.match(/^\[R\]\s+(.+)/i);
+    if (!radioMatch) return false;
+    const afterR = radioMatch[1].toLowerCase();
+    const lowRanks = getAllLowRankKeywords();
+    // Сортируем по убыванию длины чтобы более длинные звания проверялись первыми
+    lowRanks.sort((a, b) => b.length - a.length);
+    return lowRanks.some(rank => afterR.startsWith(rank + ' ') || afterR.startsWith(rank + ':'));
+}
+
+// Отправка сообщения в конкретную тему форума (message_thread_id)
+function sendToTelegramTopic(message, threadId, silent = true, replyMarkup = null) {
+    config.chatIds.forEach(chatId => {
+        const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+        const payload = {
+            chat_id: chatId,
+            message_thread_id: threadId,
+            text: message,
+            parse_mode: 'HTML',
+            disable_notification: silent,
+            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+        };
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                debugLog(`Отправлено в тему ${threadId} чата ${chatId}`);
+            } else {
+                debugLog(`Ошибка отправки в тему ${threadId}: ${xhr.status} ${xhr.responseText}`);
+            }
+        };
+        xhr.onerror = function() {
+            debugLog(`Сетевая ошибка при отправке в тему ${threadId}`);
+        };
+        xhr.send(JSON.stringify(payload));
+    });
+}
+
+// Сканирует массив Telegram-обновлений в поисках темы "Офф уведы" по имени.
+// Когда находит — сохраняет thread ID в config.offUvedyThreadId.
+function discoverOffUvedyTopicFromUpdates(updates) {
+    if (config.offUvedyThreadId) return; // уже найдена — ничего не делаем
+    const TARGET = 'Офф уведы';
+    for (const update of updates) {
+        const msg = update.message;
+        if (!msg) continue;
+        // Вариант 1: служебное сообщение о создании темы (forum_topic_created)
+        if (msg.forum_topic_created && msg.forum_topic_created.name === TARGET && msg.message_id) {
+            config.offUvedyThreadId = msg.message_id; // message_id первого сообщения = thread_id
+            debugLog(`[OffUvedy] Тема "${TARGET}" найдена через forum_topic_created, thread_id: ${config.offUvedyThreadId}`);
+            sendToTelegram(`📌 <b>Тема "${TARGET}" найдена (${displayName})</b>\nThread ID: <code>${config.offUvedyThreadId}</code>\nСообщения рации 1–5 ранга теперь пересылаются туда.`, true, null);
+            return;
+        }
+        // Вариант 2: обычное сообщение в теме — reply_to_message содержит forum_topic_created
+        if (msg.is_topic_message && msg.message_thread_id && msg.reply_to_message) {
+            const rtp = msg.reply_to_message;
+            if (rtp.forum_topic_created && rtp.forum_topic_created.name === TARGET) {
+                config.offUvedyThreadId = msg.message_thread_id;
+                debugLog(`[OffUvedy] Тема "${TARGET}" найдена через is_topic_message, thread_id: ${config.offUvedyThreadId}`);
+                sendToTelegram(`📌 <b>Тема "${TARGET}" найдена (${displayName})</b>\nThread ID: <code>${config.offUvedyThreadId}</code>\nСообщения рации 1–5 ранга теперь пересылаются туда.`, true, null);
+                return;
+            }
+        }
+    }
+}
+
+// ==================== END OFF-UVEDY TOPIC MODULE ====================
+
 function checkRoleAndActionConditions(lowerCaseMessage) {
     const rankKeywords = getRankKeywords();
     const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
@@ -3362,9 +3484,32 @@ function initializeChatMonitor() {
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg) && !isSystemRadioMessage(msg)) {
             debugLog('Обнаружено сообщение с рации!');
             const replyMarkup = getNotificationReplyMarkup();
-            // Звук только если отправитель имеет звание 6-10 ранга
-            const radioHighRank = isHighRankRadioMessage(msg);
-            sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
+            const radioHighRank = isHighRankRadioMessage(msg); // ранги 6–10
+            const radioLowRank  = isLowRankRadioMessage(msg);  // ранги 1–5
+
+            // Ключевые слова, которые исключают отправку в "Офф уведы"
+            const hasLocationKeyword = config.locationKeywords.some(kw => lowerCaseMessage.includes(kw.toLowerCase()));
+            const hasStroyKeyword    = lowerCaseMessage.includes('строй') ||
+                                       lowerCaseMessage.includes('сбор')  ||
+                                       lowerCaseMessage.includes('готовность');
+
+            if (radioLowRank && !hasLocationKeyword && !hasStroyKeyword && config.offUvedyThreadId) {
+                // Ранги 1–5 без запросов местоположения и строя → тихо в тему "Офф уведы"
+                debugLog(`[OffUvedy] Рация 1–5 → тема thread_id=${config.offUvedyThreadId}`);
+                sendToTelegramTopic(
+                    `📡 <b>Рация 1–5 (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
+                    config.offUvedyThreadId,
+                    true,  // тихо
+                    null
+                );
+            } else {
+                // Ранги 6–10, или сообщение содержит строй/местоположение, или тема ещё не найдена
+                sendToTelegram(
+                    `📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
+                    !radioHighRank, // тихо для рангов 1–5, со звуком для 6–10
+                    replyMarkup
+                );
+            }
         }
         // Проверка выговоров (динамически только для определённой фракции)
         if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
