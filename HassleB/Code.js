@@ -139,7 +139,7 @@ const userConfig = {
     govMessageThreshold: 10,
     govMessageKeywords: ["тут", "здесь"],
     trackLocationRequests: false,
-    locationKeywords: ["местоположение", "место", "позиция", "координаты"],
+    locationKeywords: ["местоположение", "место", "позиция", "координаты", "нахож"],
     radioOfficialNotifications: true,
     warningNotifications: true,
     notificationDeleteDelay: 5000,
