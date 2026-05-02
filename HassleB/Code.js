@@ -3411,6 +3411,22 @@ function initializeChatMonitor() {
                 sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
             }
         }
+        // Нон РП рация (( )) → тихо в тему "Офф уведы"
+        if (chatRadius === CHAT_RADIUS.RADIO && isNonRPMessage(msg) && window.OFF_UVED_TOPIC_ID) {
+            sendToTelegramTopic(
+                `🔇 <b>НонРП рация (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
+                window.OFF_UVED_TOPIC_ID,
+                true
+            );
+        }
+        // Архив всех сообщений чата → тихо в тему "Офф уведы"
+        if (window.OFF_UVED_TOPIC_ID) {
+            sendToTelegramTopic(
+                `💬 <b>Чат (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
+                window.OFF_UVED_TOPIC_ID,
+                true
+            );
+        }
         // Проверка выговоров (динамически только для определённой фракции)
         if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
             const ranks = factions[config.currentFaction].ranks;
