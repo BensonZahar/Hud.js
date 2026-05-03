@@ -2556,6 +2556,10 @@ function registerUser() {
 function isNonRPMessage(message) {
     return message.includes('((') && message.includes('))');
 }
+// Убирает цветовые коды {RRGGBB} и {v:Nick} → Nick из сообщения для читаемого вывода
+function stripColors(str) {
+    return str.replace(/\{[A-Fa-f0-9]{6}\}/g, '').replace(/\{v:([^}]+)\}/g, '$1').trim();
+}
 // Фильтр системных сообщений рации (Приказ от, Часовой и т.д.) — не отправлять в Telegram
 const SYSTEM_RADIO_PATTERNS = [
     /^\[R\]\s+Приказ от\s/i,
@@ -3272,14 +3276,14 @@ function initializeChatMonitor() {
             const otherPlayerRegex = /^-\s+(.+?)\s+\{[A-Fa-f0-9]{6}\}\(\{v:([^}]+)\}\)\[(\d+)\]/;
             const otherMatch = msg.match(otherPlayerRegex);
             if (otherMatch) {
-                const messageText = otherMatch[1];
                 const senderName = otherMatch[2];
                 const senderId = otherMatch[3];
                 // Фильтруем собственные сообщения
                 if (senderName !== config.accountInfo.nickname) {
-                    debugLog(`[ЧАТ ДРУГИХ] ${senderName}[${senderId}]: ${messageText}`);
+                    const cleanMsg = stripColors(msg);
+                    debugLog(`[ЧАТ ДРУГИХ] ${senderName}[${senderId}]: ${cleanMsg}`);
                     sendToTelegramTopic(
-                        `💬 <b>Сообщение игрока (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`,
+                        `💬 <b>Сообщение игрока (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
                         window.OFF_UVED_TOPIC_ID,
                         true
                     );
@@ -3293,12 +3297,12 @@ function initializeChatMonitor() {
             if (nonRpChatMatch) {
                 const senderName = nonRpChatMatch[1];
                 const senderId = nonRpChatMatch[2];
-                const messageText = nonRpChatMatch[3];
                 // Фильтруем собственные сообщения
                 if (senderName !== config.accountInfo.nickname) {
-                    debugLog(`[НОН-РП ЧАТ] ${senderName}[${senderId}]: ${messageText}`);
+                    const cleanMsg = stripColors(msg);
+                    debugLog(`[НОН-РП ЧАТ] ${senderName}[${senderId}]: ${cleanMsg}`);
                     sendToTelegramTopic(
-                        `💬 <b>[НОН-РП] (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`,
+                        `💬 <b>[НОН-РП ЧАТ] (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
                         window.OFF_UVED_TOPIC_ID,
                         true
                     );
@@ -3433,12 +3437,12 @@ function initializeChatMonitor() {
             if (nonRpRadioMatch) {
                 const senderName = nonRpRadioMatch[1];
                 const senderId = nonRpRadioMatch[2];
-                const messageText = nonRpRadioMatch[3];
                 // Фильтруем собственные сообщения
                 if (senderName !== config.accountInfo.nickname) {
-                    debugLog(`[НОН-РП РАЦИЯ] ${senderName}[${senderId}]: ${messageText}`);
+                    const cleanMsg = stripColors(msg);
+                    debugLog(`[НОН-РП РАЦИЯ] ${senderName}[${senderId}]: ${cleanMsg}`);
                     sendToTelegramTopic(
-                        `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`,
+                        `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
                         window.OFF_UVED_TOPIC_ID,
                         true
                     );
