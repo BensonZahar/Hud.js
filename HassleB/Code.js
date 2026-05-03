@@ -3265,19 +3265,18 @@ function initializeChatMonitor() {
                 }
             }
         }
-        // Сообщения других игроков (НЕ своей фракции) → тихо в тему
-        if (window.OFF_UVED_TOPIC_ID) {
-            const normalizedMsgColorHex = normalizeColor(i).replace('0x', '').toUpperCase();
-            const factionColorUpper = factionColor.toUpperCase();
-            if ((chatRadius === CHAT_RADIUS.CLOSE || chatRadius === CHAT_RADIUS.SELF) &&
-                normalizedMsgColorHex !== factionColorUpper) {
-                // Формат: - текст {COLOR}({v:Nick})[ID]
-                const otherPlayerRegex = /^-\s+(.+?)\s+\{[A-Fa-f0-9]{6}\}\(\{v:([^}]+)\}\)\[(\d+)\]/;
-                const otherMatch = msg.match(otherPlayerRegex);
-                if (otherMatch) {
-                    const messageText = otherMatch[1];
-                    const senderName = otherMatch[2];
-                    const senderId = otherMatch[3];
+        // Сообщения других игроков (НЕ своей фракции, НЕ своё, НЕ уже обработанное) → тихо в тему
+        if (window.OFF_UVED_TOPIC_ID && !govMatch &&
+            (chatRadius === CHAT_RADIUS.CLOSE || chatRadius === CHAT_RADIUS.SELF)) {
+            // Формат: - текст {COLOR}({v:Nick})[ID]
+            const otherPlayerRegex = /^-\s+(.+?)\s+\{[A-Fa-f0-9]{6}\}\(\{v:([^}]+)\}\)\[(\d+)\]/;
+            const otherMatch = msg.match(otherPlayerRegex);
+            if (otherMatch) {
+                const messageText = otherMatch[1];
+                const senderName = otherMatch[2];
+                const senderId = otherMatch[3];
+                // Фильтруем собственные сообщения
+                if (senderName !== config.accountInfo.nickname) {
                     debugLog(`[ЧАТ ДРУГИХ] ${senderName}[${senderId}]: ${messageText}`);
                     sendToTelegramTopic(
                         `💬 <b>Сообщение игрока (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`,
@@ -3295,12 +3294,15 @@ function initializeChatMonitor() {
                 const senderName = nonRpChatMatch[1];
                 const senderId = nonRpChatMatch[2];
                 const messageText = nonRpChatMatch[3];
-                debugLog(`[НОН-РП ЧАТ] ${senderName}[${senderId}]: ${messageText}`);
-                sendToTelegramTopic(
-                    `💬 <b>[НОН-РП] (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`,
-                    window.OFF_UVED_TOPIC_ID,
-                    true
-                );
+                // Фильтруем собственные сообщения
+                if (senderName !== config.accountInfo.nickname) {
+                    debugLog(`[НОН-РП ЧАТ] ${senderName}[${senderId}]: ${messageText}`);
+                    sendToTelegramTopic(
+                        `💬 <b>[НОН-РП] (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`,
+                        window.OFF_UVED_TOPIC_ID,
+                        true
+                    );
+                }
             }
         }
         processSalaryAndBalance(msg);
@@ -3432,12 +3434,15 @@ function initializeChatMonitor() {
                 const senderName = nonRpRadioMatch[1];
                 const senderId = nonRpRadioMatch[2];
                 const messageText = nonRpRadioMatch[3];
-                debugLog(`[НОН-РП РАЦИЯ] ${senderName}[${senderId}]: ${messageText}`);
-                sendToTelegramTopic(
-                    `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`,
-                    window.OFF_UVED_TOPIC_ID,
-                    true
-                );
+                // Фильтруем собственные сообщения
+                if (senderName !== config.accountInfo.nickname) {
+                    debugLog(`[НОН-РП РАЦИЯ] ${senderName}[${senderId}]: ${messageText}`);
+                    sendToTelegramTopic(
+                        `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`,
+                        window.OFF_UVED_TOPIC_ID,
+                        true
+                    );
+                }
             } else {
                 // Формат не совпал — отправляем как есть
                 sendToTelegramTopic(
