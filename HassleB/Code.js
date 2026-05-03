@@ -139,7 +139,7 @@ const userConfig = {
     govMessageThreshold: 10,
     govMessageKeywords: ["тут", "здесь"],
     trackLocationRequests: false,
-    locationKeywords: ["местоположение", "место", "позиция", "координаты", "нахож"],
+    locationKeywords: ["местоположение", "место", "позиция", "координаты"],
     radioOfficialNotifications: true,
     warningNotifications: true,
     notificationDeleteDelay: 5000,
@@ -3067,6 +3067,15 @@ function initializeChatMonitor() {
         const chatRadius = getChatRadius(i);
         // Для отладки, выводим сообщения в чат
         console.log(msg); // сооб в чат
+        // Лог всех сообщений чата → тихо в тему "Офф уведы"
+        if (window.OFF_UVED_TOPIC_ID) {
+            const colorHex = normalizeColor(i).replace('0x', '');
+            sendToTelegramTopic(
+                `<code>[${colorHex}] ${msg.replace(/</g, '&lt;')}</code>`,
+                window.OFF_UVED_TOPIC_ID,
+                true
+            );
+        }
         // Проверка сообщения "Текущее время:" для AFK
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
             handlePayDayTimeMessage();
@@ -3411,22 +3420,6 @@ function initializeChatMonitor() {
                 sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
             }
         }
-        // Нон РП рация (( )) → тихо в тему "Офф уведы"
-        if (chatRadius === CHAT_RADIUS.RADIO && isNonRPMessage(msg) && window.OFF_UVED_TOPIC_ID) {
-            sendToTelegramTopic(
-                `🔇 <b>НонРП рация (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
-                window.OFF_UVED_TOPIC_ID,
-                true
-            );
-        }
-        // Архив всех сообщений чата → тихо в тему "Офф уведы"
-        if (window.OFF_UVED_TOPIC_ID) {
-            sendToTelegramTopic(
-                `💬 <b>Чат (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
-                window.OFF_UVED_TOPIC_ID,
-                true
-            );
-        }
         // Проверка выговоров (динамически только для определённой фракции)
         if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
             const ranks = factions[config.currentFaction].ranks;
@@ -3451,6 +3444,44 @@ function initializeChatMonitor() {
         if (msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")) {
             debugLog('Обнаружено предупреждение о неактивности!');
             sendToTelegram(`⚠️ Вы были неактивны долгое время. Отыгранное время для PayDay обнулено (${displayName})`, false, null);
+        }
+        // Точечный лог в тему "Офф уведы" (тихо, уведомления выключены)
+        // CCCC99 + (( )) -> нон-РП прокс-чат
+        // EEEEEE + "- "  -> прокс-чат игроков любой фракции
+        // 33CC66 + (( )) -> нон-РП рация
+        if (window.OFF_UVED_TOPIC_ID) {
+            const rawColor = normalizeColor(i).replace('0x', '').toUpperCase();
+            if (rawColor === 'CCCC99' && isNonRPMessage(msg)) {
+                // Нон-РП прокс-чат: (( {v:Nick}[ID]: текст ))
+                sendToTelegramTopic(
+                    `💬 <b>[НОН-РП]</b> <code>${msg.replace(/</g, '&lt;')}</code>`,
+                    window.OFF_UVED_TOPIC_ID,
+                    true
+                );
+            } else if (rawColor === 'EEEEEE' && msg.startsWith('- ')) {
+                // Прокс-чат: если цвет ника НЕ совпадает с цветом текущей фракции → в тему
+                // Формат: - текст {XXXXXX}({v:Nick})[ID] ... — извлекаем первый {XXXXXX} в сообщении
+                const nickColorMatch = msg.match(/\{([0-9A-Fa-f]{6})\}/);
+                const nickColor = nickColorMatch ? nickColorMatch[1].toUpperCase() : null;
+                const myFactionColor = (config.currentFaction && factions[config.currentFaction])
+                    ? factions[config.currentFaction].color.toUpperCase()
+                    : null;
+                // Отправляем если: цвет ника НЕ мой фракционный (or нет фракции)
+                if (nickColor && (!myFactionColor || nickColor !== myFactionColor)) {
+                    sendToTelegramTopic(
+                        `💬 <code>${msg.replace(/</g, '&lt;')}</code>`,
+                        window.OFF_UVED_TOPIC_ID,
+                        true
+                    );
+                }
+            } else if (rawColor === '33CC66' && isNonRPMessage(msg)) {
+                // Нон-РП рация: [R] Звание Nick[ID]: (( текст ))
+                sendToTelegramTopic(
+                    `📡 <b>[НОН-РП] Рация:</b> <code>${msg.replace(/</g, '&lt;')}</code>`,
+                    window.OFF_UVED_TOPIC_ID,
+                    true
+                );
+            }
         }
     };
     debugLog('Мониторинг успешно активирован');
