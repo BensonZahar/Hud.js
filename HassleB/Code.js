@@ -29,6 +29,46 @@ const globalState = {
     prisonTimeTimer: null  // Таймер периодического опроса /time
 };
 // END GLOBAL STATE MODULE //
+// START MESSAGE BUFFER MODULE //
+// Буфер для НОН-РП ЧАТ, Сообщений игрока и НОН-РП Рации.
+// Сообщения собираются и отправляются пачками раз в 35 секунд.
+const MESSAGE_BUFFER_INTERVAL = 35000; // 35 секунд
+const MESSAGE_BUFFER_MAX_LEN  = 3800;  // безопасный лимит Telegram (4096 - запас)
+const _msgBuffer = {}; // ключ: topicId, значение: string[]
+
+function pushToMessageBuffer(text, topicId) {
+    if (!_msgBuffer[topicId]) _msgBuffer[topicId] = [];
+    _msgBuffer[topicId].push(text);
+}
+
+function flushMessageBuffer() {
+    try {
+        for (const topicId in _msgBuffer) {
+            const lines = _msgBuffer[topicId];
+            if (!lines || lines.length === 0) continue;
+            delete _msgBuffer[topicId];
+
+            // Разбиваем на порции, не превышающие MESSAGE_BUFFER_MAX_LEN
+            let chunk = '';
+            for (const line of lines) {
+                const separator = chunk ? '\n\n' : '';
+                if ((chunk + separator + line).length > MESSAGE_BUFFER_MAX_LEN) {
+                    if (chunk) sendToTelegramTopic(chunk, topicId, true);
+                    chunk = line;
+                } else {
+                    chunk += separator + line;
+                }
+            }
+            if (chunk) sendToTelegramTopic(chunk, topicId, true);
+        }
+    } catch (e) {
+        debugLog(`[MSG_BUFFER] Ошибка флаша: ${e.message}`);
+    }
+    setTimeout(flushMessageBuffer, MESSAGE_BUFFER_INTERVAL);
+}
+// Запускаем таймер флаша (первый запуск через 35 секунд)
+setTimeout(flushMessageBuffer, MESSAGE_BUFFER_INTERVAL);
+// END MESSAGE BUFFER MODULE //
 // START PENDING INPUTS MODULE (iOS fix) //
 // Хранит ожидаемые вводы для совместимости с iOS (без reply)
 // Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
@@ -329,7 +369,11 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // END AUTO LOGIN MODULE //
 // START SHARED STORAGE MODULE //
 // localStorage не работает в CEF-среде — используем in-memory переменную
-let _sharedLastUpdateId = 0;
+// При перезагрузке (/reload) восстанавливаем lastUpdateId из window, чтобы не получить
+// тот же /reload повторно и не попасть в бесконечный цикл перезагрузок.
+let _sharedLastUpdateId = (typeof window._hassleLastUpdateId === 'number' && window._hassleLastUpdateId > 0)
+    ? window._hassleLastUpdateId
+    : 0;
 function getSharedLastUpdateId() {
     return _sharedLastUpdateId;
 }
@@ -1883,6 +1927,9 @@ function processUpdates(updates) {
                     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
                     debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
                     window._hassleReloading = true;
+                    // Сохраняем текущий update_id в window, чтобы после перезагрузки
+                    // Code.js не начал снова с offset=0 и не повторил /reload бесконечно
+                    window._hassleLastUpdateId = config.lastUpdateId;
                     setTimeout(() => {
                         window._hassleReloading = false;
                         try {
@@ -3282,10 +3329,9 @@ function initializeChatMonitor() {
                 if (senderName !== config.accountInfo.nickname) {
                     const cleanMsg = stripColors(msg);
                     debugLog(`[ЧАТ ДРУГИХ] ${senderName}[${senderId}]: ${cleanMsg}`);
-                    sendToTelegramTopic(
+                    pushToMessageBuffer(
                         `💬 <b>Сообщение игрока (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
-                        window.OFF_UVED_TOPIC_ID,
-                        true
+                        window.OFF_UVED_TOPIC_ID
                     );
                 }
             }
@@ -3301,10 +3347,9 @@ function initializeChatMonitor() {
                 if (senderName !== config.accountInfo.nickname) {
                     const cleanMsg = stripColors(msg);
                     debugLog(`[НОН-РП ЧАТ] ${senderName}[${senderId}]: ${cleanMsg}`);
-                    sendToTelegramTopic(
+                    pushToMessageBuffer(
                         `💬 <b>[НОН-РП ЧАТ] (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
-                        window.OFF_UVED_TOPIC_ID,
-                        true
+                        window.OFF_UVED_TOPIC_ID
                     );
                 }
             }
@@ -3441,18 +3486,16 @@ function initializeChatMonitor() {
                 if (senderName !== config.accountInfo.nickname) {
                     const cleanMsg = stripColors(msg);
                     debugLog(`[НОН-РП РАЦИЯ] ${senderName}[${senderId}]: ${cleanMsg}`);
-                    sendToTelegramTopic(
+                    pushToMessageBuffer(
                         `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
-                        window.OFF_UVED_TOPIC_ID,
-                        true
+                        window.OFF_UVED_TOPIC_ID
                     );
                 }
             } else {
                 // Формат не совпал — отправляем как есть
-                sendToTelegramTopic(
+                pushToMessageBuffer(
                     `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
-                    window.OFF_UVED_TOPIC_ID,
-                    true
+                    window.OFF_UVED_TOPIC_ID
                 );
             }
         }
