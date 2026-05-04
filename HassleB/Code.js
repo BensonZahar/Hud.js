@@ -328,13 +328,14 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 };
 // END AUTO LOGIN MODULE //
 // START SHARED STORAGE MODULE //
-// localStorage не работает в CEF-среде — используем in-memory переменную
-let _sharedLastUpdateId = 0;
+// localStorage не работает в CEF-среде — используем window-переменную
+// (не сбрасывается при повторном eval Code.js через /reload)
+if (window._hassleLastUpdateId === undefined) window._hassleLastUpdateId = 0;
 function getSharedLastUpdateId() {
-    return _sharedLastUpdateId;
+    return window._hassleLastUpdateId;
 }
 function setSharedLastUpdateId(id) {
-    _sharedLastUpdateId = id;
+    window._hassleLastUpdateId = id;
     debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
 // END SHARED STORAGE MODULE //
@@ -4701,6 +4702,10 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
 }
 
 // ── Обёртка processUpdates ────────────────────────────────────
+// Защита от повторной обёртки при /reload (иначе слои накапливаются)
+
+if (!window._dlgProcessUpdatesHooked) {
+    window._dlgProcessUpdatesHooked = true;
 
 const _dlgOrigProcessUpdates = processUpdates;
 
@@ -4804,6 +4809,8 @@ processUpdates = function(updates) {
         _dlgOrigProcessUpdates(passThrough);
     }
 };
+
+} // end if (!window._dlgProcessUpdatesHooked)
 
 debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
 // ==================== END DIALOG MONITOR MODULE v2 ====================
