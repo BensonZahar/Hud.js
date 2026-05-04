@@ -328,14 +328,13 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 };
 // END AUTO LOGIN MODULE //
 // START SHARED STORAGE MODULE //
-// localStorage не работает в CEF-среде — используем window-переменную
-// (не сбрасывается при повторном eval Code.js через /reload)
-if (window._hassleLastUpdateId === undefined) window._hassleLastUpdateId = 0;
+// localStorage не работает в CEF-среде — используем in-memory переменную
+let _sharedLastUpdateId = 0;
 function getSharedLastUpdateId() {
-    return window._hassleLastUpdateId;
+    return _sharedLastUpdateId;
 }
 function setSharedLastUpdateId(id) {
-    window._hassleLastUpdateId = id;
+    _sharedLastUpdateId = id;
     debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
 // END SHARED STORAGE MODULE //
@@ -729,65 +728,6 @@ function sendToTelegramTopic(message, topicId, silent = true) {
         xhr.send(JSON.stringify(payload));
     });
 }
-// START MESSAGE BATCH MODULE //
-// Буфер для накопления "шумных" сообщений (нон-РП чат, рация, игроки)
-// Сбрасывается раз в 30–40 секунд одним или несколькими сообщениями
-const messageBatch = {
-    queue: [],       // Массив { text: string, topicId: string }
-    timer: null,
-    INTERVAL_MIN: 30000,  // 30 сек
-    INTERVAL_MAX: 40000   // 40 сек
-};
-
-function batchToTelegramTopic(message, topicId) {
-    messageBatch.queue.push({ text: message, topicId });
-    debugLog(`[BATCH] В очереди ${messageBatch.queue.length} сообщ.`);
-}
-
-function flushMessageBatch() {
-    if (messageBatch.queue.length > 0) {
-        // Группируем по topicId (на случай нескольких тем)
-        const byTopic = {};
-        for (const item of messageBatch.queue) {
-            if (!byTopic[item.topicId]) byTopic[item.topicId] = [];
-            byTopic[item.topicId].push(item.text);
-        }
-        messageBatch.queue = [];
-
-        for (const topicId in byTopic) {
-            const msgs = byTopic[topicId];
-            const MAX_LEN = 4000; // Telegram лимит ~4096, берём с запасом
-            let chunk = '';
-
-            for (const msg of msgs) {
-                const sep = chunk ? '\n\n' : '';
-                if ((chunk + sep + msg).length > MAX_LEN) {
-                    // Текущий chunk заполнен — отправляем и начинаем новый
-                    sendToTelegramTopic(chunk, topicId, true);
-                    chunk = msg;
-                } else {
-                    chunk += sep + msg;
-                }
-            }
-            if (chunk) {
-                sendToTelegramTopic(chunk, topicId, true);
-            }
-
-            debugLog(`[BATCH] Отправлено ${msgs.length} сообщ. в тему ${topicId}`);
-        }
-    }
-
-    // Следующий сброс через 30–40 сек (рандом чтобы не было паттерна)
-    const delay = Math.floor(Math.random() * (messageBatch.INTERVAL_MAX - messageBatch.INTERVAL_MIN + 1)) + messageBatch.INTERVAL_MIN;
-    messageBatch.timer = setTimeout(flushMessageBatch, delay);
-}
-
-// Запускаем таймер сразу при загрузке
-(function startBatchTimer() {
-    const delay = Math.floor(Math.random() * (messageBatch.INTERVAL_MAX - messageBatch.INTERVAL_MIN + 1)) + messageBatch.INTERVAL_MIN;
-    messageBatch.timer = setTimeout(flushMessageBatch, delay);
-})();
-// END MESSAGE BATCH MODULE //
 // START WELCOME MESSAGE MODULE //
 function sendWelcomeMessage() {
     if (!config.accountInfo.nickname) {
@@ -3342,9 +3282,10 @@ function initializeChatMonitor() {
                 if (senderName !== config.accountInfo.nickname) {
                     const cleanMsg = stripColors(msg);
                     debugLog(`[ЧАТ ДРУГИХ] ${senderName}[${senderId}]: ${cleanMsg}`);
-                    batchToTelegramTopic(
+                    sendToTelegramTopic(
                         `💬 <b>Сообщение игрока (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
-                        window.OFF_UVED_TOPIC_ID
+                        window.OFF_UVED_TOPIC_ID,
+                        true
                     );
                 }
             }
@@ -3360,9 +3301,10 @@ function initializeChatMonitor() {
                 if (senderName !== config.accountInfo.nickname) {
                     const cleanMsg = stripColors(msg);
                     debugLog(`[НОН-РП ЧАТ] ${senderName}[${senderId}]: ${cleanMsg}`);
-                    batchToTelegramTopic(
+                    sendToTelegramTopic(
                         `💬 <b>[НОН-РП ЧАТ] (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
-                        window.OFF_UVED_TOPIC_ID
+                        window.OFF_UVED_TOPIC_ID,
+                        true
                     );
                 }
             }
@@ -3499,16 +3441,18 @@ function initializeChatMonitor() {
                 if (senderName !== config.accountInfo.nickname) {
                     const cleanMsg = stripColors(msg);
                     debugLog(`[НОН-РП РАЦИЯ] ${senderName}[${senderId}]: ${cleanMsg}`);
-                    batchToTelegramTopic(
+                    sendToTelegramTopic(
                         `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
-                        window.OFF_UVED_TOPIC_ID
+                        window.OFF_UVED_TOPIC_ID,
+                        true
                     );
                 }
             } else {
                 // Формат не совпал — отправляем как есть
-                batchToTelegramTopic(
+                sendToTelegramTopic(
                     `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
-                    window.OFF_UVED_TOPIC_ID
+                    window.OFF_UVED_TOPIC_ID,
+                    true
                 );
             }
         }
@@ -3524,10 +3468,11 @@ function initializeChatMonitor() {
             const isLocationMsg = checkLocationRequest(msg, lowerCaseMessage, chatRadius);
 
             if (offUvedTopicId && !isStroiMsg && !isLocationMsg) {
-                // Обычная рация → тихо в тему "Офф уведы" (батч)
-                batchToTelegramTopic(
+                // Обычная рация → тихо в тему "Офф уведы"
+                sendToTelegramTopic(
                     `📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
-                    offUvedTopicId
+                    offUvedTopicId,
+                    true
                 );
             } else {
                 // Строй / местоположение / тема не задана → основной чат как раньше
@@ -4702,10 +4647,6 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
 }
 
 // ── Обёртка processUpdates ────────────────────────────────────
-// Защита от повторной обёртки при /reload (иначе слои накапливаются)
-
-if (!window._dlgProcessUpdatesHooked) {
-    window._dlgProcessUpdatesHooked = true;
 
 const _dlgOrigProcessUpdates = processUpdates;
 
@@ -4809,8 +4750,6 @@ processUpdates = function(updates) {
         _dlgOrigProcessUpdates(passThrough);
     }
 };
-
-} // end if (!window._dlgProcessUpdatesHooked)
 
 debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
 // ==================== END DIALOG MONITOR MODULE v2 ====================
