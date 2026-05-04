@@ -229,9 +229,12 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
+// ИСПРАВЛЕНО: enabled теперь берётся из константы AUTO_LOGIN_ENABLED (List.js),
+// как это сделано с RECONNECT_ENABLED_DEFAULT. Добавь в List.js:
+//   const AUTO_LOGIN_ENABLED = true; // или false для отключения
 const autoLoginConfig = {
     password: PASSWORD, // Ваш пароль
-    enabled: true, // Флаг активации автовхода
+    enabled: (typeof AUTO_LOGIN_ENABLED !== 'undefined') ? AUTO_LOGIN_ENABLED : true, // Управляется из List.js
     maxAttempts: 10, // Максимум попыток
     attemptInterval: 1000 // Интервал между попытками (мс)
 };
@@ -313,6 +316,8 @@ function initializeAutoLogin() {
         setupAutoLogin();
     } else {
         // Открываем интерфейс Authorization с параметрами
+        // ИСПРАВЛЕНО: пароль передаётся только если автовход включён,
+        // иначе игровой движок мог входить сам по паролю из openParams
         const openParams = [
             "auth", // Страница авторизации
             config.accountInfo.nickname || "Pavel_Nabokov", // Логин (замените на ваш, если известен)
@@ -324,7 +329,7 @@ function initializeAutoLogin() {
             "https://radmir.online/recovery-password", // Восстановление пароля
             { // Дополнительные параметры
                 autoLogin: {
-                    password: autoLoginConfig.password,
+                    password: autoLoginConfig.enabled ? autoLoginConfig.password : '', // ← пароль только если enabled
                     enabled: autoLoginConfig.enabled
                 }
             }
@@ -357,10 +362,12 @@ function initializeAutoLogin() {
     }
 }
 // Перехват window.openInterface для автоматического входа (хуком)
+// ИСПРАВЛЕНО: добавлена проверка autoLoginConfig.enabled — без неё хук вызывал
+// initializeAutoLogin даже при disabled, и создавал двойной цикл вызовов
 const originalOpenInterface = window.openInterface;
 window.openInterface = function(interfaceName, params, additionalParams) {
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);
-    if (interfaceName === "Authorization") {
+    if (interfaceName === "Authorization" && autoLoginConfig.enabled) { // ← проверка enabled
         debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
         setTimeout(initializeAutoLogin, 500); // Задержка для инициализации компонента
     }
