@@ -172,7 +172,6 @@ function applyUserConfig() {
     window.DEFAULT_TOKEN = null;
     window.PASSWORD = userConfig.PASSWORD;
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
-    window.OFF_UVED_TOPIC_ID = userConfig.OFF_UVED_TOPIC_ID || null;
 
     window.ACCOUNT_NUMBER = accountNumber;
     const userBotTokens = userConfig.BOT_TOKENS || {};
