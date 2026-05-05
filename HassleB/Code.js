@@ -139,8 +139,9 @@ const userConfig = {
     govMessageThreshold: 10,
     govMessageKeywords: ["тут", "здесь"],
     trackLocationRequests: false,
-    locationKeywords: ["местоположение", "место", "позиция", "координаты"],
+    locationKeywords: ["местоположение", "место", "позиция", "координаты", "нахож"],
     radioOfficialNotifications: true,
+    radioAllMessages: false, // false = только сообщения с запросом местоположения или строем; true = все сообщения с рации
     warningNotifications: true,
     notificationDeleteDelay: 5000,
     trackSkinId: true,
@@ -715,6 +716,7 @@ function sendWelcomeMessage() {
         `├ Уведомления PayDay: ${config.paydayNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Уведомления рации: ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `├ Рация: ${config.radioAllMessages ? '📨 Все сообщения' : '🎯 Только место/строй'}\n` +
         `├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `└ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
     const replyMarkup = {
@@ -1468,6 +1470,12 @@ function showRadioOptionsMenu(chatId, messageId, uniqueIdParam) {
                 createButton("🔔 ВКЛ", `global_radio_on_${uniqueIdParam}`),
                 createButton("🔕 ВЫКЛ", `global_radio_off_${uniqueIdParam}`)
             ],
+            [
+                createButton(
+                    config.radioAllMessages ? "📨 Все сообщения: ВКЛ" : "🎯 Только место/строй: ВКЛ",
+                    `global_radio_all_toggle_${uniqueIdParam}`
+                )
+            ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
     };
@@ -1626,6 +1634,12 @@ function showLocalRadioOptionsMenu(chatId, messageId) {
             [
                 createButton("🔔 ВКЛ", `local_radio_on_${uniqueId}`),
                 createButton("🔕 ВЫКЛ", `local_radio_off_${uniqueId}`)
+            ],
+            [
+                createButton(
+                    config.radioAllMessages ? "📨 Все сообщения: ВКЛ" : "🎯 Только место/строй: ВКЛ",
+                    `local_radio_all_toggle_${uniqueId}`
+                )
             ],
             [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
         ]
@@ -1991,7 +2005,8 @@ function processUpdates(updates) {
                 message.startsWith('levelup_reconnect_') ||
                 message.startsWith('show_pdc_menu_') ||
                 message.startsWith('pdc_start_') ||
-                message.startsWith('pdc_stop_');
+                message.startsWith('pdc_stop_') ||
+                message.startsWith('global_radio_all_toggle_');
             let callbackUniqueId = null;
             if (message.startsWith('show_controls_')) {
                 callbackUniqueId = message.replace('show_controls_', '');
@@ -2017,6 +2032,8 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('local_radio_on_', '');
             } else if (message.startsWith('local_radio_off_')) {
                 callbackUniqueId = message.replace('local_radio_off_', '');
+            } else if (message.startsWith('local_radio_all_toggle_')) {
+                callbackUniqueId = message.replace('local_radio_all_toggle_', '');
             } else if (message.startsWith('local_warning_on_')) {
                 callbackUniqueId = message.replace('local_warning_on_', '');
             } else if (message.startsWith('local_warning_off_')) {
@@ -2077,6 +2094,8 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('global_radio_on_', '');
             } else if (message.startsWith('global_radio_off_')) {
                 callbackUniqueId = message.replace('global_radio_off_', '');
+            } else if (message.startsWith('global_radio_all_toggle_')) {
+                callbackUniqueId = message.replace('global_radio_all_toggle_', '');
             } else if (message.startsWith('global_warning_on_')) {
                 callbackUniqueId = message.replace('global_warning_on_', '');
             } else if (message.startsWith('global_warning_off_')) {
@@ -2225,6 +2244,11 @@ function processUpdates(updates) {
                 config.radioOfficialNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления с Рации отключены для всех аккаунтов</b>`, false, null);
                 sendWelcomeMessage();
+            } else if (message.startsWith(`global_radio_all_toggle_`)) {
+                config.radioAllMessages = !config.radioAllMessages;
+                const modeText = config.radioAllMessages ? '📨 Все сообщения' : '🎯 Только место/строй';
+                sendToTelegram(`📡 <b>Режим рации изменён для всех аккаунтов: ${modeText}</b>`, false, null);
+                showRadioOptionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`global_warning_on_`)) {
                 config.warningNotifications = true;
                 sendToTelegram(`🔔 <b>Уведомления о выговорах включены для всех аккаунтов</b>`, false, null);
@@ -2456,6 +2480,11 @@ function processUpdates(updates) {
                 config.radioOfficialNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
+            } else if (message.startsWith("local_radio_all_toggle_")) {
+                config.radioAllMessages = !config.radioAllMessages;
+                const modeText = config.radioAllMessages ? '📨 Все сообщения' : '🎯 Только место/строй';
+                sendToTelegram(`📡 <b>Режим рации изменён для ${displayName}: ${modeText}</b>`, false, null);
+                showLocalRadioOptionsMenu(chatId, messageId);
             } else if (message.startsWith("local_warning_on_")) {
                 config.warningNotifications = true;
                 sendToTelegram(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, false, null);
@@ -2536,6 +2565,16 @@ const SYSTEM_RADIO_PATTERNS = [
 ];
 function isSystemRadioMessage(message) {
     return SYSTEM_RADIO_PATTERNS.some(pattern => pattern.test(message));
+}
+// Ключевые слова строя — те же что в основном детекторе (строки ~3288)
+const RADIO_STROI_KEYWORDS = ['строй', 'сбор', 'готовность', 'конф'];
+// Возвращает true если сообщение с рации содержит запрос местоположения или команду строя
+// Переиспользует config.locationKeywords и RADIO_STROI_KEYWORDS (дублирование не нужно)
+function isRadioImportantMessage(msg) {
+    const lower = msg.toLowerCase();
+    const hasLocation = config.locationKeywords.some(kw => lower.includes(kw.toLowerCase()));
+    const hasStroi = RADIO_STROI_KEYWORDS.some(kw => lower.includes(kw));
+    return hasLocation || hasStroi;
 }
 function checkIDFormats(message) {
     const idRegex = /(\d-\d-\d|\d{3})/g;
@@ -3360,11 +3399,17 @@ function initializeChatMonitor() {
         }
         // Проверка сообщений с рации
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg) && !isSystemRadioMessage(msg)) {
-            debugLog('Обнаружено сообщение с рации!');
-            const replyMarkup = getNotificationReplyMarkup();
-            // Звук только если отправитель имеет звание 6-10 ранга
-            const radioHighRank = isHighRankRadioMessage(msg);
-            sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
+            // Фильтр: если radioAllMessages выключен — слать только запросы местоположения и строй
+            const shouldSend = config.radioAllMessages || isRadioImportantMessage(msg);
+            if (shouldSend) {
+                debugLog('Обнаружено сообщение с рации!');
+                const replyMarkup = getNotificationReplyMarkup();
+                // Звук только если отправитель имеет звание 6-10 ранга
+                const radioHighRank = isHighRankRadioMessage(msg);
+                sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
+            } else {
+                debugLog('Сообщение с рации отфильтровано (не местоположение/строй)');
+            }
         }
         // Проверка выговоров (динамически только для определённой фракции)
         if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
