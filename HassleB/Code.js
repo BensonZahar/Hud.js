@@ -29,46 +29,6 @@ const globalState = {
     prisonTimeTimer: null  // Таймер периодического опроса /time
 };
 // END GLOBAL STATE MODULE //
-// START MESSAGE BUFFER MODULE //
-// Буфер для НОН-РП ЧАТ, Сообщений игрока и НОН-РП Рации.
-// Сообщения собираются и отправляются пачками раз в 35 секунд.
-const MESSAGE_BUFFER_INTERVAL = 35000; // 35 секунд
-const MESSAGE_BUFFER_MAX_LEN  = 3800;  // безопасный лимит Telegram (4096 - запас)
-const _msgBuffer = {}; // ключ: topicId, значение: string[]
-
-function pushToMessageBuffer(text, topicId) {
-    if (!_msgBuffer[topicId]) _msgBuffer[topicId] = [];
-    _msgBuffer[topicId].push(text);
-}
-
-function flushMessageBuffer() {
-    try {
-        for (const topicId in _msgBuffer) {
-            const lines = _msgBuffer[topicId];
-            if (!lines || lines.length === 0) continue;
-            delete _msgBuffer[topicId];
-
-            // Разбиваем на порции, не превышающие MESSAGE_BUFFER_MAX_LEN
-            let chunk = '';
-            for (const line of lines) {
-                const separator = chunk ? '\n\n' : '';
-                if ((chunk + separator + line).length > MESSAGE_BUFFER_MAX_LEN) {
-                    if (chunk) sendToTelegramTopic(chunk, topicId, true);
-                    chunk = line;
-                } else {
-                    chunk += separator + line;
-                }
-            }
-            if (chunk) sendToTelegramTopic(chunk, topicId, true);
-        }
-    } catch (e) {
-        debugLog(`[MSG_BUFFER] Ошибка флаша: ${e.message}`);
-    }
-    setTimeout(flushMessageBuffer, MESSAGE_BUFFER_INTERVAL);
-}
-// Запускаем таймер флаша (первый запуск через 35 секунд)
-setTimeout(flushMessageBuffer, MESSAGE_BUFFER_INTERVAL);
-// END MESSAGE BUFFER MODULE //
 // START PENDING INPUTS MODULE (iOS fix) //
 // Хранит ожидаемые вводы для совместимости с iOS (без reply)
 // Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
@@ -179,7 +139,7 @@ const userConfig = {
     govMessageThreshold: 10,
     govMessageKeywords: ["тут", "здесь"],
     trackLocationRequests: false,
-    locationKeywords: ["местоположение", "место", "позиция", "координаты", "нахож"],
+    locationKeywords: ["местоположение", "место", "позиция", "координаты"],
     radioOfficialNotifications: true,
     warningNotifications: true,
     notificationDeleteDelay: 5000,
@@ -229,12 +189,9 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
-// ИСПРАВЛЕНО: enabled теперь берётся из константы AUTO_LOGIN_ENABLED (List.js),
-// как это сделано с RECONNECT_ENABLED_DEFAULT. Добавь в List.js:
-//   const AUTO_LOGIN_ENABLED = true; // или false для отключения
 const autoLoginConfig = {
     password: PASSWORD, // Ваш пароль
-    enabled: (typeof AUTO_LOGIN_ENABLED !== 'undefined') ? AUTO_LOGIN_ENABLED : true, // Управляется из List.js
+    enabled: true, // Флаг активации автовхода
     maxAttempts: 10, // Максимум попыток
     attemptInterval: 1000 // Интервал между попытками (мс)
 };
@@ -316,8 +273,6 @@ function initializeAutoLogin() {
         setupAutoLogin();
     } else {
         // Открываем интерфейс Authorization с параметрами
-        // ИСПРАВЛЕНО: пароль передаётся только если автовход включён,
-        // иначе игровой движок мог входить сам по паролю из openParams
         const openParams = [
             "auth", // Страница авторизации
             config.accountInfo.nickname || "Pavel_Nabokov", // Логин (замените на ваш, если известен)
@@ -329,7 +284,7 @@ function initializeAutoLogin() {
             "https://radmir.online/recovery-password", // Восстановление пароля
             { // Дополнительные параметры
                 autoLogin: {
-                    password: autoLoginConfig.enabled ? autoLoginConfig.password : '', // ← пароль только если enabled
+                    password: autoLoginConfig.password,
                     enabled: autoLoginConfig.enabled
                 }
             }
@@ -362,12 +317,10 @@ function initializeAutoLogin() {
     }
 }
 // Перехват window.openInterface для автоматического входа (хуком)
-// ИСПРАВЛЕНО: добавлена проверка autoLoginConfig.enabled — без неё хук вызывал
-// initializeAutoLogin даже при disabled, и создавал двойной цикл вызовов
 const originalOpenInterface = window.openInterface;
 window.openInterface = function(interfaceName, params, additionalParams) {
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);
-    if (interfaceName === "Authorization" && autoLoginConfig.enabled) { // ← проверка enabled
+    if (interfaceName === "Authorization") {
         debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
         setTimeout(initializeAutoLogin, 500); // Задержка для инициализации компонента
     }
@@ -376,11 +329,7 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // END AUTO LOGIN MODULE //
 // START SHARED STORAGE MODULE //
 // localStorage не работает в CEF-среде — используем in-memory переменную
-// При перезагрузке (/reload) восстанавливаем lastUpdateId из window, чтобы не получить
-// тот же /reload повторно и не попасть в бесконечный цикл перезагрузок.
-let _sharedLastUpdateId = (typeof window._hassleLastUpdateId === 'number' && window._hassleLastUpdateId > 0)
-    ? window._hassleLastUpdateId
-    : 0;
+let _sharedLastUpdateId = 0;
 function getSharedLastUpdateId() {
     return _sharedLastUpdateId;
 }
@@ -752,33 +701,6 @@ function answerCallbackQuery(callbackQueryId) {
     xhr.send(JSON.stringify(payload));
 }
 // END TELEGRAM API MODULE //
-// Отправка в тему (message_thread_id) — для перенаправления рации в "Офф уведы"
-function sendToTelegramTopic(message, topicId, silent = true) {
-    config.chatIds.forEach(chatId => {
-        const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
-        const payload = {
-            chat_id: chatId,
-            text: message,
-            parse_mode: 'HTML',
-            disable_notification: silent,
-            message_thread_id: parseInt(topicId)
-        };
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', url, true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                debugLog(`Сообщение отправлено в тему ${topicId} чата ${chatId}`);
-            } else {
-                debugLog(`Ошибка отправки в тему ${topicId} чата ${chatId}: ${xhr.status}`);
-            }
-        };
-        xhr.onerror = function() {
-            debugLog(`Ошибка сети при отправке в тему ${topicId}`);
-        };
-        xhr.send(JSON.stringify(payload));
-    });
-}
 // START WELCOME MESSAGE MODULE //
 function sendWelcomeMessage() {
     if (!config.accountInfo.nickname) {
@@ -1934,9 +1856,6 @@ function processUpdates(updates) {
                     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
                     debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
                     window._hassleReloading = true;
-                    // Сохраняем текущий update_id в window, чтобы после перезагрузки
-                    // Code.js не начал снова с offset=0 и не повторил /reload бесконечно
-                    window._hassleLastUpdateId = config.lastUpdateId;
                     setTimeout(() => {
                         window._hassleReloading = false;
                         try {
@@ -2609,10 +2528,6 @@ function registerUser() {
 // START MESSAGE PROCESSING MODULE //
 function isNonRPMessage(message) {
     return message.includes('((') && message.includes('))');
-}
-// Убирает цветовые коды {RRGGBB} и {v:Nick} → Nick из сообщения для читаемого вывода
-function stripColors(str) {
-    return str.replace(/\{[A-Fa-f0-9]{6}\}/g, '').replace(/\{v:([^}]+)\}/g, '$1').trim();
 }
 // Фильтр системных сообщений рации (Приказ от, Часовой и т.д.) — не отправлять в Telegram
 const SYSTEM_RADIO_PATTERNS = [
@@ -3323,44 +3238,6 @@ function initializeChatMonitor() {
                 }
             }
         }
-        // Сообщения других игроков (НЕ своей фракции, НЕ своё, НЕ уже обработанное) → тихо в тему
-        if (window.OFF_UVED_TOPIC_ID && !govMatch &&
-            (chatRadius === CHAT_RADIUS.CLOSE || chatRadius === CHAT_RADIUS.SELF)) {
-            // Формат: - текст {COLOR}({v:Nick})[ID]
-            const otherPlayerRegex = /^-\s+(.+?)\s+\{[A-Fa-f0-9]{6}\}\(\{v:([^}]+)\}\)\[(\d+)\]/;
-            const otherMatch = msg.match(otherPlayerRegex);
-            if (otherMatch) {
-                const senderName = otherMatch[2];
-                const senderId = otherMatch[3];
-                // Фильтруем собственные сообщения
-                if (senderName !== config.accountInfo.nickname) {
-                    const cleanMsg = stripColors(msg);
-                    debugLog(`[ЧАТ ДРУГИХ] ${senderName}[${senderId}]: ${cleanMsg}`);
-                    pushToMessageBuffer(
-                        `💬 <b>Сообщение игрока (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
-                        window.OFF_UVED_TOPIC_ID
-                    );
-                }
-            }
-        }
-        // Нон-РП чат: (( {v:Nick}[ID]: текст )) — цвет CCCC99
-        if (window.OFF_UVED_TOPIC_ID && normalizeColor(i) === '0xCCCC99') {
-            const nonRpChatRegex = /^\(\(\s*\{v:([^}]+)\}\[(\d+)\]:\s*(.+?)\s*\)\)$/;
-            const nonRpChatMatch = msg.match(nonRpChatRegex);
-            if (nonRpChatMatch) {
-                const senderName = nonRpChatMatch[1];
-                const senderId = nonRpChatMatch[2];
-                // Фильтруем собственные сообщения
-                if (senderName !== config.accountInfo.nickname) {
-                    const cleanMsg = stripColors(msg);
-                    debugLog(`[НОН-РП ЧАТ] ${senderName}[${senderId}]: ${cleanMsg}`);
-                    pushToMessageBuffer(
-                        `💬 <b>[НОН-РП ЧАТ] (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
-                        window.OFF_UVED_TOPIC_ID
-                    );
-                }
-            }
-        }
         processSalaryAndBalance(msg);
         if (config.keywords.some(kw => lowerCaseMessage.includes(kw.toLowerCase()))) {
             debugLog('Найдено ключевое слово:', msg);
@@ -3482,54 +3359,12 @@ function initializeChatMonitor() {
             sendToTelegram(`⚡ <b>Автоматически отправлено ${reconnectionCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
         }
         // Проверка сообщений с рации
-        // Нон-РП рация: [R] Звание Nick[ID]: (( текст )) → тихо в тему
-        if (window.OFF_UVED_TOPIC_ID && chatRadius === CHAT_RADIUS.RADIO && isNonRPMessage(msg)) {
-            const nonRpRadioRegex = /^\[R\]\s+\S+\s+([A-Za-z]+_[A-Za-z]+)\[(\d+)\]:\s*\(\(\s*(.+?)\s*\)\)/;
-            const nonRpRadioMatch = msg.match(nonRpRadioRegex);
-            if (nonRpRadioMatch) {
-                const senderName = nonRpRadioMatch[1];
-                const senderId = nonRpRadioMatch[2];
-                // Фильтруем собственные сообщения
-                if (senderName !== config.accountInfo.nickname) {
-                    const cleanMsg = stripColors(msg);
-                    debugLog(`[НОН-РП РАЦИЯ] ${senderName}[${senderId}]: ${cleanMsg}`);
-                    pushToMessageBuffer(
-                        `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${cleanMsg}`,
-                        window.OFF_UVED_TOPIC_ID
-                    );
-                }
-            } else {
-                // Формат не совпал — отправляем как есть
-                pushToMessageBuffer(
-                    `📡 <b>[НОН-РП] Рация (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
-                    window.OFF_UVED_TOPIC_ID
-                );
-            }
-        }
         if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg) && !isSystemRadioMessage(msg)) {
             debugLog('Обнаружено сообщение с рации!');
-            const offUvedTopicId = window.OFF_UVED_TOPIC_ID || null;
-
-            // Является ли сообщение строем/сбором?
-            const isStroiMsg = getHighRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
-                (lowerCaseMessage.includes('строй') || lowerCaseMessage.includes('сбор') ||
-                 lowerCaseMessage.includes('готовность') || lowerCaseMessage.includes('конф'));
-            // Является ли сообщение запросом местоположения?
-            const isLocationMsg = checkLocationRequest(msg, lowerCaseMessage, chatRadius);
-
-            if (offUvedTopicId && !isStroiMsg && !isLocationMsg) {
-                // Обычная рация → тихо в тему "Офф уведы"
-                sendToTelegramTopic(
-                    `📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
-                    offUvedTopicId,
-                    true
-                );
-            } else {
-                // Строй / местоположение / тема не задана → основной чат как раньше
-                const replyMarkup = getNotificationReplyMarkup();
-                const radioHighRank = isHighRankRadioMessage(msg);
-                sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
-            }
+            const replyMarkup = getNotificationReplyMarkup();
+            // Звук только если отправитель имеет звание 6-10 ранга
+            const radioHighRank = isHighRankRadioMessage(msg);
+            sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
         }
         // Проверка выговоров (динамически только для определённой фракции)
         if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
