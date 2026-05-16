@@ -16,6 +16,13 @@
 // ===========================================================
 
 // END CONSTANTS MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: GLOBAL STATE                                    ║
+// ║  Описание: Глобальные флаги состояния                    ║
+// ║             (AFK, тюрьма, ID последних сообщений)        ║
+// ║  Зависимости: нет                                        ║
+// ╚══════════════════════════════════════════════════════════╝
 // START GLOBAL STATE MODULE //
 const globalState = {
     awaitingAfkAccount: false,
@@ -29,12 +36,26 @@ const globalState = {
     prisonTimeTimer: null  // Таймер периодического опроса /time
 };
 // END GLOBAL STATE MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: PENDING INPUTS  (iOS fix)                       ║
+// ║  Описание: Хранилище ожидаемых вводов без reply          ║
+// ║             (обход ограничений iOS — нет reply_to)       ║
+// ║  Зависимости: нет                                        ║
+// ╚══════════════════════════════════════════════════════════╝
 // START PENDING INPUTS MODULE (iOS fix) //
 // Хранит ожидаемые вводы для совместимости с iOS (без reply)
 // Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
 const pendingInputs = {};
 const PENDING_INPUT_TTL = 45 * 1000; // 45 секунд (было 5 минут — слишком долго для мультиаккаунта)
 // END PENDING INPUTS MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: CHAT RADIUS                                     ║
+// ║  Описание: Определение радиуса чата по цвету сообщения   ║
+// ║             SELF / CLOSE / MEDIUM / FAR / RADIO          ║
+// ║  Зависимости: нет                                        ║
+// ╚══════════════════════════════════════════════════════════╝
 // START CHAT RADIUS MODULE //
 const CHAT_RADIUS = {
     SELF: 0,
@@ -62,6 +83,13 @@ function getChatRadius(color) {
     }
 }
 // END CHAT RADIUS MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: FACTIONS                                        ║
+// ║  Описание: Данные фракций — цвета, скины, ранги          ║
+// ║             (government, mz, trk, mo, mchs, mvd)        ║
+// ║  Зависимости: нет                                        ║
+// ╚══════════════════════════════════════════════════════════╝
 // START FACTIONS MODULE //
 const factions = {
     government: {
@@ -120,6 +148,15 @@ const factions = {
     }
 };
 // END FACTIONS MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: CONFIG                                          ║
+// ║  Описание: Основной конфиг бота, настройки и состояние   ║
+// ║             аккаунта (ник, сервер, скин, фракция)        ║
+// ║  Зависимости: CHAT_IDS, DEFAULT_TOKEN, ACCOUNT_TOKEN,    ║
+// ║               PASSWORD, RECONNECT_ENABLED_DEFAULT        ║
+// ║               (инжектируются из List.js через Load.js)   ║
+// ╚══════════════════════════════════════════════════════════╝
 // START CONFIG MODULE //
 const userConfig = {
     chatIds: CHAT_IDS,
@@ -187,6 +224,15 @@ let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: AUTO LOGIN                                      ║
+// ║  Описание: Автоматический ввод пароля при открытии       ║
+// ║             интерфейса Authorization                     ║
+// ║  Зависимости: config, displayName, debugLog,             ║
+// ║               sendToTelegram, pdcOnReloginAfterStroi,    ║
+// ║               showScreenNotification                     ║
+// ╚══════════════════════════════════════════════════════════╝
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
 const autoLoginConfig = {
@@ -327,6 +373,13 @@ window.openInterface = function(interfaceName, params, additionalParams) {
     return result;
 };
 // END AUTO LOGIN MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: SHARED STORAGE                                  ║
+// ║  Описание: In-memory хранилище lastUpdateId              ║
+// ║             (localStorage недоступен в CEF-среде)        ║
+// ║  Зависимости: debugLog                                   ║
+// ╚══════════════════════════════════════════════════════════╝
 // START SHARED STORAGE MODULE //
 // localStorage не работает в CEF-среде — используем in-memory переменную
 let _sharedLastUpdateId = 0;
@@ -338,6 +391,14 @@ function setSharedLastUpdateId(id) {
     debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
 // END SHARED STORAGE MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: DEBUG & UTILS                                   ║
+// ║  Описание: Логирование, форматирование времени,          ║
+// ║             нормализация текста (кириллица),             ║
+// ║             показ ScreenNotification                     ║
+// ║  Зависимости: config                                     ║
+// ╚══════════════════════════════════════════════════════════╝
 // START DEBUG AND UTILS MODULE //
 function debugLog(message) {
     if (config.debug) {
@@ -388,6 +449,16 @@ function showScreenNotification(title, text, color = "FFFF00", duration = 3000) 
     }
 }
 // END DEBUG AND UTILS MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: PLAYER INFO                                     ║
+// ║  Описание: Отслеживание ID, скина, ника, сервера,        ║
+// ║             фракции игрока через поллинг и хуки          ║
+// ║  Зависимости: config, factions, globalState, debugLog,   ║
+// ║               sendWelcomeMessage, registerUser,          ║
+// ║               startPrisonMode, stopPrisonTimePolling,    ║
+// ║               accountToken                               ║
+// ╚══════════════════════════════════════════════════════════╝
 // START PLAYER INFO MODULE //
 function getPlayerIdFromHUD() {
     try {
@@ -530,28 +601,67 @@ function trackNicknameAndServer() {
     setTimeout(trackNicknameAndServer, 900);
 }
 // END PLAYER INFO MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: TELEGRAM API                                    ║
+// ║  Описание: Все запросы к Telegram Bot API.               ║
+// ║             Базовый: tgApi(method, payload, cb, err)     ║
+// ║             sendToTelegram, editMessageText,             ║
+// ║             deleteMessage, answerCallbackQuery,          ║
+// ║             editMessageReplyMarkup, sendAdminSpamAlert   ║
+// ║  Зависимости: config, debugLog, globalState,             ║
+// ║               displayName, getNotificationReplyMarkup   ║
+// ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM API MODULE //
 function createButton(text, command) {
-    return {
-        text: text,
-        callback_data: command
-    };
+    return { text, callback_data: command };
 }
-function deleteMessage(chatId, messageId) {
-    const url = `https://api.telegram.org/bot${config.botToken}/deleteMessage`;
-    const payload = {
-        chat_id: chatId,
-        message_id: messageId
-    };
+// Универсальная функция для всех запросов к Telegram Bot API
+function tgApi(method, payload, onSuccess, onError) {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', url, true);
+    xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/${method}`, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function() {
+        if (xhr.status === 200) {
+            try {
+                const data = JSON.parse(xhr.responseText);
+                if (onSuccess) onSuccess(data);
+                else debugLog(`tgApi ${method} OK`);
+            } catch(e) { debugLog(`tgApi ${method} parse error: ${e.message}`); }
+        } else {
+            debugLog(`tgApi ${method} error: ${xhr.status} ${xhr.responseText}`);
+            if (onError) onError(xhr.status);
+        }
+    };
+    xhr.onerror = function() {
+        debugLog(`tgApi ${method} network error`);
+        if (onError) onError('network');
+    };
     xhr.send(JSON.stringify(payload));
 }
+function deleteMessage(chatId, messageId) {
+    tgApi('deleteMessage', { chat_id: chatId, message_id: messageId });
+}
+function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
+    tgApi('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: replyMarkup });
+}
+function editMessageText(chatId, messageId, text, replyMarkup = null) {
+    tgApi('editMessageText', {
+        chat_id: chatId,
+        message_id: messageId,
+        text,
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+    }, () => debugLog(`Сообщение отредактировано в Telegram чате ${chatId}`));
+}
+function answerCallbackQuery(callbackQueryId) {
+    tgApi('answerCallbackQuery', { callback_query_id: callbackQueryId },
+        () => debugLog(`Callback_query ${callbackQueryId} подтверждён`));
+}
 // Функция спам-пингов при обнаружении администратора.
-// Отправляет 15 сообщений каждые 2 секунды — каждое удаляет предыдущее.
+// Отправляет 9 сообщений каждые 2 секунды — каждое удаляет предыдущее.
 // Следующий пинг запускается строго внутри onload, после получения message_id.
-// Последнее (15-е) сообщение остаётся навсегда.
+// Последнее (9-е) сообщение остаётся навсегда.
 function sendAdminSpamAlert(adminMsg) {
     const TOTAL_PINGS = 9;
     const INTERVAL_MS = 2000;
@@ -564,47 +674,22 @@ function sendAdminSpamAlert(adminMsg) {
         function sendPing() {
             if (window._hassleReloading) return;
             pingCount++;
-            const pingText =
-                `⚠️ <b>АДМИН! ОТВЕТЬ! (${pingCount}/${TOTAL_PINGS})</b>\n` +
-                `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
-                `<code>${adminMsg.replace(/</g, '&lt;')}</code>`;
-
-            if (lastMessageId) {
-                deleteMessage(chatId, lastMessageId);
-                lastMessageId = null;
-            }
-
-            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
-            const payload = {
+            if (lastMessageId) { deleteMessage(chatId, lastMessageId); lastMessageId = null; }
+            tgApi('sendMessage', {
                 chat_id: chatId,
-                text: pingText,
+                text: `⚠️ <b>АДМИН! ОТВЕТЬ! (${pingCount}/${TOTAL_PINGS})</b>\n` +
+                      `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
+                      `<code>${adminMsg.replace(/</g, '&lt;')}</code>`,
                 parse_mode: 'HTML',
                 disable_notification: false,
                 reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-            };
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', url, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    try {
-                        const data = JSON.parse(xhr.responseText);
-                        lastMessageId = data.result.message_id;
-                    } catch (e) {
-                        debugLog(`[AdminSpam] Ошибка парсинга: ${e.message}`);
-                    }
-                }
-                if (pingCount < TOTAL_PINGS) {
-                    setTimeout(sendPing, INTERVAL_MS);
-                }
-            };
-            xhr.onerror = function() {
+            }, data => {
+                lastMessageId = data.result.message_id;
+                if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
+            }, () => {
                 debugLog(`[AdminSpam] Ошибка сети при пинге ${pingCount}`);
-                if (pingCount < TOTAL_PINGS) {
-                    setTimeout(sendPing, INTERVAL_MS);
-                }
-            };
-            xhr.send(JSON.stringify(payload));
+                if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
+            });
         }
 
         sendPing();
@@ -612,95 +697,34 @@ function sendAdminSpamAlert(adminMsg) {
 }
 function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
     config.chatIds.forEach(chatId => {
-        const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
-        const payload = {
+        tgApi('sendMessage', {
             chat_id: chatId,
             text: message,
             parse_mode: 'HTML',
             disable_notification: silent,
             reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-        };
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', url, true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
-                const data = JSON.parse(xhr.responseText);
-                const messageId = data.result.message_id;
-                // Сохраняем ID приветственного сообщения
-                if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
-                    globalState.lastWelcomeMessageId = messageId;
-                }
-                // Сохраняем ID PayDay сообщения
-                if (message.includes('+ PayDay |')) {
-                    globalState.lastPaydayMessageIds.push({ chatId, messageId });
-                }
-            } else {
-                debugLog(`Ошибка Telegram API для чата ${chatId}:`, xhr.status, xhr.responseText);
+        }, data => {
+            debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
+            const messageId = data.result.message_id;
+            if (message.includes('Hassle | Bot TG') && message.includes('Текущие настройки')) {
+                globalState.lastWelcomeMessageId = messageId;
             }
-        };
-        xhr.onerror = function() {
-            debugLog(`Ошибка сети при отправке в чат ${chatId}`);
-        };
-        xhr.send(JSON.stringify(payload));
+            if (message.includes('+ PayDay |')) {
+                globalState.lastPaydayMessageIds.push({ chatId, messageId });
+            }
+        });
     });
 }
-function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
-    const url = `https://api.telegram.org/bot${config.botToken}/editMessageReplyMarkup`;
-    const payload = {
-        chat_id: chatId,
-        message_id: messageId,
-        reply_markup: replyMarkup
-    };
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', url, true);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.send(JSON.stringify(payload));
-}
-function editMessageText(chatId, messageId, text, replyMarkup = null) {
-    const url = `https://api.telegram.org/bot${config.botToken}/editMessageText`;
-    const payload = {
-        chat_id: chatId,
-        message_id: messageId,
-        text: text,
-        parse_mode: 'HTML',
-        reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-    };
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', url, true);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            debugLog(`Сообщение отредактировано в Telegram чате ${chatId}`);
-        } else {
-            debugLog(`Ошибка редактирования сообщения в чате ${chatId}:`, xhr.status, xhr.responseText);
-        }
-    };
-    xhr.onerror = function() {
-        debugLog(`Ошибка сети при редактировании в чате ${chatId}`);
-    };
-    xhr.send(JSON.stringify(payload));
-}
-// Новая функция для подтверждения callback_query
-function answerCallbackQuery(callbackQueryId) {
-    const url = `https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`;
-    const payload = {
-        callback_query_id: callbackQueryId
-    };
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', url, true);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.onload = function() {
-        if (xhr.status === 200) {
-            debugLog(`Callback_query ${callbackQueryId} подтверждён`);
-        } else {
-            debugLog(`Ошибка подтверждения callback_query ${callbackQueryId}: ${xhr.status}`);
-        }
-    };
-    xhr.send(JSON.stringify(payload));
-}
 // END TELEGRAM API MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: WELCOME MESSAGE                                 ║
+// ║  Описание: Отправка/обновление приветственного           ║
+// ║             сообщения при входе в игру                   ║
+// ║  Зависимости: config, globalState, displayName,          ║
+// ║               uniqueId, sendToTelegram,                  ║
+// ║               editMessageText, createButton              ║
+// ╚══════════════════════════════════════════════════════════╝
 // START WELCOME MESSAGE MODULE //
 function sendWelcomeMessage() {
     if (!config.accountInfo.nickname) {
@@ -732,6 +756,17 @@ function sendWelcomeMessage() {
     });
 }
 // END WELCOME MESSAGE MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: AFK                                             ║
+// ║  Описание: AFK-циклы (fixed / random / levelup / none)   ║
+// ║             управление паузами, реконнект, зарплата,     ║
+// ║             статус в Telegram                            ║
+// ║  Зависимости: config, displayName, debugLog,             ║
+// ║               sendToTelegram, editMessageText,           ║
+// ║               createButton, sendChatInput,               ║
+// ║               autoLoginConfig, reconnectionCommand       ║
+// ╚══════════════════════════════════════════════════════════╝
 // START AFK MODULE //
 // Функция для обновления статуса AFK в одном редактируемом сообщении
 function getAFKStatusText() {
@@ -1035,6 +1070,18 @@ function handlePayDayTimeMessage() {
     startPlayPhase();
 }
 // END AFK MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: PAYDAY CYCLE                                    ║
+// ║  Описание: Автоцикл для получения PayDay:                ║
+// ║             вход → отыгровка 25-26 мин → авторизация     ║
+// ║             → :59 → пэйдэй → повтор.                    ║
+// ║             Стаггер между аккаунтами, прерывание строем  ║
+// ║  Зависимости: config, displayName, debugLog,             ║
+// ║               sendToTelegram, editMessageText,           ║
+// ║               createButton, sendChatInput,               ║
+// ║               autoLoginConfig, window.ACCOUNT_NUMBER     ║
+// ╚══════════════════════════════════════════════════════════╝
 // ==================== START PAYDAY CYCLE MODULE ====================
 // Цикл: вход → 30с → отыгровка 25-26 мин → авторизация → ждём :59 → вход → пэйдэй → повтор
 // Включение/выключение на одном аккаунте → все аккаунты реагируют (общий chatId)
@@ -1388,6 +1435,16 @@ function showPdcMenu(chatId, messageId, uid) {
     );
 }
 // ==================== END PAYDAY CYCLE MODULE ====================
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: MENU                                            ║
+// ║  Описание: Telegram inline-меню управления ботом         ║
+// ║             (настройки, AFK-режимы, функции)             ║
+// ║  Зависимости: config, displayName, uniqueId, debugLog,   ║
+// ║               sendToTelegram, editMessageText,           ║
+// ║               createButton, answerCallbackQuery,         ║
+// ║               showPdcMenu                                ║
+// ╚══════════════════════════════════════════════════════════╝
 // START MENU MODULE //
 function showControlsMenu(chatId, messageId) {
     if (!config.accountInfo.nickname) {
@@ -1661,6 +1718,13 @@ function hideControlsMenu(chatId, messageId) {
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 // END MENU MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: NOTIFICATION BUTTONS HELPER                     ║
+// ║  Описание: Генерация inline-кнопок для уведомлений       ║
+// ║             (ответить, проигнорировать и др.)            ║
+// ║  Зависимости: config, uniqueId, createButton             ║
+// ╚══════════════════════════════════════════════════════════╝
 // START NOTIFICATION BUTTONS HELPER //
 // Возвращает разметку кнопок для уведомлений (Ответить, Движения, Пауза, Авторизация)
 function getNotificationReplyMarkup() {
@@ -1684,6 +1748,22 @@ function getNotificationReplyMarkup() {
     };
 }
 // END NOTIFICATION BUTTONS HELPER //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: TELEGRAM COMMANDS                               ║
+// ║  Описание: Обработка входящих сообщений и callback       ║
+// ║             от пользователя в Telegram.                  ║
+// ║             Команды: /hb, /afk, /rec, /stop, /msg и др. ║
+// ║             Точка входа: processUpdates()                ║
+// ║  Зависимости: config, globalState, pendingInputs,        ║
+// ║               displayName, uniqueId, debugLog,           ║
+// ║               sendToTelegram, editMessageText,           ║
+// ║               deleteMessage, answerCallbackQuery,        ║
+// ║               createButton, sendChatInput,               ║
+// ║               showControlsMenu, activateAFKWithMode,     ║
+// ║               stopAFKCycle, pdcStart, pdcStop,           ║
+// ║               showPdcMenu, setSharedLastUpdateId         ║
+// ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM COMMANDS MODULE //
 function checkTelegramCommands() {
     if (window._hassleReloading) return;
@@ -2515,6 +2595,13 @@ function processUpdates(updates) {
     }
 }
 // END TELEGRAM COMMANDS MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: USER REGISTRATION                               ║
+// ║  Описание: Регистрация пользователя при подключении      ║
+// ║  Зависимости: config, displayName, debugLog,             ║
+// ║               sendToTelegram                             ║
+// ╚══════════════════════════════════════════════════════════╝
 // START USER REGISTRATION MODULE //
 function registerUser() {
     if (!config.accountInfo.nickname) {
@@ -2525,6 +2612,17 @@ function registerUser() {
     debugLog(`Пользователь ${displayName} зарегистрирован локально`);
 }
 // END USER REGISTRATION MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: MESSAGE PROCESSING                              ║
+// ║  Описание: Обработка системных сообщений чата            ║
+// ║             (PayDay, зарплата, кик, варн и др.)          ║
+// ║  Зависимости: config, globalState, displayName,          ║
+// ║               debugLog, sendToTelegram, createButton,    ║
+// ║               getNotificationReplyMarkup,                ║
+// ║               sendAdminSpamAlert, pdcOnPayDayReceived,   ║
+// ║               stopAFKCycle                               ║
+// ╚══════════════════════════════════════════════════════════╝
 // START MESSAGE PROCESSING MODULE //
 function isNonRPMessage(message) {
     return message.includes('((') && message.includes('))');
@@ -2751,6 +2849,20 @@ function checkGovMessageConditions(msg, senderName, senderId) {
 }
 // END MESSAGE PROCESSING MODULE //
 
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: CHAT MONITOR                                    ║
+// ║  Описание: Перехват чата игры, маршрутизация сообщений.  ║
+// ║             Включает:                                    ║
+// ║               • Smart Stroi System (строй-реконнект)     ║
+// ║               • Prison Module (режим тюрьмы, скин 50)   ║
+// ║  Зависимости: config, globalState, factions,             ║
+// ║               displayName, uniqueId, CHAT_RADIUS,        ║
+// ║               debugLog, sendToTelegram, createButton,    ║
+// ║               getNotificationReplyMarkup,                ║
+// ║               sendAdminSpamAlert, processMessage,        ║
+// ║               normalizeToCyrillic, sendChatInput,        ║
+// ║               autoLoginConfig, OnChatAddMessage (hook)   ║
+// ╚══════════════════════════════════════════════════════════╝
 // START CHAT MONITOR MODULE //
 // ==================== SMART STROI SYSTEM ====================
 
@@ -3405,6 +3517,15 @@ function initializeChatMonitor() {
     return true;
 }
 // END CHAT MONITOR MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: RECONNECT                                       ║
+// ║  Описание: Перехват события разрыва соединения,          ║
+// ║             отправка уведомления в Telegram              ║
+// ║  Зависимости: config, displayName, debugLog,             ║
+// ║               sendToTelegram, autoLoginConfig,           ║
+// ║               reconnectionCommand                        ║
+// ╚══════════════════════════════════════════════════════════╝
 // START RECONNECT MODULE //
 function performReconnect(delay) {
     if (config.autoReconnectEnabled) {
@@ -3422,6 +3543,14 @@ function performReconnect(delay) {
     }
 }
 // END RECONNECT MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: INITIALIZATION                                  ║
+// ║  Описание: Точка запуска — инициализация ChatMonitor     ║
+// ║             с retry-логикой                              ║
+// ║  Зависимости: config, debugLog, sendToTelegram,          ║
+// ║               initializeChatMonitor                      ║
+// ╚══════════════════════════════════════════════════════════╝
 // START INITIALIZATION MODULE //
 debugLog('Скрипт запущен');
 if (!initializeChatMonitor()) {
@@ -3441,6 +3570,17 @@ if (!initializeChatMonitor()) {
     }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: HB MENU SYSTEM                                  ║
+// ║  Описание: Внутриигровое меню /hb через диалоговую       ║
+// ║             систему игры. Управление AFK, настройками    ║
+// ║             и движением прямо из игры (без Telegram)     ║
+// ║  Зависимости: config, displayName, debugLog,             ║
+// ║               sendToTelegram, activateAFKWithMode,       ║
+// ║               stopAFKCycle, sendChatInput,               ║
+// ║               addDialogInQueue, showScreenNotification   ║
+// ╚══════════════════════════════════════════════════════════╝
 // ==================== HB MENU SYSTEM ====================
 // Добавьте этот код в конец вашего основного скрипта
 // Константы для меню HB
@@ -4003,6 +4143,19 @@ sendChatInput = window.sendChatInputCustom;
 sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 // ==================== END HB MENU SYSTEM ====================
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: DIALOG MONITOR v2                               ║
+// ║  Описание: Перехват серверных диалогов игры и управление ║
+// ║             ими через Telegram.                          ║
+// ║             Типы: LIST, TABLIST, INPUT, PASSWORD, MSGBOX ║
+// ║             iOS fix: pendingInputs без reply_to          ║
+// ║  Зависимости: config, pendingInputs, displayName,        ║
+// ║               uniqueId, debugLog, sendToTelegram,        ║
+// ║               deleteMessage, answerCallbackQuery,        ║
+// ║               createButton, processUpdates,              ║
+// ║               setSharedLastUpdateId, PENDING_INPUT_TTL   ║
+// ╚══════════════════════════════════════════════════════════╝
 
 
 // ==================== Все режимы ====================
