@@ -177,7 +177,8 @@ const userConfig = {
     govMessageKeywords: ["тут", "здесь"],
     trackLocationRequests: false,
     locationKeywords: ["местоположение", "место", "позиция", "координаты"],
-    radioOfficialNotifications: true,
+    radioOfficialNotifications: false,  // Все сообщения рации — изначально ВЫКЛ
+    radioImportantFilter: true,         // Фильтр важных сообщений рации (строй/место/ID) — изначально ВКЛ
     warningNotifications: true,
     notificationDeleteDelay: 5000,
     trackSkinId: true,
@@ -738,7 +739,8 @@ function sendWelcomeMessage() {
         `🔔 <b>Текущие настройки:</b>\n` +
         `├ Уведомления PayDay: ${config.paydayNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `├ Уведомления рации: ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `├ Уведомления рации (все): ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `├ Рация — важные (строй/место/ID): ${config.radioImportantFilter ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `└ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
     const replyMarkup = {
@@ -1522,8 +1524,12 @@ function showRadioOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `global_radio_on_${uniqueIdParam}`),
-                createButton("🔕 ВЫКЛ", `global_radio_off_${uniqueIdParam}`)
+                createButton(`📡 Все ${config.radioOfficialNotifications ? '🟢' : '🔴'}`, `global_radio_on_${uniqueIdParam}`),
+                createButton(`🔕 Выкл все`, `global_radio_off_${uniqueIdParam}`)
+            ],
+            [
+                createButton(`🎯 Фильтр ${config.radioImportantFilter ? '🟢' : '🔴'}`, `global_radio_filter_on_${uniqueIdParam}`),
+                createButton(`🚫 Фильтр выкл`, `global_radio_filter_off_${uniqueIdParam}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -1681,8 +1687,12 @@ function showLocalRadioOptionsMenu(chatId, messageId) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `local_radio_on_${uniqueId}`),
-                createButton("🔕 ВЫКЛ", `local_radio_off_${uniqueId}`)
+                createButton(`📡 Все ${config.radioOfficialNotifications ? '🟢' : '🔴'}`, `local_radio_on_${uniqueId}`),
+                createButton(`🔕 Выкл все`, `local_radio_off_${uniqueId}`)
+            ],
+            [
+                createButton(`🎯 Фильтр ${config.radioImportantFilter ? '🟢' : '🔴'}`, `local_radio_filter_on_${uniqueId}`),
+                createButton(`🚫 Фильтр выкл`, `local_radio_filter_off_${uniqueId}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
         ]
@@ -2097,6 +2107,10 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('local_radio_on_', '');
             } else if (message.startsWith('local_radio_off_')) {
                 callbackUniqueId = message.replace('local_radio_off_', '');
+            } else if (message.startsWith('local_radio_filter_on_')) {
+                callbackUniqueId = message.replace('local_radio_filter_on_', '');
+            } else if (message.startsWith('local_radio_filter_off_')) {
+                callbackUniqueId = message.replace('local_radio_filter_off_', '');
             } else if (message.startsWith('local_warning_on_')) {
                 callbackUniqueId = message.replace('local_warning_on_', '');
             } else if (message.startsWith('local_warning_off_')) {
@@ -2157,6 +2171,10 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('global_radio_on_', '');
             } else if (message.startsWith('global_radio_off_')) {
                 callbackUniqueId = message.replace('global_radio_off_', '');
+            } else if (message.startsWith('global_radio_filter_on_')) {
+                callbackUniqueId = message.replace('global_radio_filter_on_', '');
+            } else if (message.startsWith('global_radio_filter_off_')) {
+                callbackUniqueId = message.replace('global_radio_filter_off_', '');
             } else if (message.startsWith('global_warning_on_')) {
                 callbackUniqueId = message.replace('global_warning_on_', '');
             } else if (message.startsWith('global_warning_off_')) {
@@ -2299,11 +2317,19 @@ function processUpdates(updates) {
                 sendWelcomeMessage();
             } else if (message.startsWith(`global_radio_on_`)) {
                 config.radioOfficialNotifications = true;
-                sendToTelegram(`🔔 <b>Уведомления с Рации включены для всех аккаунтов</b>`, false, null);
+                sendToTelegram(`🔔 <b>Рация (все сообщения) включена для всех аккаунтов</b>`, false, null);
                 sendWelcomeMessage();
             } else if (message.startsWith(`global_radio_off_`)) {
                 config.radioOfficialNotifications = false;
-                sendToTelegram(`🔕 <b>Уведомления с Рации отключены для всех аккаунтов</b>`, false, null);
+                sendToTelegram(`🔕 <b>Рация (все сообщения) отключена для всех аккаунтов</b>`, false, null);
+                sendWelcomeMessage();
+            } else if (message.startsWith(`global_radio_filter_on_`)) {
+                config.radioImportantFilter = true;
+                sendToTelegram(`🎯 <b>Фильтр рации (строй/место/ID) включён для всех аккаунтов</b>`, false, null);
+                sendWelcomeMessage();
+            } else if (message.startsWith(`global_radio_filter_off_`)) {
+                config.radioImportantFilter = false;
+                sendToTelegram(`🚫 <b>Фильтр рации (строй/место/ID) отключён для всех аккаунтов</b>`, false, null);
                 sendWelcomeMessage();
             } else if (message.startsWith(`global_warning_on_`)) {
                 config.warningNotifications = true;
@@ -2530,11 +2556,19 @@ function processUpdates(updates) {
                 sendWelcomeMessage();
             } else if (message.startsWith("local_radio_on_")) {
                 config.radioOfficialNotifications = true;
-                sendToTelegram(`🔔 <b>Уведомления с Рации включены для ${displayName}</b>`, false, null);
+                sendToTelegram(`🔔 <b>Рация (все сообщения) включена для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
             } else if (message.startsWith("local_radio_off_")) {
                 config.radioOfficialNotifications = false;
-                sendToTelegram(`🔕 <b>Уведомления с Рации отключены для ${displayName}</b>`, false, null);
+                sendToTelegram(`🔕 <b>Рация (все сообщения) отключена для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+            } else if (message.startsWith("local_radio_filter_on_")) {
+                config.radioImportantFilter = true;
+                sendToTelegram(`🎯 <b>Фильтр рации (строй/место/ID) включён для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+            } else if (message.startsWith("local_radio_filter_off_")) {
+                config.radioImportantFilter = false;
+                sendToTelegram(`🚫 <b>Фильтр рации (строй/место/ID) отключён для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
             } else if (message.startsWith("local_warning_on_")) {
                 config.warningNotifications = true;
@@ -2634,6 +2668,28 @@ const SYSTEM_RADIO_PATTERNS = [
 ];
 function isSystemRadioMessage(message) {
     return SYSTEM_RADIO_PATTERNS.some(pattern => pattern.test(message));
+}
+// Проверяет, является ли радиосообщение "важным":
+// строй/сбор, местоположение, или упоминание ID игрока из HUD
+function isImportantRadioMessage(msg) {
+    const lower = msg.toLowerCase();
+
+    // Ключевые слова строя/сбора
+    const stroiKeywords = ['строй', 'сбор', 'готовность', 'конф'];
+    // Ключевые слова местоположения
+    const locationKeywords = ['местоположение', 'место', 'позиция', 'координаты', 'локация'];
+
+    if (stroiKeywords.some(kw => lower.includes(kw))) return true;
+    if (locationKeywords.some(kw => lower.includes(kw))) return true;
+
+    // Проверка по ID из HUD — если ещё не получен, пропускаем эту проверку
+    if (config.lastPlayerId) {
+        const idPlain  = config.lastPlayerId.toString().replace(/-/g, ''); // напр. '232'
+        const idDashed = idPlain.split('').join('-');                       // напр. '2-3-2'
+        if (msg.includes(idPlain) || msg.includes(idDashed)) return true;
+    }
+
+    return false;
 }
 function checkIDFormats(message) {
     const idRegex = /(\d-\d-\d|\d{3})/g;
@@ -2936,10 +2992,11 @@ function getTimeUntilPayDay() {
 }
 
 // Улучшенная функция реконнекта при строе
-function performStroiReconnect() {
+function performStroiReconnect(msg) {
     const now = new Date();
     const currentMinutes = now.getMinutes();
     const currentSeconds = now.getSeconds();
+    const msgHtml = msg ? `\n<code>${msg.replace(/</g, '&lt;')}</code>` : '';
 
     // Если PDC-цикл активен и мы в фазе отыгровки — сохраняем прогресс
     if (pdCycle.active && pdCycle.phase === 'playing') {
@@ -2963,22 +3020,20 @@ function performStroiReconnect() {
 
         waitingForPayDay = true;
 
-		// Стало — после PayDay + запас:
-		payDayResetTimer = setTimeout(() => {
-		    resetPayDayFlag();
-		    debugLog('Автоматический сброс флага PayDay по таймауту');
-		}, timeToPayDay + 2 * 60 * 1000);
+        payDayResetTimer = setTimeout(() => {
+            resetPayDayFlag();
+            debugLog('Автоматический сброс флага PayDay по таймауту');
+        }, timeToPayDay + 2 * 60 * 1000);
 
         // ШАГ 1: Немедленно отключаемся
         autoLoginConfig.enabled = false;
         sendChatInput("/rec 5");
 
         sendToTelegram(
-            `⚠️ <b>Строй обнаружен (${displayName})</b>\n` +
-            `🕐 Текущее время: ${currentMinutes} мин ${currentSeconds} сек\n` +
-            `⏰ До PayDay: ${minutesLeft} мин\n` +
-            `🔌 /rec 5 отправлен — ждём на авторизации\n` +
-            `🔑 Переподключимся за 60 сек до PayDay`,
+            `📢 <b>Строй обнаружен (${displayName})</b>\n` +
+            `⏰ До PayDay: ${minutesLeft} мин — ждём на авторизации\n` +
+            `🔑 Переподключимся за 60 сек до PayDay` +
+            msgHtml,
             false, null
         );
 
@@ -2993,26 +3048,27 @@ function performStroiReconnect() {
             const loginSecs = new Date().getSeconds();
             sendToTelegram(
                 `🔄 <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
-                `🕐 Текущее время: ${loginMinutes} мин ${loginSecs} сек\n` +
                 `💰 PayDay через ~60 сек — входим в игру`,
                 false, null
             );
         }, timeToReconnect);
 
     } else {
-        // До PayDay далеко (0-52 минуты) — стандартный реконнект
-        debugLog(`Строй обнаружен в ${currentMinutes} минут, до PayDay далеко - стандартный реконнект`);
+        // До PayDay далеко — стандартный реконнект
+        const actionText = config.autoReconnectEnabled
+            ? `🔄 /rec 5 отправлен — вернёмся через 5 мин`
+            : `🚪 /q отправлен`;
 
         sendToTelegram(
-            `📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n` +
-            `🕐 Текущее время: ${currentMinutes} минут\n` +
-            `⏰ До PayDay: ${60 - currentMinutes} мин\n` +
-            `🔄 Выполняем стандартный реконнект`,
+            `📢 <b>Строй обнаружен (${displayName})</b>\n` +
+            `🕐 До PayDay: ${60 - currentMinutes} мин\n` +
+            `${actionText}` +
+            msgHtml,
             false, null
         );
 
         setTimeout(() => {
-            performReconnect(5 * 60 * 1000);
+            performReconnect(5 * 60 * 1000, true); // silent — сообщение уже отправлено выше
         }, 30);
     }
 }
@@ -3396,6 +3452,8 @@ function initializeChatMonitor() {
                 sendAdminSpamAlert(msg);
             }
         }
+        // ── Строй / сбор ───────────────────────────────────────────
+        let radioHandled = false;
 		if (!isNonRPMessage(msg) && getHighRankKeywords().some(kw => lowerCaseMessage.includes(kw)) &&
 			(lowerCaseMessage.indexOf("строй") !== -1 ||
 			lowerCaseMessage.indexOf("сбор") !== -1 ||
@@ -3403,48 +3461,35 @@ function initializeChatMonitor() {
 			lowerCaseMessage.indexOf("конф") !== -1)
 			&& (chatRadius === CHAT_RADIUS.RADIO)) {
 			
-			// Извлекаем ник отправителя из сообщения рации
 			const nicknameMatch = msg.match(/\]\s+([A-Za-z]+_[A-Za-z]+)\[/);
 			const senderNickname = nicknameMatch ? nicknameMatch[1] : null;
-			
-			// Проверяем, находится ли отправитель в списке игнорируемых
 			const isIgnoredSender = senderNickname && config.ignoredStroiNicknames.includes(senderNickname);
 			
 			if (isIgnoredSender) {
 				debugLog(`Сообщение от игнорируемого ника: ${senderNickname} - пропускаем`);
 				sendToTelegram(`🔕 <b>Строй от игнорируемого ника (${displayName})</b>\n👤 ${senderNickname}\n<code>${msg.replace(/</g, '&lt;')}</code>`, true);
 			} else {
-				// Извлекаем текст сообщения после последнего двоеточия
 				const messageTextMatch = msg.match(/:\s*(.+)$/);
 				const messageText = messageTextMatch ? messageTextMatch[1].trim().toLowerCase() : lowerCaseMessage;
-				
-				// Проверяем, является ли сообщение только словом "строй"
 				const onlyStroyMessage = messageText === "строй";
 				
 				debugLog('Обнаружен сбор/строй!');
+				window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
 				
-				const currentMinutes = getCurrentMinutes();
-				const payDayStatus = isPayDayApproaching() 
-					? `⏰ <b>БЛИЗКО К PAYDAY (${currentMinutes} мин)</b>` 
-					: `🕐 До PayDay: ${60 - currentMinutes} мин`;
-				
-				// Если не ждём PayDay - показываем обычное уведомление
-				if (!waitingForPayDay) {
+				if (!onlyStroyMessage) {
+					performStroiReconnect(msg); // одно сообщение с msg внутри
+				} else {
+					// Только слово "строй" — просто уведомление, без реконнекта
+					const payDayStatus = isPayDayApproaching()
+						? `⏰ <b>БЛИЗКО К PAYDAY (${getCurrentMinutes()} мин)</b>`
+						: `🕐 До PayDay: ${60 - getCurrentMinutes()} мин`;
 					sendToTelegram(
-						`📢 <b>Обнаружен сбор/строй! (${displayName})</b>\n` +
-						`${payDayStatus}\n` +
+						`📢 <b>Строй (${displayName})</b>\n${payDayStatus}\n` +
 						`<code>${msg.replace(/</g, '&lt;')}</code>`
 					);
-					
-					window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/steroi.mp3", false, 1.0);
+					debugLog('Сообщение содержит только "строй" — реконнект не выполняется');
 				}
-				
-				// Выполняем умный реконнект только если это НЕ просто слово "строй"
-				if (!onlyStroyMessage) {
-					performStroiReconnect();
-				} else {
-					debugLog('Сообщение содержит только "строй" - реконнект не выполняется');
-				}
+				radioHandled = true; // рация уже обработана строй-блоком
 			}
 		}
         if (lowerCaseMessage.indexOf("администратор") !== -1 &&
@@ -3470,13 +3515,26 @@ function initializeChatMonitor() {
             sendChatInput(reconnectionCommand);
             sendToTelegram(`⚡ <b>Автоматически отправлено ${reconnectionCommand} (${displayName})</b>\nПо AFK условию для ID: ${config.afkSettings.id}\n<code>${msg.replace(/</g, '&lt;')}</code>`, false, null);
         }
-        // Проверка сообщений с рации
-        if (chatRadius === CHAT_RADIUS.RADIO && config.radioOfficialNotifications && !isNonRPMessage(msg) && !isSystemRadioMessage(msg)) {
-            debugLog('Обнаружено сообщение с рации!');
-            const replyMarkup = getNotificationReplyMarkup();
-            // Звук только если отправитель имеет звание 6-10 ранга
+        // ── Проверка сообщений с рации ─────────────────────────────
+        if (!radioHandled && chatRadius === CHAT_RADIUS.RADIO && !isNonRPMessage(msg) && !isSystemRadioMessage(msg)) {
             const radioHighRank = isHighRankRadioMessage(msg);
-            sendToTelegram(`📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, !radioHighRank, replyMarkup);
+            const replyMarkup = getNotificationReplyMarkup();
+
+            if (config.radioOfficialNotifications) {
+                // Режим «всё»: шлём каждое сообщение рации
+                debugLog('Обнаружено сообщение с рации (полный режим)!');
+                sendToTelegram(
+                    `📡 <b>Сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
+                    !radioHighRank, replyMarkup
+                );
+            } else if (config.radioImportantFilter && isImportantRadioMessage(msg)) {
+                // Режим «фильтр»: только строй / местоположение / мой ID
+                debugLog('Обнаружено важное сообщение с рации (фильтр)!');
+                sendToTelegram(
+                    `📡 <b>Важное сообщение с рации (${displayName}):</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`,
+                    !radioHighRank, replyMarkup
+                );
+            }
         }
         // Проверка выговоров (динамически только для определённой фракции)
         if (config.currentFaction && factions[config.currentFaction] && config.warningNotifications) {
@@ -3527,19 +3585,19 @@ function initializeChatMonitor() {
 // ║               reconnectionCommand                        ║
 // ╚══════════════════════════════════════════════════════════╝
 // START RECONNECT MODULE //
-function performReconnect(delay) {
+function performReconnect(delay, silent = false) {
     if (config.autoReconnectEnabled) {
         autoLoginConfig.enabled = false;
         sendChatInput("/rec 5");
-        sendToTelegram(`🔄 <b>Отключен автовход и отправлен /rec 5 (${displayName})</b>`);
+        if (!silent) sendToTelegram(`🔄 <b>Отключен автовход и отправлен /rec 5 (${displayName})</b>`);
         setTimeout(() => {
             autoLoginConfig.enabled = true;
             sendChatInput("/rec 5");
-            sendToTelegram(`🔄 <b>Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+            if (!silent) sendToTelegram(`🔄 <b>Включен автовход и отправлен /rec 5 (${displayName})</b>`);
         }, delay);
     } else {
         sendChatInput("/q");
-        sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`);
+        if (!silent) sendToTelegram(`✅ <b>Отправлено /q (${displayName})</b>`);
     }
 }
 // END RECONNECT MODULE //
@@ -3671,7 +3729,8 @@ function showHBLocalFunctionsMenu() {
         { name: "{FFD700}> {FFFFFF}Движение", action: "movement" },
         { name: `{FFFFFF}Увед. правик ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob_local" },
         { name: `{FFFFFF}Отслеживание ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto_local" },
-        { name: `{FFFFFF}Рация ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
+        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
+        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter_local" },
         { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" }
     ];
     let menuList = "{FFA500}< Назад<n>";
@@ -3694,7 +3753,8 @@ function showHBGlobalFunctionsMenu() {
         { name: `{FFFFFF}PayDay ${config.paydayNotifications ? statusOn : statusOff}`, action: "toggle_payday" },
         { name: `{FFFFFF}Сообщ. ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob" },
         { name: `{FFFFFF}Место ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto" },
-        { name: `{FFFFFF}Рация ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
+        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
+        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter" },
         { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
         { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" },
         { name: "{FFD700}> {FFFFFF}AFK", action: "afk_standard" }
@@ -3860,11 +3920,18 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 4) {
                 config.radioOfficialNotifications = !config.radioOfficialNotifications;
                 const status = config.radioOfficialNotifications ? 'включены' : 'отключены';
-                showScreenNotification("Hassle", `Уведомления рации ${status}`);
-                sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Уведомления рации ${status} для ${displayName}</b>`, false, null);
+                showScreenNotification("Hassle", `Рация (все) ${status}`);
+                sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Рация (все) ${status} для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 5) {
+                config.radioImportantFilter = !config.radioImportantFilter;
+                const status = config.radioImportantFilter ? 'включён' : 'отключён';
+                showScreenNotification("Hassle", `Фильтр рации ${status}`);
+                sendToTelegram(`${config.radioImportantFilter ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${status} для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+            } else if (listitem === 6) {
                 config.warningNotifications = !config.warningNotifications;
                 const status = config.warningNotifications ? 'включены' : 'отключены';
                 showScreenNotification("Hassle", `Уведомления выговоров ${status}`);
@@ -3900,20 +3967,27 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 4) {
                 config.radioOfficialNotifications = !config.radioOfficialNotifications;
                 const status = config.radioOfficialNotifications ? 'включены' : 'отключены';
-                showScreenNotification("Hassle", `Уведомления рации ${status}`);
-                sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Уведомления рации ${status} для всех</b>`, false, null);
+                showScreenNotification("Hassle", `Рация (все) ${status}`);
+                sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Рация (все) ${status} для всех</b>`, false, null);
                 sendWelcomeMessage();
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 5) {
+                config.radioImportantFilter = !config.radioImportantFilter;
+                const status = config.radioImportantFilter ? 'включён' : 'отключён';
+                showScreenNotification("Hassle", `Фильтр рации ${status}`);
+                sendToTelegram(`${config.radioImportantFilter ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${status} для всех</b>`, false, null);
+                sendWelcomeMessage();
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 6) {
                 config.warningNotifications = !config.warningNotifications;
                 const status = config.warningNotifications ? 'включены' : 'отключены';
                 showScreenNotification("Hassle", `Уведомления выговоров ${status}`);
                 sendToTelegram(`${config.warningNotifications ? '⚠️' : '🔕'} <b>Уведомления выговоров ${status} для всех</b>`, false, null);
                 sendWelcomeMessage();
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 6) {
-                setTimeout(() => showHBAFKModesMenu(), 100);
             } else if (listitem === 7) {
+                setTimeout(() => showHBAFKModesMenu(), 100);
+            } else if (listitem === 8) {
                 // Стандартный AFK
                 const hudId = getPlayerIdFromHUD();
                 if (!hudId) {
