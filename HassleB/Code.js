@@ -733,7 +733,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v4</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v5</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -4866,18 +4866,23 @@ processUpdates = function(updates) {
 debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
 // ==================== END DIALOG MONITOR MODULE v2 ====================
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: ROUTE RECORDER v3 — Запись маршрута автошколы  ║
+// ║  MODULE: ROUTE RECORDER v4 — Запись маршрута автошколы  ║
 // ║  Команды: /p_start · /p_end · /p_pov                    ║
-// ║  FIX: rAF+perf.now таймер, дубли up убраны,             ║
-// ║        точный порядок событий при воспроизведении        ║
+// ║  FIX v4:                                                 ║
+// ║    1. Финальная пауза после последнего события           ║
+// ║       (дельта = durationMs - суммаDelta) → машина        ║
+// ║       доезжает до конца, а не врезается сразу            ║
+// ║    2. showScreenNotification при нажатии кнопки,         ║
+// ║       closeInterface('ScreenNotification') при отпуске   ║
 // ╚══════════════════════════════════════════════════════════╝
-// ==================== START ROUTE RECORDER MODULE v3 ====================
+// ==================== START ROUTE RECORDER MODULE v4 ====================
 
 const routeRecorder = {
     active:        false,
     events:        [],
     startTime:     null,   // performance.now() timestamp
     lastEventTime: null,   // performance.now() timestamp
+    durationMs:    0,      // FIX v4: реальная длительность записи
     stickX:        0,
     stickY:        0,
     stickDown:     false
@@ -4890,10 +4895,18 @@ const RR_BTN_KEYS = {
     '<Keyboard>/d': '➡️Право'
 };
 
-// Округление до шага 0.25 (оригинальное поведение, совместимо со старыми записями)
+// Эмодзи для уведомлений
+const RR_BTN_EMOJI = {
+    '<Keyboard>/w': '🟢 ГАЗ',
+    '<Keyboard>/s': '🔴 ТОРМОЗ',
+    '<Keyboard>/a': '⬅️ ЛЕВО',
+    '<Keyboard>/d': '➡️ ПРАВО'
+};
+
+// Округление до шага 0.25
 function rrQ(v) { return Math.round(v * 4) / 4; }
 
-// Добавить событие в список записи (использует performance.now для точности)
+// Добавить событие в список записи
 function rrPush(ev) {
     const now   = performance.now();
     const delta = routeRecorder.lastEventTime !== null
@@ -4907,14 +4920,26 @@ function rrPush(ev) {
     routeRecorder.lastEventTime = now;
 }
 
+// ── Уведомления при нажатии/отпускании ────────────────────
+function rrShowBtnNotif(key) {
+    try {
+        const label = RR_BTN_EMOJI[key] || key;
+        showScreenNotification('🎮 Кнопка', label, 'FFFFFF', 0);
+    } catch(e) {}
+}
+
+function rrHideBtnNotif() {
+    try { closeInterface('ScreenNotification'); } catch(e) {}
+}
+
 // ── Хук onScreenControlTouchStart ─────────────────────────
 const _rrOS = window.onScreenControlTouchStart;
 window.onScreenControlTouchStart = function(key) {
     if (routeRecorder.active) {
         if (RR_BTN_KEYS[key]) {
             rrPush({ t: 'b', key, a: 1 });
+            rrShowBtnNotif(key);
         } else if (key === '<Gamepad>/leftStick') {
-            // FIX: записываем dn только если джойстик реально не нажат
             if (!routeRecorder.stickDown) {
                 routeRecorder.stickDown = true;
                 rrPush({ t: 's', a: 'dn', x: 0, y: 0 });
@@ -4930,8 +4955,8 @@ window.onScreenControlTouchEnd = function(key) {
     if (routeRecorder.active) {
         if (RR_BTN_KEYS[key]) {
             rrPush({ t: 'b', key, a: 0 });
+            rrHideBtnNotif();
         } else if (key === '<Gamepad>/leftStick') {
-            // FIX: записываем up только если джойстик реально был нажат → нет дублей
             if (routeRecorder.stickDown) {
                 routeRecorder.stickDown = false;
                 routeRecorder.stickX   = 0;
@@ -5007,12 +5032,20 @@ function rrSendTg(events, durationMs) {
         body += `${String(i + 1).padStart(3)} │${rrFmt(e.time).padStart(8)}│+${rrFmt(e.delta).padStart(7)}│ ${rrEvText(e)}\n`;
     });
 
-    // Compact JSON: btn=['b',keyIdx,a,delta] stk=['s',a,x,y,delta]
+    // Compact JSON.
+    // FIX v4: последний элемент — [duration, durationMs] → финальная пауза
     const bki = { '<Keyboard>/w': 0, '<Keyboard>/s': 1, '<Keyboard>/a': 2, '<Keyboard>/d': 3 };
     const compact = events.map(e =>
         e.t === 'b' ? ['b', bki[e.key], e.a, e.delta]
                     : ['s', e.a, e.x, e.y, e.delta]
     );
+    // Финальная пауза: сколько миллисекунд ехать после последнего события
+    const sumDelta = compact.reduce((acc, e) => acc + (e[e.length - 1] || 0), 0);
+    const tailMs   = Math.max(0, durationMs - sumDelta);
+    if (tailMs > 50) {
+        compact.push(['tail', tailMs]); // маркер финальной паузы
+    }
+
     const jsonStr = JSON.stringify(compact);
 
     const textParts = rrSplit(`${header}\n<code>${body.trim()}</code>`);
@@ -5039,21 +5072,19 @@ function rrSendTg(events, durationMs) {
     });
 }
 
-// ── Воспроизведение (ИСПРАВЛЕНО: rAF + performance.now) ───
+// ── Воспроизведение v4 ────────────────────────────────────
 //
-//  ПОЧЕМУ СТАРЫЙ КОД ЛОМАЛСЯ:
-//  - setTimeout(fn, acc) неточен: браузер задерживает таймеры,
-//    особенно при delta=0 или delta=1 (все срабатывают «вместе»,
-//    но порядок не гарантирован).
-//  - Несколько событий с delta=0 могут выполниться в неверном
-//    порядке, что разворачивает руль не в ту сторону.
+//  ИСПРАВЛЕНИЕ v4:
+//  - Старый код останавливал машину сразу после последнего события.
+//    Водитель записывал 26с, а воспроизведение заканчивало за 19с —
+//    последние 6с газ/руль отпускались раньше времени → врезание.
+//  - Теперь compact-JSON содержит ['tail', N] в конце —
+//    финальная пауза N мс перед releaseAll().
+//  - Для старых записей (без tail) tailMs = 0, поведение прежнее.
 //
-//  НОВЫЙ КОД:
-//  - Строим временну́ю шкалу с абсолютными метками fireAt (мс).
-//  - requestAnimationFrame (~60fps = 16.7мс) опрашивает шкалу
-//    и dispatches все события, чьё время уже наступило.
-//  - Порядок внутри одного фрейма гарантирован (цикл while).
-//  - performance.now() точнее Date.now() на 0.1мс.
+//  УВЕДОМЛЕНИЯ:
+//  - При нажатии показывается showScreenNotification с названием кнопки.
+//  - При отпускании вызывается closeInterface('ScreenNotification').
 //
 function rrPlayback(events) {
     if (!events || !events.length) {
@@ -5068,22 +5099,25 @@ function rrPlayback(events) {
 
     function parse(e) {
         if (!Array.isArray(e)) return e;
-        if (e[0] === 'b') return { t: 'b', key: bkeys[e[1]], a: e[2], delta: e[3] };
-        return { t: 's', a: e[1], x: e[2], y: e[3], delta: e[4] };
+        if (e[0] === 'b')    return { t: 'b', key: bkeys[e[1]], a: e[2], delta: e[3] };
+        if (e[0] === 's')    return { t: 's', a: e[1], x: e[2], y: e[3], delta: e[4] };
+        if (e[0] === 'tail') return { t: 'tail', waitMs: e[1], delta: e[1] };
+        return null;
     }
 
-    // Строим временну́ю шкалу: каждое событие получает абсолютную
-    // метку fireAt = сумма всех delta до него включительно.
+    // Строим временную шкалу
     let runningTime = 0;
-    const timeline = events.map(e => {
-        const ev = parse(e);
+    const timeline = [];
+    for (const raw of events) {
+        const ev = parse(raw);
+        if (!ev) continue;
         runningTime += (ev.delta || 0);
-        return { ...ev, fireAt: runningTime };
-    });
+        timeline.push({ ...ev, fireAt: runningTime });
+    }
     const totalMs = runningTime;
 
     sendToTelegram(
-        `▶️ <b>Воспроизведение v3 (${displayName})</b>\nСобытий: ${events.length}`,
+        `▶️ <b>Воспроизведение v4 (${displayName})</b>\nСобытий: ${events.length}`,
         true, null
     );
     showScreenNotification('АВТОШКОЛА', '▶ Воспроизведение...', 'FFFF00', 4000);
@@ -5098,10 +5132,17 @@ function rrPlayback(events) {
             if (entry.t === 'b') {
                 if (entry.a === 1) {
                     _rrOS && _rrOS.call(window, entry.key);
+                    // Уведомление при нажатии
+                    try {
+                        const label = RR_BTN_EMOJI[entry.key] || entry.key;
+                        showScreenNotification('🎮', label, 'FFFFFF', 0);
+                    } catch(e) {}
                 } else {
                     _rrOE && _rrOE.call(window, entry.key);
+                    // Закрываем уведомление при отпускании
+                    try { closeInterface('ScreenNotification'); } catch(e) {}
                 }
-            } else {
+            } else if (entry.t === 's') {
                 if (entry.a === 'dn') {
                     if (!stkActive) {
                         stkActive = true;
@@ -5115,15 +5156,15 @@ function rrPlayback(events) {
                     _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', entry.x, entry.y);
                 } else if (entry.a === 'up') {
                     if (stkActive) {
-                        // Центрируем стик перед отпусканием
                         _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', 0, 0);
                         _rrOE && _rrOE.call(window, '<Gamepad>/leftStick');
                         stkActive = false;
                     }
                 }
             }
+            // 'tail' — просто ждём, никаких действий, только пауза
         } catch (err) {
-            try { debugLog(`[RR PLAY v3] err: ${err.message}`); } catch(_) {}
+            try { debugLog(`[RR PLAY v4] err: ${err.message}`); } catch(_) {}
         }
     }
 
@@ -5136,14 +5177,12 @@ function rrPlayback(events) {
             try { _rrOE && _rrOE.call(window, '<Gamepad>/leftStick'); } catch(e) {}
             stkActive = false;
         }
+        try { closeInterface('ScreenNotification'); } catch(e) {}
     }
 
-    // Основной цикл: опрашивается каждый rAF (~16.7мс)
     function tick() {
         const elapsed = performance.now() - startTime;
 
-        // Dispatching всех событий, чьё время уже наступило
-        // Порядок гарантирован — while идёт по отсортированному массиву
         while (eventIdx < timeline.length && timeline[eventIdx].fireAt <= elapsed) {
             doDispatch(timeline[eventIdx]);
             eventIdx++;
@@ -5152,7 +5191,6 @@ function rrPlayback(events) {
         if (eventIdx < timeline.length) {
             rafId = requestAnimationFrame(tick);
         } else {
-            // Все события выполнены
             releaseAll();
             showScreenNotification('АВТОШКОЛА', '✅ Маршрут завершён!', '00FF00', 3000);
             sendToTelegram(
@@ -5164,14 +5202,14 @@ function rrPlayback(events) {
 
     rafId = requestAnimationFrame(tick);
 
-    // Страховочный сброс: если rAF завис — принудительно отпускаем всё
+    // Страховочный сброс
     setTimeout(() => {
         if (rafId !== null) {
             cancelAnimationFrame(rafId);
             rafId = null;
         }
         releaseAll();
-    }, totalMs + 2000);
+    }, totalMs + 3000);
 }
 
 // ── Команды ───────────────────────────────────────────────
@@ -5190,6 +5228,7 @@ window.sendChatInputCustom = function(e) {
             events:        [],
             startTime:     now,
             lastEventTime: null,
+            durationMs:    0,
             stickX:        0,
             stickY:        0,
             stickDown:     false
@@ -5217,9 +5256,12 @@ window.sendChatInputCustom = function(e) {
             try { _rrOE && _rrOE.call(window, '<Gamepad>/leftStick'); } catch(e) {}
         }
 
-        const durationMs          = Math.round(performance.now() - routeRecorder.startTime);
-        routeRecorder.active      = false;
-        window._savedRoute        = routeRecorder.events.slice();
+        const durationMs               = Math.round(performance.now() - routeRecorder.startTime);
+        routeRecorder.active           = false;
+        routeRecorder.durationMs       = durationMs;
+        window._savedRoute             = routeRecorder.events.slice();
+        // FIX v4: сохраняем реальную длительность вместе с маршрутом
+        window._savedRouteDuration     = durationMs;
 
         showScreenNotification('АВТОШКОЛА', '⏹ Запись остановлена!', '00FF00', 4000);
         sendToTelegram(
@@ -5249,5 +5291,5 @@ window.sendChatInputCustom = function(e) {
 };
 sendChatInput = window.sendChatInputCustom;
 
-console.log('[ROUTE RECORDER v3] ✅ rAF-таймер + perf.now() + no-dup-up. Команды: /p_start /p_end /p_pov');
-// ==================== END ROUTE RECORDER MODULE v3 ====================
+console.log('[ROUTE RECORDER v4] ✅ Финальная пауза + уведомления кнопок. Команды: /p_start /p_end /p_pov');
+// ==================== END ROUTE RECORDER MODULE v4 ====================
