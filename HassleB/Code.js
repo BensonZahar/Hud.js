@@ -733,7 +733,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v5</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v6</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -4875,6 +4875,16 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 // ║    2. showScreenNotification при нажатии кнопки,         ║
 // ║       closeInterface('ScreenNotification') при отпуске   ║
 // ╚══════════════════════════════════════════════════════════╝
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: ROUTE RECORDER v4 — Запись маршрута автошколы  ║
+// ║  Команды: /p_start · /p_end · /p_pov                    ║
+// ║  FIX v4:                                                 ║
+// ║    1. Финальная пауза после последнего события           ║
+// ║       (дельта = durationMs - суммаDelta) → машина        ║
+// ║       доезжает до конца, а не врезается сразу            ║
+// ║    2. showScreenNotification при нажатии кнопки,         ║
+// ║       closeInterface('ScreenNotification') при отпуске   ║
+// ╚══════════════════════════════════════════════════════════╝
 // ==================== START ROUTE RECORDER MODULE v4 ====================
 
 const routeRecorder = {
@@ -5015,7 +5025,7 @@ function rrSplit(text, max = 4000) {
 window._savedRoute = null;
 
 // ── Отправка в Telegram ───────────────────────────────────
-function rrSendTg(events, durationMs) {
+function rrSendTg(events, durationMs, compactReady) {
     if (!events.length) {
         sendToTelegram(`⚠️ <b>Маршрут пуст (${displayName})</b>`, false, null);
         return;
@@ -5032,19 +5042,18 @@ function rrSendTg(events, durationMs) {
         body += `${String(i + 1).padStart(3)} │${rrFmt(e.time).padStart(8)}│+${rrFmt(e.delta).padStart(7)}│ ${rrEvText(e)}\n`;
     });
 
-    // Compact JSON.
-    // FIX v4: последний элемент — [duration, durationMs] → финальная пауза
-    const bki = { '<Keyboard>/w': 0, '<Keyboard>/s': 1, '<Keyboard>/a': 2, '<Keyboard>/d': 3 };
-    const compact = events.map(e =>
-        e.t === 'b' ? ['b', bki[e.key], e.a, e.delta]
-                    : ['s', e.a, e.x, e.y, e.delta]
-    );
-    // Финальная пауза: сколько миллисекунд ехать после последнего события
-    const sumDelta = compact.reduce((acc, e) => acc + (e[e.length - 1] || 0), 0);
-    const tailMs   = Math.max(0, durationMs - sumDelta);
-    if (tailMs > 50) {
-        compact.push(['tail', tailMs]); // маркер финальной паузы
-    }
+    // Используем готовый compact (уже содержит tail) или строим заново
+    const compact = compactReady || (() => {
+        const bki = { '<Keyboard>/w': 0, '<Keyboard>/s': 1, '<Keyboard>/a': 2, '<Keyboard>/d': 3 };
+        const c = events.map(e =>
+            e.t === 'b' ? ['b', bki[e.key], e.a, e.delta]
+                        : ['s', e.a, e.x, e.y, e.delta]
+        );
+        const sumDelta = c.reduce((acc, e) => acc + (e[e.length - 1] || 0), 0);
+        const tailMs   = Math.max(0, durationMs - sumDelta);
+        if (tailMs > 50) c.push(['tail', tailMs]);
+        return c;
+    })();
 
     const jsonStr = JSON.stringify(compact);
 
@@ -5259,9 +5268,22 @@ window.sendChatInputCustom = function(e) {
         const durationMs               = Math.round(performance.now() - routeRecorder.startTime);
         routeRecorder.active           = false;
         routeRecorder.durationMs       = durationMs;
-        window._savedRoute             = routeRecorder.events.slice();
-        // FIX v4: сохраняем реальную длительность вместе с маршрутом
         window._savedRouteDuration     = durationMs;
+
+        // FIX v4: вычисляем финальную паузу и кладём tail прямо в _savedRoute
+        // чтобы /p_pov тоже воспроизводил её
+        const rawEvents = routeRecorder.events.slice();
+        const bki2 = { '<Keyboard>/w': 0, '<Keyboard>/s': 1, '<Keyboard>/a': 2, '<Keyboard>/d': 3 };
+        const compactForTail = rawEvents.map(e =>
+            e.t === 'b' ? ['b', bki2[e.key], e.a, e.delta]
+                        : ['s', e.a, e.x, e.y, e.delta]
+        );
+        const sumDeltaLocal = compactForTail.reduce((acc, e) => acc + (e[e.length - 1] || 0), 0);
+        const tailMsLocal   = Math.max(0, durationMs - sumDeltaLocal);
+        if (tailMsLocal > 50) {
+            compactForTail.push(['tail', tailMsLocal]);
+        }
+        window._savedRoute = compactForTail;
 
         showScreenNotification('АВТОШКОЛА', '⏹ Запись остановлена!', '00FF00', 4000);
         sendToTelegram(
@@ -5270,7 +5292,7 @@ window.sendChatInputCustom = function(e) {
             `📤 Отправляю в Telegram...`,
             false, null
         );
-        setTimeout(() => rrSendTg(routeRecorder.events, durationMs), 800);
+        setTimeout(() => rrSendTg(routeRecorder.events, durationMs, compactForTail), 800);
         return;
     }
 
