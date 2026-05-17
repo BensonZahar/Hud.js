@@ -4866,265 +4866,290 @@ processUpdates = function(updates) {
 debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
 // ==================== END DIALOG MONITOR MODULE v2 ====================
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: ROUTE RECORDER — Запись маршрута автошколы      ║
-// ║  Команды:                                                ║
-// ║    /p_start — начать запись нажатий                      ║
-// ║    /p_end   — остановить и отправить в Telegram          ║
-// ║    /p_pov   — воспроизвести последний записанный маршрут ║
-// ║  Зависимости: config, displayName, debugLog,             ║
-// ║               sendToTelegram, sendChatInputCustom        ║
+// ║  MODULE: ROUTE RECORDER v2 — Запись маршрута автошколы  ║
+// ║  Команды: /p_start · /p_end · /p_pov                    ║
+// ║  Записывает: газ (W), тормоз (S), кнопки A/D,           ║
+// ║              джойстик leftStick (x/y)                   ║
 // ╚══════════════════════════════════════════════════════════╝
-// ==================== START ROUTE RECORDER MODULE ====================
+// ==================== START ROUTE RECORDER MODULE v2 ====================
 
 const routeRecorder = {
     active:        false,
-    events:        [],   // { key, action, time, delta }
+    events:        [],
     startTime:     null,
-    lastEventTime: null
+    lastEventTime: null,
+    stickX:        0,
+    stickY:        0,
+    stickDown:     false
 };
 
-// Ключи, которые записываем
-const RR_KEYS = {
+// Кнопки: старт/стоп
+const RR_BTN_KEYS = {
     '<Keyboard>/w': '⬆️Газ',
     '<Keyboard>/s': '⬇️Тормоз',
     '<Keyboard>/a': '⬅️Лево',
     '<Keyboard>/d': '➡️Право'
 };
 
-// ── Хуки onScreenControlTouchStart / End ────────────────────
-const _rrOrigTouchStart = window.onScreenControlTouchStart;
-window.onScreenControlTouchStart = function(key) {
-    if (routeRecorder.active && RR_KEYS[key] !== undefined) {
-        const now   = Date.now();
-        const delta = routeRecorder.lastEventTime ? now - routeRecorder.lastEventTime : 0;
-        routeRecorder.events.push({ key, action: 'press', time: now - routeRecorder.startTime, delta });
-        routeRecorder.lastEventTime = now;
-        debugLog(`[RR] press ${key} t=${now - routeRecorder.startTime}ms d=${delta}ms`);
-    }
-    if (typeof _rrOrigTouchStart === 'function') return _rrOrigTouchStart.call(this, key);
-};
+// Округление до шага 0.25 — достаточно для воспроизведения
+function rrQ(v) { return Math.round(v * 4) / 4; }
 
-const _rrOrigTouchEnd = window.onScreenControlTouchEnd;
-window.onScreenControlTouchEnd = function(key) {
-    if (routeRecorder.active && RR_KEYS[key] !== undefined) {
-        const now   = Date.now();
-        const delta = routeRecorder.lastEventTime ? now - routeRecorder.lastEventTime : 0;
-        routeRecorder.events.push({ key, action: 'release', time: now - routeRecorder.startTime, delta });
-        routeRecorder.lastEventTime = now;
-        debugLog(`[RR] release ${key} t=${now - routeRecorder.startTime}ms d=${delta}ms`);
-    }
-    if (typeof _rrOrigTouchEnd === 'function') return _rrOrigTouchEnd.call(this, key);
-};
-
-// ── Форматирование времени ─────────────────────────────────
-function rrFmtMs(ms) {
-    const s  = Math.floor(ms / 1000);
-    const ms2 = ms % 1000;
-    return `${s}.${String(ms2).padStart(3, '0')}с`;
+function rrPush(ev) {
+    const now   = Date.now();
+    const delta = routeRecorder.lastEventTime ? now - routeRecorder.lastEventTime : 0;
+    routeRecorder.events.push({ ...ev, time: now - routeRecorder.startTime, delta });
+    routeRecorder.lastEventTime = now;
 }
 
-// ── Разбивка длинного текста на части ≤4000 символов ─────
-function rrSplitMsg(text, maxLen = 4000) {
-    const parts = [];
-    const lines = text.split('\n');
-    let   cur   = '';
-    for (const line of lines) {
-        if ((cur + '\n' + line).length > maxLen) {
-            if (cur) parts.push(cur.trim());
-            cur = line;
-        } else {
-            cur = cur ? cur + '\n' + line : line;
+// ── Хук onScreenControlTouchStart ─────────────────────────
+const _rrOS = window.onScreenControlTouchStart;
+window.onScreenControlTouchStart = function(key) {
+    if (routeRecorder.active) {
+        if (RR_BTN_KEYS[key]) {
+            rrPush({ t: 'b', key, a: 1 });
+        } else if (key === '<Gamepad>/leftStick') {
+            routeRecorder.stickDown = true;
+            rrPush({ t: 's', a: 'dn', x: 0, y: 0 });
         }
     }
-    if (cur.trim()) parts.push(cur.trim());
+    if (typeof _rrOS === 'function') return _rrOS.call(this, key);
+};
+
+// ── Хук onScreenControlTouchEnd ───────────────────────────
+const _rrOE = window.onScreenControlTouchEnd;
+window.onScreenControlTouchEnd = function(key) {
+    if (routeRecorder.active) {
+        if (RR_BTN_KEYS[key]) {
+            rrPush({ t: 'b', key, a: 0 });
+        } else if (key === '<Gamepad>/leftStick') {
+            routeRecorder.stickDown = false;
+            routeRecorder.stickX   = 0;
+            routeRecorder.stickY   = 0;
+            rrPush({ t: 's', a: 'up', x: 0, y: 0 });
+        }
+    }
+    if (typeof _rrOE === 'function') return _rrOE.call(this, key);
+};
+
+// ── Хук onScreenControlTouchMove (джойстик!) ──────────────
+const _rrOM = window.onScreenControlTouchMove;
+window.onScreenControlTouchMove = function(key, x, y) {
+    if (routeRecorder.active && key === '<Gamepad>/leftStick') {
+        const qx = rrQ(x);
+        const qy = rrQ(y);
+        // Записываем только при изменении значений
+        if (qx !== routeRecorder.stickX || qy !== routeRecorder.stickY) {
+            routeRecorder.stickX = qx;
+            routeRecorder.stickY = qy;
+            rrPush({ t: 's', a: 'mv', x: qx, y: qy });
+        }
+    }
+    if (typeof _rrOM === 'function') return _rrOM.call(this, key, x, y);
+};
+
+// ── Утилиты ───────────────────────────────────────────────
+function rrFmt(ms) { return `${(ms / 1000).toFixed(2)}с`; }
+
+function rrEvText(e) {
+    if (e.t === 'b') {
+        const n = RR_BTN_KEYS[e.key] || e.key;
+        return `${e.a ? '🟢НАЖ' : '🔴ОТП'} ${n}`;
+    }
+    if (e.t === 's') {
+        if (e.a === 'dn') return '🕹️ Джойстик НАЖАТ';
+        if (e.a === 'up') return '🕹️ Джойстик ОТПУЩЕН';
+        const dir = e.x > 0.1 ? '▶' : e.x < -0.1 ? '◀' : '▲';
+        return `🕹️ ${dir} x=${e.x} y=${e.y}`;
+    }
+    return '';
+}
+
+function rrSplit(text, max = 4000) {
+    const lines = text.split('\n');
+    const parts = [];
+    let cur = '';
+    for (const l of lines) {
+        if (cur.length + l.length + 1 > max) { parts.push(cur); cur = l; }
+        else cur = cur ? cur + '\n' + l : l;
+    }
+    if (cur) parts.push(cur);
     return parts;
 }
 
-// ── Отправка маршрута в Telegram ──────────────────────────
-function rrSendToTelegram(events, durationMs) {
-    if (events.length === 0) {
-        sendToTelegram(`⚠️ <b>Маршрут пуст (${displayName})</b>\nНе было записано ни одного нажатия.`, false, null);
+window._savedRoute = null;
+
+// ── Отправка в Telegram ───────────────────────────────────
+function rrSendTg(events, durationMs) {
+    if (!events.length) {
+        sendToTelegram(`⚠️ <b>Маршрут пуст (${displayName})</b>`, false, null);
         return;
     }
 
-    // Заголовок
     const header =
         `🏫 <b>Маршрут автошколы — ${displayName}</b>\n` +
-        `⏱ Длительность: ${rrFmtMs(durationMs)}\n` +
+        `⏱ Длительность: ${rrFmt(durationMs)}\n` +
         `📝 Событий: ${events.length}\n` +
         `━━━━━━━━━━━━━━━━━━━━`;
 
-    // Строки событий
     let body = '';
-    for (let i = 0; i < events.length; i++) {
-        const e       = events[i];
-        const keyName = RR_KEYS[e.key] || e.key;
-        const act     = e.action === 'press' ? '🟢НАЖ' : '🔴ОТП';
-        // Показываем: номер | время от старта | пауза с предыдущего | кнопка
-        body += `${String(i + 1).padStart(3, ' ')}│${rrFmtMs(e.time).padStart(9)}│${'+' + rrFmtMs(e.delta).padStart(9)}│${act} ${keyName}\n`;
-    }
-
-    // Компактный JSON для воспроизведения (отдельное сообщение)
-    // Формат: [[delta, keyIndex, action], ...]
-    // keyIndex: 0=w,1=s,2=a,3=d  action: 1=press,0=release
-    const keyMap = { '<Keyboard>/w': 0, '<Keyboard>/s': 1, '<Keyboard>/a': 2, '<Keyboard>/d': 3 };
-    const compact = events.map(e => [e.delta, keyMap[e.key], e.action === 'press' ? 1 : 0]);
-    const jsonStr = JSON.stringify(compact);
-
-    const fullText = `${header}\n<code>${body.trim()}</code>`;
-    const parts    = rrSplitMsg(fullText);
-
-    // Отправляем части по порядку с небольшой задержкой
-    parts.forEach((part, idx) => {
-        setTimeout(() => {
-            sendToTelegram(
-                idx === 0 ? part : `📄 <b>Маршрут (продолжение ${idx + 1})</b>\n<code>${part}</code>`,
-                false, null
-            );
-        }, idx * 600);
+    events.forEach((e, i) => {
+        body += `${String(i + 1).padStart(3)} │${rrFmt(e.time).padStart(8)}│+${rrFmt(e.delta).padStart(7)}│ ${rrEvText(e)}\n`;
     });
 
-    // JSON для воспроизведения — последним сообщением
-    const jsonParts = rrSplitMsg(jsonStr, 3800);
-    jsonParts.forEach((part, idx) => {
+    // Compact JSON: btn=['b',keyIdx,a,delta] stk=['s',a,x,y,delta]
+    const bki = { '<Keyboard>/w': 0, '<Keyboard>/s': 1, '<Keyboard>/a': 2, '<Keyboard>/d': 3 };
+    const compact = events.map(e =>
+        e.t === 'b' ? ['b', bki[e.key], e.a, e.delta]
+                    : ['s', e.a, e.x, e.y, e.delta]
+    );
+    const jsonStr = JSON.stringify(compact);
+
+    const textParts = rrSplit(`${header}\n<code>${body.trim()}</code>`);
+    textParts.forEach((part, i) => {
+        setTimeout(() => {
+            sendToTelegram(i === 0 ? part : `📄 <b>Продолжение ${i + 1} — ${displayName}</b>\n<code>${part}</code>`, false, null);
+        }, i * 700);
+    });
+
+    const jsonParts = rrSplit(jsonStr, 3800);
+    jsonParts.forEach((part, i) => {
         setTimeout(() => {
             sendToTelegram(
-                `💾 <b>JSON маршрута [${idx + 1}/${jsonParts.length}] — ${displayName}</b>\n` +
-                `<i>Используйте /p_pov для воспроизведения</i>\n` +
-                `<code>${part}</code>`,
+                `💾 <b>JSON [${i + 1}/${jsonParts.length}] — ${displayName}</b>\n` +
+                `<i>/p_pov для воспроизведения</i>\n<code>${part}</code>`,
                 false, null
             );
-        }, (parts.length + idx) * 600 + 300);
+        }, (textParts.length + i) * 700 + 400);
     });
 }
 
-// ── Воспроизведение маршрута ──────────────────────────────
-// Принимает массив [delta, keyIndex, action]  ИЛИ routeRecorder.events
+// ── Воспроизведение ───────────────────────────────────────
 function rrPlayback(events) {
-    if (!events || events.length === 0) {
-        sendToTelegram(`⚠️ <b>Нет маршрута для воспроизведения (${displayName})</b>`, false, null);
+    if (!events || !events.length) {
+        sendToTelegram(`⚠️ <b>Нет маршрута (${displayName})</b>\nСначала запишите: /p_start`, false, null);
         return;
     }
 
-    const keyArr = ['<Keyboard>/w', '<Keyboard>/s', '<Keyboard>/a', '<Keyboard>/d'];
+    const bkeys = ['<Keyboard>/w', '<Keyboard>/s', '<Keyboard>/a', '<Keyboard>/d'];
 
-    // Определяем формат: объект {key,action,delta} или массив [delta, keyIdx, act]
-    function getEntry(e) {
-        if (Array.isArray(e)) return { key: keyArr[e[1]], action: e[2] === 1 ? 'press' : 'release', delta: e[0] };
-        return e;
+    function parse(e) {
+        if (!Array.isArray(e)) return e;
+        if (e[0] === 'b') return { t: 'b', key: bkeys[e[1]], a: e[2], delta: e[3] };
+        return { t: 's', a: e[1], x: e[2], y: e[3], delta: e[4] };
     }
 
-    sendToTelegram(`▶️ <b>Воспроизведение маршрута (${displayName})</b>\nСобытий: ${events.length}`, true, null);
-    showScreenNotification('АВТОШКОЛА', 'Воспроизведение маршрута...', 'FFFF00', 3000);
+    sendToTelegram(`▶️ <b>Воспроизведение (${displayName})</b>\nСобытий: ${events.length}`, true, null);
+    showScreenNotification('АВТОШКОЛА', '▶ Воспроизведение...', 'FFFF00', 4000);
 
-    let accumulated = 0;
+    let acc = 0;
+    let stkActive = false;
+
     for (let i = 0; i < events.length; i++) {
-        const entry = getEntry(events[i]);
-        accumulated += entry.delta;
-        ((k, a, t) => {
+        const ev = parse(events[i]);
+        acc += ev.delta;
+
+        ((entry, t) => {
             setTimeout(() => {
-                if (a === 'press') {
-                    window.onScreenControlTouchStart(k);
-                } else {
-                    window.onScreenControlTouchEnd(k);
-                }
-                debugLog(`[RR PLAY] t=${t}ms ${a} ${k}`);
+                try {
+                    if (entry.t === 'b') {
+                        if (entry.a === 1) _rrOS && _rrOS.call(window, entry.key);
+                        else               _rrOE && _rrOE.call(window, entry.key);
+                    } else {
+                        if (entry.a === 'dn') {
+                            stkActive = true;
+                            _rrOS && _rrOS.call(window, '<Gamepad>/leftStick');
+                        } else if (entry.a === 'mv') {
+                            if (!stkActive) {
+                                stkActive = true;
+                                _rrOS && _rrOS.call(window, '<Gamepad>/leftStick');
+                            }
+                            _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', entry.x, entry.y);
+                        } else if (entry.a === 'up') {
+                            stkActive = false;
+                            // Центрируем стик перед отпусканием
+                            _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', 0, 0);
+                            _rrOE && _rrOE.call(window, '<Gamepad>/leftStick');
+                        }
+                    }
+                } catch(err) { debugLog(`[RR PLAY] err: ${err.message}`); }
             }, t);
-        })(entry.key, entry.action, accumulated);
+        })(ev, acc);
     }
 
-    const totalMs = accumulated;
+    // Страховка в конце — отпустить всё
     setTimeout(() => {
-        showScreenNotification('АВТОШКОЛА', 'Маршрут завершён!', '00FF00', 3000);
-        sendToTelegram(`✅ <b>Воспроизведение завершено (${displayName})</b>\n⏱ Длительность: ${rrFmtMs(totalMs)}`, true, null);
-    }, totalMs + 200);
+        bkeys.forEach(k => { try { _rrOE && _rrOE.call(window, k); } catch(e) {} });
+        try { _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', 0, 0); } catch(e) {}
+        try { _rrOE && _rrOE.call(window, '<Gamepad>/leftStick'); } catch(e) {}
+        showScreenNotification('АВТОШКОЛА', '✅ Маршрут завершён!', '00FF00', 3000);
+        sendToTelegram(`✅ <b>Воспроизведение завершено (${displayName})</b>\n⏱ ${rrFmt(acc)}`, true, null);
+    }, acc + 400);
 }
 
-// ── Сохранённый маршрут (для /p_pov без новой записи) ──────
-window._savedRoute = null;
-
-// ── Обработка команд — интегрируем в sendChatInputCustom ───
-// ВАЖНО: добавить ДО строки  sendChatInput = window.sendChatInputCustom;
-// Перехватываем существующий sendChatInputCustom
-const _rrOrigSendChatInputCustom = window.sendChatInputCustom;
+// ── Команды ───────────────────────────────────────────────
+const _rrOrigChat = window.sendChatInputCustom;
 window.sendChatInputCustom = function(e) {
     const cmd = e.trim();
 
-    // /p_start — начать запись
     if (cmd === '/p_start') {
         if (routeRecorder.active) {
-            showScreenNotification('АВТОШКОЛА', 'Запись уже идёт!', 'FF4444', 3000);
-            sendToTelegram(`⚠️ <b>Запись уже активна (${displayName})</b>`, true, null);
+            showScreenNotification('АВТОШКОЛА', 'Запись уже идёт!', 'FF8800', 3000);
             return;
         }
-        routeRecorder.active        = true;
-        routeRecorder.events        = [];
-        routeRecorder.startTime     = Date.now();
-        routeRecorder.lastEventTime = null;
-        showScreenNotification('АВТОШКОЛА', '🔴 Запись маршрута начата!', 'FF0000', 4000);
-        sendToTelegram(`🔴 <b>Запись маршрута начата (${displayName})</b>\nНажимайте газ и стрелки влево/вправо.\nДля остановки введите /p_end`, false, null);
+        Object.assign(routeRecorder, {
+            active: true, events: [],
+            startTime: Date.now(), lastEventTime: null,
+            stickX: 0, stickY: 0, stickDown: false
+        });
+        showScreenNotification('АВТОШКОЛА', '🔴 Запись начата!', 'FF0000', 4000);
+        sendToTelegram(
+            `🔴 <b>Запись маршрута начата (${displayName})</b>\n` +
+            `Записываются газ, тормоз, повороты и джойстик.\n` +
+            `Остановка: <b>/p_end</b>`,
+            false, null
+        );
         return;
     }
 
-    // /p_end — остановить запись и отправить
     if (cmd === '/p_end') {
         if (!routeRecorder.active) {
-            showScreenNotification('АВТОШКОЛА', 'Запись не активна', 'FF4444', 3000);
-            sendToTelegram(`⚠️ <b>Запись не была запущена (${displayName})</b>`, true, null);
+            showScreenNotification('АВТОШКОЛА', 'Запись не запущена', 'FF4444', 3000);
             return;
         }
-        // Принудительно отпускаем все зажатые клавиши
-        Object.keys(RR_KEYS).forEach(k => {
-            try { window.onScreenControlTouchEnd(k); } catch(e) {}
-        });
+        // Принудительно отпускаем всё
+        Object.keys(RR_BTN_KEYS).forEach(k => { try { _rrOE && _rrOE.call(window, k); } catch(e) {} });
+        if (routeRecorder.stickDown) {
+            try { _rrOE && _rrOE.call(window, '<Gamepad>/leftStick'); } catch(e) {}
+        }
 
-        const durationMs = Date.now() - routeRecorder.startTime;
-        routeRecorder.active = false;
-
-        // Сохраняем для /p_pov
-        window._savedRoute = routeRecorder.events.slice();
+        const durationMs          = Date.now() - routeRecorder.startTime;
+        routeRecorder.active      = false;
+        window._savedRoute        = routeRecorder.events.slice();
 
         showScreenNotification('АВТОШКОЛА', '⏹ Запись остановлена!', '00FF00', 4000);
         sendToTelegram(
-            `⏹ <b>Запись маршрута остановлена (${displayName})</b>\n` +
-            `⏱ Длительность: ${rrFmtMs(durationMs)}\n` +
-            `📝 Событий: ${routeRecorder.events.length}\n` +
-            `📤 Отправка в Telegram...`,
+            `⏹ <b>Запись остановлена (${displayName})</b>\n` +
+            `⏱ ${rrFmt(durationMs)} · 📝 ${routeRecorder.events.length} событий\n` +
+            `📤 Отправляю в Telegram...`,
             false, null
         );
-
-        // Небольшая задержка перед отправкой данных
-        setTimeout(() => {
-            rrSendToTelegram(routeRecorder.events, durationMs);
-        }, 800);
+        setTimeout(() => rrSendTg(routeRecorder.events, durationMs), 800);
         return;
     }
 
-    // /p_pov — воспроизвести маршрут
     if (cmd === '/p_pov') {
-        if (!window._savedRoute || window._savedRoute.length === 0) {
-            showScreenNotification('АВТОШКОЛА', 'Нет сохранённого маршрута', 'FF4444', 3000);
-            sendToTelegram(
-                `⚠️ <b>Нет сохранённого маршрута (${displayName})</b>\n` +
-                `Сначала запишите маршрут командой /p_start`,
-                false, null
-            );
+        if (!window._savedRoute || !window._savedRoute.length) {
+            showScreenNotification('АВТОШКОЛА', 'Нет маршрута!', 'FF4444', 3000);
+            sendToTelegram(`⚠️ <b>Нет маршрута (${displayName})</b>\nСначала запишите: /p_start`, false, null);
             return;
         }
         rrPlayback(window._savedRoute);
         return;
     }
 
-    // Все остальные команды — передаём дальше
-    if (typeof _rrOrigSendChatInputCustom === 'function') {
-        _rrOrigSendChatInputCustom.call(this, e);
-    }
+    if (typeof _rrOrigChat === 'function') _rrOrigChat.call(this, e);
 };
-
-// Обновляем глобальный sendChatInput
 sendChatInput = window.sendChatInputCustom;
 
-debugLog('[ROUTE RECORDER] Модуль загружен. Команды: /p_start, /p_end, /p_pov');
-console.log('[ROUTE RECORDER] ✅ Модуль записи маршрута автошколы загружен.');
-
-// ==================== END ROUTE RECORDER MODULE ====================
+console.log('[ROUTE RECORDER v2] ✅ Газ + джойстик + A/D. Команды: /p_start /p_end /p_pov');
+// ==================== END ROUTE RECORDER MODULE v2 ====================
