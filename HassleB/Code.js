@@ -733,7 +733,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v3</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v4</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -4866,24 +4866,23 @@ processUpdates = function(updates) {
 debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
 // ==================== END DIALOG MONITOR MODULE v2 ====================
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: ROUTE RECORDER v2 — Запись маршрута автошколы  ║
+// ║  MODULE: ROUTE RECORDER v3 — Запись маршрута автошколы  ║
 // ║  Команды: /p_start · /p_end · /p_pov                    ║
-// ║  Записывает: газ (W), тормоз (S), кнопки A/D,           ║
-// ║              джойстик leftStick (x/y)                   ║
+// ║  FIX: rAF+perf.now таймер, дубли up убраны,             ║
+// ║        точный порядок событий при воспроизведении        ║
 // ╚══════════════════════════════════════════════════════════╝
-// ==================== START ROUTE RECORDER MODULE v2 ====================
+// ==================== START ROUTE RECORDER MODULE v3 ====================
 
 const routeRecorder = {
     active:        false,
     events:        [],
-    startTime:     null,
-    lastEventTime: null,
+    startTime:     null,   // performance.now() timestamp
+    lastEventTime: null,   // performance.now() timestamp
     stickX:        0,
     stickY:        0,
     stickDown:     false
 };
 
-// Кнопки: старт/стоп
 const RR_BTN_KEYS = {
     '<Keyboard>/w': '⬆️Газ',
     '<Keyboard>/s': '⬇️Тормоз',
@@ -4891,13 +4890,20 @@ const RR_BTN_KEYS = {
     '<Keyboard>/d': '➡️Право'
 };
 
-// Округление до шага 0.25 — достаточно для воспроизведения
+// Округление до шага 0.25 (оригинальное поведение, совместимо со старыми записями)
 function rrQ(v) { return Math.round(v * 4) / 4; }
 
+// Добавить событие в список записи (использует performance.now для точности)
 function rrPush(ev) {
-    const now   = Date.now();
-    const delta = routeRecorder.lastEventTime ? now - routeRecorder.lastEventTime : 0;
-    routeRecorder.events.push({ ...ev, time: now - routeRecorder.startTime, delta });
+    const now   = performance.now();
+    const delta = routeRecorder.lastEventTime !== null
+        ? Math.round(now - routeRecorder.lastEventTime)
+        : 0;
+    routeRecorder.events.push({
+        ...ev,
+        time:  Math.round(now - routeRecorder.startTime),
+        delta: delta
+    });
     routeRecorder.lastEventTime = now;
 }
 
@@ -4908,8 +4914,11 @@ window.onScreenControlTouchStart = function(key) {
         if (RR_BTN_KEYS[key]) {
             rrPush({ t: 'b', key, a: 1 });
         } else if (key === '<Gamepad>/leftStick') {
-            routeRecorder.stickDown = true;
-            rrPush({ t: 's', a: 'dn', x: 0, y: 0 });
+            // FIX: записываем dn только если джойстик реально не нажат
+            if (!routeRecorder.stickDown) {
+                routeRecorder.stickDown = true;
+                rrPush({ t: 's', a: 'dn', x: 0, y: 0 });
+            }
         }
     }
     if (typeof _rrOS === 'function') return _rrOS.call(this, key);
@@ -4922,22 +4931,24 @@ window.onScreenControlTouchEnd = function(key) {
         if (RR_BTN_KEYS[key]) {
             rrPush({ t: 'b', key, a: 0 });
         } else if (key === '<Gamepad>/leftStick') {
-            routeRecorder.stickDown = false;
-            routeRecorder.stickX   = 0;
-            routeRecorder.stickY   = 0;
-            rrPush({ t: 's', a: 'up', x: 0, y: 0 });
+            // FIX: записываем up только если джойстик реально был нажат → нет дублей
+            if (routeRecorder.stickDown) {
+                routeRecorder.stickDown = false;
+                routeRecorder.stickX   = 0;
+                routeRecorder.stickY   = 0;
+                rrPush({ t: 's', a: 'up', x: 0, y: 0 });
+            }
         }
     }
     if (typeof _rrOE === 'function') return _rrOE.call(this, key);
 };
 
-// ── Хук onScreenControlTouchMove (джойстик!) ──────────────
+// ── Хук onScreenControlTouchMove (джойстик) ──────────────
 const _rrOM = window.onScreenControlTouchMove;
 window.onScreenControlTouchMove = function(key, x, y) {
     if (routeRecorder.active && key === '<Gamepad>/leftStick') {
         const qx = rrQ(x);
         const qy = rrQ(y);
-        // Записываем только при изменении значений
         if (qx !== routeRecorder.stickX || qy !== routeRecorder.stickY) {
             routeRecorder.stickX = qx;
             routeRecorder.stickY = qy;
@@ -5007,7 +5018,12 @@ function rrSendTg(events, durationMs) {
     const textParts = rrSplit(`${header}\n<code>${body.trim()}</code>`);
     textParts.forEach((part, i) => {
         setTimeout(() => {
-            sendToTelegram(i === 0 ? part : `📄 <b>Продолжение ${i + 1} — ${displayName}</b>\n<code>${part}</code>`, false, null);
+            sendToTelegram(
+                i === 0
+                    ? part
+                    : `📄 <b>Продолжение ${i + 1} — ${displayName}</b>\n<code>${part}</code>`,
+                false, null
+            );
         }, i * 700);
     });
 
@@ -5023,10 +5039,28 @@ function rrSendTg(events, durationMs) {
     });
 }
 
-// ── Воспроизведение ───────────────────────────────────────
+// ── Воспроизведение (ИСПРАВЛЕНО: rAF + performance.now) ───
+//
+//  ПОЧЕМУ СТАРЫЙ КОД ЛОМАЛСЯ:
+//  - setTimeout(fn, acc) неточен: браузер задерживает таймеры,
+//    особенно при delta=0 или delta=1 (все срабатывают «вместе»,
+//    но порядок не гарантирован).
+//  - Несколько событий с delta=0 могут выполниться в неверном
+//    порядке, что разворачивает руль не в ту сторону.
+//
+//  НОВЫЙ КОД:
+//  - Строим временну́ю шкалу с абсолютными метками fireAt (мс).
+//  - requestAnimationFrame (~60fps = 16.7мс) опрашивает шкалу
+//    и dispatches все события, чьё время уже наступило.
+//  - Порядок внутри одного фрейма гарантирован (цикл while).
+//  - performance.now() точнее Date.now() на 0.1мс.
+//
 function rrPlayback(events) {
     if (!events || !events.length) {
-        sendToTelegram(`⚠️ <b>Нет маршрута (${displayName})</b>\nСначала запишите: /p_start`, false, null);
+        sendToTelegram(
+            `⚠️ <b>Нет маршрута (${displayName})</b>\nСначала запишите: /p_start`,
+            false, null
+        );
         return;
     }
 
@@ -5038,52 +5072,106 @@ function rrPlayback(events) {
         return { t: 's', a: e[1], x: e[2], y: e[3], delta: e[4] };
     }
 
-    sendToTelegram(`▶️ <b>Воспроизведение (${displayName})</b>\nСобытий: ${events.length}`, true, null);
+    // Строим временну́ю шкалу: каждое событие получает абсолютную
+    // метку fireAt = сумма всех delta до него включительно.
+    let runningTime = 0;
+    const timeline = events.map(e => {
+        const ev = parse(e);
+        runningTime += (ev.delta || 0);
+        return { ...ev, fireAt: runningTime };
+    });
+    const totalMs = runningTime;
+
+    sendToTelegram(
+        `▶️ <b>Воспроизведение v3 (${displayName})</b>\nСобытий: ${events.length}`,
+        true, null
+    );
     showScreenNotification('АВТОШКОЛА', '▶ Воспроизведение...', 'FFFF00', 4000);
 
-    let acc = 0;
+    let eventIdx  = 0;
     let stkActive = false;
+    let rafId     = null;
+    const startTime = performance.now();
 
-    for (let i = 0; i < events.length; i++) {
-        const ev = parse(events[i]);
-        acc += ev.delta;
-
-        ((entry, t) => {
-            setTimeout(() => {
-                try {
-                    if (entry.t === 'b') {
-                        if (entry.a === 1) _rrOS && _rrOS.call(window, entry.key);
-                        else               _rrOE && _rrOE.call(window, entry.key);
-                    } else {
-                        if (entry.a === 'dn') {
-                            stkActive = true;
-                            _rrOS && _rrOS.call(window, '<Gamepad>/leftStick');
-                        } else if (entry.a === 'mv') {
-                            if (!stkActive) {
-                                stkActive = true;
-                                _rrOS && _rrOS.call(window, '<Gamepad>/leftStick');
-                            }
-                            _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', entry.x, entry.y);
-                        } else if (entry.a === 'up') {
-                            stkActive = false;
-                            // Центрируем стик перед отпусканием
-                            _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', 0, 0);
-                            _rrOE && _rrOE.call(window, '<Gamepad>/leftStick');
-                        }
+    function doDispatch(entry) {
+        try {
+            if (entry.t === 'b') {
+                if (entry.a === 1) {
+                    _rrOS && _rrOS.call(window, entry.key);
+                } else {
+                    _rrOE && _rrOE.call(window, entry.key);
+                }
+            } else {
+                if (entry.a === 'dn') {
+                    if (!stkActive) {
+                        stkActive = true;
+                        _rrOS && _rrOS.call(window, '<Gamepad>/leftStick');
                     }
-                } catch(err) { debugLog(`[RR PLAY] err: ${err.message}`); }
-            }, t);
-        })(ev, acc);
+                } else if (entry.a === 'mv') {
+                    if (!stkActive) {
+                        stkActive = true;
+                        _rrOS && _rrOS.call(window, '<Gamepad>/leftStick');
+                    }
+                    _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', entry.x, entry.y);
+                } else if (entry.a === 'up') {
+                    if (stkActive) {
+                        // Центрируем стик перед отпусканием
+                        _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', 0, 0);
+                        _rrOE && _rrOE.call(window, '<Gamepad>/leftStick');
+                        stkActive = false;
+                    }
+                }
+            }
+        } catch (err) {
+            try { debugLog(`[RR PLAY v3] err: ${err.message}`); } catch(_) {}
+        }
     }
 
-    // Страховка в конце — отпустить всё
+    function releaseAll() {
+        bkeys.forEach(k => {
+            try { _rrOE && _rrOE.call(window, k); } catch(e) {}
+        });
+        if (stkActive) {
+            try { _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', 0, 0); } catch(e) {}
+            try { _rrOE && _rrOE.call(window, '<Gamepad>/leftStick'); } catch(e) {}
+            stkActive = false;
+        }
+    }
+
+    // Основной цикл: опрашивается каждый rAF (~16.7мс)
+    function tick() {
+        const elapsed = performance.now() - startTime;
+
+        // Dispatching всех событий, чьё время уже наступило
+        // Порядок гарантирован — while идёт по отсортированному массиву
+        while (eventIdx < timeline.length && timeline[eventIdx].fireAt <= elapsed) {
+            doDispatch(timeline[eventIdx]);
+            eventIdx++;
+        }
+
+        if (eventIdx < timeline.length) {
+            rafId = requestAnimationFrame(tick);
+        } else {
+            // Все события выполнены
+            releaseAll();
+            showScreenNotification('АВТОШКОЛА', '✅ Маршрут завершён!', '00FF00', 3000);
+            sendToTelegram(
+                `✅ <b>Воспроизведение завершено (${displayName})</b>\n⏱ ${rrFmt(totalMs)}`,
+                true, null
+            );
+        }
+    }
+
+    rafId = requestAnimationFrame(tick);
+
+    // Страховочный сброс: если rAF завис — принудительно отпускаем всё
     setTimeout(() => {
-        bkeys.forEach(k => { try { _rrOE && _rrOE.call(window, k); } catch(e) {} });
-        try { _rrOM && _rrOM.call(window, '<Gamepad>/leftStick', 0, 0); } catch(e) {}
-        try { _rrOE && _rrOE.call(window, '<Gamepad>/leftStick'); } catch(e) {}
-        showScreenNotification('АВТОШКОЛА', '✅ Маршрут завершён!', '00FF00', 3000);
-        sendToTelegram(`✅ <b>Воспроизведение завершено (${displayName})</b>\n⏱ ${rrFmt(acc)}`, true, null);
-    }, acc + 400);
+        if (rafId !== null) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+        }
+        releaseAll();
+    }, totalMs + 2000);
 }
 
 // ── Команды ───────────────────────────────────────────────
@@ -5096,10 +5184,15 @@ window.sendChatInputCustom = function(e) {
             showScreenNotification('АВТОШКОЛА', 'Запись уже идёт!', 'FF8800', 3000);
             return;
         }
+        const now = performance.now();
         Object.assign(routeRecorder, {
-            active: true, events: [],
-            startTime: Date.now(), lastEventTime: null,
-            stickX: 0, stickY: 0, stickDown: false
+            active:        true,
+            events:        [],
+            startTime:     now,
+            lastEventTime: null,
+            stickX:        0,
+            stickY:        0,
+            stickDown:     false
         });
         showScreenNotification('АВТОШКОЛА', '🔴 Запись начата!', 'FF0000', 4000);
         sendToTelegram(
@@ -5116,13 +5209,15 @@ window.sendChatInputCustom = function(e) {
             showScreenNotification('АВТОШКОЛА', 'Запись не запущена', 'FF4444', 3000);
             return;
         }
-        // Принудительно отпускаем всё
-        Object.keys(RR_BTN_KEYS).forEach(k => { try { _rrOE && _rrOE.call(window, k); } catch(e) {} });
+        // Принудительно отпускаем все кнопки
+        Object.keys(RR_BTN_KEYS).forEach(k => {
+            try { _rrOE && _rrOE.call(window, k); } catch(e) {}
+        });
         if (routeRecorder.stickDown) {
             try { _rrOE && _rrOE.call(window, '<Gamepad>/leftStick'); } catch(e) {}
         }
 
-        const durationMs          = Date.now() - routeRecorder.startTime;
+        const durationMs          = Math.round(performance.now() - routeRecorder.startTime);
         routeRecorder.active      = false;
         window._savedRoute        = routeRecorder.events.slice();
 
@@ -5140,7 +5235,10 @@ window.sendChatInputCustom = function(e) {
     if (cmd === '/p_pov') {
         if (!window._savedRoute || !window._savedRoute.length) {
             showScreenNotification('АВТОШКОЛА', 'Нет маршрута!', 'FF4444', 3000);
-            sendToTelegram(`⚠️ <b>Нет маршрута (${displayName})</b>\nСначала запишите: /p_start`, false, null);
+            sendToTelegram(
+                `⚠️ <b>Нет маршрута (${displayName})</b>\nСначала запишите: /p_start`,
+                false, null
+            );
             return;
         }
         rrPlayback(window._savedRoute);
@@ -5151,5 +5249,5 @@ window.sendChatInputCustom = function(e) {
 };
 sendChatInput = window.sendChatInputCustom;
 
-console.log('[ROUTE RECORDER v2] ✅ Газ + джойстик + A/D. Команды: /p_start /p_end /p_pov');
-// ==================== END ROUTE RECORDER MODULE v2 ====================
+console.log('[ROUTE RECORDER v3] ✅ rAF-таймер + perf.now() + no-dup-up. Команды: /p_start /p_end /p_pov');
+// ==================== END ROUTE RECORDER MODULE v3 ====================
