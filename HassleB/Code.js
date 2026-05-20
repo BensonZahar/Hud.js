@@ -3426,7 +3426,12 @@ function initializeChatMonitor() {
         const isAdminPrivateMsg = normalizeColor(i) === '0xFF9945' &&
             myNick &&
             new RegExp('администратор\\s+\\S+\\[\\d+\\]\\s+для\\s+' + myNick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\[', 'i').test(msg);
-        if (isAdminPrivateMsg ||
+        // [A] в рации — тихое уведомление без звука и спама
+        const isAdminRadioMsg = msg.includes("[A]") && msg.includes("((") && chatRadius === CHAT_RADIUS.RADIO;
+        if (isAdminRadioMsg) {
+            debugLog('Обнаружен [A] в рации — тихое уведомление');
+            sendToTelegram(`📻 <b>Администратор в рации [A] (${displayName})</b>\n<code>${msg.replace(/</g, '&lt;')}</code>`, true, null);
+        } else if (isAdminPrivateMsg ||
             (msg.includes("[A]") && msg.includes("((")) ||
             /\{FF4444\}\[Уведомление от администратора\] \{FFFFFF\}Администратор .+\[\d+\]:/.test(msg) ||
             (lowerCaseMessage.includes("подбросил") &&
