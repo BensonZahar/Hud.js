@@ -383,7 +383,11 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // ╚══════════════════════════════════════════════════════════╝
 // START SHARED STORAGE MODULE //
 // localStorage не работает в CEF-среде — используем in-memory переменную
-let _sharedLastUpdateId = 0;
+// При перезагрузке (/reload) восстанавливаем lastUpdateId из window, чтобы не получить
+// тот же /reload повторно и не попасть в бесконечный цикл перезагрузок.
+let _sharedLastUpdateId = (typeof window._hassleLastUpdateId === 'number' && window._hassleLastUpdateId > 0)
+    ? window._hassleLastUpdateId
+    : 0;
 function getSharedLastUpdateId() {
     return _sharedLastUpdateId;
 }
@@ -1946,6 +1950,9 @@ function processUpdates(updates) {
                     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
                     debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
                     window._hassleReloading = true;
+                    // Сохраняем текущий update_id в window, чтобы после перезагрузки
+                    // Code.js не начал снова с offset=0 и не повторил /reload бесконечно
+                    window._hassleLastUpdateId = config.lastUpdateId;
                     setTimeout(() => {
                         window._hassleReloading = false;
                         try {
