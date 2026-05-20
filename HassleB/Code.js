@@ -3421,8 +3421,12 @@ function initializeChatMonitor() {
                 }
             }, config.clearDelay);
         }
-        if ((lowerCaseMessage.indexOf("администратор") !== -1 && lowerCaseMessage.indexOf("для") !== -1) ||
-            normalizeColor(i) === '0xFF9945' ||
+        // FF9945 — только личное сообщение от администратора (Администратор X[ID] для МойНик[МойАйди]:)
+        const myNick = config.accountInfo.nickname;
+        const isAdminPrivateMsg = normalizeColor(i) === '0xFF9945' &&
+            myNick &&
+            new RegExp('администратор\\s+\\S+\\[\\d+\\]\\s+для\\s+' + myNick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\[', 'i').test(msg);
+        if (isAdminPrivateMsg ||
             (msg.includes("[A]") && msg.includes("((")) ||
             /\{FF4444\}\[Уведомление от администратора\] \{FFFFFF\}Администратор .+\[\d+\]:/.test(msg) ||
             (lowerCaseMessage.includes("подбросил") &&
