@@ -231,6 +231,65 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: GLOBAL BROADCAST                                ║
+// ║  Описание: Рассылка команд всем аккаунтам через          ║
+// ║             Telegram-чат. Нажатие в «Общие функции»      ║
+// ║             меняет config сразу у всех аккаунтов.        ║
+// ║  Зависимости: config, displayName, sendToTelegram,       ║
+// ║               showScreenNotification, debugLog           ║
+// ╚══════════════════════════════════════════════════════════╝
+// START GLOBAL BROADCAST MODULE //
+
+// Тег, по которому все аккаунты распознают broadcast-команду
+const HBGLOBAL_TAG = '#HBGLOBAL';
+
+// Отправить глобальную команду в Telegram — её подхватят все аккаунты
+function broadcastGlobalCommand(cmd, val) {
+    const tag = `${HBGLOBAL_TAG}:${cmd}:${val}`;
+    sendToTelegram(
+        `🌐 <b>Глобальная команда от ${displayName}</b>\n` +
+        `<code>${tag}</code>`,
+        true, null
+    );
+    debugLog(`[GLOBAL] Broadcast отправлен: ${cmd} = ${val}`);
+}
+
+// Применить глобальную команду на текущем аккаунте
+function handleGlobalBroadcastCommand(cmd, val) {
+    const isOn = val === 'on';
+    switch (cmd) {
+        case 'toggle_payday':
+            config.paydayNotifications = isOn;
+            showScreenNotification("Hassle", `[Global] PayDay ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            break;
+        case 'toggle_soob':
+            config.govMessagesEnabled = isOn;
+            showScreenNotification("Hassle", `[Global] Сообщ. ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            break;
+        case 'toggle_mesto':
+            config.trackLocationRequests = isOn;
+            showScreenNotification("Hassle", `[Global] Место ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            break;
+        case 'toggle_radio':
+            config.radioOfficialNotifications = isOn;
+            showScreenNotification("Hassle", `[Global] Рация все ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            break;
+        case 'toggle_radio_filter':
+            config.radioImportantFilter = isOn;
+            showScreenNotification("Hassle", `[Global] Фильтр рации ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            break;
+        case 'toggle_warning':
+            config.warningNotifications = isOn;
+            showScreenNotification("Hassle", `[Global] Выговоры ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            break;
+        default:
+            debugLog(`[GLOBAL] Неизвестная команда: ${cmd}`);
+    }
+    debugLog(`[GLOBAL] Применена команда: ${cmd} = ${val}`);
+}
+// END GLOBAL BROADCAST MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: AUTO LOGIN                                      ║
 // ║  Описание: Автоматический ввод пароля при открытии       ║
 // ║             интерфейса Authorization                     ║
@@ -1906,6 +1965,20 @@ function processUpdates(updates) {
             debugLog(`Игнорируем обновление из неавторизованного чата: ${chatId}`);
             continue;
         }
+
+        // ===== GLOBAL BROADCAST: перехват команд #HBGLOBAL =====
+        if (update.message && update.message.text) {
+            const globalMatch = update.message.text.match(/#HBGLOBAL:(\w+):(on|off)/);
+            if (globalMatch) {
+                const [, cmd, val] = globalMatch;
+                handleGlobalBroadcastCommand(cmd, val);
+                config.lastUpdateId = update.update_id;
+                setSharedLastUpdateId(config.lastUpdateId);
+                continue; // не передавать дальше в обычный обработчик
+            }
+        }
+        // ===== END GLOBAL BROADCAST =====
+
         if (update.message) {
             const message = update.message.text ? update.message.text.trim() : '';
             // ===== iOS FIX: Проверяем pendingInputs если нет reply_to_message =====
@@ -4082,46 +4155,34 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             if (listitem === 0) {
                 setTimeout(() => showHBControlsMenu(), 100);
             } else if (listitem === 1) {
-                config.paydayNotifications = !config.paydayNotifications;
-                const status = config.paydayNotifications ? 'включены' : 'отключены';
-                showScreenNotification("Hassle", `PayDay уведомления ${status}`);
-                sendToTelegram(`${config.paydayNotifications ? '🔔' : '🔕'} <b>PayDay уведомления ${status} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                const newValPd = !config.paydayNotifications;
+                handleGlobalBroadcastCommand('toggle_payday', newValPd ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_payday', newValPd ? 'on' : 'off');
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 2) {
-                config.govMessagesEnabled = !config.govMessagesEnabled;
-                const status = config.govMessagesEnabled ? 'включены' : 'отключены';
-                showScreenNotification("Hassle", `Уведомления от сотрудников фракции ${status}`);
-                sendToTelegram(`${config.govMessagesEnabled ? '🔔' : '🔕'} <b>Уведомления от сотрудников фракции ${status} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                const newValSoob = !config.govMessagesEnabled;
+                handleGlobalBroadcastCommand('toggle_soob', newValSoob ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_soob', newValSoob ? 'on' : 'off');
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 3) {
-                config.trackLocationRequests = !config.trackLocationRequests;
-                const status = config.trackLocationRequests ? 'включено' : 'отключено';
-                showScreenNotification("Hassle", `Отслеживание местоположения ${status}`);
-                sendToTelegram(`${config.trackLocationRequests ? '📍' : '🔕'} <b>Отслеживание местоположения ${status} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                const newValMesto = !config.trackLocationRequests;
+                handleGlobalBroadcastCommand('toggle_mesto', newValMesto ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_mesto', newValMesto ? 'on' : 'off');
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 4) {
-                config.radioOfficialNotifications = !config.radioOfficialNotifications;
-                const status = config.radioOfficialNotifications ? 'включены' : 'отключены';
-                showScreenNotification("Hassle", `Рация (все) ${status}`);
-                sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Рация (все) ${status} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                const newValRadio = !config.radioOfficialNotifications;
+                handleGlobalBroadcastCommand('toggle_radio', newValRadio ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_radio', newValRadio ? 'on' : 'off');
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 5) {
-                config.radioImportantFilter = !config.radioImportantFilter;
-                const status = config.radioImportantFilter ? 'включён' : 'отключён';
-                showScreenNotification("Hassle", `Фильтр рации ${status}`);
-                sendToTelegram(`${config.radioImportantFilter ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${status} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                const newValFilter = !config.radioImportantFilter;
+                handleGlobalBroadcastCommand('toggle_radio_filter', newValFilter ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_radio_filter', newValFilter ? 'on' : 'off');
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 6) {
-                config.warningNotifications = !config.warningNotifications;
-                const status = config.warningNotifications ? 'включены' : 'отключены';
-                showScreenNotification("Hassle", `Уведомления выговоров ${status}`);
-                sendToTelegram(`${config.warningNotifications ? '⚠️' : '🔕'} <b>Уведомления выговоров ${status} для всех</b>`, false, null);
-                sendWelcomeMessage();
+                const newValWarn = !config.warningNotifications;
+                handleGlobalBroadcastCommand('toggle_warning', newValWarn ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_warning', newValWarn ? 'on' : 'off');
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 7) {
                 setTimeout(() => showHBAFKModesMenu(), 100);
