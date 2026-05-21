@@ -2743,6 +2743,7 @@ function processUpdates(updates) {
                 } catch (err) {
                     sendToTelegram(`❌ <b>Ошибка получения инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
                 }
+            }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
         }
