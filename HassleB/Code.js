@@ -185,6 +185,8 @@ const userConfig = {
     skinCheckInterval: 5000,
     locationLogging: true,        // Логировать координаты персонажа в консоль
     locationLogInterval: 3000,    // Интервал логирования координат (мс)
+    moneyLogging: true,           // Логировать Нал и Банк персонажа в консоль
+    moneyLogInterval: 5000,       // Интервал логирования денег (мс)
     autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- используем константу
 };
 const config = {
@@ -529,6 +531,47 @@ function trackPlayerLocation() {
         debugLog('[LOC] Позиция недоступна (store ещё не инициализирован?)');
     }
     setTimeout(trackPlayerLocation, config.locationLogInterval);
+}
+
+// ── Получить Нал и Банк персонажа из Vuex store ──────────────
+function getPlayerMoneyFromStore() {
+    try {
+        if (window.App && window.App.$store) {
+            const money     = window.App.$store.getters["player/money"];
+            const bankMoney = window.App.$store.getters["player/bankMoney"];
+            if (money !== undefined || bankMoney !== undefined) {
+                return { money: money ?? null, bankMoney: bankMoney ?? null };
+            }
+        }
+        const menuInterface = window.interface("Menu");
+        if (menuInterface && menuInterface.$store) {
+            const money     = menuInterface.$store.getters["player/money"];
+            const bankMoney = menuInterface.$store.getters["player/bankMoney"];
+            if (money !== undefined || bankMoney !== undefined) {
+                return { money: money ?? null, bankMoney: bankMoney ?? null };
+            }
+        }
+        return null;
+    } catch (e) {
+        debugLog(`[MONEY] Ошибка при получении денег из store: ${e.message}`);
+        return null;
+    }
+}
+
+// ── Периодическое логирование Нала и Банка ────────────────────
+function trackPlayerMoney() {
+    if (!config.moneyLogging) return;
+    if (window._hassleReloading) return;
+    const data = getPlayerMoneyFromStore();
+    if (data) {
+        const nick = config.accountInfo.nickname || 'Unknown';
+        console.log(
+            `[MONEY][${nick}] Нал=$${data.money !== null ? data.money.toLocaleString() : '?'} Банк=$${data.bankMoney !== null ? data.bankMoney.toLocaleString() : '?'}`
+        );
+    } else {
+        debugLog('[MONEY] Данные недоступны (store ещё не инициализирован?)');
+    }
+    setTimeout(trackPlayerMoney, config.moneyLogInterval);
 }
 
 function updateFaction() {
@@ -3622,6 +3665,10 @@ function initializeChatMonitor() {
         if (config.locationLogging) {
             debugLog('[LOC] Запуск логирования координат персонажа...');
             setTimeout(trackPlayerLocation, 5000); // небольшая задержка, чтобы store точно загрузился
+        }
+        if (config.moneyLogging) {
+            debugLog('[MONEY] Запуск логирования Нала и Банка...');
+            setTimeout(trackPlayerMoney, 5000); // та же задержка для синхронизации со store
         }
     }
     checkTelegramCommands();
