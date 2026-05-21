@@ -183,6 +183,10 @@ const userConfig = {
     notificationDeleteDelay: 5000,
     trackSkinId: true,
     skinCheckInterval: 5000,
+    locationLogging: false,        // Логировать координаты персонажа в консоль
+    locationLogInterval: 3000,    // Интервал логирования координат (мс)
+    moneyLogging: false,           // Логировать Нал и Банк персонажа в консоль
+    moneyLogInterval: 5000,       // Интервал логирования денег (мс)
     autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- используем константу
 };
 const config = {
@@ -491,6 +495,85 @@ function getSkinIdFromStore() {
         return null;
     }
 }
+// ── Получить позицию персонажа из Vuex store ─────────────────
+function getPlayerPositionFromStore() {
+    try {
+        // Вариант 1: через window.App (прямой доступ)
+        if (window.App && window.App.$store) {
+            const pos = window.App.$store.getters["player/position"];
+            if (pos) return pos;
+        }
+        // Вариант 2: через window.interface("Menu") (как getSkinIdFromStore)
+        const menuInterface = window.interface("Menu");
+        if (menuInterface && menuInterface.$store) {
+            const pos = menuInterface.$store.getters["player/position"];
+            if (pos) return pos;
+        }
+        return null;
+    } catch (e) {
+        debugLog(`[LOC] Ошибка при получении позиции из store: ${e.message}`);
+        return null;
+    }
+}
+
+// ── Периодическое логирование координат персонажа ─────────────
+function trackPlayerLocation() {
+    if (!config.locationLogging) return;
+    if (window._hassleReloading) return;
+    const pos = getPlayerPositionFromStore();
+    if (pos) {
+        const nick = config.accountInfo.nickname || 'Unknown';
+        const interior = pos.interior ? ' [interior]' : '';
+        console.log(
+            `[LOC][${nick}] x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} angle=${Math.round(pos.angle ?? 0)}°${interior}`
+        );
+    } else {
+        debugLog('[LOC] Позиция недоступна (store ещё не инициализирован?)');
+    }
+    setTimeout(trackPlayerLocation, config.locationLogInterval);
+}
+
+// ── Получить Нал и Банк персонажа из Vuex store ──────────────
+function getPlayerMoneyFromStore() {
+    try {
+        if (window.App && window.App.$store) {
+            const money     = window.App.$store.getters["player/money"];
+            const bankMoney = window.App.$store.getters["player/bankMoney"];
+            if (money !== undefined || bankMoney !== undefined) {
+                return { money: money ?? null, bankMoney: bankMoney ?? null };
+            }
+        }
+        const menuInterface = window.interface("Menu");
+        if (menuInterface && menuInterface.$store) {
+            const money     = menuInterface.$store.getters["player/money"];
+            const bankMoney = menuInterface.$store.getters["player/bankMoney"];
+            if (money !== undefined || bankMoney !== undefined) {
+                return { money: money ?? null, bankMoney: bankMoney ?? null };
+            }
+        }
+        return null;
+    } catch (e) {
+        debugLog(`[MONEY] Ошибка при получении денег из store: ${e.message}`);
+        return null;
+    }
+}
+
+// ── Периодическое логирование Нала и Банка ────────────────────
+function trackPlayerMoney() {
+    if (!config.moneyLogging) return;
+    if (window._hassleReloading) return;
+    const data = getPlayerMoneyFromStore();
+    if (data) {
+        const nick = config.accountInfo.nickname || 'Unknown';
+        console.log(
+            `[MONEY][${nick}] Нал=₽${data.money !== null ? data.money.toLocaleString() : '?'} Банк=₽${data.bankMoney !== null ? data.bankMoney.toLocaleString() : '?'}`
+        );
+    } else {
+        debugLog('[MONEY] Данные недоступны (store ещё не инициализирован?)');
+    }
+    setTimeout(trackPlayerMoney, config.moneyLogInterval);
+}
+
 function updateFaction() {
     const skinId = Number(config.accountInfo.skinId); // Приводим к числу
     if (!skinId) return;
@@ -1621,6 +1704,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
             [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
             [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
             [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
+            [createButton("💰 Инфо. об аккаунте поз/деньги", `local_account_info_${uniqueId}`)],
             [pauseBtn, autoLoginBtn],
             [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
         ]
@@ -2249,6 +2333,8 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('prison_reconnect_', '');
             } else if (message.startsWith('prison_quit_')) {
                 callbackUniqueId = message.replace('prison_quit_', '');
+            } else if (message.startsWith('local_account_info_')) {
+                callbackUniqueId = message.replace('local_account_info_', '');
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -2626,7 +2712,41 @@ function processUpdates(updates) {
                 setTimeout(() => {
                     sendChatInput("/q");
                 }, 500);
-            }
+            } else if (message.startsWith('local_account_info_')) {
+                // Кнопка "Инфо. об аккаунте поз/деньги"
+                try {
+                    const pos = getPlayerPositionFromStore();
+                    const moneyData = getPlayerMoneyFromStore();
+                    const nick = config.accountInfo.nickname || 'Unknown';
+                    const server = config.accountInfo.server || '?';
+                    const skinId = config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined ? config.accountInfo.skinId : '❓';
+                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
+
+                    let posStr = '❓ Позиция недоступна';
+                    if (pos) {
+                        const interior = pos.interior ? ' <i>[interior]</i>' : '';
+                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}°${interior}`;
+                    }
+
+                    let cashStr = '❓';
+                    let bankStr = '❓';
+                    if (moneyData) {
+                        cashStr = moneyData.money !== null ? `₽${moneyData.money.toLocaleString()}` : '❓';
+                        bankStr = moneyData.bankMoney !== null ? `₽${moneyData.bankMoney.toLocaleString()}` : '❓';
+                    }
+
+                    sendToTelegram(
+                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
+                        `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
+                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n\n` +
+                        `📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
+                        `💵 <b>Нал:</b> ${cashStr}\n` +
+                        `🏦 <b>Банк:</b> ${bankStr}`,
+                        false, null
+                    );
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка получения инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
+                }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
         }
@@ -3582,6 +3702,14 @@ function initializeChatMonitor() {
         if (config.trackPlayerId) {
             debugLog('Запуск отслеживания ID игрока через HUD...');
             trackPlayerId();
+        }
+        if (config.locationLogging) {
+            debugLog('[LOC] Запуск логирования координат персонажа...');
+            setTimeout(trackPlayerLocation, 5000); // небольшая задержка, чтобы store точно загрузился
+        }
+        if (config.moneyLogging) {
+            debugLog('[MONEY] Запуск логирования Нала и Банка...');
+            setTimeout(trackPlayerMoney, 5000); // та же задержка для синхронизации со store
         }
     }
     checkTelegramCommands();
