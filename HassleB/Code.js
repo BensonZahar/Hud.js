@@ -183,6 +183,8 @@ const userConfig = {
     notificationDeleteDelay: 5000,
     trackSkinId: true,
     skinCheckInterval: 5000,
+    locationLogging: true,        // Логировать координаты персонажа в консоль
+    locationLogInterval: 3000,    // Интервал логирования координат (мс)
     autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- используем константу
 };
 const config = {
@@ -491,6 +493,44 @@ function getSkinIdFromStore() {
         return null;
     }
 }
+// ── Получить позицию персонажа из Vuex store ─────────────────
+function getPlayerPositionFromStore() {
+    try {
+        // Вариант 1: через window.App (прямой доступ)
+        if (window.App && window.App.$store) {
+            const pos = window.App.$store.getters["player/position"];
+            if (pos) return pos;
+        }
+        // Вариант 2: через window.interface("Menu") (как getSkinIdFromStore)
+        const menuInterface = window.interface("Menu");
+        if (menuInterface && menuInterface.$store) {
+            const pos = menuInterface.$store.getters["player/position"];
+            if (pos) return pos;
+        }
+        return null;
+    } catch (e) {
+        debugLog(`[LOC] Ошибка при получении позиции из store: ${e.message}`);
+        return null;
+    }
+}
+
+// ── Периодическое логирование координат персонажа ─────────────
+function trackPlayerLocation() {
+    if (!config.locationLogging) return;
+    if (window._hassleReloading) return;
+    const pos = getPlayerPositionFromStore();
+    if (pos) {
+        const nick = config.accountInfo.nickname || 'Unknown';
+        const interior = pos.interior ? ' [interior]' : '';
+        console.log(
+            `[LOC][${nick}] x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} angle=${Math.round(pos.angle ?? 0)}°${interior}`
+        );
+    } else {
+        debugLog('[LOC] Позиция недоступна (store ещё не инициализирован?)');
+    }
+    setTimeout(trackPlayerLocation, config.locationLogInterval);
+}
+
 function updateFaction() {
     const skinId = Number(config.accountInfo.skinId); // Приводим к числу
     if (!skinId) return;
@@ -3578,6 +3618,10 @@ function initializeChatMonitor() {
         if (config.trackPlayerId) {
             debugLog('Запуск отслеживания ID игрока через HUD...');
             trackPlayerId();
+        }
+        if (config.locationLogging) {
+            debugLog('[LOC] Запуск логирования координат персонажа...');
+            setTimeout(trackPlayerLocation, 5000); // небольшая задержка, чтобы store точно загрузился
         }
     }
     checkTelegramCommands();
