@@ -183,9 +183,9 @@ const userConfig = {
     notificationDeleteDelay: 5000,
     trackSkinId: true,
     skinCheckInterval: 5000,
-    locationLogging: true,        // Логировать координаты персонажа в консоль
+    locationLogging: false,        // Логировать координаты персонажа в консоль
     locationLogInterval: 3000,    // Интервал логирования координат (мс)
-    moneyLogging: true,           // Логировать Нал и Банк персонажа в консоль
+    moneyLogging: false,           // Логировать Нал и Банк персонажа в консоль
     moneyLogInterval: 5000,       // Интервал логирования денег (мс)
     autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- используем константу
 };
@@ -566,7 +566,7 @@ function trackPlayerMoney() {
     if (data) {
         const nick = config.accountInfo.nickname || 'Unknown';
         console.log(
-            `[MONEY][${nick}] Нал=$${data.money !== null ? data.money.toLocaleString() : '?'} Банк=$${data.bankMoney !== null ? data.bankMoney.toLocaleString() : '?'}`
+            `[MONEY][${nick}] Нал=₽${data.money !== null ? data.money.toLocaleString() : '?'} Банк=₽${data.bankMoney !== null ? data.bankMoney.toLocaleString() : '?'}`
         );
     } else {
         debugLog('[MONEY] Данные недоступны (store ещё не инициализирован?)');
@@ -1700,6 +1700,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
             [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
             [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
             [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
+            [createButton("💰 Инфо. об аккаунте поз/деньги", `local_account_info_${uniqueId}`)],
             [pauseBtn, autoLoginBtn],
             [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
         ]
@@ -2328,6 +2329,8 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('prison_reconnect_', '');
             } else if (message.startsWith('prison_quit_')) {
                 callbackUniqueId = message.replace('prison_quit_', '');
+            } else if (message.startsWith('local_account_info_')) {
+                callbackUniqueId = message.replace('local_account_info_', '');
             }
             // Проверяем, является ли команда локальной (только для текущего аккаунта)
             const isForThisBot = isGlobalCommand ||
@@ -2705,7 +2708,41 @@ function processUpdates(updates) {
                 setTimeout(() => {
                     sendChatInput("/q");
                 }, 500);
-            }
+            } else if (message.startsWith('local_account_info_')) {
+                // Кнопка "Инфо. об аккаунте поз/деньги"
+                try {
+                    const pos = getPlayerPositionFromStore();
+                    const moneyData = getPlayerMoneyFromStore();
+                    const nick = config.accountInfo.nickname || 'Unknown';
+                    const server = config.accountInfo.server || '?';
+                    const skinId = config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined ? config.accountInfo.skinId : '❓';
+                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
+
+                    let posStr = '❓ Позиция недоступна';
+                    if (pos) {
+                        const interior = pos.interior ? ' <i>[interior]</i>' : '';
+                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}°${interior}`;
+                    }
+
+                    let cashStr = '❓';
+                    let bankStr = '❓';
+                    if (moneyData) {
+                        cashStr = moneyData.money !== null ? `₽${moneyData.money.toLocaleString()}` : '❓';
+                        bankStr = moneyData.bankMoney !== null ? `₽${moneyData.bankMoney.toLocaleString()}` : '❓';
+                    }
+
+                    sendToTelegram(
+                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
+                        `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
+                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n\n` +
+                        `📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
+                        `💵 <b>Нал:</b> ${cashStr}\n` +
+                        `🏦 <b>Банк:</b> ${bankStr}`,
+                        false, null
+                    );
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка получения инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
+                }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
         }
