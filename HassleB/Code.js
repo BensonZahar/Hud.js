@@ -191,7 +191,7 @@ const userConfig = {
 };
 const config = {
     ...userConfig,
-    lastUpdateId: 0,
+    lastUpdateId: window._savedLastUpdateId || 0,
     activeUsers: {},
     lastPodbrosTime: 0,
     podbrosCounter: 0,
@@ -875,7 +875,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2  глобал</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2  фикс reload</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2103,6 +2103,7 @@ function processUpdates(updates) {
                     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
                     debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
                     window._hassleReloading = true;
+                    window._savedLastUpdateId = config.lastUpdateId;
                     setTimeout(() => {
                         window._hassleReloading = false;
                         try {
@@ -2113,6 +2114,7 @@ function processUpdates(updates) {
                             }
                         } catch (err) {
                             window._hassleReloading = false;
+                            window._savedLastUpdateId = null;
                             sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
                         }
                     }, 800);
