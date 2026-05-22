@@ -17,14 +17,6 @@
 
 // END CONSTANTS MODULE //
 
-// ── Счётчик поколений — убивает старые polling-циклы при /reload ──
-window._hassleGeneration = (window._hassleGeneration || 0) + 1;
-const _myGeneration = window._hassleGeneration;
-// Сброс базовых функций к оригиналу (до любых обёрток предыдущего поколения)
-if (window._baseProcessUpdates)       processUpdates       = window._baseProcessUpdates;
-if (window._baseAddDialogInQueue)     window.addDialogInQueue = window._baseAddDialogInQueue;
-if (window._baseSendClientEvent)      sendClientEvent      = window._baseSendClientEvent;
-
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
 // ║  Описание: Глобальные флаги состояния                    ║
@@ -453,13 +445,14 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // ║  Зависимости: debugLog                                   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SHARED STORAGE MODULE //
-// localStorage не работает в CEF-среде — используем in-memory переменную
-let _sharedLastUpdateId = 0;
+// localStorage не работает в CEF-среде — используем window-переменную
+// (let-переменная сбрасывается в 0 при каждом eval, window — нет)
+if (window._sharedLastUpdateId === undefined) window._sharedLastUpdateId = 0;
 function getSharedLastUpdateId() {
-    return _sharedLastUpdateId;
+    return window._sharedLastUpdateId;
 }
 function setSharedLastUpdateId(id) {
-    _sharedLastUpdateId = id;
+    window._sharedLastUpdateId = id;
     debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
 // END SHARED STORAGE MODULE //
@@ -1927,7 +1920,6 @@ function getNotificationReplyMarkup() {
 // ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM COMMANDS MODULE //
 function checkTelegramCommands() {
-    if (window._hassleGeneration !== _myGeneration) return; // Старое поколение — умираем
     if (window._hassleReloading) return;
     // У каждого аккаунта свой бот — race condition невозможен, random delay не нужен
     config.lastUpdateId = getSharedLastUpdateId();
@@ -4771,8 +4763,7 @@ function dlgRespond(dialogId, response, listitem, inputText) {
 
 // ── Хук addDialogInQueue ─────────────────────────────────────
 
-if (!window._baseAddDialogInQueue) window._baseAddDialogInQueue = window.addDialogInQueue;
-const _dlgOrigAddDialogInQueue = window._baseAddDialogInQueue;
+const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
     try {
         // Bug fix: dialogParams может быть false (дефолтный параметр)
@@ -4859,8 +4850,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 
 // ── Хук sendClientEvent — фиксируем закрытие диалогов из игры ─
 // Сохраняем ОРИГИНАЛЬНЫЙ sendClientEvent ДО любых замен
-if (!window._baseSendClientEvent) window._baseSendClientEvent = sendClientEvent;
-const _dlgOrigSendClientEvent = window._baseSendClientEvent;
+const _dlgOrigSendClientEvent = sendClientEvent;
 
 const _dlgOrigSCE = window.sendClientEventCustom;
 window.sendClientEventCustom = function(event, ...args) {
@@ -4970,9 +4960,7 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
 
 // ── Обёртка processUpdates ────────────────────────────────────
 
-// Сохраняем оригинал один раз (при первой загрузке)
-if (!window._baseProcessUpdates) window._baseProcessUpdates = processUpdates;
-const _dlgOrigProcessUpdates = window._baseProcessUpdates;
+const _dlgOrigProcessUpdates = processUpdates;
 
 processUpdates = function(updates) {
     const passThrough = [];
