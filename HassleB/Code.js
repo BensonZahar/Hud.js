@@ -875,7 +875,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2  глобал</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2  глобалл</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2791,10 +2791,22 @@ function processUpdates(updates) {
                     const skinId = config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined ? config.accountInfo.skinId : '❓';
                     const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
 
+                    // Уровень и наигранные часы из Vuex store
+                    let level = '❓';
+                    let passedHours = '❓';
+                    try {
+                        const storeLevel = window.App.$store.getters['player/level'];
+                        const storeHours = window.App.$store.getters['player/passedHours'];
+                        if (storeLevel !== undefined && storeLevel !== null) level = storeLevel;
+                        if (storeHours !== undefined && storeHours !== null) passedHours = storeHours;
+                    } catch (e) {
+                        debugLog(`[ACINFO] Ошибка получения level/hours: ${e.message}`);
+                    }
+
                     let posStr = '❓ Позиция недоступна';
                     if (pos) {
-                        const interior = pos.interior ? ' <i>[interior]</i>' : '';
-                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}°${interior}`;
+                        const interiorVal = (pos.interior !== undefined && pos.interior !== null) ? pos.interior : 0;
+                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${interiorVal}`;
                     }
 
                     let cashStr = '❓';
@@ -2807,7 +2819,8 @@ function processUpdates(updates) {
                     sendToTelegram(
                         `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
                         `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
-                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n\n` +
+                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n` +
+                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}\n\n` +
                         `📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
                         `💵 <b>Нал:</b> ${cashStr}\n` +
                         `🏦 <b>Банк:</b> ${bankStr}`,
