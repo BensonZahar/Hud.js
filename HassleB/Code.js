@@ -445,14 +445,13 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // ║  Зависимости: debugLog                                   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SHARED STORAGE MODULE //
-// localStorage не работает в CEF-среде — используем window-переменную
-// (let-переменная сбрасывается в 0 при каждом eval, window — нет)
-if (window._sharedLastUpdateId === undefined) window._sharedLastUpdateId = 0;
+// localStorage не работает в CEF-среде — используем in-memory переменную
+let _sharedLastUpdateId = 0;
 function getSharedLastUpdateId() {
-    return window._sharedLastUpdateId;
+    return _sharedLastUpdateId;
 }
 function setSharedLastUpdateId(id) {
-    window._sharedLastUpdateId = id;
+    _sharedLastUpdateId = id;
     debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
 // END SHARED STORAGE MODULE //
@@ -876,7 +875,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2  глобал2</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2  глобал</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
