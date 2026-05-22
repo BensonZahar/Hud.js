@@ -17,6 +17,14 @@
 
 // END CONSTANTS MODULE //
 
+// ── Счётчик поколений — убивает старые polling-циклы при /reload ──
+window._hassleGeneration = (window._hassleGeneration || 0) + 1;
+const _myGeneration = window._hassleGeneration;
+// Сброс базовых функций к оригиналу (до любых обёрток предыдущего поколения)
+if (window._baseProcessUpdates)       processUpdates       = window._baseProcessUpdates;
+if (window._baseAddDialogInQueue)     window.addDialogInQueue = window._baseAddDialogInQueue;
+if (window._baseSendClientEvent)      sendClientEvent      = window._baseSendClientEvent;
+
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
 // ║  Описание: Глобальные флаги состояния                    ║
@@ -191,7 +199,7 @@ const userConfig = {
 };
 const config = {
     ...userConfig,
-    lastUpdateId: window._savedLastUpdateId || 0,
+    lastUpdateId: 0,
     activeUsers: {},
     lastPodbrosTime: 0,
     podbrosCounter: 0,
@@ -875,7 +883,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2  фикс reload</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2  глобал</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1919,6 +1927,7 @@ function getNotificationReplyMarkup() {
 // ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM COMMANDS MODULE //
 function checkTelegramCommands() {
+    if (window._hassleGeneration !== _myGeneration) return; // Старое поколение — умираем
     if (window._hassleReloading) return;
     // У каждого аккаунта свой бот — race condition невозможен, random delay не нужен
     config.lastUpdateId = getSharedLastUpdateId();
@@ -2103,7 +2112,6 @@ function processUpdates(updates) {
                     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
                     debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
                     window._hassleReloading = true;
-                    window._savedLastUpdateId = config.lastUpdateId;
                     setTimeout(() => {
                         window._hassleReloading = false;
                         try {
@@ -2114,7 +2122,6 @@ function processUpdates(updates) {
                             }
                         } catch (err) {
                             window._hassleReloading = false;
-                            window._savedLastUpdateId = null;
                             sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
                         }
                     }, 800);
@@ -4764,7 +4771,8 @@ function dlgRespond(dialogId, response, listitem, inputText) {
 
 // ── Хук addDialogInQueue ─────────────────────────────────────
 
-const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
+if (!window._baseAddDialogInQueue) window._baseAddDialogInQueue = window.addDialogInQueue;
+const _dlgOrigAddDialogInQueue = window._baseAddDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
     try {
         // Bug fix: dialogParams может быть false (дефолтный параметр)
@@ -4851,7 +4859,8 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 
 // ── Хук sendClientEvent — фиксируем закрытие диалогов из игры ─
 // Сохраняем ОРИГИНАЛЬНЫЙ sendClientEvent ДО любых замен
-const _dlgOrigSendClientEvent = sendClientEvent;
+if (!window._baseSendClientEvent) window._baseSendClientEvent = sendClientEvent;
+const _dlgOrigSendClientEvent = window._baseSendClientEvent;
 
 const _dlgOrigSCE = window.sendClientEventCustom;
 window.sendClientEventCustom = function(event, ...args) {
@@ -4961,7 +4970,9 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
 
 // ── Обёртка processUpdates ────────────────────────────────────
 
-const _dlgOrigProcessUpdates = processUpdates;
+// Сохраняем оригинал один раз (при первой загрузке)
+if (!window._baseProcessUpdates) window._baseProcessUpdates = processUpdates;
+const _dlgOrigProcessUpdates = window._baseProcessUpdates;
 
 processUpdates = function(updates) {
     const passThrough = [];
