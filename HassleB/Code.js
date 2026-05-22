@@ -875,7 +875,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2  глобал3</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2  глобал</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -2548,8 +2548,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_forward_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onKeyDown(window.KEY_CODE_W);
-                    setTimeout(() => { window.onKeyUp(window.KEY_CODE_W); }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 87);
+                    setTimeout(() => {}, 500);
                     sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2560,8 +2560,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_back_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onKeyDown(window.KEY_CODE_S);
-                    setTimeout(() => { window.onKeyUp(window.KEY_CODE_S); }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 83);
+                    setTimeout(() => {}, 500);
                     sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2572,8 +2572,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_left_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onKeyDown(window.KEY_CODE_A);
-                    setTimeout(() => { window.onKeyUp(window.KEY_CODE_A); }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 65);
+                    setTimeout(() => {}, 500);
                     sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2584,8 +2584,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_right_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onKeyDown(window.KEY_CODE_D);
-                    setTimeout(() => { window.onKeyUp(window.KEY_CODE_D); }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 68);
+                    setTimeout(() => {}, 500);
                     sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2596,10 +2596,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_jump_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onKeyDown(window.KEY_CODE_SHIFT);
-                    setTimeout(() => {
-                        window.onKeyUp(window.KEY_CODE_SHIFT);
-                    }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 16);
+                    setTimeout(() => {}, 500);
                     sendToTelegram(`🆙 <b>Прыжок выполнен для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2621,8 +2619,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_sit_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onKeyDown(window.KEY_CODE_C);
-                    setTimeout(() => window.onKeyUp(window.KEY_CODE_C), 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 67);
+                    setTimeout(() => {}, 500);
                     config.isSitting = true;
                     sendToTelegram(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -2634,8 +2632,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_stand_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onKeyDown(window.KEY_CODE_C);
-                    setTimeout(() => window.onKeyUp(window.KEY_CODE_C), 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 67);
+                    setTimeout(() => {}, 500);
                     config.isSitting = false;
                     sendToTelegram(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -4206,8 +4204,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 1) {
                 // Вперед
                 try {
-                    window.onKeyDown(window.KEY_CODE_W);
-                    setTimeout(() => { window.onKeyUp(window.KEY_CODE_W); }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 87);
+                    setTimeout(() => {}, 500);
                     showScreenNotification("Hassle", "Движение вперед выполнено");
                     sendToTelegram(`🚶 <b>Движение вперед для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4217,8 +4215,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 2) {
                 // Влево
                 try {
-                    window.onKeyDown(window.KEY_CODE_A);
-                    setTimeout(() => { window.onKeyUp(window.KEY_CODE_A); }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 65);
+                    setTimeout(() => {}, 500);
                     showScreenNotification("Hassle", "Движение влево выполнено");
                     sendToTelegram(`🚶 <b>Движение влево для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4228,8 +4226,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 3) {
                 // Вправо
                 try {
-                    window.onKeyDown(window.KEY_CODE_D);
-                    setTimeout(() => { window.onKeyUp(window.KEY_CODE_D); }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 68);
+                    setTimeout(() => {}, 500);
                     showScreenNotification("Hassle", "Движение вправо выполнено");
                     sendToTelegram(`🚶 <b>Движение вправо для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4239,8 +4237,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 4) {
                 // Назад
                 try {
-                    window.onKeyDown(window.KEY_CODE_S);
-                    setTimeout(() => { window.onKeyUp(window.KEY_CODE_S); }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 83);
+                    setTimeout(() => {}, 500);
                     showScreenNotification("Hassle", "Движение назад выполнено");
                     sendToTelegram(`🚶 <b>Движение назад для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4250,8 +4248,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 5) {
                 // Прыжок
                 try {
-                    window.onKeyDown(window.KEY_CODE_SHIFT);
-                    setTimeout(() => { window.onKeyUp(window.KEY_CODE_SHIFT); }, 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 16);
+                    setTimeout(() => {}, 500);
                     showScreenNotification("Hassle", "Прыжок выполнен");
                     sendToTelegram(`🆙 <b>Прыжок для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4271,8 +4269,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 7) {
                 // Сесть/Встать
                 try {
-                    window.onKeyDown(window.KEY_CODE_C);
-                    setTimeout(() => window.onKeyUp(window.KEY_CODE_C), 500);
+                    sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 67);
+                    setTimeout(() => {}, 500);
                     config.isSitting = !config.isSitting;
                     const actionText = config.isSitting ? 'Сесть' : 'Встать';
                     showScreenNotification("Hassle", `Команда "${actionText}" выполнена`);
