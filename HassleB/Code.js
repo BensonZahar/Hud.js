@@ -668,69 +668,55 @@ function getPlayerHpFromStore() {
 }
 
 // ── Поиск ника ближайшего атакующего игрока ───────────────────
-// Пробует несколько источников данных движка по приоритету:
-// 1. Поля компонента Hud (nearPlayers, players, entities и т.д.)
-// 2. Vuex store getters с модулем players/world
-// 3. DOM-элементы нэймтегов (если рендерятся в CEF-слое)
+// ⚠️  ВАЖНО (по анализу Hud.js):
+//
+// 1. Нэймтеги над игроками ("Ivan_Berins (192)") рендерятся нативным
+//    движком игры (не в CEF/HTML слое) → из JS НЕДОСТУПНЫ.
+//
+// 2. nearbyPlayers в HudMap-компоненте содержит только:
+//    [x, y, angle, r, g, b, opacity] — имён нет.
+//
+// 3. hud.playerList.players — TAB-список ВСЕХ игроков сервера:
+//    [[serverId, "Nick_Name", level], ...] — имена есть, но
+//    нельзя определить кто конкретно нас бьёт.
+//
+// 4. hud.voiceChat.entries — говорящие в войс:
+//    [{ name, id, type, channel, streamId }] — если атакующий
+//    говорит в войс одновременно, его ник можно поймать здесь.
+//
+// Стратегия: возвращаем ник из войс-чата (если кто-то говорит),
+// иначе null. В будущем можно расширить при появлении нативного
+// события урона от движка.
 function getNearestAttacker() {
     try {
-        // Путь 1: через данные компонента Hud
         const hud = window.interface("Hud");
-        if (hud) {
-            const candidates = [
-                hud.nearPlayers,
-                hud.players,
-                hud.entities,
-                hud.nearbyPlayers,
-                hud.$data && hud.$data.players,
-                hud.$data && hud.$data.nearPlayers,
-                hud.$data && hud.$data.entities,
-            ];
-            for (const list of candidates) {
-                if (Array.isArray(list) && list.length > 0) {
-                    const player = list.find(p => p && (p.name || p.nickname || p.nick));
-                    if (player) {
-                        return player.name || player.nickname || player.nick || null;
-                    }
-                }
+        if (!hud) return null;
+
+        // Путь 1: Кто сейчас говорит в войс-чат?
+        // hud.voiceChat.entries = [{ type, name, id, channel, streamId }, ...]
+        const voiceEntries = hud.voiceChat && hud.voiceChat.entries;
+        if (Array.isArray(voiceEntries) && voiceEntries.length > 0) {
+            const speaker = voiceEntries.find(e => e && e.name);
+            if (speaker) {
+                debugLog(`[HP] Атакующий из войс-чата: ${speaker.name} (ID: ${speaker.id})`);
+                return speaker.name;
             }
         }
 
-        // Путь 2: через Vuex store
-        const store = window.App && window.App.$store;
-        if (store) {
-            const storeKeys = [
-                "players/list",
-                "players/all",
-                "world/players",
-                "game/players",
-                "players/nearby",
-            ];
-            for (const key of storeKeys) {
-                try {
-                    const list = store.getters[key];
-                    if (Array.isArray(list) && list.length > 0) {
-                        const player = list.find(p => p && (p.name || p.nickname));
-                        if (player) return player.name || player.nickname || null;
-                    }
-                } catch (_) {}
-            }
+        // Путь 2: playerList — TAB-список всех игроков сервера.
+        // Формат: [[serverId, "Nick_Name", level], ...]
+        // Нельзя точно определить атакующего, но если на сервере
+        // очень мало игроков — запишем всех в debug для анализа.
+        const players = hud.playerList && hud.playerList.players;
+        if (Array.isArray(players) && players.length > 0 && players.length <= 5) {
+            // На малолюдном сервере (≤5 чел.) логируем список
+            const names = players.map(p => `${p[1]}(${p[0]})`).join(', ');
+            debugLog(`[HP] Игроки на сервере (мало, возможные атакующие): ${names}`);
         }
 
-        // Путь 3: DOM нэймтеги (если рендерятся в CEF-слое)
-        const selectors = [
-            '[class*="nametag"]',
-            '[class*="player-name"]',
-            '[class*="playername"]',
-            '[class*="nickname"]',
-        ];
-        for (const sel of selectors) {
-            const el = document.querySelector(sel);
-            if (el && el.textContent.trim()) {
-                // Убираем "(ID)" часть если есть: "Ivan_Berins (192)" → "Ivan_Berins"
-                return el.textContent.trim().split('(')[0].trim();
-            }
-        }
+        // Нэймтеги нативные → недоступны из JS
+        // Если нужна надёжная идентификация атакующего — требуется
+        // серверный ивент (например, chat-сообщение о ране от игрока).
     } catch (e) {
         debugLog(`[HP] Ошибка при поиске атакующего: ${e.message}`);
     }
@@ -1059,7 +1045,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2  глобал11л</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2  глобал1л</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
