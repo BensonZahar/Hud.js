@@ -291,6 +291,10 @@ function handleGlobalBroadcastCommand(cmd, val) {
             config.warningNotifications = isOn;
             showScreenNotification("Hassle", `[Global] Выговоры ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
             break;
+        case 'toggle_kac':
+            config.kacAutoReply = isOn;
+            showScreenNotification("Hassle", `[Global] КАЧ/ЗП автоответ ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            break;
         default:
             debugLog(`[GLOBAL] Неизвестная команда: ${cmd}`);
     }
@@ -356,6 +360,11 @@ function setupAutoLogin(attempt = 1) {
             try {
                 loginInstance.onClickEvent("play");
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
+                // Сброс HP после входа: первые показания HUD = 100 (заглушка),
+                // настоящее HP придёт чуть позже — не считаем это уроном.
+                globalState.hpLastValue = null;
+                globalState.hpLastHitTime = null;
+                globalState.hpAlertMessageIds = [];
                 // PDC: если строй прервал отыгровку — возобновляем
                 setTimeout(() => pdcOnReloginAfterStroi(), 3000);
                 // Уведомление через 3 секунды после успешного входа
@@ -1059,7 +1068,8 @@ function sendWelcomeMessage() {
         `├ Уведомления рации (все): ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Рация — важные (строй/место/ID): ${config.radioImportantFilter ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
         `├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `└ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
+        `├ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `└ Автоответ КАЧ/ЗП: ${config.kacAutoReply ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
     const replyMarkup = {
         inline_keyboard: [
             [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
@@ -5263,3 +5273,237 @@ processUpdates = function(updates) {
 
 debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
 // ==================== END DIALOG MONITOR MODULE v2 ====================
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: ADMIN KAC/ZP AUTO-REPLY                         ║
+// ║  Описание: Автоответ на проверку администратора          ║
+// ║             (кач.зп / кач зп) — /n ответ через 20-30с   ║
+// ║  Зависимости: sendChatInput, sendToTelegram,             ║
+// ║               normalizeToCyrillic, ACCOUNT_NUMBER        ║
+// ╚══════════════════════════════════════════════════════════╝
+// ==================== START ADMIN KAC/ZP AUTO-REPLY MODULE ====================
+
+(function() {
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Ответы разбиты на ГРУППЫ (A / B / C / D).
+//  Каждый аккаунт имеет УНИКАЛЬНЫЙ набор фраз — нет пересечений между номерами.
+//  При повторной проверке от того же админа (<5 мин) выбирается СЛЕДУЮЩАЯ группа
+//  и исключается последний ответ → каждый раз по-другому.
+//
+//  Стиль по аккаунтам:
+//    1 — минимальный (одно слово, без знаков)
+//    2 — небрежный набор (тута / здеся)
+//    3 — с точкой в конце (взрослый стиль)
+//    4 — удвоение слов (тут тут / да да)
+//    5 — украинский акцент (так / є)
+//    6 — с глаголом (играю / сижу)
+//    7 — развёрнутые живые фразы
+//    8 — с восклицанием
+// ─────────────────────────────────────────────────────────────────────────────
+
+const REPLY_GROUPS = {
+    '1': {
+        A: ['дэ', '/n дэ', 'ок', '/n ок'],
+        B: ['тут', '/n тут', 'вот тут', '/n вот тут'],
+        C: ['здесь', '/n здесь', 'вот здесь', '/n вот здесь'],
+        D: ['тут я', '/n тут я', 'я тут', '/n я тут'],
+    },
+    '2': {
+        A: ['дэ)', '/n дэ)', 'дда', '/n дда'],
+        B: ['тута', '/n тута', 'да тута', '/n да тута'],
+        C: ['здеся', '/n здеся', 'да здеся', '/n да здеся'],
+        D: ['я тута', '/n я тута', 'тута я', '/n тута я'],
+    },
+    '3': {
+        A: ['да.', '/n да.', 'ок.', '/n ок.'],
+        B: ['тут.', '/n тут.', 'да тут.', '/n да тут.'],
+        C: ['здесь.', '/n здесь.', 'да здесь.', '/n да здесь.'],
+        D: ['я тут.', '/n я тут.', 'тут я.', '/n тут я.'],
+    },
+    '4': {
+        A: ['да да', '/n да да', 'ага ага', '/n ага ага'],
+        B: ['тут тут', '/n тут тут', 'да тут тут', '/n да тут тут'],
+        C: ['здесь здесь', '/n здесь здесь', 'да здесь здесь', '/n да здесь здесь'],
+        D: ['я тут да тут', '/n тут тут я', 'тут я тут', '/n я да тут'],
+    },
+    '5': {
+        A: ['так', '/n так', 'так так', '/n так так'],
+        B: ['тут є', '/n тут є', 'єсть тут', '/n єсть тут'],
+        C: ['здесь є', '/n здесь є', 'є здесь', '/n є здесь'],
+        D: ['так тут', '/n так тут', 'тут я так', '/n тут я так'],
+    },
+    '6': {
+        A: ['играю', '/n играю', 'да играю', '/n да играю'],
+        B: ['тут сижу', '/n тут сижу', 'сижу тут', '/n сижу тут'],
+        C: ['здесь сижу', '/n здесь сижу', 'сижу здесь', '/n сижу здесь'],
+        D: ['играю тут', '/n играю тут', 'тут играю', '/n тут играю'],
+    },
+    '7': {
+        A: ['ага конечно', '/n ага конечно', 'да конечно', '/n да конечно'],
+        B: ['да я тут', '/n да я тут', 'тут нахожусь', '/n тут нахожусь'],
+        C: ['я здесь нахожусь', '/n здесь нахожусь', 'да я здесь', '/n да я здесь'],
+        D: ['тут я да', '/n тут я да', 'да здесь нахожусь', '/n да здесь нахожусь'],
+    },
+    '8': {
+        A: ['да!', '/n да!', 'ага!', '/n ага!'],
+        B: ['тут!', '/n тут!', 'да тут!', '/n да тут!'],
+        C: ['здесь!', '/n здесь!', 'да здесь!', '/n да здесь!'],
+        D: ['я тут!', '/n я тут!', 'тут я!', '/n тут я!'],
+    },
+};
+
+// Порядок обхода групп — у каждого аккаунта свой, чтобы
+// первый ответ тоже был разным между аккаунтами
+const GROUP_ORDER = {
+    '1': ['A', 'B', 'D', 'C'],
+    '2': ['B', 'D', 'A', 'C'],
+    '3': ['D', 'A', 'C', 'B'],
+    '4': ['C', 'B', 'A', 'D'],
+    '5': ['A', 'D', 'B', 'C'],
+    '6': ['B', 'C', 'D', 'A'],
+    '7': ['D', 'C', 'A', 'B'],
+    '8': ['C', 'A', 'D', 'B'],
+};
+
+// ── Инициализация флага в config ──────────────────────────────
+// По умолчанию ВЫКЛ — включается через глобальный toggle_kac
+if (typeof config !== 'undefined' && config.kacAutoReply === undefined) {
+    config.kacAutoReply = false;
+}
+
+// ── Состояние ─────────────────────────────────────────────────
+const SAME_ADMIN_WINDOW_MS = 5 * 60 * 1000; // 5 минут
+
+// adminName → { lastTime, lastGroup, lastReply, checkCount }
+const _kacAdminHistory = {};
+
+let _kacPending = false;
+let _kacTimer   = null;
+
+// ── Парсинг ника администратора из сообщения ──────────────────
+function parseAdminName(msg) {
+    const m = msg.match(/[Аа]дминистратор\s+([A-Za-z_]+)\[/);
+    return m ? m[1].toLowerCase() : 'unknown';
+}
+
+// ── Выбор ответа ──────────────────────────────────────────────
+function pickReply(adminName) {
+    const accNum = String(window.ACCOUNT_NUMBER || '1');
+    const groups = REPLY_GROUPS[accNum] || REPLY_GROUPS['1'];
+    const order  = GROUP_ORDER[accNum]  || GROUP_ORDER['1'];
+
+    const hist     = _kacAdminHistory[adminName] || { checkCount: 0 };
+    const groupKey = order[hist.checkCount % order.length];
+    const pool     = groups[groupKey];
+
+    // Убираем последний использованный ответ из кандидатов
+    const candidates = (hist.lastReply && pool.length > 1)
+        ? pool.filter(r => r !== hist.lastReply)
+        : pool;
+
+    const reply = candidates[Math.floor(Math.random() * candidates.length)];
+    return { reply, groupKey };
+}
+
+// ── Основной обработчик ───────────────────────────────────────
+function handleKacAdminMessage(rawMsg) {
+    // Проверяем флаг
+    if (typeof config !== 'undefined' && !config.kacAutoReply) {
+        debugLog('[KAC] Автоответ отключён (config.kacAutoReply = false)');
+        return;
+    }
+
+    if (_kacPending) {
+        debugLog('[KAC] Уже ожидаем ответа — пропускаем');
+        return;
+    }
+
+    const adminName   = parseAdminName(rawMsg);
+    const now         = Date.now();
+    const hist        = _kacAdminHistory[adminName];
+    const isSameAdmin = hist && (now - hist.lastTime < SAME_ADMIN_WINDOW_MS);
+
+    // Первый раз — 20–31 сек, повтор от того же админа — 5–9 сек
+    const delay = isSameAdmin
+        ? 5000  + Math.floor(Math.random() * 4001)
+        : 20000 + Math.floor(Math.random() * 11001);
+
+    const { reply, groupKey } = pickReply(adminName);
+    const delaySec = (delay / 1000).toFixed(1);
+
+    _kacPending = true;
+
+    debugLog(`[KAC] Админ: ${adminName} | Повтор: ${isSameAdmin} | Группа: ${groupKey} | Задержка: ${delaySec}с | Ответ: "${reply}"`);
+
+    sendToTelegram(
+        `🛡️ <b>Проверка КАЧ/ЗП (${displayName})</b>\n` +
+        (isSameAdmin ? `🔁 <i>Повторно от ${adminName} — быстрый ответ</i>\n` : '') +
+        `<code>${rawMsg.replace(/</g, '&lt;').slice(0, 200)}</code>\n` +
+        `⏱ Ответ через <b>${delaySec}с</b>: <code>${reply}</code>`,
+        false, null
+    );
+
+    _kacTimer = setTimeout(() => {
+        try {
+            sendChatInput(reply);
+            debugLog(`[KAC] Отправлено: "${reply}"`);
+
+            _kacAdminHistory[adminName] = {
+                lastTime   : Date.now(),
+                lastGroup  : groupKey,
+                lastReply  : reply,
+                checkCount : (hist ? hist.checkCount : 0) + 1,
+            };
+
+            sendToTelegram(
+                `✅ <b>Автоответ отправлен (${displayName})</b>\n` +
+                `<code>${reply}</code>`,
+                false, null
+            );
+            addSessionLog(`🛡️ КАЧ/ЗП автоответ: ${reply}`);
+        } catch (e) {
+            debugLog(`[KAC] Ошибка отправки: ${e.message}`);
+        }
+        _kacPending = false;
+        _kacTimer   = null;
+    }, delay);
+}
+
+// ── Патч OnChatAddMessage ─────────────────────────────────────
+const _kacOrigOnChat = window.OnChatAddMessage;
+window.OnChatAddMessage = function(e, colorArg, t) {
+
+    if (typeof _kacOrigOnChat === 'function') {
+        _kacOrigOnChat.call(this, e, colorArg, t);
+    }
+
+    const msg        = String(e);
+    const normalized = (typeof normalizeToCyrillic === 'function')
+        ? normalizeToCyrillic(msg).toLowerCase()
+        : msg.toLowerCase();
+
+    if (!normalized.includes('кач') && !normalized.includes('зп')) return;
+
+    const colorNorm = (typeof normalizeColor === 'function')
+        ? normalizeColor(colorArg) : '';
+
+    // Формат 1 — FF9945 прямой PM
+    const isPrivatePM = colorNorm === '0xFF9945' &&
+        /администратор\s+\S+\[\d+\]\s+для\s+/i.test(msg);
+
+    // Формат 2 — {FF4444} broadcast уведомление
+    const isBroadcastPM =
+        /\{FF4444\}\[Уведомление от администратора\]/.test(msg) ||
+        /\{FF4444\}.*администратор.*\{FFFFFF\}/i.test(msg);
+
+    if (isPrivatePM || isBroadcastPM) {
+        debugLog(`[KAC] Обнаружена проверка (${isPrivatePM ? 'PM' : 'broadcast'})`);
+        handleKacAdminMessage(msg);
+    }
+};
+
+debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT_NUMBER || '?') + ' | Статус: ' + (typeof config !== 'undefined' ? (config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ') : '?'));
+
+})();
+// ==================== END ADMIN KAC/ZP AUTO-REPLY MODULE ====================
