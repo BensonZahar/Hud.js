@@ -716,6 +716,7 @@ function trackPlayerHp() {
 }
 
 
+function updateFaction() {
     const skinId = Number(config.accountInfo.skinId); // Приводим к числу
     if (!skinId) return;
     for (const faction in factions) {
