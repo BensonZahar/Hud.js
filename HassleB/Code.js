@@ -41,7 +41,8 @@ const globalState = {
     hpAlertMessageIds: [],   // { chatId, messageId }
     hpLastHitTime: null,     // Время последнего удара
     hpLastValue: null,       // Предыдущее значение HP
-    _hpSendPending: false    // Флаг ожидания callback sendMessage (защита от дублей)
+    _hpSendPending: false,   // Флаг ожидания callback sendMessage (защита от дублей)
+    hpRecentHits: []         // Последние 5 ударов [{ from, to, damage, time }]
 };
 // END GLOBAL STATE MODULE //
 
@@ -356,6 +357,12 @@ function setupAutoLogin(attempt = 1) {
             try {
                 loginInstance.onClickEvent("play");
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
+                // Сброс HP при входе: первое значение HP после входа = актуальное (не считаем его уроном)
+                globalState.hpLastValue = null;
+                globalState.hpAlertMessageIds = [];
+                globalState.hpLastHitTime = null;
+                globalState._hpSendPending = false;
+                globalState.hpRecentHits = [];
                 // PDC: если строй прервал отыгровку — возобновляем
                 setTimeout(() => pdcOnReloginAfterStroi(), 3000);
                 // Уведомление через 3 секунды после успешного входа
@@ -736,27 +743,38 @@ function trackPlayerHp() {
         if (currentHp < globalState.hpLastValue) {
             const damage = Math.round(globalState.hpLastValue - currentHp);
 
-            // ИСПРАВЛЕНИЕ 1: порог damage >= 1
-            // Убирает ложные срабатывания из-за float-шума движка.
-            // Пример: HP 59.3 → 59.1 даёт damage=0 — это не реальный урон.
-            if (damage >= 1) {
+            // Порог damage > 2: игнорируем float-шум и незначительные касания
+            if (damage > 2) {
                 const now = Date.now();
 
                 // Пытаемся прочитать ник атакующего из движка
                 const attacker = getNearestAttacker();
-                const attackerLine = attacker
-                    ? `👤 <b>Атакует:</b> <code>${attacker}</code>\n`
-                    : '';
+
+                // Сохраняем последние 5 ударов
+                globalState.hpRecentHits.push({
+                    from: Math.round(globalState.hpLastValue),
+                    to: Math.round(currentHp),
+                    damage,
+                    time: getCurrentTimeString(),
+                    attacker: attacker || null
+                });
+                if (globalState.hpRecentHits.length > 5) {
+                    globalState.hpRecentHits.shift();
+                }
+
+                // Строим список последних ударов (новые снизу)
+                const hitsLines = globalState.hpRecentHits
+                    .map(h =>
+                        `  ❤️ <b>${h.from}</b> → <b>${h.to}</b>  (-${h.damage})` +
+                        (h.attacker ? `  👤 <code>${h.attacker}</code>` : '') +
+                        `  <i>${h.time}</i>`
+                    ).join('\n');
 
                 const hpText =
                     `💔 <b>Получен урон! (${displayName})</b>\n` +
-                    `❤️ HP: <b>${Math.round(globalState.hpLastValue)}</b> → <b>${Math.round(currentHp)}</b>  (-${damage})\n` +
-                    attackerLine +
-                    `🕐 <i>${getCurrentTimeString()}</i>`;
+                    hitsLines;
 
-                // ИСПРАВЛЕНИЕ 2: добавлен _hpSendPending
-                // Предотвращает отправку второго сообщения пока первый
-                // sendMessage ещё ждёт callback (async race condition).
+                // _hpSendPending: защита от async race condition
                 const withinWindow =
                     globalState.hpLastHitTime &&
                     (now - globalState.hpLastHitTime < HP_ALERT_WINDOW_MS) &&
@@ -764,7 +782,7 @@ function trackPlayerHp() {
                     !globalState._hpSendPending;
 
                 if (withinWindow) {
-                    // Редактируем существующее сообщение
+                    // Редактируем существующее сообщение (добавляем новый удар)
                     globalState.hpAlertMessageIds.forEach(({ chatId, messageId }) => {
                         editMessageText(chatId, messageId, hpText);
                     });
