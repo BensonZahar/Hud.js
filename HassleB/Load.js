@@ -277,7 +277,7 @@ async function initializeScripts() {
         // Сохраняем инфо о коммите глобально — Code.js читает его в велком-сообщении
         const codeCommitInfo = await codeCommitInfoPromise;
         window.CODE_COMMIT_INFO = codeCommitInfo || null;
-        sendCodeLoadedNotification('Code.js', codeCommitInfo);
+        // Отдельное уведомление убрано — версия отображается прямо в велком-сообщении
 
         console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
 
