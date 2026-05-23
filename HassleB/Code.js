@@ -40,7 +40,8 @@ const globalState = {
     // HP alert state
     hpAlertMessageIds: [],   // { chatId, messageId }
     hpLastHitTime: null,     // Время последнего удара
-    hpLastValue: null        // Предыдущее значение HP
+    hpLastValue: null,       // Предыдущее значение HP
+    _hpSendPending: false    // Флаг ожидания callback sendMessage (защита от дублей)
 };
 // END GLOBAL STATE MODULE //
 
@@ -666,49 +667,150 @@ function getPlayerHpFromStore() {
     }
 }
 
+// ── Поиск ника ближайшего атакующего игрока ───────────────────
+// Пробует несколько источников данных движка по приоритету:
+// 1. Поля компонента Hud (nearPlayers, players, entities и т.д.)
+// 2. Vuex store getters с модулем players/world
+// 3. DOM-элементы нэймтегов (если рендерятся в CEF-слое)
+function getNearestAttacker() {
+    try {
+        // Путь 1: через данные компонента Hud
+        const hud = window.interface("Hud");
+        if (hud) {
+            const candidates = [
+                hud.nearPlayers,
+                hud.players,
+                hud.entities,
+                hud.nearbyPlayers,
+                hud.$data && hud.$data.players,
+                hud.$data && hud.$data.nearPlayers,
+                hud.$data && hud.$data.entities,
+            ];
+            for (const list of candidates) {
+                if (Array.isArray(list) && list.length > 0) {
+                    const player = list.find(p => p && (p.name || p.nickname || p.nick));
+                    if (player) {
+                        return player.name || player.nickname || player.nick || null;
+                    }
+                }
+            }
+        }
+
+        // Путь 2: через Vuex store
+        const store = window.App && window.App.$store;
+        if (store) {
+            const storeKeys = [
+                "players/list",
+                "players/all",
+                "world/players",
+                "game/players",
+                "players/nearby",
+            ];
+            for (const key of storeKeys) {
+                try {
+                    const list = store.getters[key];
+                    if (Array.isArray(list) && list.length > 0) {
+                        const player = list.find(p => p && (p.name || p.nickname));
+                        if (player) return player.name || player.nickname || null;
+                    }
+                } catch (_) {}
+            }
+        }
+
+        // Путь 3: DOM нэймтеги (если рендерятся в CEF-слое)
+        const selectors = [
+            '[class*="nametag"]',
+            '[class*="player-name"]',
+            '[class*="playername"]',
+            '[class*="nickname"]',
+        ];
+        for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el && el.textContent.trim()) {
+                // Убираем "(ID)" часть если есть: "Ivan_Berins (192)" → "Ivan_Berins"
+                return el.textContent.trim().split('(')[0].trim();
+            }
+        }
+    } catch (e) {
+        debugLog(`[HP] Ошибка при поиске атакующего: ${e.message}`);
+    }
+    return null;
+}
+
 // ── Периодическое отслеживание HP и уведомление об уроне ──────
 const HP_ALERT_WINDOW_MS = 3 * 60 * 1000; // 3 минуты
 
 function trackPlayerHp() {
     if (!config.hpTracking) return;
     if (window._hassleReloading) return;
+
     const currentHp = getPlayerHpFromStore();
+
     if (currentHp !== null && globalState.hpLastValue !== null) {
         if (currentHp < globalState.hpLastValue) {
             const damage = Math.round(globalState.hpLastValue - currentHp);
-            const now = Date.now();
-            const hpText =
-                `💔 <b>Получен урон! (${displayName})</b>\n` +
-                `❤️ HP: <b>${Math.round(globalState.hpLastValue)}</b> → <b>${Math.round(currentHp)}</b>  (-${damage})\n` +
-                `🕐 <i>${getCurrentTimeString()}</i>`;
-            const withinWindow =
-                globalState.hpLastHitTime &&
-                (now - globalState.hpLastHitTime < HP_ALERT_WINDOW_MS) &&
-                globalState.hpAlertMessageIds.length > 0;
-            if (withinWindow) {
-                // Редактируем существующее сообщение
-                globalState.hpAlertMessageIds.forEach(({ chatId, messageId }) => {
-                    editMessageText(chatId, messageId, hpText);
-                });
-            } else {
-                // Новое тихое сообщение
-                globalState.hpAlertMessageIds = [];
-                config.chatIds.forEach(chatId => {
-                    tgApi('sendMessage', {
-                        chat_id: chatId,
-                        text: hpText,
-                        parse_mode: 'HTML',
-                        disable_notification: true
-                    }, data => {
-                        globalState.hpAlertMessageIds.push({ chatId, messageId: data.result.message_id });
-                        debugLog(`[HP] Новое уведомление об уроне отправлено (msg_id: ${data.result.message_id})`);
+
+            // ИСПРАВЛЕНИЕ 1: порог damage >= 1
+            // Убирает ложные срабатывания из-за float-шума движка.
+            // Пример: HP 59.3 → 59.1 даёт damage=0 — это не реальный урон.
+            if (damage >= 1) {
+                const now = Date.now();
+
+                // Пытаемся прочитать ник атакующего из движка
+                const attacker = getNearestAttacker();
+                const attackerLine = attacker
+                    ? `👤 <b>Атакует:</b> <code>${attacker}</code>\n`
+                    : '';
+
+                const hpText =
+                    `💔 <b>Получен урон! (${displayName})</b>\n` +
+                    `❤️ HP: <b>${Math.round(globalState.hpLastValue)}</b> → <b>${Math.round(currentHp)}</b>  (-${damage})\n` +
+                    attackerLine +
+                    `🕐 <i>${getCurrentTimeString()}</i>`;
+
+                // ИСПРАВЛЕНИЕ 2: добавлен _hpSendPending
+                // Предотвращает отправку второго сообщения пока первый
+                // sendMessage ещё ждёт callback (async race condition).
+                const withinWindow =
+                    globalState.hpLastHitTime &&
+                    (now - globalState.hpLastHitTime < HP_ALERT_WINDOW_MS) &&
+                    globalState.hpAlertMessageIds.length > 0 &&
+                    !globalState._hpSendPending;
+
+                if (withinWindow) {
+                    // Редактируем существующее сообщение
+                    globalState.hpAlertMessageIds.forEach(({ chatId, messageId }) => {
+                        editMessageText(chatId, messageId, hpText);
                     });
-                });
+                } else if (!globalState._hpSendPending) {
+                    // Новое тихое сообщение (новая драка или истёк window)
+                    globalState.hpAlertMessageIds = [];
+                    globalState._hpSendPending = true; // блокируем дубли до callback
+
+                    config.chatIds.forEach(chatId => {
+                        tgApi('sendMessage', {
+                            chat_id: chatId,
+                            text: hpText,
+                            parse_mode: 'HTML',
+                            disable_notification: true
+                        }, data => {
+                            if (data && data.result) {
+                                globalState.hpAlertMessageIds.push({ chatId, messageId: data.result.message_id });
+                                debugLog(`[HP] Новое уведомление об уроне отправлено (msg_id: ${data.result.message_id})`);
+                            }
+                            globalState._hpSendPending = false; // разблокируем
+                        }, () => {
+                            globalState._hpSendPending = false; // разблокируем при ошибке сети
+                        });
+                    });
+                }
+
+                globalState.hpLastHitTime = now;
+                addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)}${attacker ? ` от ${attacker}` : ''}`);
             }
-            globalState.hpLastHitTime = now;
-            addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)}`);
         }
     }
+
     if (currentHp !== null) globalState.hpLastValue = currentHp;
     setTimeout(trackPlayerHp, 1500);
 }
@@ -957,7 +1059,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2  глобал1л</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2  глобал11л</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
