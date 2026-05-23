@@ -192,6 +192,70 @@ function applyUserConfig() {
     return true;
 }
 
+// Получить информацию о последнем коммите файла с GitHub API
+async function fetchLastCommitInfo(filename) {
+    const apiUrl = `https://api.github.com/repos/${username}/${repo}/commits?path=HassleB/${filename}&per_page=1`;
+    try {
+        const xhr = await new Promise((resolve, reject) => {
+            const x = new XMLHttpRequest();
+            x.open('GET', apiUrl, true);
+            x.setRequestHeader('Accept', 'application/vnd.github.v3+json');
+            x.onload = () => resolve(x);
+            x.onerror = () => reject(new Error('network error'));
+            x.send();
+        });
+        if (xhr.status === 200) {
+            const commits = JSON.parse(xhr.responseText);
+            if (commits && commits.length > 0) {
+                const c = commits[0];
+                const msg   = c.commit.message.split('\n')[0].slice(0, 80); // первая строка, макс 80 символов
+                const author = c.commit.author.name;
+                const rawDate = c.commit.author.date; // ISO 8601
+                // Форматируем дату в DD.MM.YYYY HH:MM
+                const d = new Date(rawDate);
+                const pad = n => String(n).padStart(2, '0');
+                const dateStr = `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                return { msg, author, date: dateStr, sha: c.sha.slice(0, 7) };
+            }
+        }
+    } catch (e) {
+        console.warn('[CommitInfo] Ошибка получения информации о коммите:', e.message);
+    }
+    return null;
+}
+
+// Отправить в Telegram уведомление о загруженном файле с инфой о коммите
+function sendCodeLoadedNotification(filename, commitInfo) {
+    // Берём токен и chatIds из window (уже установлены через applyUserConfig)
+    const token = window.ACCOUNT_TOKEN || window.DEFAULT_TOKEN;
+    const chatIds = window.CHAT_IDS;
+    if (!token || !chatIds || chatIds.length === 0) return;
+
+    let text;
+    if (commitInfo) {
+        text =
+            `📦 <b>${filename} загружен</b>\n` +
+            `📝 ${commitInfo.msg}\n` +
+            `📅 ${commitInfo.date}\n` +
+            `👤 ${commitInfo.author}  <code>#${commitInfo.sha}</code>`;
+    } else {
+        text = `📦 <b>${filename} загружен</b>\n<i>Информация о коммите недоступна</i>`;
+    }
+
+    const tgUrl = `https://api.telegram.org/bot${token}/sendMessage`;
+    chatIds.forEach(chatId => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', tgUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(JSON.stringify({
+            chat_id: chatId,
+            text,
+            parse_mode: 'HTML',
+            disable_notification: true
+        }));
+    });
+}
+
 // Последовательная загрузка скриптов
 async function initializeScripts() {
     try {
@@ -206,7 +270,13 @@ async function initializeScripts() {
         }
 
         console.log('📦 Загрузка Code.js...');
+        // Получаем инфо о коммите до загрузки (параллельно, не блокируем загрузку)
+        const codeCommitInfoPromise = fetchLastCommitInfo('Code.js');
         await loadScriptFromGitHub('Code.js');
+
+        // Отправляем уведомление о загрузке с информацией о последнем коммите
+        const codeCommitInfo = await codeCommitInfoPromise;
+        sendCodeLoadedNotification('Code.js', codeCommitInfo);
 
         console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
 
