@@ -274,8 +274,9 @@ async function initializeScripts() {
         const codeCommitInfoPromise = fetchLastCommitInfo('Code.js');
         await loadScriptFromGitHub('Code.js');
 
-        // Отправляем уведомление о загрузке с информацией о последнем коммите
+        // Сохраняем инфо о коммите глобально — Code.js читает его в велком-сообщении
         const codeCommitInfo = await codeCommitInfoPromise;
+        window.CODE_COMMIT_INFO = codeCommitInfo || null;
         sendCodeLoadedNotification('Code.js', codeCommitInfo);
 
         console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
