@@ -649,21 +649,19 @@ function trackPlayerMoney() {
 }
 
 
-// ── Получить HP персонажа из Vuex store ──────────────────────
+// ── Получить HP персонажа из HUD-компонента ──────────────────
+// HP не хранится в Vuex (getter "player/hp" не существует).
+// Значение живёт в data.info.health компонента Hud,
+// который доступен через window.interface("Hud").
 function getPlayerHpFromStore() {
     try {
-        if (window.App && window.App.$store) {
-            const hp = window.App.$store.getters["player/hp"];
-            if (hp !== undefined && hp !== null) return hp;
-        }
-        const menuInterface = window.interface("Menu");
-        if (menuInterface && menuInterface.$store) {
-            const hp = menuInterface.$store.getters["player/hp"];
-            if (hp !== undefined && hp !== null) return hp;
+        const hud = window.interface("Hud");
+        if (hud && hud.info && hud.info.health !== undefined && hud.info.health !== null) {
+            return hud.info.health;
         }
         return null;
     } catch (e) {
-        debugLog(`[HP] Ошибка при получении HP из store: ${e.message}`);
+        debugLog(`[HP] Ошибка при получении HP из HUD: ${e.message}`);
         return null;
     }
 }
@@ -959,7 +957,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2  глобалл</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2  глобал1л</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
