@@ -15,42 +15,6 @@
 // 4. Обработка ввода сообщения (строка ~1241)
 // ===========================================================
 
-
-// ── Движение через sendClientEventHandle напрямую (работает без фокуса) ──
-function performMove(keyCode, duration) {
-    try {
-        // Открываем AdminSpectate на 1 кадр чтобы il() вернул true
-        // Это позволяет onKeyDown отправить WASD через sendClientEvent
-        const wasOpen = window.getInterfaceStatus("AdminSpectate");
-        if (!wasOpen) window.openInterface("AdminSpectate");
-        
-        // Симулируем нажатие клавиши через внутренний механизм
-        window.sendKeyEvent(keyCode);
-        
-        // Держим клавишу нажатой через повторные события
-        var interval = setInterval(function() {
-            window.sendKeyEvent(keyCode);
-        }, 80);
-        
-        setTimeout(function() {
-            clearInterval(interval);
-            if (!wasOpen) window.closeInterface("AdminSpectate");
-        }, duration || 500);
-    } catch(e) {
-        // Fallback: прямой sendClientEventHandle
-        try {
-            window.sendClientEventHandle(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", keyCode);
-            var iv = setInterval(function() {
-                window.sendClientEventHandle(window.gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", keyCode);
-            }, 80);
-            setTimeout(function() { clearInterval(iv); }, duration || 500);
-        } catch(e2) {
-            debugLog('[move] Ошибка: ' + e2.message);
-        }
-    }
-}
-// ─────────────────────────────────────────────────────────────────────────────
-
 // END CONSTANTS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -69,7 +33,14 @@ const globalState = {
     isPrison: false,       // Флаг для игнора /rec при кике после посадки
     inPrison: false,       // Активный режим тюрьмы (скин 50)
     prisonTimeRequested: false, // Флаг: уже запросили /time
-    prisonTimeTimer: null  // Таймер периодического опроса /time
+    prisonTimeTimer: null,  // Таймер периодического опроса /time
+    // Лог сессии (последние 20 событий)
+    sessionLog: [],
+    sessionStartTime: null,
+    // HP alert state
+    hpAlertMessageIds: [],   // { chatId, messageId }
+    hpLastHitTime: null,     // Время последнего удара
+    hpLastValue: null        // Предыдущее значение HP
 };
 // END GLOBAL STATE MODULE //
 
@@ -223,7 +194,8 @@ const userConfig = {
     locationLogInterval: 3000,    // Интервал логирования координат (мс)
     moneyLogging: false,           // Логировать Нал и Банк персонажа в консоль
     moneyLogInterval: 5000,       // Интервал логирования денег (мс)
-    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT // <-- используем константу
+    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT, // <-- используем константу
+    hpTracking: true               // Отслеживание HP и уведомление об уроне
 };
 const config = {
     ...userConfig,
@@ -548,6 +520,13 @@ function showScreenNotification(title, text, color = "FFFF00", duration = 3000) 
         debugLog(`Ошибка ScreenNotification: ${err.message}`);
     }
 }
+function addSessionLog(event) {
+    const timeStr = getCurrentTimeString();
+    const entry = `[${timeStr}] ${event}`;
+    globalState.sessionLog.push(entry);
+    if (globalState.sessionLog.length > 25) globalState.sessionLog.shift();
+    debugLog(`[SESSION] ${entry}`);
+}
 // END DEBUG AND UTILS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -669,7 +648,74 @@ function trackPlayerMoney() {
     setTimeout(trackPlayerMoney, config.moneyLogInterval);
 }
 
-function updateFaction() {
+
+// ── Получить HP персонажа из Vuex store ──────────────────────
+function getPlayerHpFromStore() {
+    try {
+        if (window.App && window.App.$store) {
+            const hp = window.App.$store.getters["player/hp"];
+            if (hp !== undefined && hp !== null) return hp;
+        }
+        const menuInterface = window.interface("Menu");
+        if (menuInterface && menuInterface.$store) {
+            const hp = menuInterface.$store.getters["player/hp"];
+            if (hp !== undefined && hp !== null) return hp;
+        }
+        return null;
+    } catch (e) {
+        debugLog(`[HP] Ошибка при получении HP из store: ${e.message}`);
+        return null;
+    }
+}
+
+// ── Периодическое отслеживание HP и уведомление об уроне ──────
+const HP_ALERT_WINDOW_MS = 3 * 60 * 1000; // 3 минуты
+
+function trackPlayerHp() {
+    if (!config.hpTracking) return;
+    if (window._hassleReloading) return;
+    const currentHp = getPlayerHpFromStore();
+    if (currentHp !== null && globalState.hpLastValue !== null) {
+        if (currentHp < globalState.hpLastValue) {
+            const damage = Math.round(globalState.hpLastValue - currentHp);
+            const now = Date.now();
+            const hpText =
+                `💔 <b>Получен урон! (${displayName})</b>\n` +
+                `❤️ HP: <b>${Math.round(globalState.hpLastValue)}</b> → <b>${Math.round(currentHp)}</b>  (-${damage})\n` +
+                `🕐 <i>${getCurrentTimeString()}</i>`;
+            const withinWindow =
+                globalState.hpLastHitTime &&
+                (now - globalState.hpLastHitTime < HP_ALERT_WINDOW_MS) &&
+                globalState.hpAlertMessageIds.length > 0;
+            if (withinWindow) {
+                // Редактируем существующее сообщение
+                globalState.hpAlertMessageIds.forEach(({ chatId, messageId }) => {
+                    editMessageText(chatId, messageId, hpText);
+                });
+            } else {
+                // Новое тихое сообщение
+                globalState.hpAlertMessageIds = [];
+                config.chatIds.forEach(chatId => {
+                    tgApi('sendMessage', {
+                        chat_id: chatId,
+                        text: hpText,
+                        parse_mode: 'HTML',
+                        disable_notification: true
+                    }, data => {
+                        globalState.hpAlertMessageIds.push({ chatId, messageId: data.result.message_id });
+                        debugLog(`[HP] Новое уведомление об уроне отправлено (msg_id: ${data.result.message_id})`);
+                    });
+                });
+            }
+            globalState.hpLastHitTime = now;
+            addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)}`);
+        }
+    }
+    if (currentHp !== null) globalState.hpLastValue = currentHp;
+    setTimeout(trackPlayerHp, 1500);
+}
+
+
     const skinId = Number(config.accountInfo.skinId); // Приводим к числу
     if (!skinId) return;
     for (const faction in factions) {
@@ -757,6 +803,7 @@ function trackNicknameAndServer() {
             uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
             sendWelcomeMessage();
             registerUser();
+            addSessionLog(`🔐 Вход: ${nickname} [S${serverId}]`);
             // Запуск отслеживания скина с задержкой 5с
             setTimeout(() => {
                 const initialSkin = getSkinIdFromStore();
@@ -911,7 +958,7 @@ function sendWelcomeMessage() {
         return;
     }
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot v2  глобал</b>\n` +
+    const message = `🟢 <b>Hassle | Bot v2  глобалл</b>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
@@ -1635,6 +1682,7 @@ function showControlsMenu(chatId, messageId) {
         inline_keyboard: [
             [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
             [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
+            [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
@@ -1795,7 +1843,6 @@ function showLocalFunctionsMenu(chatId, messageId) {
             [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
             [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
             [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
-            [createButton("💰 Инфо. об аккаунте поз/деньги", `local_account_info_${uniqueId}`)],
             [pauseBtn, autoLoginBtn],
             [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
         ]
@@ -2584,7 +2631,11 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_forward_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    performMove(window.KEY_CODE_W, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2595,7 +2646,11 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_back_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    performMove(window.KEY_CODE_S, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2606,7 +2661,11 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_left_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    performMove(window.KEY_CODE_A, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2617,7 +2676,11 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_right_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    performMove(window.KEY_CODE_D, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2628,7 +2691,10 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_jump_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    performMove(window.KEY_CODE_SHIFT, 300);
+                    window.onScreenControlTouchStart("<Keyboard>/leftShift");
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Keyboard>/leftShift");
+                    }, 500);
                     sendToTelegram(`🆙 <b>Прыжок выполнен для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2639,7 +2705,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_punch_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.sendClientKeyEvent("Fire");
+                    window.onScreenControlTouchStart("<Mouse>/leftButton");
+                    setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
                     sendToTelegram(`👊 <b>Удар выполнен для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
                 } catch (err) {
@@ -2650,7 +2717,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_sit_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    performMove(window.KEY_CODE_C, 500);
+                    window.onScreenControlTouchStart("<Keyboard>/c");
+                    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
                     config.isSitting = true;
                     sendToTelegram(`✅ <b>Команда "Сесть" отправлена ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -2662,7 +2730,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_stand_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    performMove(window.KEY_CODE_C, 500);
+                    window.onScreenControlTouchStart("<Keyboard>/c");
+                    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
                     config.isSitting = false;
                     sendToTelegram(`✅ <b>Команда "Встать" отправлена ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -2805,10 +2874,22 @@ function processUpdates(updates) {
                     const skinId = config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined ? config.accountInfo.skinId : '❓';
                     const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
 
+                    // Уровень и наигранные часы из Vuex store
+                    let level = '❓';
+                    let passedHours = '❓';
+                    try {
+                        const storeLevel = window.App.$store.getters['player/level'];
+                        const storeHours = window.App.$store.getters['player/passedHours'];
+                        if (storeLevel !== undefined && storeLevel !== null) level = storeLevel;
+                        if (storeHours !== undefined && storeHours !== null) passedHours = storeHours;
+                    } catch (e) {
+                        debugLog(`[ACINFO] Ошибка получения level/hours: ${e.message}`);
+                    }
+
                     let posStr = '❓ Позиция недоступна';
                     if (pos) {
-                        const interior = pos.interior ? ' <i>[interior]</i>' : '';
-                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}°${interior}`;
+                        const interiorVal = (pos.interior !== undefined && pos.interior !== null) ? pos.interior : 0;
+                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${interiorVal}`;
                     }
 
                     let cashStr = '❓';
@@ -2821,10 +2902,15 @@ function processUpdates(updates) {
                     sendToTelegram(
                         `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
                         `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
-                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n\n` +
+                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n` +
+                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}\n\n` +
                         `📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
                         `💵 <b>Нал:</b> ${cashStr}\n` +
-                        `🏦 <b>Банк:</b> ${bankStr}`,
+                        `🏦 <b>Банк:</b> ${bankStr}\n\n` +
+                        `📋 <b>Лог сессии:</b>\n` +
+                        (globalState.sessionLog.length > 0
+                            ? globalState.sessionLog.slice(-10).map(e => `<code>${e}</code>`).join('\n')
+                            : '<i>Нет событий</i>'),
                         false, null
                     );
                 } catch (err) {
@@ -3667,6 +3753,7 @@ function initializeChatMonitor() {
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
                 // 9 пингов каждые 2 сек — каждый удаляет предыдущий, последний остаётся
                 sendAdminSpamAlert(msg);
+                addSessionLog(`🚨 Обнаружен администратор`);
             }
         }
         // ── Строй / сбор ───────────────────────────────────────────
@@ -3795,6 +3882,12 @@ function initializeChatMonitor() {
             debugLog('[MONEY] Запуск логирования Нала и Банка...');
             setTimeout(trackPlayerMoney, 5000); // та же задержка для синхронизации со store
         }
+        if (config.hpTracking) {
+            debugLog('[HP] Запуск отслеживания HP персонажа...');
+            setTimeout(trackPlayerHp, 5000);
+        }
+        globalState.sessionStartTime = Date.now();
+        addSessionLog('🟢 Сессия начата');
     }
     checkTelegramCommands();
     return true;
@@ -4233,7 +4326,11 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 1) {
                 // Вперед
                 try {
-                    performMove(window.KEY_CODE_W, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     showScreenNotification("Hassle", "Движение вперед выполнено");
                     sendToTelegram(`🚶 <b>Движение вперед для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4243,7 +4340,11 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 2) {
                 // Влево
                 try {
-                    performMove(window.KEY_CODE_A, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     showScreenNotification("Hassle", "Движение влево выполнено");
                     sendToTelegram(`🚶 <b>Движение влево для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4253,7 +4354,11 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 3) {
                 // Вправо
                 try {
-                    performMove(window.KEY_CODE_D, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     showScreenNotification("Hassle", "Движение вправо выполнено");
                     sendToTelegram(`🚶 <b>Движение вправо для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4263,7 +4368,11 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 4) {
                 // Назад
                 try {
-                    performMove(window.KEY_CODE_S, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     showScreenNotification("Hassle", "Движение назад выполнено");
                     sendToTelegram(`🚶 <b>Движение назад для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4273,7 +4382,10 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 5) {
                 // Прыжок
                 try {
-                    performMove(window.KEY_CODE_SHIFT, 300);
+                    window.onScreenControlTouchStart("<Keyboard>/leftShift");
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Keyboard>/leftShift");
+                    }, 500);
                     showScreenNotification("Hassle", "Прыжок выполнен");
                     sendToTelegram(`🆙 <b>Прыжок для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4283,7 +4395,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 6) {
                 // Удар
                 try {
-                    window.sendClientKeyEvent("Fire");
+                    window.onScreenControlTouchStart("<Mouse>/leftButton");
+                    setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
                     showScreenNotification("Hassle", "Удар выполнен");
                     sendToTelegram(`👊 <b>Удар для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4293,7 +4406,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 7) {
                 // Сесть/Встать
                 try {
-                    performMove(window.KEY_CODE_C, 500);
+                    window.onScreenControlTouchStart("<Keyboard>/c");
+                    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
                     config.isSitting = !config.isSitting;
                     const actionText = config.isSitting ? 'Сесть' : 'Встать';
                     showScreenNotification("Hassle", `Команда "${actionText}" выполнена`);
