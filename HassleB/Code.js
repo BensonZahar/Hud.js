@@ -845,7 +845,7 @@ function trackNicknameAndServer() {
     // Повторяем каждые 900мс пока store не станет доступен.
     let store = null;
     // Пробуем все известные интерфейсы где есть $store с данными игрока
-    const ifaceNames = ["MainMenu", "Menu", "Hud"];
+    const ifaceNames = ["MainMenu", "Authorization", "Menu", "Hud"];
     for (const name of ifaceNames) {
         try {
             const iface = window.interface(name);
@@ -863,13 +863,25 @@ function trackNicknameAndServer() {
     function applyNicknameServer() {
         if (window._hassleReloading) return;
         let nickname, serverId;
+
+        // Пробуем in-game геттеры (MainMenu, в игре)
         try {
-            // MainMenu использует player/nickName и player/serverId
-            nickname = store.getters["player/nickName"];
-            serverId = store.getters["player/serverId"];
-        } catch (e) {
-            debugLog(`[NICK] Ошибка чтения getters: ${e.message}`);
-            return;
+            const n = store.getters["player/nickName"];
+            const s = store.getters["player/serverId"];
+            if (n && n !== "Name_Surname" && s !== undefined && s !== null && String(s) !== "-1") {
+                nickname = n; serverId = s;
+            }
+        } catch (e) {}
+
+        // Если не получили — пробуем геттеры экрана входа (Authorization)
+        if (!nickname) {
+            try {
+                const n = store.getters["menu/nickName"];
+                const s = store.getters["menu/selectedServer"];
+                if (n && n !== "Имя_Фамилия" && s !== undefined && s !== null && String(s) !== "-1") {
+                    nickname = n; serverId = s;
+                }
+            } catch (e) {}
         }
 
         if (!nickname || serverId === undefined || serverId === null) return;
@@ -921,20 +933,22 @@ function trackNicknameAndServer() {
     applyNicknameServer();
 
     // Подписка через Vuex $store.watch — реагирует мгновенно без поллинга
-    store.watch(
-        (state, getters) => getters["player/nickName"],
-        (newVal) => {
-            debugLog(`[NICK] nickName -> ${newVal}`);
-            applyNicknameServer();
-        }
-    );
-    store.watch(
-        (state, getters) => getters["player/serverId"],
-        (newVal) => {
-            debugLog(`[NICK] serverId -> ${newVal}`);
-            applyNicknameServer();
-        }
-    );
+    // Следим за обоими наборами геттеров: в игре (player/) и на экране входа (menu/)
+    const watchGetter = (getterKey) => {
+        try {
+            store.watch(
+                (state, getters) => getters[getterKey],
+                (newVal) => {
+                    debugLog(`[NICK] ${getterKey} -> ${newVal}`);
+                    applyNicknameServer();
+                }
+            );
+        } catch(e) { debugLog(`[NICK] watch не удался для ${getterKey}: ${e.message}`); }
+    };
+    watchGetter("player/nickName");
+    watchGetter("player/serverId");
+    watchGetter("menu/nickName");
+    watchGetter("menu/selectedServer");
 
     debugLog("[NICK] $store.watch активен — смена ника/сервера отслеживается реактивно");
 }
