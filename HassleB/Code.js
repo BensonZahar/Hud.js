@@ -5614,16 +5614,19 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END ADMIN KAC/ZP AUTO-REPLY MODULE ====================
+// ==================== END ADMIN KAC/ZP AUTO-REPLY MODULE ====================
 // === CUSTOM HUD BUTTON ===
-(function addCustomRadarButton() {
-    const BUTTON_CLASS   = 'mobile-button custom-radar-btn';
-    const CONTAINER_SEL  = '.hud-hassle-radar__controls';
-    const ZONE_SEL       = '.hud-hassle-radar__clickable-zone';
+(function addCustomHBButton() {
+    const CONTAINER_SEL = '.hud-hassle-radar__controls';
+    const ZONE_SEL      = '.hud-hassle-radar__clickable-zone';
+    const BTN_CLASS     = 'mobile-button custom-hb-btn';
 
-    // Создаём элемент кнопки
     function createButton() {
         const btn = document.createElement('div');
-        btn.className = BUTTON_CLASS;
+        // Копируем класс как у mobile-button_1 (FAQ, 54px)
+        btn.className = BTN_CLASS;
+
+        // Стиль идентичен mobile-button_1 — размер 54px, круглая
         btn.style.cssText = `
             width: 54px;
             height: 54px;
@@ -5635,35 +5638,43 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             cursor: pointer;
             touch-action: none;
             user-select: none;
+            flex-shrink: 0;
         `;
 
-        // Иконка — можно заменить на img с нужным src
+        // Та же иконка что у FAQ кнопки (или любой другой рядом)
+        // Используем встроенный SVG-стиль, идентичный mobile-button_1
         btn.innerHTML = `
             <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <text x="4" y="21" font-size="20" fill="#F2EFDC">★</text>
+                <text x="4" y="22" font-size="20" fill="#F2EFDC" font-family="Arial">HB</text>
             </svg>
         `;
 
-        // Действие при нажатии (замени на своё)
         btn.addEventListener('touchstart', (e) => {
             e.stopPropagation();
-            // Пример: открыть интерфейс или отправить команду
+            e.preventDefault();
             if (window.sendChatInput) {
-                window.sendChatInput('/mycommand');
+                window.sendChatInput('/hb');
+                console.log('✅ /hb отправлено!');
+            } else {
+                console.warn('⚠️ window.sendChatInput не найден');
             }
-            console.log('✅ Custom button pressed!');
+        }, { passive: false });
+
+        // Для ПК/отладки
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (window.sendChatInput) {
+                window.sendChatInput('/hb');
+            }
         });
 
         return btn;
     }
 
-    // Ждём появления контейнера в DOM
     function tryInject() {
         const container = document.querySelector(CONTAINER_SEL);
         if (!container) return false;
-
-        // Не дублировать
-        if (container.querySelector('.custom-radar-btn')) return true;
+        if (container.querySelector('.custom-hb-btn')) return true;
 
         const zone = container.querySelector(ZONE_SEL);
         const btn  = createButton();
@@ -5675,17 +5686,11 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             container.appendChild(btn);
         }
 
-        console.log('✅ Custom radar button injected!');
+        console.log('✅ Кнопка /hb добавлена!');
         return true;
     }
 
-    // MutationObserver — реагирует на появление/пересборку DOM
-    const observer = new MutationObserver(() => {
-        tryInject();
-    });
-
+    const observer = new MutationObserver(() => { tryInject(); });
     observer.observe(document.body, { childList: true, subtree: true });
-
-    // Первая попытка сразу
     tryInject();
 })();
