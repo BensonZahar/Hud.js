@@ -4384,12 +4384,6 @@ function showHBGlobalFunctionsMenu() {
         0
     );
 }
-    window.addDialogInQueue(
-        `[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции","","Выбрать","Закрыть",0,0]`,
-        menuList,
-        0
-    );
-}
 // Меню движения
 function showHBMovementMenu() {
     currentHBMenu = "movement";
