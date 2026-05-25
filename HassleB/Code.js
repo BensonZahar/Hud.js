@@ -1849,6 +1849,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
             createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
         ],
         [createButton("⏱️ PayDay Цикл", `show_pdc_menu_${uniqueIdParam}`)],
+        [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_kac_options_${uniqueIdParam}`)],
     ];
     if (config.autoReconnectEnabled) {
         inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
@@ -1923,6 +1924,18 @@ function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
+function showKacOptionsMenu(chatId, messageId, uniqueIdParam) {
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton("🟢 ВКЛ", `global_kac_on_${uniqueIdParam}`),
+                createButton("🔴 ВЫКЛ", `global_kac_off_${uniqueIdParam}`)
+            ],
+            [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
 function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
@@ -1991,6 +2004,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
             [createButton("📍 Отслеживание", `show_local_mesto_options_${uniqueId}`)],
             [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
             [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
+            [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_local_kac_options_${uniqueId}`)],
             [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
             [pauseBtn, autoLoginBtn],
             [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
@@ -2084,6 +2098,22 @@ function showLocalWarningOptionsMenu(chatId, messageId) {
             [
                 createButton("🔔 ВКЛ", `local_warning_on_${uniqueId}`),
                 createButton("🔕 ВЫКЛ", `local_warning_off_${uniqueId}`)
+            ],
+            [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+function showLocalKacOptionsMenu(chatId, messageId) {
+    if (!config.accountInfo.nickname) {
+        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
+        return;
+    }
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton("🟢 ВКЛ", `local_kac_on_${uniqueId}`),
+                createButton("🔴 ВЫКЛ", `local_kac_off_${uniqueId}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
         ]
@@ -2466,6 +2496,7 @@ function processUpdates(updates) {
                 message.startsWith('show_mesto_options_') ||
                 message.startsWith('show_radio_options_') ||
                 message.startsWith('show_warning_options_') ||
+                message.startsWith('show_kac_options_') ||
                 message.startsWith('show_global_functions_') ||
                 message.startsWith('levelup_reconnect_') ||
                 message.startsWith('show_pdc_menu_') ||
@@ -2544,6 +2575,12 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('show_local_radio_options_', '');
             } else if (message.startsWith('show_local_warning_options_')) {
                 callbackUniqueId = message.replace('show_local_warning_options_', '');
+            } else if (message.startsWith('show_local_kac_options_')) {
+                callbackUniqueId = message.replace('show_local_kac_options_', '');
+            } else if (message.startsWith('local_kac_on_')) {
+                callbackUniqueId = message.replace('local_kac_on_', '');
+            } else if (message.startsWith('local_kac_off_')) {
+                callbackUniqueId = message.replace('local_kac_off_', '');
             } else if (message.startsWith('global_p_on_')) {
                 callbackUniqueId = message.replace('global_p_on_', '');
             } else if (message.startsWith('global_p_off_')) {
@@ -2590,6 +2627,12 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('show_radio_options_', '');
             } else if (message.startsWith('show_warning_options_')) {
                 callbackUniqueId = message.replace('show_warning_options_', '');
+            } else if (message.startsWith('show_kac_options_')) {
+                callbackUniqueId = message.replace('show_kac_options_', '');
+            } else if (message.startsWith('global_kac_on_')) {
+                callbackUniqueId = message.replace('global_kac_on_', '');
+            } else if (message.startsWith('global_kac_off_')) {
+                callbackUniqueId = message.replace('global_kac_off_', '');
             } else if (message.startsWith('show_global_functions_')) {
                 callbackUniqueId = message.replace('show_global_functions_', '');
             } else if (message.startsWith('afk_n_reconnect_on_')) {
@@ -2682,6 +2725,14 @@ function processUpdates(updates) {
                 showRadioOptionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`show_warning_options_`)) {
                 showWarningOptionsMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith(`show_kac_options_`)) {
+                showKacOptionsMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith(`global_kac_on_`)) {
+                broadcastGlobalCommand('toggle_kac', 'on');
+                sendWelcomeMessage();
+            } else if (message.startsWith(`global_kac_off_`)) {
+                broadcastGlobalCommand('toggle_kac', 'off');
+                sendWelcomeMessage();
             } else if (message.startsWith(`global_p_on_`)) {
                 config.paydayNotifications = true;
                 sendToTelegram(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, false, null);
@@ -2929,6 +2980,16 @@ function processUpdates(updates) {
                 showLocalRadioOptionsMenu(chatId, messageId);
             } else if (message.startsWith("show_local_warning_options_")) {
                 showLocalWarningOptionsMenu(chatId, messageId);
+            } else if (message.startsWith("show_local_kac_options_")) {
+                showLocalKacOptionsMenu(chatId, messageId);
+            } else if (message.startsWith("local_kac_on_")) {
+                config.kacAutoReply = true;
+                sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП включён для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+            } else if (message.startsWith("local_kac_off_")) {
+                config.kacAutoReply = false;
+                sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП отключён для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
             } else if (message.startsWith("local_soob_on_")) {
                 config.govMessagesEnabled = true;
                 sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null);
