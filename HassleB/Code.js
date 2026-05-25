@@ -1813,6 +1813,154 @@ function showPdcMenu(chatId, messageId, uid) {
 // ==================== END PAYDAY CYCLE MODULE ====================
 
 // ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: UNIFIED MENU DEFINITION                         ║
+// ║  Описание: Единый источник истины для Telegram-меню      ║
+// ║             и /hb игрового меню.                         ║
+// ║             Добавляй пункты ТОЛЬКО ЗДЕСЬ — оба меню      ║
+// ║             обновятся автоматически.                     ║
+// ╚══════════════════════════════════════════════════════════╝
+// START UNIFIED MENU DEFINITION //
+
+/**
+ * Получить пункты меню для конкретного раздела.
+ * Возвращает массив объектов:
+ *   { tg, hb, action, condition? }
+ *
+ *   tg        — функция(cfg) => string, заголовок кнопки в Telegram
+ *   hb        — функция(cfg) => string, строка в /hb диалоге (с цвет-кодами)
+ *   action    — строковой идентификатор действия (используется в обоих меню)
+ *   condition — необязательно: функция(cfg) => bool, пункт виден только если true
+ *
+ * Чтобы добавить новый пункт — дописывай объект в нужный массив.
+ * Telegram и /hb меню подхватят изменение автоматически.
+ */
+function getUnifiedMenuItems(menuName) {
+    const ON  = { hb: "{00FF00}[ВКЛ]", tg: "🟢" };
+    const OFF = { hb: "{FF0000}[ВЫКЛ]", tg: "🔴" };
+
+    switch (menuName) {
+
+        // ── Локальные функции (одиночный аккаунт) ─────────────────
+        case 'local_functions':
+            return [
+                {
+                    tg: () => "🚶 Движение",
+                    hb: () => `{FFD700}> {FFFFFF}Движение`,
+                    action: "movement"
+                },
+                {
+                    tg: (cfg) => `🏛️ Увед. правик ${cfg.govMessagesEnabled ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Увед. правик ${cfg.govMessagesEnabled ? ON.hb : OFF.hb}`,
+                    action: "toggle_soob_local"
+                },
+                {
+                    tg: (cfg) => `📍 Отслеживание ${cfg.trackLocationRequests ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Отслеживание ${cfg.trackLocationRequests ? ON.hb : OFF.hb}`,
+                    action: "toggle_mesto_local"
+                },
+                {
+                    tg: (cfg) => `📡 Рация все ${cfg.radioOfficialNotifications ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Рация все ${cfg.radioOfficialNotifications ? ON.hb : OFF.hb}`,
+                    action: "toggle_radio_local"
+                },
+                {
+                    tg: (cfg) => `🎯 Рация фильтр ${cfg.radioImportantFilter ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Рация фильтр ${cfg.radioImportantFilter ? ON.hb : OFF.hb}`,
+                    action: "toggle_radio_filter_local"
+                },
+                {
+                    tg: (cfg) => `⚠️ Выговоры ${cfg.warningNotifications ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Выговоры ${cfg.warningNotifications ? ON.hb : OFF.hb}`,
+                    action: "toggle_warning_local"
+                },
+                {
+                    tg: () => "📝 Написать в чат",
+                    hb: () => `{FFD700}> {FFFFFF}Написать в чат`,
+                    action: "chat_message",
+                    hbOnly: true   // только в TG (в /hb не применимо — нет поля ввода)
+                }
+                // ← ДОБАВЛЯЙ НОВЫЕ ЛОКАЛЬНЫЕ ПУНКТЫ ЗДЕСЬ ↑
+            ];
+
+        // ── Глобальные функции (все аккаунты) ─────────────────────
+        case 'global_functions':
+            return [
+                {
+                    tg: (cfg) => `🔔 PayDay ${cfg.paydayNotifications ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}PayDay ${cfg.paydayNotifications ? ON.hb : OFF.hb}`,
+                    action: "toggle_payday"
+                },
+                {
+                    tg: (cfg) => `🏛️ Сообщ. ${cfg.govMessagesEnabled ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Сообщ. ${cfg.govMessagesEnabled ? ON.hb : OFF.hb}`,
+                    action: "toggle_soob"
+                },
+                {
+                    tg: (cfg) => `📍 Место ${cfg.trackLocationRequests ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Место ${cfg.trackLocationRequests ? ON.hb : OFF.hb}`,
+                    action: "toggle_mesto"
+                },
+                {
+                    tg: (cfg) => `📡 Рация все ${cfg.radioOfficialNotifications ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Рация все ${cfg.radioOfficialNotifications ? ON.hb : OFF.hb}`,
+                    action: "toggle_radio"
+                },
+                {
+                    tg: (cfg) => `🎯 Рация фильтр ${cfg.radioImportantFilter ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Рация фильтр ${cfg.radioImportantFilter ? ON.hb : OFF.hb}`,
+                    action: "toggle_radio_filter"
+                },
+                {
+                    tg: (cfg) => `⚠️ Выговоры ${cfg.warningNotifications ? ON.tg : OFF.tg}`,
+                    hb: (cfg) => `{FFFFFF}Выговоры ${cfg.warningNotifications ? ON.hb : OFF.hb}`,
+                    action: "toggle_warning"
+                },
+                {
+                    tg: () => "🌙 AFK Ночь",
+                    hb: () => `{FFD700}> {FFFFFF}AFK Ночь`,
+                    action: "afk_night"
+                },
+                {
+                    tg: () => "🔄 AFK",
+                    hb: () => `{FFD700}> {FFFFFF}AFK`,
+                    action: "afk_standard"
+                },
+                {
+                    tg: () => "⏱️ PayDay Цикл",
+                    hb: () => `{FFD700}> {FFFFFF}PayDay Цикл`,
+                    action: "payday_cycle",
+                    tgOnly: true   // только в TG (в /hb нет соответствующего обработчика)
+                },
+                {
+                    tg: () => "📈 Прокачка уровня",
+                    hb: () => `{FFD700}> {FFFFFF}Прокачка уровня`,
+                    action: "levelup",
+                    condition: (cfg) => !!cfg.autoReconnectEnabled
+                }
+                // ← ДОБАВЛЯЙ НОВЫЕ ГЛОБАЛЬНЫЕ ПУНКТЫ ЗДЕСЬ ↑
+            ];
+
+        default:
+            return [];
+    }
+}
+
+/**
+ * Вернуть только те пункты, которые доступны для контекста.
+ * hbOnly=true — скрыть из /hb, tgOnly=true — скрыть из TG.
+ */
+function filterMenuItems(items, context, cfg) {
+    return items.filter(item => {
+        if (context === 'hb' && item.hbOnly)  return false;
+        if (context === 'tg' && item.tgOnly)  return false;
+        if (item.condition && !item.condition(cfg)) return false;
+        return true;
+    });
+}
+
+// END UNIFIED MENU DEFINITION //
+
+// ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: MENU                                            ║
 // ║  Описание: Telegram inline-меню управления ботом         ║
 // ║             (настройки, AFK-режимы, функции)             ║
@@ -1838,26 +1986,29 @@ function showControlsMenu(chatId, messageId) {
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
-    let inlineKeyboard = [
-        [createButton("🔔 PayDay", `show_payday_options_${uniqueIdParam}`)],
-        [createButton("🏛️ Сообщ.", `show_soob_options_${uniqueIdParam}`)],
-        [createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
-        [createButton("📡 Рация", `show_radio_options_${uniqueIdParam}`)],
-        [createButton("⚠️ Выговоры", `show_warning_options_${uniqueIdParam}`)],
-        [
-            createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
-            createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
-        ],
-        [createButton("⏱️ PayDay Цикл", `show_pdc_menu_${uniqueIdParam}`)],
-    ];
-    if (config.autoReconnectEnabled) {
-        inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
-    }
-    inlineKeyboard.push([createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]);
-    const replyMarkup = {
-        inline_keyboard: inlineKeyboard
+    // Маппинг action → Telegram callback_data
+    const ACTION_TO_CB = {
+        toggle_payday:      `show_payday_options_${uniqueIdParam}`,
+        toggle_soob:        `show_soob_options_${uniqueIdParam}`,
+        toggle_mesto:       `show_mesto_options_${uniqueIdParam}`,
+        toggle_radio:       `show_radio_options_${uniqueIdParam}`,
+        toggle_radio_filter:`show_radio_options_${uniqueIdParam}`,   // отдельного меню нет — идёт в radio options
+        toggle_warning:     `show_warning_options_${uniqueIdParam}`,
+        afk_night:          `global_afk_n_${uniqueIdParam}`,
+        afk_standard:       `global_afk_${uniqueIdParam}`,
+        payday_cycle:       `show_pdc_menu_${uniqueIdParam}`,
+        levelup:            `global_levelup_${uniqueIdParam}`
     };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+
+    const items = filterMenuItems(getUnifiedMenuItems('global_functions'), 'tg', config);
+    const inlineKeyboard = items.map(item => {
+        const label = typeof item.tg === 'function' ? item.tg(config) : item.tg;
+        const cb    = ACTION_TO_CB[item.action] || `global_${item.action}_${uniqueIdParam}`;
+        return [createButton(label, cb)];
+    });
+
+    inlineKeyboard.push([createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]);
+    editMessageReplyMarkup(chatId, messageId, { inline_keyboard: inlineKeyboard });
 }
 function showPayDayOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
@@ -1984,19 +2135,28 @@ function showLocalFunctionsMenu(chatId, messageId) {
     const autoLoginBtn = isAutoLoginDisabled
         ? createButton("✅ Выйти с автр.", `local_autologin_toggle_${uniqueId}`)
         : createButton("🚫 Уйти на автр.", `local_autologin_toggle_${uniqueId}`);
-    const replyMarkup = {
-        inline_keyboard: [
-            [createButton("🚶 Движение", `show_movement_controls_${uniqueId}`)],
-            [createButton("🏛️ Увед. правик", `show_local_soob_options_${uniqueId}`)],
-            [createButton("📍 Отслеживание", `show_local_mesto_options_${uniqueId}`)],
-            [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
-            [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
-            [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
-            [pauseBtn, autoLoginBtn],
-            [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
-        ]
+
+    // Маппинг action → Telegram callback_data
+    const ACTION_TO_CB = {
+        movement:              `show_movement_controls_${uniqueId}`,
+        toggle_soob_local:     `show_local_soob_options_${uniqueId}`,
+        toggle_mesto_local:    `show_local_mesto_options_${uniqueId}`,
+        toggle_radio_local:    `show_local_radio_options_${uniqueId}`,
+        toggle_radio_filter_local: `show_local_radio_options_${uniqueId}`,
+        toggle_warning_local:  `show_local_warning_options_${uniqueId}`,
+        chat_message:          `request_chat_message_${uniqueId}`
     };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+
+    const items = filterMenuItems(getUnifiedMenuItems('local_functions'), 'tg', config);
+    const inlineKeyboard = items.map(item => {
+        const label = typeof item.tg === 'function' ? item.tg(config) : item.tg;
+        const cb    = ACTION_TO_CB[item.action] || `local_${item.action}_${uniqueId}`;
+        return [createButton(label, cb)];
+    });
+
+    inlineKeyboard.push([pauseBtn, autoLoginBtn]);
+    inlineKeyboard.push([createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]);
+    editMessageReplyMarkup(chatId, messageId, { inline_keyboard: inlineKeyboard });
 }
 function showMovementControlsMenu(chatId, messageId, isNotification = false) {
     if (!config.accountInfo.nickname) {
@@ -4186,53 +4346,44 @@ function showHBControlsMenu() {
         0
     );
 }
-// Меню локальных функций
+// Меню локальных функций — автоматически синхронизировано с Telegram через getUnifiedMenuItems
 function showHBLocalFunctionsMenu() {
     currentHBMenu = "local_functions";
     currentHBPage = 0;
-    const statusOn = "{00FF00}[ВКЛ]";
-    const statusOff = "{FF0000}[ВЫКЛ]";
-    const menuItems = [
-        { name: "{FFD700}> {FFFFFF}Движение", action: "movement" },
-        { name: `{FFFFFF}Увед. правик ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob_local" },
-        { name: `{FFFFFF}Отслеживание ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto_local" },
-        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
-        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter_local" },
-        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" }
-    ];
+
+    const items = filterMenuItems(getUnifiedMenuItems('local_functions'), 'hb', config);
+
     let menuList = "{FFA500}< Назад<n>";
-    menuItems.forEach((item) => {
-        menuList += `${item.name}<n>`;
+    items.forEach((item) => {
+        const label = typeof item.hb === 'function' ? item.hb(config) : item.hb;
+        menuList += `${label}<n>`;
     });
+
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.LOCAL_FUNCTIONS},2,"{00BFFF}Функции","","Выбрать","Закрыть",0,0]`,
         menuList,
         0
     );
 }
-// Меню глобальных функций
+// Меню глобальных функций — автоматически синхронизировано с Telegram через getUnifiedMenuItems
 function showHBGlobalFunctionsMenu() {
     currentHBMenu = "global_functions";
     currentHBPage = 0;
-    const statusOn = "{00FF00}[ВКЛ]";
-    const statusOff = "{FF0000}[ВЫКЛ]";
-    const menuItems = [
-        { name: `{FFFFFF}PayDay ${config.paydayNotifications ? statusOn : statusOff}`, action: "toggle_payday" },
-        { name: `{FFFFFF}Сообщ. ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob" },
-        { name: `{FFFFFF}Место ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto" },
-        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
-        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter" },
-        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
-        { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" },
-        { name: "{FFD700}> {FFFFFF}AFK", action: "afk_standard" }
-    ];
-    if (config.autoReconnectEnabled) {
-        menuItems.push({ name: "{FFD700}> {FFFFFF}Прокачка уровня", action: "levelup" });
-    }
+
+    const items = filterMenuItems(getUnifiedMenuItems('global_functions'), 'hb', config);
+
     let menuList = "{FFA500}< Назад<n>";
-    menuItems.forEach((item) => {
-        menuList += `${item.name}<n>`;
+    items.forEach((item) => {
+        const label = typeof item.hb === 'function' ? item.hb(config) : item.hb;
+        menuList += `${label}<n>`;
     });
+
+    window.addDialogInQueue(
+        `[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции","","Выбрать","Закрыть",0,0]`,
+        menuList,
+        0
+    );
+}
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции","","Выбрать","Закрыть",0,0]`,
         menuList,
@@ -4365,110 +4516,157 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBControlsMenu(), 100);
             }
             break;
-        case HB_DIALOG_IDS.LOCAL_FUNCTIONS:
+        case HB_DIALOG_IDS.LOCAL_FUNCTIONS: {
             if (listitem === 0) {
                 setTimeout(() => showHBControlsMenu(), 100);
-            } else if (listitem === 1) {
-                setTimeout(() => showHBMovementMenu(), 100);
-            } else if (listitem === 2) {
-                config.govMessagesEnabled = !config.govMessagesEnabled;
-                const status = config.govMessagesEnabled ? 'включены' : 'отключены';
-                showScreenNotification("Hassle", `Уведомления от сотрудников фракции ${status}`);
-                sendToTelegram(`${config.govMessagesEnabled ? '🔔' : '🔕'} <b>Уведомления от сотрудников фракции ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
-            } else if (listitem === 3) {
-                config.trackLocationRequests = !config.trackLocationRequests;
-                const status = config.trackLocationRequests ? 'включено' : 'отключено';
-                showScreenNotification("Hassle", `Отслеживание местоположения ${status}`);
-                sendToTelegram(`${config.trackLocationRequests ? '📍' : '🔕'} <b>Отслеживание местоположения ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
-            } else if (listitem === 4) {
-                config.radioOfficialNotifications = !config.radioOfficialNotifications;
-                const status = config.radioOfficialNotifications ? 'включены' : 'отключены';
-                showScreenNotification("Hassle", `Рация (все) ${status}`);
-                sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Рация (все) ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
-            } else if (listitem === 5) {
-                config.radioImportantFilter = !config.radioImportantFilter;
-                const status = config.radioImportantFilter ? 'включён' : 'отключён';
-                showScreenNotification("Hassle", `Фильтр рации ${status}`);
-                sendToTelegram(`${config.radioImportantFilter ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
-            } else if (listitem === 6) {
-                config.warningNotifications = !config.warningNotifications;
-                const status = config.warningNotifications ? 'включены' : 'отключены';
-                showScreenNotification("Hassle", `Уведомления выговоров ${status}`);
-                sendToTelegram(`${config.warningNotifications ? '⚠️' : '🔕'} <b>Уведомления выговоров ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                break;
+            }
+            // Динамически вычисляем action выбранного пункта
+            const _lfItems = filterMenuItems(getUnifiedMenuItems('local_functions'), 'hb', config);
+            const _lfItem  = _lfItems[listitem - 1]; // сдвиг на 1 из-за «Назад»
+
+            if (!_lfItem) { setTimeout(() => showHBLocalFunctionsMenu(), 100); break; }
+
+            switch (_lfItem.action) {
+                case 'movement':
+                    setTimeout(() => showHBMovementMenu(), 100);
+                    break;
+                case 'toggle_soob_local': {
+                    config.govMessagesEnabled = !config.govMessagesEnabled;
+                    const s = config.govMessagesEnabled ? 'включены' : 'отключены';
+                    showScreenNotification("Hassle", `Уведомления от сотрудников фракции ${s}`);
+                    sendToTelegram(`${config.govMessagesEnabled ? '🔔' : '🔕'} <b>Уведомления от сотрудников фракции ${s} для ${displayName}</b>`, false, null);
+                    sendWelcomeMessage();
+                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                    break;
+                }
+                case 'toggle_mesto_local': {
+                    config.trackLocationRequests = !config.trackLocationRequests;
+                    const s = config.trackLocationRequests ? 'включено' : 'отключено';
+                    showScreenNotification("Hassle", `Отслеживание местоположения ${s}`);
+                    sendToTelegram(`${config.trackLocationRequests ? '📍' : '🔕'} <b>Отслеживание местоположения ${s} для ${displayName}</b>`, false, null);
+                    sendWelcomeMessage();
+                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                    break;
+                }
+                case 'toggle_radio_local': {
+                    config.radioOfficialNotifications = !config.radioOfficialNotifications;
+                    const s = config.radioOfficialNotifications ? 'включены' : 'отключены';
+                    showScreenNotification("Hassle", `Рация (все) ${s}`);
+                    sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Рация (все) ${s} для ${displayName}</b>`, false, null);
+                    sendWelcomeMessage();
+                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                    break;
+                }
+                case 'toggle_radio_filter_local': {
+                    config.radioImportantFilter = !config.radioImportantFilter;
+                    const s = config.radioImportantFilter ? 'включён' : 'отключён';
+                    showScreenNotification("Hassle", `Фильтр рации ${s}`);
+                    sendToTelegram(`${config.radioImportantFilter ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${s} для ${displayName}</b>`, false, null);
+                    sendWelcomeMessage();
+                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                    break;
+                }
+                case 'toggle_warning_local': {
+                    config.warningNotifications = !config.warningNotifications;
+                    const s = config.warningNotifications ? 'включены' : 'отключены';
+                    showScreenNotification("Hassle", `Уведомления выговоров ${s}`);
+                    sendToTelegram(`${config.warningNotifications ? '⚠️' : '🔕'} <b>Уведомления выговоров ${s} для ${displayName}</b>`, false, null);
+                    sendWelcomeMessage();
+                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                    break;
+                }
+                default:
+                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
             }
             break;
-        case HB_DIALOG_IDS.GLOBAL_FUNCTIONS:
+        }
+        case HB_DIALOG_IDS.GLOBAL_FUNCTIONS: {
             if (listitem === 0) {
                 setTimeout(() => showHBControlsMenu(), 100);
-            } else if (listitem === 1) {
-                const newValPd = !config.paydayNotifications;
-                handleGlobalBroadcastCommand('toggle_payday', newValPd ? 'on' : 'off');
-                broadcastGlobalCommand('toggle_payday', newValPd ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 2) {
-                const newValSoob = !config.govMessagesEnabled;
-                handleGlobalBroadcastCommand('toggle_soob', newValSoob ? 'on' : 'off');
-                broadcastGlobalCommand('toggle_soob', newValSoob ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 3) {
-                const newValMesto = !config.trackLocationRequests;
-                handleGlobalBroadcastCommand('toggle_mesto', newValMesto ? 'on' : 'off');
-                broadcastGlobalCommand('toggle_mesto', newValMesto ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 4) {
-                const newValRadio = !config.radioOfficialNotifications;
-                handleGlobalBroadcastCommand('toggle_radio', newValRadio ? 'on' : 'off');
-                broadcastGlobalCommand('toggle_radio', newValRadio ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 5) {
-                const newValFilter = !config.radioImportantFilter;
-                handleGlobalBroadcastCommand('toggle_radio_filter', newValFilter ? 'on' : 'off');
-                broadcastGlobalCommand('toggle_radio_filter', newValFilter ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 6) {
-                const newValWarn = !config.warningNotifications;
-                handleGlobalBroadcastCommand('toggle_warning', newValWarn ? 'on' : 'off');
-                broadcastGlobalCommand('toggle_warning', newValWarn ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 7) {
-                setTimeout(() => showHBAFKModesMenu(), 100);
-            } else if (listitem === 8) {
-                // Стандартный AFK
-                const hudId = getPlayerIdFromHUD();
-                if (!hudId) {
-                    sendToTelegram(`❌ <b>Ошибка:</b> Не удалось получить ID из HUD`, false, null);
+                break;
+            }
+            // Динамически вычисляем, какой action у выбранного пункта
+            // (listitem=0 — «Назад», listitem=1..N — пункты меню)
+            const _gfItems = filterMenuItems(getUnifiedMenuItems('global_functions'), 'hb', config);
+            const _gfItem  = _gfItems[listitem - 1]; // сдвиг на 1 из-за «Назад»
+
+            if (!_gfItem) { setTimeout(() => showHBGlobalFunctionsMenu(), 100); break; }
+
+            switch (_gfItem.action) {
+                case 'toggle_payday': {
+                    const v = !config.paydayNotifications;
+                    handleGlobalBroadcastCommand('toggle_payday', v ? 'on' : 'off');
+                    broadcastGlobalCommand('toggle_payday', v ? 'on' : 'off');
                     setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    return;
+                    break;
                 }
-                const idFormats = [hudId];
-                if (hudId.includes('-')) {
-                    idFormats.push(hudId.replace(/-/g, ''));
-                } else if (hudId.length === 3) {
-                    idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+                case 'toggle_soob': {
+                    const v = !config.govMessagesEnabled;
+                    handleGlobalBroadcastCommand('toggle_soob', v ? 'on' : 'off');
+                    broadcastGlobalCommand('toggle_soob', v ? 'on' : 'off');
+                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                    break;
                 }
-                config.afkSettings = {
-                    id: hudId,
-                    formats: idFormats,
-                    active: true
-                };
-                showScreenNotification("Hassle", "AFK режим активирован");
-                sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null);
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 8 && config.autoReconnectEnabled) {
-                currentHBSelectedMode = 'levelup';
-                setTimeout(() => showHBAFKRestartMenu('levelup'), 100);
+                case 'toggle_mesto': {
+                    const v = !config.trackLocationRequests;
+                    handleGlobalBroadcastCommand('toggle_mesto', v ? 'on' : 'off');
+                    broadcastGlobalCommand('toggle_mesto', v ? 'on' : 'off');
+                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                    break;
+                }
+                case 'toggle_radio': {
+                    const v = !config.radioOfficialNotifications;
+                    handleGlobalBroadcastCommand('toggle_radio', v ? 'on' : 'off');
+                    broadcastGlobalCommand('toggle_radio', v ? 'on' : 'off');
+                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                    break;
+                }
+                case 'toggle_radio_filter': {
+                    const v = !config.radioImportantFilter;
+                    handleGlobalBroadcastCommand('toggle_radio_filter', v ? 'on' : 'off');
+                    broadcastGlobalCommand('toggle_radio_filter', v ? 'on' : 'off');
+                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                    break;
+                }
+                case 'toggle_warning': {
+                    const v = !config.warningNotifications;
+                    handleGlobalBroadcastCommand('toggle_warning', v ? 'on' : 'off');
+                    broadcastGlobalCommand('toggle_warning', v ? 'on' : 'off');
+                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                    break;
+                }
+                case 'afk_night':
+                    setTimeout(() => showHBAFKModesMenu(), 100);
+                    break;
+                case 'afk_standard': {
+                    const hudId = getPlayerIdFromHUD();
+                    if (!hudId) {
+                        sendToTelegram(`❌ <b>Ошибка:</b> Не удалось получить ID из HUD`, false, null);
+                        setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                        break;
+                    }
+                    const idFormats = [hudId];
+                    if (hudId.includes('-')) {
+                        idFormats.push(hudId.replace(/-/g, ''));
+                    } else if (hudId.length === 3) {
+                        idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+                    }
+                    config.afkSettings = { id: hudId, formats: idFormats, active: true };
+                    showScreenNotification("Hassle", "AFK режим активирован");
+                    sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null);
+                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                    break;
+                }
+                case 'levelup':
+                    currentHBSelectedMode = 'levelup';
+                    setTimeout(() => showHBAFKRestartMenu('levelup'), 100);
+                    break;
+                default:
+                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             }
             break;
+        }
         case HB_DIALOG_IDS.MOVEMENT_CONTROLS:
             if (listitem === 0) {
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
@@ -4875,7 +5073,6 @@ function dlgBuildKeyboard() {
     const endIdx   = Math.min(startIdx + DLG_ITEMS_PER_PAGE, dlg.items.length);
 
     // ── LIST / TABLIST / TABLIST_HEADERS ───────────────────────
-    // FIX v2: dlg.items уже НЕ содержит строку заголовков — индексы верные
     if (dlg.style === DIALOG_STYLE.LIST ||
         dlg.style === DIALOG_STYLE.TABLIST ||
         dlg.style === DIALOG_STYLE.TABLIST_HEADERS) {
@@ -4902,9 +5099,15 @@ function dlgBuildKeyboard() {
             kb.push(nav);
         }
 
-        // FIX: если button2 пустая — сервер всё равно показывает "Назад", добавляем fallback
+        // FIX: Показываем button1 (Открыть/Выбрать) для подтверждения — нажимает с выбором последнего кликнутого
+        // Кнопки действий — сначала button1, потом button2 в одну строку
+        const actionRow = [];
+        if (dlg.button1) {
+            actionRow.push(createButton(`✅ ${dlg.button1}`, `dlg_btn1_${uid}`));
+        }
         const b2label = dlg.button2 || 'Назад';
-        kb.push([createButton(`❌ ${b2label}`, `dlg_btn2_${uid}`)]);
+        actionRow.push(createButton(`❌ ${b2label}`, `dlg_btn2_${uid}`));
+        kb.push(actionRow);
 
     // ── INPUT / PASSWORD ────────────────────────────────────────
     } else if (dlg.style === DIALOG_STYLE.INPUT ||
@@ -4913,15 +5116,18 @@ function dlgBuildKeyboard() {
         const icon = dlg.style === DIALOG_STYLE.PASSWORD ? '🔐' : '✏️';
         kb.push([createButton(`${icon} Ввести текст`, `dlg_input_${uid}`)]);
 
-        // FIX: всегда показываем кнопку отмены, даже если button2 пустая
-        const cancelLabel = dlg.button2 || 'Назад';
-        kb.push([createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`)]);
+        // Кнопки подтверждения и отмены
+        const confirmLabel = dlg.button1 || 'Ок';
+        const cancelLabel  = dlg.button2 || 'Назад';
+        kb.push([
+            createButton(`✅ ${confirmLabel}`, `dlg_confirm_input_${uid}`),
+            createButton(`❌ ${cancelLabel}`,  `dlg_btn2_${uid}`)
+        ]);
 
     // ── MSGBOX ──────────────────────────────────────────────────
     } else {
         const btnRow = [];
         if (dlg.button1) btnRow.push(createButton(`✅ ${dlg.button1}`, `dlg_btn1_${uid}`));
-        // FIX: всегда показываем кнопку отмены, даже если button2 пустая
         const cancelLabel = dlg.button2 || 'Закрыть';
         btnRow.push(createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`));
         if (btnRow.length) kb.push(btnRow);
@@ -5142,17 +5348,22 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
     // ── Button1 ───────────────────────────────────────────────
     if (data.startsWith(`dlg_btn1_${uid}`)) {
         const btn = dlg.button1;
-        // FIX: listitem=-1 для не-списочных диалогов (как делает Window.js)
-        dlgRespond(dlg.dialogId, 1, -1, '');
+        // Для списочных диалогов — нажатие button1 без явного выбора пункта
+        // Используем последний выбранный индекс, если он есть, иначе -1
+        const listitem = (dlg._lastSelectedIdx !== undefined &&
+                          dlg._lastSelectedIdx !== null)
+            ? dlg._lastSelectedIdx : -1;
+        dlgRespond(dlg.dialogId, 1, listitem, '');
         sendToTelegram(`✅ <b>«${dlgHtml(btn)}» нажата (${displayName})</b>`, false, null);
+        dlg._lastSelectedIdx = null;
         dlgClose();
 
     // ── Button2 (отмена) ──────────────────────────────────────
     } else if (data.startsWith(`dlg_btn2_${uid}`)) {
         const btn = dlg.button2 || 'Назад';
-        // FIX: listitem=-1 для отмены (как делает Window.js)
         dlgRespond(dlg.dialogId, 0, -1, '');
         sendToTelegram(`❌ <b>«${dlgHtml(btn)}» нажата (${displayName})</b>`, false, null);
+        dlg._lastSelectedIdx = null;
         dlgClose();
 
     // ── Выбор элемента списка ─────────────────────────────────
@@ -5161,11 +5372,17 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
         if (match) {
             const idx      = parseInt(match[1]);
             const itemName = dlg.items[idx] || '';
-            // FIX v2: idx уже правильный listitem (заголовок отделён при парсинге)
-            dlgRespond(dlg.dialogId, 1, idx, itemName);
+            // Для TABLIST_HEADERS: idx уже правильный (заголовок вырезан при парсинге,
+            // но сервер считает с 0 от реальных данных — не от строки заголовка)
+            const serverIdx = (dlg.style === DIALOG_STYLE.TABLIST_HEADERS)
+                ? idx + 1  // +1 т.к. сервер считает заголовок как строку 0
+                : idx;
+            dlg._lastSelectedIdx = serverIdx;
+            dlgRespond(dlg.dialogId, 1, serverIdx, itemName);
             sendToTelegram(
                 `✅ <b>Выбран пункт ${idx + 1}: «${dlgHtml(itemName.substring(0, 60))}» (${displayName})</b>`,
                 false, null);
+            dlg._lastSelectedIdx = null;
             dlgClose();
         }
 
@@ -5179,7 +5396,6 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
 
     // ── Запрос ввода текста (INPUT / PASSWORD) ────────────────
     } else if (data.startsWith(`dlg_input_${uid}`)) {
-        // FIX v2: Проверяем активность диалога
         if (!dlg.active) {
             sendToTelegram(
                 `⚠️ <b>Диалог уже закрыт, ввод недоступен (${displayName})</b>`,
@@ -5195,7 +5411,6 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
             `<b>"${dlgHtml(dlg.title)}"</b> (${displayName}):\n` +
             `🔑 DLG_UID: ${uid}`;
 
-        // iOS fix — pendingInput без reply_to_message
         config.chatIds.forEach(cId => {
             pendingInputs[`dlg_input_${cId}_${uid}`] = {
                 type: 'dialog_input', timestamp: Date.now()
@@ -5203,6 +5418,19 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
         });
 
         sendToTelegram(prompt, false, { force_reply: true });
+
+    // ── Подтверждение INPUT пустым значением (кнопка "Ок") ───
+    } else if (data.startsWith(`dlg_confirm_input_${uid}`)) {
+        if (!dlg.active) {
+            sendToTelegram(
+                `⚠️ <b>Диалог уже закрыт (${displayName})</b>`, false, null);
+            answerCallbackQuery(callbackQueryId);
+            return;
+        }
+        // Отправляем пустой ввод как подтверждение (как нажатие OK без текста)
+        dlgRespond(dlg.dialogId, 1, 0, '');
+        sendToTelegram(`✅ <b>Подтверждение отправлено (${displayName})</b>`, false, null);
+        dlgClose();
 
     // ── Noop (счётчик страниц) ────────────────────────────────
     } else if (data.startsWith(`dlg_noop_${uid}`)) {
