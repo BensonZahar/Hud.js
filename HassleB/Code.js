@@ -844,13 +844,17 @@ function trackNicknameAndServer() {
     // Пробуем получить store через MainMenu (в игре).
     // Повторяем каждые 900мс пока store не станет доступен.
     let store = null;
-    try {
-        const iface = window.interface("MainMenu");
-        if (iface && iface.$store) store = iface.$store;
-    } catch (e) {}
+    // Пробуем все известные интерфейсы где есть $store с данными игрока
+    const ifaceNames = ["MainMenu", "Menu", "Hud"];
+    for (const name of ifaceNames) {
+        try {
+            const iface = window.interface(name);
+            if (iface && iface.$store) { store = iface.$store; break; }
+        } catch (e) {}
+    }
 
     if (!store) {
-        debugLog("[NICK] Store недоступен, повтор через 900мс...");
+        // Молча повторяем — без debugLog чтобы не спамить консоль
         setTimeout(trackNicknameAndServer, 900);
         return;
     }
