@@ -534,7 +534,7 @@ function addSessionLog(event) {
     const timeStr = getCurrentTimeString();
     const entry = `[${timeStr}] ${event}`;
     globalState.sessionLog.push(entry);
-    if (globalState.sessionLog.length > 25) globalState.sessionLog.shift();
+    if (globalState.sessionLog.length > 40) globalState.sessionLog.shift();
     debugLog(`[SESSION] ${entry}`);
 }
 // END DEBUG AND UTILS MODULE //
@@ -753,55 +753,10 @@ function trackPlayerHp() {
 
                 // Пытаемся прочитать ник атакующего из движка
                 const attacker = getNearestAttacker();
-                const attackerLine = attacker
-                    ? `👤 <b>Атакует:</b> <code>${attacker}</code>\n`
-                    : '';
 
-                const hpText =
-                    `💔 <b>Получен урон! (${displayName})</b>\n` +
-                    `❤️ HP: <b>${Math.round(globalState.hpLastValue)}</b> → <b>${Math.round(currentHp)}</b>  (-${damage})\n` +
-                    attackerLine +
-                    `🕐 <i>${getCurrentTimeString()}</i>`;
-
-                // ИСПРАВЛЕНИЕ 2: добавлен _hpSendPending
-                // Предотвращает отправку второго сообщения пока первый
-                // sendMessage ещё ждёт callback (async race condition).
-                const withinWindow =
-                    globalState.hpLastHitTime &&
-                    (now - globalState.hpLastHitTime < HP_ALERT_WINDOW_MS) &&
-                    globalState.hpAlertMessageIds.length > 0 &&
-                    !globalState._hpSendPending;
-
-                if (withinWindow) {
-                    // Редактируем существующее сообщение
-                    globalState.hpAlertMessageIds.forEach(({ chatId, messageId }) => {
-                        editMessageText(chatId, messageId, hpText);
-                    });
-                } else if (!globalState._hpSendPending) {
-                    // Новое тихое сообщение (новая драка или истёк window)
-                    globalState.hpAlertMessageIds = [];
-                    globalState._hpSendPending = true; // блокируем дубли до callback
-
-                    config.chatIds.forEach(chatId => {
-                        tgApi('sendMessage', {
-                            chat_id: chatId,
-                            text: hpText,
-                            parse_mode: 'HTML',
-                            disable_notification: true
-                        }, data => {
-                            if (data && data.result) {
-                                globalState.hpAlertMessageIds.push({ chatId, messageId: data.result.message_id });
-                                debugLog(`[HP] Новое уведомление об уроне отправлено (msg_id: ${data.result.message_id})`);
-                            }
-                            globalState._hpSendPending = false; // разблокируем
-                        }, () => {
-                            globalState._hpSendPending = false; // разблокируем при ошибке сети
-                        });
-                    });
-                }
-
+                // Урон пишем только в лог сессии (без Telegram-уведомления)
                 globalState.hpLastHitTime = now;
-                addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)}${attacker ? ` от ${attacker}` : ''}`);
+                addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)} (-${damage})${attacker ? ` от ${attacker}` : ''}`);
             }
         }
     }
@@ -885,42 +840,99 @@ function updateDisplayName() {
 }
 function trackNicknameAndServer() {
     if (window._hassleReloading) return;
+
+    // Пробуем получить store через MainMenu (в игре).
+    // Повторяем каждые 900мс пока store не станет доступен.
+    let store = null;
     try {
-        const nickname = window.interface("Menu").$store.getters["menu/nickName"];
-        const serverId = window.interface("Menu").$store.getters["menu/selectedServer"];
-        if (nickname && serverId && !config.nicknameLogged) {
-            console.log(`nickname: ${nickname}, Server: ${serverId}`);
+        const iface = window.interface("MainMenu");
+        if (iface && iface.$store) store = iface.$store;
+    } catch (e) {}
+
+    if (!store) {
+        debugLog("[NICK] Store недоступен, повтор через 900мс...");
+        setTimeout(trackNicknameAndServer, 900);
+        return;
+    }
+
+    // Читает текущие значения из store и применяет изменения
+    function applyNicknameServer() {
+        if (window._hassleReloading) return;
+        let nickname, serverId;
+        try {
+            // MainMenu использует player/nickName и player/serverId
+            nickname = store.getters["player/nickName"];
+            serverId = store.getters["player/serverId"];
+        } catch (e) {
+            debugLog(`[NICK] Ошибка чтения getters: ${e.message}`);
+            return;
+        }
+
+        if (!nickname || serverId === undefined || serverId === null) return;
+
+        const nicknameStr = String(nickname);
+        const serverStr   = String(serverId);
+        const isFirstTime = !config.nicknameLogged;
+        const changed     = config.accountInfo.nickname !== nicknameStr ||
+                            config.accountInfo.server   !== serverStr;
+
+        if (!isFirstTime && !changed) return;
+
+        config.accountInfo.nickname = nicknameStr;
+        config.accountInfo.server   = serverStr;
+
+        if (isFirstTime) {
+            // Первый вход
             config.nicknameLogged = true;
-            config.accountInfo.nickname = nickname;
-            config.accountInfo.server = serverId.toString();
             config.botToken = accountToken;
-            debugLog(`Установлен botToken для аккаунта #${window.ACCOUNT_NUMBER}: ${config.botToken}`);
-            updateDisplayName(); // Обновляем displayName при получении ника
-            uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
+            debugLog(`[NICK] Первый вход. botToken аккаунта #${window.ACCOUNT_NUMBER} установлен`);
+            console.log(`nickname: ${nicknameStr}, Server: ${serverStr}`);
+            updateDisplayName();
+            uniqueId = `${nicknameStr}_${serverStr}`;
             sendWelcomeMessage();
             registerUser();
-            addSessionLog(`🔐 Вход: ${nickname} [S${serverId}]`);
+            addSessionLog(`🔐 Вход: ${nicknameStr} [S${serverStr}]`);
             // Запуск отслеживания скина с задержкой 5с
             setTimeout(() => {
                 const initialSkin = getSkinIdFromStore();
                 if (initialSkin !== null) {
                     config.accountInfo.skinId = initialSkin;
                     debugLog(`Initial Skin ID after login: ${initialSkin}`);
-                    updateFaction(); // Обновляем фракцию
-                    // Проверка: если скин 50 при входе = аккаунт в тюрьме
-                    if (Number(initialSkin) === 50) {
-                        startPrisonMode();
-                    }
+                    updateFaction();
+                    if (Number(initialSkin) === 50) startPrisonMode();
                 }
                 trackSkinId();
             }, 5000);
-        } else if (!nickname || !serverId) {
-            debugLog(`Ник или сервер не получены: nickname=${nickname}, server=${serverId}`);
+        } else {
+            // Ник или сервер изменились — обновляем без перезахода
+            debugLog(`[NICK] Изменение: ${nicknameStr} [S${serverStr}]`);
+            updateDisplayName();
+            uniqueId = `${nicknameStr}_${serverStr}`;
+            sendWelcomeMessage(); // редактирует уже отправленное сообщение
+            addSessionLog(`🔄 Смена: ${nicknameStr} [S${serverStr}]`);
         }
-    } catch (e) {
-        debugLog(`Ошибка при получении ника/сервера: ${e.message}`);
     }
-    setTimeout(trackNicknameAndServer, 900);
+
+    // Первоначальный вызов — если данные уже есть в store
+    applyNicknameServer();
+
+    // Подписка через Vuex $store.watch — реагирует мгновенно без поллинга
+    store.watch(
+        (state, getters) => getters["player/nickName"],
+        (newVal) => {
+            debugLog(`[NICK] nickName -> ${newVal}`);
+            applyNicknameServer();
+        }
+    );
+    store.watch(
+        (state, getters) => getters["player/serverId"],
+        (newVal) => {
+            debugLog(`[NICK] serverId -> ${newVal}`);
+            applyNicknameServer();
+        }
+    );
+
+    debugLog("[NICK] $store.watch активен — смена ника/сервера отслеживается реактивно");
 }
 // END PLAYER INFO MODULE //
 
@@ -1075,12 +1087,29 @@ function sendWelcomeMessage() {
             [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
         ]
     };
+    // Хранилище ID приветственного сообщения отдельно по каждому чату
+    if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = {};
+
     config.chatIds.forEach(chatId => {
-        if (globalState.lastWelcomeMessageId) {
-            editMessageText(chatId, globalState.lastWelcomeMessageId, message, replyMarkup);
+        const existingId = globalState.welcomeMessageIds[chatId];
+        if (existingId) {
+            // Редактируем уже отправленное сообщение — не шлём новое
+            editMessageText(chatId, existingId, message, replyMarkup);
         } else {
-            // Если нет ID, отправляем новое и сохраняем ID в onload sendToTelegram
-            sendToTelegram(message, false, replyMarkup);
+            // Первый запуск: отправляем и запоминаем ID
+            tgApi('sendMessage', {
+                chat_id: chatId,
+                text: message,
+                parse_mode: 'HTML',
+                disable_notification: false,
+                reply_markup: JSON.stringify(replyMarkup)
+            }, data => {
+                if (data && data.result) {
+                    globalState.welcomeMessageIds[chatId] = data.result.message_id;
+                    globalState.lastWelcomeMessageId = data.result.message_id;
+                    debugLog(`[WELCOME] Сообщение отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
+                }
+            });
         }
     });
 }
@@ -4602,7 +4631,6 @@ window.sendChatInputCustom = function(e) {
 // Перехватываем sendClientEvent для обработки диалогов HB
 const originalSendClientEventCustom = window.sendClientEventCustom || sendClientEvent;
 window.sendClientEventCustom = function(event, ...args) {
-    console.log(`HB Event: ${event}, Args:`, args);
     if (args[0] === "OnDialogResponse") {
         const dialogId = args[1];
         // Проверяем, является ли это нашим HB меню (900-913)
