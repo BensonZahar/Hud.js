@@ -281,6 +281,60 @@ async function initializeScripts() {
 
         console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
 
+        // === ЗАЖАТИЕ ЛОГОТИПА H → /hb ===
+        (function setupHBLongPress() {
+            const LONG_PRESS_MS = 600; // мс — сколько держать для открытия меню
+
+            function attachLongPress() {
+                const fist = document.querySelector('.hud-hassle-info__fist-content');
+                if (!fist) {
+                    setTimeout(attachLongPress, 1000);
+                    return;
+                }
+                if (fist.dataset.hbAttached) return;
+                fist.dataset.hbAttached = '1';
+
+                let timer = null;
+
+                // Touch (мобилка)
+                fist.addEventListener('touchstart', () => {
+                    timer = setTimeout(() => {
+                        timer = null;
+                        window.sendChatInput('/hb');
+                    }, LONG_PRESS_MS);
+                }, { passive: true });
+
+                fist.addEventListener('touchend', () => {
+                    if (timer) { clearTimeout(timer); timer = null; }
+                });
+
+                fist.addEventListener('touchmove', () => {
+                    if (timer) { clearTimeout(timer); timer = null; }
+                });
+
+                // Mouse (ПК)
+                fist.addEventListener('mousedown', () => {
+                    timer = setTimeout(() => {
+                        timer = null;
+                        window.sendChatInput('/hb');
+                    }, LONG_PRESS_MS);
+                });
+
+                fist.addEventListener('mouseup', () => {
+                    if (timer) { clearTimeout(timer); timer = null; }
+                });
+
+                fist.addEventListener('mouseleave', () => {
+                    if (timer) { clearTimeout(timer); timer = null; }
+                });
+
+                console.log('✅ [HB] Зажатие логотипа H → /hb подключено');
+            }
+
+            setTimeout(attachLongPress, 3000);
+        })();
+        // === END ЗАЖАТИЕ ЛОГОТИПА H ===
+
         setTimeout(() => {
             if (window.OnChatAddMessage) {
                 console.log('✅ OnChatAddMessage успешно инициализирован');
