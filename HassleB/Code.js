@@ -5614,3 +5614,78 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END ADMIN KAC/ZP AUTO-REPLY MODULE ====================
+// === CUSTOM HUD BUTTON ===
+(function addCustomRadarButton() {
+    const BUTTON_CLASS   = 'mobile-button custom-radar-btn';
+    const CONTAINER_SEL  = '.hud-hassle-radar__controls';
+    const ZONE_SEL       = '.hud-hassle-radar__clickable-zone';
+
+    // Создаём элемент кнопки
+    function createButton() {
+        const btn = document.createElement('div');
+        btn.className = BUTTON_CLASS;
+        btn.style.cssText = `
+            width: 54px;
+            height: 54px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.5);
+            border-radius: 50%;
+            cursor: pointer;
+            touch-action: none;
+            user-select: none;
+        `;
+
+        // Иконка — можно заменить на img с нужным src
+        btn.innerHTML = `
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <text x="4" y="21" font-size="20" fill="#F2EFDC">★</text>
+            </svg>
+        `;
+
+        // Действие при нажатии (замени на своё)
+        btn.addEventListener('touchstart', (e) => {
+            e.stopPropagation();
+            // Пример: открыть интерфейс или отправить команду
+            if (window.sendChatInput) {
+                window.sendChatInput('/mycommand');
+            }
+            console.log('✅ Custom button pressed!');
+        });
+
+        return btn;
+    }
+
+    // Ждём появления контейнера в DOM
+    function tryInject() {
+        const container = document.querySelector(CONTAINER_SEL);
+        if (!container) return false;
+
+        // Не дублировать
+        if (container.querySelector('.custom-radar-btn')) return true;
+
+        const zone = container.querySelector(ZONE_SEL);
+        const btn  = createButton();
+
+        // Вставляем перед кликабельной зоной карты
+        if (zone) {
+            container.insertBefore(btn, zone);
+        } else {
+            container.appendChild(btn);
+        }
+
+        console.log('✅ Custom radar button injected!');
+        return true;
+    }
+
+    // MutationObserver — реагирует на появление/пересборку DOM
+    const observer = new MutationObserver(() => {
+        tryInject();
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // Первая попытка сразу
+    tryInject();
+})();
