@@ -463,13 +463,13 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // ║  Зависимости: debugLog                                   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SHARED STORAGE MODULE //
-// localStorage не работает в CEF-среде — используем window-переменную,
-// которая сохраняется между перезагрузками Code.js (в отличие от let-переменной)
+// localStorage не работает в CEF-среде — используем in-memory переменную
+let _sharedLastUpdateId = 0;
 function getSharedLastUpdateId() {
-    return window._hassleLastUpdateId || 0;
+    return _sharedLastUpdateId;
 }
 function setSharedLastUpdateId(id) {
-    window._hassleLastUpdateId = id;
+    _sharedLastUpdateId = id;
     debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
 // END SHARED STORAGE MODULE //
@@ -2211,11 +2211,9 @@ function checkTelegramCommands() {
     config.lastUpdateId = getSharedLastUpdateId();
     const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=25`;
     const xhr = new XMLHttpRequest();
-    window._hassleCurrentXhr = xhr; // сохраняем для отмены при /reload
     xhr.open('GET', url, true);
     xhr.timeout = 30000; // 30с — чуть больше чем timeout=25 у Telegram
     xhr.onload = function() {
-        if (window._hassleReloading) return; // не перезапускаем если идёт reload
         if (xhr.status === 200) {
             try {
                 const data = JSON.parse(xhr.responseText);
@@ -2230,12 +2228,10 @@ function checkTelegramCommands() {
         setTimeout(checkTelegramCommands, 0);
     };
     xhr.onerror = function(error) {
-        if (window._hassleReloading) return;
         debugLog('Ошибка при проверке команд:', error);
         setTimeout(checkTelegramCommands, config.checkInterval);
     };
     xhr.ontimeout = function() {
-        if (window._hassleReloading) return;
         debugLog('Long-polling timeout, перезапуск...');
         setTimeout(checkTelegramCommands, 0);
     };
@@ -2393,26 +2389,20 @@ function processUpdates(updates) {
                 } else {
                     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
                     debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
-                    // Останавливаем текущий polling-цикл и отменяем активный XHR
                     window._hassleReloading = true;
-                    if (window._hassleCurrentXhr) {
-                        try { window._hassleCurrentXhr.abort(); } catch(e) {}
-                        window._hassleCurrentXhr = null;
-                    }
-                    // _hassleReloading НЕ сбрасываем здесь — новый экземпляр Code.js сбросит сам
                     setTimeout(() => {
+                        window._hassleReloading = false;
                         try {
                             if (typeof window.initializeScripts === 'function') {
                                 window.initializeScripts();
                             } else {
-                                window._hassleReloading = false;
                                 sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
                             }
                         } catch (err) {
                             window._hassleReloading = false;
                             sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
                         }
-                    }, 300);
+                    }, 800);
                 }
             } else if (message === '/p_off') {
                 config.paydayNotifications = false;
@@ -4156,8 +4146,6 @@ function initializeChatMonitor() {
         addSessionLog('🟢 Сессия начата');
     }
     checkTelegramCommands();
-    // Сбрасываем флаг перезагрузки — новый экземпляр Code.js успешно запущен
-    window._hassleReloading = false;
     return true;
 }
 // END CHAT MONITOR MODULE //
@@ -4290,8 +4278,7 @@ function showHBControlsMenu() {
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}Функции", action: "local_functions" },
         { name: "{FFD700}> {FFFFFF}Общие функции", action: "global_functions" },
-        { name: "{FFD700}> {FFFFFF}Инфо об аккаунте", action: "account_info" },
-        { name: "{FFAA00}🔄 {FFFFFF}Перезагрузить скрипты", action: "reload_scripts" }
+        { name: "{FFD700}> {FFFFFF}Инфо об аккаунте", action: "account_info" }
     ];
     if (RECONNECT_ENABLED_DEFAULT) {
         const reconnectStatus = config.autoReconnectEnabled ? "{00FF00}[ВКЛ]" : "{FF0000}[ВЫКЛ]";
@@ -4570,33 +4557,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     sendToTelegram(`❌ <b>Ошибка инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
                 }
                 setTimeout(() => showHBControlsMenu(), 100);
-            } else if (listitem === 4) {
-                // 🔄 Перезагрузить скрипты — для всех аккаунтов
-                if (window._hassleReloading) {
-                    showScreenNotification("Hassle", "Перезагрузка уже выполняется");
-                } else {
-                    showScreenNotification("Hassle", "Перезагрузка скриптов...");
-                    sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
-                    window._hassleReloading = true;
-                    if (window._hassleCurrentXhr) {
-                        try { window._hassleCurrentXhr.abort(); } catch(e) {}
-                        window._hassleCurrentXhr = null;
-                    }
-                    setTimeout(() => {
-                        try {
-                            if (typeof window.initializeScripts === 'function') {
-                                window.initializeScripts();
-                            } else {
-                                window._hassleReloading = false;
-                                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
-                            }
-                        } catch (err) {
-                            window._hassleReloading = false;
-                            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
-                        }
-                    }, 300);
-                }
-            } else if (RECONNECT_ENABLED_DEFAULT && listitem === 5) {
+            } else if (RECONNECT_ENABLED_DEFAULT && listitem === 4) {
                 config.autoReconnectEnabled = !config.autoReconnectEnabled;
                 const status = config.autoReconnectEnabled ? 'включен' : 'выключен';
                 showScreenNotification("Hassle", `Реконнект ${status}`);
