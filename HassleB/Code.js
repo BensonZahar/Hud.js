@@ -4265,7 +4265,9 @@ function showHBLocalFunctionsMenu() {
         { name: `{FFFFFF}Отслеживание ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto_local" },
         { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
         { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter_local" },
-        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" }
+        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" },
+        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_local" },
+        { name: "{FFD700}> {FFFFFF}Инфо об аккаунте", action: "account_info" }
     ];
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
@@ -4290,6 +4292,7 @@ function showHBGlobalFunctionsMenu() {
         { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
         { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter" },
         { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
+        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_global" },
         { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" },
         { name: "{FFD700}> {FFFFFF}AFK", action: "afk_standard" }
     ];
@@ -4472,6 +4475,53 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 sendToTelegram(`${config.warningNotifications ? '⚠️' : '🔕'} <b>Уведомления выговоров ${status} для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
+            } else if (listitem === 7) {
+                // Автоответ КАЧ/ЗП (локально)
+                config.kacAutoReply = !config.kacAutoReply;
+                showScreenNotification("Hassle", `Автоответ КАЧ/ЗП: ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'}`);
+                sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'} для ${displayName}</b>`, false, null);
+                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+            } else if (listitem === 8) {
+                // Инфо об аккаунте — отправляем в Telegram
+                try {
+                    const pos = getPlayerPositionFromStore();
+                    const moneyData = getPlayerMoneyFromStore();
+                    const nick = config.accountInfo.nickname || 'Unknown';
+                    const server = config.accountInfo.server || '?';
+                    const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '?';
+                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракц.]';
+                    let level = '?'; let passedHours = '?';
+                    try {
+                        const sl = window.App.$store.getters['player/level'];
+                        const sh = window.App.$store.getters['player/passedHours'];
+                        if (sl !== undefined && sl !== null) level = sl;
+                        if (sh !== undefined && sh !== null) passedHours = sh;
+                    } catch(e) {}
+                    let posStr = 'Позиция недоступна';
+                    if (pos) posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}°`;
+                    let cashStr = '?'; let bankStr = '?';
+                    if (moneyData) {
+                        cashStr = moneyData.money !== null ? `${moneyData.money.toLocaleString()}` : '?';
+                        bankStr = moneyData.bankMoney !== null ? `${moneyData.bankMoney.toLocaleString()}` : '?';
+                    }
+                    sendToTelegram(
+                        `📊 <b>Инфо об аккаунте (${displayName})</b>
+` +
+                        `👤 ${nick} | S${server} | Скин: ${skinId} ${factionLabel}
+` +
+                        `⭐ Уровень: ${level} | ⏱ Часов: ${passedHours}
+` +
+                        `📍 <code>${posStr}</code>
+` +
+                        `💵 Нал: ${cashStr} ₽ | 🏦 Банк: ${bankStr} ₽`,
+                        false, null
+                    );
+                    showScreenNotification("Hassle", "Инфо отправлено в Telegram");
+                } catch(err) {
+                    showScreenNotification("Hassle", "Ошибка получения инфо");
+                    sendToTelegram(`❌ <b>Ошибка инфо (${displayName}):</b> ${err.message}`, false, null);
+                }
+                setTimeout(() => showHBLocalFunctionsMenu(), 100);
             }
             break;
         case HB_DIALOG_IDS.GLOBAL_FUNCTIONS:
@@ -4508,8 +4558,14 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 broadcastGlobalCommand('toggle_warning', newValWarn ? 'on' : 'off');
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 7) {
-                setTimeout(() => showHBAFKModesMenu(), 100);
+                // Автоответ КАЧ/ЗП (глобально)
+                const newValKac = !config.kacAutoReply;
+                handleGlobalBroadcastCommand('toggle_kac', newValKac ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_kac', newValKac ? 'on' : 'off');
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 8) {
+                setTimeout(() => showHBAFKModesMenu(), 100);
+            } else if (listitem === 9) {
                 // Стандартный AFK
                 const hudId = getPlayerIdFromHUD();
                 if (!hudId) {
@@ -4531,7 +4587,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 showScreenNotification("Hassle", "AFK режим активирован");
                 sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null);
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 8 && config.autoReconnectEnabled) {
+            } else if (listitem === 9 && config.autoReconnectEnabled) {
                 currentHBSelectedMode = 'levelup';
                 setTimeout(() => showHBAFKRestartMenu('levelup'), 100);
             }
@@ -5189,8 +5245,9 @@ window.sendClientEventCustom = function(event, ...args) {
     }
     return _dlgOrigSendClientEvent.call(this, event, ...args);
 };
-// НЕ заменяем глобальный sendClientEvent — это вызывало рекурсию и краш
-// sendClientEvent = window.sendClientEventCustom; // УБРАНО — было причиной краша
+// FIX: обновляем глобальный sendClientEvent чтобы хук закрытия диалога работал.
+// Рекурсии нет — внутри хука используется _dlgOrigSendClientEvent, а не sendClientEvent.
+sendClientEvent = window.sendClientEventCustom;
 
 // ── Обработчик Telegram-коллбэков ────────────────────────────
 
