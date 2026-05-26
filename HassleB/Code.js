@@ -5097,9 +5097,15 @@ function dlgClose(showClosedMsg = true) {
     dlg.active        = false;
     dlg.awaitingInput = false;
     if (showClosedMsg) {
+        // Закрытие через Telegram — редактируем сообщение, убираем кнопки
         dlg.tgMsgs.forEach(({ chatId, messageId }) => {
             editMessageText(chatId, messageId,
                 `✅ <b>Диалог закрыт — ${displayName}</b>`, null);
+        });
+    } else {
+        // Закрытие из игры — удаляем сообщение (не оставляем висеть с кнопками)
+        dlg.tgMsgs.forEach(({ chatId, messageId }) => {
+            deleteMessage(chatId, messageId);
         });
     }
     dlg.tgMsgs = [];
@@ -5440,6 +5446,23 @@ processUpdates = function(updates) {
         _dlgOrigProcessUpdates(passThrough);
     }
 };
+
+// ── Страховой таймер: чистит Telegram если диалог закрылся движком/сервером ──
+// (в обход sendClientEvent, например при дисконнекте или принудительном закрытии)
+setInterval(() => {
+    if (!dlg.active || dlg.tgMsgs.length === 0) return;
+    try {
+        const isOpen =
+            (typeof window.getInterfaceStatus === 'function') &&
+            (window.getInterfaceStatus('Dialog') || window.getInterfaceStatus('Window'));
+        if (!isOpen) {
+            debugLog('[DLG] Диалог закрыт движком/сервером — удаляем сообщение в Telegram');
+            dlgClose(false);
+        }
+    } catch(e) {
+        debugLog('[DLG] Ошибка страхового таймера: ' + e.message);
+    }
+}, 3000);
 
 debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
 // ==================== END DIALOG MONITOR MODULE v2 ====================
