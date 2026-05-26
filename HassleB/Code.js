@@ -1884,6 +1884,7 @@ function showControlsMenu(chatId, messageId) {
             [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
             [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
             [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
+            [createButton("🔄 Перезагрузить скрипты", `reload_all_scripts_${uniqueId}`)],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
@@ -2794,6 +2795,33 @@ function processUpdates(updates) {
             // Обработка команд
             if (message.startsWith(`show_controls_`)) {
                 showControlsMenu(chatId, messageId);
+            } else if (message.startsWith(`reload_all_scripts_`)) {
+                // 🔄 Перезагрузить скрипты — для ВСЕХ аккаунтов из Telegram Управление
+                if (window._hassleReloading) {
+                    answerCallbackQuery(callbackQueryId, "⏳ Перезагрузка уже выполняется");
+                } else {
+                    answerCallbackQuery(callbackQueryId, "🔄 Перезагрузка запущена для всех аккаунтов");
+                    broadcastGlobalCommand('reload', 'on');
+                    // Текущий аккаунт — подтверждаем broadcast update и перезагружаемся
+                    window._hassleReloading = true;
+                    if (window._hassleCurrentXhr) {
+                        try { window._hassleCurrentXhr.abort(); } catch(e) {}
+                        window._hassleCurrentXhr = null;
+                    }
+                    setTimeout(() => {
+                        try {
+                            if (typeof window.initializeScripts === 'function') {
+                                window.initializeScripts();
+                            } else {
+                                window._hassleReloading = false;
+                                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
+                            }
+                        } catch(err) {
+                            window._hassleReloading = false;
+                            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
+                        }
+                    }, 300);
+                }
             } else if (message.startsWith(`show_global_functions_`)) {
                 showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`show_local_functions_`)) {
@@ -4186,6 +4214,9 @@ function initializeChatMonitor() {
         }
     };
     debugLog('Мониторинг успешно активирован');
+    // Сбрасываем флаг перезагрузки ДО всей инициализации —
+    // trackNicknameAndServer, trackPlayerId и др. проверяют этот флаг при старте
+    window._hassleReloading = false;
     if (!config.initialized) {
         trackNicknameAndServer();
         config.initialized = true;
@@ -4208,9 +4239,6 @@ function initializeChatMonitor() {
         globalState.sessionStartTime = Date.now();
         addSessionLog('🟢 Сессия начата');
     }
-    // Сбрасываем флаг перезагрузки ДО запуска polling-цикла —
-    // иначе checkTelegramCommands() сразу вернётся и polling не стартует
-    window._hassleReloading = false;
     checkTelegramCommands();
     return true;
 }
@@ -4529,6 +4557,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 // 🔄 Перезагрузить скрипты — для ВСЕХ аккаунтов (из главного меню)
                 broadcastGlobalCommand('reload', 'on');
                 showScreenNotification("Hassle", "Перезагрузка скриптов...");
+                addLocalChatMessage(`{FFAA00}[HB] {FFFFFF}🔄 Перезагрузка скриптов для всех аккаунтов...`, "FFAA00");
                 if (!window._hassleReloading) {
                     window._hassleReloading = true;
                     if (window._hassleCurrentXhr) {
@@ -4655,6 +4684,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     showScreenNotification("Hassle", "Перезагрузка уже выполняется");
                 } else {
                     showScreenNotification("Hassle", "Перезагрузка скриптов...");
+                    addLocalChatMessage(`{FFAA00}[HB] {FFFFFF}🔄 Перезагрузка скриптов для всех аккаунтов...`, "FFAA00");
                     // Отправляем broadcast — остальные аккаунты подхватят и перезагрузятся
                     broadcastGlobalCommand('reload', 'on');
                     window._hassleReloading = true;
