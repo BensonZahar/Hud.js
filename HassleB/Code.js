@@ -463,14 +463,21 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // ║  Зависимости: debugLog                                   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SHARED STORAGE MODULE //
-// localStorage не работает в CEF-среде — используем window-переменную,
-// которая сохраняется между перезагрузками Code.js (в отличие от let-переменной)
+// Используем window-переменные, которые переживают reload Code.js.
+// Каждый аккаунт хранит свой update_id под уникальным ключом (botToken).
+// Генерационный счётчик (_hassleGeneration) позволяет мгновенно убить старый
+// polling-цикл при reload — без гонок и двойных петель.
+
+function _hassleUpdateKey() {
+    // botToken уникален для каждого аккаунта — используем как namespace
+    return '_hassleUID_' + (config.botToken || 'default').slice(-10);
+}
 function getSharedLastUpdateId() {
-    return window._hassleLastUpdateId || 0;
+    return window[_hassleUpdateKey()] || 0;
 }
 function setSharedLastUpdateId(id) {
-    window._hassleLastUpdateId = id;
-    debugLog(`Обновлён shared lastUpdateId: ${id}`);
+    window[_hassleUpdateKey()] = id;
+    debugLog(`Обновлён shared lastUpdateId[${_hassleUpdateKey()}]: ${id}`);
 }
 // END SHARED STORAGE MODULE //
 
