@@ -2497,12 +2497,16 @@ function processUpdates(updates) {
                     debugLog(`[${displayName}] Зарегистрирован пользователь: ${nickname} - ${config.accountInfo.nickname}`);
                 }
             } else if (message === '/list') {
-                if (globalState.lastWelcomeMessageId) {
-                    config.chatIds.forEach(chatId => {
-                        deleteMessage(chatId, globalState.lastWelcomeMessageId);
-                    });
-                    globalState.lastWelcomeMessageId = null;
-                }
+                // Удаляем все старые welcome-сообщения и сбрасываем оба хранилища ID
+                if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = {};
+                config.chatIds.forEach(cid => {
+                    const oldId = globalState.welcomeMessageIds[cid];
+                    if (oldId) {
+                        deleteMessage(cid, oldId);
+                        delete globalState.welcomeMessageIds[cid];
+                    }
+                });
+                globalState.lastWelcomeMessageId = null;
                 sendWelcomeMessage();
             }
         } else if (update.callback_query) {
@@ -3115,16 +3119,25 @@ function processUpdates(updates) {
                     const skinId = config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined ? config.accountInfo.skinId : '❓';
                     const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
 
-                    // Уровень и наигранные часы из Vuex store
+                    // Уровень, часы, VIP, donate из Vuex store
                     let level = '❓';
                     let passedHours = '❓';
+                    let vipLabel = '';
+                    let donate = null;
                     try {
                         const storeLevel = window.App.$store.getters['player/level'];
                         const storeHours = window.App.$store.getters['player/passedHours'];
+                        const storeVip = window.App.$store.getters['player/vip'];
+                        const storeDonate = window.App.$store.getters['player/donate'];
                         if (storeLevel !== undefined && storeLevel !== null) level = storeLevel;
                         if (storeHours !== undefined && storeHours !== null) passedHours = storeHours;
+                        if (storeDonate !== undefined && storeDonate !== null && storeDonate > 0) donate = storeDonate;
+                        const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
+                        if (storeVip !== undefined && storeVip !== null && storeVip > 0) {
+                            vipLabel = `\n🎖 <b>VIP:</b> ${vipMap[storeVip] || 'VIP'}`;
+                        }
                     } catch (e) {
-                        debugLog(`[ACINFO] Ошибка получения level/hours: ${e.message}`);
+                        debugLog(`[ACINFO] Ошибка получения store данных: ${e.message}`);
                     }
 
                     let posStr = '❓ Позиция недоступна';
@@ -3144,8 +3157,10 @@ function processUpdates(updates) {
                         `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
                         `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
                         `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n` +
-                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}\n\n` +
-                        `📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
+                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}` +
+                        vipLabel +
+                        (donate !== null ? `\n💎 <b>Donate баланс:</b> ${donate}` : '') +
+                        `\n\n📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
                         `💵 <b>Нал:</b> ${cashStr}\n` +
                         `🏦 <b>Банк:</b> ${bankStr}\n\n` +
                         `📋 <b>Лог сессии:</b>\n` +
@@ -4458,9 +4473,13 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     const moneyData = getPlayerMoneyFromStore();
                     const nick = config.accountInfo.nickname || 'Unknown';
                     const server = config.accountInfo.server || '?';
-                    const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '?';
-                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракц.]';
-                    let level = '?'; let passedHours = '?'; let vipStatus = ''; let donate = '?';
+                    const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '❓';
+                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
+
+                    // Уровень, часы, VIP, donate из Vuex store
+                    let level = '❓'; let passedHours = '❓';
+                    let vipLabel = ''; let vipChatLabel = '';
+                    let donate = null;
                     try {
                         const sl = window.App.$store.getters['player/level'];
                         const sh = window.App.$store.getters['player/passedHours'];
@@ -4468,34 +4487,74 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                         const sd = window.App.$store.getters['player/donate'];
                         if (sl !== undefined && sl !== null) level = sl;
                         if (sh !== undefined && sh !== null) passedHours = sh;
-                        if (sd !== undefined && sd !== null) donate = sd;
-                        const vipMap = {0:'', 1:'Silver VIP', 2:'Gold VIP', 3:'Platinum VIP'};
-                        if (sv !== undefined && sv !== null && sv > 0) vipStatus = ` | {FFD700}${vipMap[sv] || 'VIP'}`;
-                    } catch(e) {}
-                    let posStr = 'Позиция недоступна';
-                    if (pos) posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}°`;
-                    let cashStr = '?'; let bankStr = '?';
-                    if (moneyData) {
-                        cashStr = moneyData.money !== null ? `${moneyData.money.toLocaleString()}` : '?';
-                        bankStr = moneyData.bankMoney !== null ? `${moneyData.bankMoney.toLocaleString()}` : '?';
+                        if (sd !== undefined && sd !== null && sd > 0) donate = sd;
+                        const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
+                        const vipChatMap = { 0: '', 1: 'Silver VIP', 2: 'Gold VIP', 3: 'Platinum VIP' };
+                        if (sv !== undefined && sv !== null && sv > 0) {
+                            vipLabel = `\n🎖 <b>VIP:</b> ${vipMap[sv] || 'VIP'}`;
+                            vipChatLabel = ` | {FFD700}${vipChatMap[sv] || 'VIP'}{FFFFFF}`;
+                        }
+                    } catch(e) { debugLog(`[ACINFO] store error: ${e.message}`); }
+
+                    // Позиция с interior
+                    let posStr = '❓ Позиция недоступна';
+                    let posChatStr = 'Позиция недоступна';
+                    if (pos) {
+                        const interior = (pos.interior !== undefined && pos.interior !== null) ? pos.interior : 0;
+                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${interior}`;
+                        posChatStr = posStr;
                     }
+
+                    // Деньги
+                    let cashStr = '❓'; let bankStr = '❓';
+                    let cashChatStr = '?'; let bankChatStr = '?';
+                    if (moneyData) {
+                        if (moneyData.money !== null) { cashStr = `₽${moneyData.money.toLocaleString()}`; cashChatStr = `${moneyData.money.toLocaleString()}`; }
+                        if (moneyData.bankMoney !== null) { bankStr = `₽${moneyData.bankMoney.toLocaleString()}`; bankChatStr = `${moneyData.bankMoney.toLocaleString()}`; }
+                    }
+
+                    // Лог сессии (последние 10)
+                    const sessionLines = globalState.sessionLog && globalState.sessionLog.length > 0
+                        ? globalState.sessionLog.slice(-10).map(e => `<code>${e}</code>`).join('\n')
+                        : '<i>Нет событий</i>';
+                    const sessionChatLines = globalState.sessionLog && globalState.sessionLog.length > 0
+                        ? globalState.sessionLog.slice(-5)
+                        : [];
+
+                    // Telegram — полная версия
                     sendToTelegram(
-                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n` +
-                        `👤 ${nick} | S${server} | Скин: ${skinId} ${factionLabel}\n` +
-                        `⭐ Уровень: ${level} | ⏱ Часов: ${passedHours}\n` +
-                        `📍 <code>${posStr}</code>\n` +
-                        `💵 Нал: ${cashStr} ₽ | 🏦 Банк: ${bankStr} ₽` +
-                        (donate !== '?' && donate > 0 ? `\n💎 Donate: ${donate}` : ''),
+                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
+                        `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
+                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n` +
+                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}` +
+                        vipLabel +
+                        (donate !== null ? `\n💎 <b>Donate баланс:</b> ${donate}` : '') +
+                        `\n\n📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
+                        `💵 <b>Нал:</b> ${cashStr}\n` +
+                        `🏦 <b>Банк:</b> ${bankStr}\n\n` +
+                        `📋 <b>Лог сессии:</b>\n` + sessionLines,
                         false, null
                     );
+
+                    // Чат в игре — такая же полная версия
                     addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${nick} | S${server} | Скин: ${skinId} ${factionLabel}`, "FFFFFF");
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Уровень: ${level} | Часов: ${passedHours}${vipStatus}`, "FFFFFF");
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashStr} ₽ | Банк: ${bankStr} ₽` + (donate !== '?' && donate > 0 ? ` | Donate: ${donate}` : ''), "FFFFFF");
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${posStr}`, "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Уровень: ${level} | Часов: ${passedHours}${vipChatLabel}`, "FFFFFF");
+                    if (donate !== null) {
+                        addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashChatStr} ₽ | Банк: ${bankChatStr} ₽ | {FFD700}Donate: ${donate}`, "FFFFFF");
+                    } else {
+                        addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashChatStr} ₽ | Банк: ${bankChatStr} ₽`, "FFFFFF");
+                    }
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${posChatStr}`, "FFFFFF");
+                    if (sessionChatLines.length > 0) {
+                        addLocalChatMessage(`{00BFFF}[HB Info] {AAAAAA}Лог сессии (последние ${sessionChatLines.length}):`, "FFFFFF");
+                        sessionChatLines.forEach(entry => {
+                            addLocalChatMessage(`{00BFFF}[HB Log] {CCCCCC}${entry}`, "FFFFFF");
+                        });
+                    }
                     showScreenNotification("Hassle", "Инфо отправлено в Telegram");
                 } catch(err) {
                     showScreenNotification("Hassle", "Ошибка получения инфо");
-                    sendToTelegram(`❌ <b>Ошибка инфо (${displayName}):</b> ${err.message}`, false, null);
+                    sendToTelegram(`❌ <b>Ошибка инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
                 }
                 setTimeout(() => showHBControlsMenu(), 100);
             } else if (RECONNECT_ENABLED_DEFAULT && listitem === 4) {
