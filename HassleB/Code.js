@@ -536,7 +536,9 @@ function showScreenNotification(title, text, color = "FFFF00", duration = 3000) 
 // color: hex без # (например "00BFFF"), text: строка (без форматирования)
 function addLocalChatMessage(text, color = "00FFFF") {
     try {
-        const chatRef = window.App?.$refs?.chat;
+        // Правильный путь: Hud.$refs.chat (а не window.App.$refs.chat — chat вложен внутри Hud)
+        const hudRef = window.interface("Hud");
+        const chatRef = hudRef?.$refs?.chat;
         if (chatRef && typeof chatRef.add === 'function') {
             chatRef.add(text, color);
             return true;
@@ -4260,7 +4262,8 @@ function showHBControlsMenu() {
     currentHBPage = 0;
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}Функции", action: "local_functions" },
-        { name: "{FFD700}> {FFFFFF}Общие функции", action: "global_functions" }
+        { name: "{FFD700}> {FFFFFF}Общие функции", action: "global_functions" },
+        { name: "{FFD700}> {FFFFFF}Инфо об аккаунте", action: "account_info" }
     ];
     if (RECONNECT_ENABLED_DEFAULT) {
         const reconnectStatus = config.autoReconnectEnabled ? "{00FF00}[ВКЛ]" : "{FF0000}[ВЫКЛ]";
@@ -4289,8 +4292,7 @@ function showHBLocalFunctionsMenu() {
         { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
         { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter_local" },
         { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" },
-        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_local" },
-        { name: "{FFD700}> {FFFFFF}Инфо об аккаунте", action: "account_info" }
+        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_local" }
     ];
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
@@ -4449,7 +4451,54 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 2) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (RECONNECT_ENABLED_DEFAULT && listitem === 3) {
+            } else if (listitem === 3) {
+                // Инфо об аккаунте
+                try {
+                    const pos = getPlayerPositionFromStore();
+                    const moneyData = getPlayerMoneyFromStore();
+                    const nick = config.accountInfo.nickname || 'Unknown';
+                    const server = config.accountInfo.server || '?';
+                    const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '?';
+                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракц.]';
+                    let level = '?'; let passedHours = '?'; let vipStatus = ''; let donate = '?';
+                    try {
+                        const sl = window.App.$store.getters['player/level'];
+                        const sh = window.App.$store.getters['player/passedHours'];
+                        const sv = window.App.$store.getters['player/vip'];
+                        const sd = window.App.$store.getters['player/donate'];
+                        if (sl !== undefined && sl !== null) level = sl;
+                        if (sh !== undefined && sh !== null) passedHours = sh;
+                        if (sd !== undefined && sd !== null) donate = sd;
+                        const vipMap = {0:'', 1:'Silver VIP', 2:'Gold VIP', 3:'Platinum VIP'};
+                        if (sv !== undefined && sv !== null && sv > 0) vipStatus = ` | {FFD700}${vipMap[sv] || 'VIP'}`;
+                    } catch(e) {}
+                    let posStr = 'Позиция недоступна';
+                    if (pos) posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}°`;
+                    let cashStr = '?'; let bankStr = '?';
+                    if (moneyData) {
+                        cashStr = moneyData.money !== null ? `${moneyData.money.toLocaleString()}` : '?';
+                        bankStr = moneyData.bankMoney !== null ? `${moneyData.bankMoney.toLocaleString()}` : '?';
+                    }
+                    sendToTelegram(
+                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n` +
+                        `👤 ${nick} | S${server} | Скин: ${skinId} ${factionLabel}\n` +
+                        `⭐ Уровень: ${level} | ⏱ Часов: ${passedHours}\n` +
+                        `📍 <code>${posStr}</code>\n` +
+                        `💵 Нал: ${cashStr} ₽ | 🏦 Банк: ${bankStr} ₽` +
+                        (donate !== '?' && donate > 0 ? `\n💎 Donate: ${donate}` : ''),
+                        false, null
+                    );
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${nick} | S${server} | Скин: ${skinId} ${factionLabel}`, "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Уровень: ${level} | Часов: ${passedHours}${vipStatus}`, "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashStr} ₽ | Банк: ${bankStr} ₽` + (donate !== '?' && donate > 0 ? ` | Donate: ${donate}` : ''), "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${posStr}`, "FFFFFF");
+                    showScreenNotification("Hassle", "Инфо отправлено в Telegram");
+                } catch(err) {
+                    showScreenNotification("Hassle", "Ошибка получения инфо");
+                    sendToTelegram(`❌ <b>Ошибка инфо (${displayName}):</b> ${err.message}`, false, null);
+                }
+                setTimeout(() => showHBControlsMenu(), 100);
+            } else if (RECONNECT_ENABLED_DEFAULT && listitem === 4) {
                 config.autoReconnectEnabled = !config.autoReconnectEnabled;
                 const status = config.autoReconnectEnabled ? 'включен' : 'выключен';
                 showScreenNotification("Hassle", `Реконнект ${status}`);
@@ -4503,51 +4552,6 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 config.kacAutoReply = !config.kacAutoReply;
                 showScreenNotification("Hassle", `Автоответ КАЧ/ЗП: ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'}`);
                 sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'} для ${displayName}</b>`, false, null);
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
-            } else if (listitem === 8) {
-                // Инфо об аккаунте — отправляем в Telegram
-                try {
-                    const pos = getPlayerPositionFromStore();
-                    const moneyData = getPlayerMoneyFromStore();
-                    const nick = config.accountInfo.nickname || 'Unknown';
-                    const server = config.accountInfo.server || '?';
-                    const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '?';
-                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракц.]';
-                    let level = '?'; let passedHours = '?';
-                    try {
-                        const sl = window.App.$store.getters['player/level'];
-                        const sh = window.App.$store.getters['player/passedHours'];
-                        if (sl !== undefined && sl !== null) level = sl;
-                        if (sh !== undefined && sh !== null) passedHours = sh;
-                    } catch(e) {}
-                    let posStr = 'Позиция недоступна';
-                    if (pos) posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}°`;
-                    let cashStr = '?'; let bankStr = '?';
-                    if (moneyData) {
-                        cashStr = moneyData.money !== null ? `${moneyData.money.toLocaleString()}` : '?';
-                        bankStr = moneyData.bankMoney !== null ? `${moneyData.bankMoney.toLocaleString()}` : '?';
-                    }
-                    sendToTelegram(
-                        `📊 <b>Инфо об аккаунте (${displayName})</b>
-` +
-                        `👤 ${nick} | S${server} | Скин: ${skinId} ${factionLabel}
-` +
-                        `⭐ Уровень: ${level} | ⏱ Часов: ${passedHours}
-` +
-                        `📍 <code>${posStr}</code>
-` +
-                        `💵 Нал: ${cashStr} ₽ | 🏦 Банк: ${bankStr} ₽`,
-                        false, null
-                    );
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${nick} | S${server} | Скин: ${skinId} ${factionLabel}`, "FFFFFF");
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Уровень: ${level} | Часов: ${passedHours}`, "FFFFFF");
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashStr} ₽ | Банк: ${bankStr} ₽`, "FFFFFF");
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${posStr}`, "FFFFFF");
-                    showScreenNotification("Hassle", "Инфо отправлено в Telegram");
-                } catch(err) {
-                    showScreenNotification("Hassle", "Ошибка получения инфо");
-                    sendToTelegram(`❌ <b>Ошибка инфо (${displayName}):</b> ${err.message}`, false, null);
-                }
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             }
             break;
