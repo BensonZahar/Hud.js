@@ -1849,6 +1849,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
             createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
         ],
         [createButton("⏱️ PayDay Цикл", `show_pdc_menu_${uniqueIdParam}`)],
+        [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_kac_options_${uniqueIdParam}`)],
     ];
     if (config.autoReconnectEnabled) {
         inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
@@ -1923,6 +1924,18 @@ function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
+function showKacOptionsMenu(chatId, messageId, uniqueIdParam) {
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton("🟢 ВКЛ", `global_kac_on_${uniqueIdParam}`),
+                createButton("🔴 ВЫКЛ", `global_kac_off_${uniqueIdParam}`)
+            ],
+            [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
 function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
@@ -1991,6 +2004,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
             [createButton("📍 Отслеживание", `show_local_mesto_options_${uniqueId}`)],
             [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
             [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
+            [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_local_kac_options_${uniqueId}`)],
             [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
             [pauseBtn, autoLoginBtn],
             [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
@@ -2084,6 +2098,22 @@ function showLocalWarningOptionsMenu(chatId, messageId) {
             [
                 createButton("🔔 ВКЛ", `local_warning_on_${uniqueId}`),
                 createButton("🔕 ВЫКЛ", `local_warning_off_${uniqueId}`)
+            ],
+            [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+function showLocalKacOptionsMenu(chatId, messageId) {
+    if (!config.accountInfo.nickname) {
+        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
+        return;
+    }
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton("🟢 ВКЛ", `local_kac_on_${uniqueId}`),
+                createButton("🔴 ВЫКЛ", `local_kac_off_${uniqueId}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
         ]
@@ -2456,6 +2486,12 @@ function processUpdates(updates) {
             const messageId = update.callback_query.message.message_id;
             const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
             // Определяем глобальные команды, которые должны применяться ко всем аккаунтам
+            // ── FIX: dlg_* коллбэки обрабатываются исключительно Dialog Monitor ──
+            // Основной processUpdates их НЕ трогает — передаём дальше через continue
+            if (message.startsWith('dlg_')) {
+                continue;
+            }
+
             const isGlobalCommand = message.startsWith('global_') ||
                 message.startsWith('afk_n_') ||
                 message.startsWith('restart_q_') ||
@@ -2466,6 +2502,7 @@ function processUpdates(updates) {
                 message.startsWith('show_mesto_options_') ||
                 message.startsWith('show_radio_options_') ||
                 message.startsWith('show_warning_options_') ||
+                message.startsWith('show_kac_options_') ||
                 message.startsWith('show_global_functions_') ||
                 message.startsWith('levelup_reconnect_') ||
                 message.startsWith('show_pdc_menu_') ||
@@ -2544,6 +2581,12 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('show_local_radio_options_', '');
             } else if (message.startsWith('show_local_warning_options_')) {
                 callbackUniqueId = message.replace('show_local_warning_options_', '');
+            } else if (message.startsWith('show_local_kac_options_')) {
+                callbackUniqueId = message.replace('show_local_kac_options_', '');
+            } else if (message.startsWith('local_kac_on_')) {
+                callbackUniqueId = message.replace('local_kac_on_', '');
+            } else if (message.startsWith('local_kac_off_')) {
+                callbackUniqueId = message.replace('local_kac_off_', '');
             } else if (message.startsWith('global_p_on_')) {
                 callbackUniqueId = message.replace('global_p_on_', '');
             } else if (message.startsWith('global_p_off_')) {
@@ -2590,6 +2633,12 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('show_radio_options_', '');
             } else if (message.startsWith('show_warning_options_')) {
                 callbackUniqueId = message.replace('show_warning_options_', '');
+            } else if (message.startsWith('show_kac_options_')) {
+                callbackUniqueId = message.replace('show_kac_options_', '');
+            } else if (message.startsWith('global_kac_on_')) {
+                callbackUniqueId = message.replace('global_kac_on_', '');
+            } else if (message.startsWith('global_kac_off_')) {
+                callbackUniqueId = message.replace('global_kac_off_', '');
             } else if (message.startsWith('show_global_functions_')) {
                 callbackUniqueId = message.replace('show_global_functions_', '');
             } else if (message.startsWith('afk_n_reconnect_on_')) {
@@ -2682,6 +2731,14 @@ function processUpdates(updates) {
                 showRadioOptionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`show_warning_options_`)) {
                 showWarningOptionsMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith(`show_kac_options_`)) {
+                showKacOptionsMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith(`global_kac_on_`)) {
+                broadcastGlobalCommand('toggle_kac', 'on');
+                sendWelcomeMessage();
+            } else if (message.startsWith(`global_kac_off_`)) {
+                broadcastGlobalCommand('toggle_kac', 'off');
+                sendWelcomeMessage();
             } else if (message.startsWith(`global_p_on_`)) {
                 config.paydayNotifications = true;
                 sendToTelegram(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, false, null);
@@ -2929,6 +2986,16 @@ function processUpdates(updates) {
                 showLocalRadioOptionsMenu(chatId, messageId);
             } else if (message.startsWith("show_local_warning_options_")) {
                 showLocalWarningOptionsMenu(chatId, messageId);
+            } else if (message.startsWith("show_local_kac_options_")) {
+                showLocalKacOptionsMenu(chatId, messageId);
+            } else if (message.startsWith("local_kac_on_")) {
+                config.kacAutoReply = true;
+                sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП включён для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+            } else if (message.startsWith("local_kac_off_")) {
+                config.kacAutoReply = false;
+                sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП отключён для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
             } else if (message.startsWith("local_soob_on_")) {
                 config.govMessagesEnabled = true;
                 sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null);
@@ -4107,8 +4174,9 @@ if (!initializeChatMonitor()) {
 // ║               addDialogInQueue, showScreenNotification   ║
 // ╚══════════════════════════════════════════════════════════╝
 // ==================== HB MENU SYSTEM ====================
+// Добавьте этот код в конец вашего основного скрипта
 // Константы для меню HB
-const HB_DIALOG_IDS = {
+const HB_DIALOG_IDS =  {
     MAIN: 900,
     CONTROLS: 901,
     LOCAL_FUNCTIONS: 902,
@@ -4122,269 +4190,232 @@ const HB_DIALOG_IDS = {
     AFK_MODES: 910,
     AFK_PAUSES: 911,
     AFK_RECONNECT: 912,
-    AFK_RESTART: 913,
-    PDC_MENU: 914,       // Меню PayDay Цикла
-    CHAT_INPUT: 915      // Ввод сообщения в чат
+    AFK_RESTART: 913
 };
-
 let currentHBMenu = null;
 let currentHBPage = 0;
 let currentHBSelectedMode = null;
-
-// Максимум пунктов (без "← Назад") на одну страницу
-const HB_ITEMS_PER_PAGE = 7;
-
-// Хранит полный список пунктов для пагинируемых меню
-let _hbActiveMenuItems = [];
-
-// ── Пагинированное меню ────────────────────────────────────────
-// Параметры paginate[0] и paginate[1] в addDialogInQueue:
-//   paginate[0] = 1 → показывает кнопку "Назад стр." (предыдущая страница)
-//   paginate[1] = 1 → показывает кнопку "Далее стр." (следующая страница)
-// При нажатии этих кнопок игра вызывает OnMultiDialogClickNavigButton:
-//   direction=0 → назад, direction=1 → вперёд
-// Мы перехватываем это событие в sendClientEventCustom и перерисовываем меню.
-//
-// "← Назад" как listitem 0 — ВСЕГДА возврат в родительское меню.
-// Индекс фактического пункта: currentHBPage * HB_ITEMS_PER_PAGE + (listitem - 1)
+const HB_ITEMS_PER_PAGE = 6;
+// Функция для создания меню с пагинацией
 function createHBMenu(title, items, dialogId) {
-    _hbActiveMenuItems = items;
-
     const start = currentHBPage * HB_ITEMS_PER_PAGE;
-    const end   = Math.min(start + HB_ITEMS_PER_PAGE, items.length);
+    const end = start + HB_ITEMS_PER_PAGE;
     const pageItems = items.slice(start, end);
-
-    const hasPrev = currentHBPage > 0 ? 1 : 0;
-    const hasNext = end < items.length ? 1 : 0;
-
-    let menuList = "{FFA500}< Назад<n>";
-    pageItems.forEach(item => { menuList += `${item.name}<n>`; });
-
+    let menuList = "← Назад<n>";
+    pageItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
+    if ((currentHBPage + 1) * HB_ITEMS_PER_PAGE < items.length) {
+        menuList += "Вперед →<n>";
+    }
     window.addDialogInQueue(
-        `[${dialogId},2,"${title}","","Выбрать","Закрыть",${hasPrev},${hasNext}]`,
+        `[${dialogId},2,"${title}","","Выбрать","Закрыть",0,0]`,
         menuList,
         0
     );
 }
-
-// Перерисовывает текущее меню после смены страницы
-function reshowCurrentHBMenu() {
-    switch (currentHBMenu) {
-        case 'main':             showHBMainMenu(); break;
-        case 'controls':         showHBControlsMenu(); break;
-        case 'local_functions':  showHBLocalFunctionsMenu(); break;
-        case 'global_functions': showHBGlobalFunctionsMenu(); break;
-        case 'movement':         showHBMovementMenu(); break;
-        case 'afk_modes':        showHBAFKModesMenu(); break;
-        case 'afk_pauses':       showHBAFKPausesMenu(); break;
-        case 'afk_reconnect':    showHBAFKReconnectMenu(currentHBSelectedMode); break;
-        case 'afk_restart':      showHBAFKRestartMenu(currentHBSelectedMode); break;
-        case 'pdc_menu':         showHBPdcMenu(); break;
-        default:                 showHBMainMenu(); break;
-    }
-}
-
-// ── Главное меню ──────────────────────────────────────────────
+// Главное меню
 function showHBMainMenu() {
     currentHBMenu = "main";
     currentHBPage = 0;
-    const menuList = "{FFD700}> {FFFFFF}Управление<n>";
+    const menuItems = [
+        { name: "{FFD700}> {FFFFFF}Управление", action: "controls" }
+    ];
+    let menuList = "";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.MAIN},2,"{00BFFF}Hassle | Bot TG Menu","","Выбрать","Закрыть",0,0]`,
-        menuList, 0
+        menuList,
+        0
     );
 }
-
-// ── Меню управления ───────────────────────────────────────────
-// listitem 0 = Назад, 1 = Функции, 2 = Общие, 3 = Инфо аккаунта,
-//             4 = Реконнект (если RECONNECT_ENABLED_DEFAULT)
+// Меню управления
 function showHBControlsMenu() {
     currentHBMenu = "controls";
     currentHBPage = 0;
-    let menuList = "{FFA500}< Назад<n>";
-    menuList += "{FFD700}> {FFFFFF}Функции<n>";
-    menuList += "{FFD700}> {FFFFFF}Общие функции<n>";
-    menuList += "{FFD700}> {FFFFFF}Инфо аккаунта<n>";
+    const menuItems = [
+        { name: "{FFD700}> {FFFFFF}Функции", action: "local_functions" },
+        { name: "{FFD700}> {FFFFFF}Общие функции", action: "global_functions" }
+    ];
     if (RECONNECT_ENABLED_DEFAULT) {
         const reconnectStatus = config.autoReconnectEnabled ? "{00FF00}[ВКЛ]" : "{FF0000}[ВЫКЛ]";
-        menuList += `{FFFFFF}Реконнект ${reconnectStatus}<n>`;
+        menuItems.push({ name: `{FFFFFF}Реконнект ${reconnectStatus}`, action: "toggle_reconnect" });
     }
+    let menuList = "{FFA500}< Назад<n>";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.CONTROLS},2,"{00BFFF}Управление","","Выбрать","Закрыть",0,0]`,
-        menuList, 0
+        menuList,
+        0
     );
 }
-
-// ── Меню локальных функций (с пагинацией) ─────────────────────
-// Индексы пунктов (0-based в _hbActiveMenuItems):
-//   0=Движение, 1=Соob, 2=Место, 3=Рация все, 4=Рация фильтр,
-//   5=Выговоры, 6=Написать в чат, 7=Пауза, 8=Автовход
+// Меню локальных функций
 function showHBLocalFunctionsMenu() {
     currentHBMenu = "local_functions";
     currentHBPage = 0;
-    const on  = "{00FF00}[ВКЛ]";
-    const off = "{FF0000}[ВЫКЛ]";
-    const isPaused          = !!window.getInterfaceStatus("PauseMenu");
-    const isAutoLoginEnabled = autoLoginConfig.enabled;
-    const pauseText      = isPaused           ? "{FFD700}▶ {FFFFFF}Выйти с паузы"   : "{FFD700}⏸ {FFFFFF}Уйти на паузу";
-    const autoLoginText  = isAutoLoginEnabled ? "{FF0000}Уйти на автр."             : "{00FF00}Выйти с автр.";
+    const statusOn = "{00FF00}[ВКЛ]";
+    const statusOff = "{FF0000}[ВЫКЛ]";
     const menuItems = [
-        { name: "{FFD700}> {FFFFFF}Движение" },
-        { name: `{FFFFFF}Увед. фракции ${config.govMessagesEnabled ? on : off}` },
-        { name: `{FFFFFF}Отслеживание ${config.trackLocationRequests ? on : off}` },
-        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? on : off}` },
-        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? on : off}` },
-        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? on : off}` },
-        { name: "{FFD700}> {FFFFFF}Написать в чат" },
-        { name: pauseText },
-        { name: autoLoginText }
+        { name: "{FFD700}> {FFFFFF}Движение", action: "movement" },
+        { name: `{FFFFFF}Увед. правик ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob_local" },
+        { name: `{FFFFFF}Отслеживание ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto_local" },
+        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
+        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter_local" },
+        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" }
     ];
-    createHBMenu("{00BFFF}Функции", menuItems, HB_DIALOG_IDS.LOCAL_FUNCTIONS);
+    let menuList = "{FFA500}< Назад<n>";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
+    window.addDialogInQueue(
+        `[${HB_DIALOG_IDS.LOCAL_FUNCTIONS},2,"{00BFFF}Функции","","Выбрать","Закрыть",0,0]`,
+        menuList,
+        0
+    );
 }
-
-// ── Меню глобальных функций (с пагинацией) ────────────────────
-// Индексы пунктов (0-based в _hbActiveMenuItems):
-//   0=PayDay, 1=Соob, 2=Место, 3=Рация, 4=Рация фильтр, 5=Выговоры,
-//   6=КАЧ/ЗП, 7=AFK Ночь, 8=AFK, 9=PayDay Цикл, [10=Прокачка]
+// Меню глобальных функций
 function showHBGlobalFunctionsMenu() {
     currentHBMenu = "global_functions";
     currentHBPage = 0;
-    const on  = "{00FF00}[ВКЛ]";
-    const off = "{FF0000}[ВЫКЛ]";
+    const statusOn = "{00FF00}[ВКЛ]";
+    const statusOff = "{FF0000}[ВЫКЛ]";
     const menuItems = [
-        { name: `{FFFFFF}PayDay ${config.paydayNotifications ? on : off}` },
-        { name: `{FFFFFF}Сообщ. фракции ${config.govMessagesEnabled ? on : off}` },
-        { name: `{FFFFFF}Место ${config.trackLocationRequests ? on : off}` },
-        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? on : off}` },
-        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? on : off}` },
-        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? on : off}` },
-        { name: `{FFFFFF}КАЧ/ЗП автоответ ${config.kacAutoReply ? on : off}` },
-        { name: "{FFD700}> {FFFFFF}AFK Ночь" },
-        { name: "{FFD700}> {FFFFFF}AFK" },
-        { name: "{FFD700}> {FFFFFF}PayDay Цикл" }
+        { name: `{FFFFFF}PayDay ${config.paydayNotifications ? statusOn : statusOff}`, action: "toggle_payday" },
+        { name: `{FFFFFF}Сообщ. ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob" },
+        { name: `{FFFFFF}Место ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto" },
+        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
+        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter" },
+        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
+        { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" },
+        { name: "{FFD700}> {FFFFFF}AFK", action: "afk_standard" }
     ];
     if (config.autoReconnectEnabled) {
-        menuItems.push({ name: "{FFD700}> {FFFFFF}Прокачка уровня" });
+        menuItems.push({ name: "{FFD700}> {FFFFFF}Прокачка уровня", action: "levelup" });
     }
-    createHBMenu("{00BFFF}Общие функции", menuItems, HB_DIALOG_IDS.GLOBAL_FUNCTIONS);
+    let menuList = "{FFA500}< Назад<n>";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
+    window.addDialogInQueue(
+        `[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции","","Выбрать","Закрыть",0,0]`,
+        menuList,
+        0
+    );
 }
-
-// ── Меню движения ─────────────────────────────────────────────
+// Меню движения
 function showHBMovementMenu() {
     currentHBMenu = "movement";
     currentHBPage = 0;
-    const sitText = config.isSitting ? "{FFFFFF}Встать" : "{FFFFFF}Сесть";
-    let menuList  = "{FFA500}< Назад<n>";
-    menuList += "{FFFFFF}^ Вперед<n>";
-    menuList += "{FFFFFF}< Влево<n>";
-    menuList += "{FFFFFF}> Вправо<n>";
-    menuList += "{FFFFFF}v Назад<n>";
-    menuList += "{FFFFFF}Прыжок<n>";
-    menuList += "{FFFFFF}Удар<n>";
-    menuList += `${sitText}<n>`;
+    const sitStandText = config.isSitting ? "{FFFFFF}Встать" : "{FFFFFF}Сесть";
+    const menuItems = [
+        { name: "{FFFFFF}^ Вперед", action: "move_forward" },
+        { name: "{FFFFFF}< Влево", action: "move_left" },
+        { name: "{FFFFFF}> Вправо", action: "move_right" },
+        { name: "{FFFFFF}v Назад", action: "move_back" },
+        { name: "{FFFFFF}Прыжок", action: "move_jump" },
+        { name: "{FFFFFF}Удар", action: "move_punch" },
+        { name: sitStandText, action: "move_sit_stand" }
+    ];
+    let menuList = "{FFA500}< Назад<n>";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.MOVEMENT_CONTROLS},2,"{00BFFF}Движение","","Выбрать","Закрыть",0,0]`,
-        menuList, 0
+        menuList,
+        0
     );
 }
-
-// ── Меню AFK ночь - режим ─────────────────────────────────────
+// Меню AFK режимов
 function showHBAFKModesMenu() {
     currentHBMenu = "afk_modes";
     currentHBPage = 0;
+    const menuItems = [
+        { name: "{FFD700}> {FFFFFF}С паузами", action: "afk_with_pauses" },
+        { name: "{FFD700}> {FFFFFF}Без пауз", action: "afk_without_pauses" }
+    ];
     let menuList = "{FFA500}< Назад<n>";
-    menuList += "{FFD700}> {FFFFFF}С паузами<n>";
-    menuList += "{FFD700}> {FFFFFF}Без пауз<n>";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.AFK_MODES},2,"{00BFFF}AFK Ночь - Режим","","Выбрать","Закрыть",0,0]`,
-        menuList, 0
+        menuList,
+        0
     );
 }
-
-// ── Меню AFK - тип пауз ───────────────────────────────────────
+// Меню AFK с паузами
 function showHBAFKPausesMenu() {
     currentHBMenu = "afk_pauses";
     currentHBPage = 0;
+    const menuItems = [
+        { name: "{FFD700}> {FFFFFF}5/5 минут", action: "afk_fixed" },
+        { name: "{FFD700}> {FFFFFF}Рандомное время", action: "afk_random" }
+    ];
     let menuList = "{FFA500}< Назад<n>";
-    menuList += "{FFD700}> {FFFFFF}5/5 минут<n>";
-    menuList += "{FFD700}> {FFFFFF}Рандомное время<n>";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.AFK_PAUSES},2,"{00BFFF}AFK Ночь - Паузы","","Выбрать","Закрыть",0,0]`,
-        menuList, 0
+        menuList,
+        0
     );
 }
-
-// ── Меню AFK - реконнект ──────────────────────────────────────
+// Меню реконнекта для AFK
 function showHBAFKReconnectMenu(selectedMode) {
     currentHBMenu = "afk_reconnect";
     currentHBPage = 0;
+    const menuItems = [
+        { name: "{00FF00}Реконнект [ВКЛ]", action: `reconnect_on_${selectedMode}` },
+        { name: "{FF0000}Реконнект [ВЫКЛ]", action: `reconnect_off_${selectedMode}` }
+    ];
     let menuList = "{FFA500}< Назад<n>";
-    menuList += "{00FF00}Реконнект [ВКЛ]<n>";
-    menuList += "{FF0000}Реконнект [ВЫКЛ]<n>";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.AFK_RECONNECT},2,"{00BFFF}AFK Ночь - Реконнект","","Выбрать","Закрыть",0,0]`,
-        menuList, 0
+        menuList,
+        0
     );
 }
-
-// ── Меню AFK - действие при рестарте ─────────────────────────
+// Меню выбора действия при рестарте
 function showHBAFKRestartMenu(selectedMode) {
     currentHBMenu = "afk_restart";
     currentHBPage = 0;
+    const menuItems = [
+        { name: "{FFFFFF}/q", action: `restart_q_${selectedMode}` },
+        { name: "{FFFFFF}/rec", action: `restart_rec_${selectedMode}` }
+    ];
     let menuList = "{FFA500}< Назад<n>";
-    menuList += "{FFFFFF}/q (выход из игры)<n>";
-    menuList += "{FFFFFF}/rec (реконнект)<n>";
+    menuItems.forEach((item) => {
+        menuList += `${item.name}<n>`;
+    });
     window.addDialogInQueue(
         `[${HB_DIALOG_IDS.AFK_RESTART},2,"{00BFFF}AFK Ночь - Действие","","Выбрать","Закрыть",0,0]`,
-        menuList, 0
+        menuList,
+        0
     );
 }
-
-// ── Меню PayDay Цикла ─────────────────────────────────────────
-function showHBPdcMenu() {
-    currentHBMenu = "pdc_menu";
-    currentHBPage = 0;
-    const pdcStatus = pdCycle.active
-        ? `{00FF00}[${pdCycle.phase || 'active'}]`
-        : '{FF0000}[ВЫКЛ]';
-    let menuList = "{FFA500}< Назад<n>";
-    menuList += `{FFD700}▶ {FFFFFF}Запустить PayDay Цикл<n>`;
-    menuList += `{FFD700}⏹ {FFFFFF}Остановить PayDay Цикл<n>`;
-    window.addDialogInQueue(
-        `[${HB_DIALOG_IDS.PDC_MENU},2,"{00BFFF}PayDay Цикл ${pdcStatus}","","Выбрать","Закрыть",0,0]`,
-        menuList, 0
-    );
-}
-
-// ── Диалог ввода сообщения в чат ─────────────────────────────
-function showHBChatInputDialog() {
-    window.addDialogInQueue(
-        `[${HB_DIALOG_IDS.CHAT_INPUT},1,"{00BFFF}Написать в чат","Введите сообщение для отправки:","Отправить","Отмена",0,0]`,
-        "", 0
-    );
-}
-
-// ── Обработчик выбора в меню ──────────────────────────────────
-function handleHBMenuSelection(dialogId, button, listitem, inputText) {
-    debugLog(`[HB] dialogId=${dialogId} button=${button} listitem=${listitem} input="${inputText || ''}"`);
-
-    // Кнопка "Закрыть" или Escape
+// Обработчик выбора в меню
+function handleHBMenuSelection(dialogId, button, listitem) {
+    console.log(`HB Menu: dialogId=${dialogId}, button=${button}, listitem=${listitem}`);
     if (button !== 1) {
         currentHBMenu = null;
         currentHBSelectedMode = null;
-        currentHBPage = 0;
         return;
     }
-
     switch (dialogId) {
-
-        // ── Главное меню ────────────────────────────────────────
         case HB_DIALOG_IDS.MAIN:
-            if (listitem === 0) setTimeout(() => showHBControlsMenu(), 100);
+            if (listitem === 0) {
+                setTimeout(() => showHBControlsMenu(), 100);
+            }
             break;
-
-        // ── Управление ─────────────────────────────────────────
-        // 0=Назад 1=Функции 2=ОбщиеФункции 3=ИнфоАккаунта [4=Реконнект]
         case HB_DIALOG_IDS.CONTROLS:
             if (listitem === 0) {
                 setTimeout(() => showHBMainMenu(), 100);
@@ -4392,47 +4423,7 @@ function handleHBMenuSelection(dialogId, button, listitem, inputText) {
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 2) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            } else if (listitem === 3) {
-                // Инфо об аккаунте — отправляем в Telegram и остаёмся в меню
-                try {
-                    const pos        = getPlayerPositionFromStore();
-                    const moneyData  = getPlayerMoneyFromStore();
-                    const nick       = config.accountInfo.nickname  || 'Unknown';
-                    const server     = config.accountInfo.server    || '?';
-                    const skinId     = config.accountInfo.skinId    != null ? config.accountInfo.skinId : '❓';
-                    const faction    = config.currentFaction        ? `[${config.currentFaction}]` : '[не фракционный]';
-                    let level = '❓', passedHours = '❓';
-                    try {
-                        const storeLevel = window.App.$store.getters['player/level'];
-                        const storeHours = window.App.$store.getters['player/passedHours'];
-                        if (storeLevel  != null) level       = storeLevel;
-                        if (storeHours  != null) passedHours = storeHours;
-                    } catch(e) {}
-                    const posStr = pos
-                        ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z??0)} ` +
-                          `угол=${Math.round(pos.angle??0)}° interior=${pos.interior??0}`
-                        : '❓ недоступна';
-                    const cashStr = moneyData && moneyData.money     != null ? `₽${moneyData.money.toLocaleString()}`     : '❓';
-                    const bankStr = moneyData && moneyData.bankMoney != null ? `₽${moneyData.bankMoney.toLocaleString()}` : '❓';
-                    sendToTelegram(
-                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
-                        `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
-                        `🎭 <b>Скин ID:</b> ${skinId}  ${faction}\n` +
-                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}\n\n` +
-                        `📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
-                        `💵 <b>Нал:</b> ${cashStr}\n🏦 <b>Банк:</b> ${bankStr}\n\n` +
-                        `📋 <b>Лог сессии:</b>\n` +
-                        (globalState.sessionLog.length > 0
-                            ? globalState.sessionLog.slice(-10).map(e => `<code>${e}</code>`).join('\n')
-                            : '<i>Нет событий</i>'),
-                        false, null
-                    );
-                    showScreenNotification("Hassle", "Инфо отправлено в Telegram");
-                } catch(err) {
-                    sendToTelegram(`❌ <b>Ошибка инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
-                }
-                setTimeout(() => showHBControlsMenu(), 100);
-            } else if (RECONNECT_ENABLED_DEFAULT && listitem === 4) {
+            } else if (RECONNECT_ENABLED_DEFAULT && listitem === 3) {
                 config.autoReconnectEnabled = !config.autoReconnectEnabled;
                 const status = config.autoReconnectEnabled ? 'включен' : 'выключен';
                 showScreenNotification("Hassle", `Реконнект ${status}`);
@@ -4441,340 +4432,311 @@ function handleHBMenuSelection(dialogId, button, listitem, inputText) {
                 setTimeout(() => showHBControlsMenu(), 100);
             }
             break;
-
-        // ── Локальные функции (пагинируемое) ───────────────────
-        // listitem 0 = Назад, listitem 1..N = пункты текущей страницы
-        // Фактический индекс = currentHBPage * HB_ITEMS_PER_PAGE + (listitem - 1)
-        case HB_DIALOG_IDS.LOCAL_FUNCTIONS: {
+        case HB_DIALOG_IDS.LOCAL_FUNCTIONS:
             if (listitem === 0) {
-                currentHBPage = 0;
                 setTimeout(() => showHBControlsMenu(), 100);
-                break;
-            }
-            const lfIdx = currentHBPage * HB_ITEMS_PER_PAGE + (listitem - 1);
-            switch (lfIdx) {
-                case 0: // Движение
-                    setTimeout(() => showHBMovementMenu(), 100);
-                    break;
-                case 1: { // Увед. фракции
-                    config.govMessagesEnabled = !config.govMessagesEnabled;
-                    const s = config.govMessagesEnabled ? 'включены' : 'отключены';
-                    showScreenNotification("Hassle", `Увед. фракции ${s}`);
-                    sendToTelegram(`${config.govMessagesEnabled?'🔔':'🔕'} <b>Увед. фракции ${s} для ${displayName}</b>`, false, null);
-                    sendWelcomeMessage();
-                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
-                    break;
-                }
-                case 2: { // Отслеживание
-                    config.trackLocationRequests = !config.trackLocationRequests;
-                    const s = config.trackLocationRequests ? 'включено' : 'отключено';
-                    showScreenNotification("Hassle", `Отслеживание ${s}`);
-                    sendToTelegram(`${config.trackLocationRequests?'📍':'🔕'} <b>Отслеживание ${s} для ${displayName}</b>`, false, null);
-                    sendWelcomeMessage();
-                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
-                    break;
-                }
-                case 3: { // Рация все
-                    config.radioOfficialNotifications = !config.radioOfficialNotifications;
-                    const s = config.radioOfficialNotifications ? 'включены' : 'отключены';
-                    showScreenNotification("Hassle", `Рация (все) ${s}`);
-                    sendToTelegram(`${config.radioOfficialNotifications?'📡':'🔕'} <b>Рация (все) ${s} для ${displayName}</b>`, false, null);
-                    sendWelcomeMessage();
-                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
-                    break;
-                }
-                case 4: { // Рация фильтр
-                    config.radioImportantFilter = !config.radioImportantFilter;
-                    const s = config.radioImportantFilter ? 'включён' : 'отключён';
-                    showScreenNotification("Hassle", `Рация фильтр ${s}`);
-                    sendToTelegram(`${config.radioImportantFilter?'🎯':'🚫'} <b>Рация фильтр ${s} для ${displayName}</b>`, false, null);
-                    sendWelcomeMessage();
-                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
-                    break;
-                }
-                case 5: { // Выговоры
-                    config.warningNotifications = !config.warningNotifications;
-                    const s = config.warningNotifications ? 'включены' : 'отключены';
-                    showScreenNotification("Hassle", `Выговоры ${s}`);
-                    sendToTelegram(`${config.warningNotifications?'⚠️':'🔕'} <b>Выговоры ${s} для ${displayName}</b>`, false, null);
-                    sendWelcomeMessage();
-                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
-                    break;
-                }
-                case 6: // Написать в чат → открываем INPUT-диалог
-                    showHBChatInputDialog();
-                    break;
-                case 7: { // Пауза
-                    const isPaused = !!window.getInterfaceStatus("PauseMenu");
-                    try {
-                        if (isPaused) {
-                            closeInterface("PauseMenu");
-                            showScreenNotification("Hassle", "Вышли с паузы");
-                            sendToTelegram(`▶️ <b>Вышли из паузы (${displayName})</b>`, true, null);
-                        } else {
-                            openInterface("PauseMenu");
-                            showScreenNotification("Hassle", "Ушли на паузу");
-                            sendToTelegram(`⏸️ <b>Вошли в паузу (${displayName})</b>`, true, null);
-                        }
-                    } catch(e) {
-                        sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null);
-                    }
-                    setTimeout(() => showHBLocalFunctionsMenu(), 300);
-                    break;
-                }
-                case 8: { // Автовход
-                    if (autoLoginConfig.enabled) {
-                        autoLoginConfig.enabled = false;
-                        sendChatInput("/rec 5");
-                        showScreenNotification("Hassle", "Автовход ВЫКЛ, /rec 5 отправлен");
-                        sendToTelegram(`🚫 <b>Автовход отключён, /rec 5 (${displayName})</b>`, false, null);
-                    } else {
-                        autoLoginConfig.enabled = true;
-                        sendChatInput("/rec 5");
-                        showScreenNotification("Hassle", "Автовход ВКЛ, /rec 5 отправлен");
-                        sendToTelegram(`✅ <b>Автовход включён, /rec 5 (${displayName})</b>`, false, null);
-                    }
-                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
-                    break;
-                }
-                default:
-                    setTimeout(() => showHBLocalFunctionsMenu(), 100);
+            } else if (listitem === 1) {
+                setTimeout(() => showHBMovementMenu(), 100);
+            } else if (listitem === 2) {
+                config.govMessagesEnabled = !config.govMessagesEnabled;
+                const status = config.govMessagesEnabled ? 'включены' : 'отключены';
+                showScreenNotification("Hassle", `Уведомления от сотрудников фракции ${status}`);
+                sendToTelegram(`${config.govMessagesEnabled ? '🔔' : '🔕'} <b>Уведомления от сотрудников фракции ${status} для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+            } else if (listitem === 3) {
+                config.trackLocationRequests = !config.trackLocationRequests;
+                const status = config.trackLocationRequests ? 'включено' : 'отключено';
+                showScreenNotification("Hassle", `Отслеживание местоположения ${status}`);
+                sendToTelegram(`${config.trackLocationRequests ? '📍' : '🔕'} <b>Отслеживание местоположения ${status} для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+            } else if (listitem === 4) {
+                config.radioOfficialNotifications = !config.radioOfficialNotifications;
+                const status = config.radioOfficialNotifications ? 'включены' : 'отключены';
+                showScreenNotification("Hassle", `Рация (все) ${status}`);
+                sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Рация (все) ${status} для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+            } else if (listitem === 5) {
+                config.radioImportantFilter = !config.radioImportantFilter;
+                const status = config.radioImportantFilter ? 'включён' : 'отключён';
+                showScreenNotification("Hassle", `Фильтр рации ${status}`);
+                sendToTelegram(`${config.radioImportantFilter ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${status} для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+            } else if (listitem === 6) {
+                config.warningNotifications = !config.warningNotifications;
+                const status = config.warningNotifications ? 'включены' : 'отключены';
+                showScreenNotification("Hassle", `Уведомления выговоров ${status}`);
+                sendToTelegram(`${config.warningNotifications ? '⚠️' : '🔕'} <b>Уведомления выговоров ${status} для ${displayName}</b>`, false, null);
+                sendWelcomeMessage();
+                setTimeout(() => showHBLocalFunctionsMenu(), 100);
             }
             break;
-        }
-
-        // ── Глобальные функции (пагинируемое) ──────────────────
-        // listitem 0 = Назад, listitem 1..N = пункты текущей страницы
-        // Фактический индекс = currentHBPage * HB_ITEMS_PER_PAGE + (listitem - 1)
-        case HB_DIALOG_IDS.GLOBAL_FUNCTIONS: {
+        case HB_DIALOG_IDS.GLOBAL_FUNCTIONS:
             if (listitem === 0) {
-                currentHBPage = 0;
                 setTimeout(() => showHBControlsMenu(), 100);
-                break;
-            }
-            const gfIdx = currentHBPage * HB_ITEMS_PER_PAGE + (listitem - 1);
-            switch (gfIdx) {
-                case 0: { // PayDay
-                    const v = !config.paydayNotifications;
-                    handleGlobalBroadcastCommand('toggle_payday', v ? 'on' : 'off');
-                    broadcastGlobalCommand('toggle_payday', v ? 'on' : 'off');
+            } else if (listitem === 1) {
+                const newValPd = !config.paydayNotifications;
+                handleGlobalBroadcastCommand('toggle_payday', newValPd ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_payday', newValPd ? 'on' : 'off');
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 2) {
+                const newValSoob = !config.govMessagesEnabled;
+                handleGlobalBroadcastCommand('toggle_soob', newValSoob ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_soob', newValSoob ? 'on' : 'off');
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 3) {
+                const newValMesto = !config.trackLocationRequests;
+                handleGlobalBroadcastCommand('toggle_mesto', newValMesto ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_mesto', newValMesto ? 'on' : 'off');
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 4) {
+                const newValRadio = !config.radioOfficialNotifications;
+                handleGlobalBroadcastCommand('toggle_radio', newValRadio ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_radio', newValRadio ? 'on' : 'off');
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 5) {
+                const newValFilter = !config.radioImportantFilter;
+                handleGlobalBroadcastCommand('toggle_radio_filter', newValFilter ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_radio_filter', newValFilter ? 'on' : 'off');
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 6) {
+                const newValWarn = !config.warningNotifications;
+                handleGlobalBroadcastCommand('toggle_warning', newValWarn ? 'on' : 'off');
+                broadcastGlobalCommand('toggle_warning', newValWarn ? 'on' : 'off');
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 7) {
+                setTimeout(() => showHBAFKModesMenu(), 100);
+            } else if (listitem === 8) {
+                // Стандартный AFK
+                const hudId = getPlayerIdFromHUD();
+                if (!hudId) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> Не удалось получить ID из HUD`, false, null);
                     setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    break;
+                    return;
                 }
-                case 1: { // Соob
-                    const v = !config.govMessagesEnabled;
-                    handleGlobalBroadcastCommand('toggle_soob', v ? 'on' : 'off');
-                    broadcastGlobalCommand('toggle_soob', v ? 'on' : 'off');
-                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    break;
+                const idFormats = [hudId];
+                if (hudId.includes('-')) {
+                    idFormats.push(hudId.replace(/-/g, ''));
+                } else if (hudId.length === 3) {
+                    idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
                 }
-                case 2: { // Место
-                    const v = !config.trackLocationRequests;
-                    handleGlobalBroadcastCommand('toggle_mesto', v ? 'on' : 'off');
-                    broadcastGlobalCommand('toggle_mesto', v ? 'on' : 'off');
-                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    break;
-                }
-                case 3: { // Рация все
-                    const v = !config.radioOfficialNotifications;
-                    handleGlobalBroadcastCommand('toggle_radio', v ? 'on' : 'off');
-                    broadcastGlobalCommand('toggle_radio', v ? 'on' : 'off');
-                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    break;
-                }
-                case 4: { // Рация фильтр
-                    const v = !config.radioImportantFilter;
-                    handleGlobalBroadcastCommand('toggle_radio_filter', v ? 'on' : 'off');
-                    broadcastGlobalCommand('toggle_radio_filter', v ? 'on' : 'off');
-                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    break;
-                }
-                case 5: { // Выговоры
-                    const v = !config.warningNotifications;
-                    handleGlobalBroadcastCommand('toggle_warning', v ? 'on' : 'off');
-                    broadcastGlobalCommand('toggle_warning', v ? 'on' : 'off');
-                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    break;
-                }
-                case 6: { // КАЧ/ЗП
-                    const v = !config.kacAutoReply;
-                    handleGlobalBroadcastCommand('toggle_kac', v ? 'on' : 'off');
-                    broadcastGlobalCommand('toggle_kac', v ? 'on' : 'off');
-                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    break;
-                }
-                case 7: // AFK Ночь
-                    setTimeout(() => showHBAFKModesMenu(), 100);
-                    break;
-                case 8: { // Стандартный AFK
-                    const hudId = getPlayerIdFromHUD();
-                    if (!hudId) {
-                        showScreenNotification("Hassle", "Ошибка: нет ID в HUD");
-                        sendToTelegram(`❌ <b>Ошибка:</b> Не удалось получить ID из HUD`, false, null);
-                        setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                        break;
-                    }
-                    const idFormats = [hudId];
-                    if (hudId.includes('-')) idFormats.push(hudId.replace(/-/g, ''));
-                    else if (hudId.length === 3) idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-                    config.afkSettings = { id: hudId, formats: idFormats, active: true };
-                    showScreenNotification("Hassle", "AFK режим активирован");
-                    sendToTelegram(`🔄 <b>AFK активирован (${displayName})</b>\nID: ${hudId}`, false, null);
-                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    break;
-                }
-                case 9: // PayDay Цикл
-                    setTimeout(() => showHBPdcMenu(), 100);
-                    break;
-                case 10: // Прокачка уровня (только если autoReconnectEnabled)
-                    if (config.autoReconnectEnabled) {
-                        currentHBSelectedMode = 'levelup';
-                        setTimeout(() => showHBAFKRestartMenu('levelup'), 100);
-                    } else {
-                        setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    }
-                    break;
-                default:
-                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                config.afkSettings = {
+                    id: hudId,
+                    formats: idFormats,
+                    active: true
+                };
+                showScreenNotification("Hassle", "AFK режим активирован");
+                sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null);
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 8 && config.autoReconnectEnabled) {
+                currentHBSelectedMode = 'levelup';
+                setTimeout(() => showHBAFKRestartMenu('levelup'), 100);
             }
             break;
-        }
-
-        // ── Меню движения ───────────────────────────────────────
-        // 0=Назад 1=Вперед 2=Влево 3=Вправо 4=Назад 5=Прыжок 6=Удар 7=Сесть/Встать
         case HB_DIALOG_IDS.MOVEMENT_CONTROLS:
             if (listitem === 0) {
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 1) {
-                try { window.onScreenControlTouchStart("<Gamepad>/leftStick"); window.onScreenControlTouchMove("<Gamepad>/leftStick",0,1); setTimeout(()=>window.onScreenControlTouchEnd("<Gamepad>/leftStick"),500); showScreenNotification("Hassle","Вперед"); sendToTelegram(`🚶 <b>Вперед (${displayName})</b>`,false,null); setTimeout(()=>showHBMovementMenu(),100); } catch(err){ sendToTelegram(`❌ ${err.message}`,false,null); }
+                // Вперед
+                try {
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
+                    showScreenNotification("Hassle", "Движение вперед выполнено");
+                    sendToTelegram(`🚶 <b>Движение вперед для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
             } else if (listitem === 2) {
-                try { window.onScreenControlTouchStart("<Gamepad>/leftStick"); window.onScreenControlTouchMove("<Gamepad>/leftStick",-1,0); setTimeout(()=>window.onScreenControlTouchEnd("<Gamepad>/leftStick"),500); showScreenNotification("Hassle","Влево"); sendToTelegram(`🚶 <b>Влево (${displayName})</b>`,false,null); setTimeout(()=>showHBMovementMenu(),100); } catch(err){ sendToTelegram(`❌ ${err.message}`,false,null); }
+                // Влево
+                try {
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
+                    showScreenNotification("Hassle", "Движение влево выполнено");
+                    sendToTelegram(`🚶 <b>Движение влево для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
             } else if (listitem === 3) {
-                try { window.onScreenControlTouchStart("<Gamepad>/leftStick"); window.onScreenControlTouchMove("<Gamepad>/leftStick",1,0); setTimeout(()=>window.onScreenControlTouchEnd("<Gamepad>/leftStick"),500); showScreenNotification("Hassle","Вправо"); sendToTelegram(`🚶 <b>Вправо (${displayName})</b>`,false,null); setTimeout(()=>showHBMovementMenu(),100); } catch(err){ sendToTelegram(`❌ ${err.message}`,false,null); }
+                // Вправо
+                try {
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
+                    showScreenNotification("Hassle", "Движение вправо выполнено");
+                    sendToTelegram(`🚶 <b>Движение вправо для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
             } else if (listitem === 4) {
-                try { window.onScreenControlTouchStart("<Gamepad>/leftStick"); window.onScreenControlTouchMove("<Gamepad>/leftStick",0,-1); setTimeout(()=>window.onScreenControlTouchEnd("<Gamepad>/leftStick"),500); showScreenNotification("Hassle","Назад"); sendToTelegram(`🚶 <b>Назад (${displayName})</b>`,false,null); setTimeout(()=>showHBMovementMenu(),100); } catch(err){ sendToTelegram(`❌ ${err.message}`,false,null); }
+                // Назад
+                try {
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
+                    showScreenNotification("Hassle", "Движение назад выполнено");
+                    sendToTelegram(`🚶 <b>Движение назад для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
             } else if (listitem === 5) {
-                try { window.onScreenControlTouchStart("<Keyboard>/leftShift"); setTimeout(()=>window.onScreenControlTouchEnd("<Keyboard>/leftShift"),500); showScreenNotification("Hassle","Прыжок"); sendToTelegram(`🆙 <b>Прыжок (${displayName})</b>`,false,null); setTimeout(()=>showHBMovementMenu(),100); } catch(err){ sendToTelegram(`❌ ${err.message}`,false,null); }
+                // Прыжок
+                try {
+                    window.onScreenControlTouchStart("<Keyboard>/leftShift");
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Keyboard>/leftShift");
+                    }, 500);
+                    showScreenNotification("Hassle", "Прыжок выполнен");
+                    sendToTelegram(`🆙 <b>Прыжок для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
             } else if (listitem === 6) {
-                try { window.onScreenControlTouchStart("<Mouse>/leftButton"); setTimeout(()=>window.onScreenControlTouchEnd("<Mouse>/leftButton"),100); showScreenNotification("Hassle","Удар"); sendToTelegram(`👊 <b>Удар (${displayName})</b>`,false,null); setTimeout(()=>showHBMovementMenu(),100); } catch(err){ sendToTelegram(`❌ ${err.message}`,false,null); }
+                // Удар
+                try {
+                    window.onScreenControlTouchStart("<Mouse>/leftButton");
+                    setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
+                    showScreenNotification("Hassle", "Удар выполнен");
+                    sendToTelegram(`👊 <b>Удар для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
             } else if (listitem === 7) {
-                try { window.onScreenControlTouchStart("<Keyboard>/c"); setTimeout(()=>window.onScreenControlTouchEnd("<Keyboard>/c"),500); config.isSitting = !config.isSitting; const act = config.isSitting?'Сесть':'Встать'; showScreenNotification("Hassle",act); sendToTelegram(`✅ <b>"${act}" (${displayName})</b>`,false,null); setTimeout(()=>showHBMovementMenu(),100); } catch(err){ sendToTelegram(`❌ ${err.message}`,false,null); }
+                // Сесть/Встать
+                try {
+                    window.onScreenControlTouchStart("<Keyboard>/c");
+                    setTimeout(() => window.onScreenControlTouchEnd("<Keyboard>/c"), 500);
+                    config.isSitting = !config.isSitting;
+                    const actionText = config.isSitting ? 'Сесть' : 'Встать';
+                    showScreenNotification("Hassle", `Команда "${actionText}" выполнена`);
+                    sendToTelegram(`✅ <b>Команда "${actionText}" для ${displayName}</b>`, false, null);
+                    setTimeout(() => showHBMovementMenu(), 100);
+                } catch (err) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
+                }
             }
             break;
-
-        // ── AFK Ночь - режим ───────────────────────────────────
         case HB_DIALOG_IDS.AFK_MODES:
-            if (listitem === 0)      setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            else if (listitem === 1) setTimeout(() => showHBAFKPausesMenu(), 100);
-            else if (listitem === 2) {
-                if (config.autoReconnectEnabled) { currentHBSelectedMode = 'none'; setTimeout(() => showHBAFKReconnectMenu('none'), 100); }
-                else { activateAFKWithMode('none', false, 'q', null, null); showScreenNotification("Hassle", "AFK без пауз активирован"); }
-            }
-            break;
-
-        // ── AFK Ночь - паузы ───────────────────────────────────
-        case HB_DIALOG_IDS.AFK_PAUSES:
-            if (listitem === 0)      setTimeout(() => showHBAFKModesMenu(), 100);
-            else if (listitem === 1) {
-                if (config.autoReconnectEnabled) { currentHBSelectedMode = 'fixed';  setTimeout(() => showHBAFKReconnectMenu('fixed'),  100); }
-                else { activateAFKWithMode('fixed',  false, 'q', null, null); showScreenNotification("Hassle", "AFK 5/5 мин активирован"); }
+            if (listitem === 0) {
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 1) {
+                setTimeout(() => showHBAFKPausesMenu(), 100);
             } else if (listitem === 2) {
-                if (config.autoReconnectEnabled) { currentHBSelectedMode = 'random'; setTimeout(() => showHBAFKReconnectMenu('random'), 100); }
-                else { activateAFKWithMode('random', false, 'q', null, null); showScreenNotification("Hassle", "AFK рандом активирован"); }
+                if (config.autoReconnectEnabled) {
+                    currentHBSelectedMode = 'none';
+                    setTimeout(() => showHBAFKReconnectMenu('none'), 100);
+                } else {
+                    activateAFKWithMode('none', false, 'q', null, null);
+                    showScreenNotification("Hassle", "AFK без пауз активирован");
+                }
             }
             break;
-
-        // ── AFK Ночь - реконнект ───────────────────────────────
+        case HB_DIALOG_IDS.AFK_PAUSES:
+            if (listitem === 0) {
+                setTimeout(() => showHBAFKModesMenu(), 100);
+            } else if (listitem === 1) {
+                if (config.autoReconnectEnabled) {
+                    currentHBSelectedMode = 'fixed';
+                    setTimeout(() => showHBAFKReconnectMenu('fixed'), 100);
+                } else {
+                    activateAFKWithMode('fixed', false, 'q', null, null);
+                    showScreenNotification("Hassle", "AFK 5/5 мин активирован");
+                }
+            } else if (listitem === 2) {
+                if (config.autoReconnectEnabled) {
+                    currentHBSelectedMode = 'random';
+                    setTimeout(() => showHBAFKReconnectMenu('random'), 100);
+                } else {
+                    activateAFKWithMode('random', false, 'q', null, null);
+                    showScreenNotification("Hassle", "AFK рандом активирован");
+                }
+            }
+            break;
         case HB_DIALOG_IDS.AFK_RECONNECT:
-            if (listitem === 0)      setTimeout(() => showHBAFKPausesMenu(), 100);
-            else if (listitem === 1) setTimeout(() => showHBAFKRestartMenu(currentHBSelectedMode), 100);
-            else if (listitem === 2) { activateAFKWithMode(currentHBSelectedMode, false, 'q', null, null); showScreenNotification("Hassle", "AFK активирован (реконнект выкл)"); currentHBSelectedMode = null; }
+            if (listitem === 0) {
+                setTimeout(() => showHBAFKPausesMenu(), 100);
+            } else if (listitem === 1) {
+                // Реконнект включен
+                setTimeout(() => showHBAFKRestartMenu(currentHBSelectedMode), 100);
+            } else if (listitem === 2) {
+                // Реконнект выключен
+                activateAFKWithMode(currentHBSelectedMode, false, 'q', null, null);
+                showScreenNotification("Hassle", "AFK режим активирован (реконнект выкл)");
+                currentHBSelectedMode = null;
+            }
             break;
-
-        // ── AFK Ночь - действие ────────────────────────────────
         case HB_DIALOG_IDS.AFK_RESTART:
-            if (listitem === 0)      setTimeout(() => showHBAFKReconnectMenu(currentHBSelectedMode), 100);
-            else if (listitem === 1) { activateAFKWithMode(currentHBSelectedMode, true, 'q',   null, null); showScreenNotification("Hassle", "AFK (/q при рестарте)");   currentHBSelectedMode = null; }
-            else if (listitem === 2) { activateAFKWithMode(currentHBSelectedMode, true, 'rec', null, null); showScreenNotification("Hassle", "AFK (/rec при рестарте)"); currentHBSelectedMode = null; }
-            break;
-
-        // ── PayDay Цикл ────────────────────────────────────────
-        case HB_DIALOG_IDS.PDC_MENU:
-            if (listitem === 0)      setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-            else if (listitem === 1) { pdcStart(); showScreenNotification("Hassle", "PayDay Цикл запущен"); setTimeout(() => showHBPdcMenu(), 500); }
-            else if (listitem === 2) { pdcStop();  showScreenNotification("Hassle", "PayDay Цикл остановлен"); setTimeout(() => showHBPdcMenu(), 500); }
+            if (listitem === 0) {
+                setTimeout(() => showHBAFKReconnectMenu(currentHBSelectedMode), 100);
+            } else if (listitem === 1) {
+                // /q
+                activateAFKWithMode(currentHBSelectedMode, true, 'q', null, null);
+                showScreenNotification("Hassle", "AFK режим активирован (/q при рестарте)");
+                currentHBSelectedMode = null;
+            } else if (listitem === 2) {
+                // /rec
+                activateAFKWithMode(currentHBSelectedMode, true, 'rec', null, null);
+                showScreenNotification("Hassle", "AFK режим активирован (/rec при рестарте)");
+                currentHBSelectedMode = null;
+            }
             break;
     }
 }
-
-// ── Перехват /hb ───────────────────────────────────────────────
+// Перехватываем оригинальную команду sendChatInput для добавления /hb
 const originalSendChatInputCustom = window.sendChatInputCustom || sendChatInput;
 window.sendChatInputCustom = function(e) {
-    if (typeof e === 'string' && e.split(" ")[0] === "/hb") {
+    const args = e.split(" ");
+    if (args[0] === "/hb") {
         showHBMainMenu();
         return;
     }
-    if (typeof originalSendChatInputCustom === 'function') originalSendChatInputCustom(e);
+    // Вызываем оригинальную функцию для других команд
+    if (typeof originalSendChatInputCustom === 'function') {
+        originalSendChatInputCustom(e);
+    }
 };
-
-// ── Перехват sendClientEvent: OnDialogResponse + OnMultiDialogClickNavigButton ──
+// Перехватываем sendClientEvent для обработки диалогов HB
 const originalSendClientEventCustom = window.sendClientEventCustom || sendClientEvent;
 window.sendClientEventCustom = function(event, ...args) {
-
-    // ── Пагинация HB-меню: кнопки "Далее/Назад страницу" ─────
-    // Вызывается из Window.js → onPaginateButton(e)
-    // args: ["OnMultiDialogClickNavigButton", direction, dialogId, priority]
-    if (args[0] === "OnMultiDialogClickNavigButton") {
-        const direction = parseInt(args[1]); // 0=назад, 1=вперёд
-        const dialogId  = parseInt(args[2]);
-        if (dialogId >= DLG_HB_MIN && dialogId <= DLG_HB_MAX) {
-            if      (direction === 1 && (_hbActiveMenuItems.length > (currentHBPage + 1) * HB_ITEMS_PER_PAGE)) currentHBPage++;
-            else if (direction === 0 && currentHBPage > 0) currentHBPage--;
-            setTimeout(() => reshowCurrentHBMenu(), 100);
-            return;
-        }
-    }
-
-    // ── Ответы на HB-диалоги ──────────────────────────────────
     if (args[0] === "OnDialogResponse") {
-        const dialogId  = parseInt(args[1]);
-        const button    = parseInt(args[2]);
-        const listitem  = parseInt(args[3]);
-        const inputText = args[4] || '';
-
-        if (dialogId >= DLG_HB_MIN && dialogId <= DLG_HB_MAX) {
-            // Диалог ввода сообщения в чат (id=915)
-            if (dialogId === HB_DIALOG_IDS.CHAT_INPUT) {
-                if (button === 1 && inputText.trim().length > 0) {
-                    try {
-                        sendChatInput(inputText.trim());
-                        showScreenNotification("Hassle", "Сообщение отправлено");
-                        sendToTelegram(`✅ <b>Сообщение отправлено (${displayName}):</b>\n<code>${inputText.replace(/</g,'&lt;')}</code>`, false, null);
-                    } catch(err) {
-                        sendToTelegram(`❌ <b>Ошибка (${displayName}):</b> ${err.message}`, false, null);
-                    }
-                }
-                setTimeout(() => showHBLocalFunctionsMenu(), 200);
-                return;
-            }
-            // Все остальные HB-диалоги
-            handleHBMenuSelection(dialogId, button, listitem, inputText);
+        const dialogId = args[1];
+        // Проверяем, является ли это нашим HB меню (900-913)
+        if (dialogId >= 900 && dialogId <= 913) {
+            const button = args[2];
+            const listitem = args[3];
+            handleHBMenuSelection(dialogId, button, listitem);
             return;
         }
     }
-
-    // Передаём дальше всё остальное
+    // Вызываем оригинальную функцию для других событий
     if (typeof originalSendClientEventCustom === 'function') {
         originalSendClientEventCustom(event, ...args);
     } else if (typeof window.sendClientEventHandle === 'function') {
         window.sendClientEventHandle(event, ...args);
     }
 };
-
 // Применяем перехваты
-sendChatInput   = window.sendChatInputCustom;
+sendChatInput = window.sendChatInputCustom;
 sendClientEvent = window.sendClientEventCustom;
-console.log('[HB Menu v2] Загружено. /hb — открыть меню. Пагинация: кнопки Далее/Назад в диалоге.');
+console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 // ==================== END HB MENU SYSTEM ====================
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -4871,7 +4833,7 @@ const DLG_LABEL_MAX_LEN  = 24; // Макс. длина подписи кнопк
 
 // Диапазон HB-диалогов — не трогаем
 const DLG_HB_MIN = 900;
-const DLG_HB_MAX = 915; // 914=PDC меню, 915=ввод чата
+const DLG_HB_MAX = 913;
 
 // ── Состояние диалога ─────────────────────────────────────────
 const dlg = {
