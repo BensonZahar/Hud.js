@@ -530,6 +530,29 @@ function showScreenNotification(title, text, color = "FFFF00", duration = 3000) 
         debugLog(`Ошибка ScreenNotification: ${err.message}`);
     }
 }
+
+// ── Добавить сообщение в локальный чат (видит только игрок) ──────────
+// Использует метод .add() чат-компонента из Hud.js напрямую
+// color: hex без # (например "00BFFF"), text: строка (без форматирования)
+function addLocalChatMessage(text, color = "00FFFF") {
+    try {
+        const chatRef = window.App?.$refs?.chat;
+        if (chatRef && typeof chatRef.add === 'function') {
+            chatRef.add(text, color);
+            return true;
+        }
+        // Fallback: OnChatAddMessage (серверный хук — тоже работает для локального добавления)
+        if (typeof window.OnChatAddMessage === 'function') {
+            window.OnChatAddMessage(text, color);
+            return true;
+        }
+        debugLog('[CHAT] addLocalChatMessage: чат-компонент не найден');
+        return false;
+    } catch (err) {
+        debugLog(`[CHAT] addLocalChatMessage ошибка: ${err.message}`);
+        return false;
+    }
+}
 function addSessionLog(event) {
     const timeStr = getCurrentTimeString();
     const entry = `[${timeStr}] ${event}`;
@@ -4516,6 +4539,10 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                         `💵 Нал: ${cashStr} ₽ | 🏦 Банк: ${bankStr} ₽`,
                         false, null
                     );
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${nick} | S${server} | Скин: ${skinId} ${factionLabel}`, "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Уровень: ${level} | Часов: ${passedHours}`, "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashStr} ₽ | Банк: ${bankStr} ₽`, "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${posStr}`, "FFFFFF");
                     showScreenNotification("Hassle", "Инфо отправлено в Telegram");
                 } catch(err) {
                     showScreenNotification("Hassle", "Ошибка получения инфо");
