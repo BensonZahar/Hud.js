@@ -295,6 +295,33 @@ function handleGlobalBroadcastCommand(cmd, val) {
             config.kacAutoReply = isOn;
             showScreenNotification("Hassle", `[Global] КАЧ/ЗП автоответ ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
             break;
+        case 'reload':
+            // Глобальная перезагрузка скриптов для всех аккаунтов (update уже подтверждён в processUpdates)
+            if (!window._hassleReloading) {
+                showScreenNotification("Hassle", "[Global] Перезагрузка скриптов...");
+                sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
+                window._hassleReloading = true;
+                if (window._hassleCurrentXhr) {
+                    try { window._hassleCurrentXhr.abort(); } catch(e) {}
+                    window._hassleCurrentXhr = null;
+                }
+                setTimeout(() => {
+                    try {
+                        if (typeof window.initializeScripts === 'function') {
+                            window.initializeScripts();
+                        } else {
+                            window._hassleReloading = false;
+                            sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
+                        }
+                    } catch(err) {
+                        window._hassleReloading = false;
+                        sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
+                    }
+                }, 300);
+            } else {
+                debugLog(`[GLOBAL] /reload уже выполняется, игнорируем`);
+            }
+            break;
         default:
             debugLog(`[GLOBAL] Неизвестная команда: ${cmd}`);
     }
@@ -2205,6 +2232,25 @@ function getNotificationReplyMarkup() {
 // ║               showPdcMenu, setSharedLastUpdateId         ║
 // ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM COMMANDS MODULE //
+
+// ── Подтверждение обновления на стороне Telegram-серверов ──────────────────
+// Вызывает getUpdates?offset=updateId+1&timeout=0 — Telegram навсегда «забывает»
+// это обновление. Защищает от повторной обработки после реконнекта/перезагрузки
+// скрипта (когда window._hassleLastUpdateId сбрасывается в 0).
+function confirmTelegramUpdate(updateId) {
+    try {
+        config.lastUpdateId = updateId;
+        setSharedLastUpdateId(updateId);
+        const confirmUrl = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${updateId + 1}&timeout=0`;
+        const confirmXhr = new XMLHttpRequest();
+        confirmXhr.open('GET', confirmUrl, true);
+        confirmXhr.send();
+        debugLog(`[RELOAD] Подтверждён update_id ${updateId} на серверах Telegram`);
+    } catch(e) {
+        debugLog(`[RELOAD] Ошибка подтверждения update: ${e.message}`);
+    }
+}
+
 function checkTelegramCommands() {
     if (window._hassleReloading) return;
     // У каждого аккаунта свой бот — race condition невозможен, random delay не нужен
@@ -2262,9 +2308,15 @@ function processUpdates(updates) {
             const globalMatch = update.message.text.match(/#HBGLOBAL:(\w+):(on|off)/);
             if (globalMatch) {
                 const [, cmd, val] = globalMatch;
+                // Для команды reload — подтверждаем update ДО выполнения,
+                // чтобы после реконнекта он не обрабатывался повторно
+                if (cmd === 'reload') {
+                    confirmTelegramUpdate(update.update_id);
+                } else {
+                    config.lastUpdateId = update.update_id;
+                    setSharedLastUpdateId(config.lastUpdateId);
+                }
                 handleGlobalBroadcastCommand(cmd, val);
-                config.lastUpdateId = update.update_id;
-                setSharedLastUpdateId(config.lastUpdateId);
                 continue; // не передавать дальше в обычный обработчик
             }
         }
@@ -2391,15 +2443,16 @@ function processUpdates(updates) {
                 if (window._hassleReloading) {
                     debugLog(`[${displayName}] /reload уже выполняется, игнорируем`);
                 } else {
+                    // СНАЧАЛА подтверждаем update на серверах Telegram — предотвращает
+                    // повторную обработку /reload после реконнекта (когда lastUpdateId сбрасывается)
+                    confirmTelegramUpdate(update.update_id);
                     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
                     debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
-                    // Останавливаем текущий polling-цикл и отменяем активный XHR
                     window._hassleReloading = true;
                     if (window._hassleCurrentXhr) {
                         try { window._hassleCurrentXhr.abort(); } catch(e) {}
                         window._hassleCurrentXhr = null;
                     }
-                    // _hassleReloading НЕ сбрасываем здесь — новый экземпляр Code.js сбросит сам
                     setTimeout(() => {
                         try {
                             if (typeof window.initializeScripts === 'function') {
@@ -4155,9 +4208,10 @@ function initializeChatMonitor() {
         globalState.sessionStartTime = Date.now();
         addSessionLog('🟢 Сессия начата');
     }
-    checkTelegramCommands();
-    // Сбрасываем флаг перезагрузки — новый экземпляр Code.js успешно запущен
+    // Сбрасываем флаг перезагрузки ДО запуска polling-цикла —
+    // иначе checkTelegramCommands() сразу вернётся и polling не стартует
     window._hassleReloading = false;
+    checkTelegramCommands();
     return true;
 }
 // END CHAT MONITOR MODULE //
@@ -4271,7 +4325,8 @@ function showHBMainMenu() {
     currentHBMenu = "main";
     currentHBPage = 0;
     const menuItems = [
-        { name: "{FFD700}> {FFFFFF}Управление", action: "controls" }
+        { name: "{FFD700}> {FFFFFF}Управление", action: "controls" },
+        { name: "{FFAA00}🔄 {FFFFFF}Перезагрузить скрипты", action: "reload_scripts" }
     ];
     let menuList = "";
     menuItems.forEach((item) => {
@@ -4470,6 +4525,30 @@ function handleHBMenuSelection(dialogId, button, listitem) {
         case HB_DIALOG_IDS.MAIN:
             if (listitem === 0) {
                 setTimeout(() => showHBControlsMenu(), 100);
+            } else if (listitem === 1) {
+                // 🔄 Перезагрузить скрипты — для ВСЕХ аккаунтов (из главного меню)
+                broadcastGlobalCommand('reload', 'on');
+                showScreenNotification("Hassle", "Перезагрузка скриптов...");
+                if (!window._hassleReloading) {
+                    window._hassleReloading = true;
+                    if (window._hassleCurrentXhr) {
+                        try { window._hassleCurrentXhr.abort(); } catch(e) {}
+                        window._hassleCurrentXhr = null;
+                    }
+                    setTimeout(() => {
+                        try {
+                            if (typeof window.initializeScripts === 'function') {
+                                window.initializeScripts();
+                            } else {
+                                window._hassleReloading = false;
+                                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
+                            }
+                        } catch(err) {
+                            window._hassleReloading = false;
+                            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
+                        }
+                    }, 300);
+                }
             }
             break;
         case HB_DIALOG_IDS.CONTROLS:
@@ -4571,12 +4650,13 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 }
                 setTimeout(() => showHBControlsMenu(), 100);
             } else if (listitem === 4) {
-                // 🔄 Перезагрузить скрипты — для всех аккаунтов
+                // 🔄 Перезагрузить скрипты — для ВСЕХ аккаунтов (broadcast + локально)
                 if (window._hassleReloading) {
                     showScreenNotification("Hassle", "Перезагрузка уже выполняется");
                 } else {
                     showScreenNotification("Hassle", "Перезагрузка скриптов...");
-                    sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
+                    // Отправляем broadcast — остальные аккаунты подхватят и перезагрузятся
+                    broadcastGlobalCommand('reload', 'on');
                     window._hassleReloading = true;
                     if (window._hassleCurrentXhr) {
                         try { window._hassleCurrentXhr.abort(); } catch(e) {}
