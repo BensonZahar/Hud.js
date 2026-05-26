@@ -1058,8 +1058,8 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
         reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
     }, () => debugLog(`Сообщение отредактировано в Telegram чате ${chatId}`));
 }
-function answerCallbackQuery(callbackQueryId) {
-    tgApi('answerCallbackQuery', { callback_query_id: callbackQueryId },
+function answerCallbackQuery(callbackQueryId, text) {
+    tgApi('answerCallbackQuery', { callback_query_id: callbackQueryId, text: text || undefined },
         () => debugLog(`Callback_query ${callbackQueryId} подтверждён`));
 }
 // Функция спам-пингов при обнаружении администратора.
@@ -1154,7 +1154,8 @@ function sendWelcomeMessage() {
         `└ Автоответ КАЧ/ЗП: ${config.kacAutoReply ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
     const replyMarkup = {
         inline_keyboard: [
-            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)],
+            [createButton("🔄 Перезагрузить скрипты", `reload_all_scripts_${uniqueId}`)]
         ]
     };
     // Хранилище ID приветственного сообщения отдельно по каждому чату
@@ -4217,6 +4218,10 @@ function initializeChatMonitor() {
     // Сбрасываем флаг перезагрузки ДО всей инициализации —
     // trackNicknameAndServer, trackPlayerId и др. проверяют этот флаг при старте
     window._hassleReloading = false;
+    // Сбрасываем ID приветственных сообщений — после перезагрузки будет отправлено новое
+    if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = {};
+    config.chatIds.forEach(cid => delete globalState.welcomeMessageIds[cid]);
+    globalState.lastWelcomeMessageId = null;
     if (!config.initialized) {
         trackNicknameAndServer();
         config.initialized = true;
@@ -4239,6 +4244,24 @@ function initializeChatMonitor() {
         globalState.sessionStartTime = Date.now();
         addSessionLog('🟢 Сессия начата');
     }
+    // Страховка: если sendWelcomeMessage не успел отправиться через trackNicknameAndServer
+    // (store ещё не был готов) — повторяем через 3 сек
+    setTimeout(() => {
+        if (config.accountInfo.nickname) {
+            const hasWelcome = globalState.welcomeMessageIds &&
+                Object.values(globalState.welcomeMessageIds).some(id => !!id);
+            if (!hasWelcome) {
+                debugLog('[RELOAD] Принудительная отправка welcome (store не успел при старте)');
+                sendWelcomeMessage();
+            }
+        }
+    }, 3000);
+    // Сообщение в чате (видно только игроку) о завершении перезагрузки
+    setTimeout(() => {
+        try {
+            addLocalChatMessage(`{00FF88}[HB] {FFFFFF}Скрипты перезагружены. Меню: /hb или Telegram.`, '00FF88');
+        } catch(e) {}
+    }, 2000);
     checkTelegramCommands();
     return true;
 }
@@ -4556,8 +4579,9 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 1) {
                 // 🔄 Перезагрузить скрипты — для ВСЕХ аккаунтов (из главного меню)
                 broadcastGlobalCommand('reload', 'on');
+                sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>\n<i>(запущено из игры через /hb)</i>`, false, null);
                 showScreenNotification("Hassle", "Перезагрузка скриптов...");
-                addLocalChatMessage(`{FFAA00}[HB] {FFFFFF}🔄 Перезагрузка скриптов для всех аккаунтов...`, "FFAA00");
+                addLocalChatMessage(`{FFAA00}[HB] {FFFFFF}Перезагрузка скриптов запущена...`, "FFAA00");
                 if (!window._hassleReloading) {
                     window._hassleReloading = true;
                     if (window._hassleCurrentXhr) {
@@ -4684,7 +4708,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     showScreenNotification("Hassle", "Перезагрузка уже выполняется");
                 } else {
                     showScreenNotification("Hassle", "Перезагрузка скриптов...");
-                    addLocalChatMessage(`{FFAA00}[HB] {FFFFFF}🔄 Перезагрузка скриптов для всех аккаунтов...`, "FFAA00");
+                    addLocalChatMessage(`{FFAA00}[HB] {FFFFFF}Перезагрузка скриптов запущена...`, "FFAA00");
+                    sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>\n<i>(запущено из игры через /hb → Управление)</i>`, false, null);
                     // Отправляем broadcast — остальные аккаунты подхватят и перезагрузятся
                     broadcastGlobalCommand('reload', 'on');
                     window._hassleReloading = true;
