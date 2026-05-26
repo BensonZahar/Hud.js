@@ -1010,15 +1010,6 @@ function answerCallbackQuery(callbackQueryId) {
     tgApi('answerCallbackQuery', { callback_query_id: callbackQueryId },
         () => debugLog(`Callback_query ${callbackQueryId} подтверждён`));
 }
-function editMessageCaption(chatId, messageId, caption, replyMarkup = null) {
-    tgApi('editMessageCaption', {
-        chat_id:      chatId,
-        message_id:   messageId,
-        caption,
-        parse_mode:   'HTML',
-        reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-    }, () => debugLog(`[DLG] Caption отредактирован в чате ${chatId}`));
-}
 // Функция спам-пингов при обнаружении администратора.
 // Отправляет 9 сообщений каждые 2 секунды — каждое удаляет предыдущее.
 // Следующий пинг запускается строго внутри onload, после получения message_id.
@@ -5062,372 +5053,42 @@ function dlgBuildKeyboard() {
     return { inline_keyboard: kb };
 }
 
-// ── Canvas-рендер диалога ─────────────────────────────────────
-
-/**
- * Загружает html2canvas из CDN (один раз), затем вызывает callback(lib|null).
- * Если загрузка не удалась — callback(null) → переходим на ручной canvas.
- */
-function dlgLoadHtml2Canvas(cb) {
-    if (window.html2canvas) { cb(window.html2canvas); return; }
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-    s.onload  = () => { debugLog('[DLG] html2canvas загружен'); cb(window.html2canvas); };
-    s.onerror = () => { debugLog('[DLG] html2canvas не загрузился — ручной canvas'); cb(null); };
-    document.head.appendChild(s);
-}
-
-/**
- * Ищет DOM-элемент открытого диалога игры.
- */
-function dlgFindElement() {
-    const candidates = [
-        '.dialog-container', '.dialog__wrapper', '.dialog',
-        '.window__container', '[class*="dialog"]'
-    ];
-    for (const sel of candidates) {
-        try {
-            const el = document.querySelector(sel);
-            if (el && el.offsetWidth > 0 && el.offsetHeight > 0) return el;
-        } catch(e) {}
-    }
-    return null;
-}
-
-/**
- * Рендерит диалог вручную на <canvas> в стиле игры (тёмная тема, золото).
- * Используется как fallback если html2canvas недоступен или DOM-элемент не найден.
- */
-function dlgDrawCanvas() {
-    const FONT     = '14px Arial, sans-serif';
-    const FONT_SM  = '12px Arial, sans-serif';
-    const FONT_TTL = 'bold 16px Arial, sans-serif';
-    const FONT_NUM = 'bold 13px Arial, sans-serif';
-
-    const PAD      = 16;
-    const ROW_H    = 38;
-    const HEADER_H = 52;
-    const FOOTER_H = 40;
-
-    const startIdx  = dlg.page * DLG_ITEMS_PER_PAGE;
-    const endIdx    = Math.min(startIdx + DLG_ITEMS_PER_PAGE, dlg.items.length);
-    const rowCount  = (dlg.style === 0) ? 0 : (endIdx - startIdx); // MSGBOX без списка
-    const infoLines = (dlg.contentText || dlg.info || '').split('\n').filter(l => l.trim());
-    const INFO_H    = infoLines.length > 0 ? Math.max(36, infoLines.length * 20 + 16) : 0;
-    const W         = 520;
-    const H         = HEADER_H + INFO_H + rowCount * ROW_H + FOOTER_H + 8;
-
-    const cv  = document.createElement('canvas');
-    cv.width  = W;
-    cv.height = Math.max(H, 160);
-    const ctx = cv.getContext('2d');
-
-    // ── Фон ──────────────────────────────────────────────────
-    ctx.fillStyle = '#141414';
-    ctx.fillRect(0, 0, W, cv.height);
-
-    // ── Внешняя рамка ─────────────────────────────────────────
-    ctx.strokeStyle = 'rgba(244,241,225,0.15)';
-    ctx.lineWidth   = 1.5;
-    ctx.strokeRect(1, 1, W - 2, cv.height - 2);
-
-    // ── Заголовок ─────────────────────────────────────────────
-    const grad = ctx.createLinearGradient(0, 0, 0, HEADER_H);
-    grad.addColorStop(0, 'rgba(249,183,1,0.18)');
-    grad.addColorStop(1, 'rgba(249,183,1,0.04)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, HEADER_H);
-
-    // Иконка типа
-    ctx.font      = '18px Arial';
-    ctx.fillStyle = '#f9b701';
-    ctx.textAlign = 'left';
-    const icon = { 0:'📋', 1:'✏️', 2:'📜', 3:'🔐', 4:'📊', 5:'📊'  }[dlg.style] || '💬';
-    ctx.fillText(icon, PAD, 32);
-
-    // Заголовок текст
-    ctx.font      = FONT_TTL;
-    ctx.fillStyle = '#f9b701';
-    ctx.textAlign = 'left';
-    const titleX  = PAD + 28;
-    const maxTitleW = W - titleX - PAD;
-    let titleStr  = dlg.title || 'Диалог';
-    while (ctx.measureText(titleStr).width > maxTitleW && titleStr.length > 4)
-        titleStr = titleStr.slice(0, -1);
-    if (titleStr !== dlg.title) titleStr += '...';
-    ctx.fillText(titleStr, titleX, 32);
-
-    // Тип диалога справа
-    const typeName = { 0:'Сообщение', 1:'Ввод', 2:'Список', 3:'Пароль', 4:'Таблица', 5:'Таблица'  }[dlg.style] || '';
-    ctx.font      = FONT_SM;
-    ctx.fillStyle = 'rgba(244,241,225,0.4)';
-    ctx.textAlign = 'right';
-    ctx.fillText(typeName, W - PAD, 32);
-
-    // Линия под заголовком
-    ctx.strokeStyle = 'rgba(244,241,225,0.1)';
-    ctx.lineWidth   = 1;
-    ctx.beginPath(); ctx.moveTo(0, HEADER_H); ctx.lineTo(W, HEADER_H); ctx.stroke();
-
-    // ── Текст диалога (info / contentText) ────────────────────
-    let curY = HEADER_H + 14;
-    if (infoLines.length > 0) {
-        ctx.font      = FONT;
-        ctx.fillStyle = 'rgba(244,241,225,0.8)';
-        ctx.textAlign = 'left';
-        for (const line of infoLines) {
-            let l = line;
-            while (ctx.measureText(l).width > W - PAD * 2 && l.length > 4)
-                l = l.slice(0, -1);
-            if (l !== line) l += '...';
-            ctx.fillText(l, PAD, curY);
-            curY += 20;
-        }
-        curY += 6;
-        // Разделитель после info
-        ctx.strokeStyle = 'rgba(244,241,225,0.07)';
-        ctx.lineWidth   = 1;
-        ctx.beginPath(); ctx.moveTo(PAD, curY - 4); ctx.lineTo(W - PAD, curY - 4); ctx.stroke();
-    }
-
-    // ── Пункты списка ─────────────────────────────────────────
-    const totalPages = Math.ceil(dlg.items.length / DLG_ITEMS_PER_PAGE);
-    if (dlg.items.length > 0 && totalPages > 1) {
-        ctx.font      = FONT_SM;
-        ctx.fillStyle = 'rgba(244,241,225,0.35)';
-        ctx.textAlign = 'right';
-        ctx.fillText(`стр. ${dlg.page + 1} / ${totalPages}`, W - PAD, curY + 14);
-    }
-
-    for (let i = startIdx; i < endIdx; i++) {
-        const y    = curY;
-        const isLast = i === endIdx - 1;
-
-        // Фон строки
-        ctx.fillStyle = i % 2 === 0
-            ? 'rgba(255,255,255,0.05)'
-            : 'rgba(255,255,255,0.03)';
-        ctx.fillRect(PAD / 2, y, W - PAD, ROW_H - 2);
-
-        // Граница строки
-        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-        ctx.lineWidth   = 1;
-        ctx.strokeRect(PAD / 2, y, W - PAD, ROW_H - 2);
-
-        // Номер
-        ctx.font      = FONT_NUM;
-        ctx.fillStyle = '#f9b701';
-        ctx.textAlign = 'left';
-        ctx.fillText(String(i + 1) + '.', PAD + 2, y + 24);
-
-        // Текст пункта
-        ctx.font      = FONT;
-        ctx.fillStyle = '#f4f1e1';
-        ctx.textAlign = 'left';
-        let item = dlg.items[i] || '';
-        while (ctx.measureText(item).width > W - PAD * 2 - 30 && item.length > 4)
-            item = item.slice(0, -1);
-        if (item !== dlg.items[i]) item += '...';
-        ctx.fillText(item, PAD + 26, y + 24);
-
-        curY += ROW_H;
-    }
-
-    // ── Подвал с кнопками ─────────────────────────────────────
-    const footerY = cv.height - FOOTER_H;
-    ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    ctx.fillRect(0, footerY, W, FOOTER_H);
-
-    ctx.strokeStyle = 'rgba(244,241,225,0.08)';
-    ctx.lineWidth   = 1;
-    ctx.beginPath(); ctx.moveTo(0, footerY); ctx.lineTo(W, footerY); ctx.stroke();
-
-    const btn1 = dlg.button1 || 'Выбрать';
-    const btn2 = dlg.button2 || 'Закрыть';
-    const btnY  = footerY + 24;
-
-    // Кнопка 1 (зелёная)
-    if (btn1) {
-        ctx.fillStyle = 'rgba(0,200,80,0.15)';
-        ctx.strokeStyle = 'rgba(0,200,80,0.5)';
-        ctx.lineWidth = 1;
-        const b1w = 120, b1x = PAD;
-        ctx.beginPath();
-        ctx.roundRect ? ctx.roundRect(b1x, footerY + 8, b1w, 24, 4)
-                      : ctx.rect(b1x, footerY + 8, b1w, 24);
-        ctx.fill(); ctx.stroke();
-        ctx.font = FONT_SM; ctx.fillStyle = '#80ff80'; ctx.textAlign = 'center';
-        ctx.fillText('✅ ' + btn1, b1x + b1w / 2, btnY);
-    }
-
-    // Кнопка 2 (красная)
-    if (btn2) {
-        ctx.fillStyle = 'rgba(220,50,50,0.15)';
-        ctx.strokeStyle = 'rgba(220,50,50,0.5)';
-        ctx.lineWidth = 1;
-        const b2w = 120, b2x = W - PAD - 120;
-        ctx.beginPath();
-        ctx.roundRect ? ctx.roundRect(b2x, footerY + 8, b2w, 24, 4)
-                      : ctx.rect(b2x, footerY + 8, b2w, 24);
-        ctx.fill(); ctx.stroke();
-        ctx.font = FONT_SM; ctx.fillStyle = '#ff8080'; ctx.textAlign = 'center';
-        ctx.fillText('❌ ' + btn2, b2x + b2w / 2, btnY);
-    }
-
-    return cv;
-}
-
-/**
- * Получает Blob-изображение диалога.
- * Сначала пробует html2canvas (реальный DOM), потом ручной canvas.
- */
-function dlgGetPhotoBlobAndSend(onBlob) {
-    dlgLoadHtml2Canvas(h2c => {
-        if (h2c) {
-            const el = dlgFindElement();
-            if (el) {
-                h2c(el, { backgroundColor: null, useCORS: true, scale: 1.5, logging: false })
-                    .then(cv => cv.toBlob(b => onBlob(b), 'image/png'))
-                    .catch(e => {
-                        debugLog('[DLG] html2canvas ошибка: ' + e.message + '  — ручной canvas');
-                        dlgDrawCanvas().toBlob(b => onBlob(b), 'image/png');
-                    });
-                return;
-            }
-        }
-        dlgDrawCanvas().toBlob(b => onBlob(b), 'image/png');
-    });
-}
-
-/**
- * Краткий текст для caption (макс 1024 символа).
- */
-function dlgBuildCaption() {
-    let text = `🗔 <b>${dlgHtml(dlg.title || 'Диалог')} — ${displayName}</b>
-`;
-    const typeName = { 0:'Сообщение', 1:'Ввод текста', 2:'Список', 3:'Пароль', 4:'Таблица', 5:'Таблица'  }[dlg.style] || 'Диалог';
-    text += `<i>${dlgStyleIcon(dlg.style)} ${typeName}</i>
-`;
-    if (dlg.contentText || dlg.info) {
-        const src = (dlg.contentText || dlg.info).substring(0, 300);
-        text += `
-${dlgHtml(src)}
-`;
-    }
-    const total = dlg.items.length;
-    if (total > 0) {
-        const totalPages = Math.ceil(total / DLG_ITEMS_PER_PAGE);
-        text += `
-<b>Пункты${totalPages > 1 ? ` (стр. ${dlg.page+1}/${totalPages})` : ''}:</b>
-`;
-        const start = dlg.page * DLG_ITEMS_PER_PAGE;
-        const end   = Math.min(start + DLG_ITEMS_PER_PAGE, total);
-        for (let i = start; i < end; i++) {
-            const line = `${i+1}. ${dlgHtml(dlg.items[i])}
-`;
-            if ((text + line).length > 980) { text += '<i>…</i>
-'; break; }
-            text += line;
-        }
-    }
-    if (dlg.style === 1 || dlg.style === 3)
-        text += `
-💡 <i>Нажмите «Ввести» и ответьте на сообщение</i>`;
-    return text.substring(0, 1024);
-}
-
 // ── Telegram-операции ────────────────────────────────────────
 
-/**
- * Отправляет диалог как ФОТО (canvas) + caption + inline-кнопки.
- * Внутри createSend() ждём Blob от dlgGetPhotoBlobAndSend, потом по очереди
- * шлём в каждый chatId через FormData (multipart/form-data).
- */
 function dlgSendToTelegram() {
-    // Удаляем предыдущие сообщения
     dlg.tgMsgs.forEach(({ chatId, messageId }) => deleteMessage(chatId, messageId));
     dlg.tgMsgs = [];
 
-    const caption  = dlgBuildCaption();
+    const text     = dlgBuildText();
     const keyboard = dlgBuildKeyboard();
 
-    dlgGetPhotoBlobAndSend(blob => {
-        if (!blob) {
-            debugLog('[DLG] Blob пустой — падаем на текстовый режим');
-            const text = dlgBuildText();
-            config.chatIds.forEach(chatId => {
-                tgApi('sendMessage', {
-                    chat_id:      chatId,
-                    text,
-                    parse_mode:   'HTML',
-                    reply_markup: JSON.stringify(keyboard)
-                }, data => {
-                    dlg.tgMsgs.push({ chatId, messageId: data.result.message_id, isPhoto: false });
-                    debugLog(`[DLG] Отправлен текст в чат ${chatId}: msg ${data.result.message_id}`);
-                });
-            });
-            return;
-        }
-
-        // Отправляем по очереди в каждый chatId
-        let idx = 0;
-        function sendNext() {
-            if (idx >= config.chatIds.length) return;
-            const chatId = config.chatIds[idx++];
-            const form   = new FormData();
-            form.append('chat_id',      String(chatId));
-            form.append('photo',        blob, 'dialog.png');
-            form.append('caption',      caption);
-            form.append('parse_mode',   'HTML');
-            form.append('reply_markup', JSON.stringify(keyboard));
-
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/sendPhoto`, true);
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    try {
-                        const data = JSON.parse(xhr.responseText);
-                        dlg.tgMsgs.push({ chatId, messageId: data.result.message_id, isPhoto: true });
-                        debugLog(`[DLG] Фото отправлено в чат ${chatId}: msg ${data.result.message_id}`);
-                    } catch(e) { debugLog('[DLG] Ошибка парсинга sendPhoto: ' + e.message); }
-                } else {
-                    debugLog(`[DLG] sendPhoto ошибка ${xhr.status}: ${xhr.responseText.substring(0, 200)}`);
-                    // Fallback: текстовое сообщение
-                    tgApi('sendMessage', {
-                        chat_id:      chatId,
-                        text:         dlgBuildText(),
-                        parse_mode:   'HTML',
-                        reply_markup: JSON.stringify(keyboard)
-                    }, data2 => {
-                        dlg.tgMsgs.push({ chatId, messageId: data2.result.message_id, isPhoto: false });
-                    });
-                }
-                sendNext();
-            };
-            xhr.onerror = function() {
-                debugLog('[DLG] sendPhoto сетевая ошибка');
-                sendNext();
-            };
-            xhr.send(form);
-        }
-        sendNext();
+    config.chatIds.forEach(chatId => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/sendMessage`, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    dlg.tgMsgs.push({ chatId, messageId: data.result.message_id });
+                    debugLog(`[DLG] Отправлено в чат ${chatId}: msg ${data.result.message_id}`);
+                } catch (e) {}
+            }
+        };
+        xhr.send(JSON.stringify({
+            chat_id:      chatId,
+            text:         text,
+            parse_mode:   'HTML',
+            reply_markup: JSON.stringify(keyboard)
+        }));
     });
 }
 
-/**
- * Обновляет диалог в Telegram при пагинации.
- * Для фото: editMessageCaption + editMessageReplyMarkup.
- * Для текста: editMessageText.
- */
 function dlgUpdateTelegram() {
-    const caption  = dlgBuildCaption();
+    const text     = dlgBuildText();
     const keyboard = dlgBuildKeyboard();
-    dlg.tgMsgs.forEach(({ chatId, messageId, isPhoto }) => {
-        if (isPhoto) {
-            editMessageCaption(chatId, messageId, caption, keyboard);
-        } else {
-            editMessageText(chatId, messageId, dlgBuildText(), keyboard);
-        }
+    dlg.tgMsgs.forEach(({ chatId, messageId }) => {
+        editMessageText(chatId, messageId, text, keyboard);
     });
 }
 
@@ -5436,19 +5097,13 @@ function dlgClose(showClosedMsg = true) {
     dlg.active        = false;
     dlg.awaitingInput = false;
     if (showClosedMsg) {
-        // Закрытие через Telegram:
-        // для фото — меняем caption, убираем кнопки
-        // для текста — editMessageText
-        dlg.tgMsgs.forEach(({ chatId, messageId, isPhoto }) => {
-            const closedText = `✅ <b>Диалог закрыт — ${displayName}</b>`;
-            if (isPhoto) {
-                editMessageCaption(chatId, messageId, closedText, null);
-            } else {
-                editMessageText(chatId, messageId, closedText, null);
-            }
+        // Закрыто из Telegram — редактируем сообщение в уведомление
+        dlg.tgMsgs.forEach(({ chatId, messageId }) => {
+            editMessageText(chatId, messageId,
+                `✅ <b>Диалог закрыт — ${displayName}</b>`, null);
         });
     } else {
-        // Закрытие из игры — удаляем сообщение (не оставляем висеть с кнопками)
+        // Закрыто в игре — удаляем сообщение из Telegram
         dlg.tgMsgs.forEach(({ chatId, messageId }) => {
             deleteMessage(chatId, messageId);
         });
@@ -5791,23 +5446,6 @@ processUpdates = function(updates) {
         _dlgOrigProcessUpdates(passThrough);
     }
 };
-
-// ── Страховой таймер: чистит Telegram если диалог закрылся движком/сервером ──
-// (в обход sendClientEvent, например при дисконнекте или принудительном закрытии)
-setInterval(() => {
-    if (!dlg.active || dlg.tgMsgs.length === 0) return;
-    try {
-        const isOpen =
-            (typeof window.getInterfaceStatus === 'function') &&
-            (window.getInterfaceStatus('Dialog') || window.getInterfaceStatus('Window'));
-        if (!isOpen) {
-            debugLog('[DLG] Диалог закрыт движком/сервером — удаляем сообщение в Telegram');
-            dlgClose(false);
-        }
-    } catch(e) {
-        debugLog('[DLG] Ошибка страхового таймера: ' + e.message);
-    }
-}, 3000);
 
 debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
 // ==================== END DIALOG MONITOR MODULE v2 ====================
