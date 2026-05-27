@@ -1,43 +1,4 @@
-// === ПОДМЕНА ТРУДОВОЙ КНИГИ ===
-(function patchDocs() {
-    const EMPLOYMENT_HISTORY = 1; // тип трудовой
-
-    // Настройки подмены — заполни что нужно, остальное закомментируй
-    const FAKE = {
-        // organization: 'ПРАВИТЕЛЬСТВО',
-        // position: 'Министр',
-        // hireDate: '01/01/2024',   // формат DD/MM/YYYY
-        // experience: '2 г.',
-        // number: 'N - 1 000 001',
-        // firstHireDate: '01/03/2023',
-    };
-
-    function patchParams(params) {
-        return params.map(([type, data]) => {
-            if (type !== EMPLOYMENT_HISTORY) return [type, data];
-            try {
-                const d = typeof data === 'string' ? JSON.parse(data) : data;
-                Object.keys(FAKE).forEach(key => { d[key] = FAKE[key]; });
-                return [type, JSON.stringify(d)];
-            } catch (e) {
-                return [type, data];
-            }
-        });
-    }
-
-    // Перехват через engine
-    const _on = engine.on.bind(engine);
-    engine.on = function(event, cb) {
-        if (event === 'Docs') {
-            return _on(event, params => cb(patchParams(params)));
-        }
-        return _on(event, cb);
-    };
-
-    console.log('[PatchDocs] Перехват трудовой активен');
-})();
-// === END ПОДМЕНА ТРУДОВОЙ КНИГИ ===
- // JAS Menu Script by Deni_Pels (tg:denipels)
+// JAS Menu Script by Deni_Pels (tg:denipels)
 const jasMenu = [
     { name: "Тест 1", action: "test1" }
 ];
@@ -47,16 +8,13 @@ let giveLicenseTo = -1;
 let targetId = null;
 let currentMenu = null;
 
-// JSK — фракционная история (объединённые и отсортированные записи)
-// JSK — фракционная история (объединённые и отсортированные записи)
 // JSK — фракционная история
-
 const jskOptions = [
     // === Мин. Обороны — сверху ===
     { name: "Timofej_Bonk изменил должность на Ефрейтор [№2] в Мин. Обороны<t>2025-12-06 13:12:31<n>", action: "jsk_view" },
     { name: "Timofej_Bonk принял в Мин. Обороны на должность Рядовой [№1]<t>2025-12-05 14:28:56<n>", action: "jsk_view" },
-    
-    // === Правительство — история повышений до Адвоката ===
+
+    // === Правительство ===
     { name: "Jony_Santiz изменил должность на Адвокат [№7] в Правительство<t>2025-12-03 18:25:14<n>", action: "jsk_view" },
     { name: "Lars_Verstappen изменил должность на Лицензёр [№6] в Правительство<t>2025-12-02 16:42:33<n>", action: "jsk_view" },
     { name: "Jony_Santiz изменил должность на Старший Секретарь [№5] в Правительство<t>2025-11-28 14:18:46<n>", action: "jsk_view" },
@@ -64,15 +22,38 @@ const jskOptions = [
     { name: "Jony_Santiz изменил должность на Нач. Охраны [№3] в Правительство<t>2025-11-24 16:09:30<n>", action: "jsk_view" },
     { name: "Lars_Verstappen изменил должность на Охранник [№2] в Правительство<t>2025-11-22 20:43:32<n>", action: "jsk_view" },
     { name: "Jony_Santiz принял в Правительство на должность Водитель [№1]<t>2025-11-20 14:39:56<n>", action: "jsk_view" },
-    
+
     // === ФСИН ===
     { name: "Dmitriy_Konovalenko изменил должность на Надзиратель [№3] в ФСИН<t>2025-10-26 17:33:51<n>", action: "jsk_view" },
     { name: "Alex_Lincoln изменил должность на Конвоир [№2] в ФСИН<t>2025-10-23 12:48:06<n>", action: "jsk_view" },
     { name: "Dmitriy_Konovalenko принял в ФСИН на должность Охранник [№1]<t>2025-10-20 20:14:29<n>", action: "jsk_view" }
 ];
-// === /alis — ТОЧНАЯ КОПИЯ /alist (как на фото) ===
-const alisOptions = [
-];
+
+// === /alis ===
+const alisOptions = [];
+
+// === ФЕЙКОВАЯ ТРУДОВАЯ — меняй поля здесь ===
+const FAKE_WORKBOOK = {
+    number:        'N - 1 042 290',
+    firstHireDate: '17/03/2024',
+    organization:  'ПРАВИТЕЛЬСТВО',
+    nickname:      'Nicolay_Benson',
+    position:      'Министр',
+    hireDate:      '24/10/2024',
+    experience:    '3 г.',
+};
+
+window.showFakeWorkBook = () => {
+    const EMPLOYMENT_HISTORY = 1;
+    try {
+        engine.trigger('OpenInterface', 'Docs', JSON.stringify([
+            [EMPLOYMENT_HISTORY, JSON.stringify(FAKE_WORKBOOK)]
+        ]));
+        console.log('[WBoo] Открыт интерфейс трудовой');
+    } catch (e) {
+        console.error('[WBoo] Ошибка engine.trigger:', e);
+    }
+};
 
 // Инициализация
 const initJasMenu = () => {
@@ -87,13 +68,15 @@ const initJasMenu = () => {
         } else if (args[0] === "/alis") {
             targetId = args[1];
             showAlisMenu(args[1]);
+        } else if (args[0] === "/wboo") {
+            showFakeWorkBook();
         } else {
             window.App.developmentMode || engine.trigger("SendChatInput", e);
         }
     };
     window.sendClientEventCustom = (event, ...args) => {
         if (args[0] === "OnDialogResponse" && args[1] === 670) {
-            const response = args[2]; // 1 = Button1, 0 = Button2, -1 = крестик
+            const response = args[2];
             if (response === 1 && giveLicenseTo !== -1) {
                 if (currentMenu === "jas") {
                     handleJasCommand(args[3]);
@@ -111,7 +94,8 @@ const initJasMenu = () => {
     window.sendClientEvent = window.sendClientEventCustom;
     console.log("[JAS Menu] Загружен");
     console.log("[JSK Menu] Добавлен");
-    console.log("[ALIS Menu] /alis — точная копия /alist (Style 0, белый текст)");
+    console.log("[ALIS Menu] Добавлен");
+    console.log("[WBoo] /wboo — фейковая трудовая активна");
 };
 
 // === JAS ===
@@ -132,7 +116,7 @@ window.showJskMenu = (e) => {
     window.addDialogInQueue(`[670,2,"Фракционная история","","Далее","Отмена",0,1]`, list, 0);
 };
 
-// === ALIS — ТОЧНО КАК НА ФОТО ===
+// === ALIS ===
 window.showAlisMenu = (playerId) => {
     giveLicenseTo = playerId;
     currentMenu = "alis";
@@ -146,8 +130,7 @@ window.showAlisMenu = (playerId) => {
             body += `{FFFFFF}${item.type}<t><t>${item.date}<t>${item.admin}<t>${item.reason}<n>`;
         });
     }
-    const dialog = `[670,0,"${title}","","Закрыть","",0,0]`;
-    window.addDialogInQueue(dialog, header + body, 0);
+    window.addDialogInQueue(`[670,0,"${title}","","Закрыть","",0,0]`, header + body, 0);
 };
 
 // === Обработка ===
@@ -165,9 +148,7 @@ const handleJskCommand = (i) => {
         executeJskAction(jskOptions[idx].action, giveLicenseTo);
     }
 };
-const handleAlisCommand = () => {
-    // Просто закрывается
-};
+const handleAlisCommand = () => {};
 
 // === Действия ===
 const executeJasAction = (action, targetId) => {
@@ -214,5 +195,3 @@ if (window.engine) {
         }
     }, 100);
 }
-
-
