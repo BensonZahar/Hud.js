@@ -295,6 +295,24 @@ function handleGlobalBroadcastCommand(cmd, val) {
             config.kacAutoReply = isOn;
             showScreenNotification("Hassle", `[Global] КАЧ/ЗП автоответ ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
             break;
+        case 'reload':
+            // Перезагрузка скрипта — откладываем чтобы offset успел сохраниться
+            debugLog(`[GLOBAL] Получена команда перезагрузки для ${displayName}`);
+            if (!window._hassleReloading) {
+                window._hassleReloading = true;
+                setTimeout(() => {
+                    window._hassleReloading = false;
+                    try {
+                        if (typeof window.initializeScripts === 'function') {
+                            window.initializeScripts();
+                        }
+                    } catch (e) {
+                        window._hassleReloading = false;
+                        debugLog(`[GLOBAL] Ошибка перезагрузки: ${e.message}`);
+                    }
+                }, 800);
+            }
+            break;
         default:
             debugLog(`[GLOBAL] Неизвестная команда: ${cmd}`);
     }
@@ -463,17 +481,18 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // ║  Зависимости: debugLog                                   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SHARED STORAGE MODULE //
-// localStorage не работает в CEF-среде — используем in-memory переменную на window,
-// чтобы значение выживало при перезапуске скрипта через /reload (иначе обнуляется → бесконечный reload)
-if (typeof window._sharedLastUpdateId === 'undefined') {
-    window._sharedLastUpdateId = 0;
+// Храним offset per-account, чтобы разные боты не перезаписывали друг другу значения.
+// Ключ: window._hbOffset_<ACCOUNT_NUMBER>
+function _getOffsetKey() {
+    return `_hbOffset_${window.ACCOUNT_NUMBER || '0'}`;
 }
 function getSharedLastUpdateId() {
-    return window._sharedLastUpdateId;
+    const v = window[_getOffsetKey()];
+    return (typeof v === 'number') ? v : 0;
 }
 function setSharedLastUpdateId(id) {
-    window._sharedLastUpdateId = id;
-    debugLog(`Обновлён shared lastUpdateId: ${id}`);
+    window[_getOffsetKey()] = id;
+    debugLog(`Обновлён shared lastUpdateId [acc#${window.ACCOUNT_NUMBER || '0'}]: ${id}`);
 }
 // END SHARED STORAGE MODULE //
 
@@ -2259,7 +2278,7 @@ function processUpdates(updates) {
 
         // ===== GLOBAL BROADCAST: перехват команд #HBGLOBAL =====
         if (update.message && update.message.text) {
-            const globalMatch = update.message.text.match(/#HBGLOBAL:(\w+):(on|off)/);
+            const globalMatch = update.message.text.match(/#HBGLOBAL:(\w+):(\w+)/);
             if (globalMatch) {
                 const [, cmd, val] = globalMatch;
                 handleGlobalBroadcastCommand(cmd, val);
@@ -2391,22 +2410,8 @@ function processUpdates(updates) {
                 if (window._hassleReloading) {
                     debugLog(`[${displayName}] /reload уже выполняется, игнорируем`);
                 } else {
-                    sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
-                    debugLog(`[${displayName}] Получена команда /reload, перезапуск...`);
-                    window._hassleReloading = true;
-                    setTimeout(() => {
-                        window._hassleReloading = false;
-                        try {
-                            if (typeof window.initializeScripts === 'function') {
-                                window.initializeScripts();
-                            } else {
-                                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
-                            }
-                        } catch (err) {
-                            window._hassleReloading = false;
-                            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
-                        }
-                    }, 800);
+                    // Отправляем broadcast — все боты получат и перезагрузятся
+                    broadcastGlobalCommand('reload', 'trigger');
                 }
             } else if (message === '/p_off') {
                 config.paydayNotifications = false;
@@ -3177,25 +3182,11 @@ function processUpdates(updates) {
                     sendToTelegram(`❌ <b>Ошибка получения инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
                 }
             } else if (message.startsWith('global_reload_script_')) {
-                // Кнопка "Перезагрузить скрипт" — работает как /reload
+                // Кнопка "Перезагрузить скрипт" — broadcast на все аккаунты
                 if (window._hassleReloading) {
                     debugLog(`[${displayName}] reload уже выполняется, игнорируем`);
                 } else {
-                    sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
-                    window._hassleReloading = true;
-                    setTimeout(() => {
-                        window._hassleReloading = false;
-                        try {
-                            if (typeof window.initializeScripts === 'function') {
-                                window.initializeScripts();
-                            } else {
-                                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
-                            }
-                        } catch (err2) {
-                            window._hassleReloading = false;
-                            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err2.message}</code>`, false, null);
-                        }
-                    }, 800);
+                    broadcastGlobalCommand('reload', 'trigger');
                 }
             }
             // Подтверждаем callback_query после обработки
@@ -4584,26 +4575,12 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 }
                 setTimeout(() => showHBControlsMenu(), 100);
             } else if (listitem === 4) {
-                // Перезагрузить скрипт
+                // Перезагрузить скрипт — broadcast на все аккаунты
                 if (window._hassleReloading) {
                     showScreenNotification("Hassle", "Перезагрузка уже выполняется...");
                 } else {
-                    showScreenNotification("Hassle", "Перезагрузка скрипта...");
-                    sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
-                    window._hassleReloading = true;
-                    setTimeout(() => {
-                        window._hassleReloading = false;
-                        try {
-                            if (typeof window.initializeScripts === 'function') {
-                                window.initializeScripts();
-                            } else {
-                                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
-                            }
-                        } catch (err) {
-                            window._hassleReloading = false;
-                            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
-                        }
-                    }, 800);
+                    showScreenNotification("Hassle", "Перезагрузка всех скриптов...");
+                    broadcastGlobalCommand('reload', 'trigger');
                 }
             } else if (RECONNECT_ENABLED_DEFAULT && listitem === 5) {
                 config.autoReconnectEnabled = !config.autoReconnectEnabled;
