@@ -1,4 +1,4 @@
-// ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
+\// ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
 // ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
 // 
 // Проблема: Когда работают несколько аккаунтов, все они создавали
@@ -463,13 +463,16 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // ║  Зависимости: debugLog                                   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SHARED STORAGE MODULE //
-// localStorage не работает в CEF-среде — используем in-memory переменную
-let _sharedLastUpdateId = 0;
+// localStorage не работает в CEF-среде — используем in-memory переменную на window,
+// чтобы значение выживало при перезапуске скрипта через /reload (иначе обнуляется → бесконечный reload)
+if (typeof window._sharedLastUpdateId === 'undefined') {
+    window._sharedLastUpdateId = 0;
+}
 function getSharedLastUpdateId() {
-    return _sharedLastUpdateId;
+    return window._sharedLastUpdateId;
 }
 function setSharedLastUpdateId(id) {
-    _sharedLastUpdateId = id;
+    window._sharedLastUpdateId = id;
     debugLog(`Обновлён shared lastUpdateId: ${id}`);
 }
 // END SHARED STORAGE MODULE //
