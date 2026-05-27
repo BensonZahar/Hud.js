@@ -1860,6 +1860,7 @@ function showControlsMenu(chatId, messageId) {
             [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
             [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
             [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
+            [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`)],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
@@ -3175,6 +3176,27 @@ function processUpdates(updates) {
                 } catch (err) {
                     sendToTelegram(`❌ <b>Ошибка получения инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
                 }
+            } else if (message.startsWith('global_reload_script_')) {
+                // Кнопка "Перезагрузить скрипт" — работает как /reload
+                if (window._hassleReloading) {
+                    debugLog(`[${displayName}] reload уже выполняется, игнорируем`);
+                } else {
+                    sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
+                    window._hassleReloading = true;
+                    setTimeout(() => {
+                        window._hassleReloading = false;
+                        try {
+                            if (typeof window.initializeScripts === 'function') {
+                                window.initializeScripts();
+                            } else {
+                                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
+                            }
+                        } catch (err2) {
+                            window._hassleReloading = false;
+                            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err2.message}</code>`, false, null);
+                        }
+                    }, 800);
+                }
             }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
@@ -4281,7 +4303,8 @@ function showHBControlsMenu() {
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}Функции", action: "local_functions" },
         { name: "{FFD700}> {FFFFFF}Общие функции", action: "global_functions" },
-        { name: "{FFD700}> {FFFFFF}Инфо об аккаунте", action: "account_info" }
+        { name: "{FFD700}> {FFFFFF}Инфо об аккаунте", action: "account_info" },
+        { name: "{FF6600}> {FFFFFF}Перезагрузить скрипт", action: "reload_script" }
     ];
     if (RECONNECT_ENABLED_DEFAULT) {
         const reconnectStatus = config.autoReconnectEnabled ? "{00FF00}[ВКЛ]" : "{FF0000}[ВЫКЛ]";
@@ -4560,7 +4583,29 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     sendToTelegram(`❌ <b>Ошибка инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
                 }
                 setTimeout(() => showHBControlsMenu(), 100);
-            } else if (RECONNECT_ENABLED_DEFAULT && listitem === 4) {
+            } else if (listitem === 4) {
+                // Перезагрузить скрипт
+                if (window._hassleReloading) {
+                    showScreenNotification("Hassle", "Перезагрузка уже выполняется...");
+                } else {
+                    showScreenNotification("Hassle", "Перезагрузка скрипта...");
+                    sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
+                    window._hassleReloading = true;
+                    setTimeout(() => {
+                        window._hassleReloading = false;
+                        try {
+                            if (typeof window.initializeScripts === 'function') {
+                                window.initializeScripts();
+                            } else {
+                                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
+                            }
+                        } catch (err) {
+                            window._hassleReloading = false;
+                            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${err.message}</code>`, false, null);
+                        }
+                    }, 800);
+                }
+            } else if (RECONNECT_ENABLED_DEFAULT && listitem === 5) {
                 config.autoReconnectEnabled = !config.autoReconnectEnabled;
                 const status = config.autoReconnectEnabled ? 'включен' : 'выключен';
                 showScreenNotification("Hassle", `Реконнект ${status}`);
