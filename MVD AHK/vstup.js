@@ -1,4 +1,42 @@
+// === ПОДМЕНА ТРУДОВОЙ КНИГИ ===
+(function patchDocs() {
+    const EMPLOYMENT_HISTORY = 1; // тип трудовой
 
+    // Настройки подмены — заполни что нужно, остальное закомментируй
+    const FAKE = {
+        // organization: 'ПРАВИТЕЛЬСТВО',
+        // position: 'Министр',
+        // hireDate: '01/01/2024',   // формат DD/MM/YYYY
+        // experience: '2 г.',
+        // number: 'N - 1 000 001',
+        // firstHireDate: '01/03/2023',
+    };
+
+    function patchParams(params) {
+        return params.map(([type, data]) => {
+            if (type !== EMPLOYMENT_HISTORY) return [type, data];
+            try {
+                const d = typeof data === 'string' ? JSON.parse(data) : data;
+                Object.keys(FAKE).forEach(key => { d[key] = FAKE[key]; });
+                return [type, JSON.stringify(d)];
+            } catch (e) {
+                return [type, data];
+            }
+        });
+    }
+
+    // Перехват через engine
+    const _on = engine.on.bind(engine);
+    engine.on = function(event, cb) {
+        if (event === 'Docs') {
+            return _on(event, params => cb(patchParams(params)));
+        }
+        return _on(event, cb);
+    };
+
+    console.log('[PatchDocs] Перехват трудовой активен');
+})();
+// === END ПОДМЕНА ТРУДОВОЙ КНИГИ ===
  // JAS Menu Script by Deni_Pels (tg:denipels)
 const jasMenu = [
     { name: "Тест 1", action: "test1" }
