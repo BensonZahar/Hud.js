@@ -263,6 +263,33 @@ function broadcastGlobalCommand(cmd, val) {
     debugLog(`[GLOBAL] Broadcast отправлен: ${cmd} = ${val}`);
 }
 
+// Перезагрузить ТЕКУЩИЙ аккаунт + broadcast для остальных
+// (боты не получают свои собственные сообщения, поэтому текущий перезагружаем напрямую)
+function reloadAllAccounts() {
+    if (window._hassleReloading) {
+        debugLog(`[RELOAD] Уже выполняется, игнорируем`);
+        return;
+    }
+    // Broadcast — другие аккаунты получат и перезагрузятся
+    reloadAllAccounts();
+    // Текущий аккаунт — перезагружаем сразу (не ждём своего же сообщения)
+    window._hassleReloading = true;
+    sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
+    setTimeout(() => {
+        window._hassleReloading = false;
+        try {
+            if (typeof window.initializeScripts === 'function') {
+                window.initializeScripts();
+            } else {
+                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
+            }
+        } catch (e) {
+            window._hassleReloading = false;
+            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${e.message}</code>`, false, null);
+        }
+    }, 800);
+}
+
 // Применить глобальную команду на текущем аккаунте
 function handleGlobalBroadcastCommand(cmd, val) {
     const isOn = val === 'on';
@@ -2407,12 +2434,7 @@ function processUpdates(updates) {
             }
             // Глобальные команды (работают на все аккаунты)
             if (message === '/reload') {
-                if (window._hassleReloading) {
-                    debugLog(`[${displayName}] /reload уже выполняется, игнорируем`);
-                } else {
-                    // Отправляем broadcast — все боты получат и перезагрузятся
-                    broadcastGlobalCommand('reload', 'trigger');
-                }
+                reloadAllAccounts();
             } else if (message === '/p_off') {
                 config.paydayNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null);
@@ -3182,12 +3204,8 @@ function processUpdates(updates) {
                     sendToTelegram(`❌ <b>Ошибка получения инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
                 }
             } else if (message.startsWith('global_reload_script_')) {
-                // Кнопка "Перезагрузить скрипт" — broadcast на все аккаунты
-                if (window._hassleReloading) {
-                    debugLog(`[${displayName}] reload уже выполняется, игнорируем`);
-                } else {
-                    broadcastGlobalCommand('reload', 'trigger');
-                }
+                // Кнопка "Перезагрузить скрипт" — текущий аккаунт + broadcast остальным
+                reloadAllAccounts();
             }
             // Подтверждаем callback_query после обработки
             answerCallbackQuery(callbackQueryId);
@@ -4575,13 +4593,9 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 }
                 setTimeout(() => showHBControlsMenu(), 100);
             } else if (listitem === 4) {
-                // Перезагрузить скрипт — broadcast на все аккаунты
-                if (window._hassleReloading) {
-                    showScreenNotification("Hassle", "Перезагрузка уже выполняется...");
-                } else {
-                    showScreenNotification("Hassle", "Перезагрузка всех скриптов...");
-                    broadcastGlobalCommand('reload', 'trigger');
-                }
+                // Перезагрузить скрипт — текущий + broadcast остальным
+                showScreenNotification("Hassle", "Перезагрузка всех скриптов...");
+                reloadAllAccounts();
             } else if (RECONNECT_ENABLED_DEFAULT && listitem === 5) {
                 config.autoReconnectEnabled = !config.autoReconnectEnabled;
                 const status = config.autoReconnectEnabled ? 'включен' : 'выключен';
