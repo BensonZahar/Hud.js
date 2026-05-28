@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AHK MVD Installer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-deep:#141414;--bg-dark:#272727;--bg-pad:#2e2e2e;--bg-light:#3d3d3d;--bg-hover:#474747;
+  --cream:#f4f1e1;--c80:rgba(244,241,225,.8);--c60:rgba(244,241,225,.6);--c30:rgba(244,241,225,.3);
+  --c15:rgba(244,241,225,.15);--c08:rgba(244,241,225,.08);
+  --accent:#0d73fd;--danger:#ea4f3d;--success:#3dea7a;--warn:#ffb74d;
+  --font:'Open Sans',sans-serif
+}
+html,body{width:100%;height:100%;overflow:hidden}
+body{
+  font-family:var(--font);font-size:13px;color:var(--cream);
+  background:var(--bg-deep);display:flex;align-items:center;
+  justify-content:center;user-select:none;-webkit-app-region:drag
+}
+.pad{
+  background:radial-gradient(236% 147% at 79% 0%,#313131 0%,#2e2e2e 20%,#282828 100%);
+  border-radius:10px;width:820px;height:480px;display:flex;
+  overflow:hidden;position:relative;border:.5px solid var(--c15);
+  box-shadow:0 24px 60px rgba(0,0,0,.7);-webkit-app-region:no-drag
+}
+.pad-close{
+  position:absolute;top:9px;right:9px;width:20px;height:20px;
+  background:var(--bg-hover);border-radius:50%;display:flex;
+  align-items:center;justify-content:center;cursor:pointer;z-index:100;
+  border:none;outline:none;transition:background .2s;flex-shrink:0
+}
+.pad-close::before,.pad-close::after{
+  content:'';position:absolute;width:8px;height:1.5px;
+  background:var(--cream);border-radius:1px
+}
+.pad-close::before{transform:rotate(45deg)}
+.pad-close::after{transform:rotate(-45deg)}
+.pad-close:hover{background:#fff}
+.pad-close:hover::before,.pad-close:hover::after{background:#474747}
+.sidebar{
+  width:190px;flex-shrink:0;background:rgba(0,0,0,.22);
+  border-right:.5px solid var(--c08);display:flex;flex-direction:column;padding:18px 0
+}
+.sb-logo{display:flex;align-items:center;padding:0 14px;margin-bottom:24px}
+.sb-logo-img{
+  width:32px;height:32px;border-radius:7px;
+  object-fit:cover;margin-right:10px;flex-shrink:0
+}
+.sb-logo-text{color:var(--cream);font-size:11px;font-weight:700;line-height:1.3}
+.sb-logo-text small{display:block;font-size:9px;opacity:.4;font-weight:400;letter-spacing:.03em}
+.sb-tabs{flex:1}
+.tab{
+  display:flex;align-items:center;padding:10px 14px;cursor:pointer;
+  transition:background .18s;position:relative;gap:10px
+}
+.tab:hover{background:var(--c08)}
+.tab.active{background:rgba(244,241,225,.1)}
+.tab.active::before{
+  content:'';position:absolute;left:0;top:0;width:2px;height:100%;
+  background:var(--accent);border-radius:0 1px 1px 0
+}
+.tab-ico{width:17px;height:17px;opacity:.5;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.tab.active .tab-ico{opacity:1}
+.tab-ico svg{width:15px;height:15px;stroke:var(--cream);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.tab-lbl{font-size:11px;color:var(--cream);opacity:.6;font-weight:600}
+.tab.active .tab-lbl{opacity:1}
+.sb-ver{padding:0 14px;font-size:9px;color:rgba(244,241,225,.2);margin-top:auto;line-height:1.6}
+.main{flex:1;padding:20px 22px;overflow-y:auto;display:flex;flex-direction:column}
+.page{display:none;flex-direction:column;flex:1;animation:pgIn .18s ease}
+.page.active{display:flex}
+@keyframes pgIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.pg-title{
+  font-size:13px;font-weight:700;color:var(--cream);margin-bottom:16px;
+  display:flex;align-items:center;gap:7px
+}
+.pg-title-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex-shrink:0}
+.card{background:var(--c08);border:.5px solid var(--c15);border-radius:6px;padding:12px;margin-bottom:12px}
+.card-row{
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:10px;gap:8px
+}
+.card-row+.card-row{margin-top:8px;padding-top:8px;border-top:.5px solid var(--c08)}
+.cr-lbl{color:var(--c60);flex-shrink:0}
+.cr-val{color:var(--cream);font-weight:600;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:380px;font-size:10px}
+.cr-val.ok{color:var(--success)}.cr-val.err{color:var(--danger)}.cr-val.muted{opacity:.4;font-weight:400}
+.path-row{display:flex;gap:8px;margin-bottom:12px}
+.path-disp{
+  flex:1;background:#1e1e1e;border:.5px solid var(--c15);border-radius:4px;
+  padding:0 10px;height:32px;font-size:10px;font-family:Consolas,monospace;
+  color:var(--c60);display:flex;align-items:center;overflow:hidden;
+  white-space:nowrap;text-overflow:ellipsis
+}
+.path-disp.set{color:var(--cream)}
+.btn{
+  height:32px;padding:0 14px;border:none;border-radius:3px;cursor:pointer;
+  font-size:11px;font-weight:700;font-family:var(--font);transition:all .18s;
+  display:inline-flex;align-items:center;justify-content:center;
+  gap:5px;letter-spacing:.02em;flex-shrink:0
+}
+.btn svg{width:11px;height:11px;stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#0a60d6}
+.btn-danger{background:var(--danger);color:#fff}
+.btn-danger:hover{background:#c43328}
+.btn-secondary{background:var(--bg-hover);color:var(--cream)}
+.btn-secondary:hover{background:#555}
+.btn-outline{background:transparent;color:var(--cream);border:.5px solid var(--c30)}
+.btn-outline:hover{background:var(--c08)}
+.btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.inp-grp{margin-bottom:10px}
+.inp-lbl{font-size:9px;color:var(--c60);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em}
+.inp{
+  width:100%;background:#474747;border:.5px solid var(--c15);border-radius:3px;
+  color:var(--cream);font-size:11px;height:32px;padding:0 10px;
+  transition:border .18s,box-shadow .18s;font-family:var(--font);outline:none
+}
+.inp:focus{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.inp::placeholder{color:rgba(244,241,225,.25)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.chk-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer}
+.chk-box{
+  width:15px;height:15px;background:#474747;border:.5px solid var(--c30);
+  border-radius:3px;flex-shrink:0;display:flex;align-items:center;
+  justify-content:center;transition:background .18s
+}
+.chk-box.on{background:var(--accent);border-color:var(--accent)}
+.chk-box svg{width:9px;height:9px;stroke:#fff;stroke-width:3;fill:none;opacity:0;transition:opacity .15s}
+.chk-box.on svg{opacity:1}
+.chk-lbl{font-size:11px;color:var(--c60);font-weight:500}
+.chk-row:hover .chk-lbl{color:var(--cream)}
+.cs-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:0;opacity:0}
+.cs-wrap.show{max-height:60px;opacity:1}
+.warn-box{
+  background:rgba(234,79,61,.08);border:.5px solid rgba(234,79,61,.25);
+  border-radius:6px;padding:12px;margin-bottom:16px
+}
+.warn-title{font-size:11px;font-weight:700;color:var(--danger);margin-bottom:5px;display:flex;align-items:center;gap:5px}
+.warn-title svg{width:12px;height:12px;stroke:currentColor;stroke-width:2.5;fill:none;flex-shrink:0}
+.warn-body{font-size:10px;color:var(--c60);line-height:1.55}
+.warn-body b{color:var(--cream)}
+.info-box{
+  background:rgba(13,115,253,.08);border:.5px solid rgba(13,115,253,.25);
+  border-radius:6px;padding:12px;margin-bottom:12px;
+  font-size:10px;color:var(--c60);line-height:1.6
+}
+.info-box b{color:var(--cream)}
+.pbar{height:2px;background:var(--c08);border-radius:1px;overflow:hidden;margin-top:8px;display:none}
+.pbar.show{display:block}
+.pbar-fill{height:100%;width:0;background:var(--accent);transition:width .3s;border-radius:1px}
+.steps{display:flex;gap:6px;margin-bottom:16px}
+.step{flex:1;height:3px;background:var(--c15);border-radius:2px;transition:background .3s}
+.step.done{background:var(--accent)}
+.step.cur{background:rgba(13,115,253,.45)}
+
+/* ── Status flash ─────────────────────────────── */
+.status-flash{
+  position:fixed;bottom:18px;right:18px;
+  padding:8px 14px;border-radius:5px;font-size:11px;font-weight:700;
+  opacity:0;pointer-events:none;transition:opacity .25s;z-index:999
+}
+.status-flash.ok{background:rgba(61,234,122,.15);border:.5px solid var(--success);color:var(--success)}
+.status-flash.err{background:rgba(234,79,61,.15);border:.5px solid var(--danger);color:var(--danger)}
+.status-flash.show{opacity:1}
+
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--c15);border-radius:2px}
+::-webkit-scrollbar-thumb:hover{background:var(--c30)}
+</style>
+</head>
+<body>
+<div class="pad">
+  <button class="pad-close" onclick="window.pywebview && pywebview.api ? pywebview.api.close_app() : window.close()" title="Закрыть"></button>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sb-logo">
+      <img class="sb-logo-img" src="__APP_ICON__" alt="">
+      <div class="sb-logo-text">AHK MVD<small>Installer v1.0</small></div>
+    </div>
+    <div class="sb-tabs">
+      <div class="tab active" onclick="setTab('home',this)">
+        <div class="tab-ico">
+          <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        </div>
+        <span class="tab-lbl">Главная</span>
+      </div>
+      <div class="tab" onclick="setTab('insert',this)">
+        <div class="tab-ico">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+        </div>
+        <span class="tab-lbl">Вставить AHK</span>
+      </div>
+      <div class="tab" onclick="setTab('remove',this)">
+        <div class="tab-ico">
+          <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+        </div>
+        <span class="tab-lbl">Удалить AHK</span>
+      </div>
+    </div>
+    <div class="sb-ver">RADMIR CRMP · MVD AHK<br>© 2025 BensonZahar</div>
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+
+    <!-- PAGE: Главная -->
+    <div class="page active" id="page-home">
+      <div class="pg-title"><div class="pg-title-dot"></div>Статус установщика</div>
+      <div class="card">
+        <div class="card-row">
+          <span class="cr-lbl">Папка RADMIR CRMP</span>
+          <span class="cr-val muted" id="st-folder">Не выбрана</span>
+        </div>
+        <div class="card-row">
+          <span class="cr-lbl">Файлы игры</span>
+          <span class="cr-val muted" id="st-index">Не проверены</span>
+        </div>
+        <div class="card-row">
+          <span class="cr-lbl">AHK MVD код</span>
+          <span class="cr-val muted" id="st-code">Не установлен</span>
+        </div>
+      </div>
+      <div class="path-row">
+        <div class="path-disp" id="path-disp">Папка не выбрана...</div>
+        <button class="btn btn-secondary" onclick="selectFolder()">
+          <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+          Выбрать
+        </button>
+      </div>
+      <div class="info-box">
+        Установщик вставляет <b>AHK MVD</b> код в вашу папку RADMIR CRMP.<br>
+        Выберите папку, затем перейдите в <b>Вставить AHK</b> и заполните данные сотрудника.
+      </div>
+      <div style="margin-top:auto">
+        <button class="btn btn-primary" onclick="setTab('insert',null)" style="width:100%">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+          Вставить AHK
+        </button>
+      </div>
+    </div>
+
+    <!-- PAGE: Вставить AHK -->
+    <div class="page" id="page-insert">
+      <div class="pg-title">
+        <div class="pg-title-dot" style="background:var(--accent)"></div>
+        Данные сотрудника МВД
+      </div>
+      <div class="steps">
+        <div class="step done" id="si0"></div>
+        <div class="step" id="si1"></div>
+        <div class="step" id="si2"></div>
+      </div>
+      <div class="inp-grp">
+        <div class="inp-lbl">Звание (на русском)</div>
+        <input class="inp" id="f-rank" placeholder="Подполковник" value="Подполковник" oninput="updateSteps()">
+      </div>
+      <div class="grid2">
+        <div class="inp-grp">
+          <div class="inp-lbl">Имя</div>
+          <input class="inp" id="f-fname" placeholder="Захар" value="Захар" oninput="updateSteps()">
+        </div>
+        <div class="inp-grp">
+          <div class="inp-lbl">Фамилия</div>
+          <input class="inp" id="f-lname" placeholder="Конст" value="Конст" oninput="updateSteps()">
+        </div>
+      </div>
+      <div class="chk-row" onclick="toggleCallsign()">
+        <div class="chk-box" id="chk-box">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <span class="chk-lbl">Позывной ОМОН</span>
+      </div>
+      <div class="cs-wrap" id="cs-wrap">
+        <div class="inp-grp">
+          <div class="inp-lbl">Позывной</div>
+          <input class="inp" id="f-callsign" placeholder="Напр. Гром-1">
+        </div>
+      </div>
+      <div class="pbar" id="pbar-insert"><div class="pbar-fill" id="pbar-insert-f"></div></div>
+      <div style="margin-top:auto;display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="doInsert()" style="flex:1" id="btn-insert">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+          Вставить код
+        </button>
+        <button class="btn btn-outline" onclick="setTab('home',null)">Назад</button>
+      </div>
+    </div>
+
+    <!-- PAGE: Удалить AHK -->
+    <div class="page" id="page-remove">
+      <div class="pg-title">
+        <div class="pg-title-dot" style="background:var(--danger)"></div>
+        Удаление AHK MVD
+      </div>
+      <div class="warn-box">
+        <div class="warn-title">
+          <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Внимание
+        </div>
+        <div class="warn-body">
+          Эта операция удалит AHK MVD код из вашей игры.<br>
+          Убедитесь, что выбрана правильная папка RADMIR CRMP перед продолжением.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-row">
+          <span class="cr-lbl">Папка</span>
+          <span class="cr-val muted" id="rm-folder">Не выбрана</span>
+        </div>
+        <div class="card-row">
+          <span class="cr-lbl">AHK MVD код</span>
+          <span class="cr-val muted" id="st-code-rm">Статус неизвестен</span>
+        </div>
+      </div>
+      <div class="pbar" id="pbar-remove"><div class="pbar-fill" id="pbar-remove-f"></div></div>
+      <div style="margin-top:auto;display:flex;gap:8px">
+        <button class="btn btn-danger" onclick="doRemove()" style="flex:1" id="btn-remove">
+          <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+          Удалить код
+        </button>
+        <button class="btn btn-outline" onclick="setTab('home',null)">Назад</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Status flash (без деталей) -->
+<div class="status-flash" id="status-flash"></div>
+
+<script>
+var folderSelected = false;
+var callsignOn = false;
+var api = null;
+
+window.addEventListener('pywebviewready', function() {
+  api = window.pywebview.api;
+});
+
+// ── Flash индикатор (без текста путей) ─────────
+function flash(ok) {
+  var el = document.getElementById('status-flash');
+  el.className = 'status-flash ' + (ok ? 'ok' : 'err');
+  el.textContent = ok ? '✓ Готово' : '✕ Ошибка';
+  el.classList.add('show');
+  setTimeout(function(){ el.classList.remove('show'); }, 2200);
+}
+
+// Вызывается из Python
+function setGlobalStatus(s) { flash(s === 'ok'); }
+
+// ── Вкладки ────────────────────────────────────
+function setTab(id, el) {
+  document.querySelectorAll('.tab').forEach(function(t){ t.classList.remove('active'); });
+  document.querySelectorAll('.page').forEach(function(p){
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
+  var pg = document.getElementById('page-' + id);
+  pg.style.display = 'flex';
+  setTimeout(function(){ pg.classList.add('active'); }, 10);
+  if (el) {
+    el.classList.add('active');
+  } else {
+    var map = { home:0, insert:1, remove:2 };
+    var tabs = document.querySelectorAll('.tab');
+    if (tabs[map[id]] !== undefined) tabs[map[id]].classList.add('active');
+  }
+}
+
+// ── Выбор папки ────────────────────────────────
+function selectFolder() {
+  if (!api) return;
+  api.select_folder().then(function(result) {
+    if (result) applyFolder();
+  });
+}
+
+// Вызывается из Python — без реального пути
+function applyFolder() {
+  folderSelected = true;
+  document.getElementById('path-disp').textContent = '● Папка выбрана';
+  document.getElementById('path-disp').classList.add('set');
+  document.getElementById('st-folder').textContent = 'Выбрана';
+  document.getElementById('st-folder').className = 'cr-val ok';
+  document.getElementById('st-index').textContent = 'Проверены';
+  document.getElementById('st-index').className = 'cr-val ok';
+  document.getElementById('rm-folder').textContent = 'Выбрана';
+  document.getElementById('rm-folder').className = 'cr-val ok';
+}
+
+// ── Позывной ────────────────────────────────────
+function toggleCallsign() {
+  callsignOn = !callsignOn;
+  document.getElementById('chk-box').classList.toggle('on', callsignOn);
+  document.getElementById('cs-wrap').classList.toggle('show', callsignOn);
+}
+
+// ── Шаги ────────────────────────────────────────
+function updateSteps() {
+  var r = document.getElementById('f-rank').value.trim();
+  var f = document.getElementById('f-fname').value.trim();
+  var l = document.getElementById('f-lname').value.trim();
+  var done = (r?1:0)+(f?1:0)+(l?1:0);
+  for (var i=0;i<3;i++){
+    var el=document.getElementById('si'+i);
+    el.className='step'+(i<done?' done':'')+(i===done-1&&done<3?' cur':'');
+  }
+}
+
+// ── Progress bar ────────────────────────────────
+function runBar(barId, fillId, dur, cb) {
+  var bar=document.getElementById(barId), fill=document.getElementById(fillId);
+  bar.classList.add('show'); fill.style.width='0%';
+  var start=Date.now();
+  var iv=setInterval(function(){
+    var pct=Math.min(100,(Date.now()-start)/dur*100);
+    fill.style.width=pct+'%';
+    if(pct>=100){
+      clearInterval(iv);
+      setTimeout(function(){ bar.classList.remove('show'); fill.style.width='0%'; if(cb)cb(); },200);
+    }
+  },25);
+}
+
+// ── Вставить ────────────────────────────────────
+function doInsert() {
+  if (!folderSelected) { flash(false); setTab('home',null); return; }
+  var rank=document.getElementById('f-rank').value.trim();
+  var fn=document.getElementById('f-fname').value.trim();
+  var ln=document.getElementById('f-lname').value.trim();
+  if (!rank||!fn||!ln) { flash(false); return; }
+  var cs=callsignOn ? document.getElementById('f-callsign').value.trim() : '';
+  var btn=document.getElementById('btn-insert');
+  btn.disabled=true;
+  runBar('pbar-insert','pbar-insert-f',3000);
+  if (api) {
+    api.insert_code(rank,fn,ln,cs,callsignOn).then(function(){
+      btn.disabled=false;
+    });
+  } else {
+    flash(false);
+    btn.disabled=false;
+  }
+}
+
+// ── Удалить ─────────────────────────────────────
+function doRemove() {
+  if (!folderSelected) { flash(false); setTab('home',null); return; }
+  var btn=document.getElementById('btn-remove');
+  btn.disabled=true;
+  runBar('pbar-remove','pbar-remove-f',1500);
+  if (api) {
+    api.remove_code().then(function(){
+      document.getElementById('st-code-rm').textContent='Не установлен';
+      document.getElementById('st-code-rm').className='cr-val muted';
+      btn.disabled=false;
+    });
+  } else {
+    flash(false);
+    btn.disabled=false;
+  }
+}
+
+// ── Init ─────────────────────────────────────────
+document.querySelectorAll('.page').forEach(function(p){
+  if (!p.classList.contains('active')) p.style.display='none';
+});
+updateSteps();
+</script>
+</body>
+</html>
