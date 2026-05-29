@@ -232,7 +232,7 @@ setTimeout(() => {
         console.log('❌ Не удалось получить начальный Skin ID');
     }
     trackSkinId();
-}, 3000);
+}, 500);
 const licenseTypes = [
     { name: "МВД", id: "mvd_main" }
 ];
@@ -1434,6 +1434,9 @@ window.sendChatInputCustom = e => {
     const args = e.split(" ");
     if (args[0] == "/dahk") {
         targetId = args[1];
+        // Получаем актуальный скин напрямую перед проверкой
+        const freshSkin = getSkinIdFromStore();
+        if (freshSkin !== null) skinId = Number(freshSkin);
         if (mvdSkins.includes(skinId)) {
             // Успешное открытие меню МВД
             try {
