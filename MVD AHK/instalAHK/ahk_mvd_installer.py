@@ -9,13 +9,12 @@ AHK_URL    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AH
 _ICON_B64  = globals().get("_ICON_B64", "")
 _ICON_PATH = globals().get("_ICON_PATH", "")
 
-# Файл сохранённых настроек — рядом с exe или в текущей папке
+# Файл сохранённых настроек — в %APPDATA%\AHK_MVD\
 def _settings_path() -> Path:
-    base = Path(getattr(sys, '_MEIPASS', os.path.abspath('.')))
-    # Для упакованного exe — рядом с самим exe, а не внутри _MEIPASS
-    if hasattr(sys, '_MEIPASS'):
-        base = Path(sys.executable).parent
-    return base / 'ahk_mvd_settings.json'
+    appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
+    folder = Path(appdata) / 'AHK_MVD'
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / 'settings.json'
 
 def load_settings() -> dict:
     try:
@@ -53,9 +52,18 @@ def fetch_html() -> str:
 
 class InstallerAPI:
     def __init__(self):
-        self.radmir_path: Path | None = None
-        self._window = None
         self._saved = load_settings()  # сохранённые настройки
+        # Восстанавливаем путь если он был сохранён и валиден
+        saved_path = self._saved.get('radmir_path', '')
+        if saved_path and Path(saved_path).exists():
+            p = Path(saved_path)
+            if (p / 'uiresources').exists() and (p / 'models').exists():
+                self.radmir_path = p
+            else:
+                self.radmir_path = None
+        else:
+            self.radmir_path = None
+        self._window = None
 
     def _set_status(self, eid, text, cls):
         if self._window:
@@ -100,12 +108,19 @@ class InstallerAPI:
 
     def get_saved_settings(self) -> dict:
         """Возвращает сохранённые настройки в JS при старте"""
-        return self._saved
+        result = dict(self._saved)
+        # Сообщаем JS валиден ли путь
+        result['path_valid'] = self.radmir_path is not None
+        return result
 
     def select_folder(self):
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
         if r and len(r):
             self.radmir_path = Path(r[0])
+            # Сохраняем путь сразу после выбора
+            current = load_settings()
+            current['radmir_path'] = str(self.radmir_path)
+            save_settings(current)
             return "✓"
         return None
 
@@ -135,14 +150,17 @@ class InstallerAPI:
             with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new)
             self._set_status("st-code","Установлен","cr-val ok")
             # Сохраняем настройки для следующего запуска
+            # Загружаем текущие настройки чтобы не затереть путь
+            current = load_settings()
             save_settings({
                 'rank': rank,
                 'first_name': first_name,
                 'last_name': last_name,
                 'callsign': callsign if use_callsign else '',
                 'use_callsign': bool(use_callsign),
-                'use_auto_password': bool(auto_password)
+                'use_auto_password': bool(auto_password),
                 # пароль намеренно не сохраняем — вводится каждый раз
+                'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', '')
             })
             self._notify(True)
         threading.Thread(target=run, daemon=True).start()
