@@ -121,6 +121,8 @@ body{
 }
 .inp:focus{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .inp::placeholder{color:rgba(244,241,225,.25)}
+.inp{user-select:text;-webkit-user-select:text}
+.inp-grp,.chk-row,.path-row,.card{user-select:text;-webkit-user-select:text}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .chk-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer}
 .chk-box{
@@ -258,16 +260,16 @@ body{
       </div>
       <div class="inp-grp">
         <div class="inp-lbl">Звание (на русском)</div>
-        <input class="inp" id="f-rank" placeholder="Подполковник" value="Подполковник" oninput="updateSteps()">
+        <input class="inp" id="f-rank" placeholder="Подполковник" oninput="updateSteps()">
       </div>
       <div class="grid2">
         <div class="inp-grp">
           <div class="inp-lbl">Имя</div>
-          <input class="inp" id="f-fname" placeholder="Захар" value="Захар" oninput="updateSteps()">
+          <input class="inp" id="f-fname" placeholder="Захар" oninput="updateSteps()">
         </div>
         <div class="inp-grp">
           <div class="inp-lbl">Фамилия</div>
-          <input class="inp" id="f-lname" placeholder="Конст" value="Конст" oninput="updateSteps()">
+          <input class="inp" id="f-lname" placeholder="Конст" oninput="updateSteps()">
         </div>
       </div>
       <div class="chk-row" onclick="toggleCallsign()">
@@ -354,6 +356,19 @@ var api = null;
 
 window.addEventListener('pywebviewready', function() {
   api = window.pywebview.api;
+  // Загружаем сохранённые настройки
+  api.get_saved_settings().then(function(s) {
+    if (!s) return;
+    if (s.rank)       { document.getElementById('f-rank').value  = s.rank;       updateSteps(); }
+    if (s.first_name) { document.getElementById('f-fname').value = s.first_name; updateSteps(); }
+    if (s.last_name)  { document.getElementById('f-lname').value = s.last_name;  updateSteps(); }
+    if (s.use_callsign && s.callsign) {
+      callsignOn = true;
+      document.getElementById('chk-box').classList.add('on');
+      document.getElementById('cs-wrap').classList.add('show');
+      document.getElementById('f-callsign').value = s.callsign;
+    }
+  }).catch(function(){});
 });
 
 // ── Flash индикатор (без текста путей) ─────────
