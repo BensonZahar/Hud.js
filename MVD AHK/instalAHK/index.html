@@ -121,8 +121,9 @@ body{
 }
 .inp:focus{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 .inp::placeholder{color:rgba(244,241,225,.25)}
-.inp{user-select:text;-webkit-user-select:text}
-.inp-grp,.chk-row,.path-row,.card{user-select:text;-webkit-user-select:text}
+.inp{user-select:text;-webkit-user-select:text;-webkit-app-region:no-drag}
+.inp-grp,.chk-row,.path-row,.card{user-select:text;-webkit-user-select:text;-webkit-app-region:no-drag}
+.btn,.main,.page,.sidebar{-webkit-app-region:no-drag}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .chk-row{display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer}
 .chk-box{
