@@ -172,7 +172,16 @@ const ukLines = [
     "{00FF00}7.3.{FFFFFF} Приобретение, сбыт, распространение наркотических веществ | {FF0000}4 года",
     "{00FF00}7.4.{FFFFFF} Производство, изготовление, выращивание наркотических веществ | {FF0000}3 года"
 ];
-// 2. ПЕРЕМЕННАЯ для хранения текущего скина
+// Маппинг статья УК → звёзды (из срока в годах/летах)
+const ukStarsMap = {};
+ukLines.forEach(line => {
+    const codeMatch = line.match(/\{00FF00\}([\d.]+)\.\{FFFFFF\}/);
+    const yearsMatch = line.match(/\{FF0000\}(\d+)\s*(год|года|лет)/);
+    if (codeMatch && yearsMatch) {
+        ukStarsMap[codeMatch[1]] = parseInt(yearsMatch[1]);
+    }
+});
+
 let skinId = null;
 // 3. Функция получения скина
 function getSkinIdFromStore() {
@@ -247,7 +256,7 @@ const povsednevOptions = [
     { name: "11. Конвоирование", action: "escort", needsId: true },
     { name: "12. Снятие розыска", action: "clearWanted", needsId: true },
     { name: "13. Выдача штрафа [/ticket]", action: "fine" },
-    { name: "14. Выдача розыска [/su]", action: "wantedFine" },
+    { name: "14. Выдача розыска [/su]", action: "wantedFine", needsId: true },
     { name: "15. Изъятие веществ", action: "confiscate", needsId: true },
     { name: "16. Разбитие стекла", action: "breakGlass", needsId: true },
     { name: "17. Снятие маски", action: "removeMask" },
@@ -666,12 +675,6 @@ const HandlePovsednevCommand = (optionIndex) => {
             setTimeout(() => {
                 showKoapTypeMenu(giveLicenseTo);
             }, 50);
-        } else if (option.action === "wantedFine") {
-            currentUkLines = [...ukLines];
-            ukPage = 0;
-            setTimeout(() => {
-                showUkInputDialog(giveLicenseTo);
-            }, 50);
         } else {
             executePovsednevAction(option.action, giveLicenseTo);
         }
@@ -801,10 +804,17 @@ const HandleUkInput = (input) => {
         return;
     }
     const parts = input.trim().split(/\s+/);
-    if (parts.length === 3) {
-        const [id, code, stars] = parts;
-        lastWantedCode = `${code} УК`;
-        sendChatInput(`/su ${id} ${stars}`);
+    if (parts.length === 2) {
+        const [id, code] = parts;
+        const stars = ukStarsMap[code];
+        if (stars !== undefined) {
+            lastWantedCode = `${code} УК`;
+            sendChatInput(`/su ${id} ${stars}`);
+        } else {
+            // статья не найдена в маппинге — показываем снова
+            console.log(`[УК] Статья ${code} не найдена в маппинге`);
+            setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
+        }
     } else if (lowerInput) {
         currentUkLines = ukLines.filter(l => l.toLowerCase().includes(lowerInput));
         setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
@@ -867,6 +877,10 @@ const executePovsednevAction = (action, targetId) => {
             ], [0, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]);
             break;
       
+        case "wantedFine":
+            sendChatInput(`/su ${targetId}`);
+            break;
+
         case "wanted":
             sendMessagesWithDelay([
                 "/me взял рацию в руки",
@@ -1245,7 +1259,7 @@ window.showUkInputDialog = (e) => {
         title += ' [Поиск]';
     }
     const text = getPaginatedUk();
-    window.addDialogInQueue(`[681,1,"${title}","Ввод: ID статья звёзды | Поиск: введи текст | Сброс: все","Подтвердить","Отмена",0,0]`, text, 0);
+    window.addDialogInQueue(`[681,1,"${title}","Ввод: ID статья | Поиск: введи текст | Сброс: все","Подтвердить","Отмена",0,0]`, text, 0);
 };
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
@@ -1550,19 +1564,32 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 const _roziskDialogId = dialogId;
                 console.log(`[AUTO-РОЗЫСК] Обнаружен INPUT диалог — авто-ввод причины "${reason}"`);
                 setTimeout(() => {
-                    // Сначала убираем диалог из очереди (закрываем UI)
-                    try {
-                        if (typeof window.removeDialogFromQueue === 'function') window.removeDialogFromQueue();
-                    } catch(e) { console.log('[AUTO-РОЗЫСК] removeDialogFromQueue:', e.message); }
-                    // Отправляем ответ серверу
-                    sendClientEvent(
+                    // Отправляем ответ серверу напрямую через оригинальный обработчик
+                    _origSendClientEventHandle.call(
+                        window,
                         (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
                             ? window.gm.EVENT_EXECUTE_PUBLIC
                             : 'server',
                         'OnDialogResponse', _roziskDialogId, 1, 0, reason
                     );
-                    console.log(`[AUTO-РОЗЫСК] Причина "${reason}" отправлена, диалог закрыт`);
+                    console.log(`[AUTO-РОЗЫСК] Причина "${reason}" отправлена`);
                     lastWantedCode = null;
+                    // Закрываем UI диалога несколькими способами
+                    setTimeout(() => {
+                        try { if (typeof window.removeDialogFromQueue === 'function') window.removeDialogFromQueue(); } catch(e) {}
+                        try { if (typeof window.closeDialog === 'function') window.closeDialog(); } catch(e) {}
+                        try {
+                            const dlgInterface = window.interface && window.interface('Dialog');
+                            if (dlgInterface && typeof dlgInterface.close === 'function') dlgInterface.close();
+                            if (dlgInterface && typeof dlgInterface.hide === 'function') dlgInterface.hide();
+                        } catch(e) {}
+                        // Эмулируем нажатие ESC для закрытия диалога
+                        try {
+                            const escEvent = new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true });
+                            document.dispatchEvent(escEvent);
+                        } catch(e) {}
+                        console.log('[AUTO-РОЗЫСК] Диалог закрыт');
+                    }, 100);
                 }, 300);
             }
         }
