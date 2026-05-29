@@ -96,6 +96,82 @@ const ppsKoapLines = [
     "{00FF00}40.1{FFFFFF} Подкуп избирателей, влечет наложение административного штрафа на граждан в размере от {FF0000}40.000 до 120.000{FFFFFF}, а так же арест до {FF0000}15 суток{FFFFFF}.",
     "{00FF00}40.2{FFFFFF} Агитация в день тишины, влечет наложение административного штрафа на граждан в размере от {FF0000}40.000 до 200.000{FFFFFF}, а так же арест до {FF0000}15 суток{FFFFFF}."
 ];
+// УК РФ статьи для розыска
+const ukLines = [
+    "{FFD700}Глава 1. Преступления против жизни и здоровья человека.",
+    "{00FF00}1.1.{FFFFFF} Нападение на гражданское лицо без использования оружия | {FF0000}2 года",
+    "{00FF00}1.1.1.{FFFFFF} Побои | {FF0000}1 год",
+    "{00FF00}1.1.2.{FFFFFF} Нападение на гражданское лицо с применением холодного оружия | {FF0000}3 года",
+    "{00FF00}1.1.3.{FFFFFF} Вооружённое нападение на гражданское лицо | {FF0000}4 года",
+    "{00FF00}1.2.{FFFFFF} Причинение смерти по неосторожности без оружия | {FF0000}1 год",
+    "{00FF00}1.2.1.{FFFFFF} Причинение смерти по неосторожности при управлении транспортом | {FF0000}2 года",
+    "{00FF00}1.3.{FFFFFF} Угроза причинения вреда здоровью (слова) | {FF0000}1 год",
+    "{00FF00}1.3.1.{FFFFFF} Угроза причинения вреда здоровью с использованием оружия | {FF0000}2 года",
+    "{00FF00}1.4.{FFFFFF} Изнасилование | {FF0000}2 года",
+    "{00FF00}1.5.{FFFFFF} Воспрепятствование оказанию медицинской помощи | {FF0000}2 года",
+    "",
+    "{FFD700}Глава 2. Преступления против свободы и чести личности.",
+    "{00FF00}2.1.{FFFFFF} Похищение человека | {FF0000}4 года",
+    "{00FF00}2.2.{FFFFFF} Клевета | {FF0000}2 года",
+    "",
+    "{FFD700}Глава 3. Преступление против собственности.",
+    "{00FF00}3.1.{FFFFFF} Кража | {FF0000}2 года",
+    "{00FF00}3.1.1.{FFFFFF} Разбой | {FF0000}3 года",
+    "{00FF00}3.2.{FFFFFF} Умышленное повреждение или порча частного имущества | {FF0000}2 года",
+    "{00FF00}3.2.1.{FFFFFF} Умышленное повреждение или порча государственного имущества | {FF0000}3 года",
+    "",
+    "{FFD700}Глава 4. Преступления против общественной безопасности.",
+    "{00FF00}4.1.{FFFFFF} Террористический акт | {FF0000}6 лет",
+    "{00FF00}4.1.1.{FFFFFF} Заведомо ложное сообщение об акте терроризма | {FF0000}3 года",
+    "{00FF00}4.2.{FFFFFF} Несообщение о преступлении | {FF0000}2 года",
+    "{00FF00}4.3.{FFFFFF} Массовые беспорядки | {FF0000}5 лет",
+    "{00FF00}4.4.{FFFFFF} Участие в несанкционированных митингах | {FF0000}2 года",
+    "{00FF00}4.4.1.{FFFFFF} Организация несанкционированного митинга | {FF0000}3 года",
+    "{00FF00}4.5.{FFFFFF} Ношение оружия в открытом виде | {FF0000}2 года",
+    "{00FF00}4.5.1.{FFFFFF} Ношение оружия в открытом виде в общественных местах | {FF0000}3 года",
+    "{00FF00}4.5.2.{FFFFFF} Ношение оружия и патронов без лицензии | {FF0000}2 года",
+    "{00FF00}4.5.3.{FFFFFF} Ношение оружия в открытом виде без лицензии | {FF0000}4 года",
+    "{00FF00}4.5.4.{FFFFFF} Ношение оружия в открытом виде в общественных местах без лицензии | {FF0000}5 лет",
+    "{00FF00}4.6.{FFFFFF} Незаконное приобретение/передача/изготовление оружия и боеприпасов | {FF0000}2 года",
+    "{00FF00}4.7.{FFFFFF} Помеха проведению мероприятий гос. структур | {FF0000}1 год",
+    "{00FF00}4.8.{FFFFFF} Проникновение на желтую зону | {FF0000}2 года",
+    "{00FF00}4.8.1.{FFFFFF} Проникновение на красную зону | {FF0000}4 года",
+    "{00FF00}4.8.2.{FFFFFF} Проникновение на частную территорию без разрешения | {FF0000}1 год",
+    "{00FF00}4.9.{FFFFFF} Соучастие в преступлении | {FF0000}3 года",
+    "{00FF00}4.9.1.{FFFFFF} Принуждение к совершению нарушения законодательства",
+    "",
+    "{FFD700}Глава 5. Преступления против сотрудников гос. организаций.",
+    "{00FF00}5.1.{FFFFFF} Нападение на сотрудника гос. организации при исполнении | {FF0000}4 года",
+    "{00FF00}5.1.1.{FFFFFF} Нападение на сотрудника силовых структур при исполнении | {FF0000}5 лет",
+    "{00FF00}5.1.2.{FFFFFF} Нападение на государственного деятеля при исполнении | {FF0000}6 лет",
+    "{00FF00}5.2.{FFFFFF} Неподчинение законному требованию сотрудника ПО или МО | {FF0000}1 год",
+    "{00FF00}5.2.1.{FFFFFF} Побег от сотрудников ПО | {FF0000}2 года",
+    "{00FF00}5.3.{FFFFFF} Создание помехи сотруднику ПО при исполнении | {FF0000}2 года",
+    "{00FF00}5.3.1.{FFFFFF} Провокация сотрудников правоохранительных органов | {FF0000}2 года",
+    "{00FF00}5.4.{FFFFFF} Оскорбление сотрудников ПО в грубой форме | {FF0000}1 год",
+    "{00FF00}5.5.{FFFFFF} Ложный вызов | {FF0000}2 года",
+    "{00FF00}5.6.{FFFFFF} Дача ложных показаний | {FF0000}2 года",
+    "{00FF00}5.7.{FFFFFF} Дача или попытка дачи взятки | {FF0000}3 года",
+    "{00FF00}5.8.{FFFFFF} Случайное разглашение государственной тайны | {FF0000}1 год",
+    "{00FF00}5.8.1.{FFFFFF} Намеренное разглашение/передача гос. тайны | {FF0000}3 года",
+    "{00FF00}5.9.{FFFFFF} Шпионаж | {FF0000}4 года",
+    "{00FF00}5.10.{FFFFFF} Присвоение полномочий должностного лица | {FF0000}3 года",
+    "",
+    "{FFD700}Глава 6. Преступления сотрудниками Гос. Организаций.",
+    "{00FF00}6.1.1.{FFFFFF} Укрывательство преступлений | {FF0000}2 года",
+    "{00FF00}6.2.{FFFFFF} Превышение должностных полномочий | {FF0000}2 года",
+    "{00FF00}6.3.{FFFFFF} Халатность | {FF0000}4 года",
+    "{00FF00}6.4.{FFFFFF} Разглашение сведений должностным лицом гос. тайны | {FF0000}4 года",
+    "{00FF00}6.5.{FFFFFF} Вооружённый мятеж | {FF0000}6 лет",
+    "{00FF00}6.6.{FFFFFF} Неоказание помощи больному | {FF0000}3 года",
+    "{00FF00}6.7.{FFFFFF} Дезертирство | {FF0000}3 года",
+    "{00FF00}6.8.{FFFFFF} Получение взятки должностным лицом | {FF0000}3 года",
+    "",
+    "{FFD700}Глава 7. Преступления, касаемо наркотических веществ.",
+    "{00FF00}7.2.{FFFFFF} Хранение или перевозка наркотических веществ | {FF0000}3 года",
+    "{00FF00}7.3.{FFFFFF} Приобретение, сбыт, распространение наркотических веществ | {FF0000}4 года",
+    "{00FF00}7.4.{FFFFFF} Производство, изготовление, выращивание наркотических веществ | {FF0000}3 года"
+];
 // 2. ПЕРЕМЕННАЯ для хранения текущего скина
 let skinId = null;
 // 3. Функция получения скина
@@ -161,17 +237,17 @@ const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
     { name: "3. Изучение документов", action: "studyDocuments" },
-    { name: "4. Объявление в розыск", action: "wanted", needsId: true },
-    { name: "5. Сканирование", action: "scanningTablet" },
-    { name: "6. Надевание наручников", action: "cuffing", needsId: true },
-    { name: "7. Посадка в машину", action: "putInCar", needsId: true },
-    { name: "8. Доставка в участок", action: "arrest", needsId: true },
-    { name: "9. Снятие наручников", action: "uncuffing", needsId: true },
-    { name: "10. Преследование преступника", action: "chase", needsId: true },
-    { name: "11. Обыск", action: "search", needsId: true },
-    { name: "12. Конвоирование", action: "escort", needsId: true },
-    { name: "13. Снятие розыска", action: "clearWanted", needsId: true },
-    { name: "14. Выдача штрафа [Самому /ticket]", action: "fine" },
+    { name: "4. Сканирование", action: "scanningTablet" },
+    { name: "5. Надевание наручников", action: "cuffing", needsId: true },
+    { name: "6. Посадка в машину", action: "putInCar", needsId: true },
+    { name: "7. Доставка в участок", action: "arrest", needsId: true },
+    { name: "8. Снятие наручников", action: "uncuffing", needsId: true },
+    { name: "9. Преследование преступника", action: "chase", needsId: true },
+    { name: "10. Обыск", action: "search", needsId: true },
+    { name: "11. Конвоирование", action: "escort", needsId: true },
+    { name: "12. Снятие розыска", action: "clearWanted", needsId: true },
+    { name: "13. Выдача штрафа [/ticket]", action: "fine" },
+    { name: "14. Выдача розыска [/su]", action: "wantedFine" },
     { name: "15. Изъятие веществ", action: "confiscate", needsId: true },
     { name: "16. Разбитие стекла", action: "breakGlass", needsId: true },
     { name: "17. Снятие маски", action: "removeMask" },
@@ -195,14 +271,14 @@ const trainingOptions = [
     { name: "2. Разминка рук", action: "trenya2" },
     { name: "3. Отжимания", action: "trenya3" },
     { name: "4. Бег по плацу", action: "trenya4" },
-    { name: "5. Восточное единоборство", action: "trenya5" },
-    { name: "6. Завершение тренировки", action: "trenya6" }
+    { name: "4. Восточное единоборство", action: "trenya5" },
+    { name: "4. Завершение тренировки", action: "trenya6" }
 ];
 const specialOptions = [
     { name: "1. Начало задания", action: "rp1" },
     { name: "2. Завершение задания", action: "rp2" }
 ];
-const ITEMS_PER_PAGE = 6;
+const ITEMS_PER_PAGE = 7;
 const KOAP_LINES_PER_PAGE = 50; // Для пагинации КоАП
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
 const messageFilters = [
@@ -242,12 +318,72 @@ let autoCuffEnabled = false;
 let currentKoapType = null;
 let koapPage = 0;
 let currentKoapLines = [];
+// Розыск (wanted) state
+let wantedStars = null;
+let ukPage = 0;
+let currentUkLines = [...ukLines];
+let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 // Обработчик горячих клавиш
 window.addEventListener('keydown', function(e) {
     if (e.altKey && e.key === '0') {
         sendChatInput('/dahk');
     }
 });
+
+// ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
+// Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
+// и вызывает OnMultiDialogClickNavigButton при их нажатии
+const PAGINATED_DIALOG_IDS = [667, 671, 672, 673, 674];
+let _lastPaginatedDialogId = null; // ID последнего открытого пагинированного диалога
+let _navPending = false; // флаг: A/D навигация обработана, блокируем следующий OnDialogResponse(response=0)
+
+// Перехватываем нативные A/D кнопки навигации TABLIST_HEADERS диалогов
+const _origSendClientEventHandle = window.sendClientEventHandle;
+window.sendClientEventHandle = function(event, ...args) {
+    if (args[0] === 'OnMultiDialogClickNavigButton') {
+        const direction = parseInt(args[1]); // 0 = назад (A), 1 = вперёд (D)
+        const dlgId = parseInt(args[2]);
+        if (PAGINATED_DIALOG_IDS.includes(dlgId)) {
+            _navPending = true;
+            setTimeout(() => { _navPending = false; }, 300); // сброс на случай если OnDialogResponse не пришёл
+            console.log(`[NAV] A/D dlg=${dlgId} dir=${direction}`);
+            if (direction === 1) {
+                // D — следующая страница
+                currentPage++;
+            } else {
+                // A — предыдущая страница или выход в родительское меню
+                if (currentPage > 0) {
+                    currentPage--;
+                } else {
+                    // Первая страница — выход назад
+                    currentPage = 0;
+                    if (dlgId === 667) {
+                        lastMenuType = null; currentMenu = null;
+                        setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                    } else if (dlgId === 671) {
+                        lastMenuType = null; currentMenu = null;
+                        setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                    } else if (dlgId === 672 || dlgId === 673 || dlgId === 674) {
+                        currentSubMenu = null;
+                        setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
+                    }
+                    return;
+                }
+            }
+            // Перезагружаем текущее меню с новой страницей
+            setTimeout(() => {
+                if (dlgId === 667) showPovsednevMenuPage(giveLicenseTo);
+                else if (dlgId === 671) showStroyMenuPage(giveLicenseTo);
+                else if (dlgId === 672) showLectureMenuPage(giveLicenseTo);
+                else if (dlgId === 673) showTrainingMenuPage(giveLicenseTo);
+                else if (dlgId === 674) showSpecialMenuPage(giveLicenseTo);
+            }, 50);
+            return;
+        }
+    }
+    return _origSendClientEventHandle.call(this, event, ...args);
+};
+// ==================== END A/D ====================
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
         const originalAddFunction = window.interface('Hud').$refs.chat.add;
@@ -344,22 +480,15 @@ const getPaginatedMenu = (options) => {
     const start = currentPage * ITEMS_PER_PAGE;
     const end = start + ITEMS_PER_PAGE;
     const pageItems = options.slice(start, end);
-    let menuList = "← Назад<n>";
+    // TABLIST_HEADERS: первая строка — заголовок колонки
+    let menuList = "Действие<n>";
     pageItems.forEach((option) => {
         menuList += `${option.name}<n>`;
     });
-    if ((currentPage + 1) * ITEMS_PER_PAGE < options.length) {
-        menuList += "Вперед →<n>";
-    }
     return menuList;
 };
 const getPaginatedKoap = () => {
-    const start = koapPage * KOAP_LINES_PER_PAGE;
-    const end = start + KOAP_LINES_PER_PAGE;
-    const pageLines = currentKoapLines.slice(start, end);
-    let text = pageLines.join("<n>");
-    text += "<n><n>Введите: ID Стоимость Код (пример: 221 1500 12.1)<n>Или 'вперед'/'назад' для навигации.<n>Для поиска введите слово/текст.<n>Для полного списка: 'все'";
-    return text;
+    return currentKoapLines.join("<n>");
 };
 // ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
 let currentNotificationId = 0;
@@ -520,32 +649,7 @@ const SendGiveLicenseCommand = (to, index) => {
     }
 };
 const HandlePovsednevCommand = (optionIndex) => {
-    const totalPages = Math.ceil(povsednevOptions.length / ITEMS_PER_PAGE);
-    const isBackButton = optionIndex === 0;
-    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-    if (isBackButton) {
-        if (currentPage > 0) {
-            currentPage--;
-            setTimeout(() => {
-                showPovsednevMenuPage(giveLicenseTo);
-            }, 50);
-        } else {
-            lastMenuType = null;
-            currentMenu = null;
-            setTimeout(() => {
-                showMvdSubMenu(giveLicenseTo);
-            }, 50);
-        }
-        return;
-    }
-    if (isForwardButton) {
-        currentPage++;
-        setTimeout(() => {
-            showPovsednevMenuPage(giveLicenseTo);
-        }, 50);
-        return;
-    }
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
     if (adjustedIndex >= 0 && adjustedIndex < povsednevOptions.length) {
         const option = povsednevOptions[adjustedIndex];
         currentAction = option.action;
@@ -562,38 +666,19 @@ const HandlePovsednevCommand = (optionIndex) => {
             setTimeout(() => {
                 showKoapTypeMenu(giveLicenseTo);
             }, 50);
+        } else if (option.action === "wantedFine") {
+            currentUkLines = [...ukLines];
+            ukPage = 0;
+            setTimeout(() => {
+                showUkInputDialog(giveLicenseTo);
+            }, 50);
         } else {
             executePovsednevAction(option.action, giveLicenseTo);
         }
     }
 };
 const HandleStroyCommand = (optionIndex) => {
-    const totalPages = Math.ceil(stroyOptions.length / ITEMS_PER_PAGE);
-    const isBackButton = optionIndex === 0;
-    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-    if (isBackButton) {
-        if (currentPage > 0) {
-            currentPage--;
-            setTimeout(() => {
-                showStroyMenuPage(giveLicenseTo);
-            }, 50);
-        } else {
-            lastMenuType = null;
-            currentMenu = null;
-            setTimeout(() => {
-                showMvdSubMenu(giveLicenseTo);
-            }, 50);
-        }
-        return;
-    }
-    if (isForwardButton) {
-        currentPage++;
-        setTimeout(() => {
-            showStroyMenuPage(giveLicenseTo);
-        }, 50);
-        return;
-    }
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
     if (adjustedIndex >= 0 && adjustedIndex < stroyOptions.length) {
         const option = stroyOptions[adjustedIndex];
         currentStroyAction = option.action;
@@ -659,96 +744,21 @@ const HandleMvdSubCommand = (index) => {
     }
 };
 const HandleLectureCommand = (optionIndex) => {
-    const totalPages = Math.ceil(lectureOptions.length / ITEMS_PER_PAGE);
-    const isBackButton = optionIndex === 0;
-    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-    if (isBackButton) {
-        if (currentPage > 0) {
-            currentPage--;
-            setTimeout(() => {
-                showLectureMenuPage(giveLicenseTo);
-            }, 50);
-        } else {
-            currentSubMenu = null;
-            currentPage = 0;
-            setTimeout(() => {
-                showStroyMenuPage(giveLicenseTo);
-            }, 50);
-        }
-        return;
-    }
-    if (isForwardButton) {
-        currentPage++;
-        setTimeout(() => {
-            showLectureMenuPage(giveLicenseTo);
-        }, 50);
-        return;
-    }
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
     if (adjustedIndex >= 0 && adjustedIndex < lectureOptions.length) {
         const option = lectureOptions[adjustedIndex];
         executeStroyAction(option.action);
     }
 };
 const HandleTrainingCommand = (optionIndex) => {
-    const totalPages = Math.ceil(trainingOptions.length / ITEMS_PER_PAGE);
-    const isBackButton = optionIndex === 0;
-    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-    if (isBackButton) {
-        if (currentPage > 0) {
-            currentPage--;
-            setTimeout(() => {
-                showTrainingMenuPage(giveLicenseTo);
-            }, 50);
-        } else {
-            currentSubMenu = null;
-            currentPage = 0;
-            setTimeout(() => {
-                showStroyMenuPage(giveLicenseTo);
-            }, 50);
-        }
-        return;
-    }
-    if (isForwardButton) {
-        currentPage++;
-        setTimeout(() => {
-            showTrainingMenuPage(giveLicenseTo);
-        }, 50);
-        return;
-    }
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
     if (adjustedIndex >= 0 && adjustedIndex < trainingOptions.length) {
         const option = trainingOptions[adjustedIndex];
         executeStroyAction(option.action);
     }
 };
 const HandleSpecialCommand = (optionIndex) => {
-    const totalPages = Math.ceil(specialOptions.length / ITEMS_PER_PAGE);
-    const isBackButton = optionIndex === 0;
-    const isForwardButton = optionIndex === ITEMS_PER_PAGE + 1 && currentPage < totalPages - 1;
-    if (isBackButton) {
-        if (currentPage > 0) {
-            currentPage--;
-            setTimeout(() => {
-                showSpecialMenuPage(giveLicenseTo);
-            }, 50);
-        } else {
-            currentSubMenu = null;
-            currentPage = 0;
-            setTimeout(() => {
-                showStroyMenuPage(giveLicenseTo);
-            }, 50);
-        }
-        return;
-    }
-    if (isForwardButton) {
-        currentPage++;
-        setTimeout(() => {
-            showSpecialMenuPage(giveLicenseTo);
-        }, 50);
-        return;
-    }
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex - 1;
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
     if (adjustedIndex >= 0 && adjustedIndex < specialOptions.length) {
         const option = specialOptions[adjustedIndex];
         executeStroyAction(option.action);
@@ -768,54 +778,36 @@ const HandleKoapTypeCommand = (index) => {
 };
 const HandleKoapInput = (input) => {
     const lowerInput = input.toLowerCase().trim();
-    const totalPages = Math.ceil(currentKoapLines.length / KOAP_LINES_PER_PAGE);
-    if (lowerInput === 'вперед' || lowerInput === 'next') {
-        if (koapPage < totalPages - 1) {
-            koapPage++;
-            setTimeout(() => {
-                showKoapInputDialog(giveLicenseTo);
-            }, 50);
-        }
-        return;
-    } else if (lowerInput === 'назад' || lowerInput === 'back') {
-        if (koapPage > 0) {
-            koapPage--;
-            setTimeout(() => {
-                showKoapInputDialog(giveLicenseTo);
-            }, 50);
-        }
-        return;
-    } else if (lowerInput === 'все' || lowerInput === 'all') {
+    if (lowerInput === 'все' || lowerInput === 'all') {
         currentKoapLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
-        koapPage = 0;
-        setTimeout(() => {
-            showKoapInputDialog(giveLicenseTo);
-        }, 50);
+        setTimeout(() => { showKoapInputDialog(giveLicenseTo); }, 50);
         return;
-    } else {
-        const parts = input.trim().split(/\s+/);
-        if (parts.length === 3) {
-            const [id, cost, code] = parts;
-            sendChatInput(`/ticket ${id} ${cost} ${code} КоАП`);
-            // Опционально: RP действия для штрафа
-            sendMessagesWithDelay([
-                "/me достал планшет",
-                "/do Планшет в руке.",
-                "/me записал данные о нарушении и нарушителе",
-                "/do Данные заполнены.",
-                "/me отправил данные в базу данных",
-                "/do Данные отправлены.",
-                "/me убрал планшет"
-            ], [0, 1000, 1000, 1000, 1000, 1000, 1000]);
-        } else if (lowerInput) {
-            // Поиск по тексту
-            const originalLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
-            currentKoapLines = originalLines.filter(l => l.toLowerCase().includes(lowerInput));
-            koapPage = 0;
-            setTimeout(() => {
-                showKoapInputDialog(giveLicenseTo);
-            }, 50);
-        }
+    }
+    const parts = input.trim().split(/\s+/);
+    if (parts.length === 3) {
+        const [id, cost, code] = parts;
+        sendChatInput(`/ticket ${id} ${cost} ${code} КоАП`);
+    } else if (lowerInput) {
+        const originalLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
+        currentKoapLines = originalLines.filter(l => l.toLowerCase().includes(lowerInput));
+        setTimeout(() => { showKoapInputDialog(giveLicenseTo); }, 50);
+    }
+};
+const HandleUkInput = (input) => {
+    const lowerInput = input.toLowerCase().trim();
+    if (lowerInput === 'все' || lowerInput === 'all') {
+        currentUkLines = [...ukLines];
+        setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
+        return;
+    }
+    const parts = input.trim().split(/\s+/);
+    if (parts.length === 3) {
+        const [id, code, stars] = parts;
+        lastWantedCode = `${code} УК`;
+        sendChatInput(`/su ${id} ${stars}`);
+    } else if (lowerInput) {
+        currentUkLines = ukLines.filter(l => l.toLowerCase().includes(lowerInput));
+        setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
     }
 };
 const executePovsednevAction = (action, targetId) => {
@@ -1157,8 +1149,9 @@ window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "povsednev";
     const menuList = getPaginatedMenu(povsednevOptions);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < povsednevOptions.length ? 1 : 0;
     window.addDialogInQueue(
-        `[667,2,"Повседневная (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        `[667,5,"Повседневная (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
         menuList,
         0
     );
@@ -1167,8 +1160,9 @@ window.showStroyMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "stroy";
     const menuList = getPaginatedMenu(stroyOptions);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < stroyOptions.length ? 1 : 0;
     window.addDialogInQueue(
-        `[671,2,"Строй (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        `[671,5,"Строй (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
         menuList,
         0
     );
@@ -1176,8 +1170,9 @@ window.showStroyMenuPage = (e) => {
 window.showLectureMenuPage = (e) => {
     giveLicenseTo = e;
     const menuList = getPaginatedMenu(lectureOptions);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < lectureOptions.length ? 1 : 0;
     window.addDialogInQueue(
-        `[672,2,"Лекция (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        `[672,5,"Лекция (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
         menuList,
         0
     );
@@ -1185,8 +1180,9 @@ window.showLectureMenuPage = (e) => {
 window.showTrainingMenuPage = (e) => {
     giveLicenseTo = e;
     const menuList = getPaginatedMenu(trainingOptions);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < trainingOptions.length ? 1 : 0;
     window.addDialogInQueue(
-        `[673,2,"Тренировка (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        `[673,5,"Тренировка (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
         menuList,
         0
     );
@@ -1194,8 +1190,9 @@ window.showTrainingMenuPage = (e) => {
 window.showSpecialMenuPage = (e) => {
     giveLicenseTo = e;
     const menuList = getPaginatedMenu(specialOptions);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < specialOptions.length ? 1 : 0;
     window.addDialogInQueue(
-        `[674,2,"Спец.Задание (Стр. ${currentPage + 1})","","Выбрать","Отмена",0,0]`,
+        `[674,5,"Спец.Задание (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
         menuList,
         0
     );
@@ -1227,12 +1224,28 @@ window.showKoapTypeMenu = (e) => {
 window.showKoapInputDialog = (e) => {
     giveLicenseTo = e;
     const typeUpper = currentKoapType.toUpperCase();
-    let title = `${typeUpper === 'DPS' ? 'ДПС' : 'ППС'} КоАП (Стр. ${koapPage + 1})`;
+    let title = `${typeUpper === 'DPS' ? 'ДПС' : 'ППС'} КоАП`;
     if (currentKoapLines.length < (currentKoapType === 'dps' ? dpsKoapLines.length : ppsKoapLines.length)) {
-        title += " [Поиск]";
+        title += ' [Поиск]';
     }
     const text = getPaginatedKoap();
-    window.addDialogInQueue(`[679,1,"${title}","","Подтвердить","Отмена",0,0]`, text, 0);
+    window.addDialogInQueue(`[679,1,"${title}","Ввод: ID статья сумма | Поиск: введи текст | Сброс: все","Подтвердить","Отмена",0,0]`, text, 0);
+};
+window.showWantedStarsInputDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[680,1,"Розыск — Кол-во звёзд","Введите количество звёзд (1-6):","Далее","Отмена",0,0]`, "", 0);
+};
+const getPaginatedUk = () => {
+    return currentUkLines.join('<n>');
+};
+window.showUkInputDialog = (e) => {
+    giveLicenseTo = e;
+    let title = `УК РФ`;
+    if (currentUkLines.length < ukLines.length) {
+        title += ' [Поиск]';
+    }
+    const text = getPaginatedUk();
+    window.addDialogInQueue(`[681,1,"${title}","Ввод: ID статья звёзды | Поиск: введи текст | Сброс: все","Подтвердить","Отмена",0,0]`, text, 0);
 };
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
@@ -1252,7 +1265,7 @@ window.showMinuteInputDialog = (e) => {
 };
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`Событие: ${event}, Аргументы:`, args);
-    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 679)) {
+    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 681)) {
         if (args[1] === 666) { // Главное меню
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
@@ -1266,6 +1279,15 @@ window.sendClientEventCustom = (event, ...args) => {
             const optionIndex = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandlePovsednevCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                // ESC — возврат в МВД подменю
+                currentPage = 0;
+                lastMenuType = null; currentMenu = null;
+                setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                return;
             }
         }
         else if (args[1] === 668) { // Диалог ввода ID
@@ -1292,24 +1314,56 @@ window.sendClientEventCustom = (event, ...args) => {
             const optionIndex = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleStroyCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                currentPage = 0;
+                lastMenuType = null; currentMenu = null;
+                setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                return;
             }
         }
         else if (args[1] === 672) { // Меню Лекция
             const optionIndex = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleLectureCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                currentPage = 0;
+                currentSubMenu = null;
+                setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
+                return;
             }
         }
         else if (args[1] === 673) { // Меню Тренировка
             const optionIndex = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleTrainingCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                currentPage = 0;
+                currentSubMenu = null;
+                setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
+                return;
             }
         }
         else if (args[1] === 674) { // Меню Спец.Задание
             const optionIndex = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleSpecialCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                currentPage = 0;
+                currentSubMenu = null;
+                setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
+                return;
             }
         }
         else if (args[1] === 675) { // Ввод часа
@@ -1348,6 +1402,14 @@ window.sendClientEventCustom = (event, ...args) => {
             const input = args[4];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleKoapInput(input);
+            }
+        }
+        else if (args[1] === 681) { // Input для УК (розыск)
+            const input = args[4];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleUkInput(input);
+            } else {
+                wantedStars = null;
             }
         }
     } else {
@@ -1413,60 +1475,102 @@ function sendMessagesWithDelay(messages, delays, index = 0) {
 
 sendChatInput = sendChatInputCustom;
 sendClientEvent = sendClientEventCustom;
-/*// ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
-const originalSendChatInput = window.sendChatInputCustom || sendChatInput;
-window.sendChatInputCustom = function(e) {
-    const args = e.trim().split(" ");
-    // ===================== /test — ScreenNotification =====================
-    if (args[0] === "/test") {
-        try {
-            window.interface('ScreenNotification').add(
-                '[0, "Тест уведомления", "Это тестовый текст\nс переносом строки", "FF66FF", 5000]'
+
+
+
+
+// ==================== DIALOG MONITOR (console only) ====================
+// Перехват серверных диалогов — вывод в консоль + авто-действия
+
+// Флаг: ожидаем INPUT диалог розыска после выбора "ввести вручную"
+let _awaitingRoziskInput = false;
+
+const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
+window.addDialogInQueue = function(dialogParams, content, priority) {
+    try {
+        if (dialogParams && typeof dialogParams === 'string') {
+            const parsed = JSON.parse(dialogParams.trim());
+            const dialogId = parseInt(parsed[0]);
+            const style    = parseInt(parsed[1]);
+            const title    = (parsed[2] || '').replace(/\{[A-Fa-f0-9]{6}\}/g, '');
+            const info     = (parsed[3] || '').replace(/\{[A-Fa-f0-9]{6}\}/g, '');
+            const button1  = (parsed[4] || '');
+            const button2  = (parsed[5] || '');
+
+            const styleNames = {0:'MSGBOX', 1:'INPUT', 2:'LIST', 3:'PASSWORD', 4:'TABLIST', 5:'TABLIST_HEADERS'};
+
+            let contentText = '';
+            if (content) {
+                const raw = Array.isArray(content) ? content.join('') : String(content);
+                contentText = raw
+                    .replace(/<t>/gi, ' | ')
+                    .replace(/\{[A-Fa-f0-9]{6}\}/g, '')
+                    .replace(/<br\s*\/?>/gi, '\n')
+                    .replace(/<[^>]+>/g, '')
+                    .split('<n>').join('\n')
+                    .trim();
+            }
+
+            console.log(
+                `[DIALOG] id=${dialogId} style=${styleNames[style] || style}\n` +
+                `  Заголовок: ${title}\n` +
+                `  Инфо: ${info}\n` +
+                (contentText ? `  Контент:\n${contentText.split('\n').map(l => '    ' + l).join('\n')}\n` : '') +
+                `  Кнопки: [${button1}] [${button2}]`
             );
-            console.log('[TEST] ScreenNotification отправлен');
-        } catch (err) {
-            console.error('[TEST] Ошибка ScreenNotification:', err);
+
+            // ── Трекинг пагинированных диалогов для Q/E перелистывания ──
+            if (PAGINATED_DIALOG_IDS.includes(dialogId)) {
+                _lastPaginatedDialogId = dialogId;
+                console.log(`[Q/E] Открыт пагинированный диалог ${dialogId}`);
+            } else {
+                _lastPaginatedDialogId = null;
+            }
+
+            // ── Авто-розыск: LIST "Причина выдачи розыска" → выбрать "Ввести вручную" ──
+            if (style === 2 && title.includes('Причина выдачи розыска')) {
+                console.log('[AUTO-РОЗЫСК] Обнаружен диалог выбора причины — авто-выбор "Ввести в ручную"');
+                _awaitingRoziskInput = true;
+                setTimeout(() => {
+                    // listitem=1 — второй пункт ("Ввести причину в ручную"), response=1
+                    sendClientEvent(
+                        (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+                            ? window.gm.EVENT_EXECUTE_PUBLIC
+                            : 'server',
+                        'OnDialogResponse', dialogId, 1, 1, ''
+                    );
+                    console.log('[AUTO-РОЗЫСК] Отправлен выбор пункта 2 (ввести вручную)');
+                }, 200);
+            }
+
+            // ── Авто-розыск: INPUT "Причина выдачи розыска" → вставить причину и закрыть диалог ──
+            if (style === 1 && title.includes('Причина выдачи розыска') && _awaitingRoziskInput) {
+                _awaitingRoziskInput = false;
+                const reason = lastWantedCode || '1.1 УК';
+                const _roziskDialogId = dialogId;
+                console.log(`[AUTO-РОЗЫСК] Обнаружен INPUT диалог — авто-ввод причины "${reason}"`);
+                setTimeout(() => {
+                    // Сначала убираем диалог из очереди (закрываем UI)
+                    try {
+                        if (typeof window.removeDialogFromQueue === 'function') window.removeDialogFromQueue();
+                    } catch(e) { console.log('[AUTO-РОЗЫСК] removeDialogFromQueue:', e.message); }
+                    // Отправляем ответ серверу
+                    sendClientEvent(
+                        (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+                            ? window.gm.EVENT_EXECUTE_PUBLIC
+                            : 'server',
+                        'OnDialogResponse', _roziskDialogId, 1, 0, reason
+                    );
+                    console.log(`[AUTO-РОЗЫСК] Причина "${reason}" отправлена, диалог закрыт`);
+                    lastWantedCode = null;
+                }, 300);
+            }
         }
-        return;
+    } catch (err) {
+        console.error('[DIALOG] Ошибка перехвата:', err.message);
     }
-    // ===================== /test2 — GameText =====================
-    if (args[0] === "/test2") {
-        try {
-            window.interface('GameText').add(
-                '[0, "Большой GameText~n~~r~Красный~w~ и ~g~зелёный~w~ текст", 6000, 0, 0, 1, 1, 3.5]'
-            );
-            console.log('[TEST2] GameText отправлен');
-        } catch (err) {
-            console.error('[TEST2] Ошибка GameText:', err);
-        }
-        return;
-    }
-    // Для всех остальных команд — передаём дальше
-    if (typeof originalSendChatInput === 'function') {
-        originalSendChatInput(e);
-    }
+    return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
 };
-sendChatInput = window.sendChatInputCustom;
-console.log('[TEST COMMANDS] /test и /test2 успешно загружены!');
-// ==================== Все режимы ====================
-// ScreenNotification:
-// Формат: [позиция, "Заголовок", "Текст\nперенос", "ЦветHEX", время_мс]
-// Позиции:
-// 0 — Сверху (top)
-// 1 — Слева (left)
-// 2 — Снизу (bottom)
-// GameText:
-// Формат: [тип, "Текст~n~перенос~~r~цвет", длительность, offset, keyCode, force, звук, размер]
-// Типы (0-4):
-// 0 — Центр экрана (center-type)
-// 1 — Верх экрана (top-type)
-// 2 — Справа внизу (right-type)
-// 3 — Низ экрана (bottom-type)
-// 4 — Центр + ожидание клавиши (key-type)
-// Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
-*/
 
-
-
-
-
+console.log('[DIALOG MONITOR] Загружен. Все диалоги выводятся в консоль.');
+// ==================== END DIALOG MONITOR ====================
