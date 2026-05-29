@@ -368,10 +368,25 @@ window.addEventListener('pywebviewready', function() {
       document.getElementById('cs-wrap').classList.add('show');
       document.getElementById('f-callsign').value = s.callsign;
     }
+    // Восстанавливаем путь если он валиден
+    if (s.path_valid) {
+      folderSelected = true;
+      document.getElementById('path-disp').textContent = '● Папка выбрана';
+      document.getElementById('path-disp').classList.add('set');
+      document.getElementById('st-folder').textContent = 'Выбрана';
+      document.getElementById('st-folder').className = 'cr-val ok';
+      document.getElementById('st-index').textContent = 'Проверены';
+      document.getElementById('st-index').className = 'cr-val ok';
+      document.getElementById('rm-folder').textContent = 'Выбрана';
+      document.getElementById('rm-folder').className = 'cr-val ok';
+    }
   }).catch(function(){});
 });
 
 // ── Flash индикатор (без текста путей) ─────────
+var _pendingFlash = null;  // pending статус пока бар не кончился
+var _barRunning   = false; // бар сейчас крутится
+
 function flash(ok) {
   var el = document.getElementById('status-flash');
   el.className = 'status-flash ' + (ok ? 'ok' : 'err');
@@ -380,8 +395,14 @@ function flash(ok) {
   setTimeout(function(){ el.classList.remove('show'); }, 2200);
 }
 
-// Вызывается из Python
-function setGlobalStatus(s) { flash(s === 'ok'); }
+// Вызывается из Python — откладываем до конца бара
+function setGlobalStatus(s) {
+  if (_barRunning) {
+    _pendingFlash = s;
+  } else {
+    flash(s === 'ok');
+  }
+}
 
 // ── Вкладки ────────────────────────────────────
 function setTab(id, el) {
@@ -453,13 +474,21 @@ function updateSteps() {
 function runBar(barId, fillId, dur, cb) {
   var bar=document.getElementById(barId), fill=document.getElementById(fillId);
   bar.classList.add('show'); fill.style.width='0%';
+  _barRunning = true;
+  _pendingFlash = null;
   var start=Date.now();
   var iv=setInterval(function(){
     var pct=Math.min(100,(Date.now()-start)/dur*100);
     fill.style.width=pct+'%';
     if(pct>=100){
       clearInterval(iv);
-      setTimeout(function(){ bar.classList.remove('show'); fill.style.width='0%'; if(cb)cb(); },200);
+      setTimeout(function(){
+        bar.classList.remove('show'); fill.style.width='0%';
+        _barRunning = false;
+        // Показываем flash который пришёл пока бар крутился
+        if (_pendingFlash !== null) { flash(_pendingFlash === 'ok'); _pendingFlash = null; }
+        if(cb)cb();
+      },200);
     }
   },25);
 }
