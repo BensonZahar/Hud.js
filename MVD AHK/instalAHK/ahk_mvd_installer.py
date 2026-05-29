@@ -1,4 +1,4 @@
-import os, sys, random, string, threading, tempfile, requests
+import os, sys, random, string, threading, tempfile, requests, json
 from pathlib import Path
 import webview
 
@@ -8,6 +8,30 @@ AHK_URL    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AH
 # Иконка и путь к ico передаются из launcher через exec namespace
 _ICON_B64  = globals().get("_ICON_B64", "")
 _ICON_PATH = globals().get("_ICON_PATH", "")
+
+# Файл сохранённых настроек — рядом с exe или в текущей папке
+def _settings_path() -> Path:
+    base = Path(getattr(sys, '_MEIPASS', os.path.abspath('.')))
+    # Для упакованного exe — рядом с самим exe, а не внутри _MEIPASS
+    if hasattr(sys, '_MEIPASS'):
+        base = Path(sys.executable).parent
+    return base / 'ahk_mvd_settings.json'
+
+def load_settings() -> dict:
+    try:
+        p = _settings_path()
+        if p.exists():
+            return json.loads(p.read_text(encoding='utf-8'))
+    except Exception:
+        pass
+    return {}
+
+def save_settings(data: dict):
+    try:
+        p = _settings_path()
+        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    except Exception:
+        pass
 
 
 def resource_path(rel):
@@ -31,6 +55,7 @@ class InstallerAPI:
     def __init__(self):
         self.radmir_path: Path | None = None
         self._window = None
+        self._saved = load_settings()  # сохранённые настройки
 
     def _set_status(self, eid, text, cls):
         if self._window:
@@ -73,6 +98,10 @@ class InstallerAPI:
             if ei != -1: content = content[:si]+content[ei+len(E):]
         return content.rstrip()+'\n'
 
+    def get_saved_settings(self) -> dict:
+        """Возвращает сохранённые настройки в JS при старте"""
+        return self._saved
+
     def select_folder(self):
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
         if r and len(r):
@@ -105,6 +134,16 @@ class InstallerAPI:
             new = new.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
             with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new)
             self._set_status("st-code","Установлен","cr-val ok")
+            # Сохраняем настройки для следующего запуска
+            save_settings({
+                'rank': rank,
+                'first_name': first_name,
+                'last_name': last_name,
+                'callsign': callsign if use_callsign else '',
+                'use_callsign': bool(use_callsign),
+                'use_auto_password': bool(auto_password)
+                # пароль намеренно не сохраняем — вводится каждый раз
+            })
             self._notify(True)
         threading.Thread(target=run, daemon=True).start()
         return {"ok": True}
