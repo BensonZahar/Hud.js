@@ -176,67 +176,51 @@ body{
 ::-webkit-scrollbar-thumb:hover{background:var(--c30)}
 
 /* ── Авто-снаряжение ──── */
-.grab-wrap{overflow:hidden;transition:max-height .35s ease,opacity .3s;max-height:0;opacity:0;margin-bottom:0}
-.grab-wrap.show{max-height:340px;opacity:1;margin-bottom:10px}
+.grab-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0;margin-bottom:0}
+.grab-wrap.show{max-height:420px;opacity:1;margin-bottom:10px}
 
-/* ── Игровое окно (стиль Radmir LIST dialog) ── */
-.wm-window{
-  border:.09vh solid rgba(244,241,225,.15);
-  border-radius:.37vh;
-  background:rgba(20,20,20,.85);
-  overflow:hidden;
-  font-family:'Open Sans',sans-serif;
-  box-shadow:0 4px 24px rgba(0,0,0,.6)
+/* ══ Window.css — verbatim ══ */
+.window{--wd-margin:2.22vh;--wd-font-size:1.67vh}
+.window__buttons{display:flex;margin-top:var(--wd-margin)}
+.window__buttons .controls-button__container{margin-right:1.48vh}
+.window__buttons .controls-button__container:last-child{margin-right:0}
+.window-table__col{align-items:center;display:flex;font-size:var(--wd-font-size);font-weight:600;height:100%;justify-content:center;overflow:hidden;padding:0 1.48vh;text-align:center}
+.window-table__item{background:#ffffff0d;border:0.19vh solid;border-color:#0000 #0000 #ffffff1a;border-radius:0.37vh;box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d;color:#fff;cursor:pointer;display:flex;height:4.81vh;margin-top:0.74vh;position:relative}
+.window-table__item:first-child{margin-top:0}
+.window-table__item.selected{background:#f9b70133;border-color:#f9b701;box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d}
+.window-table__items{line-height:0}
+.window-table__item_disabled{background:#0000;border:none;opacity:0.6;pointer-events:none}
+
+/* ══ Modal.css — verbatim ══ */
+.modal-container-wrapper{background:#141419eb;border:0.19vh solid #ffffff0d;border-radius:0.74vh;padding:0.37vh;pointer-events:auto;position:relative}
+.modal-container{border:0.19vh solid #fff0;border-radius:0.7vh;padding:2.22vh}
+.modal__content{position:relative;z-index:1}
+.modal__title{color:#fff;font-family:"Open Sans Condensed","Open Sans",sans-serif;font-size:2.59vh;font-style:italic;font-weight:700;line-height:normal;text-transform:uppercase;margin-bottom:0}
+.modal__title *{margin:0}
+.modal_violet .modal-container{border-top:0.19vh solid #7557e6}
+.modal_violet .modal-container-wrapper{box-shadow:inset 0vh 3.89vh 4.81vh -2.96vh #7557e633}
+
+/* ══ ButtonContainer.css — verbatim ══ */
+.controls-button__container{align-items:center;display:flex;margin-right:2.96vh}
+.controls-button__container-text{color:#e7e5e4;font-family:"Open Sans Condensed","Open Sans",sans-serif;font-size:1.3vh;font-style:italic;font-weight:700;line-height:normal;text-align:center;text-transform:uppercase}
+.controls-button__container_disabled .controls-button__container-text{color:#eeeee633}
+
+/* ══ Кнопка-клавиша (иконка кнопки) — по скриншотам ══ */
+.controls-button__key-wrap{align-items:center;background:#ffffff1a;border:0.09vh solid #ffffff33;border-radius:0.37vh;display:flex;justify-content:center;min-width:3.7vh;height:3.7vh;padding:0 0.74vh}
+.controls-button__key{color:#f4f1e1;font-family:"Open Sans Condensed","Open Sans",sans-serif;font-size:1.3vh;font-weight:700;font-style:italic;text-transform:uppercase}
+
+/* ══ Контейнер списка — overflow для скролла колёсиком ══ */
+.grab-list-container{
+  margin:0 -1.6vh -1.6vh 0;
+  max-height:160px;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:0 1.6vh 1.6vh 0;
+  width:100%
 }
-.wm-title{
-  padding:7px 12px 5px;
-  font-size:11px;font-weight:700;color:var(--cream);
-  border-bottom:.5px solid rgba(244,241,225,.08);
-  background:rgba(0,0,0,.3);
-  letter-spacing:.02em
-}
-.wm-list{
-  max-height:196px;overflow-y:auto;
-  padding:3px 0;
-  scrollbar-width:thin;scrollbar-color:rgba(244,241,225,.15) transparent
-}
-.wm-item{
-  display:flex;align-items:center;
-  padding:0 10px;height:26px;
-  font-size:10.5px;font-weight:600;color:rgba(244,241,225,.55);
-  cursor:pointer;
-  border:.09vh solid transparent;
-  border-radius:.28vh;
-  margin:1px 4px;
-  transition:all .15s ease;
-  position:relative
-}
-.wm-item:hover{color:var(--cream);background:rgba(244,241,225,.06)}
-.wm-item.on{
-  background:rgba(244,241,225,.12);
-  border-color:rgba(244,241,225,.2) rgba(244,241,225,.1) rgba(244,241,225,.06);
-  color:var(--cream);
-  box-shadow:inset 0 .5px 0 rgba(255,255,255,.08)
-}
-.wm-buttons{
-  display:flex;gap:0;
-  border-top:.5px solid rgba(244,241,225,.08);
-  background:rgba(0,0,0,.2)
-}
-.wm-btn{
-  flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
-  padding:6px 0;font-size:10px;font-weight:700;
-  color:rgba(244,241,225,.4);cursor:default;
-  border-right:.5px solid rgba(244,241,225,.06)
-}
-.wm-btn:last-child{border-right:none}
-.wm-btn--ok{color:rgba(244,241,225,.7)}
-.wm-key{
-  display:inline-flex;align-items:center;justify-content:center;
-  padding:1px 5px;border-radius:2px;font-size:9px;font-weight:700;
-  background:rgba(244,241,225,.1);border:.5px solid rgba(244,241,225,.2);
-  color:var(--cream);font-family:Consolas,monospace
-}
+.grab-list-container::-webkit-scrollbar{width:3px}
+.grab-list-container::-webkit-scrollbar-track{background:transparent}
+.grab-list-container::-webkit-scrollbar-thumb{background:#ffffff26;border-radius:2px}
 </style>
 </head>
 <body>
@@ -368,29 +352,44 @@ body{
       </div>
       <!-- Игровой интерфейс настройки снаряжения -->
       <div class="grab-wrap" id="grab-wrap">
-        <div class="wm-window">
-          <div class="wm-title">Полицейская служба</div>
-          <div class="wm-list">
-            <div class="wm-item"    id="wmi-painkiller"  onclick="toggleGrabItem('painkiller')"><span>Обезболивающее</span></div>
-            <div class="wm-item on" id="wmi-medkit"      onclick="toggleGrabItem('medkit')"><span>Аптечка</span></div>
-            <div class="wm-item on" id="wmi-baton"       onclick="toggleGrabItem('baton')"><span>Дубинка</span></div>
-            <div class="wm-item"    id="wmi-baton2"      onclick="toggleGrabItem('baton2')"><span>Жезл</span></div>
-            <div class="wm-item on" id="wmi-vest"        onclick="toggleGrabItem('vest')"><span>Бронежилет</span></div>
-            <div class="wm-item"    id="wmi-taumeter"    onclick="toggleGrabItem('taumeter')"><span>Тауметр</span></div>
-            <div class="wm-item"    id="wmi-diag"        onclick="toggleGrabItem('diag')"><span>Аппарат для диагностики</span></div>
-            <div class="wm-item"    id="wmi-taser"       onclick="toggleGrabItem('taser')"><span>Тазер</span></div>
-            <div class="wm-item on" id="wmi-deagle"      onclick="toggleGrabItem('deagle')"><span>Desert Eagle</span></div>
-            <div class="wm-item on" id="wmi-akm"         onclick="toggleGrabItem('akm')"><span>АКМ</span></div>
-            <div class="wm-item"    id="wmi-aks74u"      onclick="toggleGrabItem('aks74u')"><span>АКС-74У</span></div>
-            <div class="wm-item"    id="wmi-remington"   onclick="toggleGrabItem('remington')"><span>Remington 870</span></div>
-            <div class="wm-item on" id="wmi-magnum"      onclick="toggleGrabItem('magnum')"><span>Патроны (.44 Magnum)</span></div>
-            <div class="wm-item on" id="wmi-ammo762"     onclick="toggleGrabItem('ammo762')"><span>Патроны (7.62x39)</span></div>
-            <div class="wm-item"    id="wmi-ammo545"     onclick="toggleGrabItem('ammo545')"><span>Патроны (5.45x39)</span></div>
-            <div class="wm-item"    id="wmi-ammo12x70"   onclick="toggleGrabItem('ammo12x70')"><span>Патроны (12x70)</span></div>
-          </div>
-          <div class="wm-buttons">
-            <div class="wm-btn wm-btn--ok"><span class="wm-key">Enter</span> Взять</div>
-            <div class="wm-btn wm-btn--cl"><span class="wm-key">Esc</span> Закрыть</div>
+        <!-- Точная структура Modal (modal_violet) + Window list -->
+        <div class="modal_violet" style="font-family:'Open Sans',sans-serif">
+          <div class="modal-container-wrapper">
+            <div class="modal-container">
+              <div class="modal__content">
+                <div class="modal__title">Полицейская служба</div>
+                <div class="grab-list-container" style="margin-top:2.22vh">
+                  <div class="window-table__items" style="--wd-font-size:1.67vh">
+                    <div class="window-table__item"          id="wmi-painkiller" onclick="toggleGrabItem('painkiller')"><div class="window-table__col"><p>Обезболивающее</p></div></div>
+                    <div class="window-table__item selected" id="wmi-medkit"     onclick="toggleGrabItem('medkit')"><div class="window-table__col"><p>Аптечка</p></div></div>
+                    <div class="window-table__item selected" id="wmi-baton"      onclick="toggleGrabItem('baton')"><div class="window-table__col"><p>Дубинка</p></div></div>
+                    <div class="window-table__item"          id="wmi-baton2"     onclick="toggleGrabItem('baton2')"><div class="window-table__col"><p>Жезл</p></div></div>
+                    <div class="window-table__item selected" id="wmi-vest"       onclick="toggleGrabItem('vest')"><div class="window-table__col"><p>Бронежилет</p></div></div>
+                    <div class="window-table__item"          id="wmi-taumeter"   onclick="toggleGrabItem('taumeter')"><div class="window-table__col"><p>Тауметр</p></div></div>
+                    <div class="window-table__item"          id="wmi-diag"       onclick="toggleGrabItem('diag')"><div class="window-table__col"><p>Аппарат для диагностики</p></div></div>
+                    <div class="window-table__item"          id="wmi-taser"      onclick="toggleGrabItem('taser')"><div class="window-table__col"><p>Тазер</p></div></div>
+                    <div class="window-table__item selected" id="wmi-deagle"     onclick="toggleGrabItem('deagle')"><div class="window-table__col"><p>Desert Eagle</p></div></div>
+                    <div class="window-table__item selected" id="wmi-akm"        onclick="toggleGrabItem('akm')"><div class="window-table__col"><p>АКМ</p></div></div>
+                    <div class="window-table__item"          id="wmi-aks74u"     onclick="toggleGrabItem('aks74u')"><div class="window-table__col"><p>АКС-74У</p></div></div>
+                    <div class="window-table__item"          id="wmi-remington"  onclick="toggleGrabItem('remington')"><div class="window-table__col"><p>Remington 870</p></div></div>
+                    <div class="window-table__item selected" id="wmi-magnum"     onclick="toggleGrabItem('magnum')"><div class="window-table__col"><p>Патроны (.44 Magnum)</p></div></div>
+                    <div class="window-table__item selected" id="wmi-ammo762"    onclick="toggleGrabItem('ammo762')"><div class="window-table__col"><p>Патроны (7.62x39)</p></div></div>
+                    <div class="window-table__item"          id="wmi-ammo545"    onclick="toggleGrabItem('ammo545')"><div class="window-table__col"><p>Патроны (5.45x39)</p></div></div>
+                    <div class="window-table__item"          id="wmi-ammo12x70"  onclick="toggleGrabItem('ammo12x70')"><div class="window-table__col"><p>Патроны (12x70)</p></div></div>
+                  </div>
+                </div>
+                <div class="window__buttons">
+                  <div class="controls-button__container">
+                    <div class="controls-button__key-wrap"><span class="controls-button__key">Enter</span></div>
+                    <span class="controls-button__container-text">Взять</span>
+                  </div>
+                  <div class="controls-button__container">
+                    <div class="controls-button__key-wrap"><span class="controls-button__key">Esc</span></div>
+                    <span class="controls-button__container-text">Закрыть</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -462,7 +461,7 @@ function toggleAutoGrab() {
 
 function toggleGrabItem(item) {
   grabItems[item] = !grabItems[item];
-  document.getElementById('wmi-' + item).classList.toggle('on', grabItems[item]);
+  document.getElementById('wmi-' + item).classList.toggle('selected', grabItems[item]);
 }
 
 function getGrabSettings() {
@@ -538,7 +537,7 @@ window.addEventListener('pywebviewready', function() {
         ['painkiller','medkit','baton','baton2','vest','taumeter','diag','taser',
          'deagle','akm','aks74u','remington','magnum','ammo762','ammo545','ammo12x70'].forEach(function(k) {
           var el = document.getElementById('wmi-' + k);
-          if (el) el.classList.toggle('on', !!grabItems[k]);
+          if (el) el.classList.toggle('selected', !!grabItems[k]);
         });
       }
     }
