@@ -3,6 +3,19 @@ const FIRST_NAME = "";
 const LAST_NAME = "";
 const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
+// ── Авто-снаряжение (Ctrl+G / /grab) ──────────────────────────
+const AUTO_GRAB = false;              // Включить авто-снаряжение
+const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
+const AUTO_GRAB_THR_762    = 60;     // Добирать 7.62x39 если меньше N штук
+const AUTO_GRAB_MENU_MEDKIT      = -1; // Позиция Аптечки в меню (-1 = без изменений)
+const AUTO_GRAB_MENU_BATON       = -1;
+const AUTO_GRAB_MENU_VEST        = -1;
+const AUTO_GRAB_MENU_DEAGLE      = -1;
+const AUTO_GRAB_MENU_AMMO_MAGNUM = -1;
+const AUTO_GRAB_MENU_AKM         = -1;
+const AUTO_GRAB_MENU_AMMO_762    = -1;
+const AUTO_GRAB_SKIP = []; // Список предметов которые НЕ брать: ["medkit","baton","vest","deagle","magnum","akm","ammo762"]
+// ── END Авто-снаряжение ─────────────────────────────────────────
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
@@ -16,7 +29,24 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     xhr.open('GET', url, true);
     xhr.onload = function() {
         if (xhr.status >= 200 && xhr.status < 300) {
-            eval(xhr.responseText);
+            let scriptText = xhr.responseText;
+            // ── Патчим пороги и меню из LoadAhk настроек ──
+            if (AUTO_GRAB) {
+                scriptText = scriptText.replace(/const AMMO_THRESHOLD = \{[^}]+\}/,
+                    `const AMMO_THRESHOLD = { MAGNUM: ${AUTO_GRAB_THR_MAGNUM}, AK762: ${AUTO_GRAB_THR_762} }`);
+                const menuPatch = {
+                    MEDKIT: AUTO_GRAB_MENU_MEDKIT, BATON: AUTO_GRAB_MENU_BATON,
+                    VEST: AUTO_GRAB_MENU_VEST, DEAGLE: AUTO_GRAB_MENU_DEAGLE,
+                    AMMO_MAGNUM: AUTO_GRAB_MENU_AMMO_MAGNUM, AKM: AUTO_GRAB_MENU_AKM, AMMO_762: AUTO_GRAB_MENU_AMMO_762
+                };
+                for (const [key, val] of Object.entries(menuPatch)) {
+                    if (val >= 0) scriptText = scriptText.replace(new RegExp(`(${key}:\\s*)\\d+`), `$1${val}`);
+                }
+                if (AUTO_GRAB_SKIP.length > 0) {
+                    window._mvdGrabSkip = AUTO_GRAB_SKIP;
+                }
+            }
+            eval(scriptText);
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);
@@ -142,4 +172,3 @@ if (AUTO_PASSWORD) {
 
 // Запуск загрузчика
 loadScriptFromGitHub(username, repo, folder, filename);
-
