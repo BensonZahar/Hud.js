@@ -256,7 +256,7 @@ const povsednevOptions = [
     { name: "11. Конвоирование", action: "escort", needsId: true },
     { name: "12. Снятие розыска", action: "clearWanted", needsId: true },
     { name: "13. Выдача штрафа [/ticket]", action: "fine" },
-    { name: "14. Выдача розыска [/su]", action: "wantedFine", needsId: true },
+    { name: "14. Выдача розыска [/su]", action: "wantedFine" },
     { name: "15. Изъятие веществ", action: "confiscate", needsId: true },
     { name: "16. Разбитие стекла", action: "breakGlass", needsId: true },
     { name: "17. Снятие маски", action: "removeMask" },
@@ -674,6 +674,12 @@ const HandlePovsednevCommand = (optionIndex) => {
         } else if (option.action === "fine") {
             setTimeout(() => {
                 showKoapTypeMenu(giveLicenseTo);
+            }, 50);
+        } else if (option.action === "wantedFine") {
+            currentUkLines = [...ukLines];
+            ukPage = 0;
+            setTimeout(() => {
+                showUkInputDialog(giveLicenseTo);
             }, 50);
         } else {
             executePovsednevAction(option.action, giveLicenseTo);
