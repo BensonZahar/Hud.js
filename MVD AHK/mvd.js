@@ -1788,11 +1788,15 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
 
             // 2. Закрываем меню
             closeMenu();
-            await sleep(100);
+            await sleep(200); // увеличено с 100 до 200 — даём серверу время обработать закрытие
 
-            // 3. Открываем инвентарь и ждём загрузки
-            openInventory();
-            const ready = await waitInventory(1000);
+            // 3. Открываем инвентарь и ждём загрузки (retry x2 на случай лага сервера)
+            let ready = false;
+            for (let attempt = 0; attempt < 2 && !ready; attempt++) {
+                if (attempt > 0) await sleep(300);
+                openInventory();
+                ready = await waitInventory(1500); // увеличено с 1000 до 1500
+            }
             if (!ready) {
                 notify("Ошибка", "Инвентарь не загрузился", "FF0000");
                 isProcessing = false;
