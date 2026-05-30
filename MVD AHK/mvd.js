@@ -1647,13 +1647,24 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
         AMMO_762:    368,  // Патроны 7.62x39
         BATON:       32,   // Дубинка
         MEDKIT:      2,    // Аптечка
+        PAINKILLERS: 379,  // Обезболивающее
+        // WAND нет ID (объект-тип, не хранится в инвентаре — берём всегда)
+        RADAR_GUN:   276,  // Тауметр
+        DIAGNOSTICS: 254,  // Набор диагностики
+        TASER:       13,   // Тазер
+        AKS74U:      18,   // АКС-74У
+        REMINGTON:   14,   // Remington 870
+        AMMO_545:    366,  // Патроны 5.45x39
+        AMMO_1270:   365,  // Патроны 12x70
     };
 
     // ==================== ПОРОГИ ПАТРОНОВ ====================
     // Если патронов МЕНЬШЕ этого значения — будет добирать со склада
     const AMMO_THRESHOLD = {
-        MAGNUM: 30,   // .44 Magnum: добирать если меньше 30 штук
-        AK762:  60,   // 7.62x39:   добирать если меньше 60 штук
+        MAGNUM:  30,  // .44 Magnum: добирать если меньше 30 штук
+        AK762:   60,  // 7.62x39:   добирать если меньше 60 штук
+        AKS545:  60,  // 5.45x39:   добирать если меньше 60 штук
+        REM1270: 20,  // 12x70:     добирать если меньше 20 штук
     };
 
     // ==================== ПОЗИЦИИ В МЕНЮ МВД (0-based) ====================
@@ -1662,13 +1673,22 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
     // 10=АКС-74У, 11=Remington 870, 12=Патроны(.44 Magnum),
     // 13=Патроны(7.62x39), 14=Патроны(5.45x39), 15=Патроны(12x70)
     const MENU = {
-        MEDKIT:      1,
-        BATON:       2,
-        VEST:        4,
-        DEAGLE:      8,
-        AKM:         9,
+        PAINKILLERS:  0,
+        MEDKIT:       1,
+        BATON:        2,
+        WAND:         3,
+        VEST:         4,
+        RADAR_GUN:    5,
+        DIAGNOSTICS:  6,
+        TASER:        7,
+        DEAGLE:       8,
+        AKM:          9,
+        AKS74U:      10,
+        REMINGTON:   11,
         AMMO_MAGNUM: 12,
         AMMO_762:    13,
+        AMMO_545:    14,
+        AMMO_1270:   15,
     };
 
     const DIALOG_ID = 0;
@@ -1780,16 +1800,27 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
             }
 
             // 4. Читаем что есть
-            const magnumCount = countItem(ITEM.AMMO_MAGNUM);
-            const ammo762Count = countItem(ITEM.AMMO_762);
+            const magnumCount   = countItem(ITEM.AMMO_MAGNUM);
+            const ammo762Count  = countItem(ITEM.AMMO_762);
+            const ammo545Count  = countItem(ITEM.AMMO_545);
+            const ammo1270Count = countItem(ITEM.AMMO_1270);
 
             const has = {
-                deagle:   !!findItem(ITEM.DEAGLE),
-                magnum:   magnumCount,
-                akm:      !!findItem(ITEM.AKM),
-                ammo762:  ammo762Count,
-                baton:    !!findItem(ITEM.BATON),
-                medkit:   !!findItem(ITEM.MEDKIT),
+                deagle:      !!findItem(ITEM.DEAGLE),
+                magnum:      magnumCount,
+                akm:         !!findItem(ITEM.AKM),
+                ammo762:     ammo762Count,
+                baton:       !!findItem(ITEM.BATON),
+                medkit:      !!findItem(ITEM.MEDKIT),
+                painkillers: !!findItem(ITEM.PAINKILLERS),
+                // wand — Жезл (объект-тип, не хранится в инвентаре как стак, берём всегда)
+                radarGun:    !!findItem(ITEM.RADAR_GUN),
+                diagnostics: !!findItem(ITEM.DIAGNOSTICS),
+                taser:       !!findItem(ITEM.TASER),
+                aks74u:      !!findItem(ITEM.AKS74U),
+                remington:   !!findItem(ITEM.REMINGTON),
+                ammo545:     ammo545Count,
+                ammo1270:    ammo1270Count,
             };
 
             // ── ДИАГНОСТИКА (раскомментировать при отладке) ──
@@ -1803,32 +1834,51 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
             // console.log(`[MVD-GRAB] Броня (HUD): ${armourVal}% (берём если < 100)`);
             // console.log('[MVD-GRAB] ================================');
 
-            console.log(`[MVD-GRAB] Дигл:${has.deagle?'✅':'❌'} Патр.44:${has.magnum}(порог:${AMMO_THRESHOLD.MAGNUM}) АКМ:${has.akm?'✅':'❌'} Патр.762:${has.ammo762}(порог:${AMMO_THRESHOLD.AK762}) Дубинка:${has.baton?'✅':'❌'} Аптечка:${has.medkit?'✅':'❌'} Броня(HUD):${armourVal}%`);
+            console.log(`[MVD-GRAB] Дигл:${has.deagle?'✅':'❌'} Патр.44:${has.magnum}(порог:${AMMO_THRESHOLD.MAGNUM}) АКМ:${has.akm?'✅':'❌'} Патр.762:${has.ammo762}(порог:${AMMO_THRESHOLD.AK762}) Дубинка:${has.baton?'✅':'❌'} Аптечка:${has.medkit?'✅':'❌'} Обезбол:${has.painkillers?'✅':'❌'} Тауметр:${has.radarGun?'✅':'❌'} Диагн:${has.diagnostics?'✅':'❌'} Тазер:${has.taser?'✅':'❌'} АКС:${has.aks74u?'✅':'❌'} Патр.545:${has.ammo545}(порог:${AMMO_THRESHOLD.AKS545}) Рем:${has.remington?'✅':'❌'} Патр.12x70:${has.ammo1270}(порог:${AMMO_THRESHOLD.REM1270}) Броня(HUD):${armourVal}%`);
 
             // 5. Что нужно взять
             // Патроны: берём если ИХ НЕТ СОВСЕМ или МЕНЬШЕ ПОРОГА
             // Броня: берём если нет или меньше 100%
+            // Жезл: берём ВСЕГДА (объект-тип, не отслеживается — skip-лист выключит если не нужен)
             const need = {
-                medkit:   !has.medkit,
-                baton:    !has.baton,
-                vest:     armourVal < 100,           // берём если брони нет или она не 100%
-                deagle:   !has.deagle,
-                magnum:   has.magnum < AMMO_THRESHOLD.MAGNUM,   // добираем если меньше порога
-                akm:      !has.akm,
-                ammo762:  has.ammo762 < AMMO_THRESHOLD.AK762,  // добираем если меньше порога
+                painkillers: !has.painkillers,
+                medkit:      !has.medkit,
+                baton:       !has.baton,
+                wand:        true,                                          // Жезл — всегда
+                vest:        armourVal < 100,
+                radarGun:    !has.radarGun,
+                diagnostics: !has.diagnostics,
+                taser:       !has.taser,
+                deagle:      !has.deagle,
+                magnum:      has.magnum  < AMMO_THRESHOLD.MAGNUM,
+                akm:         !has.akm,
+                ammo762:     has.ammo762 < AMMO_THRESHOLD.AK762,
+                aks74u:      !has.aks74u,
+                ammo545:     has.ammo545  < AMMO_THRESHOLD.AKS545,
+                remington:   !has.remington,
+                ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
             };
 
             // ── Применяем SKIP список (предметы которые НЕ нужно брать) ──
             const _skip = window._mvdGrabSkip;
             if (Array.isArray(_skip) && _skip.length > 0) {
                 const skipMap = {
-                    'medkit':  'medkit',
-                    'baton':   'baton',
-                    'vest':    'vest',
-                    'deagle':  'deagle',
-                    'magnum':  'magnum',
-                    'akm':     'akm',
-                    'ammo762': 'ammo762',
+                    'medkit':     'medkit',
+                    'painkiller': 'painkillers',
+                    'baton':      'baton',
+                    'baton2':     'wand',
+                    'vest':       'vest',
+                    'taumeter':   'radarGun',
+                    'diag':       'diagnostics',
+                    'taser':      'taser',
+                    'deagle':     'deagle',
+                    'magnum':     'magnum',
+                    'akm':        'akm',
+                    'ammo762':    'ammo762',
+                    'aks74u':     'aks74u',
+                    'remington':  'remington',
+                    'ammo545':    'ammo545',
+                    'ammo12x70':  'ammo1270',
                 };
                 for (const key of _skip) {
                     if (skipMap[key] !== undefined) need[skipMap[key]] = false;
@@ -1837,13 +1887,22 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
 
             // ── ДИАГНОСТИКА need (раскомментировать при отладке) ──
             // console.log('[MVD-GRAB] === ЧТО НУЖНО ВЗЯТЬ ===');
+            // if (need.painkillers) console.log('[MVD-GRAB]  → Обезболивающее');
             // if (need.medkit)  console.log('[MVD-GRAB]  → Аптечка');
             // if (need.baton)   console.log('[MVD-GRAB]  → Дубинка');
+            // if (need.wand)    console.log('[MVD-GRAB]  → Жезл');
             // if (need.vest)    console.log(`[MVD-GRAB]  → Бронежилет (текущий: ${armourVal}%, нужно 100%)`);
+            // if (need.radarGun)    console.log('[MVD-GRAB]  → Тауметр');
+            // if (need.diagnostics) console.log('[MVD-GRAB]  → Диагностика');
+            // if (need.taser)   console.log('[MVD-GRAB]  → Тазер');
             // if (need.deagle)  console.log('[MVD-GRAB]  → Desert Eagle');
             // if (need.magnum)  console.log(`[MVD-GRAB]  → Патроны .44 (есть: ${has.magnum}, нужно ≥ ${AMMO_THRESHOLD.MAGNUM})`);
             // if (need.akm)     console.log('[MVD-GRAB]  → АКМ');
             // if (need.ammo762) console.log(`[MVD-GRAB]  → Патроны 7.62 (есть: ${has.ammo762}, нужно ≥ ${AMMO_THRESHOLD.AK762})`);
+            // if (need.aks74u)  console.log('[MVD-GRAB]  → АКС-74У');
+            // if (need.ammo545) console.log(`[MVD-GRAB]  → Патроны 5.45 (есть: ${has.ammo545}, нужно ≥ ${AMMO_THRESHOLD.AKS545})`);
+            // if (need.remington) console.log('[MVD-GRAB]  → Remington 870');
+            // if (need.ammo1270)  console.log(`[MVD-GRAB]  → Патроны 12x70 (есть: ${has.ammo1270}, нужно ≥ ${AMMO_THRESHOLD.REM1270})`);
             // if (!Object.values(need).some(Boolean)) console.log('[MVD-GRAB]  → Всё снаряжение в норме');
             // console.log('[MVD-GRAB] ======================');
 
@@ -1864,13 +1923,22 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
 
             // 8. Берём по порядку — диалог переоткрывается сам после каждого взятия
             const toTake = [];
-            if (need.medkit)  toTake.push({ name: "Аптечка",        idx: MENU.MEDKIT });
-            if (need.baton)   toTake.push({ name: "Дубинка",        idx: MENU.BATON });
-            if (need.vest)    toTake.push({ name: `Бронежилет (${armourVal}%)`,  idx: MENU.VEST });
-            if (need.deagle)  toTake.push({ name: "Desert Eagle",   idx: MENU.DEAGLE });
-            if (need.magnum)  toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`, idx: MENU.AMMO_MAGNUM });
-            if (need.akm)     toTake.push({ name: "АКМ",            idx: MENU.AKM });
-            if (need.ammo762) toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`, idx: MENU.AMMO_762 });
+            if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
+            if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
+            if (need.baton)       toTake.push({ name: "Дубинка",                                 idx: MENU.BATON });
+            if (need.wand)        toTake.push({ name: "Жезл",                                    idx: MENU.WAND });
+            if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
+            if (need.radarGun)    toTake.push({ name: "Тауметр",                                 idx: MENU.RADAR_GUN });
+            if (need.diagnostics) toTake.push({ name: "Диагностика",                             idx: MENU.DIAGNOSTICS });
+            if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
+            if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
+            if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
+            if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
+            if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
+            if (need.aks74u)      toTake.push({ name: "АКС-74У",                                 idx: MENU.AKS74U });
+            if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
+            if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
+            if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
             for (let i = 0; i < toTake.length; i++) {
                 console.log(`[MVD-GRAB] → ${toTake[i].name}`);
@@ -1937,6 +2005,6 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
     window.autoGrab = autoGrab;
     console.log('[MVD-GRAB] ✅ Ctrl+G или /grab — автобрание');
     console.log('[MVD-GRAB] /armor — проверить броню через HUD');
-    console.log(`[MVD-GRAB] Пороги патронов: .44 Magnum ≥ ${AMMO_THRESHOLD.MAGNUM} шт | 7.62x39 ≥ ${AMMO_THRESHOLD.AK762} шт`);
+    console.log(`[MVD-GRAB] Пороги патронов: .44 Magnum ≥ ${AMMO_THRESHOLD.MAGNUM} шт | 7.62x39 ≥ ${AMMO_THRESHOLD.AK762} шт | 5.45x39 ≥ ${AMMO_THRESHOLD.AKS545} шт | 12x70 ≥ ${AMMO_THRESHOLD.REM1270} шт`);
 })();
 // ==================== END АВТОБРАНИЕ МВД ====================
