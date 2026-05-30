@@ -1604,3 +1604,293 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 
 console.log('[DIALOG MONITOR] Загружен. Все диалоги выводятся в консоль.');
 // ==================== END DIALOG MONITOR ====================
+
+// ==================== АВТОБРАНИЕ МВД ====================
+// Ctrl+G или /grab — взять всё нужное со склада
+(function() {
+    console.log('[MVD-GRAB] 🔫 Загружен');
+
+    // ==================== ID ПРЕДМЕТОВ ====================
+    const ITEM = {
+        DEAGLE:      19,   // Desert Eagle
+        AMMO_MAGNUM: 363,  // Патроны .44 Magnum
+        AKM:         21,   // АКМ
+        AMMO_762:    368,  // Патроны 7.62x39
+        BATON:       32,   // Дубинка
+        MEDKIT:      2,    // Аптечка
+    };
+
+    // ==================== ПОРОГИ ПАТРОНОВ ====================
+    // Если патронов МЕНЬШЕ этого значения — будет добирать со склада
+    const AMMO_THRESHOLD = {
+        MAGNUM: 30,   // .44 Magnum: добирать если меньше 30 штук
+        AK762:  60,   // 7.62x39:   добирать если меньше 60 штук
+    };
+
+    // ==================== ПОЗИЦИИ В МЕНЮ МВД (0-based) ====================
+    // 0=Обезбол, 1=Аптечка, 2=Дубинка, 3=Жезл, 4=Бронежилет,
+    // 5=Тауметр, 6=Диагностика, 7=Тазер, 8=Desert Eagle, 9=АКМ,
+    // 10=АКС-74У, 11=Remington 870, 12=Патроны(.44 Magnum),
+    // 13=Патроны(7.62x39), 14=Патроны(5.45x39), 15=Патроны(12x70)
+    const MENU = {
+        MEDKIT:      1,
+        BATON:       2,
+        VEST:        4,
+        DEAGLE:      8,
+        AKM:         9,
+        AMMO_MAGNUM: 12,
+        AMMO_762:    13,
+    };
+
+    const DIALOG_ID = 0;
+    const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
+
+    let isProcessing = false;
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function notify(title, text, color = "FFFFFF") {
+        try { window.interface('ScreenNotification').add(`[1, "${title}", "${text}", "${color}", 2500]`); } catch(e) {}
+    }
+
+    // ==================== БРОНЯ ЧЕРЕЗ ХУД ====================
+    // Возвращает число 0–100 (текущий % брони)
+    function getArmourValue() {
+        try {
+            const hud = window.interface("Hud");
+            if (!hud) return 0;
+            const armour = hud.$data?.info?.armour ?? hud.data?.info?.armour ?? 0;
+            console.log(`[MVD-GRAB] 🛡 Броня: ${armour}%`);
+            return Number(armour) || 0;
+        } catch(e) {
+            console.log('[MVD-GRAB] HUD ошибка:', e.message);
+            return 0;
+        }
+    }
+
+    // ==================== ИНВЕНТАРЬ ====================
+    function findItem(itemId) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) return null;
+            for (const cid of [CT.INV, CT.BACK, CT.ACC]) {
+                const c = inv.items[cid];
+                if (!c) continue;
+                for (const [slot, item] of Object.entries(c)) {
+                    if (item?.id === itemId) return { cid, slot: parseInt(slot), count: item.count || 1 };
+                }
+            }
+        } catch(e) {}
+        return null;
+    }
+
+    function countItem(itemId) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) return 0;
+            let total = 0;
+            for (const cid of [CT.INV, CT.BACK]) {
+                const c = inv.items[cid];
+                if (!c) continue;
+                for (const item of Object.values(c)) {
+                    if (item?.id === itemId) total += (item.count || 1);
+                }
+            }
+            return total;
+        } catch(e) { return 0; }
+    }
+
+    function openInventory() { sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange"); }
+    function closeInventory() { window.closeInterface("InventoryNew"); }
+
+    async function waitInventory(maxMs = 1000) {
+        for (let i = 0; i < maxMs; i += 50) {
+            try {
+                const inv = window.interface("InventoryNew");
+                if (inv?.items?.[CT.INV] !== undefined) return true;
+            } catch(e) {}
+            await sleep(50);
+        }
+        return false;
+    }
+
+    // ==================== МЕНЮ ====================
+    function take(index) {
+        console.log(`[MVD-GRAB] Беру пункт ${index}`);
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 1, index, "");
+    }
+
+    function closeMenu() {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 0, 0, "");
+    }
+
+    function openMenu() {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
+    }
+
+    // ==================== ОСНОВНАЯ ЛОГИКА ====================
+    async function autoGrab() {
+        if (isProcessing) return;
+        isProcessing = true;
+
+        try {
+            // 1. Броню проверяем СРАЗУ через HUD пока меню открыто
+            const armourVal = getArmourValue();  // 0–100
+
+            // 2. Закрываем меню
+            closeMenu();
+            await sleep(100);
+
+            // 3. Открываем инвентарь и ждём загрузки
+            openInventory();
+            const ready = await waitInventory(1000);
+            if (!ready) {
+                notify("Ошибка", "Инвентарь не загрузился", "FF0000");
+                isProcessing = false;
+                return;
+            }
+
+            // 4. Читаем что есть
+            const magnumCount = countItem(ITEM.AMMO_MAGNUM);
+            const ammo762Count = countItem(ITEM.AMMO_762);
+
+            const has = {
+                deagle:   !!findItem(ITEM.DEAGLE),
+                magnum:   magnumCount,
+                akm:      !!findItem(ITEM.AKM),
+                ammo762:  ammo762Count,
+                baton:    !!findItem(ITEM.BATON),
+                medkit:   !!findItem(ITEM.MEDKIT),
+            };
+
+            // ── ДИАГНОСТИКА (раскомментировать при отладке) ──
+            // console.log('[MVD-GRAB] === ДИАГНОСТИКА ИНВЕНТАРЯ ===');
+            // console.log(`[MVD-GRAB] Дигл: ${has.deagle ? '✅ есть' : '❌ нет'}`);
+            // console.log(`[MVD-GRAB] Патр. .44 Magnum: ${has.magnum} шт (порог: ${AMMO_THRESHOLD.MAGNUM})`);
+            // console.log(`[MVD-GRAB] АКМ: ${has.akm ? '✅ есть' : '❌ нет'}`);
+            // console.log(`[MVD-GRAB] Патр. 7.62x39: ${has.ammo762} шт (порог: ${AMMO_THRESHOLD.AK762})`);
+            // console.log(`[MVD-GRAB] Дубинка: ${has.baton ? '✅ есть' : '❌ нет'}`);
+            // console.log(`[MVD-GRAB] Аптечка: ${has.medkit ? '✅ есть' : '❌ нет'}`);
+            // console.log(`[MVD-GRAB] Броня (HUD): ${armourVal}% (берём если < 100)`);
+            // console.log('[MVD-GRAB] ================================');
+
+            console.log(`[MVD-GRAB] Дигл:${has.deagle?'✅':'❌'} Патр.44:${has.magnum}(порог:${AMMO_THRESHOLD.MAGNUM}) АКМ:${has.akm?'✅':'❌'} Патр.762:${has.ammo762}(порог:${AMMO_THRESHOLD.AK762}) Дубинка:${has.baton?'✅':'❌'} Аптечка:${has.medkit?'✅':'❌'} Броня(HUD):${armourVal}%`);
+
+            // 5. Что нужно взять
+            // Патроны: берём если ИХ НЕТ СОВСЕМ или МЕНЬШЕ ПОРОГА
+            // Броня: берём если нет или меньше 100%
+            const need = {
+                medkit:   !has.medkit,
+                baton:    !has.baton,
+                vest:     armourVal < 100,           // берём если брони нет или она не 100%
+                deagle:   !has.deagle,
+                magnum:   has.magnum < AMMO_THRESHOLD.MAGNUM,   // добираем если меньше порога
+                akm:      !has.akm,
+                ammo762:  has.ammo762 < AMMO_THRESHOLD.AK762,  // добираем если меньше порога
+            };
+
+            // ── ДИАГНОСТИКА need (раскомментировать при отладке) ──
+            // console.log('[MVD-GRAB] === ЧТО НУЖНО ВЗЯТЬ ===');
+            // if (need.medkit)  console.log('[MVD-GRAB]  → Аптечка');
+            // if (need.baton)   console.log('[MVD-GRAB]  → Дубинка');
+            // if (need.vest)    console.log(`[MVD-GRAB]  → Бронежилет (текущий: ${armourVal}%, нужно 100%)`);
+            // if (need.deagle)  console.log('[MVD-GRAB]  → Desert Eagle');
+            // if (need.magnum)  console.log(`[MVD-GRAB]  → Патроны .44 (есть: ${has.magnum}, нужно ≥ ${AMMO_THRESHOLD.MAGNUM})`);
+            // if (need.akm)     console.log('[MVD-GRAB]  → АКМ');
+            // if (need.ammo762) console.log(`[MVD-GRAB]  → Патроны 7.62 (есть: ${has.ammo762}, нужно ≥ ${AMMO_THRESHOLD.AK762})`);
+            // if (!Object.values(need).some(Boolean)) console.log('[MVD-GRAB]  → Всё снаряжение в норме');
+            // console.log('[MVD-GRAB] ======================');
+
+            // 6. Закрываем инвентарь
+            closeInventory();
+            await sleep(100);
+
+            if (!Object.values(need).some(Boolean)) {
+                notify("МВД", "Всё снаряжение есть ✓", "00FF00");
+                openMenu();
+                isProcessing = false;
+                return;
+            }
+
+            // 7. Открываем меню
+            openMenu();
+            await sleep(400);
+
+            // 8. Берём по порядку — диалог переоткрывается сам после каждого взятия
+            const toTake = [];
+            if (need.medkit)  toTake.push({ name: "Аптечка",        idx: MENU.MEDKIT });
+            if (need.baton)   toTake.push({ name: "Дубинка",        idx: MENU.BATON });
+            if (need.vest)    toTake.push({ name: `Бронежилет (${armourVal}%)`,  idx: MENU.VEST });
+            if (need.deagle)  toTake.push({ name: "Desert Eagle",   idx: MENU.DEAGLE });
+            if (need.magnum)  toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`, idx: MENU.AMMO_MAGNUM });
+            if (need.akm)     toTake.push({ name: "АКМ",            idx: MENU.AKM });
+            if (need.ammo762) toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`, idx: MENU.AMMO_762 });
+
+            for (let i = 0; i < toTake.length; i++) {
+                console.log(`[MVD-GRAB] → ${toTake[i].name}`);
+                take(toTake[i].idx);
+                await sleep(i < toTake.length - 1 ? 300 : 150);
+            }
+
+            // В уведомление выводим чистые имена (без счётчика)
+            const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
+            notify("МВД", notifyNames.join(", "), "00FF00");
+            window.playSound("inventory/take_light.mp3");
+
+        } catch (err) {
+            console.error('[MVD-GRAB] Ошибка:', err);
+            notify("Ошибка", err.message, "FF0000");
+        } finally {
+            isProcessing = false;
+        }
+    }
+
+    // ==================== ГОРЯЧАЯ КЛАВИША ====================
+    document.addEventListener('keydown', function(e) {
+        if (e.ctrlKey && e.keyCode === 71) {
+            e.preventDefault();
+            autoGrab();
+        }
+    });
+
+    // ==================== КОМАНДЫ ====================
+    const _origSendChatInputGrab = window.sendChatInput;
+    window.sendChatInput = function(e) {
+        const cmd = e.trim().split(" ")[0];
+
+        if (cmd === "/grab" || cmd === "/взять") {
+            autoGrab();
+            return;
+        }
+
+        if (cmd === "/armor") {
+            const val = getArmourValue();
+            console.log(`[MVD-GRAB] Броня: ${val > 0 ? 'НАДЕТА' : 'НЕ НАДЕТА'} (${val}%)`);
+            notify("Броня", `${val > 0 ? `Надета ✓ (${val}%)` : 'Не надета ✗'}`, val > 0 ? "00FF00" : "FF4444");
+            return;
+        }
+
+        // ── Команда для смены порогов патронов (раскомментировать при необходимости) ──
+        // if (cmd === "/ammo_threshold") {
+        //     const args = e.trim().split(" ");
+        //     if (args[1] === "magnum" && args[2]) {
+        //         AMMO_THRESHOLD.MAGNUM = parseInt(args[2]);
+        //         notify("МВД", `Порог .44 Magnum: ${AMMO_THRESHOLD.MAGNUM} шт`, "FFD700");
+        //     } else if (args[1] === "762" && args[2]) {
+        //         AMMO_THRESHOLD.AK762 = parseInt(args[2]);
+        //         notify("МВД", `Порог 7.62x39: ${AMMO_THRESHOLD.AK762} шт`, "FFD700");
+        //     } else {
+        //         notify("МВД", `Пороги: .44=${AMMO_THRESHOLD.MAGNUM} | 7.62=${AMMO_THRESHOLD.AK762}`, "FFFFFF");
+        //     }
+        //     return;
+        // }
+
+        _origSendChatInputGrab.call(this, e);
+    };
+
+    window.autoGrab = autoGrab;
+    console.log('[MVD-GRAB] ✅ Ctrl+G или /grab — автобрание');
+    console.log('[MVD-GRAB] /armor — проверить броню через HUD');
+    console.log(`[MVD-GRAB] Пороги патронов: .44 Magnum ≥ ${AMMO_THRESHOLD.MAGNUM} шт | 7.62x39 ≥ ${AMMO_THRESHOLD.AK762} шт`);
+})();
+// ==================== END АВТОБРАНИЕ МВД ====================
