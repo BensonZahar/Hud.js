@@ -1818,6 +1818,23 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
                 ammo762:  has.ammo762 < AMMO_THRESHOLD.AK762,  // добираем если меньше порога
             };
 
+            // ── Применяем SKIP список (предметы которые НЕ нужно брать) ──
+            const _skip = window._mvdGrabSkip;
+            if (Array.isArray(_skip) && _skip.length > 0) {
+                const skipMap = {
+                    'medkit':  'medkit',
+                    'baton':   'baton',
+                    'vest':    'vest',
+                    'deagle':  'deagle',
+                    'magnum':  'magnum',
+                    'akm':     'akm',
+                    'ammo762': 'ammo762',
+                };
+                for (const key of _skip) {
+                    if (skipMap[key] !== undefined) need[skipMap[key]] = false;
+                }
+            }
+
             // ── ДИАГНОСТИКА need (раскомментировать при отладке) ──
             // console.log('[MVD-GRAB] === ЧТО НУЖНО ВЗЯТЬ ===');
             // if (need.medkit)  console.log('[MVD-GRAB]  → Аптечка');
