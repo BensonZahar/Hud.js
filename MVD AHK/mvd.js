@@ -1,3 +1,5 @@
+// MVD AHK VERSION: 2.1 (FIX-TRIGGER)
+console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1583,7 +1585,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
             if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
                 if (!window._mvdGrabProcessing) {
-                    console.log('[MVD-GRAB] 🎯 Диалог "Полицейская служба" — запускаем авто-снаряжение');
+                    console.log('=== [MVD-GRAB v2.1] 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
                 }
             }
@@ -1904,7 +1906,7 @@ if (AUTO_GRAB) {
         get: () => isProcessing,
         configurable: true
     });
-    console.log('[MVD-GRAB] ✅ Авто-снаряжение активно — ждёт диалог "Полицейская служба"');
+    console.log('=== [MVD-GRAB v2.1] ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
