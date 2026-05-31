@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.12 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1794,14 +1794,15 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
         try {
             const armourVal = getArmourValue();
+            // Меню уже открыто — закрываем его, открываем инвентарь для проверки предметов
             closeMenu();
-            await sleep(200);
+            await sleep(300);
 
             let ready = false;
-            for (let attempt = 0; attempt < 2 && !ready; attempt++) {
-                if (attempt > 0) await sleep(300);
+            for (let attempt = 0; attempt < 3 && !ready; attempt++) {
+                if (attempt > 0) await sleep(400);
                 openInventory();
-                ready = await waitInventory(1500);
+                ready = await waitInventory(2000);
             }
             if (!ready) {
                 notify("Ошибка", "Инвентарь не открылся", "FF0000");
@@ -1856,13 +1857,13 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
             if (!Object.values(need).some(Boolean)) {
                 notify("МВД", "Всё снаряжение есть ✓", "00FF00");
-                openMenu();
                 isProcessing = false;
                 return;
             }
 
+            // Открываем меню снаряжения заново и ждём пока сервер его покажет
             openMenu();
-            await sleep(400);
+            await sleep(600);
 
             const toTake = [];
             if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
@@ -1883,8 +1884,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
             for (let i = 0; i < toTake.length; i++) {
+                console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx})`);
                 take(toTake[i].idx);
-                await sleep(i < toTake.length - 1 ? 300 : 150);
+                await sleep(500); // ждём подтверждения сервера
             }
 
             const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
