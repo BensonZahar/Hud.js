@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.331 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1763,11 +1763,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     function openInventory() { sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange"); }
     function closeInventory() { window.closeInterface("InventoryNew"); }
 
-    async function waitInventory(maxMs = 1000) {
+    async function waitInventory(maxMs = 2500) {
         for (let i = 0; i < maxMs; i += 50) {
             try {
                 const inv = window.interface("InventoryNew");
-                if (inv?.items?.[CT.INV] !== undefined) return true;
+                if (inv?.items?.[CT.INV] !== undefined && inv?.items?.[CT.BACK] !== undefined) return true;
             } catch(e) {}
             await sleep(50);
         }
@@ -1801,7 +1801,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             for (let attempt = 0; attempt < 2 && !ready; attempt++) {
                 if (attempt > 0) await sleep(300);
                 openInventory();
-                ready = await waitInventory(1500);
+                ready = await waitInventory(2500);
             }
             if (!ready) {
                 notify("Ошибка", "Инвентарь не открылся", "FF0000");
