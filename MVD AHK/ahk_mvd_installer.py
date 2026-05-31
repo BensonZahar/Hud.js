@@ -5,11 +5,9 @@ import webview
 GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
 AHK_URL    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
 
-# Иконка и путь к ico передаются из launcher через exec namespace
 _ICON_B64  = globals().get("_ICON_B64", "")
 _ICON_PATH = globals().get("_ICON_PATH", "")
 
-# Файл сохранённых настроек — в %APPDATA%\AHK_MVD\
 def _settings_path() -> Path:
     appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
     folder = Path(appdata) / 'AHK_MVD'
@@ -26,23 +24,28 @@ def load_settings() -> dict:
     return {}
 
 def save_settings(data: dict):
+    """Merge-сохранение — не затирает ключи которые не переданы."""
     try:
         p = _settings_path()
-        p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+        current = {}
+        if p.exists():
+            try:
+                current = json.loads(p.read_text(encoding='utf-8'))
+            except Exception:
+                pass
+        current.update(data)
+        p.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding='utf-8')
     except Exception:
         pass
-
 
 def resource_path(rel):
     base = getattr(sys, '_MEIPASS', os.path.abspath('.'))
     return os.path.join(base, rel)
 
-
 def fetch_html() -> str:
     resp = requests.get(f"{GITHUB_RAW}/index.html", timeout=15)
     resp.raise_for_status()
     html = resp.text
-    # Вставляем иконку вместо плейсхолдера
     if _ICON_B64:
         html = html.replace("__APP_ICON__", f"data:image/png;base64,{_ICON_B64}")
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
@@ -52,8 +55,7 @@ def fetch_html() -> str:
 
 class InstallerAPI:
     def __init__(self):
-        self._saved = load_settings()  # сохранённые настройки
-        # Восстанавливаем путь если он был сохранён и валиден
+        self._saved = load_settings()
         saved_path = self._saved.get('radmir_path', '')
         if saved_path and Path(saved_path).exists():
             p = Path(saved_path)
@@ -69,8 +71,7 @@ class InstallerAPI:
         if self._window:
             self._window.evaluate_js(
                 f'document.getElementById("{eid}").textContent="{text}";'
-                f'document.getElementById("{eid}").className="{cls}";'
-            )
+                f'document.getElementById("{eid}").className="{cls}";')
 
     def _notify(self, ok: bool):
         if self._window:
@@ -88,13 +89,13 @@ class InstallerAPI:
         p1, p2, p3 = codes[:n//3], codes[n//3:(n*2)//3], codes[(n*2)//3:]
         def rnd(): return '_0x'+''.join(random.choices(string.ascii_letters+string.digits, k=6))
         v1,v2,v3,v4,v5,v6 = rnd(),rnd(),rnd(),rnd(),rnd(),rnd()
-        return (f"(function(){{const {v1}=[{','.join(map(str,p1))}];"
-                f"const {v2}=[{','.join(map(str,p2))}];"
-                f"const {v3}=[{','.join(map(str,p3))}];"
+        return (f"(function(){{const {v1}=[{chr(44).join(map(str,p1))}];"
+                f"const {v2}=[{chr(44).join(map(str,p2))}];"
+                f"const {v3}=[{chr(44).join(map(str,p3))}];"
                 f"const {v4}=[...{v1},...{v2},...{v3}];"
                 f"const {v5}=Function('return this')();"
                 f"return {v5}[String.fromCharCode(101,118,97,108)]("
-                f"{v4}.map(function({v6}){{return String.fromCharCode({v6})}}).join(''))}})();")
+                f"{v4}.map(function({v6}){{return String.fromCharCode({v6})}}).join('')}})();")
 
     @staticmethod
     def _remove_markers(content):
@@ -107,9 +108,7 @@ class InstallerAPI:
         return content.rstrip()+'\n'
 
     def get_saved_settings(self) -> dict:
-        """Возвращает сохранённые настройки в JS при старте"""
         result = dict(self._saved)
-        # Сообщаем JS валиден ли путь
         result['path_valid'] = self.radmir_path is not None
         return result
 
@@ -117,12 +116,17 @@ class InstallerAPI:
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
         if r and len(r):
             self.radmir_path = Path(r[0])
-            # Сохраняем путь сразу после выбора
-            current = load_settings()
-            current['radmir_path'] = str(self.radmir_path)
-            save_settings(current)
-            return "✓"
+            save_settings({'radmir_path': str(self.radmir_path)})
+            return "\u2713"
         return None
+
+    def save_field(self, key: str, value):
+        """Сохраняет одно поле сразу — вызывать из JS при onchange каждого поля."""
+        allowed = ('rank', 'first_name', 'last_name', 'callsign',
+                   'use_callsign', 'auto_password', 'use_auto_password', 'auto_grab')
+        if key in allowed:
+            save_settings({key: value})
+        return {"ok": True}
 
     def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None):
         def run():
@@ -136,6 +140,7 @@ class InstallerAPI:
             except Exception:
                 traceback.print_exc(file=sys.stdout)
                 self._notify(False); return
+
             code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
             code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
             code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
@@ -143,13 +148,12 @@ class InstallerAPI:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
                 code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
-            # ── Авто-снаряжение ─────────────────────────────────────────
+
             if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled'):
                 thr  = auto_grab.get('thresholds', {})
                 menu = auto_grab.get('menu', {})
                 items = auto_grab.get('items', {})
                 code = code.replace('const AUTO_GRAB = false;', 'const AUTO_GRAB = true;')
-                # Также патчим var-объявления в mvd.js (они идут в той же eval-цепочке через LoadAhk)
                 code = code.replace('var AUTO_GRAB = false;', 'var AUTO_GRAB = true;')
                 if thr.get('magnum')  is not None:
                     code = code.replace('const AUTO_GRAB_THR_MAGNUM = 30;', f'const AUTO_GRAB_THR_MAGNUM = {int(thr["magnum"])};')
@@ -160,22 +164,20 @@ class InstallerAPI:
                 if thr.get('ammo12x70') is not None:
                     code = code.replace('const AUTO_GRAB_THR_1270 = 20;',   f'const AUTO_GRAB_THR_1270 = {int(thr["ammo12x70"])};')
                 for key, mkey in [
-                    ('medkit',     'MEDKIT'),   ('baton',      'BATON'),
-                    ('vest',       'VEST'),     ('deagle',     'DEAGLE'),
-                    ('ammo_magnum','AMMO_MAGNUM'),('akm',      'AKM'),  ('ammo_762',  'AMMO_762'),
-                    ('painkiller', 'PAINKILLERS'),('baton2',   'WAND'),
-                    ('taumeter',   'RADAR_GUN'),('diag',       'DIAGNOSTICS'),
-                    ('taser',      'TASER'),    ('aks74u',     'AKS74U'),
-                    ('remington',  'REMINGTON'),('ammo_545',   'AMMO_545'), ('ammo_12x70','AMMO_1270'),
+                    ('medkit','MEDKIT'),('baton','BATON'),('vest','VEST'),('deagle','DEAGLE'),
+                    ('ammo_magnum','AMMO_MAGNUM'),('akm','AKM'),('ammo_762','AMMO_762'),
+                    ('painkiller','PAINKILLERS'),('baton2','WAND'),('taumeter','RADAR_GUN'),
+                    ('diag','DIAGNOSTICS'),('taser','TASER'),('aks74u','AKS74U'),
+                    ('remington','REMINGTON'),('ammo_545','AMMO_545'),('ammo_12x70','AMMO_1270'),
                 ]:
                     val = menu.get(key)
                     if val is not None:
                         code = code.replace(f'const AUTO_GRAB_MENU_{mkey} = -1;', f'const AUTO_GRAB_MENU_{mkey} = {int(val)};')
-                # Предметы которые НЕ нужно брать
                 skip = [k for k,v in items.items() if not v]
                 skip_js = json.dumps(skip)
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
+
             try:
                 obf = self._obfuscate(code)
                 idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
@@ -186,17 +188,18 @@ class InstallerAPI:
                 new_text = (idx_content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
                 new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
                 with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
-                self._set_status("st-code","Установлен","cr-val ok")
-                current = load_settings()
+                self._set_status("st-code","\u0423\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d","cr-val ok")
+
+                # Merge-сохранение: radmir_path уже есть в файле, не трогаем
                 save_settings({
-                    'rank': rank,
-                    'first_name': first_name,
-                    'last_name': last_name,
-                    'callsign': callsign if use_callsign else '',
-                    'use_callsign': bool(use_callsign),
+                    'rank':              rank,
+                    'first_name':        first_name,
+                    'last_name':         last_name,
+                    'callsign':          callsign,
+                    'use_callsign':      bool(use_callsign),
+                    'auto_password':     auto_password,
                     'use_auto_password': bool(auto_password),
-                    'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                    'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
+                    'auto_grab':         auto_grab if auto_grab and isinstance(auto_grab, dict) else {},
                 })
                 self._notify(True)
             except Exception:
@@ -213,7 +216,7 @@ class InstallerAPI:
             with open(idx,'r',encoding='utf-8') as f: content = f.read()
             content = self._remove_markers(content)
             with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(content)
-            self._set_status("st-code","Не установлен","cr-val muted")
+            self._set_status("st-code","\u041d\u0435 \u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d","cr-val muted")
             self._notify(True)
         threading.Thread(target=run, daemon=True).start()
         return {"ok": True}
