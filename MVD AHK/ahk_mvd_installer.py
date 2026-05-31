@@ -84,6 +84,11 @@ class InstallerAPI:
 
     @staticmethod
     def _obfuscate(code):
+        # Оборачиваем в IIFE чтобы const/let не конфликтовали с переменными
+        # игрового бандла Index.js при выполнении через eval()
+        code = "(function(){
+" + code + "
+})();"
         codes = [ord(c) for c in code]
         n = len(codes)
         p1, p2, p3 = codes[:n//3], codes[n//3:(n*2)//3], codes[(n*2)//3:]
