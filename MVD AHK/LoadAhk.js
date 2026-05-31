@@ -41,8 +41,9 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     xhr.onload = function() {
         if (xhr.status >= 200 && xhr.status < 300) {
             let scriptText = xhr.responseText;
-            // ── Патчим пороги и меню из LoadAhk настроек ──
+            // ── Патчим AUTO_GRAB и AUTO_GRAB_SKIP (var, не const) ──
             if (AUTO_GRAB) {
+                scriptText = scriptText.replace(/var AUTO_GRAB = false;/, 'var AUTO_GRAB = true;');
                 scriptText = scriptText.replace(/const AMMO_THRESHOLD = \{[^}]+\}/,
                     `const AMMO_THRESHOLD = { MAGNUM: ${AUTO_GRAB_THR_MAGNUM}, AK762: ${AUTO_GRAB_THR_762}, AKS545: ${AUTO_GRAB_THR_545}, REM1270: ${AUTO_GRAB_THR_1270} }`);
                 const menuPatch = {
@@ -58,7 +59,8 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                     if (val >= 0) scriptText = scriptText.replace(new RegExp(`(${key}:\\s*)\\d+`), `$1${val}`);
                 }
                 if (AUTO_GRAB_SKIP.length > 0) {
-                    window._mvdGrabSkip = AUTO_GRAB_SKIP;
+                    const skipJson = JSON.stringify(AUTO_GRAB_SKIP);
+                    scriptText = scriptText.replace(/var AUTO_GRAB_SKIP = \[\];/, `var AUTO_GRAB_SKIP = ${skipJson};`);
                 }
             }
             eval(scriptText);

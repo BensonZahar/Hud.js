@@ -1644,8 +1644,9 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
 // ==================== АВТОБРАНИЕ МВД ====================
 // Авто-снаряжение — включается только если AUTO_GRAB === true
 // (LoadAhk патчит константы ниже перед eval)
-const AUTO_GRAB = false;
-const AUTO_GRAB_SKIP = [];
+// Используем var чтобы избежать SyntaxError при повторном объявлении через eval
+var AUTO_GRAB = false;
+var AUTO_GRAB_SKIP = [];
 if (AUTO_GRAB) {
 (function() {
     console.log('[MVD-GRAB] 🔫 Загружен (AUTO_GRAB включён)');
@@ -1840,12 +1841,12 @@ if (AUTO_GRAB) {
 
             if (!Object.values(need).some(Boolean)) {
                 notify("МВД", "Всё снаряжение есть ✓", "00FF00");
-                openMenu();
+                openMenuSafe();
                 isProcessing = false;
                 return;
             }
 
-            openMenu();
+            openMenuSafe();
             await sleep(400);
 
             const toTake = [];
@@ -1884,12 +1885,23 @@ if (AUTO_GRAB) {
     }
 
     // ==================== АВТО-ТРИГГЕР: открытие интерфейса полицейской службы ====================
-    // Перехватываем KEY_18 (ключ службы МВД) — при открытии меню снаряжения запускаем autoGrab
+    // Перехватываем KEY_18 только от внешнего нажатия игрока.
+    // Флаг _grabInternalKey блокирует срабатывание при внутреннем вызове openMenu() внутри autoGrab.
+    let _grabInternalKey = false;
+    const _origOpenMenu = openMenu;
+    // Переопределяем openMenu так, чтобы он выставлял флаг перед отправкой KEY_18
+    function openMenuSafe() {
+        _grabInternalKey = true;
+        _origOpenMenu();
+        // Сбрасываем флаг после короткой задержки (хватает чтобы хук уже отработал)
+        setTimeout(() => { _grabInternalKey = false; }, 50);
+    }
+    // Заменяем все вызовы openMenu внутри autoGrab на openMenuSafe через monkey-patch
     const _origSCEGrab = window.sendClientEvent;
     window.sendClientEvent = function(event, ...args) {
-        // Когда игрок нажимает KEY_18 (открытие меню МВД-службы) — запускаем авто-снаряжение
-        if (args[0] === 'OnPlayerClientSideKey' && parseInt(args[1]) === 18 && !isProcessing) {
-            console.log('[MVD-GRAB] 🎯 KEY_18 перехвачен — запускаем авто-снаряжение');
+        // Запускаем авто-снаряжение только при реальном нажатии игрока (не внутренний вызов)
+        if (args[0] === 'OnPlayerClientSideKey' && parseInt(args[1]) === 18 && !isProcessing && !_grabInternalKey) {
+            console.log('[MVD-GRAB] 🎯 KEY_18 от игрока — запускаем авто-снаряжение');
             setTimeout(() => autoGrab(), 100);
         }
         return _origSCEGrab.call(this, event, ...args);
