@@ -45,52 +45,52 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
 // ── АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────────
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {
-        function tryFill() {
-            // Точный селектор поля пароля из Authorization.js
-            const passInput = document.querySelector('.authorization-field__input[type="password"]');
-            if (!passInput || passInput.dataset.ahkFilled) return;
-            passInput.dataset.ahkFilled = '1';
+        var _filled = false;
 
-            console.log('[AHK AUTO-PWD] Найдено поле пароля, вводим...');
-            const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+        function tryFill() {
+            if (_filled) return;
+
+            var passInput = document.querySelector('.authorization-field__input[type="password"]');
+            if (!passInput) return;
+
+            _filled = true;
+            observer.disconnect();
+
+            // Шаг 1: нативный value
+            var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
             nativeSetter.call(passInput, AUTO_PASSWORD);
-            // input event — Vue среагирует и обновит реактивное состояние (v-model)
+
+            // Шаг 2: input event — Vue обновит v-model
             passInput.dispatchEvent(new Event('input', { bubbles: true }));
 
-            // Ждём пока Vue обновит состояние, затем кликаем кнопку
+            // Шаг 3: Enter на форме — Vue слушает @keydown там
             setTimeout(function() {
-                // Кнопка «Войти» — это div, не button
-                const btn = document.querySelector('.login-form__button');
-                if (btn) {
-                    btn.click();
-                    console.log('[AHK AUTO-PWD] Кнопка "Войти" нажата');
-                } else {
-                    // Fallback: Enter на .login-form — именно там Vue слушает @keydown
-                    const form = document.querySelector('.login-form');
-                    const target = form || passInput;
-                    target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
-                    console.log('[AHK AUTO-PWD] Enter отправлен на форму');
-                }
-            }, 100);
+                var form = document.querySelector('.login-form');
+                var target = form || passInput;
+                target.dispatchEvent(new KeyboardEvent('keydown', {
+                    key: 'Enter', code: 'Enter',
+                    keyCode: 13, which: 13,
+                    bubbles: true, cancelable: true
+                }));
+                console.log('[AHK AUTO-PWD] Enter отправлен');
+            }, 150);
         }
 
-        const observer = new MutationObserver(function() {
-            if (document.querySelector('.authorization-field__input[type="password"]')) {
+        var observer = new MutationObserver(function() {
+            if (!_filled && document.querySelector('.authorization-field__input[type="password"]')) {
                 tryFill();
             }
         });
 
         if (document.body) {
             observer.observe(document.body, { childList: true, subtree: true });
-            tryFill(); // на случай если поле уже есть в DOM
+            tryFill();
         } else {
             document.addEventListener('DOMContentLoaded', function() {
                 observer.observe(document.body, { childList: true, subtree: true });
                 tryFill();
             });
         }
-
-        console.log('[AHK AUTO-PWD] Модуль авто-пароля активирован');
     })();
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
