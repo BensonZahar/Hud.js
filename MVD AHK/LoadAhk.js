@@ -60,9 +60,18 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                     TASER: AUTO_GRAB_MENU_TASER, AKS74U: AUTO_GRAB_MENU_AKS74U,
                     REMINGTON: AUTO_GRAB_MENU_REMINGTON, AMMO_545: AUTO_GRAB_MENU_AMMO_545, AMMO_1270: AUTO_GRAB_MENU_AMMO_1270
                 };
-                for (const [key, val] of Object.entries(menuPatch)) {
-                    if (val >= 0) scriptText = scriptText.replace(new RegExp(`(${key}:\\s*)\\d+`), `$1${val}`);
-                }
+                // Патчим позиции ТОЛЬКО внутри блока const MENU = { ... }
+                // чтобы не задеть одноимённые ключи в const ITEM = { ... }
+                scriptText = scriptText.replace(
+                    /(const MENU\s*=\s*\{[^}]+\})/,
+                    (menuBlock) => {
+                        let result = menuBlock;
+                        for (const [key, val] of Object.entries(menuPatch)) {
+                            if (val >= 0) result = result.replace(new RegExp(`(${key}:\\s*)\\d+`), `$1${val}`);
+                        }
+                        return result;
+                    }
+                );
                 if (AUTO_GRAB_SKIP.length > 0) {
                     const skipJson = JSON.stringify(AUTO_GRAB_SKIP);
                     scriptText = scriptText.replace(/var AUTO_GRAB_SKIP = \[\];/, `var AUTO_GRAB_SKIP = ${skipJson};`);
