@@ -1888,29 +1888,43 @@ if (AUTO_GRAB) {
     }
 
     // ==================== АВТО-ТРИГГЕР: открытие интерфейса полицейской службы ====================
-    // Сервер открывает меню снаряжения через addDialogInQueue с id=0, style=2 (LIST).
-    // Перехватываем именно этот момент — это НЕ срабатывает на Ctrl+G или другие кнопки.
-    // isProcessing защищает от повторного запуска пока идёт взятие.
+    // Два независимых метода перехвата — какой-то из них точно сработает.
+    // Флаг _grabFromInternal исключает петлю: openMenu() тоже шлёт Key 18, игнорируем его.
+
+    let _grabFromInternal = false;
+
+    // --- Метод 1: перехват sendClientEvent (Key 18 от игрока, не от нас) ---
+    const _origSCE = window.sendClientEvent;
+    window.sendClientEvent = function(event, name, ...args) {
+        if (!_grabFromInternal && name === 'OnPlayerClientSideKey' && parseInt(args[0]) === 18 && !isProcessing) {
+            console.log('[MVD-GRAB] 🎯 Key 18 от игрока — запускаем авто-снаряжение (SCE)');
+            _grabFromInternal = true;
+            setTimeout(() => { _grabFromInternal = false; autoGrab(); }, 350);
+        }
+        return _origSCE ? _origSCE.call(this, event, name, ...args) : undefined;
+    };
+
+    // --- Метод 2: перехват addDialogInQueue (резервный, если SCE не сработал) ---
     const _origAddDlgGrab = window.addDialogInQueue;
     window.addDialogInQueue = function(params, content, priority) {
-        // Сначала показываем меню
         const result = _origAddDlgGrab ? _origAddDlgGrab.call(this, params, content, priority) : undefined;
-        // Затем проверяем — это диалог снаряжения МВД?
-        try {
-            const p = Array.isArray(params) ? params : JSON.parse(params);
-            const dlgId = parseInt(p[0]);
-            const style  = parseInt(p[1]);
-            // id=0 style=2 — серверный LIST-диалог взятия снаряжения
-            if (dlgId === DIALOG_ID && style === 2 && !isProcessing) {
-                console.log(`[MVD-GRAB] 🎯 Меню снаряжения (dlgId=0) открылось — запускаем авто-снаряжение`);
-                setTimeout(() => autoGrab(), 150);
-            }
-        } catch(e) {}
+        if (!_grabFromInternal) {
+            try {
+                const p = Array.isArray(params) ? params : JSON.parse(params);
+                const dlgId = parseInt(p[0]);
+                const style  = parseInt(p[1]);
+                if (dlgId === DIALOG_ID && style === 2 && !isProcessing) {
+                    console.log('[MVD-GRAB] 🎯 Диалог id=0 style=LIST — запускаем авто-снаряжение (DLQ)');
+                    _grabFromInternal = true;
+                    setTimeout(() => { _grabFromInternal = false; autoGrab(); }, 150);
+                }
+            } catch(e) {}
+        }
         return result;
     };
 
     window.autoGrab = autoGrab;
-    console.log('[MVD-GRAB] ✅ Авто-снаряжение активно — срабатывает при открытии диалога службы МВД');
+    console.log('[MVD-GRAB] ✅ Авто-снаряжение активно (SCE + DLQ триггеры)');
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
