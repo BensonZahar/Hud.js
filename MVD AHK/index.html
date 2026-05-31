@@ -427,14 +427,14 @@ body{
                     <div class="window-table__item"          id="wmi-taumeter"   onclick="toggleGrabItem('taumeter')"><div class="window-table__col"><p>Тауметр</p></div></div>
                     <div class="window-table__item"          id="wmi-diag"       onclick="toggleGrabItem('diag')"><div class="window-table__col"><p>Аппарат для диагностики</p></div></div>
                     <div class="window-table__item"          id="wmi-taser"      onclick="toggleGrabItem('taser')"><div class="window-table__col"><p>Тазер</p></div></div>
-                    <div class="window-table__item" id="wmi-deagle"     onclick="toggleGrabItem('deagle')"><div class="window-table__col"><p>Desert Eagle</p></div></div>
-                    <div class="window-table__item" id="wmi-akm"        onclick="toggleGrabItem('akm')"><div class="window-table__col"><p>АКМ</p></div></div>
-                    <div class="window-table__item"          id="wmi-aks74u"     onclick="toggleGrabItem('aks74u')"><div class="window-table__col"><p>АКС-74У</p></div></div>
-                    <div class="window-table__item"          id="wmi-remington"  onclick="toggleGrabItem('remington')"><div class="window-table__col"><p>Remington 870</p></div></div>
-                    <div class="window-table__item" id="wmi-magnum"     onclick="toggleGrabItem('magnum')"><div class="window-table__col"><p>Патроны (.44 Magnum)</p></div></div>
-                    <div class="window-table__item" id="wmi-ammo762"    onclick="toggleGrabItem('ammo762')"><div class="window-table__col"><p>Патроны (7.62x39)</p></div></div>
-                    <div class="window-table__item"          id="wmi-ammo545"    onclick="toggleGrabItem('ammo545')"><div class="window-table__col"><p>Патроны (5.45x39)</p></div></div>
-                    <div class="window-table__item"          id="wmi-ammo12x70"  onclick="toggleGrabItem('ammo12x70')"><div class="window-table__col"><p>Патроны (12x70)</p></div></div>
+                    <div class="window-table__item" id="wmi-deagle"     onclick="toggleGrabWeapon('deagle','magnum')"><div class="window-table__col"><p>Desert Eagle</p></div></div>
+                    <div class="window-table__item" id="wmi-akm"        onclick="toggleGrabWeapon('akm','ammo762')"><div class="window-table__col"><p>АКМ</p></div></div>
+                    <div class="window-table__item"          id="wmi-aks74u"     onclick="toggleGrabWeapon('aks74u','ammo545')"><div class="window-table__col"><p>АКС-74У</p></div></div>
+                    <div class="window-table__item"          id="wmi-remington"  onclick="toggleGrabWeapon('remington','ammo12x70')"><div class="window-table__col"><p>Remington 870</p></div></div>
+                    <div class="window-table__item" id="wmi-magnum"     onclick="toggleGrabItem('magnum')"><div class="window-table__col"><p>Патроны (.44 Magnum)<br><span style="font-size:9px;opacity:.45;font-weight:400">для Desert Eagle</span></p></div></div>
+                    <div class="window-table__item" id="wmi-ammo762"    onclick="toggleGrabItem('ammo762')"><div class="window-table__col"><p>Патроны (7.62x39)<br><span style="font-size:9px;opacity:.45;font-weight:400">для АКМ</span></p></div></div>
+                    <div class="window-table__item"          id="wmi-ammo545"    onclick="toggleGrabItem('ammo545')"><div class="window-table__col"><p>Патроны (5.45x39)<br><span style="font-size:9px;opacity:.45;font-weight:400">для АКС-74У</span></p></div></div>
+                    <div class="window-table__item"          id="wmi-ammo12x70"  onclick="toggleGrabItem('ammo12x70')"><div class="window-table__col"><p>Патроны (12x70)<br><span style="font-size:9px;opacity:.45;font-weight:400">для Remington 870</span></p></div></div>
                   </div>
                   </div>
                   <!-- Кастомный скроллбар тип 9 -->
@@ -548,6 +548,29 @@ function toggleGrabItem(item) {
   document.getElementById('wmi-' + item).classList.toggle('selected', grabItems[item]);
 }
 
+// Связи оружие → патроны
+var weaponAmmoMap = { deagle: 'magnum', akm: 'ammo762', aks74u: 'ammo545', remington: 'ammo12x70' };
+
+function toggleGrabWeapon(weapon, ammo) {
+  grabItems[weapon] = !grabItems[weapon];
+  document.getElementById('wmi-' + weapon).classList.toggle('selected', grabItems[weapon]);
+  // Авто-включаем патроны при выборе оружия
+  if (grabItems[weapon] && !grabItems[ammo]) {
+    grabItems[ammo] = true;
+    document.getElementById('wmi-' + ammo).classList.add('selected');
+  }
+  // Авто-снимаем патроны при снятии оружия — только если другое оружие под те же патроны не выбрано
+  if (!grabItems[weapon]) {
+    var otherWeaponSelected = Object.entries(weaponAmmoMap).some(function(e) {
+      return e[1] === ammo && e[0] !== weapon && grabItems[e[0]];
+    });
+    if (!otherWeaponSelected) {
+      grabItems[ammo] = false;
+      document.getElementById('wmi-' + ammo).classList.remove('selected');
+    }
+  }
+}
+
 function getGrabSettings() {
   // Пороги: берём из сохранённых если есть, иначе дефолт
   var thr = (savedAutoGrab && savedAutoGrab.thresholds) ? savedAutoGrab.thresholds : {};
@@ -599,9 +622,15 @@ window.addEventListener('pywebviewready', function() {
       }
     }
     // Авто-снаряжение — сохраняем в savedAutoGrab для getGrabSettings()
-    // Галочку enabled НЕ восстанавливаем — пользователь включает вручную
     if (s.auto_grab && typeof s.auto_grab === 'object') {
       savedAutoGrab = s.auto_grab;
+      // Восстанавливаем галочку enabled
+      if (s.auto_grab.enabled) {
+        autoGrabOn = true;
+        document.getElementById('chk-box-grab').classList.add('on');
+        document.getElementById('grab-wrap').classList.add('show');
+        setTimeout(initGrabScroll, 300);
+      }
       // Восстанавливаем выбранные предметы (wmi-*)
       if (s.auto_grab.items) {
         grabItems = Object.assign(grabItems, s.auto_grab.items);
