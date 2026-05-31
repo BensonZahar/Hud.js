@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.331 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1584,9 +1584,15 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
             if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
-                if (!window._mvdGrabProcessing) {
-                    console.log('=== [MVD-GRAB v2.1] 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
+                const now = Date.now();
+                const lastRun = window._mvdGrabLastRun || 0;
+                const cooldown = 5000; // 5 секунд между запусками
+                if (!window._mvdGrabProcessing && (now - lastRun) > cooldown) {
+                    window._mvdGrabLastRun = now;
+                    console.log('=== [MVD-GRAB v2.1] \uD83C\uDFAF ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
+                } else if ((now - lastRun) <= cooldown) {
+                    console.log(`[MVD-GRAB] \u23F3 Кулдаун — пропускаю (${Math.round((cooldown - (now - lastRun)) / 1000)}с осталось)`);
                 }
             }
 
@@ -1793,6 +1799,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         isProcessing = true;
 
         try {
+            // Ждём 1.5 сек чтобы сервер успел зачислить предметы от предыдущего взятия
+            await sleep(1500);
+
             const armourVal = getArmourValue();
 
             // ── Шаг 1: открываем инвентарь — диалог меню остаётся открытым ──
