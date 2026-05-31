@@ -124,15 +124,18 @@ class InstallerAPI:
             return "✓"
         return None
 
-    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password=''):
+    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None):
         def run():
-            if not self._check_dirs(): self._notify(False); return
+            import traceback, sys
             try:
+                if not self._check_dirs(): self._notify(False); return
                 resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
                 code = resp.text.strip()
                 if not code: self._notify(False); return
                 code = code.replace('\r\n','\n').replace('\r','\n').strip()+'\n'
-            except Exception: self._notify(False); return
+            except Exception:
+                traceback.print_exc(file=sys.stdout)
+                self._notify(False); return
             code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
             code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
             code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
@@ -140,34 +143,65 @@ class InstallerAPI:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
                 code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
-            # ── [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО] ─────────────────────────────
-            # Блок auto_grab закомментирован — функция плохо работала
-            # if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled'):
-            #     ... (код патча авто-снаряжения удалён)
-            obf = self._obfuscate(code)
-            idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-            if not idx.exists(): self._notify(False); return
-            with open(idx,'r',encoding='utf-8') as f: content = f.read()
-            content = self._remove_markers(content)
-            new = (content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
-            new = new.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
-            with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new)
-            self._set_status("st-code","Установлен","cr-val ok")
-            # Сохраняем настройки для следующего запуска
-            # Загружаем текущие настройки чтобы не затереть путь
-            current = load_settings()
-            save_settings({
-                'rank': rank,
-                'first_name': first_name,
-                'last_name': last_name,
-                'callsign': callsign if use_callsign else '',
-                'use_callsign': bool(use_callsign),
-                'use_auto_password': bool(auto_password),
-                # пароль намеренно не сохраняем — вводится каждый раз
-                'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                # 'auto_grab' убрано — авто-снаряжение отключено
-            })
-            self._notify(True)
+            # ── Авто-снаряжение ─────────────────────────────────────────
+            if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled'):
+                thr  = auto_grab.get('thresholds', {})
+                menu = auto_grab.get('menu', {})
+                items = auto_grab.get('items', {})
+                code = code.replace('const AUTO_GRAB = false;', 'const AUTO_GRAB = true;')
+                # Также патчим var-объявления в mvd.js (они идут в той же eval-цепочке через LoadAhk)
+                code = code.replace('var AUTO_GRAB = false;', 'var AUTO_GRAB = true;')
+                if thr.get('magnum')  is not None:
+                    code = code.replace('const AUTO_GRAB_THR_MAGNUM = 30;', f'const AUTO_GRAB_THR_MAGNUM = {int(thr["magnum"])};')
+                if thr.get('ammo762') is not None:
+                    code = code.replace('const AUTO_GRAB_THR_762 = 60;',    f'const AUTO_GRAB_THR_762 = {int(thr["ammo762"])};')
+                if thr.get('ammo545') is not None:
+                    code = code.replace('const AUTO_GRAB_THR_545 = 60;',    f'const AUTO_GRAB_THR_545 = {int(thr["ammo545"])};')
+                if thr.get('ammo12x70') is not None:
+                    code = code.replace('const AUTO_GRAB_THR_1270 = 20;',   f'const AUTO_GRAB_THR_1270 = {int(thr["ammo12x70"])};')
+                for key, mkey in [
+                    ('medkit',     'MEDKIT'),   ('baton',      'BATON'),
+                    ('vest',       'VEST'),     ('deagle',     'DEAGLE'),
+                    ('ammo_magnum','AMMO_MAGNUM'),('akm',      'AKM'),  ('ammo_762',  'AMMO_762'),
+                    ('painkiller', 'PAINKILLERS'),('baton2',   'WAND'),
+                    ('taumeter',   'RADAR_GUN'),('diag',       'DIAGNOSTICS'),
+                    ('taser',      'TASER'),    ('aks74u',     'AKS74U'),
+                    ('remington',  'REMINGTON'),('ammo_545',   'AMMO_545'), ('ammo_12x70','AMMO_1270'),
+                ]:
+                    val = menu.get(key)
+                    if val is not None:
+                        code = code.replace(f'const AUTO_GRAB_MENU_{mkey} = -1;', f'const AUTO_GRAB_MENU_{mkey} = {int(val)};')
+                # Предметы которые НЕ нужно брать
+                skip = [k for k,v in items.items() if not v]
+                skip_js = json.dumps(skip)
+                code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
+                code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
+            try:
+                obf = self._obfuscate(code)
+                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
+                if not idx.exists():
+                    self._notify(False); return
+                with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
+                idx_content = self._remove_markers(idx_content)
+                new_text = (idx_content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
+                new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
+                with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
+                self._set_status("st-code","Установлен","cr-val ok")
+                current = load_settings()
+                save_settings({
+                    'rank': rank,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'callsign': callsign if use_callsign else '',
+                    'use_callsign': bool(use_callsign),
+                    'use_auto_password': bool(auto_password),
+                    'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
+                    'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
+                })
+                self._notify(True)
+            except Exception:
+                traceback.print_exc(file=sys.stdout)
+                self._notify(False)
         threading.Thread(target=run, daemon=True).start()
         return {"ok": True}
 
