@@ -126,13 +126,24 @@ class InstallerAPI:
 
     def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None):
         def run():
-            if not self._check_dirs(): self._notify(False); return
+            import traceback
             try:
+                print(f"[DEBUG] path={self.radmir_path}")
+                print(f"[DEBUG] check={self._check_dirs()}")
+                if not self._check_dirs():
+                    print("[DEBUG] check FAIL")
+                    self._notify(False); return
+                print(f"[DEBUG] fetching {AHK_URL}")
                 resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
                 code = resp.text.strip()
-                if not code: self._notify(False); return
+                if not code:
+                    print("[DEBUG] empty code")
+                    self._notify(False); return
                 code = code.replace('\r\n','\n').replace('\r','\n').strip()+'\n'
-            except Exception: self._notify(False); return
+                print(f"[DEBUG] code len={len(code)}")
+            except Exception:
+                traceback.print_exc()
+                self._notify(False); return
             code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
             code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
             code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
