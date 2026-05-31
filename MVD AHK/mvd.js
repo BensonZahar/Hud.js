@@ -267,7 +267,7 @@ const mvdSubTypes = [
 ];
 let trackingName = `Отслеживание | {FF0000}Выкл`;
 let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
-// let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`; // [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО]
+let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`;
 const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
@@ -777,7 +777,7 @@ const HandleMvdSubCommand = (index) => {
             }, 50);
             break;
         case "autograb":
-            // if (typeof window.autoGrab === 'function') window.autoGrab(); // [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО]
+            if (typeof window.autoGrab === 'function') window.autoGrab();
             break;
     }
 };
@@ -1257,10 +1257,9 @@ window.showMvdSubMenu = (e) => {
     }
     availableSub.push({ name: trackingName, id: "tracking" });
     availableSub.push({ name: autoCuffName, id: "autocuff" });
-    // [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО]
-    // if (window.AUTO_GRAB) {
-    //     availableSub.push({ name: autoGrabName, id: "autograb" });
-    // }
+    if (window.AUTO_GRAB) {
+        availableSub.push({ name: autoGrabName, id: "autograb" });
+    }
     shownMvdSubTypes = availableSub;
     let licenseList = '';
     availableSub.forEach((license, index) => {
@@ -1584,7 +1583,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             }
 
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
-            if (false && style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') { // [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО]
+            if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
                 if (!window._mvdGrabProcessing) {
                     console.log('=== [MVD-GRAB v2.1] 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
@@ -1652,8 +1651,168 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 console.log('[DIALOG MONITOR] Загружен. Все диалоги выводятся в консоль.');
 // ==================== END DIALOG MONITOR ====================
 
+// ==================== АВТО-ДИГЛ (AUTO-DEAGLE) v4 ====================
+// Триггер: диалог "Полицейская служба" открылся
+// Логика (точно как Ctrl+G в mvd_23):
+//   1. closeMenu() — серверный ESC (OnDialogResponse,0,0,0)
+//   2. sleep(200)
+//   3. openInventory() + waitInventory() — читаем items напрямую
+//   4. findItem(19) — проверяем дигл
+//   5. closeInventory() → sleep(100)
+//   6. openMenu() — Alt, переоткрываем диалог
+//   7. sleep(500) — ждём диалог
+//   8. Если дигл есть → stop (диалог открыт для игрока)
+//      Если нет → take(8) — берём Desert Eagle
+(function() {
+    const DEAGLE_ID       = 19;   // ID Desert Eagle
+    const DEAGLE_IDX      = 8;    // 0-based в меню (пункт 9 = idx 8)
+    const DIALOG_ID       = 0;
+    const CT_INV  = 1;
+    const CT_BACK = 2;
+    const CT_ACC  = 0;
+
+    let _busy = false;
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    function notify(title, text, color) {
+        try { window.interface('ScreenNotification').add(`[1, "${title}", "${text}", "${color}", 3000]`); } catch(e) {}
+    }
+
+    // Точно как в mvd_23: читаем inv.items[cid] напрямую
+    function findDeagle() {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) return false;
+            for (const cid of [CT_INV, CT_BACK, CT_ACC]) {
+                const c = inv.items[cid];
+                if (!c) continue;
+                for (const item of Object.values(c)) {
+                    if (item?.id === DEAGLE_ID) return true;
+                }
+            }
+            return false;
+        } catch(e) { return false; }
+    }
+
+    // Точно как в mvd_23
+    function openInventory() {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+    }
+    function closeInventory() {
+        try { window.closeInterface("InventoryNew"); } catch(e) {}
+    }
+    async function waitInventory(maxMs) {
+        for (let i = 0; i < maxMs; i += 50) {
+            try {
+                const inv = window.interface("InventoryNew");
+                if (inv?.items?.[CT_INV] !== undefined) return true;
+            } catch(e) {}
+            await sleep(50);
+        }
+        return false;
+    }
+
+    // Серверный ESC — закрывает диалог
+    function closeMenu() {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 0, 0, "");
+    }
+    // Alt — открывает меню склада
+    function openMenu() {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
+    }
+    // Взять предмет
+    function take(idx) {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 1, idx, "");
+    }
+
+    // ── Главная функция ──
+    // dialogAlreadyOpen=true  → диалог УЖЕ открыт (триггер из хука);
+    //                           пропускаем closeMenu/openMenu, читаем инвентарь и берём сразу
+    // dialogAlreadyOpen=false → вызов вручную (Ctrl+G / /grab);
+    //                           логика как раньше: закрыть → инвентарь → переоткрыть → взять
+    async function run(dialogAlreadyOpen) {
+        if (_busy) return;
+        _busy = true;
+        console.log(`[AUTO-DEAGLE] ▶ Старт (dialogAlreadyOpen=${!!dialogAlreadyOpen})`);
+
+        try {
+            if (!dialogAlreadyOpen) {
+                // ── Ручной режим: диалог не открыт, закрываем что есть и переоткрываем ──
+                console.log('[AUTO-DEAGLE] closeMenu...');
+                closeMenu();
+                await sleep(200);
+            }
+
+            // Открываем инвентарь, retry x2
+            let ready = false;
+            for (let attempt = 0; attempt < 2 && !ready; attempt++) {
+                if (attempt > 0) await sleep(300);
+                console.log(`[AUTO-DEAGLE] openInventory attempt ${attempt + 1}...`);
+                openInventory();
+                ready = await waitInventory(1500);
+            }
+            console.log('[AUTO-DEAGLE] Инвентарь готов:', ready);
+
+            // Читаем дигл
+            const hasDeagle = ready ? findDeagle() : false;
+            console.log('[AUTO-DEAGLE] Дигл:', hasDeagle);
+
+            // Закрываем инвентарь
+            closeInventory();
+            await sleep(150);
+
+            if (!dialogAlreadyOpen) {
+                // ── Ручной режим: переоткрываем диалог склада через Alt ──
+                console.log('[AUTO-DEAGLE] openMenu (Alt)...');
+                openMenu();
+                await sleep(500);
+            }
+            // В авто-режиме диалог уже висит — просто берём
+
+            // Действие
+            if (hasDeagle) {
+                notify("Авто-Дигл", "Desert Eagle есть ✓", "00FF88");
+                console.log('[AUTO-DEAGLE] ✅ Дигл есть, диалог открыт');
+            } else {
+                console.log(`[AUTO-DEAGLE] 🔫 Беру Eagle idx=${DEAGLE_IDX}`);
+                take(DEAGLE_IDX);
+                notify("Авто-Дигл", "Desert Eagle взят ✓", "00FF88");
+                try { window.playSound("inventory/take_light.mp3"); } catch(e) {}
+            }
+
+        } catch(err) {
+            console.error('[AUTO-DEAGLE] Ошибка:', err);
+            notify("Авто-Дигл", err.message, "FF4444");
+        } finally {
+            _busy = false;
+        }
+    }
+
+    // ── Хук на диалог склада ──
+    const _prev = window.addDialogInQueue;
+    window.addDialogInQueue = function(params, content, priority) {
+        if (!_busy && params && typeof params === 'string') {
+            try {
+                const p = JSON.parse(params.trim());
+                const title = (p[2] || '').replace(/\{[A-Fa-f0-9]{6}\}/g, '');
+                if (parseInt(p[1]) === 2 && parseInt(p[0]) === DIALOG_ID && title.includes('Полицейская служба')) {
+                    console.log('[AUTO-DEAGLE] 📦 Диалог склада → запуск (авто)');
+                    // Передаём true — диалог уже открыт, не надо его закрывать и переоткрывать
+                    setTimeout(() => run(true), 300);
+                }
+            } catch(e) {}
+        }
+        return _prev.call(this, params, content, priority);
+    };
+
+    console.log('[AUTO-DEAGLE v4] ✅ Загружен');
+    window._autoDeagleRun = run;
+})();
+// ==================== END АВТО-ДИГЛ ====================
+
 // ==================== АВТОБРАНИЕ МВД ====================
-/* ═══════════════ [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО] ═══════════════
+// ═══════════════ АВТО-СНАРЯЖЕНИЕ ═══════════════
 // Авто-снаряжение — включается только если AUTO_GRAB === true
 // (LoadAhk патчит константы ниже перед eval)
 // Используем var чтобы избежать SyntaxError при повторном объявлении через eval
@@ -1932,5 +2091,5 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     console.log('=== [MVD-GRAB v2.1] ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
 } // end if (AUTO_GRAB)
-═══════════════ END АВТО-СНАРЯЖЕНИЕ ═══════════════ */
+// ═══════════════ END АВТО-СНАРЯЖЕНИЕ ═══════════════
 // ==================== END АВТОБРАНИЕ МВД ====================
