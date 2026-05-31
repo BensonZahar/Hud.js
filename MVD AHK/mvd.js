@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.333 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1816,7 +1816,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             const has = {
                 medkit:      skip('medkit')      ? 999 : (findItem(ITEM.MEDKIT)      ? 1 : 0),
                 baton:       skip('baton')       ? 1   : (findItem(ITEM.BATON)       ? 1 : 0),
-                vest:        armourVal,
+                vest:        skip('vest') ? 100 : armourVal,
                 deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
                 magnum:      skip('magnum')      ? 999 : countItem(ITEM.AMMO_MAGNUM),
                 akm:         skip('akm')         ? 1   : (findItem(ITEM.AKM)         ? 1 : 0),
