@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.333 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1795,12 +1795,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         try {
             const armourVal = getArmourValue();
 
-            // ── Шаг 1: закрываем диалог меню серверным ESC ──
-            // (диалог "Полицейская служба" уже открыт когда нас вызвали)
-            closeMenu();
-            await sleep(200);
-
-            // ── Шаг 2: открываем инвентарь и читаем состояние ──
+            // ── Шаг 1: открываем инвентарь — диалог меню остаётся открытым ──
+            // НЕ закрываем меню перед чтением инвентаря (диалог живой на сервере)
             let ready = false;
             for (let attempt = 0; attempt < 2 && !ready; attempt++) {
                 if (attempt > 0) await sleep(300);
@@ -1813,7 +1809,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 return;
             }
 
-            // ── Проверяем наличие предметов ──
+            // ── Шаг 2: читаем что нужно ──
             const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
             const skip = (key) => skipList.includes(key);
 
@@ -1855,7 +1851,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
             };
 
-            // ── Шаг 3: закрываем инвентарь ──
+            // ── Шаг 3: закрываем инвентарь — диалог меню всё ещё живой ──
             closeInventory();
             await sleep(150);
 
@@ -1865,11 +1861,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 return;
             }
 
-            // ── Шаг 4: переоткрываем меню через Alt, ждём как в AUTO-DEAGLE v4 ──
-            openMenu();
-            await sleep(800); // ждём пока сервер откроет диалог
-
-            // ── Шаг 5: берём всё необходимое по одному ──
+            // ── Шаг 4: диалог открыт, сразу берём — НЕ переоткрываем меню ──
             const toTake = [];
             if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
             if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
