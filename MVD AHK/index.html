@@ -533,6 +533,7 @@ var folderSelected = false;
 var callsignOn = false;
 var autoPasswordOn = false;
 var autoGrabOn = false;
+var savedAutoGrab = null; // сохранённые настройки авто-снаряжения из Python
 var grabItems = { painkiller:false, medkit:false, baton:false, baton2:false, vest:false, taumeter:false, diag:false, taser:false, deagle:false, akm:false, aks74u:false, remington:false, magnum:false, ammo762:false, ammo545:false, ammo12x70:false };
 var api = null;
 
@@ -548,34 +549,25 @@ function toggleGrabItem(item) {
 }
 
 function getGrabSettings() {
-  function iv(id, def) { var el=document.getElementById(id); return el ? (parseInt(el.value)||def) : def; }
+  // Пороги: берём из сохранённых если есть, иначе дефолт
+  var thr = (savedAutoGrab && savedAutoGrab.thresholds) ? savedAutoGrab.thresholds : {};
+  // Меню: берём из сохранённых если есть, иначе дефолт (0..15)
+  var menu = (savedAutoGrab && savedAutoGrab.menu) ? savedAutoGrab.menu : {
+    painkiller:  0, medkit:      1, baton:       2, baton2:      3,
+    vest:        4, taumeter:    5, diag:        6, taser:       7,
+    deagle:      8, akm:         9, aks74u:      10, remington:   11,
+    ammo_magnum: 12, ammo_762:   13, ammo_545:    14, ammo_12x70:  15
+  };
   return {
     enabled: autoGrabOn,
     items: grabItems,
     thresholds: {
-      magnum:  iv('grab-thr-magnum', 30),
-      ammo762: iv('grab-thr-762', 60),
-      ammo545: iv('grab-thr-545', 60),
-      ammo12x70: iv('grab-thr-12x70', 20)
+      magnum:    thr.magnum    !== undefined ? thr.magnum    : 30,
+      ammo762:   thr.ammo762   !== undefined ? thr.ammo762   : 60,
+      ammo545:   thr.ammo545   !== undefined ? thr.ammo545   : 60,
+      ammo12x70: thr.ammo12x70 !== undefined ? thr.ammo12x70 : 20
     },
-    menu: {
-      painkiller:  0,
-      medkit:      1,
-      baton:       2,
-      baton2:      3,
-      vest:        4,
-      taumeter:    5,
-      diag:        6,
-      taser:       7,
-      deagle:      8,
-      akm:         9,
-      aks74u:      10,
-      remington:   11,
-      ammo_magnum: 12,
-      ammo_762:    13,
-      ammo_545:    14,
-      ammo_12x70:  15
-    }
+    menu: menu
   };
 }
 
@@ -584,35 +576,35 @@ window.addEventListener('pywebviewready', function() {
   // Загружаем сохранённые настройки
   api.get_saved_settings().then(function(s) {
     if (!s) return;
+    // Основные поля
     if (s.rank)       { document.getElementById('f-rank').value  = s.rank;       updateSteps(); }
     if (s.first_name) { document.getElementById('f-fname').value = s.first_name; updateSteps(); }
     if (s.last_name)  { document.getElementById('f-lname').value = s.last_name;  updateSteps(); }
-    if (s.use_callsign && s.callsign) {
-      callsignOn = true;
-      document.getElementById('chk-box').classList.add('on');
-      document.getElementById('cs-wrap').classList.add('show');
+    // Позывной
+    if (s.callsign) {
       document.getElementById('f-callsign').value = s.callsign;
+      if (s.use_callsign) {
+        callsignOn = true;
+        document.getElementById('chk-box').classList.add('on');
+        document.getElementById('cs-wrap').classList.add('show');
+      }
     }
-    // Восстанавливаем авто-снаряжение (галочка всегда начинает ВЫКЛЮЧЕННОЙ — пользователь включает вручную)
-    if (s.auto_grab) {
-      var ag = s.auto_grab;
-      // ag.enabled намеренно НЕ восстанавливаем — чекбокс по умолчанию выключен
-      if (ag.thresholds) {
-        if (ag.thresholds.magnum)  document.getElementById('grab-thr-magnum').value = ag.thresholds.magnum;
-        if (ag.thresholds.ammo762) document.getElementById('grab-thr-762').value = ag.thresholds.ammo762;
+    // Пароль
+    if (s.auto_password) {
+      document.getElementById('f-password').value = s.auto_password;
+      if (s.use_auto_password) {
+        autoPasswordOn = true;
+        document.getElementById('chk-box-pwd').classList.add('on');
+        document.getElementById('pwd-wrap').classList.add('show');
       }
-      if (ag.menu) {
-        var m = ag.menu;
-        if (m.medkit      != null) document.getElementById('grab-menu-medkit').value      = m.medkit;
-        if (m.baton       != null) document.getElementById('grab-menu-baton').value       = m.baton;
-        if (m.vest        != null) document.getElementById('grab-menu-vest').value        = m.vest;
-        if (m.deagle      != null) document.getElementById('grab-menu-deagle').value      = m.deagle;
-        if (m.ammo_magnum != null) document.getElementById('grab-menu-ammo-magnum').value = m.ammo_magnum;
-        if (m.akm         != null) document.getElementById('grab-menu-akm').value         = m.akm;
-        if (m.ammo_762    != null) document.getElementById('grab-menu-ammo-762').value    = m.ammo_762;
-      }
-      if (ag.items) {
-        grabItems = Object.assign(grabItems, ag.items);
+    }
+    // Авто-снаряжение — сохраняем в savedAutoGrab для getGrabSettings()
+    // Галочку enabled НЕ восстанавливаем — пользователь включает вручную
+    if (s.auto_grab && typeof s.auto_grab === 'object') {
+      savedAutoGrab = s.auto_grab;
+      // Восстанавливаем выбранные предметы (wmi-*)
+      if (s.auto_grab.items) {
+        grabItems = Object.assign(grabItems, s.auto_grab.items);
         ['painkiller','medkit','baton','baton2','vest','taumeter','diag','taser',
          'deagle','akm','aks74u','remington','magnum','ammo762','ammo545','ammo12x70'].forEach(function(k) {
           var el = document.getElementById('wmi-' + k);
@@ -620,7 +612,7 @@ window.addEventListener('pywebviewready', function() {
         });
       }
     }
-    // Восстанавливаем путь если он валиден
+    // Путь
     if (s.path_valid) {
       folderSelected = true;
       document.getElementById('path-disp').textContent = '● Папка выбрана';
