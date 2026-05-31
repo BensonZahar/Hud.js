@@ -184,30 +184,45 @@ class InstallerAPI:
                 skip_js = json.dumps(skip)
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
-            obf = self._obfuscate(code)
+            print("[DEBUG] obfuscating...")
+            try:
+                obf = self._obfuscate(code)
+                print("[DEBUG] obf done")
+            except Exception as e:
+                print(f"[DEBUG] obfuscate error: {e}")
+                self._notify(False); return
             idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
+            print(f"[DEBUG] Index.js path: {idx}, exists={idx.exists()}")
             if not idx.exists(): self._notify(False); return
-            with open(idx,'r',encoding='utf-8') as f: content = f.read()
-            content = self._remove_markers(content)
-            new = (content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
-            new = new.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
-            with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new)
+            try:
+                with open(idx,'r',encoding='utf-8') as f: content = f.read()
+                print(f"[DEBUG] Index.js read ok, len={len(content)}")
+                content = self._remove_markers(content)
+                new_content = (content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
+                new_content = new_content.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
+                with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_content)
+                print("[DEBUG] Index.js written ok")
+            except Exception as e:
+                print(f"[DEBUG] file write error: {e}")
+                self._notify(False); return
             self._set_status("st-code","Установлен","cr-val ok")
-            # Сохраняем настройки для следующего запуска
-            # Загружаем текущие настройки чтобы не затереть путь
-            current = load_settings()
-            save_settings({
-                'rank': rank,
-                'first_name': first_name,
-                'last_name': last_name,
-                'callsign': callsign if use_callsign else '',
-                'use_callsign': bool(use_callsign),
-                'use_auto_password': bool(auto_password),
-                # пароль намеренно не сохраняем — вводится каждый раз
-                'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
-            })
+            try:
+                current = load_settings()
+                save_settings({
+                    'rank': rank,
+                    'first_name': first_name,
+                    'last_name': last_name,
+                    'callsign': callsign if use_callsign else '',
+                    'use_callsign': bool(use_callsign),
+                    'use_auto_password': bool(auto_password),
+                    'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
+                    'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
+                })
+                print("[DEBUG] settings saved ok")
+            except Exception as e:
+                print(f"[DEBUG] save_settings error: {e}")
             self._notify(True)
+            print("[DEBUG] ALL DONE")
         def run_safe():
             import traceback
             try:
