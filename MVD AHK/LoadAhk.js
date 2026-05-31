@@ -45,53 +45,81 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
 // ── АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────────
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {
-        var _filled = false;
+        function tryHook() {
+            if (window._ahkPwdHooked) return;
 
-        function tryFill() {
-            if (_filled) return;
+            // Способ 1: MutationObserver — ждём появления input[type=password] в DOM
+            const observer = new MutationObserver(function() {
+                const passInput = document.querySelector('input[type="password"], input.dialog-input');
+                if (passInput && !passInput.dataset.ahkFilled) {
+                    passInput.dataset.ahkFilled = '1';
+                    console.log('[AHK AUTO-PWD] Найдено поле пароля, вводим...');
+                    const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+                    nativeSetter.call(passInput, AUTO_PASSWORD);
+                    passInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    passInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    setTimeout(function() {
+                        const btn =
+                            document.querySelector('.dialog-button-ok') ||
+                            document.querySelector('.dialog button:first-of-type') ||
+                            document.querySelector('[class*="dialog"] button');
+                        if (btn) {
+                            btn.click();
+                            console.log('[AHK AUTO-PWD] Кнопка подтверждения нажата');
+                        } else {
+                            passInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                            console.log('[AHK AUTO-PWD] Enter отправлен (кнопка не найдена)');
+                        }
+                    }, 150);
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
 
-            var passInput = document.querySelector('.authorization-field__input[type="password"]');
-            if (!passInput) return;
-
-            _filled = true;
-            observer.disconnect();
-
-            // Шаг 1: нативный value
-            var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-            nativeSetter.call(passInput, AUTO_PASSWORD);
-
-            // Шаг 2: input event — Vue обновит v-model
-            passInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-            // Шаг 3: Enter на форме — Vue слушает @keydown там
-            setTimeout(function() {
-                var form = document.querySelector('.login-form');
-                var target = form || passInput;
-                target.dispatchEvent(new KeyboardEvent('keydown', {
-                    key: 'Enter', code: 'Enter',
-                    keyCode: 13, which: 13,
-                    bubbles: true, cancelable: true
-                }));
-                console.log('[AHK AUTO-PWD] Enter отправлен');
-            }, 150);
-        }
-
-        var observer = new MutationObserver(function() {
-            if (!_filled && document.querySelector('.authorization-field__input[type="password"]')) {
-                tryFill();
+            // Способ 2: перехват addDialogInQueue (если уже существует)
+            if (typeof window.addDialogInQueue === 'function' && !window._ahkPwdHooked) {
+                const _origAddDlg = window.addDialogInQueue;
+                window.addDialogInQueue = function(params, content, priority) {
+                    try {
+                        const parsed = Array.isArray(params) ? params : JSON.parse(params);
+                        const style = parseInt(parsed[1]);
+                        const title = (parsed[2] || '').toLowerCase();
+                        if (style === 3 || title.includes('пароль') || title.includes('password') || title.includes('вход')) {
+                            console.log('[AHK AUTO-PWD] Перехвачен PASSWORD диалог, авто-ввод...');
+                            setTimeout(function() {
+                                const inp = document.querySelector('input[type="password"], input.dialog-input');
+                                if (inp && !inp.dataset.ahkFilled) {
+                                    inp.dataset.ahkFilled = '1';
+                                    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+                                    setter.call(inp, AUTO_PASSWORD);
+                                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                                    setTimeout(function() {
+                                        const btn = document.querySelector('.dialog-button-ok, .dialog button:first-of-type');
+                                        if (btn) btn.click();
+                                        else inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+                                    }, 150);
+                                }
+                            }, 200);
+                        }
+                    } catch(e) {}
+                    return _origAddDlg.call(this, params, content, priority);
+                };
+                window._ahkPwdHooked = true;
+                console.log('[AHK AUTO-PWD] Хук addDialogInQueue установлен');
+            } else {
+                window._ahkPwdHooked = true;
+                console.log('[AHK AUTO-PWD] MutationObserver установлен (хук addDialogInQueue недоступен)');
             }
-        });
+        }
 
         if (document.body) {
-            observer.observe(document.body, { childList: true, subtree: true });
-            tryFill();
+            tryHook();
         } else {
-            document.addEventListener('DOMContentLoaded', function() {
-                observer.observe(document.body, { childList: true, subtree: true });
-                tryFill();
-            });
+            document.addEventListener('DOMContentLoaded', tryHook);
         }
+        setTimeout(tryHook, 2000);
     })();
+    console.log(`[AHK AUTO-PWD] Модуль авто-пароля активирован`);
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 

@@ -2,7 +2,7 @@ import os, sys, random, string, threading, tempfile, requests, json
 from pathlib import Path
 import webview
 
-GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
+GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/instalAHK"
 AHK_URL    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
 
 # Иконка и путь к ico передаются из launcher через exec namespace
@@ -126,16 +126,13 @@ class InstallerAPI:
 
     def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None):
         def run():
-            import traceback, sys
+            if not self._check_dirs(): self._notify(False); return
             try:
-                if not self._check_dirs(): self._notify(False); return
                 resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
                 code = resp.text.strip()
                 if not code: self._notify(False); return
                 code = code.replace('\r\n','\n').replace('\r','\n').strip()+'\n'
-            except Exception:
-                traceback.print_exc(file=sys.stdout)
-                self._notify(False); return
+            except Exception: self._notify(False); return
             code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
             code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
             code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
@@ -176,32 +173,30 @@ class InstallerAPI:
                 skip_js = json.dumps(skip)
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
-            try:
-                obf = self._obfuscate(code)
-                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-                if not idx.exists():
-                    self._notify(False); return
-                with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
-                idx_content = self._remove_markers(idx_content)
-                new_text = (idx_content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
-                new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
-                with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
-                self._set_status("st-code","Установлен","cr-val ok")
-                current = load_settings()
-                save_settings({
-                    'rank': rank,
-                    'first_name': first_name,
-                    'last_name': last_name,
-                    'callsign': callsign if use_callsign else '',
-                    'use_callsign': bool(use_callsign),
-                    'use_auto_password': bool(auto_password),
-                    'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                    'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
-                })
-                self._notify(True)
-            except Exception:
-                traceback.print_exc(file=sys.stdout)
-                self._notify(False)
+            obf = self._obfuscate(code)
+            idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
+            if not idx.exists(): self._notify(False); return
+            with open(idx,'r',encoding='utf-8') as f: content = f.read()
+            content = self._remove_markers(content)
+            new = (content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
+            new = new.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
+            with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new)
+            self._set_status("st-code","Установлен","cr-val ok")
+            # Сохраняем настройки для следующего запуска
+            # Загружаем текущие настройки чтобы не затереть путь
+            current = load_settings()
+            save_settings({
+                'rank': rank,
+                'first_name': first_name,
+                'last_name': last_name,
+                'callsign': callsign if use_callsign else '',
+                'use_callsign': bool(use_callsign),
+                'use_auto_password': bool(auto_password),
+                # пароль намеренно не сохраняем — вводится каждый раз
+                'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
+                'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
+            })
+            self._notify(True)
         threading.Thread(target=run, daemon=True).start()
         return {"ok": True}
 
