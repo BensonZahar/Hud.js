@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.1 FfIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1584,15 +1584,9 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
             if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
-                const now = Date.now();
-                const lastRun = window._mvdGrabLastRun || 0;
-                const cooldown = 5000; // 5 секунд между запусками
-                if (!window._mvdGrabProcessing && (now - lastRun) > cooldown) {
-                    window._mvdGrabLastRun = now;
-                    console.log('=== [MVD-GRAB v2.1] \uD83C\uDFAF ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
+                if (!window._mvdGrabProcessing) {
+                    console.log('=== [MVD-GRAB v2.1] 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
-                } else if ((now - lastRun) <= cooldown) {
-                    console.log(`[MVD-GRAB] \u23F3 Кулдаун — пропускаю (${Math.round((cooldown - (now - lastRun)) / 1000)}с осталось)`);
                 }
             }
 
@@ -1750,6 +1744,24 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return null;
     }
 
+    function logAllItems() {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) { console.log('[MVD-ITEMS] инвентарь недоступен'); return; }
+            console.log('[MVD-ITEMS] === Дамп инвентаря ===');
+            for (const cid of [CT.ACC, CT.INV, CT.BACK]) {
+                const c = inv.items[cid];
+                if (!c) { console.log(`[MVD-ITEMS] контейнер ${cid} пуст/отсутствует`); continue; }
+                const entries = Object.values(c).filter(Boolean);
+                if (!entries.length) { console.log(`[MVD-ITEMS] контейнер ${cid}: нет предметов`); continue; }
+                entries.forEach(item => {
+                    console.log(`[MVD-ITEMS] cid=${cid} id=${item.id} count=${item.count} name="${item.name||item.title||''}" raw=${JSON.stringify(item).substring(0,120)}`);
+                });
+            }
+            console.log('[MVD-ITEMS] === Конец дампа ===');
+        } catch(e) { console.log('[MVD-ITEMS] ошибка дампа:', e.message); }
+    }
+
     function countItem(itemId) {
         try {
             const inv = window.interface("InventoryNew");
@@ -1762,6 +1774,24 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     if (item?.id === itemId) total += (item.count || 1);
                 }
             }
+            // Логируем только для магнума чтобы не спамить
+            if (itemId === ITEM.AMMO_MAGNUM) {
+                console.log(`[MVD-MAGNUM] countItem(${itemId}) = ${total}`);
+                if (total === 0) {
+                    // Показываем все ID в инвентаре чтобы найти правильный
+                    try {
+                        const ids = [];
+                        for (const cid of [CT.INV, CT.BACK]) {
+                            const c = inv.items[cid];
+                            if (!c) continue;
+                            Object.values(c).filter(Boolean).forEach(item => {
+                                ids.push(`id=${item.id}(x${item.count||1})`);
+                            });
+                        }
+                        console.log(`[MVD-MAGNUM] все предметы в inv+back: ${ids.join(', ')}`);
+                    } catch(e) {}
+                }
+            }
             return total;
         } catch(e) { return 0; }
     }
@@ -1769,11 +1799,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     function openInventory() { sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange"); }
     function closeInventory() { window.closeInterface("InventoryNew"); }
 
-    async function waitInventory(maxMs = 2500) {
+    async function waitInventory(maxMs = 1000) {
         for (let i = 0; i < maxMs; i += 50) {
             try {
                 const inv = window.interface("InventoryNew");
-                if (inv?.items?.[CT.INV] !== undefined && inv?.items?.[CT.BACK] !== undefined) return true;
+                if (inv?.items?.[CT.INV] !== undefined) return true;
             } catch(e) {}
             await sleep(50);
         }
@@ -1799,9 +1829,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         isProcessing = true;
 
         try {
-            // Ждём 1.5 сек чтобы сервер успел зачислить предметы от предыдущего взятия
-            await sleep(1500);
-
             const armourVal = getArmourValue();
 
             // ── Шаг 1: открываем инвентарь — диалог меню остаётся открытым ──
@@ -1810,7 +1837,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             for (let attempt = 0; attempt < 2 && !ready; attempt++) {
                 if (attempt > 0) await sleep(300);
                 openInventory();
-                ready = await waitInventory(2500);
+                ready = await waitInventory(1500);
             }
             if (!ready) {
                 notify("Ошибка", "Инвентарь не открылся", "FF0000");
@@ -1819,6 +1846,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
 
             // ── Шаг 2: читаем что нужно ──
+            logAllItems(); // дамп всех предметов для отладки ID
             const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
             const skip = (key) => skipList.includes(key);
 
