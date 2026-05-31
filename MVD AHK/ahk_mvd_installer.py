@@ -2,8 +2,8 @@ import os, sys, random, string, threading, tempfile, requests, json
 from pathlib import Path
 import webview
 
-GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/instalAHK"
-AHK_URL    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
+GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
+AHK_URL    = f"{GITHUB_RAW}/LoadAhk.js"
 
 # Иконка и путь к ico передаются из launcher через exec namespace
 _ICON_B64  = globals().get("_ICON_B64", "")
@@ -42,7 +42,6 @@ def fetch_html() -> str:
     resp = requests.get(f"{GITHUB_RAW}/index.html", timeout=15)
     resp.raise_for_status()
     html = resp.text
-    # Вставляем иконку вместо плейсхолдера
     if _ICON_B64:
         html = html.replace("__APP_ICON__", f"data:image/png;base64,{_ICON_B64}")
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
@@ -52,8 +51,7 @@ def fetch_html() -> str:
 
 class InstallerAPI:
     def __init__(self):
-        self._saved = load_settings()  # сохранённые настройки
-        # Восстанавливаем путь если он был сохранён и валиден
+        self._saved = load_settings()
         saved_path = self._saved.get('radmir_path', '')
         if saved_path and Path(saved_path).exists():
             p = Path(saved_path)
@@ -107,9 +105,7 @@ class InstallerAPI:
         return content.rstrip()+'\n'
 
     def get_saved_settings(self) -> dict:
-        """Возвращает сохранённые настройки в JS при старте"""
         result = dict(self._saved)
-        # Сообщаем JS валиден ли путь
         result['path_valid'] = self.radmir_path is not None
         return result
 
@@ -117,7 +113,6 @@ class InstallerAPI:
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
         if r and len(r):
             self.radmir_path = Path(r[0])
-            # Сохраняем путь сразу после выбора
             current = load_settings()
             current['radmir_path'] = str(self.radmir_path)
             save_settings(current)
@@ -140,10 +135,6 @@ class InstallerAPI:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
                 code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
-            # ── [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО] ─────────────────────────────
-            # Блок auto_grab закомментирован — функция плохо работала
-            # if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled'):
-            #     ... (код патча авто-снаряжения удалён)
             obf = self._obfuscate(code)
             idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
             if not idx.exists(): self._notify(False); return
@@ -153,8 +144,6 @@ class InstallerAPI:
             new = new.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
             with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new)
             self._set_status("st-code","Установлен","cr-val ok")
-            # Сохраняем настройки для следующего запуска
-            # Загружаем текущие настройки чтобы не затереть путь
             current = load_settings()
             save_settings({
                 'rank': rank,
@@ -163,9 +152,7 @@ class InstallerAPI:
                 'callsign': callsign if use_callsign else '',
                 'use_callsign': bool(use_callsign),
                 'use_auto_password': bool(auto_password),
-                # пароль намеренно не сохраняем — вводится каждый раз
                 'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                # 'auto_grab' убрано — авто-снаряжение отключено
             })
             self._notify(True)
         threading.Thread(target=run, daemon=True).start()
