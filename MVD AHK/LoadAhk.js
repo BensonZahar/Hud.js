@@ -3,13 +3,13 @@ const FIRST_NAME = "";
 const LAST_NAME = "";
 const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
-// ── Авто-снаряжение (авто при открытии службы) ─────────────────
-const AUTO_GRAB = false;              // Включить авто-снаряжение
-const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
-const AUTO_GRAB_THR_762    = 60;     // Добирать 7.62x39 если меньше N штук
-const AUTO_GRAB_THR_545    = 60;     // Добирать 5.45x39 если меньше N штук
-const AUTO_GRAB_THR_1270   = 20;     // Добирать 12x70 если меньше N штук
-const AUTO_GRAB_MENU_MEDKIT      = -1; // Позиция Аптечки в меню (-1 = без изменений)
+/* ── [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО] ──────────────────────────────────
+const AUTO_GRAB = false;
+const AUTO_GRAB_THR_MAGNUM = 30;
+const AUTO_GRAB_THR_762    = 60;
+const AUTO_GRAB_THR_545    = 60;
+const AUTO_GRAB_THR_1270   = 20;
+const AUTO_GRAB_MENU_MEDKIT      = -1;
 const AUTO_GRAB_MENU_BATON       = -1;
 const AUTO_GRAB_MENU_VEST        = -1;
 const AUTO_GRAB_MENU_DEAGLE      = -1;
@@ -25,8 +25,8 @@ const AUTO_GRAB_MENU_AKS74U      = -1;
 const AUTO_GRAB_MENU_REMINGTON   = -1;
 const AUTO_GRAB_MENU_AMMO_545    = -1;
 const AUTO_GRAB_MENU_AMMO_1270   = -1;
-const AUTO_GRAB_SKIP = []; // Список предметов которые НЕ брать: ["medkit","painkiller","baton","baton2","vest","taumeter","diag","taser","deagle","magnum","akm","ammo762","aks74u","remington","ammo545","ammo12x70"]
-// ── END Авто-снаряжение ─────────────────────────────────────────
+const AUTO_GRAB_SKIP = [];
+── END АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО ────────────────────────────── */
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
@@ -41,7 +41,8 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     xhr.onload = function() {
         if (xhr.status >= 200 && xhr.status < 300) {
             let scriptText = xhr.responseText;
-            // ── Патчим AUTO_GRAB и AUTO_GRAB_SKIP (var, не const) ──
+            // ── [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО] Патч AUTO_GRAB закомментирован ──
+            /* [AUTO_GRAB DISABLED]
             if (AUTO_GRAB) {
                 scriptText = scriptText.replace(/var AUTO_GRAB = false;/, 'var AUTO_GRAB = true;');
                 // Также явно ставим window.AUTO_GRAB сразу после строки объявления
@@ -71,7 +72,8 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             }
             eval(scriptText);
             // Явно устанавливаем window.AUTO_GRAB после eval — на случай если replace не сработал
-            if (AUTO_GRAB) window.AUTO_GRAB = true;
+            // if (AUTO_GRAB) window.AUTO_GRAB = true;
+            */ // [END AUTO_GRAB DISABLED]
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);
