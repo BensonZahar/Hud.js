@@ -126,23 +126,15 @@ class InstallerAPI:
 
     def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None):
         def run():
-            import traceback
+            import traceback, sys
             try:
-                print(f"[DEBUG] path={self.radmir_path}")
-                print(f"[DEBUG] check={self._check_dirs()}")
-                if not self._check_dirs():
-                    print("[DEBUG] check FAIL")
-                    self._notify(False); return
-                print(f"[DEBUG] fetching {AHK_URL}")
+                if not self._check_dirs(): self._notify(False); return
                 resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
                 code = resp.text.strip()
-                if not code:
-                    print("[DEBUG] empty code")
-                    self._notify(False); return
+                if not code: self._notify(False); return
                 code = code.replace('\r\n','\n').replace('\r','\n').strip()+'\n'
-                print(f"[DEBUG] code len={len(code)}")
             except Exception:
-                traceback.print_exc()
+                traceback.print_exc(file=sys.stdout)
                 self._notify(False); return
             code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
             code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
@@ -184,29 +176,17 @@ class InstallerAPI:
                 skip_js = json.dumps(skip)
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
-            print("[DEBUG] obfuscating...")
             try:
                 obf = self._obfuscate(code)
-                print("[DEBUG] obf done")
-            except Exception as e:
-                print(f"[DEBUG] obfuscate error: {e}")
-                self._notify(False); return
-            idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-            print(f"[DEBUG] Index.js path: {idx}, exists={idx.exists()}")
-            if not idx.exists(): self._notify(False); return
-            try:
-                with open(idx,'r',encoding='utf-8') as f: content = f.read()
-                print(f"[DEBUG] Index.js read ok, len={len(content)}")
-                content = self._remove_markers(content)
-                new_content = (content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
-                new_content = new_content.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
-                with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_content)
-                print("[DEBUG] Index.js written ok")
-            except Exception as e:
-                print(f"[DEBUG] file write error: {e}")
-                self._notify(False); return
-            self._set_status("st-code","Установлен","cr-val ok")
-            try:
+                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
+                if not idx.exists():
+                    self._notify(False); return
+                with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
+                idx_content = self._remove_markers(idx_content)
+                new_text = (idx_content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
+                new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
+                with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
+                self._set_status("st-code","Установлен","cr-val ok")
                 current = load_settings()
                 save_settings({
                     'rank': rank,
@@ -218,19 +198,11 @@ class InstallerAPI:
                     'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
                     'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
                 })
-                print("[DEBUG] settings saved ok")
-            except Exception as e:
-                print(f"[DEBUG] save_settings error: {e}")
-            self._notify(True)
-            print("[DEBUG] ALL DONE")
-        def run_safe():
-            import traceback
-            try:
-                run()
+                self._notify(True)
             except Exception:
-                traceback.print_exc()
+                traceback.print_exc(file=sys.stdout)
                 self._notify(False)
-        threading.Thread(target=run_safe, daemon=True).start()
+        threading.Thread(target=run, daemon=True).start()
         return {"ok": True}
 
     def remove_code(self):
