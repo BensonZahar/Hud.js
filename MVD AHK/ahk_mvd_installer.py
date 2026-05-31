@@ -124,7 +124,7 @@ class InstallerAPI:
             return "✓"
         return None
 
-    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None):
+    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password=''):
         def run():
             if not self._check_dirs(): self._notify(False); return
             try:
@@ -140,39 +140,10 @@ class InstallerAPI:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
                 code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
-            # ── Авто-снаряжение ─────────────────────────────────────────
-            if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled'):
-                thr  = auto_grab.get('thresholds', {})
-                menu = auto_grab.get('menu', {})
-                items = auto_grab.get('items', {})
-                code = code.replace('const AUTO_GRAB = false;', 'const AUTO_GRAB = true;')
-                # Также патчим var-объявления в mvd.js (они идут в той же eval-цепочке через LoadAhk)
-                code = code.replace('var AUTO_GRAB = false;', 'var AUTO_GRAB = true;')
-                if thr.get('magnum')  is not None:
-                    code = code.replace('const AUTO_GRAB_THR_MAGNUM = 30;', f'const AUTO_GRAB_THR_MAGNUM = {int(thr["magnum"])};')
-                if thr.get('ammo762') is not None:
-                    code = code.replace('const AUTO_GRAB_THR_762 = 60;',    f'const AUTO_GRAB_THR_762 = {int(thr["ammo762"])};')
-                if thr.get('ammo545') is not None:
-                    code = code.replace('const AUTO_GRAB_THR_545 = 60;',    f'const AUTO_GRAB_THR_545 = {int(thr["ammo545"])};')
-                if thr.get('ammo12x70') is not None:
-                    code = code.replace('const AUTO_GRAB_THR_1270 = 20;',   f'const AUTO_GRAB_THR_1270 = {int(thr["ammo12x70"])};')
-                for key, mkey in [
-                    ('medkit',     'MEDKIT'),   ('baton',      'BATON'),
-                    ('vest',       'VEST'),     ('deagle',     'DEAGLE'),
-                    ('ammo_magnum','AMMO_MAGNUM'),('akm',      'AKM'),  ('ammo_762',  'AMMO_762'),
-                    ('painkiller', 'PAINKILLERS'),('baton2',   'WAND'),
-                    ('taumeter',   'RADAR_GUN'),('diag',       'DIAGNOSTICS'),
-                    ('taser',      'TASER'),    ('aks74u',     'AKS74U'),
-                    ('remington',  'REMINGTON'),('ammo_545',   'AMMO_545'), ('ammo_12x70','AMMO_1270'),
-                ]:
-                    val = menu.get(key)
-                    if val is not None:
-                        code = code.replace(f'const AUTO_GRAB_MENU_{mkey} = -1;', f'const AUTO_GRAB_MENU_{mkey} = {int(val)};')
-                # Предметы которые НЕ нужно брать
-                skip = [k for k,v in items.items() if not v]
-                skip_js = json.dumps(skip)
-                code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
-                code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
+            # ── [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО] ─────────────────────────────
+            # Блок auto_grab закомментирован — функция плохо работала
+            # if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled'):
+            #     ... (код патча авто-снаряжения удалён)
             obf = self._obfuscate(code)
             idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
             if not idx.exists(): self._notify(False); return
@@ -194,7 +165,7 @@ class InstallerAPI:
                 'use_auto_password': bool(auto_password),
                 # пароль намеренно не сохраняем — вводится каждый раз
                 'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
+                # 'auto_grab' убрано — авто-снаряжение отключено
             })
             self._notify(True)
         threading.Thread(target=run, daemon=True).start()
