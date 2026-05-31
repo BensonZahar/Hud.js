@@ -267,7 +267,7 @@ const mvdSubTypes = [
 ];
 let trackingName = `Отслеживание | {FF0000}Выкл`;
 let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
-// let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`; // [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО]
+let autoGrabName = `Авто-снаряжение | {FF0000}Выкл`;
 const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
@@ -777,7 +777,7 @@ const HandleMvdSubCommand = (index) => {
             }, 50);
             break;
         case "autograb":
-            // if (typeof window.autoGrab === 'function') window.autoGrab(); // [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО]
+            if (typeof window.autoGrab === 'function') window.autoGrab();
             break;
     }
 };
@@ -1257,10 +1257,12 @@ window.showMvdSubMenu = (e) => {
     }
     availableSub.push({ name: trackingName, id: "tracking" });
     availableSub.push({ name: autoCuffName, id: "autocuff" });
-    // [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО]
-    // if (window.AUTO_GRAB) {
-    //     availableSub.push({ name: autoGrabName, id: "autograb" });
-    // }
+    if (window.AUTO_GRAB) {
+        autoGrabName = window._mvdGrabProcessing
+            ? `Авто-снаряжение | {FFAA00}Идёт...`
+            : `Авто-снаряжение | {00FF00}Вкл`;
+        availableSub.push({ name: autoGrabName, id: "autograb" });
+    }
     shownMvdSubTypes = availableSub;
     let licenseList = '';
     availableSub.forEach((license, index) => {
@@ -1584,7 +1586,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             }
 
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
-            if (false && style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') { // [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО]
+            if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
                 if (!window._mvdGrabProcessing) {
                     console.log('=== [MVD-GRAB v2.1] 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
@@ -1653,7 +1655,7 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
 // ==================== END DIALOG MONITOR ====================
 
 // ==================== АВТОБРАНИЕ МВД ====================
-/* ═══════════════ [АВТО-СНАРЯЖЕНИЕ ОТКЛЮЧЕНО] ═══════════════
+// ═══════════════ АВТО-СНАРЯЖЕНИЕ ═══════════════
 // Авто-снаряжение — включается только если AUTO_GRAB === true
 // (LoadAhk патчит константы ниже перед eval)
 // Используем var чтобы избежать SyntaxError при повторном объявлении через eval
@@ -1932,5 +1934,5 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     console.log('=== [MVD-GRAB v2.1] ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
 } // end if (AUTO_GRAB)
-═══════════════ END АВТО-СНАРЯЖЕНИЕ ═══════════════ */
+// ═══════════════ END АВТО-СНАРЯЖЕНИЕ ═══════════════
 // ==================== END АВТОБРАНИЕ МВД ====================

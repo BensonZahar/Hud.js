@@ -170,6 +170,29 @@ body{
 .status-flash.err{background:rgba(234,79,61,.15);border:.5px solid var(--danger);color:var(--danger)}
 .status-flash.show{opacity:1}
 
+
+/* ── Авто-снаряжение ──────────────────────────────── */
+.ag-section{background:var(--c08);border:.5px solid var(--c15);border-radius:6px;padding:10px 12px;margin-bottom:10px;overflow:hidden;transition:max-height .25s,opacity .25s,padding .25s}
+.ag-section.collapsed{max-height:0;opacity:0;padding:0;margin:0;border:none;pointer-events:none}
+.ag-head{display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0}
+.ag-head-lbl{font-size:10px;font-weight:700;color:var(--cream);letter-spacing:.04em}
+.ag-head-arrow{width:10px;height:10px;stroke:var(--c60);stroke-width:2.5;fill:none;transition:transform .2s;flex-shrink:0}
+.ag-body{overflow:hidden;max-height:0;opacity:0;transition:max-height .25s ease,opacity .2s;margin-top:0}
+.ag-body.open{max-height:600px;opacity:1;margin-top:10px}
+.ag-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+.ag-item{display:flex;align-items:center;gap:6px;cursor:pointer;padding:4px 0}
+.ag-chk{width:13px;height:13px;background:#474747;border:.5px solid var(--c30);border-radius:2px;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.ag-chk.on{background:var(--accent);border-color:var(--accent)}
+.ag-chk svg{width:8px;height:8px;stroke:#fff;stroke-width:3;fill:none;opacity:0;transition:opacity .12s}
+.ag-chk.on svg{opacity:1}
+.ag-item-lbl{font-size:10px;color:var(--c60)}
+.ag-item:hover .ag-item-lbl{color:var(--cream)}
+.ag-thr-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+.ag-thr-item{display:flex;flex-direction:column;gap:3px}
+.ag-thr-lbl{font-size:9px;color:var(--c60);text-transform:uppercase;letter-spacing:.05em}
+.ag-thr-inp{width:100%;background:#474747;border:.5px solid var(--c15);border-radius:3px;color:var(--cream);font-size:10px;height:26px;padding:0 8px;outline:none;font-family:var(--font);-webkit-app-region:no-drag;user-select:text;-webkit-user-select:text}
+.ag-thr-inp:focus{border-color:var(--accent)}
+.ag-sep{height:.5px;background:var(--c08);margin:8px 0}
 ::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--c15);border-radius:2px}
@@ -297,6 +320,49 @@ body{
           <input class="inp" id="f-password" type="password" placeholder="Введите пароль">
         </div>
       </div>
+      <!-- Авто-снаряжение -->
+      <div class="chk-row" onclick="toggleAutoGrab()" id="chk-row-ag">
+        <div class="chk-box" id="chk-box-ag">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <span class="chk-lbl">Авто-снаряжение (склад МВД)</span>
+      </div>
+      <div class="ag-section collapsed" id="ag-section">
+        <!-- Предметы -->
+        <div class="ag-head" onclick="toggleAgBody()">
+          <span class="ag-head-lbl">Предметы</span>
+          <svg class="ag-head-arrow" id="ag-arrow" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="ag-body open" id="ag-body">
+          <div class="ag-grid">
+            <div class="ag-item" onclick="agToggleItem('medkit')"><div class="ag-chk on" id="ag-medkit"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Аптечка</span></div>
+            <div class="ag-item" onclick="agToggleItem('painkiller')"><div class="ag-chk on" id="ag-painkiller"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Обезболивающее</span></div>
+            <div class="ag-item" onclick="agToggleItem('vest')"><div class="ag-chk on" id="ag-vest"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Бронежилет</span></div>
+            <div class="ag-item" onclick="agToggleItem('baton')"><div class="ag-chk on" id="ag-baton"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Дубинка</span></div>
+            <div class="ag-item" onclick="agToggleItem('baton2')"><div class="ag-chk on" id="ag-baton2"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Жезл</span></div>
+            <div class="ag-item" onclick="agToggleItem('taumeter')"><div class="ag-chk on" id="ag-taumeter"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Тауметр</span></div>
+            <div class="ag-item" onclick="agToggleItem('diag')"><div class="ag-chk on" id="ag-diag"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Диагностика</span></div>
+            <div class="ag-item" onclick="agToggleItem('taser')"><div class="ag-chk on" id="ag-taser"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Тазер</span></div>
+            <div class="ag-item" onclick="agToggleItem('deagle')"><div class="ag-chk on" id="ag-deagle"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Desert Eagle</span></div>
+            <div class="ag-item" onclick="agToggleItem('ammo_magnum')"><div class="ag-chk on" id="ag-ammo_magnum"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Патроны .44</span></div>
+            <div class="ag-item" onclick="agToggleItem('akm')"><div class="ag-chk on" id="ag-akm"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">АКМ</span></div>
+            <div class="ag-item" onclick="agToggleItem('ammo_762')"><div class="ag-chk on" id="ag-ammo_762"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Патроны 7.62</span></div>
+            <div class="ag-item" onclick="agToggleItem('aks74u')"><div class="ag-chk on" id="ag-aks74u"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">АКС-74У</span></div>
+            <div class="ag-item" onclick="agToggleItem('ammo_545')"><div class="ag-chk on" id="ag-ammo_545"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Патроны 5.45</span></div>
+            <div class="ag-item" onclick="agToggleItem('remington')"><div class="ag-chk on" id="ag-remington"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Remington 870</span></div>
+            <div class="ag-item" onclick="agToggleItem('ammo_12x70')"><div class="ag-chk on" id="ag-ammo_12x70"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div><span class="ag-item-lbl">Патроны 12x70</span></div>
+          </div>
+          <div class="ag-sep"></div>
+          <!-- Пороги патронов -->
+          <div class="ag-head-lbl" style="margin-bottom:6px">Пороги патронов</div>
+          <div class="ag-thr-grid">
+            <div class="ag-thr-item"><div class="ag-thr-lbl">.44 Magnum (шт)</div><input class="ag-thr-inp" id="ag-thr-magnum" type="number" min="0" max="999" value="30"></div>
+            <div class="ag-thr-item"><div class="ag-thr-lbl">7.62x39 (шт)</div><input class="ag-thr-inp" id="ag-thr-762" type="number" min="0" max="999" value="60"></div>
+            <div class="ag-thr-item"><div class="ag-thr-lbl">5.45x39 (шт)</div><input class="ag-thr-inp" id="ag-thr-545" type="number" min="0" max="999" value="60"></div>
+            <div class="ag-thr-item"><div class="ag-thr-lbl">12x70 (шт)</div><input class="ag-thr-inp" id="ag-thr-1270" type="number" min="0" max="999" value="20"></div>
+          </div>
+        </div>
+      </div>
       <div class="pbar" id="pbar-insert"><div class="pbar-fill" id="pbar-insert-f"></div></div>
       <div style="margin-top:auto;display:flex;gap:8px">
         <button class="btn btn-primary" onclick="doInsert()" style="flex:1" id="btn-insert">
@@ -353,6 +419,12 @@ body{
 var folderSelected = false;
 var callsignOn = false;
 var autoPasswordOn = false;
+var autoGrabOn = false;
+var agItems = {
+  medkit:true, painkiller:true, vest:true, baton:true, baton2:true,
+  taumeter:true, diag:true, taser:true, deagle:true, ammo_magnum:true,
+  akm:true, ammo_762:true, aks74u:true, ammo_545:true, remington:true, ammo_12x70:true
+};
 var api = null;
 
 window.addEventListener('pywebviewready', function() {
@@ -367,6 +439,20 @@ window.addEventListener('pywebviewready', function() {
       document.getElementById('chk-box').classList.add('on');
       document.getElementById('cs-wrap').classList.add('show');
       document.getElementById('f-callsign').value = s.callsign;
+    }
+    // Восстановить авто-снаряжение
+    if (s.auto_grab && s.auto_grab.enabled) {
+      autoGrabOn = true;
+      document.getElementById('chk-box-ag').classList.add('on');
+      document.getElementById('ag-section').classList.remove('collapsed');
+      var ag = s.auto_grab;
+      if (ag.items) { Object.keys(ag.items).forEach(function(k){ if (!ag.items[k]) { agItems[k]=false; var el=document.getElementById('ag-'+k); if(el) el.classList.remove('on'); } }); }
+      if (ag.thresholds) {
+        if (ag.thresholds.magnum   != null) document.getElementById('ag-thr-magnum').value = ag.thresholds.magnum;
+        if (ag.thresholds.ammo762  != null) document.getElementById('ag-thr-762').value    = ag.thresholds.ammo762;
+        if (ag.thresholds.ammo545  != null) document.getElementById('ag-thr-545').value    = ag.thresholds.ammo545;
+        if (ag.thresholds.ammo12x70!= null) document.getElementById('ag-thr-1270').value   = ag.thresholds.ammo12x70;
+      }
     }
     if (s.path_valid) {
       folderSelected = true;
@@ -502,7 +588,8 @@ function doInsert() {
   btn.disabled=true;
   runBar('pbar-insert','pbar-insert-f',3000);
   if (api) {
-    api.insert_code(rank,fn,ln,cs,callsignOn,pwd).then(function(){
+    var agPayload = buildAutoGrabPayload();
+    api.insert_code(rank,fn,ln,cs,callsignOn,pwd,agPayload).then(function(){
       btn.disabled=false;
     });
   } else {
@@ -527,6 +614,42 @@ function doRemove() {
     flash(false);
     btn.disabled=false;
   }
+}
+
+
+// ── Авто-снаряжение ─────────────────────────────────
+function toggleAutoGrab() {
+  autoGrabOn = !autoGrabOn;
+  document.getElementById('chk-box-ag').classList.toggle('on', autoGrabOn);
+  var sec = document.getElementById('ag-section');
+  sec.classList.toggle('collapsed', !autoGrabOn);
+}
+
+function toggleAgBody() {
+  var body = document.getElementById('ag-body');
+  var arrow = document.getElementById('ag-arrow');
+  var open = body.classList.toggle('open');
+  arrow.style.transform = open ? '' : 'rotate(-90deg)';
+}
+
+function agToggleItem(key) {
+  agItems[key] = !agItems[key];
+  document.getElementById('ag-' + key).classList.toggle('on', agItems[key]);
+}
+
+function buildAutoGrabPayload() {
+  if (!autoGrabOn) return null;
+  return {
+    enabled: true,
+    thresholds: {
+      magnum:    parseInt(document.getElementById('ag-thr-magnum').value) || 30,
+      ammo762:   parseInt(document.getElementById('ag-thr-762').value)    || 60,
+      ammo545:   parseInt(document.getElementById('ag-thr-545').value)    || 60,
+      ammo12x70: parseInt(document.getElementById('ag-thr-1270').value)   || 20
+    },
+    menu: {},
+    items: JSON.parse(JSON.stringify(agItems))
+  };
 }
 
 // ── Init ─────────────────────────────────────────────
