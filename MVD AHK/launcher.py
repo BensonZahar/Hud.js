@@ -74,6 +74,7 @@ def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
     def _send():
         status  = "✅ Авторизован" if authorized else "❌ Не авторизован"
         win_ver = get_windows_version()
+        # Готовая строка для вставки в keys.json (ник = имя устройства, можно поменять)
         keys_line = f'"{hwid}": "{device}"'
         text = (
             f"🚀 <b>AHK MVD Installer — запуск</b>\n\n"
@@ -99,14 +100,15 @@ def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
 
 
 # ── Проверить ключ в keys.json на GitHub ──────────────
+# keys.json формат: {"HWID": "Ник", "HWID2": "Ник2", ...}
 def is_authorized(hwid: str) -> bool:
     try:
         resp = requests.get(KEYS_URL, timeout=10)
         resp.raise_for_status()
-        keys = resp.json()
+        keys = resp.json()          # {"AAAA1111BBBB2222": "Иван", ...}
         return hwid in keys
     except Exception:
-        return False
+        return False                # нет инета / ошибка → блокируем
 
 
 # ── Иконка для webview ────────────────────────────────
@@ -229,18 +231,22 @@ def main():
     device = get_device_name()
     ip     = get_ip()
 
+    # 1. Проверяем авторизацию
     try:
         authorized = is_authorized(hwid)
     except Exception:
         show_error_window()
         return
 
+    # 2. Уведомляем в Telegram
     send_telegram(hwid, device, ip, authorized)
 
+    # 3. Если не авторизован — показываем экран с ключом
     if not authorized:
         show_denied_window(hwid)
         return
 
+    # 4. Авторизован — скачиваем и запускаем основной код
     try:
         code = requests.get(MAIN_URL, timeout=15).text
     except Exception:
