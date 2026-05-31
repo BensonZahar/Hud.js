@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.22 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1787,6 +1787,29 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
     }
 
+    // ==================== ВСПОМОГАТЕЛЬНАЯ: ждём диалог меню ====================
+    async function waitMenu(maxMs = 2000) {
+        return new Promise(resolve => {
+            let resolved = false;
+            const timer = setTimeout(() => { if (!resolved) { resolved = true; resolve(false); } }, maxMs);
+            const _prev = window.addDialogInQueue;
+            window.addDialogInQueue = function(params, content, priority) {
+                if (!resolved) {
+                    try {
+                        const p = Array.isArray(params) ? params : JSON.parse(params);
+                        if (parseInt(p[0]) === DIALOG_ID && parseInt(p[1]) === 2) {
+                            resolved = true;
+                            clearTimeout(timer);
+                            window.addDialogInQueue = _prev;
+                            resolve(true);
+                        }
+                    } catch(e) {}
+                }
+                return _prev ? _prev.call(this, params, content, priority) : undefined;
+            };
+        });
+    }
+
     // ==================== ОСНОВНАЯ ЛОГИКА ====================
     async function autoGrab() {
         if (isProcessing) return;
@@ -1795,10 +1818,18 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         try {
             const armourVal = getArmourValue();
 
-            // Открываем инвентарь для проверки — БЕЗ закрытия меню
-            // Меню само закроется когда откроется инвентарь
-            openInventory();
-            let ready = await waitInventory(2000);
+            // ── Шаг 1: закрываем диалог меню серверным ESC ──
+            // (диалог "Полицейская служба" уже открыт когда нас вызвали)
+            closeMenu();
+            await sleep(200);
+
+            // ── Шаг 2: открываем инвентарь и читаем состояние ──
+            let ready = false;
+            for (let attempt = 0; attempt < 2 && !ready; attempt++) {
+                if (attempt > 0) await sleep(300);
+                openInventory();
+                ready = await waitInventory(1500);
+            }
             if (!ready) {
                 notify("Ошибка", "Инвентарь не открылся", "FF0000");
                 isProcessing = false;
@@ -1847,6 +1878,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
             };
 
+            // ── Шаг 3: закрываем инвентарь ──
             closeInventory();
             await sleep(150);
 
@@ -1856,25 +1888,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 return;
             }
 
-            // Открываем меню и ждём подтверждения от сервера (addDialogInQueue)
+            // ── Шаг 4: переоткрываем меню через Alt и ждём диалог от сервера ──
+            const menuPromise = waitMenu(2000);
             openMenu();
-            // Ждём пока сервер пришлёт диалог обратно (макс 2 сек)
-            let dialogReady = false;
-            const _dlgWaiter = function(params) {
-                try {
-                    const p = Array.isArray(params) ? params : JSON.parse(params);
-                    if (parseInt(p[0]) === DIALOG_ID && parseInt(p[1]) === 2) {
-                        dialogReady = true;
-                    }
-                } catch(e) {}
-            };
-            const _prevDlq = window.addDialogInQueue;
-            window.addDialogInQueue = function(params, content, priority) {
-                _dlgWaiter(params);
-                return _prevDlq ? _prevDlq.call(this, params, content, priority) : undefined;
-            };
-            for (let w = 0; w < 40 && !dialogReady; w++) await sleep(50); // ждём до 2 сек
-            window.addDialogInQueue = _prevDlq; // восстанавливаем
+            const dialogReady = await menuPromise;
+
             if (!dialogReady) {
                 notify("Ошибка", "Меню не открылось", "FF0000");
                 isProcessing = false;
@@ -1882,6 +1900,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
             await sleep(100); // небольшая пауза после получения диалога
 
+            // ── Шаг 5: берём всё необходимое по одному ──
             const toTake = [];
             if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
             if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
