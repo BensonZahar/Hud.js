@@ -1580,6 +1580,14 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 _lastPaginatedDialogId = null;
             }
 
+            // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
+            if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
+                if (!window._mvdGrabProcessing) {
+                    console.log('[MVD-GRAB] 🎯 Диалог "Полицейская служба" — запускаем авто-снаряжение');
+                    setTimeout(() => window.autoGrab(), 150);
+                }
+            }
+
             // ── Авто-розыск: LIST "Причина выдачи розыска" → выбрать "Ввести вручную" ──
             if (style === 2 && title.includes('Причина выдачи розыска')) {
                 console.log('[AUTO-РОЗЫСК] Обнаружен диалог выбора причины — авто-выбор "Ввести в ручную"');
@@ -1887,44 +1895,16 @@ if (AUTO_GRAB) {
         }
     }
 
-    // ==================== АВТО-ТРИГГЕР: открытие интерфейса полицейской службы ====================
-    // Два независимых метода перехвата — какой-то из них точно сработает.
-    // Флаг _grabFromInternal исключает петлю: openMenu() тоже шлёт Key 18, игнорируем его.
-
-    let _grabFromInternal = false;
-
-    // --- Метод 1: перехват sendClientEvent (Key 18 от игрока, не от нас) ---
-    const _origSCE = window.sendClientEvent;
-    window.sendClientEvent = function(event, name, ...args) {
-        if (!_grabFromInternal && name === 'OnPlayerClientSideKey' && parseInt(args[0]) === 18 && !isProcessing) {
-            console.log('[MVD-GRAB] 🎯 Key 18 от игрока — запускаем авто-снаряжение (SCE)');
-            _grabFromInternal = true;
-            setTimeout(() => { _grabFromInternal = false; autoGrab(); }, 350);
-        }
-        return _origSCE ? _origSCE.call(this, event, name, ...args) : undefined;
-    };
-
-    // --- Метод 2: перехват addDialogInQueue (резервный, если SCE не сработал) ---
-    const _origAddDlgGrab = window.addDialogInQueue;
-    window.addDialogInQueue = function(params, content, priority) {
-        const result = _origAddDlgGrab ? _origAddDlgGrab.call(this, params, content, priority) : undefined;
-        if (!_grabFromInternal) {
-            try {
-                const p = Array.isArray(params) ? params : JSON.parse(params);
-                const dlgId = parseInt(p[0]);
-                const style  = parseInt(p[1]);
-                if (dlgId === DIALOG_ID && style === 2 && !isProcessing) {
-                    console.log('[MVD-GRAB] 🎯 Диалог id=0 style=LIST — запускаем авто-снаряжение (DLQ)');
-                    _grabFromInternal = true;
-                    setTimeout(() => { _grabFromInternal = false; autoGrab(); }, 150);
-                }
-            } catch(e) {}
-        }
-        return result;
-    };
-
+    // ==================== ТРИГГЕР ====================
+    // Авто-снаряжение запускается из общего хука addDialogInQueue (строка ~1541)
+    // который ловит диалог style=LIST title="Полицейская служба" и вызывает window.autoGrab().
+    // Публикуем autoGrab и флаг isProcessing через window._mvdGrabProcessing.
     window.autoGrab = autoGrab;
-    console.log('[MVD-GRAB] ✅ Авто-снаряжение активно (SCE + DLQ триггеры)');
+    Object.defineProperty(window, '_mvdGrabProcessing', {
+        get: () => isProcessing,
+        configurable: true
+    });
+    console.log('[MVD-GRAB] ✅ Авто-снаряжение активно — ждёт диалог "Полицейская служба"');
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
