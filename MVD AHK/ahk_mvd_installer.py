@@ -208,7 +208,14 @@ class InstallerAPI:
                 'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
             })
             self._notify(True)
-        threading.Thread(target=run, daemon=True).start()
+        def run_safe():
+            import traceback
+            try:
+                run()
+            except Exception:
+                traceback.print_exc()
+                self._notify(False)
+        threading.Thread(target=run_safe, daemon=True).start()
         return {"ok": True}
 
     def remove_code(self):
