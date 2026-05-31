@@ -1660,9 +1660,11 @@ var AUTO_GRAB_SKIP = [];
 // Явно пишем в window чтобы showMvdSubMenu (загруженный ДО eval) видел значение
 window.AUTO_GRAB = AUTO_GRAB;
 window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
-if (AUTO_GRAB) {
+// Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
+if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
-    console.log('[MVD-GRAB] 🔫 Загружен (AUTO_GRAB включён)');
+    console.log('=== [MVD-GRAB v2.1] 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН ===');
+    window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
 
     // ==================== ID ПРЕДМЕТОВ ====================
     const ITEM = {
