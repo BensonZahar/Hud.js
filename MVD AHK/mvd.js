@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.12 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1794,16 +1794,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
         try {
             const armourVal = getArmourValue();
-            // Меню уже открыто — закрываем его, открываем инвентарь для проверки предметов
-            closeMenu();
-            await sleep(300);
 
-            let ready = false;
-            for (let attempt = 0; attempt < 3 && !ready; attempt++) {
-                if (attempt > 0) await sleep(400);
-                openInventory();
-                ready = await waitInventory(2000);
-            }
+            // Открываем инвентарь для проверки — БЕЗ закрытия меню
+            // Меню само закроется когда откроется инвентарь
+            openInventory();
+            let ready = await waitInventory(2000);
             if (!ready) {
                 notify("Ошибка", "Инвентарь не открылся", "FF0000");
                 isProcessing = false;
@@ -1853,7 +1848,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             };
 
             closeInventory();
-            await sleep(100);
+            await sleep(150);
 
             if (!Object.values(need).some(Boolean)) {
                 notify("МВД", "Всё снаряжение есть ✓", "00FF00");
@@ -1861,9 +1856,31 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 return;
             }
 
-            // Открываем меню снаряжения заново и ждём пока сервер его покажет
+            // Открываем меню и ждём подтверждения от сервера (addDialogInQueue)
             openMenu();
-            await sleep(600);
+            // Ждём пока сервер пришлёт диалог обратно (макс 2 сек)
+            let dialogReady = false;
+            const _dlgWaiter = function(params) {
+                try {
+                    const p = Array.isArray(params) ? params : JSON.parse(params);
+                    if (parseInt(p[0]) === DIALOG_ID && parseInt(p[1]) === 2) {
+                        dialogReady = true;
+                    }
+                } catch(e) {}
+            };
+            const _prevDlq = window.addDialogInQueue;
+            window.addDialogInQueue = function(params, content, priority) {
+                _dlgWaiter(params);
+                return _prevDlq ? _prevDlq.call(this, params, content, priority) : undefined;
+            };
+            for (let w = 0; w < 40 && !dialogReady; w++) await sleep(50); // ждём до 2 сек
+            window.addDialogInQueue = _prevDlq; // восстанавливаем
+            if (!dialogReady) {
+                notify("Ошибка", "Меню не открылось", "FF0000");
+                isProcessing = false;
+                return;
+            }
+            await sleep(100); // небольшая пауза после получения диалога
 
             const toTake = [];
             if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
