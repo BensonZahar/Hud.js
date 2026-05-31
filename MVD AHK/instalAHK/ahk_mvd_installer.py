@@ -146,6 +146,8 @@ class InstallerAPI:
                 menu = auto_grab.get('menu', {})
                 items = auto_grab.get('items', {})
                 code = code.replace('const AUTO_GRAB = false;', 'const AUTO_GRAB = true;')
+                # Также патчим var-объявления в mvd.js (они идут в той же eval-цепочке через LoadAhk)
+                code = code.replace('var AUTO_GRAB = false;', 'var AUTO_GRAB = true;')
                 if thr.get('magnum')  is not None:
                     code = code.replace('const AUTO_GRAB_THR_MAGNUM = 30;', f'const AUTO_GRAB_THR_MAGNUM = {int(thr["magnum"])};')
                 if thr.get('ammo762') is not None:
@@ -170,6 +172,7 @@ class InstallerAPI:
                 skip = [k for k,v in items.items() if not v]
                 skip_js = json.dumps(skip)
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
+                code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
             obf = self._obfuscate(code)
             idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
             if not idx.exists(): self._notify(False); return

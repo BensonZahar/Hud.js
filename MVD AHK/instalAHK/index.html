@@ -593,14 +593,10 @@ window.addEventListener('pywebviewready', function() {
       document.getElementById('cs-wrap').classList.add('show');
       document.getElementById('f-callsign').value = s.callsign;
     }
-    // Восстанавливаем авто-снаряжение
+    // Восстанавливаем авто-снаряжение (галочка всегда начинает ВЫКЛЮЧЕННОЙ — пользователь включает вручную)
     if (s.auto_grab) {
       var ag = s.auto_grab;
-      if (ag.enabled) {
-        autoGrabOn = true;
-        document.getElementById('chk-box-grab').classList.add('on');
-        document.getElementById('grab-wrap').classList.add('show');
-      }
+      // ag.enabled намеренно НЕ восстанавливаем — чекбокс по умолчанию выключен
       if (ag.thresholds) {
         if (ag.thresholds.magnum)  document.getElementById('grab-thr-magnum').value = ag.thresholds.magnum;
         if (ag.thresholds.ammo762) document.getElementById('grab-thr-762').value = ag.thresholds.ammo762;
