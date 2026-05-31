@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.1 FfIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1744,24 +1744,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return null;
     }
 
-    function logAllItems() {
-        try {
-            const inv = window.interface("InventoryNew");
-            if (!inv?.items) { console.log('[MVD-ITEMS] инвентарь недоступен'); return; }
-            console.log('[MVD-ITEMS] === Дамп инвентаря ===');
-            for (const cid of [CT.ACC, CT.INV, CT.BACK]) {
-                const c = inv.items[cid];
-                if (!c) { console.log(`[MVD-ITEMS] контейнер ${cid} пуст/отсутствует`); continue; }
-                const entries = Object.values(c).filter(Boolean);
-                if (!entries.length) { console.log(`[MVD-ITEMS] контейнер ${cid}: нет предметов`); continue; }
-                entries.forEach(item => {
-                    console.log(`[MVD-ITEMS] cid=${cid} id=${item.id} count=${item.count} name="${item.name||item.title||''}" raw=${JSON.stringify(item).substring(0,120)}`);
-                });
-            }
-            console.log('[MVD-ITEMS] === Конец дампа ===');
-        } catch(e) { console.log('[MVD-ITEMS] ошибка дампа:', e.message); }
-    }
-
     function countItem(itemId) {
         try {
             const inv = window.interface("InventoryNew");
@@ -1772,24 +1754,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 if (!c) continue;
                 for (const item of Object.values(c)) {
                     if (item?.id === itemId) total += (item.count || 1);
-                }
-            }
-            // Логируем только для магнума чтобы не спамить
-            if (itemId === ITEM.AMMO_MAGNUM) {
-                console.log(`[MVD-MAGNUM] countItem(${itemId}) = ${total}`);
-                if (total === 0) {
-                    // Показываем все ID в инвентаре чтобы найти правильный
-                    try {
-                        const ids = [];
-                        for (const cid of [CT.INV, CT.BACK]) {
-                            const c = inv.items[cid];
-                            if (!c) continue;
-                            Object.values(c).filter(Boolean).forEach(item => {
-                                ids.push(`id=${item.id}(x${item.count||1})`);
-                            });
-                        }
-                        console.log(`[MVD-MAGNUM] все предметы в inv+back: ${ids.join(', ')}`);
-                    } catch(e) {}
                 }
             }
             return total;
@@ -1846,7 +1810,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
 
             // ── Шаг 2: читаем что нужно ──
-            logAllItems(); // дамп всех предметов для отладки ID
             const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
             const skip = (key) => skipList.includes(key);
 
