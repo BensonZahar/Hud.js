@@ -2,7 +2,7 @@ import os, sys, random, string, threading, tempfile, requests, json
 from pathlib import Path
 import webview
 
-GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/instalAHK"
+GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
 AHK_URL    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
 
 # Иконка и путь к ico передаются из launcher через exec namespace
