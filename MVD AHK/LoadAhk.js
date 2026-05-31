@@ -44,6 +44,12 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             // ── Патчим AUTO_GRAB и AUTO_GRAB_SKIP (var, не const) ──
             if (AUTO_GRAB) {
                 scriptText = scriptText.replace(/var AUTO_GRAB = false;/, 'var AUTO_GRAB = true;');
+                // Также явно ставим window.AUTO_GRAB сразу после строки объявления
+                // чтобы showMvdSubMenu (загруженный до eval) видел значение через window
+                scriptText = scriptText.replace(
+                    'window.AUTO_GRAB = AUTO_GRAB;',
+                    'window.AUTO_GRAB = true;'
+                );
                 scriptText = scriptText.replace(/const AMMO_THRESHOLD = \{[^}]+\}/,
                     `const AMMO_THRESHOLD = { MAGNUM: ${AUTO_GRAB_THR_MAGNUM}, AK762: ${AUTO_GRAB_THR_762}, AKS545: ${AUTO_GRAB_THR_545}, REM1270: ${AUTO_GRAB_THR_1270} }`);
                 const menuPatch = {
@@ -64,6 +70,8 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                 }
             }
             eval(scriptText);
+            // Явно устанавливаем window.AUTO_GRAB после eval — на случай если replace не сработал
+            if (AUTO_GRAB) window.AUTO_GRAB = true;
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);

@@ -1255,7 +1255,7 @@ window.showMvdSubMenu = (e) => {
     }
     availableSub.push({ name: trackingName, id: "tracking" });
     availableSub.push({ name: autoCuffName, id: "autocuff" });
-    if (typeof AUTO_GRAB !== 'undefined' && AUTO_GRAB) {
+    if (window.AUTO_GRAB) {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
     shownMvdSubTypes = availableSub;
@@ -1647,6 +1647,9 @@ console.log('[DIALOG MONITOR] Загружен. Все диалоги вывод
 // Используем var чтобы избежать SyntaxError при повторном объявлении через eval
 var AUTO_GRAB = false;
 var AUTO_GRAB_SKIP = [];
+// Явно пишем в window чтобы showMvdSubMenu (загруженный ДО eval) видел значение
+window.AUTO_GRAB = AUTO_GRAB;
+window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
 if (AUTO_GRAB) {
 (function() {
     console.log('[MVD-GRAB] 🔫 Загружен (AUTO_GRAB включён)');
@@ -1841,12 +1844,12 @@ if (AUTO_GRAB) {
 
             if (!Object.values(need).some(Boolean)) {
                 notify("МВД", "Всё снаряжение есть ✓", "00FF00");
-                openMenuSafe();
+                openMenu();
                 isProcessing = false;
                 return;
             }
 
-            openMenuSafe();
+            openMenu();
             await sleep(400);
 
             const toTake = [];
@@ -1885,31 +1888,29 @@ if (AUTO_GRAB) {
     }
 
     // ==================== АВТО-ТРИГГЕР: открытие интерфейса полицейской службы ====================
-    // Перехватываем KEY_18 только от внешнего нажатия игрока.
-    // Флаг _grabInternalKey блокирует срабатывание при внутреннем вызове openMenu() внутри autoGrab.
-    let _grabInternalKey = false;
-    const _origOpenMenu = openMenu;
-    // Переопределяем openMenu так, чтобы он выставлял флаг перед отправкой KEY_18
-    function openMenuSafe() {
-        _grabInternalKey = true;
-        _origOpenMenu();
-        // Сбрасываем флаг после короткой задержки (хватает чтобы хук уже отработал)
-        setTimeout(() => { _grabInternalKey = false; }, 50);
-    }
-    // Заменяем все вызовы openMenu внутри autoGrab на openMenuSafe через monkey-patch
-    const _origSCEGrab = window.sendClientEvent;
-    window.sendClientEvent = function(event, ...args) {
-        // Запускаем авто-снаряжение только при реальном нажатии игрока (не внутренний вызов)
-        if (args[0] === 'OnPlayerClientSideKey' && parseInt(args[1]) === 18 && !isProcessing && !_grabInternalKey) {
-            console.log('[MVD-GRAB] 🎯 KEY_18 от игрока — запускаем авто-снаряжение');
-            setTimeout(() => autoGrab(), 100);
-        }
-        return _origSCEGrab.call(this, event, ...args);
+    // Сервер открывает меню снаряжения через addDialogInQueue с id=0, style=2 (LIST).
+    // Перехватываем именно этот момент — это НЕ срабатывает на Ctrl+G или другие кнопки.
+    // isProcessing защищает от повторного запуска пока идёт взятие.
+    const _origAddDlgGrab = window.addDialogInQueue;
+    window.addDialogInQueue = function(params, content, priority) {
+        // Сначала показываем меню
+        const result = _origAddDlgGrab ? _origAddDlgGrab.call(this, params, content, priority) : undefined;
+        // Затем проверяем — это диалог снаряжения МВД?
+        try {
+            const p = Array.isArray(params) ? params : JSON.parse(params);
+            const dlgId = parseInt(p[0]);
+            const style  = parseInt(p[1]);
+            // id=0 style=2 — серверный LIST-диалог взятия снаряжения
+            if (dlgId === DIALOG_ID && style === 2 && !isProcessing) {
+                console.log(`[MVD-GRAB] 🎯 Меню снаряжения (dlgId=0) открылось — запускаем авто-снаряжение`);
+                setTimeout(() => autoGrab(), 150);
+            }
+        } catch(e) {}
+        return result;
     };
 
     window.autoGrab = autoGrab;
-    console.log('[MVD-GRAB] ✅ Авто-снаряжение активно — срабатывает при открытии интерфейса службы');
-    console.log(`[MVD-GRAB] Пороги патронов: .44 Magnum ≥ ${AMMO_THRESHOLD.MAGNUM} шт | 7.62x39 ≥ ${AMMO_THRESHOLD.AK762} шт | 5.45x39 ≥ ${AMMO_THRESHOLD.AKS545} шт | 12x70 ≥ ${AMMO_THRESHOLD.REM1270} шт`);
+    console.log('[MVD-GRAB] ✅ Авто-снаряжение активно — срабатывает при открытии диалога службы МВД');
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
