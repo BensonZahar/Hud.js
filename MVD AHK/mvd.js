@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.22 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1787,29 +1787,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
     }
 
-    // ==================== ВСПОМОГАТЕЛЬНАЯ: ждём диалог меню ====================
-    async function waitMenu(maxMs = 2000) {
-        return new Promise(resolve => {
-            let resolved = false;
-            const timer = setTimeout(() => { if (!resolved) { resolved = true; resolve(false); } }, maxMs);
-            const _prev = window.addDialogInQueue;
-            window.addDialogInQueue = function(params, content, priority) {
-                if (!resolved) {
-                    try {
-                        const p = Array.isArray(params) ? params : JSON.parse(params);
-                        if (parseInt(p[0]) === DIALOG_ID && parseInt(p[1]) === 2) {
-                            resolved = true;
-                            clearTimeout(timer);
-                            window.addDialogInQueue = _prev;
-                            resolve(true);
-                        }
-                    } catch(e) {}
-                }
-                return _prev ? _prev.call(this, params, content, priority) : undefined;
-            };
-        });
-    }
-
     // ==================== ОСНОВНАЯ ЛОГИКА ====================
     async function autoGrab() {
         if (isProcessing) return;
@@ -1888,17 +1865,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 return;
             }
 
-            // ── Шаг 4: переоткрываем меню через Alt и ждём диалог от сервера ──
-            const menuPromise = waitMenu(2000);
+            // ── Шаг 4: переоткрываем меню через Alt, ждём как в AUTO-DEAGLE v4 ──
             openMenu();
-            const dialogReady = await menuPromise;
-
-            if (!dialogReady) {
-                notify("Ошибка", "Меню не открылось", "FF0000");
-                isProcessing = false;
-                return;
-            }
-            await sleep(100); // небольшая пауза после получения диалога
+            await sleep(800); // ждём пока сервер откроет диалог
 
             // ── Шаг 5: берём всё необходимое по одному ──
             const toTake = [];
