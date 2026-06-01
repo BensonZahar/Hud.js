@@ -160,7 +160,7 @@ button:hover{{background:#555}}
 <div class="key-box" onclick="copyKey()" title="Нажмите чтобы скопировать">{hwid}</div>
 <div class="hint">нажмите на ключ чтобы скопировать</div>
 <p>Вы можете написать создателю для получения доступа:<br>
-<a class="tg-link" href="https://t.me/ZaharKonst" onclick="return false;">@ZaharKonst</a></p>
+<a class="tg-link" href="https://t.me/ZaharKonst" onclick="window.pywebview && pywebview.api && pywebview.api.open_url('https://t.me/ZaharKonst'); return false;">@ZaharKonst</a></p>
 <button onclick="window.pywebview.api.close_app()">Закрыть</button>
 <script>
 function copyKey(){{
@@ -179,10 +179,9 @@ function copyKey(){{
         def __init__(self): self._window = None
         def close_app(self):
             if self._window: self._window.destroy()
-
-    api = _Q()
-    w = webview.create_window(
-        'AHK MVD Installer — Нет доступа',
+        def open_url(self, url):
+            import webbrowser
+            webbrowser.open(url)
         f"file:///{tmp.name.replace(os.sep, '/')}",
         js_api=api, width=420, height=375,
         frameless=True, background_color='#141414'

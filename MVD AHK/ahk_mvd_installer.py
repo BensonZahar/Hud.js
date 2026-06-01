@@ -249,6 +249,10 @@ class InstallerAPI:
     def close_app(self):
         if self._window: self._window.destroy()
 
+    def open_url(self, url):
+        import webbrowser
+        webbrowser.open(url)
+
 
 def main():
     html_tmp = fetch_html()
