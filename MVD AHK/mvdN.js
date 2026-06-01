@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.337 GRAB-STEP5-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.338 STEP5-INTERFACE-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1850,14 +1850,21 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             //    перекладываем тазер в рюкзак (цель: дигл в руке, тазер в рюкзаке)
             //    Срабатывает всегда когда оба предмета присутствуют — не только при needBothTaserDeagle
             {
-                // Ждём пока тазер реально появится в инвентаре (данные могут опаздывать)
+                // Ждём пока сервер закончит закрывать интерфейсы после диалога
+                // (THNT_OnInterfaceDisappear убивает инвентарь если открыть слишком рано)
+                await sleep(800);
+
+                // Открываем инвентарь и ждём пока тазер реально появится в данных
                 openInventory();
                 let taserInvSlot = -1, taserInvCount = 0;
+                let backFreeSlot = -1;
                 for (let waited = 0; waited < 3000; waited += 100) {
                     await sleep(100);
                     try {
                         const inv = window.interface("InventoryNew");
-                        const invItems = inv?.items?.[CT.INV];
+                        if (!inv?.items) continue;
+                        // Ищем тазер в INV
+                        const invItems = inv.items[CT.INV];
                         if (invItems) {
                             for (const [s, item] of Object.entries(invItems)) {
                                 if (item?.id === ITEM.TASER) {
@@ -1867,7 +1874,14 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                                 }
                             }
                         }
-                        if (taserInvSlot >= 0) break; // тазер появился — можно работать
+                        // Ищем свободный слот в BACK пока инвентарь открыт
+                        if (taserInvSlot >= 0) {
+                            const backpack = inv.items[CT.BACK];
+                            for (let s = 0; s < 50; s++) {
+                                if (!backpack || !backpack[s]) { backFreeSlot = s; break; }
+                            }
+                            break; // всё нашли — выходим из цикла
+                        }
                     } catch(e) {}
                 }
 
@@ -1876,15 +1890,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
                 if (taserInvSlot >= 0 && deagleLoc2) {
                     // Тазер в руке + дигл есть → тазер нужно убрать в рюкзак
-                    let backFreeSlot = -1;
-                    try {
-                        const inv2 = window.interface("InventoryNew");
-                        const backpack = inv2?.items?.[CT.BACK];
-                        for (let s = 0; s < 50; s++) {
-                            if (!backpack || !backpack[s]) { backFreeSlot = s; break; }
-                        }
-                    } catch(e) {}
-
                     closeInventory();
                     await sleep(100);
 
