@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.33411 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.334 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1916,7 +1916,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
     const ITEM_TASER = 13;
     const ITEM_DEAGLE = 19;
+    const ITEM_NAMES = { [ITEM_TASER]: 'Тазер(13)', [ITEM_DEAGLE]: 'Дигл(19)' };
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
+    const CT_NAMES = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
 
     let _swapBusy = false;
 
@@ -1932,99 +1934,148 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         } catch(e) {}
     }
 
+    // ── Полное логирование инвентаря ──
+    function logInventory(label) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) { console.log(`[INV-LOG] ${label}: items недоступны`); return; }
+            const lines = [`[INV-LOG] ── ${label} ──`];
+            for (const cid of [CT.ACC, CT.INV, CT.BACK, CT.EXTRA]) {
+                const c = inv.items[cid];
+                if (!c) continue;
+                const entries = Object.entries(c);
+                if (entries.length === 0) {
+                    lines.push(`  ${CT_NAMES[cid]}(${cid}): пусто`);
+                    continue;
+                }
+                for (const [slot, item] of entries) {
+                    if (!item) continue;
+                    const name = ITEM_NAMES[item.id] || `item${item.id}`;
+                    lines.push(`  ${CT_NAMES[cid]}(${cid}) slot${slot}: ${name} x${item.count||1} w=${item.weight}`);
+                }
+            }
+            console.log(lines.join('\n'));
+        } catch(e) { console.log(`[INV-LOG] ${label}: ошибка`, e); }
+    }
+
+    // ── Найти предмет по id (с логированием) ──
     function findItem(itemId) {
         try {
             const inv = window.interface("InventoryNew");
             if (!inv?.items) return null;
-            for (const cid of [CT.INV, CT.BACK, CT.ACC]) {
+            for (const cid of [CT.INV, CT.BACK, CT.ACC, CT.EXTRA]) {
                 const c = inv.items[cid];
                 if (!c) continue;
                 for (const [slot, item] of Object.entries(c)) {
-                    if (item?.id === itemId) return { cid, slot: parseInt(slot) };
+                    if (item?.id === itemId) {
+                        const loc = { cid, slot: parseInt(slot), count: item.count || 1 };
+                        console.log(`[SWAP] findItem(${ITEM_NAMES[itemId]||itemId}): ${CT_NAMES[cid]} slot${slot} x${loc.count}`);
+                        return loc;
+                    }
                 }
             }
         } catch(e) {}
+        console.log(`[SWAP] findItem(${ITEM_NAMES[itemId]||itemId}): НЕ НАЙДЕН`);
         return null;
     }
 
+    // ── Найти свободный слот (инвентарь открыт!) ──
     function findFreeSlot(targetCid) {
         try {
             const inv = window.interface("InventoryNew");
             if (!inv?.items) {
-                console.warn(`[SWAP] findFreeSlot(${targetCid}): inv.items недоступен (инвентарь закрыт?)`);
+                console.warn(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): inv.items недоступен!`);
                 return -1;
             }
             const container = inv.items[targetCid];
-            // container может быть undefined (контейнер не существует) или {} (пустой)
-            if (container === undefined || container === null) return 0; // контейнер пуст — слот 0 свободен
-            // Ищем незанятый слот (0..49)
-            for (let s = 0; s < 50; s++) {
-                if (!container[s]) return s;
+            if (container === undefined || container === null) {
+                console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): контейнер пуст → slot 0`);
+                return 0;
             }
-            console.warn(`[SWAP] findFreeSlot(${targetCid}): все слоты заняты`);
-        } catch(e) {
-            console.error(`[SWAP] findFreeSlot error:`, e);
-        }
+            for (let s = 0; s < 50; s++) {
+                if (!container[s]) {
+                    console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): свободен slot ${s}`);
+                    return s;
+                }
+            }
+            console.warn(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): все 50 слотов заняты`);
+        } catch(e) { console.error(`[SWAP] findFreeSlot error:`, e); }
         return -1;
     }
 
-    function moveItem(fromCid, fromSlot, toCid, toSlot) {
+    function moveItem(fromCid, fromSlot, toCid, toSlot, count) {
+        const cnt = count || 1;
+        console.log(`[SWAP] moveItem: ${CT_NAMES[fromCid]}[${fromSlot}] → ${CT_NAMES[toCid]}[${toSlot}] x${cnt}`);
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
             parseInt(fromCid), parseInt(fromSlot),
             parseInt(toCid),   parseInt(toSlot),
-            1
+            parseInt(cnt)
         );
     }
 
     function openInventory() {
+        console.log('[SWAP] openInventory()');
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
     }
     function closeInventory() {
+        console.log('[SWAP] closeInventory()');
         try { window.closeInterface("InventoryNew"); } catch(e) {}
     }
 
+    // ── Ждём пока инвентарь полностью загрузится (INV + BACK) ──
     async function waitInventory(maxMs) {
-        // Ждём пока загрузятся оба контейнера: INV и BACK
+        console.log(`[SWAP] waitInventory(${maxMs}ms)...`);
         for (let i = 0; i < maxMs; i += 50) {
             try {
                 const inv = window.interface("InventoryNew");
-                if (inv?.items?.[CT.INV] !== undefined && inv?.items?.[CT.BACK] !== undefined) return true;
+                if (inv?.items?.[CT.INV] !== undefined && inv?.items?.[CT.BACK] !== undefined) {
+                    console.log(`[SWAP] waitInventory: готов за ${i}мс`);
+                    return true;
+                }
             } catch(e) {}
             await sleep(50);
         }
-        // Если BACK так и не появился — проверяем хотя бы INV
+        // Fallback: хотя бы INV
         try {
             const inv = window.interface("InventoryNew");
-            if (inv?.items?.[CT.INV] !== undefined) return true;
+            if (inv?.items?.[CT.INV] !== undefined) {
+                console.warn('[SWAP] waitInventory: INV есть, BACK нет — продолжаем');
+                return true;
+            }
         } catch(e) {}
+        console.error('[SWAP] waitInventory: таймаут!');
         return false;
     }
 
-    // ══════════════════════════════════════════════════════════════════
+    // ══════════════════════════════════════════════════════════════════════
     // ЛОГИКА СВОПА (Alt+H):
-    //   ЦЕЛЬ-СОСТОЯНИЕ: дигл → INV (рука), тазер → BACK (рюкзак)
-    //
-    //   Alt+H нажат → переключить АКТИВНОЕ оружие:
-    //     • Если дигл сейчас в INV  → убрать дигл в BACK, взять тазер из BACK в INV
-    //     • Если тазер сейчас в INV → убрать тазер в BACK, взять дигл из BACK в INV
-    //     • Если ни один не в INV   → взять дигл из BACK (если есть), иначе тазер
-    // ══════════════════════════════════════════════════════════════════
+    //   ЦЕЛЬ-СОСТОЯНИЕ: дигл в INV (рука), тазер в BACK (рюкзак)
+    //   ПЕРЕКЛЮЧАТЕЛЬ: нажал Alt+H — активное оружие меняется
+    //     • Дигл в INV  → дигл→BACK, тазер→INV
+    //     • Тазер в INV → тазер→BACK, дигл→INV
+    //     • Оба в INV   → тазер→BACK (дигл остаётся)
+    //     • Ни один в INV → взять дигл из BACK (или тазер)
+    // ══════════════════════════════════════════════════════════════════════
     async function swapTaserDeagle() {
-        if (_swapBusy) return;
+        if (_swapBusy) { console.log('[SWAP] занят, пропускаем'); return; }
         _swapBusy = true;
+        console.log('[SWAP] ══ ALT+H нажат ══');
         try {
-            // 1. Открываем инвентарь чтобы прочитать слоты
+            // 1. Открываем инвентарь
             openInventory();
-            // Ждём дольше и проверяем оба контейнера INV + BACK
             const ready = await waitInventory(3000);
             if (!ready) {
                 snNotify("Ошибка", "Инвентарь не открылся", "FF0000");
                 closeInventory();
                 return;
             }
-            // Дополнительная пауза чтобы BACK тоже загрузился
-            await sleep(150);
+            // Дополнительная пауза для полной инициализации BACK
+            await sleep(200);
 
+            // 2. Логируем состояние инвентаря
+            logInventory('ДО СВОПА');
+
+            // 3. Читаем позиции
             const taserLoc  = findItem(ITEM_TASER);
             const deagleLoc = findItem(ITEM_DEAGLE);
 
@@ -2036,63 +2087,71 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
             const taserInINV  = taserLoc  && taserLoc.cid  === CT.INV;
             const deagleInINV = deagleLoc && deagleLoc.cid === CT.INV;
+            const bothInINV   = taserInINV && deagleInINV;
 
-            // ── Сохраняем свободные слоты ДО закрытия инвентаря ──
+            console.log(`[SWAP] taserInINV=${taserInINV} deagleInINV=${deagleInINV} bothInINV=${bothInINV}`);
+
+            // 4. Сохраняем свободные слоты ДО закрытия
             const backFreeSlot = findFreeSlot(CT.BACK);
             const invFreeSlot  = findFreeSlot(CT.INV);
 
-            // Закрываем инвентарь ПОСЛЕ чтения всех данных, ДО move-команд
+            // 5. Закрываем инвентарь
             closeInventory();
-            await sleep(100);
+            await sleep(120);
 
-            if (deagleInINV) {
-                // ── Дигл сейчас в руке → убрать в рюкзак, взять тазер из рюкзака ──
-                if (taserLoc && taserLoc.cid === CT.BACK) {
-                    // Прямой обмен слотами: дигл → слот тазера в BACK, тазер → слот дигла в INV
-                    moveItem(CT.INV,  deagleLoc.slot, CT.BACK, taserLoc.slot);
-                    await sleep(200);
-                    moveItem(CT.BACK, taserLoc.slot,  CT.INV,  deagleLoc.slot);
-                    snNotify("Своп", "Дигл → рюкзак | Тазер → рука", "00FF88");
+            // ── СЦЕНАРИИ ──
+
+            if (bothInINV) {
+                // Оба в руке: тазер → рюкзак (дигл остаётся)
+                if (backFreeSlot >= 0) {
+                    moveItem(CT.INV, taserLoc.slot, CT.BACK, backFreeSlot, taserLoc.count);
+                    snNotify("Своп", "Тазер → рюкзак", "00FF88");
                 } else {
-                    // Тазер нигде нет — просто убираем дигл в свободный слот рюкзака
-                    if (backFreeSlot >= 0) {
-                        moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot);
-                        snNotify("Своп", "Дигл → рюкзак (тазер не найден)", "FFA500");
-                    } else {
-                        snNotify("Своп", "Рюкзак полон!", "FF4444");
-                    }
+                    snNotify("Своп", "Рюкзак полон!", "FF4444");
+                }
+
+            } else if (deagleInINV) {
+                // Дигл в руке → дигл в рюкзак, тазер в руку
+                if (taserLoc && taserLoc.cid === CT.BACK) {
+                    // Прямой обмен: дигл → слот тазера в BACK, тазер → слот дигла в INV
+                    moveItem(CT.INV,  deagleLoc.slot, CT.BACK, taserLoc.slot,  deagleLoc.count);
+                    await sleep(250);
+                    moveItem(CT.BACK, taserLoc.slot,  CT.INV,  deagleLoc.slot, taserLoc.count);
+                    snNotify("Своп", "Дигл → рюкзак | Тазер → рука", "00FF88");
+                } else if (backFreeSlot >= 0) {
+                    moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot, deagleLoc.count);
+                    snNotify("Своп", "Дигл → рюкзак (тазер не найден)", "FFA500");
+                } else {
+                    snNotify("Своп", "Рюкзак полон!", "FF4444");
                 }
 
             } else if (taserInINV) {
-                // ── Тазер сейчас в руке → убрать в рюкзак, взять дигл из рюкзака ──
+                // Тазер в руке → тазер в рюкзак, дигл в руку
                 if (deagleLoc && deagleLoc.cid === CT.BACK) {
-                    // Прямой обмен слотами: тазер → слот дигла в BACK, дигл → слот тазера в INV
-                    moveItem(CT.INV,  taserLoc.slot,  CT.BACK, deagleLoc.slot);
-                    await sleep(200);
-                    moveItem(CT.BACK, deagleLoc.slot, CT.INV,  taserLoc.slot);
+                    // Прямой обмен: тазер → слот дигла в BACK, дигл → слот тазера в INV
+                    moveItem(CT.INV,  taserLoc.slot,  CT.BACK, deagleLoc.slot, taserLoc.count);
+                    await sleep(250);
+                    moveItem(CT.BACK, deagleLoc.slot, CT.INV,  taserLoc.slot,  deagleLoc.count);
                     snNotify("Своп", "Тазер → рюкзак | Дигл → рука", "00FF88");
+                } else if (backFreeSlot >= 0) {
+                    moveItem(CT.INV, taserLoc.slot, CT.BACK, backFreeSlot, taserLoc.count);
+                    snNotify("Своп", "Тазер → рюкзак (дигл не найден)", "FFA500");
                 } else {
-                    // Дигл нигде нет — просто убираем тазер в свободный слот рюкзака
-                    if (backFreeSlot >= 0) {
-                        moveItem(CT.INV, taserLoc.slot, CT.BACK, backFreeSlot);
-                        snNotify("Своп", "Тазер → рюкзак (дигл не найден)", "FFA500");
-                    } else {
-                        snNotify("Своп", "Рюкзак полон!", "FF4444");
-                    }
+                    snNotify("Своп", "Рюкзак полон!", "FF4444");
                 }
 
             } else {
-                // ── Ни один не в руке — берём дигл из рюкзака (приоритет), иначе тазер ──
+                // Ни один не в руке: берём дигл (приоритет) или тазер
                 if (deagleLoc && deagleLoc.cid === CT.BACK) {
                     if (invFreeSlot >= 0) {
-                        moveItem(CT.BACK, deagleLoc.slot, CT.INV, invFreeSlot);
+                        moveItem(CT.BACK, deagleLoc.slot, CT.INV, invFreeSlot, deagleLoc.count);
                         snNotify("Своп", "Дигл → рука", "00FF88");
                     } else {
                         snNotify("Своп", "Инвентарь полон!", "FF4444");
                     }
                 } else if (taserLoc && taserLoc.cid === CT.BACK) {
                     if (invFreeSlot >= 0) {
-                        moveItem(CT.BACK, taserLoc.slot, CT.INV, invFreeSlot);
+                        moveItem(CT.BACK, taserLoc.slot, CT.INV, invFreeSlot, taserLoc.count);
                         snNotify("Своп", "Тазер → рука", "00FF88");
                     } else {
                         snNotify("Своп", "Инвентарь полон!", "FF4444");
@@ -2101,14 +2160,24 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     snNotify("Своп", "Нет предметов для свопа", "FF4444");
                 }
             }
+
         } catch(err) {
-            console.error('[SWAP] Ошибка:', err);
+            console.error('[SWAP] Критическая ошибка:', err);
+            snNotify("Своп", "Ошибка: " + err.message, "FF0000");
         } finally {
+            // Небольшая задержка перед сбросом флага чтобы избежать двойного нажатия
+            await sleep(400);
             _swapBusy = false;
+            console.log('[SWAP] ══ завершён, флаг сброшен ══');
         }
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[SWAP] Alt+H — своп тазер ↔ дигл готов');
+    // Экспортируем logInventory для ручного вызова из консоли
+    window._mvdLogInventory = () => {
+        openInventory();
+        setTimeout(() => { logInventory('РУЧНОЙ ЛОГ'); setTimeout(closeInventory, 300); }, 800);
+    };
+    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v3 готов. window._mvdLogInventory() — посмотреть инвентарь');
 })();
 // ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
