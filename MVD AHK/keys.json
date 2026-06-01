@@ -1,6 +1,18 @@
 {
-  "243B11BC32D8B8A": "ASUSF15",
-  "03F9A4F51DE32BB9": "MSI",
-  "3ED6BA22A59E4DEE": "DESKTOP-T0M1KTI чел с мвд глеб",
-  "F409333B3DCD6C78": "Чел с мвд"
+  "243B11BC32D8B8A": {
+    "device": "ASUSF15",
+    "note": ""
+  },
+  "03F9A4F51DE32BB9": {
+    "device": "MSI",
+    "note": ""
+  },
+  "3ED6BA22A59E4DEE": {
+    "device": "DESKTOP-T0M1KTI",
+    "note": "чел с мвд глеб"
+  },
+  "F409333B3DCD6C78": {
+    "device": "",
+    "note": "Чел с мвд"
+  }
 }

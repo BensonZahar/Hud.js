@@ -74,8 +74,8 @@ def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
     def _send():
         status  = "✅ Авторизован" if authorized else "❌ Не авторизован"
         win_ver = get_windows_version()
-        # Готовая строка для вставки в keys.json (ник = имя устройства, можно поменять)
-        keys_line = f'"{hwid}": "{device}"'
+        # Готовая строка для вставки в keys.json (новый формат)
+        keys_line = f'"{hwid}": {{"device": "{device}", "note": ""}}'
         text = (
             f"🚀 <b>AHK MVD Installer — запуск</b>\n\n"
             f"💻 <b>Устройство:</b> {device}\n"
@@ -86,7 +86,7 @@ def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
             f"━━━━━━━━━━━━━━━━━━━━\n"
             f"📋 <b>Вставить в keys.json:</b>\n"
             f"<code>{keys_line},</code>\n"
-            f"<i>(замени ник если нужно)</i>"
+            f"<i>(device — оставь пустым чтобы не проверять имя ПК)</i>"
         )
         try:
             requests.post(
@@ -100,13 +100,28 @@ def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
 
 
 # ── Проверить ключ в keys.json на GitHub ──────────────
-# keys.json формат: {"HWID": "Ник", "HWID2": "Ник2", ...}
+# keys.json формат:
+# {
+#   "HWID": { "device": "ИМЯ_ПК", "note": "комментарий" },
+#   ...
+# }
+# Если "device" пустая строка — проверка по имени устройства не выполняется.
 def is_authorized(hwid: str) -> bool:
     try:
         resp = requests.get(KEYS_URL, timeout=10)
         resp.raise_for_status()
-        keys = resp.json()          # {"AAAA1111BBBB2222": "Иван", ...}
-        return hwid in keys
+        keys = resp.json()
+        if hwid not in keys:
+            return False
+        entry = keys[hwid]
+        # Поддержка старого формата {"HWID": "Ник"}
+        if isinstance(entry, str):
+            return True
+        # Новый формат {"HWID": {"device": "...", "note": "..."}}
+        allowed_device = entry.get("device", "")
+        if allowed_device and allowed_device.strip():
+            return get_device_name().lower() == allowed_device.strip().lower()
+        return True                 # device пустой — только HWID
     except Exception:
         return False                # нет инета / ошибка → блокируем
 
@@ -182,6 +197,8 @@ function copyKey(){{
         def open_url(self, url):
             import webbrowser
             webbrowser.open(url)
+    api = _Q()
+    w = webview.create_window('AHK MVD Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
         js_api=api, width=420, height=375,
         frameless=True, background_color='#141414'
