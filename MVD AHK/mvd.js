@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.333 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.3 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -490,14 +490,8 @@ const setupChatHandler = () => {
                 }
              
                 if (message.includes('Вы недавно выдавали штраф')) {
-                    try {
-                        window.interface('ScreenNotification').add(
-                            '[1, "Выдача штрафа", "У вас еще к/д на выдачу штрафа", "FF0000", 5000]'
-                        );
-                        console.log('[FINE] ScreenNotification: кулдаун штрафа');
-                    } catch (err) {
-                        console.error('[FINE] Ошибка ScreenNotification:', err);
-                    }
+                    snAdd('[1, "Выдача штрафа", "У вас еще к/д на выдачу штрафа", "FF0000", 5000]');
+                    console.log('[FINE] ScreenNotification: кулдаун штрафа');
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
@@ -527,59 +521,30 @@ const getPaginatedKoap = () => {
     return currentKoapLines.join("<n>");
 };
 // ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
+const snAdd = (payload) => {
+    try {
+        const sn = window.interface('ScreenNotification');
+        if (sn && typeof sn.hideAll === 'function') sn.hideAll();
+        setTimeout(() => {
+            try { window.interface('ScreenNotification').add(payload); } catch(e) {}
+        }, 100);
+    } catch(e) {}
+};
 let currentNotificationId = 0;
 let isInActiveChase = false; // Флаг активной погони
 const openTrackingNotification = (id) => {
-    try {
-        currentNotificationId++;
-      
-        const screenNotif = window.interface('ScreenNotification');
-        if (screenNotif && typeof screenNotif.hideAll === 'function') {
-            screenNotif.hideAll();
-        }
-      
-        setTimeout(() => {
-            try {
-                window.interface('ScreenNotification').add(
-                    `[1, "Идет отслеживание", "ID: ${id}", "FF0000", 36000000]`
-                );
-                trackingNotificationOpen = true;
-                chaseNotificationOpen = false;
-                console.log('[TRACKING] ScreenNotification открыт (красный)');
-            } catch (err) {
-                console.error('[TRACKING] Ошибка при добавлении уведомления:', err);
-            }
-        }, 100);
-      
-    } catch (err) {
-        console.error('[TRACKING] Ошибка открытия ScreenNotification:', err);
-    }
+    currentNotificationId++;
+    snAdd(`[1, "Идет отслеживание", "ID: ${id}", "FF0000", 36000000]`);
+    trackingNotificationOpen = true;
+    chaseNotificationOpen = false;
+    console.log('[TRACKING] ScreenNotification открыт (красный)');
 };
 const openChaseNotification = (id) => {
-    try {
-        currentNotificationId++;
-      
-        const screenNotif = window.interface('ScreenNotification');
-        if (screenNotif && typeof screenNotif.hideAll === 'function') {
-            screenNotif.hideAll();
-        }
-      
-        setTimeout(() => {
-            try {
-                window.interface('ScreenNotification').add(
-                    `[1, "Начата погоня", "ID: ${id}", "0000FF", 36000000]`
-                );
-                trackingNotificationOpen = false;
-                chaseNotificationOpen = true;
-                console.log('[CHASE] ScreenNotification открыт (синий)');
-            } catch (err) {
-                console.error('[CHASE] Ошибка при добавлении уведомления:', err);
-            }
-        }, 100);
-      
-    } catch (err) {
-        console.error('[CHASE] Ошибка открытия ScreenNotification:', err);
-    }
+    currentNotificationId++;
+    snAdd(`[1, "Начата погоня", "ID: ${id}", "0000FF", 36000000]`);
+    trackingNotificationOpen = false;
+    chaseNotificationOpen = true;
+    console.log('[CHASE] ScreenNotification открыт (синий)');
 };
 const closeTrackingNotifications = () => {
     try {
@@ -675,7 +640,6 @@ const toggleAutoGrab = () => {
     autoGrabEnabled = !autoGrabEnabled;
     autoGrabName = `Авто-снаряжение | ${autoGrabEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
     try {
-        const screenNotif = window.interface('ScreenNotification');
         if (autoGrabEnabled) {
             const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length)
                 ? AUTO_GRAB_SKIP
@@ -700,9 +664,9 @@ const toggleAutoGrab = () => {
                 { key: 'ammo12x70',  label: 'Патроны 12x70' },
             ];
             const takenItems = allItems.filter(i => !skip(i.key)).map(i => i.label);
-            screenNotif.add(`[1, "Авто-снаряжение", "Берётся: ${takenItems.join(', ')}", "00FF00", 5000]`);
+            snAdd(`[1, "Авто-снаряжение", "Берётся: ${takenItems.join(', ')}", "00FF00", 5000]`);
         } else {
-            screenNotif.add(`[1, "Авто-снаряжение", "Выключено", "FF4444", 3000]`);
+            snAdd(`[1, "Авто-снаряжение", "Выключено", "FF4444", 3000]`);
         }
     } catch(e) {
         console.warn('[MVD-GRAB] toggleAutoGrab notify error:', e);
@@ -1107,11 +1071,11 @@ const executePovsednevAction = (action, targetId) => {
             break;
         case "miranda":
             sendMessagesWithDelay([
-                "- Вы задержаны. Вам необходимо знать ваши права.",
-                "- Вы имеете право хранить молчание.",
-                "- Вы имеете право на получение адвокатской помощи.",
-                "- Вы имеете право на обжалование действий сотрудника силовой структуры.",
-                "- Вам ясны ваши права?"
+                "Вы задержаны. Вам необходимо знать ваши права.",
+                "Вы имеете право хранить молчание.",
+                "Вы имеете право на получение адвокатской помощи.",
+                "Вы имеете право на обжалование действий сотрудника силовой структуры.",
+                "Вам ясны ваши права?"
             ], [0, 1500, 1500, 1500, 1500]);
             break;
     }
@@ -1518,13 +1482,7 @@ window.sendChatInputCustom = e => {
         if (freshSkin !== null) skinId = Number(freshSkin);
         if (mvdSkins.includes(skinId)) {
             // Успешное открытие меню МВД
-            try {
-                window.interface('ScreenNotification').add(
-                    '[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]'
-                );
-            } catch (err) {
-                console.error('[MVD] Ошибка ScreenNotification:', err);
-            }
+            snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
             if (lastMenuType === "povsednev") {
                 showPovsednevMenuPage(args[1]);
             } else if (lastMenuType === "stroy") {
@@ -1536,13 +1494,7 @@ window.sendChatInputCustom = e => {
             }
         } else {
             // Ошибка: скин не подходит
-            try {
-                window.interface('ScreenNotification').add(
-                    '[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]'
-                );
-            } catch (err) {
-                console.error('[ERROR] Ошибка ScreenNotification:', err);
-            }
+            snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
         }
     } else if (args[0] == "/mvdreset") {
         lastMenuType = null;
@@ -1756,7 +1708,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
     function notify(title, text, color = "FFFFFF") {
-        try { window.interface('ScreenNotification').add(`[1, "${title}", "${text}", "${color}", 2500]`); } catch(e) {}
+        snAdd(`[1, "${title}", "${text}", "${color}", 2500]`);
     }
 
     // ==================== БРОНЯ ЧЕРЕЗ ХУД ====================
