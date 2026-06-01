@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.33114 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.334 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1846,45 +1846,61 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             notify("МВД", notifyNames.join(", "), "00FF00");
             window.playSound("inventory/take_light.mp3");
 
-            // ── Шаг 5: если взяли и тазер и дигл — тазер перекладываем в рюкзак ──
-            // Цель-состояние: дигл в руке (INV), тазер в рюкзаке (BACK)
-            if (needBothTaserDeagle) {
-                // Ждём пока предметы появятся в инвентаре
-                await sleep(600);
+            // ── Шаг 5: финальная проверка — если тазер в INV и дигл тоже есть,
+            //    перекладываем тазер в рюкзак (цель: дигл в руке, тазер в рюкзаке)
+            //    Срабатывает всегда когда оба предмета присутствуют — не только при needBothTaserDeagle
+            {
+                // Ждём пока все предметы появятся в инвентаре
+                await sleep(800);
                 openInventory();
-                await waitInventory(1500);
+                await waitInventory(2000);
+                await sleep(300);
 
-                // Ищем тазер — он должен быть в CT.INV (рука, т.к. взят последним)
-                const taserLoc2 = findItem(ITEM.TASER);
-                if (taserLoc2 && taserLoc2.cid === CT.INV) {
-                    // Ищем свободный слот в рюкзаке
-                    let backFreeSlot = -1;
-                    try {
-                        const inv = window.interface("InventoryNew");
-                        const backpack = inv?.items?.[CT.BACK];
-                        if (backpack !== undefined) {
-                            for (let s = 0; s < 50; s++) {
-                                if (!backpack[s]) { backFreeSlot = s; break; }
+                try {
+                    const inv = window.interface("InventoryNew");
+                    // Ищем тазер в INV (все стеки)
+                    let taserInvSlot = -1, taserInvCount = 0;
+                    const invItems = inv?.items?.[CT.INV];
+                    if (invItems) {
+                        for (const [s, item] of Object.entries(invItems)) {
+                            if (item?.id === ITEM.TASER) {
+                                taserInvSlot = parseInt(s);
+                                taserInvCount = item.count || 1;
+                                break;
                             }
                         }
-                    } catch(e) {}
+                    }
 
-                    closeInventory();
-                    await sleep(80);
+                    // Есть ли дигл где-либо?
+                    const deagleLoc2 = findItem(ITEM.DEAGLE);
 
-                    if (backFreeSlot >= 0) {
-                        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
-                            parseInt(CT.INV),  parseInt(taserLoc2.slot),
-                            parseInt(CT.BACK), parseInt(backFreeSlot),
-                            1
-                        );
-                        console.log(`[MVD-GRAB] Тазер (слот ${taserLoc2.slot}) → рюкзак (слот ${backFreeSlot})`);
-                        notify("МВД", "Тазер → рюкзак (дигл в руке)", "00FF88");
+                    if (taserInvSlot >= 0 && deagleLoc2) {
+                        // Тазер в руке + дигл есть → тазер нужно убрать в рюкзак
+                        let backFreeSlot = -1;
+                        const backpack = inv?.items?.[CT.BACK];
+                        for (let s = 0; s < 50; s++) {
+                            if (!backpack || !backpack[s]) { backFreeSlot = s; break; }
+                        }
+
+                        closeInventory();
+                        await sleep(150);
+
+                        if (backFreeSlot >= 0) {
+                            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
+                                parseInt(CT.INV),  parseInt(taserInvSlot),
+                                parseInt(CT.BACK), parseInt(backFreeSlot),
+                                parseInt(taserInvCount)
+                            );
+                            console.log(`[MVD-GRAB] Тазер (слот ${taserInvSlot} x${taserInvCount}) → рюкзак (слот ${backFreeSlot})`);
+                            notify("МВД", "Тазер → рюкзак (дигл в руке)", "00FF88");
+                        } else {
+                            notify("МВД", "Рюкзак полон — тазер в руке", "FFA500");
+                        }
                     } else {
                         closeInventory();
-                        notify("МВД", "Рюкзак полон — тазер в руке", "FFA500");
                     }
-                } else {
+                } catch(e) {
+                    console.error('[MVD-GRAB] Ошибка шага 5:', e);
                     closeInventory();
                 }
             }
@@ -2150,12 +2166,12 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 if (taserInBack && backFreeSlot >= 0) {
                     // Шаг 1: дигл → свободный слот BACK
                     moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot, deagleLoc.count);
-                    await sleep(300);
+                    await sleep(600);
                     // Шаг 2: каждый стек тазера → в освободившийся слот дигла в INV
                     //         Сервер смёрджит стеки автоматически
                     for (const stk of taserLoc.allSlots) {
                         moveItem(CT.BACK, stk.slot, CT.INV, deagleLoc.slot, stk.count);
-                        await sleep(200);
+                        await sleep(500);
                     }
                     snNotify("Своп", "Дигл → рюкзак | Тазер → рука", "00FF88");
                 } else if (backFreeSlot >= 0) {
@@ -2172,7 +2188,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 if (deagleInBack && backFreeSlot >= 0) {
                     // Шаг 1: тазер → свободный слот BACK
                     moveItem(CT.INV, taserLoc.slot, CT.BACK, backFreeSlot, taserLoc.count);
-                    await sleep(300);
+                    await sleep(600);
                     // Шаг 2: дигл → в освободившийся слот тазера в INV
                     moveItem(CT.BACK, deagleLoc.slot, CT.INV, taserLoc.slot, deagleLoc.count);
                     snNotify("Своп", "Тазер → рюкзак | Дигл → рука", "00FF88");
