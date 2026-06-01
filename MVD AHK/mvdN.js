@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.334 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.33114 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1958,20 +1958,30 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         } catch(e) { console.log(`[INV-LOG] ${label}: ошибка`, e); }
     }
 
-    // ── Найти предмет по id (с логированием) ──
-    function findItem(itemId) {
+    // ── Найти предмет по id.
+    //    consolidate=true → суммирует все стеки в одном контейнере и возвращает
+    //    { cid, slot (первого стека), count (суммарный), allSlots[] }
+    function findItem(itemId, consolidate) {
         try {
             const inv = window.interface("InventoryNew");
             if (!inv?.items) return null;
             for (const cid of [CT.INV, CT.BACK, CT.ACC, CT.EXTRA]) {
                 const c = inv.items[cid];
                 if (!c) continue;
+                let firstSlot = -1, totalCount = 0, allSlots = [];
                 for (const [slot, item] of Object.entries(c)) {
                     if (item?.id === itemId) {
-                        const loc = { cid, slot: parseInt(slot), count: item.count || 1 };
-                        console.log(`[SWAP] findItem(${ITEM_NAMES[itemId]||itemId}): ${CT_NAMES[cid]} slot${slot} x${loc.count}`);
-                        return loc;
+                        const s = parseInt(slot);
+                        const cnt = item.count || 1;
+                        if (firstSlot === -1) firstSlot = s;
+                        totalCount += cnt;
+                        allSlots.push({ slot: s, count: cnt });
                     }
+                }
+                if (firstSlot !== -1) {
+                    const loc = { cid, slot: firstSlot, count: consolidate ? totalCount : allSlots[0].count, allSlots };
+                    console.log(`[SWAP] findItem(${ITEM_NAMES[itemId]||itemId}): ${CT_NAMES[cid]} slot${firstSlot} x${loc.count} (стеков: ${allSlots.length})`);
+                    return loc;
                 }
             }
         } catch(e) {}
@@ -1979,8 +1989,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return null;
     }
 
-    // ── Найти свободный слот (инвентарь открыт!) ──
-    function findFreeSlot(targetCid) {
+    // ── Найти свободный слот, исключая занятые excludeSlots ──
+    function findFreeSlot(targetCid, excludeSlots) {
+        const excl = new Set(excludeSlots || []);
         try {
             const inv = window.interface("InventoryNew");
             if (!inv?.items) {
@@ -1989,16 +2000,22 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
             const container = inv.items[targetCid];
             if (container === undefined || container === null) {
-                console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): контейнер пуст → slot 0`);
-                return 0;
+                // контейнер полностью пуст — ищем первый не-исключённый
+                for (let s = 0; s < 50; s++) {
+                    if (!excl.has(s)) {
+                        console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): контейнер пуст → slot ${s}`);
+                        return s;
+                    }
+                }
+                return -1;
             }
             for (let s = 0; s < 50; s++) {
-                if (!container[s]) {
+                if (!container[s] && !excl.has(s)) {
                     console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): свободен slot ${s}`);
                     return s;
                 }
             }
-            console.warn(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): все 50 слотов заняты`);
+            console.warn(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): нет свободных слотов`);
         } catch(e) { console.error(`[SWAP] findFreeSlot error:`, e); }
         return -1;
     }
@@ -2048,13 +2065,23 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // ЛОГИКА СВОПА (Alt+H):
-    //   ЦЕЛЬ-СОСТОЯНИЕ: дигл в INV (рука), тазер в BACK (рюкзак)
-    //   ПЕРЕКЛЮЧАТЕЛЬ: нажал Alt+H — активное оружие меняется
-    //     • Дигл в INV  → дигл→BACK, тазер→INV
-    //     • Тазер в INV → тазер→BACK, дигл→INV
-    //     • Оба в INV   → тазер→BACK (дигл остаётся)
-    //     • Ни один в INV → взять дигл из BACK (или тазер)
+    // ЛОГИКА СВОПА (Alt+H) v4 — FIX: корректная работа со стеками тазера
+    //
+    //   ЦЕЛЬ: переключать активное оружие между дигл (INV) и тазер (BACK)
+    //
+    //   СЦЕНАРИИ:
+    //     • Оба в INV         → тазер (весь стек) → свободный слот BACK
+    //     • Дигл в INV        → дигл→свободный BACK, затем тазер (весь стек из BACK)→INV[deagleSlot]
+    //     • Тазер в INV       → тазер→свободный BACK, затем дигл из BACK→INV[taserSlot]
+    //     • Ни один в INV     → взять дигл из BACK (или тазер) в свободный INV
+    //
+    //   КЛЮЧЕВЫЕ ИСПРАВЛЕНИЯ vs v3:
+    //     1. findItem теперь суммирует все стеки тазера в одном контейнере
+    //        (после авто-снаряжения в рюкзаке могут быть 2 стека: x1 и x29)
+    //     2. Прямой обмен УБРАН — вместо него последовательные ходы через
+    //        свободные слоты, чтобы не класть дигл на занятый слот тазера
+    //     3. При переносе всего тазера из BACK в INV переносим каждый стек
+    //        отдельно в один и тот же целевой слот (сервер смёрджит стеки)
     // ══════════════════════════════════════════════════════════════════════
     async function swapTaserDeagle() {
         if (_swapBusy) { console.log('[SWAP] занят, пропускаем'); return; }
@@ -2075,9 +2102,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             // 2. Логируем состояние инвентаря
             logInventory('ДО СВОПА');
 
-            // 3. Читаем позиции
-            const taserLoc  = findItem(ITEM_TASER);
-            const deagleLoc = findItem(ITEM_DEAGLE);
+            // 3. Читаем позиции (consolidate=true — суммируем стеки)
+            const taserLoc  = findItem(ITEM_TASER,  true);
+            const deagleLoc = findItem(ITEM_DEAGLE, false);
 
             if (!taserLoc && !deagleLoc) {
                 snNotify("Своп", "Тазер и Дигл не найдены", "FF4444");
@@ -2091,8 +2118,15 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
             console.log(`[SWAP] taserInINV=${taserInINV} deagleInINV=${deagleInINV} bothInINV=${bothInINV}`);
 
-            // 4. Сохраняем свободные слоты ДО закрытия
-            const backFreeSlot = findFreeSlot(CT.BACK);
+            // 4. Свободные слоты — считаем ДО закрытия
+            //    При поиске свободного слота в BACK исключаем уже занятые тазером слоты,
+            //    чтобы не попасть туда же снова
+            const taserBackSlots = (taserLoc && taserLoc.cid === CT.BACK)
+                ? taserLoc.allSlots.map(x => x.slot) : [];
+            const deagleBackSlot = (deagleLoc && deagleLoc.cid === CT.BACK)
+                ? deagleLoc.slot : -1;
+
+            const backFreeSlot = findFreeSlot(CT.BACK, [...taserBackSlots, deagleBackSlot !== -1 ? deagleBackSlot : -999].filter(s => s >= 0));
             const invFreeSlot  = findFreeSlot(CT.INV);
 
             // 5. Закрываем инвентарь
@@ -2102,7 +2136,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             // ── СЦЕНАРИИ ──
 
             if (bothInINV) {
-                // Оба в руке: тазер → рюкзак (дигл остаётся)
+                // Оба в INV: тазер целиком → рюкзак (дигл остаётся в руке)
                 if (backFreeSlot >= 0) {
                     moveItem(CT.INV, taserLoc.slot, CT.BACK, backFreeSlot, taserLoc.count);
                     snNotify("Своп", "Тазер → рюкзак", "00FF88");
@@ -2111,14 +2145,21 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 }
 
             } else if (deagleInINV) {
-                // Дигл в руке → дигл в рюкзак, тазер в руку
-                if (taserLoc && taserLoc.cid === CT.BACK) {
-                    // Прямой обмен: дигл → слот тазера в BACK, тазер → слот дигла в INV
-                    moveItem(CT.INV,  deagleLoc.slot, CT.BACK, taserLoc.slot,  deagleLoc.count);
-                    await sleep(250);
-                    moveItem(CT.BACK, taserLoc.slot,  CT.INV,  deagleLoc.slot, taserLoc.count);
+                // Дигл в INV → переложить дигл в BACK, тазер из BACK → в слот дигла
+                const taserInBack = taserLoc && taserLoc.cid === CT.BACK;
+                if (taserInBack && backFreeSlot >= 0) {
+                    // Шаг 1: дигл → свободный слот BACK
+                    moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot, deagleLoc.count);
+                    await sleep(300);
+                    // Шаг 2: каждый стек тазера → в освободившийся слот дигла в INV
+                    //         Сервер смёрджит стеки автоматически
+                    for (const stk of taserLoc.allSlots) {
+                        moveItem(CT.BACK, stk.slot, CT.INV, deagleLoc.slot, stk.count);
+                        await sleep(200);
+                    }
                     snNotify("Своп", "Дигл → рюкзак | Тазер → рука", "00FF88");
                 } else if (backFreeSlot >= 0) {
+                    // Тазер не найден — просто убираем дигл в рюкзак
                     moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot, deagleLoc.count);
                     snNotify("Своп", "Дигл → рюкзак (тазер не найден)", "FFA500");
                 } else {
@@ -2126,14 +2167,17 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 }
 
             } else if (taserInINV) {
-                // Тазер в руке → тазер в рюкзак, дигл в руку
-                if (deagleLoc && deagleLoc.cid === CT.BACK) {
-                    // Прямой обмен: тазер → слот дигла в BACK, дигл → слот тазера в INV
-                    moveItem(CT.INV,  taserLoc.slot,  CT.BACK, deagleLoc.slot, taserLoc.count);
-                    await sleep(250);
-                    moveItem(CT.BACK, deagleLoc.slot, CT.INV,  taserLoc.slot,  deagleLoc.count);
+                // Тазер в INV → переложить тазер в BACK, дигл из BACK → в слот тазера
+                const deagleInBack = deagleLoc && deagleLoc.cid === CT.BACK;
+                if (deagleInBack && backFreeSlot >= 0) {
+                    // Шаг 1: тазер → свободный слот BACK
+                    moveItem(CT.INV, taserLoc.slot, CT.BACK, backFreeSlot, taserLoc.count);
+                    await sleep(300);
+                    // Шаг 2: дигл → в освободившийся слот тазера в INV
+                    moveItem(CT.BACK, deagleLoc.slot, CT.INV, taserLoc.slot, deagleLoc.count);
                     snNotify("Своп", "Тазер → рюкзак | Дигл → рука", "00FF88");
                 } else if (backFreeSlot >= 0) {
+                    // Дигл не найден — просто убираем тазер в рюкзак
                     moveItem(CT.INV, taserLoc.slot, CT.BACK, backFreeSlot, taserLoc.count);
                     snNotify("Своп", "Тазер → рюкзак (дигл не найден)", "FFA500");
                 } else {
@@ -2141,7 +2185,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 }
 
             } else {
-                // Ни один не в руке: берём дигл (приоритет) или тазер
+                // Ни один не в INV: достать дигл (приоритет) или тазер в руку
                 if (deagleLoc && deagleLoc.cid === CT.BACK) {
                     if (invFreeSlot >= 0) {
                         moveItem(CT.BACK, deagleLoc.slot, CT.INV, invFreeSlot, deagleLoc.count);
@@ -2151,7 +2195,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     }
                 } else if (taserLoc && taserLoc.cid === CT.BACK) {
                     if (invFreeSlot >= 0) {
-                        moveItem(CT.BACK, taserLoc.slot, CT.INV, invFreeSlot, taserLoc.count);
+                        // Берём только первый стек тазера (чаще всего одиночный)
+                        moveItem(CT.BACK, taserLoc.allSlots[0].slot, CT.INV, invFreeSlot, taserLoc.allSlots[0].count);
                         snNotify("Своп", "Тазер → рука", "00FF88");
                     } else {
                         snNotify("Своп", "Инвентарь полон!", "FF4444");
@@ -2166,7 +2211,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             snNotify("Своп", "Ошибка: " + err.message, "FF0000");
         } finally {
             // Небольшая задержка перед сбросом флага чтобы избежать двойного нажатия
-            await sleep(400);
+            await sleep(500);
             _swapBusy = false;
             console.log('[SWAP] ══ завершён, флаг сброшен ══');
         }
@@ -2178,6 +2223,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         openInventory();
         setTimeout(() => { logInventory('РУЧНОЙ ЛОГ'); setTimeout(closeInventory, 300); }, 800);
     };
-    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v3 готов. window._mvdLogInventory() — посмотреть инвентарь');
+    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v4 готов. window._mvdLogInventory() — посмотреть инвентарь');
 })();
 // ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
