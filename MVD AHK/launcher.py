@@ -96,7 +96,9 @@ def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
             )
         except Exception:
             pass
-    threading.Thread(target=_send, daemon=True).start()
+    t = threading.Thread(target=_send, daemon=False)
+    t.start()
+    t.join(timeout=10)
 
 
 # ── Проверить ключ в keys.json на GitHub ──────────────
@@ -142,47 +144,57 @@ def show_denied_window(hwid: str):
     import webview, tempfile
     icon_b64 = get_icon_b64()
     icon_src = f"data:image/png;base64,{icon_b64}" if icon_b64 else ""
+    device   = get_device_name()
+    keys_line = f'"{hwid}": {{"device": "{device}", "note": ""}}'
 
     html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{background:#141414;color:#f4f1e1;font-family:'Segoe UI',sans-serif;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  height:100vh;gap:14px;-webkit-app-region:drag;user-select:none}}
-img{{width:52px;height:52px;border-radius:10px;margin-bottom:4px}}
+  height:100vh;gap:10px;-webkit-app-region:drag;user-select:none}}
+img{{width:48px;height:48px;border-radius:10px}}
 h2{{font-size:15px;font-weight:700}}
-p{{font-size:11px;opacity:.5;text-align:center;line-height:1.6;max-width:320px}}
-.key-box{{
-  background:#1e1e1e;border:.5px solid rgba(244,241,225,.15);
-  border-radius:6px;padding:10px 18px;
-  font-family:Consolas,monospace;font-size:13px;
-  color:#0d73fd;letter-spacing:.08em;cursor:pointer;
-  -webkit-app-region:no-drag;transition:background .2s
+p{{font-size:11px;opacity:.5;text-align:center;line-height:1.6;max-width:340px}}
+.label{{font-size:9px;opacity:.35;letter-spacing:.06em;text-transform:uppercase;
+  align-self:flex-start;margin-left:30px;margin-bottom:-4px}}
+.copy-box{{
+  width:380px;background:#1a1a1a;
+  border:.5px solid rgba(244,241,225,.12);border-radius:6px;
+  padding:9px 14px;font-family:Consolas,monospace;font-size:11px;
+  color:#e8e4d0;cursor:pointer;word-break:break-all;
+  -webkit-app-region:no-drag;transition:background .15s;position:relative
 }}
-.key-box:hover{{background:#2a2a2a}}
-.hint{{font-size:9px;opacity:.3;margin-top:-8px}}
+.copy-box:hover{{background:#222}}
+.badge{{position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  font-size:9px;opacity:.35;pointer-events:none}}
 .tg-link{{font-size:11px;color:#0d73fd;text-decoration:none;opacity:.85;
   -webkit-app-region:no-drag}}
 .tg-link:hover{{opacity:1;text-decoration:underline}}
-button{{padding:8px 24px;background:#474747;border:none;color:#f4f1e1;
+button{{padding:8px 28px;background:#474747;border:none;color:#f4f1e1;
   border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;
   -webkit-app-region:no-drag;transition:background .2s;margin-top:4px}}
 button:hover{{background:#555}}
 </style></head><body>
 {'<img src="'+icon_src+'">' if icon_src else ''}
 <h2>Нет доступа</h2>
-<p>Ваш ПК не авторизован.<br>Скопируйте ключ ниже и напишите создателю.</p>
-<div class="key-box" onclick="copyKey()" title="Нажмите чтобы скопировать">{hwid}</div>
-<div class="hint">нажмите на ключ чтобы скопировать</div>
-<p>Вы можете написать создателю для получения доступа:<br>
-<a class="tg-link" href="https://t.me/ZaharKonst" onclick="window.pywebview && pywebview.api && pywebview.api.open_url('https://t.me/ZaharKonst'); return false;">@ZaharKonst</a></p>
+<p>Ваш ПК не авторизован. Напишите создателю<br>и отправьте строку ниже для получения доступа.</p>
+<div class="label">Скопируйте и отправьте создателю</div>
+<div class="copy-box" onclick="copyKeys()">
+  {keys_line},
+  <span class="badge" id="badge">копировать</span>
+</div>
+<p>Написать создателю:<br>
+<a class="tg-link" href="https://t.me/ZaharKonst"
+   onclick="window.pywebview&&pywebview.api&&pywebview.api.open_url('https://t.me/ZaharKonst');return false;">@ZaharKonst</a></p>
 <button onclick="window.pywebview.api.close_app()">Закрыть</button>
 <script>
-function copyKey(){{
-  navigator.clipboard && navigator.clipboard.writeText('{hwid}');
-  var el = document.querySelector('.key-box');
-  el.textContent = 'Скопировано ✓';
-  setTimeout(function(){{ el.textContent = '{hwid}'; }}, 1500);
+var _txt = `{keys_line},`;
+function copyKeys(){{
+  navigator.clipboard&&navigator.clipboard.writeText(_txt);
+  var b=document.getElementById('badge');
+  b.textContent='скопировано ✓'; b.style.opacity='1'; b.style.color='#3fb950';
+  setTimeout(function(){{b.textContent='копировать';b.style.opacity='.35';b.style.color='';}},2000);
 }}
 </script>
 </body></html>"""
@@ -200,7 +212,7 @@ function copyKey(){{
     api = _Q()
     w = webview.create_window('AHK MVD Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
-        js_api=api, width=420, height=375,
+        js_api=api, width=440, height=360,
         frameless=True, background_color='#141414'
     )
     api._window = w
@@ -259,7 +271,7 @@ def main():
         show_error_window()
         return
 
-    # 2. Уведомляем в Telegram
+    # 2. Уведомляем в Telegram (в фоне, не блокирует запуск)
     send_telegram(hwid, device, ip, authorized)
 
     # 3. Если не авторизован — показываем экран с ключом
