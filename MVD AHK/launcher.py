@@ -146,6 +146,9 @@ p{{font-size:11px;opacity:.5;text-align:center;line-height:1.6;max-width:320px}}
 }}
 .key-box:hover{{background:#2a2a2a}}
 .hint{{font-size:9px;opacity:.3;margin-top:-8px}}
+.tg-link{{font-size:11px;color:#0d73fd;text-decoration:none;opacity:.85;
+  -webkit-app-region:no-drag}}
+.tg-link:hover{{opacity:1;text-decoration:underline}}
 button{{padding:8px 24px;background:#474747;border:none;color:#f4f1e1;
   border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;
   -webkit-app-region:no-drag;transition:background .2s;margin-top:4px}}
@@ -153,9 +156,11 @@ button:hover{{background:#555}}
 </style></head><body>
 {'<img src="'+icon_src+'">' if icon_src else ''}
 <h2>Нет доступа</h2>
-<p>Ваш ПК не авторизован.<br>Отправьте ключ ниже администратору.</p>
+<p>Ваш ПК не авторизован.<br>Скопируйте ключ ниже и напишите создателю.</p>
 <div class="key-box" onclick="copyKey()" title="Нажмите чтобы скопировать">{hwid}</div>
 <div class="hint">нажмите на ключ чтобы скопировать</div>
+<p>Вы можете написать создателю для получения доступа:<br>
+<a class="tg-link" href="https://t.me/ZaharKonst" onclick="return false;">@ZaharKonst</a></p>
 <button onclick="window.pywebview.api.close_app()">Закрыть</button>
 <script>
 function copyKey(){{
@@ -179,7 +184,7 @@ function copyKey(){{
     w = webview.create_window(
         'AHK MVD Installer — Нет доступа',
         f"file:///{tmp.name.replace(os.sep, '/')}",
-        js_api=api, width=420, height=340,
+        js_api=api, width=420, height=375,
         frameless=True, background_color='#141414'
     )
     api._window = w
