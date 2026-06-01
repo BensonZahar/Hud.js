@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v23.1 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -675,40 +675,37 @@ const toggleAutoGrab = () => {
     autoGrabEnabled = !autoGrabEnabled;
     autoGrabName = `Авто-снаряжение | ${autoGrabEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
     try {
-        const hudIface = window.interface('Hud');
-        if (hudIface && hudIface.$refs && hudIface.$refs.chat) {
-            if (autoGrabEnabled) {
-                const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length)
-                    ? AUTO_GRAB_SKIP
-                    : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
-                const skip = (key) => skipList.includes(key);
-                const allItems = [
-                    { key: 'medkit',     label: 'Аптечка' },
-                    { key: 'painkiller', label: 'Обезболивающее' },
-                    { key: 'baton',      label: 'Дубинка' },
-                    { key: 'baton2',     label: 'Жезл' },
-                    { key: 'vest',       label: 'Бронежилет' },
-                    { key: 'taumeter',   label: 'Тауметр' },
-                    { key: 'diag',       label: 'Диагностика' },
-                    { key: 'taser',      label: 'Тазер' },
-                    { key: 'deagle',     label: 'Desert Eagle' },
-                    { key: 'magnum',     label: 'Патроны .44' },
-                    { key: 'akm',        label: 'АКМ' },
-                    { key: 'ammo762',    label: 'Патроны 7.62' },
-                    { key: 'aks74u',     label: 'АКС-74У' },
-                    { key: 'ammo545',    label: 'Патроны 5.45' },
-                    { key: 'remington',  label: 'Remington 870' },
-                    { key: 'ammo12x70',  label: 'Патроны 12x70' },
-                ];
-                const takenItems = allItems.filter(i => !skip(i.key)).map(i => i.label);
-                hudIface.$refs.chat.add('{00FF00}[АХК] Авто-снаряжение включено');
-                hudIface.$refs.chat.add('{AAAAAA}Берётся: {FFFFFF}' + takenItems.join(', '));
-            } else {
-                hudIface.$refs.chat.add('{FF4444}[АХК] Авто-снаряжение выключено');
-            }
+        const screenNotif = window.interface('ScreenNotification');
+        if (autoGrabEnabled) {
+            const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length)
+                ? AUTO_GRAB_SKIP
+                : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
+            const skip = (key) => skipList.includes(key);
+            const allItems = [
+                { key: 'medkit',     label: 'Аптечка' },
+                { key: 'painkiller', label: 'Обезболивающее' },
+                { key: 'baton',      label: 'Дубинка' },
+                { key: 'baton2',     label: 'Жезл' },
+                { key: 'vest',       label: 'Бронежилет' },
+                { key: 'taumeter',   label: 'Тауметр' },
+                { key: 'diag',       label: 'Диагностика' },
+                { key: 'taser',      label: 'Тазер' },
+                { key: 'deagle',     label: 'Desert Eagle' },
+                { key: 'magnum',     label: 'Патроны .44' },
+                { key: 'akm',        label: 'АКМ' },
+                { key: 'ammo762',    label: 'Патроны 7.62' },
+                { key: 'aks74u',     label: 'АКС-74У' },
+                { key: 'ammo545',    label: 'Патроны 5.45' },
+                { key: 'remington',  label: 'Remington 870' },
+                { key: 'ammo12x70',  label: 'Патроны 12x70' },
+            ];
+            const takenItems = allItems.filter(i => !skip(i.key)).map(i => i.label);
+            screenNotif.add(`[1, "Авто-снаряжение", "Берётся: ${takenItems.join(', ')}", "00FF00", 5000]`);
+        } else {
+            screenNotif.add(`[1, "Авто-снаряжение", "Выключено", "FF4444", 3000]`);
         }
     } catch(e) {
-        console.warn('[MVD-GRAB] toggleAutoGrab chat error:', e);
+        console.warn('[MVD-GRAB] toggleAutoGrab notify error:', e);
     }
 };
 const SendGiveLicenseCommand = (to, index) => {
@@ -1301,7 +1298,7 @@ window.showMvdSubMenu = (e) => {
     }
     availableSub.push({ name: trackingName, id: "tracking" });
     availableSub.push({ name: autoCuffName, id: "autocuff" });
-    if (window.AUTO_GRAB) {
+    if (AUTO_GRAB) {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
     shownMvdSubTypes = availableSub;
