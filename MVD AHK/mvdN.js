@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3353 REOPEN-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.336 SPEED-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1851,10 +1851,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             //    Срабатывает всегда когда оба предмета присутствуют — не только при needBothTaserDeagle
             {
                 // Ждём пока все предметы появятся в инвентаре
-                await sleep(800);
+                await sleep(500);
                 openInventory();
                 await waitInventory(2000);
-                await sleep(300);
+                await sleep(100);
 
                 try {
                     const inv = window.interface("InventoryNew");
@@ -1883,7 +1883,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                         }
 
                         closeInventory();
-                        await sleep(150);
+                        await sleep(100);
 
                         if (backFreeSlot >= 0) {
                             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
@@ -2168,10 +2168,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot, deagleLoc.count);
                     // Переоткрываем инвентарь чтобы сервер не выдал "вы только что перенесли предмет"
                     closeInventory();
-                    await sleep(700);
+                    await sleep(400);
                     openInventory();
-                    await waitInventory(3000);
-                    await sleep(200);
+                    await waitInventory(2000);
                     // Шаг 2: читаем свежие позиции тазера (стеки могли сдвинуться)
                     const taserLocFresh = findItem(ITEM_TASER, true);
                     const targetSlot = deagleLoc.slot; // слот дигла теперь свободен
@@ -2179,7 +2178,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                         // каждый стек тазера → в освободившийся слот дигла в INV
                         for (const stk of taserLocFresh.allSlots) {
                             moveItem(CT.BACK, stk.slot, CT.INV, targetSlot, stk.count);
-                            await sleep(500);
+                            await sleep(300);
                         }
                         closeInventory();
                     } else {
@@ -2204,16 +2203,15 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     moveItem(CT.INV, taserLoc.slot, CT.BACK, backFreeSlot, taserLoc.count);
                     // Переоткрываем инвентарь чтобы сервер не выдал "вы только что перенесли предмет"
                     closeInventory();
-                    await sleep(700);
+                    await sleep(400);
                     openInventory();
-                    await waitInventory(3000);
-                    await sleep(200);
+                    await waitInventory(2000);
                     // Шаг 2: читаем свежую позицию дигла, кладём в слот тазера
                     const deagleLocFresh = findItem(ITEM_DEAGLE, false);
                     const targetSlot = taserLoc.slot; // слот тазера теперь свободен
                     if (deagleLocFresh && deagleLocFresh.cid === CT.BACK) {
                         moveItem(CT.BACK, deagleLocFresh.slot, CT.INV, targetSlot, deagleLocFresh.count);
-                        await sleep(400);
+                        await sleep(200);
                     }
                     closeInventory();
                     snNotify("Своп", "Тазер → рюкзак | Дигл → рука", "00FF88");
