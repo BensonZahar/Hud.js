@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.33 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.334 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1823,10 +1823,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
             if (need.radarGun)    toTake.push({ name: "Тауметр",                                 idx: MENU.RADAR_GUN });
             if (need.diagnostics) toTake.push({ name: "Диагностика",                             idx: MENU.DIAGNOSTICS });
-            // Если нужны оба — тазер берём первым (он займёт руку)
-            if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
-            // Дигл: берём в любом случае (если нужен) — потом переложим в рюкзак если оба
+            // Если нужны оба — дигл берём первым (он займёт руку), тазер потом → рюкзак
             if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
+            // Тазер: берём в любом случае (если нужен) — потом переложим в рюкзак если оба
+            if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
             if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
             if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
             if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
@@ -1846,16 +1846,17 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             notify("МВД", notifyNames.join(", "), "00FF00");
             window.playSound("inventory/take_light.mp3");
 
-            // ── Шаг 5: если взяли и тазер и дигл — дигл перекладываем в рюкзак ──
+            // ── Шаг 5: если взяли и тазер и дигл — тазер перекладываем в рюкзак ──
+            // Цель-состояние: дигл в руке (INV), тазер в рюкзаке (BACK)
             if (needBothTaserDeagle) {
                 // Ждём пока предметы появятся в инвентаре
                 await sleep(600);
                 openInventory();
                 await waitInventory(1500);
 
-                // Ищем дигл — он должен быть в CT.INV (рука)
-                const deagleLoc = findItem(ITEM.DEAGLE);
-                if (deagleLoc && deagleLoc.cid === CT.INV) {
+                // Ищем тазер — он должен быть в CT.INV (рука, т.к. взят последним)
+                const taserLoc2 = findItem(ITEM.TASER);
+                if (taserLoc2 && taserLoc2.cid === CT.INV) {
                     // Ищем свободный слот в рюкзаке
                     let backFreeSlot = -1;
                     try {
@@ -1873,15 +1874,15 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
                     if (backFreeSlot >= 0) {
                         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
-                            parseInt(CT.INV),        parseInt(deagleLoc.slot),
-                            parseInt(CT.BACK),       parseInt(backFreeSlot),
+                            parseInt(CT.INV),  parseInt(taserLoc2.slot),
+                            parseInt(CT.BACK), parseInt(backFreeSlot),
                             1
                         );
-                        console.log(`[MVD-GRAB] Дигл (слот ${deagleLoc.slot}) → рюкзак (слот ${backFreeSlot})`);
-                        notify("МВД", "Дигл → рюкзак (тазер в руке)", "00FF88");
+                        console.log(`[MVD-GRAB] Тазер (слот ${taserLoc2.slot}) → рюкзак (слот ${backFreeSlot})`);
+                        notify("МВД", "Тазер → рюкзак (дигл в руке)", "00FF88");
                     } else {
                         closeInventory();
-                        notify("МВД", "Рюкзак полон — дигл в руке", "FFA500");
+                        notify("МВД", "Рюкзак полон — тазер в руке", "FFA500");
                     }
                 } else {
                     closeInventory();
@@ -1986,6 +1987,15 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return false;
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // ЛОГИКА СВОПА (Alt+H):
+    //   ЦЕЛЬ-СОСТОЯНИЕ: дигл → INV (рука), тазер → BACK (рюкзак)
+    //
+    //   Alt+H нажат → переключить АКТИВНОЕ оружие:
+    //     • Если дигл сейчас в INV  → убрать дигл в BACK, взять тазер из BACK в INV
+    //     • Если тазер сейчас в INV → убрать тазер в BACK, взять дигл из BACK в INV
+    //     • Если ни один не в INV   → взять дигл из BACK (если есть), иначе тазер
+    // ══════════════════════════════════════════════════════════════════
     async function swapTaserDeagle() {
         if (_swapBusy) return;
         _swapBusy = true;
@@ -2001,73 +2011,74 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             const taserLoc  = findItem(ITEM_TASER);
             const deagleLoc = findItem(ITEM_DEAGLE);
 
-            // Ничего нет — ничего делать
             if (!taserLoc && !deagleLoc) {
                 snNotify("Своп", "Тазер и Дигл не найдены", "FF4444");
                 closeInventory();
                 return;
             }
 
-            // ── Сценарий A: тазер в руке (INV), дигл в рюкзаке (BACK) или нет
-            // Цель: тазер → рюкзак, дигл → руку (INV)
-            // ── Сценарий B: дигл в руке (INV), тазер в рюкзаке (BACK) или нет
-            // Цель: дигл → рюкзак, тазер → руку (INV)
-
-            const taserInHand  = taserLoc  && taserLoc.cid  === CT.INV;
-            const deagleInHand = deagleLoc && deagleLoc.cid === CT.INV;
+            const taserInINV  = taserLoc  && taserLoc.cid  === CT.INV;
+            const deagleInINV = deagleLoc && deagleLoc.cid === CT.INV;
 
             // Закрываем инвентарь ПОСЛЕ чтения, ДО move-команд
             closeInventory();
             await sleep(80);
 
-            if (taserInHand) {
-                // Тазер в руке → кладём его в рюкзак
-                // Дигл в рюкзаке (или нет) → берём в руку
-                const backFree = findFreeSlot(CT.BACK);
-
-                if (deagleLoc && deagleLoc.cid === CT.BACK) {
-                    // Меняем тазер ↔ дигл местами напрямую
-                    moveItem(taserLoc.cid, taserLoc.slot, CT.BACK, deagleLoc.slot);
-                    await sleep(120);
-                    moveItem(CT.BACK, deagleLoc.slot, CT.INV, taserLoc.slot);
-                } else if (backFree >= 0) {
-                    // Дигл вообще не найден или в ACC — просто тазер → рюкзак
-                    moveItem(taserLoc.cid, taserLoc.slot, CT.BACK, backFree);
-                    snNotify("Своп", "Тазер → рюкзак (Дигл не найден)", "FFA500");
-                    return;
-                }
-                snNotify("Своп", "Тазер ⇄ Дигл", "00FF88");
-
-            } else if (deagleInHand) {
-                // Дигл в руке → кладём его в рюкзак, тазер → руку
+            if (deagleInINV) {
+                // ── Дигл сейчас в руке → убрать в рюкзак, взять тазер из рюкзака ──
                 if (taserLoc && taserLoc.cid === CT.BACK) {
-                    moveItem(deagleLoc.cid, deagleLoc.slot, CT.BACK, taserLoc.slot);
-                    await sleep(120);
-                    moveItem(CT.BACK, taserLoc.slot, CT.INV, deagleLoc.slot);
+                    // Прямой обмен слотами: дигл → слот тазера в BACK, тазер → слот дигла в INV
+                    moveItem(CT.INV,  deagleLoc.slot, CT.BACK, taserLoc.slot);
+                    await sleep(150);
+                    moveItem(CT.BACK, taserLoc.slot,  CT.INV,  deagleLoc.slot);
+                    snNotify("Своп", "Дигл → рюкзак | Тазер → рука", "00FF88");
                 } else {
-                    // Тазер не в рюкзаке — просто перекладываем дигл
+                    // Тазер нигде нет — просто убираем дигл в свободный слот рюкзака
                     const backFree = findFreeSlot(CT.BACK);
                     if (backFree >= 0) {
-                        moveItem(deagleLoc.cid, deagleLoc.slot, CT.BACK, backFree);
-                        snNotify("Своп", "Дигл → рюкзак (Тазер не найден)", "FFA500");
-                        return;
+                        moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFree);
+                        snNotify("Своп", "Дигл → рюкзак (тазер не найден)", "FFA500");
+                    } else {
+                        snNotify("Своп", "Рюкзак полон!", "FF4444");
                     }
                 }
-                snNotify("Своп", "Дигл ⇄ Тазер", "00FF88");
+
+            } else if (taserInINV) {
+                // ── Тазер сейчас в руке → убрать в рюкзак, взять дигл из рюкзака ──
+                if (deagleLoc && deagleLoc.cid === CT.BACK) {
+                    // Прямой обмен слотами: тазер → слот дигла в BACK, дигл → слот тазера в INV
+                    moveItem(CT.INV,  taserLoc.slot,  CT.BACK, deagleLoc.slot);
+                    await sleep(150);
+                    moveItem(CT.BACK, deagleLoc.slot, CT.INV,  taserLoc.slot);
+                    snNotify("Своп", "Тазер → рюкзак | Дигл → рука", "00FF88");
+                } else {
+                    // Дигл нигде нет — просто убираем тазер в свободный слот рюкзака
+                    const backFree = findFreeSlot(CT.BACK);
+                    if (backFree >= 0) {
+                        moveItem(CT.INV, taserLoc.slot, CT.BACK, backFree);
+                        snNotify("Своп", "Тазер → рюкзак (дигл не найден)", "FFA500");
+                    } else {
+                        snNotify("Своп", "Рюкзак полон!", "FF4444");
+                    }
+                }
 
             } else {
-                // Ни один не в руке — кладём тазер в руку если он в рюкзаке
-                if (taserLoc && taserLoc.cid === CT.BACK) {
+                // ── Ни один не в руке — берём дигл из рюкзака (приоритет), иначе тазер ──
+                if (deagleLoc && deagleLoc.cid === CT.BACK) {
                     const invFree = findFreeSlot(CT.INV);
                     if (invFree >= 0) {
-                        moveItem(taserLoc.cid, taserLoc.slot, CT.INV, invFree);
-                        snNotify("Своп", "Тазер → рука", "00FF88");
-                    }
-                } else if (deagleLoc && deagleLoc.cid === CT.BACK) {
-                    const invFree = findFreeSlot(CT.INV);
-                    if (invFree >= 0) {
-                        moveItem(deagleLoc.cid, deagleLoc.slot, CT.INV, invFree);
+                        moveItem(CT.BACK, deagleLoc.slot, CT.INV, invFree);
                         snNotify("Своп", "Дигл → рука", "00FF88");
+                    } else {
+                        snNotify("Своп", "Инвентарь полон!", "FF4444");
+                    }
+                } else if (taserLoc && taserLoc.cid === CT.BACK) {
+                    const invFree = findFreeSlot(CT.INV);
+                    if (invFree >= 0) {
+                        moveItem(CT.BACK, taserLoc.slot, CT.INV, invFree);
+                        snNotify("Своп", "Тазер → рука", "00FF88");
+                    } else {
+                        snNotify("Своп", "Инвентарь полон!", "FF4444");
                     }
                 } else {
                     snNotify("Своп", "Нет предметов для свопа", "FF4444");
