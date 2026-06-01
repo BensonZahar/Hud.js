@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.1 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.333 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1298,7 +1298,7 @@ window.showMvdSubMenu = (e) => {
     }
     availableSub.push({ name: trackingName, id: "tracking" });
     availableSub.push({ name: autoCuffName, id: "autocuff" });
-    if (AUTO_GRAB) {
+    if (window.AUTO_GRAB === true) {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
     shownMvdSubTypes = availableSub;
