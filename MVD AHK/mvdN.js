@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.338 STEP5-INTERFACE-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.339 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1797,7 +1797,19 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
             };
 
-            // ── Шаг 3: закрываем инвентарь — диалог меню всё ещё живой ──
+            // ── Шаг 3: запоминаем свободные слоты и закрываем инвентарь ──
+            // Сохраняем список свободных INV-слотов — используем в шаге 5
+            const freeInvSlots = [];
+            const freeBACKSlots = [];
+            try {
+                const inv0 = window.interface("InventoryNew");
+                if (inv0?.items) {
+                    const invMap  = inv0.items[CT.INV]  || {};
+                    const backMap = inv0.items[CT.BACK] || {};
+                    for (let s = 0; s < 20; s++) if (!invMap[s])  freeInvSlots.push(s);
+                    for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
+                }
+            } catch(e) {}
             closeInventory();
             await sleep(150);
 
@@ -1846,66 +1858,28 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             notify("МВД", notifyNames.join(", "), "00FF00");
             window.playSound("inventory/take_light.mp3");
 
-            // ── Шаг 5: финальная проверка — если тазер в INV и дигл тоже есть,
-            //    перекладываем тазер в рюкзак (цель: дигл в руке, тазер в рюкзаке)
-            //    Срабатывает всегда когда оба предмета присутствуют — не только при needBothTaserDeagle
-            {
-                // Ждём пока сервер закончит закрывать интерфейсы после диалога
-                // (THNT_OnInterfaceDisappear убивает инвентарь если открыть слишком рано)
-                await sleep(800);
+            // ── Шаг 5: если брали и тазер и дигл — тазер переложить в рюкзак ──
+            //    Используем слоты записанные ДО взятия — не открываем инвентарь заново
+            if (need.taser && freeBACKSlots.length >= 1) {
+                // Считаем сколько предметов берётся ДО тазера (они займут INV-слоты)
+                // Порядок в toTake: painkillers, medkit, baton, wand, vest, radarGun, diag, deagle, TASER
+                const itemsBeforeTaser = toTake.filter(t => t.idx !== MENU.TASER);
+                const taserFreeIdx = itemsBeforeTaser.length; // индекс в freeInvSlots[]
+                const taserInvSlot = freeInvSlots[taserFreeIdx] ?? -1;
+                const backDest     = freeBACKSlots[0];
 
-                // Открываем инвентарь и ждём пока тазер реально появится в данных
-                openInventory();
-                let taserInvSlot = -1, taserInvCount = 0;
-                let backFreeSlot = -1;
-                for (let waited = 0; waited < 3000; waited += 100) {
-                    await sleep(100);
-                    try {
-                        const inv = window.interface("InventoryNew");
-                        if (!inv?.items) continue;
-                        // Ищем тазер в INV
-                        const invItems = inv.items[CT.INV];
-                        if (invItems) {
-                            for (const [s, item] of Object.entries(invItems)) {
-                                if (item?.id === ITEM.TASER) {
-                                    taserInvSlot = parseInt(s);
-                                    taserInvCount = item.count || 1;
-                                    break;
-                                }
-                            }
-                        }
-                        // Ищем свободный слот в BACK пока инвентарь открыт
-                        if (taserInvSlot >= 0) {
-                            const backpack = inv.items[CT.BACK];
-                            for (let s = 0; s < 50; s++) {
-                                if (!backpack || !backpack[s]) { backFreeSlot = s; break; }
-                            }
-                            break; // всё нашли — выходим из цикла
-                        }
-                    } catch(e) {}
-                }
-
-                // Есть ли дигл где-либо?
-                const deagleLoc2 = findItem(ITEM.DEAGLE);
-
-                if (taserInvSlot >= 0 && deagleLoc2) {
-                    // Тазер в руке + дигл есть → тазер нужно убрать в рюкзак
-                    closeInventory();
-                    await sleep(100);
-
-                    if (backFreeSlot >= 0) {
-                        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
-                            parseInt(CT.INV),  parseInt(taserInvSlot),
-                            parseInt(CT.BACK), parseInt(backFreeSlot),
-                            parseInt(taserInvCount)
-                        );
-                        console.log(`[MVD-GRAB] Тазер (слот ${taserInvSlot} x${taserInvCount}) → рюкзак (слот ${backFreeSlot})`);
-                        notify("МВД", "Тазер → рюкзак (дигл в руке)", "00FF88");
-                    } else {
-                        notify("МВД", "Рюкзак полон — тазер в руке", "FFA500");
-                    }
+                if (taserInvSlot >= 0) {
+                    // Ждём пока сервер зачислит тазер (после последнего take + delay)
+                    await sleep(600);
+                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
+                        parseInt(CT.INV),  parseInt(taserInvSlot),
+                        parseInt(CT.BACK), parseInt(backDest),
+                        30 // стандартный стек тазера
+                    );
+                    console.log(`[MVD-GRAB] Тазер (слот ${taserInvSlot}) → рюкзак (слот ${backDest}) [предсказание, перед тазером: ${taserFreeIdx} предметов]`);
+                    notify("МВД", "Тазер → рюкзак (дигл в руке)", "00FF88");
                 } else {
-                    closeInventory();
+                    console.warn(`[MVD-GRAB] Шаг 5: не хватает свободных INV-слотов (нужен индекс ${taserFreeIdx}, есть ${freeInvSlots.length})`);
                 }
             }
 
