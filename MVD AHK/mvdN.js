@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.1 (FIX-TRIGGER)
-console.log("=== MVD AHK v2.3 FIX-TRIGGER ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.33 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1875,7 +1875,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
             for (let i = 0; i < toTake.length; i++) {
-                const delay = Math.floor(Math.random() * 1000) + 1000; // рандом 1000–2000мс
+                const delay = Math.floor(Math.random() * 700) + 500; // рандом 500–1200мс
                 console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${delay}мс]`);
                 take(toTake[i].idx);
                 await sleep(delay); // случайная задержка между предметами
