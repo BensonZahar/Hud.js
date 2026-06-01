@@ -172,7 +172,9 @@ class InstallerAPI:
             if auto_password:
                 code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
             # ── Авто-снаряжение ─────────────────────────────────────────
-            if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled'):
+            items_dict = auto_grab.get('items', {}) if auto_grab else {}
+            any_item = any(v for v in items_dict.values()) if items_dict else False
+            if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled') and any_item:
                 thr  = auto_grab.get('thresholds', {})
                 menu = auto_grab.get('menu', {})
                 items = auto_grab.get('items', {})
@@ -224,7 +226,7 @@ class InstallerAPI:
                     'use_callsign': bool(use_callsign),
                     'use_auto_password': bool(auto_password),
                     'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                    'auto_grab': auto_grab if auto_grab and isinstance(auto_grab, dict) else {}
+                    'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {}
                 })
                 self._notify(True)
             except Exception:

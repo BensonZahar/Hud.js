@@ -582,8 +582,9 @@ function getGrabSettings() {
     deagle:      8, akm:         9, aks74u:      10, remington:   11,
     ammo_magnum: 12, ammo_762:   13, ammo_545:    14, ammo_12x70:  15
   };
+  var anyItemSelected = Object.values(grabItems).some(function(v){ return v; });
   return {
-    enabled: autoGrabOn,
+    enabled: autoGrabOn && anyItemSelected,
     items: grabItems,
     thresholds: {
       magnum:    thr.magnum    !== undefined ? thr.magnum    : 30,
