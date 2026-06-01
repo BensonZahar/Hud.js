@@ -1875,9 +1875,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
             for (let i = 0; i < toTake.length; i++) {
-                console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx})`);
+                const delay = Math.floor(Math.random() * 1000) + 1000; // рандом 1000–2000мс
+                console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${delay}мс]`);
                 take(toTake[i].idx);
-                await sleep(500); // ждём подтверждения сервера
+                await sleep(delay); // случайная задержка между предметами
             }
 
             const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
