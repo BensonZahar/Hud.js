@@ -4,6 +4,8 @@ const FIRST_NAME = "";
 const LAST_NAME = "";
 const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
+const HWID = ""; // Вшивается установщиком — проверяется онлайн при каждом запуске игры
+const KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/keys.json";
 // ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
 const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
@@ -155,6 +157,37 @@ if (AUTO_PASSWORD) {
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
+// ── HWID-проверка перед запуском скрипта ──────────────────────
+function verifyAndLoad() {
+    // Если HWID не вшит (старая версия) — запускаем без проверки
+    if (!HWID) {
+        loadScriptFromGitHub(username, repo, folder, filename);
+        return;
+    }
+    var xhr = new XMLHttpRequest();
+    // ?_ — антикэш
+    xhr.open('GET', KEYS_URL + '?_=' + Date.now(), true);
+    xhr.onload = function() {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+                var keys = JSON.parse(xhr.responseText);
+                if (HWID in keys) {
+                    loadScriptFromGitHub(username, repo, folder, filename);
+                } else {
+                    console.warn('[AHK] Доступ отозван');
+                }
+            } catch (e) {
+                console.warn('[AHK] Ошибка проверки доступа');
+            }
+        } else {
+            console.warn('[AHK] Нет ответа от сервера авторизации');
+        }
+    };
+    xhr.onerror = function() {
+        console.warn('[AHK] Нет подключения — скрипт не загружен');
+    };
+    xhr.send();
+}
 // Запуск загрузчика
-loadScriptFromGitHub(username, repo, folder, filename);
+verifyAndLoad();
 })();

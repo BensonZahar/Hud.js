@@ -46,6 +46,20 @@ def resource_path(rel):
     return os.path.join(base, rel)
 
 
+def get_hwid() -> str:
+    """Тот же алгоритм что и в launcher.py — sha256(MachineGuid)[:16]."""
+    try:
+        import winreg, hashlib
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                             r"SOFTWARE\Microsoft\Cryptography")
+        guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+        winreg.CloseKey(key)
+    except Exception:
+        import uuid, hashlib
+        guid = str(uuid.getnode())
+    return hashlib.sha256(guid.encode()).hexdigest()[:16].upper()
+
+
 def fetch_html() -> str:
     resp = requests.get(f"{GITHUB_RAW}/index.html", timeout=15)
     resp.raise_for_status()
@@ -151,6 +165,8 @@ class InstallerAPI:
             code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
             code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
             code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
+            # Вшиваем HWID текущей машины — скрипт будет проверять его в keys.json при каждом запуске игры
+            code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             if use_callsign and callsign:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
