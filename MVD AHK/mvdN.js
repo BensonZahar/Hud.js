@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (STEP5-SWAP-FIX-FAST)
-console.log("=== MVD AHK v2.349 STEP5-SWAP-FIX-FAST ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.349009 STEP5-SWAP-FIX-FAST ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2313,7 +2313,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     closeInventory();
                     await sleep(50);
                     openInventory();
-                    await waitInventory(1000);
+                    await waitInventory(300);
                     // Шаг 2: читаем свежие позиции тазера (стеки могли сдвинуться)
                     const taserLocFresh = findItem(ITEM_TASER, true);
                     const targetSlot = deagleLoc.slot; // слот дигла теперь свободен
@@ -2347,7 +2347,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     closeInventory();
                     await sleep(50);
                     openInventory();
-                    await waitInventory(1000);
+                    await waitInventory(300);
                     // Шаг 2: читаем свежую позицию дигла, кладём в слот тазера
                     const deagleLocFresh = findItem(ITEM_DEAGLE, false);
                     const targetSlot = taserLoc.slot; // слот тазера теперь свободен
