@@ -1,5 +1,5 @@
-// MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
+// MVD AHK VERSION: 2.3 (INV-COLDSTART-FIX)
+console.log("=== MVD AHK v2.3400 INV-COLDSTART-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2088,9 +2088,14 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         try {
             openInventory();
 
-            // Ждём данные с шагом 10мс, максимум 800мс
+            // Даём интерфейсу время смонтироваться после "холодного" открытия.
+            // Без этой паузы window.interface("InventoryNew") может вернуть
+            // объект без .items при первом открытии после closeInterface().
+            await sleep(150);
+
+            // Ждём данные с шагом 10мс, максимум 2000мс (было 800мс)
             let deagleLoc = null;
-            for (let i = 0; i < 800; i += 10) {
+            for (let i = 0; i < 2000; i += 10) {
                 try {
                     const inv = window.interface("InventoryNew");
                     if (inv?.items?.[CT.INV] !== undefined && inv?.items?.[CT.BACK] !== undefined) {
