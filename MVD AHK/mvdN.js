@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (STEP5-SWAP-FIX-FAST)
-console.log("=== MVD AHK v2.349009 STEP5-SWAP-FIX-FAST ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.309 STEP5-SWAP-FIX-FAST ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2199,29 +2199,24 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
     // ── Ждём пока инвентарь полностью загрузится (INV + BACK) ──
     async function waitInventory(maxMs) {
-        console.log(`[SWAP] waitInventory(${maxMs}ms)...`);
-        for (let i = 0; i < maxMs; i += 50) {
+        for (let i = 0; i < maxMs; i += 10) {
             try {
                 const inv = window.interface("InventoryNew");
                 if (inv?.items?.[CT.INV] !== undefined && inv?.items?.[CT.BACK] !== undefined) {
-                    console.log(`[SWAP] waitInventory: готов за ${i}мс`);
                     return true;
                 }
             } catch(e) {}
-            await sleep(50);
+            await sleep(10);
         }
-        // ДОБАВИТЬ: Fallback — пробуем переоткрыть инвентарь один раз
-        console.warn('[SWAP] waitInventory: первый таймаут, пробуем переоткрыть...');
+        // Fallback — пробуем переоткрыть инвентарь один раз
         openInventory();
-        await sleep(500);
+        await sleep(200);
         try {
             const inv = window.interface("InventoryNew");
             if (inv?.items?.[CT.INV] !== undefined) {
-                console.warn('[SWAP] waitInventory: INV есть после retry — продолжаем');
                 return true;
             }
         } catch(e) {}
-        console.error('[SWAP] waitInventory: таймаут!');
         return false;
     }
 
@@ -2247,7 +2242,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     async function swapTaserDeagle() {
         if (_swapBusy) { console.log('[SWAP] занят, пропускаем'); return; }
         _swapBusy = true;
-        console.log('[SWAP] ══ ALT+H нажат ══');
+
         try {
             // 1. Открываем инвентарь
             openInventory();
@@ -2276,7 +2271,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             const deagleInINV = deagleLoc && deagleLoc.cid === CT.INV;
             const bothInINV   = taserInINV && deagleInINV;
 
-            console.log(`[SWAP] taserInINV=${taserInINV} deagleInINV=${deagleInINV} bothInINV=${bothInINV}`);
+
 
             // 4. Свободные слоты — считаем ДО закрытия
             //    При поиске свободного слота в BACK исключаем уже занятые тазером слоты,
@@ -2395,7 +2390,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             // Небольшая задержка перед сбросом флага чтобы избежать двойного нажатия
             await sleep(100);
             _swapBusy = false;
-            console.log('[SWAP] ══ завершён, флаг сброшен ══');
+
         }
     }
 
