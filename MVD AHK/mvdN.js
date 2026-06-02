@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (STEP5-SWAP-FIX)
-console.log("=== MVD AHK v2.34 STEP5-SWAP-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.34999 STEP5-SWAP-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1823,6 +1823,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
     function closeMenu() {
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 0, 0, "");
+        // Закрываем Vue-диалог на клиенте (без этого Window.js диалог остаётся на экране
+        // и блокирует открытие инвентаря, т.к. клиент считает диалог активным)
+        try { window.closeLastDialog(); } catch(e) {}
     }
 
     function openMenu() {
@@ -1978,8 +1981,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 // Без этого openInventory() внутри свопа может не сработать (сервер блокирует
                 // два интерфейса одновременно).
                 console.log(`[GRAB] Шаг 5: закрываем диалог склада перед открытием инвентаря`);
-                closeMenu();
-                await sleep(400);
+                closeMenu(); // sendClientEvent + window.closeLastDialog()
+                await sleep(600); // увеличено: даём Vue-компоненту размонтироваться и серверу обработать
 
                 // Дожидаемся пока SWAP-блок освободится (на случай редкого двойного вызова)
                 let waitSwap = 0;
