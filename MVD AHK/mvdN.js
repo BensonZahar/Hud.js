@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2075,27 +2075,39 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // ЛОГИКА СВОПА (Alt+H) v6 — INSTANT
+    // ЛОГИКА СВОПА (Alt+H) v7 — FAST OPEN/MOVE/CLOSE
     //
     //   КОНЦЕПЦИЯ: тазер ВСЕГДА живёт в рюкзаке. Дигл ходит туда-обратно.
-    //   Инвентарь НЕ открывается — window.interface("InventoryNew").items
-    //   доступен в памяти постоянно, даже когда UI закрыт.
-    //   Своп срабатывает мгновенно, без задержек.
+    //   Открываем инвентарь → ждём данные с минимальным поллингом (10мс) →
+    //   сразу перекладываем → закрываем. Без лишних sleep.
     // ══════════════════════════════════════════════════════════════════════
-    function swapTaserDeagle() {
+    async function swapTaserDeagle() {
         if (_swapBusy) { console.log('[SWAP] занят, пропускаем'); return; }
         _swapBusy = true;
 
         try {
-            const deagleLoc = findItem(ITEM_DEAGLE, false);
+            openInventory();
+
+            // Ждём данные с шагом 10мс, максимум 800мс
+            let deagleLoc = null;
+            for (let i = 0; i < 800; i += 10) {
+                try {
+                    const inv = window.interface("InventoryNew");
+                    if (inv?.items?.[CT.INV] !== undefined && inv?.items?.[CT.BACK] !== undefined) {
+                        deagleLoc = findItem(ITEM_DEAGLE, false);
+                        break;
+                    }
+                } catch(e) {}
+                await sleep(10);
+            }
 
             if (!deagleLoc) {
                 snNotify("Своп", "Дигл не найден", "FF4444");
+                closeInventory();
                 return;
             }
 
             if (deagleLoc.cid === CT.INV) {
-                // Дигл в руке → убрать в рюкзак
                 const backFreeSlot = findFreeSlot(CT.BACK);
                 if (backFreeSlot >= 0) {
                     moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot, deagleLoc.count);
@@ -2105,7 +2117,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 }
 
             } else if (deagleLoc.cid === CT.BACK) {
-                // Дигл в рюкзаке → достать в руку
                 const invFreeSlot = findFreeSlot(CT.INV);
                 if (invFreeSlot >= 0) {
                     moveItem(CT.BACK, deagleLoc.slot, CT.INV, invFreeSlot, deagleLoc.count);
@@ -2117,6 +2128,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             } else {
                 snNotify("Своп", "Дигл в неизвестном месте", "FFA500");
             }
+
+            closeInventory();
 
         } catch(err) {
             console.error('[SWAP] Критическая ошибка:', err);
@@ -2132,6 +2145,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         openInventory();
         setTimeout(() => { logInventory('РУЧНОЙ ЛОГ'); setTimeout(closeInventory, 300); }, 800);
     };
-    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v6 INSTANT готов. window._mvdLogInventory() — посмотреть инвентарь');
+    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v7 готов. window._mvdLogInventory() — посмотреть инвентарь');
 })();
 // ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
