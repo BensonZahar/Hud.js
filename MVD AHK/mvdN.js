@@ -1,5 +1,5 @@
-// MVD AHK VERSION: 2.3 (INV-COLDSTART-FIX)
-console.log("=== MVD AHK v2.3400 INV-COLDSTART-FIX ЗАГРУЖЕН ===");
+// MVD AHK VERSION: 2.4 (DEBUG-LOG)
+console.log("=== MVD AHK v2.4 DEBUG-LOG ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2081,32 +2081,78 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     //   Открываем инвентарь → ждём данные с минимальным поллингом (10мс) →
     //   сразу перекладываем → закрываем. Без лишних sleep.
     // ══════════════════════════════════════════════════════════════════════
+    // ── Детальный снимок состояния интерфейса для диагностики ──
+    function debugSnapInterface(label) {
+        const t = Date.now();
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv) {
+                console.log(`[SWAP-DBG][${t}] ${label}: interface("InventoryNew") = null/undefined`);
+                return;
+            }
+            const hasItems   = inv.items !== undefined;
+            const hasInv     = inv?.items?.[CT.INV]  !== undefined;
+            const hasBack    = inv?.items?.[CT.BACK] !== undefined;
+            const invSlots   = hasInv  ? Object.keys(inv.items[CT.INV]  || {}).length : '?';
+            const backSlots  = hasBack ? Object.keys(inv.items[CT.BACK] || {}).length : '?';
+            console.log(`[SWAP-DBG][${t}] ${label}: items=${hasItems} INV=${hasInv}(${invSlots}слотов) BACK=${hasBack}(${backSlots}слотов)`);
+            // Дополнительно — все ключи объекта inv для понимания структуры
+            console.log(`[SWAP-DBG][${t}] ${label}: inv keys=`, Object.keys(inv));
+        } catch(e) {
+            console.log(`[SWAP-DBG][${t}] ${label}: ИСКЛЮЧЕНИЕ —`, e.message);
+        }
+    }
+
     async function swapTaserDeagle() {
-        if (_swapBusy) { console.log('[SWAP] занят, пропускаем'); return; }
+        const T0 = Date.now();
+        const ts = () => `+${Date.now()-T0}мс`;
+
+        if (_swapBusy) {
+            console.log(`[SWAP][${Date.now()}] занят (_swapBusy=true), пропускаем`);
+            return;
+        }
         _swapBusy = true;
+        console.log(`[SWAP][${ts()}] ── START swapTaserDeagle ──`);
 
         try {
+            // Снимок ДО открытия
+            debugSnapInterface('до openInventory');
+
             openInventory();
+            console.log(`[SWAP][${ts()}] openInventory() отправлен`);
 
-            // Даём интерфейсу время смонтироваться после "холодного" открытия.
-            // Без этой паузы window.interface("InventoryNew") может вернуть
-            // объект без .items при первом открытии после closeInterface().
-            await sleep(150);
-
-            // Ждём данные с шагом 10мс, максимум 2000мс (было 800мс)
+            // Поллинг без предварительного sleep — замеряем реальное время появления данных
             let deagleLoc = null;
-            for (let i = 0; i < 2000; i += 10) {
+            let pollCount = 0;
+            for (let i = 0; i < 3000; i += 10) {
+                pollCount++;
                 try {
                     const inv = window.interface("InventoryNew");
-                    if (inv?.items?.[CT.INV] !== undefined && inv?.items?.[CT.BACK] !== undefined) {
+                    const hasInv  = inv?.items?.[CT.INV]  !== undefined;
+                    const hasBack = inv?.items?.[CT.BACK] !== undefined;
+
+                    // Логируем первые 5 итераций и затем каждые 10-ю
+                    if (pollCount <= 5 || pollCount % 10 === 0) {
+                        console.log(`[SWAP][${ts()}] poll#${pollCount}: inv=${!!inv} hasInv=${hasInv} hasBack=${hasBack}`);
+                    }
+
+                    if (hasInv && hasBack) {
+                        console.log(`[SWAP][${ts()}] ✅ данные появились на poll#${pollCount}`);
+                        debugSnapInterface('после появления данных');
                         deagleLoc = findItem(ITEM_DEAGLE, false);
                         break;
                     }
-                } catch(e) {}
+                } catch(e) {
+                    console.log(`[SWAP][${ts()}] poll#${pollCount} ИСКЛЮЧЕНИЕ: ${e.message}`);
+                }
                 await sleep(10);
             }
 
+            console.log(`[SWAP][${ts()}] поллинг завершён. deagleLoc=`, deagleLoc);
+
             if (!deagleLoc) {
+                debugSnapInterface('таймаут — финальный снимок');
+                console.warn(`[SWAP][${ts()}] ❌ Дигл не найден после ${pollCount} попыток`);
                 snNotify("Своп", "Дигл не найден", "FF4444");
                 closeInventory();
                 return;
@@ -2114,33 +2160,42 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
             if (deagleLoc.cid === CT.INV) {
                 const backFreeSlot = findFreeSlot(CT.BACK);
+                console.log(`[SWAP][${ts()}] Дигл в INV slot${deagleLoc.slot}, свободный BACK slot=${backFreeSlot}`);
                 if (backFreeSlot >= 0) {
                     moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot, deagleLoc.count);
+                    console.log(`[SWAP][${ts()}] ✅ moveItem отправлен: INV[${deagleLoc.slot}] → BACK[${backFreeSlot}]`);
                     snNotify("Своп", "Дигл → рюкзак (тазер активен)", "00FF88");
                 } else {
+                    console.warn(`[SWAP][${ts()}] ❌ Рюкзак полон`);
                     snNotify("Своп", "Рюкзак полон!", "FF4444");
                 }
 
             } else if (deagleLoc.cid === CT.BACK) {
                 const invFreeSlot = findFreeSlot(CT.INV);
+                console.log(`[SWAP][${ts()}] Дигл в BACK slot${deagleLoc.slot}, свободный INV slot=${invFreeSlot}`);
                 if (invFreeSlot >= 0) {
                     moveItem(CT.BACK, deagleLoc.slot, CT.INV, invFreeSlot, deagleLoc.count);
+                    console.log(`[SWAP][${ts()}] ✅ moveItem отправлен: BACK[${deagleLoc.slot}] → INV[${invFreeSlot}]`);
                     snNotify("Своп", "Дигл → рука", "00FF88");
                 } else {
+                    console.warn(`[SWAP][${ts()}] ❌ Инвентарь полон`);
                     snNotify("Своп", "Инвентарь полон!", "FF4444");
                 }
 
             } else {
+                console.warn(`[SWAP][${ts()}] ⚠️ Дигл в неизвестном месте cid=${deagleLoc.cid}`);
                 snNotify("Своп", "Дигл в неизвестном месте", "FFA500");
             }
 
             closeInventory();
+            console.log(`[SWAP][${ts()}] closeInventory() отправлен — DONE`);
 
         } catch(err) {
-            console.error('[SWAP] Критическая ошибка:', err);
+            console.error(`[SWAP][${ts()}] 💥 Критическая ошибка:`, err);
             snNotify("Своп", "Ошибка: " + err.message, "FF0000");
         } finally {
             _swapBusy = false;
+            console.log(`[SWAP][${ts()}] _swapBusy сброшен`);
         }
     }
 
