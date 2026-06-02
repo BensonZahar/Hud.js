@@ -1,5 +1,5 @@
-// MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.33989 STEP5-ITEMS-FIX ЗАГРУЖЕН ===");
+// MVD AHK VERSION: 2.3 (STEP5-SWAP-FIX)
+console.log("=== MVD AHK v2.399 STEP5-SWAP-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1964,68 +1964,61 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             notify("МВД", notifyNames.join(", "), "00FF00");
             window.playSound("inventory/take_light.mp3");
 
-            // ── Шаг 5: если брали и тазер и дигл — тазер переложить в рюкзак ──
-            //    РЕАЛЬНЫЙ поиск тазера через findItem (как в Alt+H) — не предсказание по слотам.
+            // ── Шаг 5: если брали и тазер и дигл — вызываем ту же логику что Alt+H ──
+            //    window._mvdSwapTaserDeagle() откроет инвентарь, увидит оба в INV (bothInINV=true)
+            //    и переложит тазер в рюкзак — точно так же как при ручном нажатии Alt+H.
             if (need.taser && need.deagle) {
-                console.log(`[GRAB] Шаг 5: брали оба (тазер + дигл) — ищем тазер в инвентаре`);
+                console.log(`[GRAB] Шаг 5: брали оба (тазер + дигл) — запускаем SWAP-логику (как Alt+H)`);
 
-                // FIX: ждём дольше — сервер зачисляет предметы непредсказуемо,
-                // особенно если взяли много предметов с рандомными задержками.
-                // Минимум: последний предмет мог занять ~1200мс, плюс сервер ~300мс.
-                await sleep(1500);
+                // Ждём пока сервер гарантированно зачислит оба предмета.
+                // Последний предмет мог занять до ~1200мс + задержка сервера.
+                await sleep(2000);
 
-                // Открываем инвентарь чтобы прочитать актуальные данные
-                openInventory();
-                await waitInventory(2000);
-                await sleep(1200); // увеличена пауза — сервер медленно шлёт items после взятия
-
-                logInventoryGrab('GRAB ПОСЛЕ ВЗЯТИЯ (до перекладки тазера)');
-
-                // FIX: retry-loop — если тазер ещё не появился, ждём ещё
-                let taserLoc = null;
-                for (let attempt = 0; attempt < 5; attempt++) {
-                    taserLoc = findItemAllSlots(ITEM.TASER);
-                    if (taserLoc) break;
-                    console.log(`[GRAB] Шаг 5: тазер не найден, попытка ${attempt + 1}/5, ждём 600мс...`);
-                    await sleep(600);
+                // Дожидаемся пока SWAP-блок освободится (на случай редкого двойного вызова)
+                let waitSwap = 0;
+                while (window._mvdSwapBusy && waitSwap < 3000) {
+                    await sleep(100);
+                    waitSwap += 100;
                 }
-                console.log(`[GRAB] Шаг 5: taserLoc =`, JSON.stringify(taserLoc));
 
-                if (taserLoc && taserLoc.cid === CT.INV) {
-                    // FIX: для каждого стека ищем СВОЙ свободный слот в рюкзаке,
-                    // иначе все стеки летят в один и тот же slot → сервер игнорирует.
-                    const usedBackSlots = [];
-                    let allMoved = true;
-                    for (const stk of taserLoc.allSlots) {
-                        const backDest = findFreeSlotGrab(CT.BACK);
-                        console.log(`[GRAB] Шаг 5: стек slot=${stk.slot} x${stk.count} → BACK[${backDest}]`);
-                        if (backDest < 0) {
-                            console.warn(`[GRAB] Шаг 5: нет свободного слота в рюкзаке для стека ${stk.slot}!`);
-                            allMoved = false;
-                            break;
-                        }
-                        moveItemGrab(CT.INV, stk.slot, CT.BACK, backDest, stk.count);
-                        usedBackSlots.push(backDest);
-                        await sleep(350);
-                        // FIX: после перемещения перечитываем инвентарь чтобы следующий
-                        // findFreeSlotGrab видел уже занятый слот
-                        await sleep(50); // небольшая пауза для обновления inv.items
+                // Вызываем ту же функцию что и Alt+H — она сама разберётся с инвентарём
+                if (typeof window._mvdSwapTaserDeagle === 'function') {
+                    console.log(`[GRAB] Шаг 5: вызов window._mvdSwapTaserDeagle()`);
+                    await window._mvdSwapTaserDeagle();
+                } else {
+                    // Fallback: своп-блок ещё не загружен — делаем вручную
+                    console.warn(`[GRAB] Шаг 5: _mvdSwapTaserDeagle недоступна, делаем вручную`);
+                    openInventory();
+                    await waitInventory(3000);
+                    await sleep(300);
+                    logInventoryGrab('GRAB ПОСЛЕ ВЗЯТИЯ (до перекладки тазера)');
+
+                    let taserLoc = null;
+                    for (let attempt = 0; attempt < 5; attempt++) {
+                        taserLoc = findItemAllSlots(ITEM.TASER);
+                        if (taserLoc) break;
+                        console.log(`[GRAB] Шаг 5 fallback: тазер не найден, попытка ${attempt + 1}/5, ждём 600мс...`);
+                        await sleep(600);
                     }
-                    closeInventory();
-                    if (allMoved) {
+                    console.log(`[GRAB] Шаг 5 fallback: taserLoc =`, JSON.stringify(taserLoc));
+
+                    if (taserLoc && taserLoc.cid === CT.INV) {
+                        let allMoved = true;
+                        for (const stk of taserLoc.allSlots) {
+                            const backDest = findFreeSlotGrab(CT.BACK);
+                            if (backDest < 0) { allMoved = false; break; }
+                            moveItemGrab(CT.INV, stk.slot, CT.BACK, backDest, stk.count);
+                            await sleep(400);
+                        }
+                        closeInventory();
+                        notify("МВД", allMoved ? "Тазер → рюкзак (дигл в руке)" : "Рюкзак полон, тазер частично остался", allMoved ? "00FF88" : "FFA500");
+                    } else if (taserLoc && taserLoc.cid === CT.BACK) {
+                        closeInventory();
                         notify("МВД", "Тазер → рюкзак (дигл в руке)", "00FF88");
                     } else {
-                        notify("МВД", "Рюкзак полон, тазер частично остался", "FFA500");
+                        closeInventory();
+                        notify("МВД", "Тазер не найден — проверь инвентарь", "FF4444");
                     }
-                } else if (taserLoc && taserLoc.cid === CT.BACK) {
-                    // Тазер уже в рюкзаке — всё хорошо
-                    closeInventory();
-                    console.log(`[GRAB] Шаг 5: тазер уже в рюкзаке — окей`);
-                    notify("МВД", "Тазер → рюкзак (дигл в руке)", "00FF88");
-                } else {
-                    closeInventory();
-                    console.warn(`[GRAB] Шаг 5: тазер не найден после всех попыток`);
-                    notify("МВД", "Тазер не найден — проверь инвентарь", "FF4444");
                 }
             } else if (need.taser) {
                 console.log(`[GRAB] Шаг 5: брали только тазер (без дигла) — ничего не перекладываем`);
@@ -2387,6 +2380,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
+    // Экспортируем флаг занятости чтобы GRAB мог ждать завершения свопа
+    Object.defineProperty(window, '_mvdSwapBusy', { get: () => _swapBusy, configurable: true });
     // Экспортируем logInventory для ручного вызова из консоли
     window._mvdLogInventory = () => {
         openInventory();
