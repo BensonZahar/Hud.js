@@ -1,5 +1,5 @@
-// MVD AHK VERSION: 2.4 (DEBUG-LOG)
-console.log("=== MVD AHK v2.4 DEBUG-LOG ЗАГРУЖЕН ===");
+// MVD AHK VERSION: 2.2 (REOPEN-FIX)
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1922,7 +1922,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 // ==================== END АВТОБРАНИЕ МВД ====================
 
 // ==================== СВОП ТАЗЕР ↔ ДИГЛ (Alt+H) ====================
-// Работает всегда — независимо от AUTO_GRAB
+// v8 — без поллинга: слушаем OpenInterface от движка, данные уже есть
 (function() {
     const ITEM_TASER = 13;
     const ITEM_DEAGLE = 19;
@@ -1930,9 +1930,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
     const CT_NAMES = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
 
-    let _swapBusy = false;
-
-    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    // Флаг: ждём ли открытия инвентаря для свопа
+    let _waitingForOpen = false;
 
     function snNotify(title, text, color) {
         try {
@@ -1944,54 +1943,19 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         } catch(e) {}
     }
 
-    // ── Полное логирование инвентаря ──
-    function logInventory(label) {
-        try {
-            const inv = window.interface("InventoryNew");
-            if (!inv?.items) { console.log(`[INV-LOG] ${label}: items недоступны`); return; }
-            const lines = [`[INV-LOG] ── ${label} ──`];
-            for (const cid of [CT.ACC, CT.INV, CT.BACK, CT.EXTRA]) {
-                const c = inv.items[cid];
-                if (!c) continue;
-                const entries = Object.entries(c);
-                if (entries.length === 0) {
-                    lines.push(`  ${CT_NAMES[cid]}(${cid}): пусто`);
-                    continue;
-                }
-                for (const [slot, item] of entries) {
-                    if (!item) continue;
-                    const name = ITEM_NAMES[item.id] || `item${item.id}`;
-                    lines.push(`  ${CT_NAMES[cid]}(${cid}) slot${slot}: ${name} x${item.count||1} w=${item.weight}`);
-                }
-            }
-            console.log(lines.join('\n'));
-        } catch(e) { console.log(`[INV-LOG] ${label}: ошибка`, e); }
-    }
-
-    // ── Найти предмет по id.
-    //    consolidate=true → суммирует все стеки в одном контейнере и возвращает
-    //    { cid, slot (первого стека), count (суммарный), allSlots[] }
-    function findItem(itemId, consolidate) {
+    function findItem(itemId) {
         try {
             const inv = window.interface("InventoryNew");
             if (!inv?.items) return null;
             for (const cid of [CT.INV, CT.BACK, CT.ACC, CT.EXTRA]) {
                 const c = inv.items[cid];
                 if (!c) continue;
-                let firstSlot = -1, totalCount = 0, allSlots = [];
                 for (const [slot, item] of Object.entries(c)) {
                     if (item?.id === itemId) {
-                        const s = parseInt(slot);
-                        const cnt = item.count || 1;
-                        if (firstSlot === -1) firstSlot = s;
-                        totalCount += cnt;
-                        allSlots.push({ slot: s, count: cnt });
+                        const loc = { cid, slot: parseInt(slot), count: item.count || 1 };
+                        console.log(`[SWAP] findItem(${ITEM_NAMES[itemId]||itemId}): ${CT_NAMES[cid]} slot${loc.slot} x${loc.count}`);
+                        return loc;
                     }
-                }
-                if (firstSlot !== -1) {
-                    const loc = { cid, slot: firstSlot, count: consolidate ? totalCount : allSlots[0].count, allSlots };
-                    console.log(`[SWAP] findItem(${ITEM_NAMES[itemId]||itemId}): ${CT_NAMES[cid]} slot${firstSlot} x${loc.count} (стеков: ${allSlots.length})`);
-                    return loc;
                 }
             }
         } catch(e) {}
@@ -1999,212 +1963,119 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return null;
     }
 
-    // ── Найти свободный слот, исключая занятые excludeSlots ──
-    function findFreeSlot(targetCid, excludeSlots) {
-        const excl = new Set(excludeSlots || []);
+    function findFreeSlot(targetCid) {
         try {
             const inv = window.interface("InventoryNew");
-            if (!inv?.items) {
-                console.warn(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): inv.items недоступен!`);
-                return -1;
-            }
+            if (!inv?.items) return -1;
             const container = inv.items[targetCid];
-            if (container === undefined || container === null) {
-                // контейнер полностью пуст — ищем первый не-исключённый
-                for (let s = 0; s < 50; s++) {
-                    if (!excl.has(s)) {
-                        console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): контейнер пуст → slot ${s}`);
-                        return s;
-                    }
-                }
-                return -1;
-            }
+            if (!container) { console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): контейнер пуст → slot 0`); return 0; }
             for (let s = 0; s < 50; s++) {
-                if (!container[s] && !excl.has(s)) {
-                    console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): свободен slot ${s}`);
-                    return s;
-                }
+                if (!container[s]) { console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): slot ${s}`); return s; }
             }
-            console.warn(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): нет свободных слотов`);
-        } catch(e) { console.error(`[SWAP] findFreeSlot error:`, e); }
+        } catch(e) {}
         return -1;
     }
 
     function moveItem(fromCid, fromSlot, toCid, toSlot, count) {
-        const cnt = count || 1;
-        console.log(`[SWAP] moveItem: ${CT_NAMES[fromCid]}[${fromSlot}] → ${CT_NAMES[toCid]}[${toSlot}] x${cnt}`);
+        console.log(`[SWAP] moveItem: ${CT_NAMES[fromCid]}[${fromSlot}] → ${CT_NAMES[toCid]}[${toSlot}] x${count}`);
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
             parseInt(fromCid), parseInt(fromSlot),
             parseInt(toCid),   parseInt(toSlot),
-            parseInt(cnt)
+            parseInt(count)
         );
     }
 
-    function openInventory() {
-        console.log('[SWAP] openInventory()');
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
-    }
-    function closeInventory() {
-        console.log('[SWAP] closeInventory()');
+    function doSwap() {
+        console.log('[SWAP] doSwap() — данные уже в интерфейсе');
+        const deagleLoc = findItem(ITEM_DEAGLE);
+
+        if (!deagleLoc) {
+            snNotify("Своп", "Дигл не найден", "FF4444");
+            try { window.closeInterface("InventoryNew"); } catch(e) {}
+            return;
+        }
+
+        if (deagleLoc.cid === CT.INV) {
+            const slot = findFreeSlot(CT.BACK);
+            if (slot >= 0) {
+                moveItem(CT.INV, deagleLoc.slot, CT.BACK, slot, deagleLoc.count);
+                snNotify("Своп", "Дигл → рюкзак (тазер активен)", "00FF88");
+            } else {
+                snNotify("Своп", "Рюкзак полон!", "FF4444");
+            }
+        } else if (deagleLoc.cid === CT.BACK) {
+            const slot = findFreeSlot(CT.INV);
+            if (slot >= 0) {
+                moveItem(CT.BACK, deagleLoc.slot, CT.INV, slot, deagleLoc.count);
+                snNotify("Своп", "Дигл → рука", "00FF88");
+            } else {
+                snNotify("Своп", "Инвентарь полон!", "FF4444");
+            }
+        } else {
+            snNotify("Своп", "Дигл в неизвестном месте", "FFA500");
+        }
+
         try { window.closeInterface("InventoryNew"); } catch(e) {}
     }
 
-    // ── Ждём пока инвентарь полностью загрузится (INV + BACK) ──
-    async function waitInventory(maxMs) {
-        console.log(`[SWAP] waitInventory(${maxMs}ms)...`);
-        for (let i = 0; i < maxMs; i += 50) {
-            try {
-                const inv = window.interface("InventoryNew");
-                if (inv?.items?.[CT.INV] !== undefined && inv?.items?.[CT.BACK] !== undefined) {
-                    console.log(`[SWAP] waitInventory: готов за ${i}мс`);
-                    return true;
-                }
-            } catch(e) {}
-            await sleep(50);
+    // ── Перехватываем engine.on("OpenInterface") ──
+    // Движок вызывает engine.on("OpenInterface", name, params) когда сервер
+    // реально открывает интерфейс с уже заполненными данными.
+    // Это надёжнее чем поллинг — данные уже есть в момент вызова.
+    const _origEngineOn = engine.on.bind(engine);
+    const _engineListeners = {};
+
+    // Патчим window.openInterface — движок вызывает его при OpenInterface event
+    const _origOpenInterface = window.openInterface;
+    window.openInterface = async function(name, params, deps) {
+        const result = await _origOpenInterface.apply(this, arguments);
+        if (name === 'InventoryNew' && _waitingForOpen) {
+            _waitingForOpen = false;
+            console.log('[SWAP] openInterface перехвачен — вызываем doSwap()');
+            // Небольшой microtask чтобы Vue успел записать params в компонент
+            Promise.resolve().then(doSwap);
         }
-        // Fallback: хотя бы INV
-        try {
-            const inv = window.interface("InventoryNew");
-            if (inv?.items?.[CT.INV] !== undefined) {
-                console.warn('[SWAP] waitInventory: INV есть, BACK нет — продолжаем');
-                return true;
-            }
-        } catch(e) {}
-        console.error('[SWAP] waitInventory: таймаут!');
-        return false;
-    }
+        return result;
+    };
 
-    // ══════════════════════════════════════════════════════════════════════
-    // ЛОГИКА СВОПА (Alt+H) v7 — FAST OPEN/MOVE/CLOSE
-    //
-    //   КОНЦЕПЦИЯ: тазер ВСЕГДА живёт в рюкзаке. Дигл ходит туда-обратно.
-    //   Открываем инвентарь → ждём данные с минимальным поллингом (10мс) →
-    //   сразу перекладываем → закрываем. Без лишних sleep.
-    // ══════════════════════════════════════════════════════════════════════
-    // ── Детальный снимок состояния интерфейса для диагностики ──
-    function debugSnapInterface(label) {
-        const t = Date.now();
-        try {
-            const inv = window.interface("InventoryNew");
-            if (!inv) {
-                console.log(`[SWAP-DBG][${t}] ${label}: interface("InventoryNew") = null/undefined`);
-                return;
-            }
-            const hasItems   = inv.items !== undefined;
-            const hasInv     = inv?.items?.[CT.INV]  !== undefined;
-            const hasBack    = inv?.items?.[CT.BACK] !== undefined;
-            const invSlots   = hasInv  ? Object.keys(inv.items[CT.INV]  || {}).length : '?';
-            const backSlots  = hasBack ? Object.keys(inv.items[CT.BACK] || {}).length : '?';
-            console.log(`[SWAP-DBG][${t}] ${label}: items=${hasItems} INV=${hasInv}(${invSlots}слотов) BACK=${hasBack}(${backSlots}слотов)`);
-            // Дополнительно — все ключи объекта inv для понимания структуры
-            console.log(`[SWAP-DBG][${t}] ${label}: inv keys=`, Object.keys(inv));
-        } catch(e) {
-            console.log(`[SWAP-DBG][${t}] ${label}: ИСКЛЮЧЕНИЕ —`, e.message);
-        }
-    }
-
-    async function swapTaserDeagle() {
-        const T0 = Date.now();
-        const ts = () => `+${Date.now()-T0}мс`;
-
-        if (_swapBusy) {
-            console.log(`[SWAP][${Date.now()}] занят (_swapBusy=true), пропускаем`);
+    function swapTaserDeagle() {
+        if (_waitingForOpen) {
+            console.log('[SWAP] уже ждём открытия, пропускаем');
             return;
         }
-        _swapBusy = true;
-        console.log(`[SWAP][${ts()}] ── START swapTaserDeagle ──`);
 
-        try {
-            // Снимок ДО открытия
-            debugSnapInterface('до openInventory');
-
-            openInventory();
-            console.log(`[SWAP][${ts()}] openInventory() отправлен`);
-
-            // Поллинг без предварительного sleep — замеряем реальное время появления данных
-            let deagleLoc = null;
-            let pollCount = 0;
-            for (let i = 0; i < 3000; i += 10) {
-                pollCount++;
-                try {
-                    const inv = window.interface("InventoryNew");
-                    const hasInv  = inv?.items?.[CT.INV]  !== undefined;
-                    const hasBack = inv?.items?.[CT.BACK] !== undefined;
-
-                    // Логируем первые 5 итераций и затем каждые 10-ю
-                    if (pollCount <= 5 || pollCount % 10 === 0) {
-                        console.log(`[SWAP][${ts()}] poll#${pollCount}: inv=${!!inv} hasInv=${hasInv} hasBack=${hasBack}`);
-                    }
-
-                    if (hasInv && hasBack) {
-                        console.log(`[SWAP][${ts()}] ✅ данные появились на poll#${pollCount}`);
-                        debugSnapInterface('после появления данных');
-                        deagleLoc = findItem(ITEM_DEAGLE, false);
-                        break;
-                    }
-                } catch(e) {
-                    console.log(`[SWAP][${ts()}] poll#${pollCount} ИСКЛЮЧЕНИЕ: ${e.message}`);
-                }
-                await sleep(10);
-            }
-
-            console.log(`[SWAP][${ts()}] поллинг завершён. deagleLoc=`, deagleLoc);
-
-            if (!deagleLoc) {
-                debugSnapInterface('таймаут — финальный снимок');
-                console.warn(`[SWAP][${ts()}] ❌ Дигл не найден после ${pollCount} попыток`);
-                snNotify("Своп", "Дигл не найден", "FF4444");
-                closeInventory();
-                return;
-            }
-
-            if (deagleLoc.cid === CT.INV) {
-                const backFreeSlot = findFreeSlot(CT.BACK);
-                console.log(`[SWAP][${ts()}] Дигл в INV slot${deagleLoc.slot}, свободный BACK slot=${backFreeSlot}`);
-                if (backFreeSlot >= 0) {
-                    moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot, deagleLoc.count);
-                    console.log(`[SWAP][${ts()}] ✅ moveItem отправлен: INV[${deagleLoc.slot}] → BACK[${backFreeSlot}]`);
-                    snNotify("Своп", "Дигл → рюкзак (тазер активен)", "00FF88");
-                } else {
-                    console.warn(`[SWAP][${ts()}] ❌ Рюкзак полон`);
-                    snNotify("Своп", "Рюкзак полон!", "FF4444");
-                }
-
-            } else if (deagleLoc.cid === CT.BACK) {
-                const invFreeSlot = findFreeSlot(CT.INV);
-                console.log(`[SWAP][${ts()}] Дигл в BACK slot${deagleLoc.slot}, свободный INV slot=${invFreeSlot}`);
-                if (invFreeSlot >= 0) {
-                    moveItem(CT.BACK, deagleLoc.slot, CT.INV, invFreeSlot, deagleLoc.count);
-                    console.log(`[SWAP][${ts()}] ✅ moveItem отправлен: BACK[${deagleLoc.slot}] → INV[${invFreeSlot}]`);
-                    snNotify("Своп", "Дигл → рука", "00FF88");
-                } else {
-                    console.warn(`[SWAP][${ts()}] ❌ Инвентарь полон`);
-                    snNotify("Своп", "Инвентарь полон!", "FF4444");
-                }
-
-            } else {
-                console.warn(`[SWAP][${ts()}] ⚠️ Дигл в неизвестном месте cid=${deagleLoc.cid}`);
-                snNotify("Своп", "Дигл в неизвестном месте", "FFA500");
-            }
-
-            closeInventory();
-            console.log(`[SWAP][${ts()}] closeInventory() отправлен — DONE`);
-
-        } catch(err) {
-            console.error(`[SWAP][${ts()}] 💥 Критическая ошибка:`, err);
-            snNotify("Своп", "Ошибка: " + err.message, "FF0000");
-        } finally {
-            _swapBusy = false;
-            console.log(`[SWAP][${ts()}] _swapBusy сброшен`);
+        // Если инвентарь уже открыт — делаем своп сразу без открытия
+        if (window.getInterfaceStatus && window.getInterfaceStatus('InventoryNew')) {
+            console.log('[SWAP] инвентарь уже открыт — своп сразу');
+            doSwap();
+            return;
         }
+
+        console.log('[SWAP] ставим флаг и шлём DisplayChange');
+        _waitingForOpen = true;
+        // Сбрасываем флаг через 3с на случай если инвентарь не откроется
+        setTimeout(() => {
+            if (_waitingForOpen) {
+                _waitingForOpen = false;
+                console.warn('[SWAP] таймаут ожидания открытия инвентаря');
+                snNotify("Своп", "Инвентарь не открылся", "FF4444");
+            }
+        }, 3000);
+
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    // Экспортируем logInventory для ручного вызова из консоли
     window._mvdLogInventory = () => {
-        openInventory();
-        setTimeout(() => { logInventory('РУЧНОЙ ЛОГ'); setTimeout(closeInventory, 300); }, 800);
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+        setTimeout(() => {
+            try {
+                const inv = window.interface("InventoryNew");
+                console.log('[INV-LOG] items:', JSON.stringify(inv?.items));
+            } catch(e) { console.log('[INV-LOG] ошибка', e); }
+            setTimeout(() => { try { window.closeInterface("InventoryNew"); } catch(e) {} }, 300);
+        }, 500);
     };
-    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v7 готов. window._mvdLogInventory() — посмотреть инвентарь');
+    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v8 (openInterface hook) готов');
 })();
 // ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
