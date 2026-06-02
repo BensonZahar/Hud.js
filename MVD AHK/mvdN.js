@@ -1,5 +1,5 @@
-// MVD AHK VERSION: 2.3 (STEP5-SWAP-FIX)
-console.log("=== MVD AHK v2.349009 STEP5-SWAP-FIX ЗАГРУЖЕН ===");
+// MVD AHK VERSION: 2.3 (STEP5-SWAP-FIX-FAST)
+console.log("=== MVD AHK v2.349 STEP5-SWAP-FIX-FAST ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2257,8 +2257,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 closeInventory();
                 return;
             }
-            // Дополнительная пауза для полной инициализации BACK
-            await sleep(200);
+            // Дополнительная пауза для полной инициализации BACK — убрана, waitInventory уже гарантирует готовность
 
             // 2. Логируем состояние инвентаря
             logInventory('ДО СВОПА');
@@ -2292,7 +2291,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
             // 5. Закрываем инвентарь
             closeInventory();
-            await sleep(120);
 
             // ── СЦЕНАРИИ ──
 
@@ -2313,9 +2311,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     moveItem(CT.INV, deagleLoc.slot, CT.BACK, backFreeSlot, deagleLoc.count);
                     // Переоткрываем инвентарь чтобы сервер не выдал "вы только что перенесли предмет"
                     closeInventory();
-                    await sleep(400);
+                    await sleep(50);
                     openInventory();
-                    await waitInventory(2000);
+                    await waitInventory(1000);
                     // Шаг 2: читаем свежие позиции тазера (стеки могли сдвинуться)
                     const taserLocFresh = findItem(ITEM_TASER, true);
                     const targetSlot = deagleLoc.slot; // слот дигла теперь свободен
@@ -2323,7 +2321,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                         // каждый стек тазера → в освободившийся слот дигла в INV
                         for (const stk of taserLocFresh.allSlots) {
                             moveItem(CT.BACK, stk.slot, CT.INV, targetSlot, stk.count);
-                            await sleep(300);
                         }
                         closeInventory();
                     } else {
@@ -2348,15 +2345,14 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     moveItem(CT.INV, taserLoc.slot, CT.BACK, backFreeSlot, taserLoc.count);
                     // Переоткрываем инвентарь чтобы сервер не выдал "вы только что перенесли предмет"
                     closeInventory();
-                    await sleep(400);
+                    await sleep(50);
                     openInventory();
-                    await waitInventory(2000);
+                    await waitInventory(1000);
                     // Шаг 2: читаем свежую позицию дигла, кладём в слот тазера
                     const deagleLocFresh = findItem(ITEM_DEAGLE, false);
                     const targetSlot = taserLoc.slot; // слот тазера теперь свободен
                     if (deagleLocFresh && deagleLocFresh.cid === CT.BACK) {
                         moveItem(CT.BACK, deagleLocFresh.slot, CT.INV, targetSlot, deagleLocFresh.count);
-                        await sleep(200);
                     }
                     closeInventory();
                     snNotify("Своп", "Тазер → рюкзак | Дигл → рука", "00FF88");
@@ -2397,7 +2393,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             snNotify("Своп", "Ошибка: " + err.message, "FF0000");
         } finally {
             // Небольшая задержка перед сбросом флага чтобы избежать двойного нажатия
-            await sleep(500);
+            await sleep(100);
             _swapBusy = false;
             console.log('[SWAP] ══ завершён, флаг сброшен ══');
         }
