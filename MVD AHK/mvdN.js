@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.33989 STEP5-ITEMS-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1803,7 +1803,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         for (let i = 0; i < maxMs; i += 50) {
             try {
                 const inv = window.interface("InventoryNew");
-                if (inv?.items?.[CT.INV] !== undefined) {
+                // ФИКС: проверяем что INV существует и содержит хотя бы один предмет
+                const invItems = inv?.items?.[CT.INV];
+                if (invItems !== undefined && invItems !== null && Object.keys(invItems).length > 0) {
                     console.log(`[GRAB] waitInventory: готов за ${i}мс`);
                     return true;
                 }
@@ -1975,7 +1977,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 // Открываем инвентарь чтобы прочитать актуальные данные
                 openInventory();
                 await waitInventory(2000);
-                await sleep(300); // дополнительная пауза на рендер items
+                await sleep(1200); // увеличена пауза — сервер медленно шлёт items после взятия
 
                 logInventoryGrab('GRAB ПОСЛЕ ВЗЯТИЯ (до перекладки тазера)');
 
