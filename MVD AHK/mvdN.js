@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (STEP5-SWAP-FIX)
-console.log("=== MVD AHK v2.34999 STEP5-SWAP-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.349009 STEP5-SWAP-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1981,8 +1981,19 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 // Без этого openInventory() внутри свопа может не сработать (сервер блокирует
                 // два интерфейса одновременно).
                 console.log(`[GRAB] Шаг 5: закрываем диалог склада перед открытием инвентаря`);
-                closeMenu(); // sendClientEvent + window.closeLastDialog()
-                await sleep(600); // увеличено: даём Vue-компоненту размонтироваться и серверу обработать
+                // НАДО — увеличить паузу и добавить проверку что интерфейс закрылся:
+                closeMenu();
+                // Ждём пока InventoryNew точно закроется после closeLastDialog()
+                let closeWait = 0;
+                while (closeWait < 2000) {
+                    await sleep(100);
+                    closeWait += 100;
+                    try {
+                        const chk = window.interface("InventoryNew");
+                        if (!chk || !chk.items) break; // интерфейс закрыт
+                    } catch(e) { break; }
+                }
+                await sleep(300); // дополнительный буфер для сервера
 
                 // Дожидаемся пока SWAP-блок освободится (на случай редкого двойного вызова)
                 let waitSwap = 0;
@@ -2199,11 +2210,14 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             } catch(e) {}
             await sleep(50);
         }
-        // Fallback: хотя бы INV
+        // ДОБАВИТЬ: Fallback — пробуем переоткрыть инвентарь один раз
+        console.warn('[SWAP] waitInventory: первый таймаут, пробуем переоткрыть...');
+        openInventory();
+        await sleep(500);
         try {
             const inv = window.interface("InventoryNew");
             if (inv?.items?.[CT.INV] !== undefined) {
-                console.warn('[SWAP] waitInventory: INV есть, BACK нет — продолжаем');
+                console.warn('[SWAP] waitInventory: INV есть после retry — продолжаем');
                 return true;
             }
         } catch(e) {}
