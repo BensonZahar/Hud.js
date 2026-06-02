@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.339 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1674,6 +1674,27 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     // ==================== ИНВЕНТАРЬ ====================
+    const CT_NAMES_GRAB = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
+
+    function logInventoryGrab(label) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) { console.log(`[GRAB-LOG] ${label}: items недоступны`); return; }
+            const lines = [`[GRAB-LOG] ── ${label} ──`];
+            for (const cid of [0, 1, 2, 3]) {
+                const c = inv.items[cid];
+                if (!c) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): нет контейнера`); continue; }
+                const entries = Object.entries(c);
+                if (entries.length === 0) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): пусто`); continue; }
+                for (const [slot, item] of entries) {
+                    if (!item) continue;
+                    lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}) slot${slot}: id=${item.id} x${item.count||1} w=${item.weight}`);
+                }
+            }
+            console.log(lines.join('\n'));
+        } catch(e) { console.log(`[GRAB-LOG] ${label}: ошибка`, e); }
+    }
+
     function findItem(itemId) {
         try {
             const inv = window.interface("InventoryNew");
@@ -1682,10 +1703,42 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 const c = inv.items[cid];
                 if (!c) continue;
                 for (const [slot, item] of Object.entries(c)) {
-                    if (item?.id === itemId) return { cid, slot: parseInt(slot), count: item.count || 1 };
+                    if (item?.id === itemId) {
+                        console.log(`[GRAB] findItem(id=${itemId}): найден в ${CT_NAMES_GRAB[cid]} slot${slot} x${item.count||1}`);
+                        return { cid, slot: parseInt(slot), count: item.count || 1 };
+                    }
                 }
             }
         } catch(e) {}
+        console.log(`[GRAB] findItem(id=${itemId}): НЕ НАЙДЕН`);
+        return null;
+    }
+
+    function findItemAllSlots(itemId) {
+        // Как в свопе — возвращает все стеки в первом найденном контейнере
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) return null;
+            for (const cid of [CT.INV, CT.BACK, CT.ACC]) {
+                const c = inv.items[cid];
+                if (!c) continue;
+                let firstSlot = -1, totalCount = 0, allSlots = [];
+                for (const [slot, item] of Object.entries(c)) {
+                    if (item?.id === itemId) {
+                        const s = parseInt(slot);
+                        const cnt = item.count || 1;
+                        if (firstSlot === -1) firstSlot = s;
+                        totalCount += cnt;
+                        allSlots.push({ slot: s, count: cnt });
+                    }
+                }
+                if (firstSlot !== -1) {
+                    console.log(`[GRAB] findItemAllSlots(id=${itemId}): ${CT_NAMES_GRAB[cid]} стеков=${allSlots.length} всего x${totalCount}`);
+                    return { cid, slot: firstSlot, count: totalCount, allSlots };
+                }
+            }
+        } catch(e) {}
+        console.log(`[GRAB] findItemAllSlots(id=${itemId}): НЕ НАЙДЕН`);
         return null;
     }
 
@@ -1701,21 +1754,63 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     if (item?.id === itemId) total += (item.count || 1);
                 }
             }
+            console.log(`[GRAB] countItem(id=${itemId}): итого x${total}`);
             return total;
         } catch(e) { return 0; }
     }
 
-    function openInventory() { sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange"); }
-    function closeInventory() { window.closeInterface("InventoryNew"); }
+    function findFreeSlotGrab(targetCid) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) { console.warn(`[GRAB] findFreeSlot(${CT_NAMES_GRAB[targetCid]}): inv недоступен`); return -1; }
+            const container = inv.items[targetCid];
+            if (!container) {
+                console.log(`[GRAB] findFreeSlot(${CT_NAMES_GRAB[targetCid]}): контейнер пуст → slot 0`);
+                return 0;
+            }
+            for (let s = 0; s < 50; s++) {
+                if (!container[s]) {
+                    console.log(`[GRAB] findFreeSlot(${CT_NAMES_GRAB[targetCid]}): свободен slot ${s}`);
+                    return s;
+                }
+            }
+            console.warn(`[GRAB] findFreeSlot(${CT_NAMES_GRAB[targetCid]}): нет свободных слотов`);
+        } catch(e) { console.error(`[GRAB] findFreeSlot error:`, e); }
+        return -1;
+    }
+
+    function moveItemGrab(fromCid, fromSlot, toCid, toSlot, count) {
+        const cnt = count || 1;
+        console.log(`[GRAB] moveItem: ${CT_NAMES_GRAB[fromCid]}[${fromSlot}] → ${CT_NAMES_GRAB[toCid]}[${toSlot}] x${cnt}`);
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
+            parseInt(fromCid), parseInt(fromSlot),
+            parseInt(toCid),   parseInt(toSlot),
+            parseInt(cnt)
+        );
+    }
+
+    function openInventory() {
+        console.log('[GRAB] openInventory()');
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+    }
+    function closeInventory() {
+        console.log('[GRAB] closeInventory()');
+        window.closeInterface("InventoryNew");
+    }
 
     async function waitInventory(maxMs = 1000) {
+        console.log(`[GRAB] waitInventory(${maxMs}ms)...`);
         for (let i = 0; i < maxMs; i += 50) {
             try {
                 const inv = window.interface("InventoryNew");
-                if (inv?.items?.[CT.INV] !== undefined) return true;
+                if (inv?.items?.[CT.INV] !== undefined) {
+                    console.log(`[GRAB] waitInventory: готов за ${i}мс`);
+                    return true;
+                }
             } catch(e) {}
             await sleep(50);
         }
+        console.error(`[GRAB] waitInventory: таймаут!`);
         return false;
     }
 
@@ -1756,8 +1851,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
 
             // ── Шаг 2: читаем что нужно ──
+            logInventoryGrab('GRAB ДО ВЗЯТИЯ');
             const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
             const skip = (key) => skipList.includes(key);
+            console.log(`[GRAB] skipList:`, skipList);
 
             const has = {
                 medkit:      skip('medkit')      ? 999 : (findItem(ITEM.MEDKIT)      ? 1 : 0),
@@ -1797,6 +1894,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
             };
 
+            console.log('[GRAB] has:', JSON.stringify(has));
+            console.log('[GRAB] need:', JSON.stringify(need));
+
             // ── Шаг 3: запоминаем свободные слоты и закрываем инвентарь ──
             // Сохраняем список свободных INV-слотов — используем в шаге 5
             const freeInvSlots = [];
@@ -1810,6 +1910,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
                 }
             } catch(e) {}
+            console.log(`[GRAB] freeInvSlots (до взятия):`, freeInvSlots);
+            console.log(`[GRAB] freeBACKSlots (до взятия):`, freeBACKSlots);
             closeInventory();
             await sleep(150);
 
@@ -1847,6 +1949,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
             if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
+            console.log(`[GRAB] toTake:`, toTake.map(t => `${t.name}(idx=${t.idx})`).join(', '));
+
             for (let i = 0; i < toTake.length; i++) {
                 const delay = Math.floor(Math.random() * 700) + 500; // рандом 500–1200мс
                 console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${delay}мс]`);
@@ -1859,28 +1963,49 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             window.playSound("inventory/take_light.mp3");
 
             // ── Шаг 5: если брали и тазер и дигл — тазер переложить в рюкзак ──
-            //    Используем слоты записанные ДО взятия — не открываем инвентарь заново
-            if (need.taser && freeBACKSlots.length >= 1) {
-                // Считаем сколько предметов берётся ДО тазера (они займут INV-слоты)
-                // Порядок в toTake: painkillers, medkit, baton, wand, vest, radarGun, diag, deagle, TASER
-                const itemsBeforeTaser = toTake.filter(t => t.idx !== MENU.TASER);
-                const taserFreeIdx = itemsBeforeTaser.length; // индекс в freeInvSlots[]
-                const taserInvSlot = freeInvSlots[taserFreeIdx] ?? -1;
-                const backDest     = freeBACKSlots[0];
+            //    РЕАЛЬНЫЙ поиск тазера через findItem (как в Alt+H) — не предсказание по слотам.
+            if (need.taser && need.deagle) {
+                console.log(`[GRAB] Шаг 5: брали оба (тазер + дигл) — ищем тазер в инвентаре`);
+                // Ждём пока сервер зачислит предметы
+                await sleep(800);
+                // Открываем инвентарь чтобы прочитать актуальные данные
+                openInventory();
+                await waitInventory(2000);
+                await sleep(200);
+                logInventoryGrab('GRAB ПОСЛЕ ВЗЯТИЯ (до перекладки тазера)');
 
-                if (taserInvSlot >= 0) {
-                    // Ждём пока сервер зачислит тазер (после последнего take + delay)
-                    await sleep(600);
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryItemMove",
-                        parseInt(CT.INV),  parseInt(taserInvSlot),
-                        parseInt(CT.BACK), parseInt(backDest),
-                        30 // стандартный стек тазера
-                    );
-                    console.log(`[MVD-GRAB] Тазер (слот ${taserInvSlot}) → рюкзак (слот ${backDest}) [предсказание, перед тазером: ${taserFreeIdx} предметов]`);
+                const taserLoc = findItemAllSlots(ITEM.TASER);
+                console.log(`[GRAB] Шаг 5: taserLoc =`, JSON.stringify(taserLoc));
+
+                if (taserLoc && taserLoc.cid === CT.INV) {
+                    const backDest = findFreeSlotGrab(CT.BACK);
+                    console.log(`[GRAB] Шаг 5: backDest = ${backDest}`);
+                    if (backDest >= 0) {
+                        // Перекладываем каждый стек тазера в рюкзак
+                        for (const stk of taserLoc.allSlots) {
+                            moveItemGrab(CT.INV, stk.slot, CT.BACK, backDest, stk.count);
+                            await sleep(300);
+                        }
+                        closeInventory();
+                        notify("МВД", "Тазер → рюкзак (дигл в руке)", "00FF88");
+                    } else {
+                        closeInventory();
+                        console.warn(`[GRAB] Шаг 5: нет свободных слотов в рюкзаке!`);
+                        notify("МВД", "Рюкзак полон, тазер остался в руке", "FFA500");
+                    }
+                } else if (taserLoc && taserLoc.cid === CT.BACK) {
+                    // Тазер уже в рюкзаке — всё хорошо
+                    closeInventory();
+                    console.log(`[GRAB] Шаг 5: тазер уже в рюкзаке — окей`);
                     notify("МВД", "Тазер → рюкзак (дигл в руке)", "00FF88");
                 } else {
-                    console.warn(`[MVD-GRAB] Шаг 5: не хватает свободных INV-слотов (нужен индекс ${taserFreeIdx}, есть ${freeInvSlots.length})`);
+                    closeInventory();
+                    console.warn(`[GRAB] Шаг 5: тазер не найден после взятия`);
                 }
+            } else if (need.taser) {
+                console.log(`[GRAB] Шаг 5: брали только тазер (без дигла) — ничего не перекладываем`);
+            } else {
+                console.log(`[GRAB] Шаг 5: тазер не брался — пропуск`);
             }
 
         } catch (err) {
