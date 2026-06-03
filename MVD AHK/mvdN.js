@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.9 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1343,6 +1343,13 @@ window.showMinuteInputDialog = (e) => {
 };
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`Событие: ${event}, Аргументы:`, args);
+
+    // Numpad2 = keycode 40 в движке Radmir — своп тазер ↔ дигл
+    if (args[0] === 'OnPlayerClientSideKey' && parseInt(args[1]) === 40) {
+        console.log('[SWAP] Numpad2 (40) поймано — своп');
+        window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+        return;
+    }
 
     if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 681)) {
         if (args[1] === 666) { // Главное меню
