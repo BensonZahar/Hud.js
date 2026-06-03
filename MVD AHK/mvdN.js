@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.39 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -376,9 +376,9 @@ window.addEventListener('keydown', function(e) {
     window.sendClientEventHandle = function(event, ...args) {
         if (args[0] === 'OnPlayerClientSideKey') {
             const keyCode = parseInt(args[1]);
-            // 97 = Numpad1 в CEF движке
-            if (keyCode === 97) {
-                console.log('[SWAP] OnPlayerClientSideKey Numpad1 (97) — своп');
+            // 40 = Numpad1 в движке Radmir
+            if (keyCode === 40) {
+                console.log('[SWAP] OnPlayerClientSideKey Numpad1 (40) — своп');
                 window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
                 return;
             }
