@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.99 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1326,6 +1326,10 @@ window.showMinuteInputDialog = (e) => {
 };
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`Событие: ${event}, Аргументы:`, args);
+    // Перехватываем THNT_OnInterfaceDisappear для разблокировки свопа
+    if (args[0] === 'THNT_OnInterfaceDisappear' && window._swapOnInterfaceDisappear) {
+        window._swapOnInterfaceDisappear();
+    }
     if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 681)) {
         if (args[1] === 666) { // Главное меню
             const listitem = args[3];
@@ -1922,7 +1926,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 // ==================== END АВТОБРАНИЕ МВД ====================
 
 // ==================== СВОП ТАЗЕР ↔ ДИГЛ (Alt+H) ====================
-// v10 — задержка 300мс после closeInterface перед следующим свопом
+// v11 — _closing сбрасывается по THNT_OnInterfaceDisappear от сервера
 (function() {
     const ITEM_TASER = 13;
     const ITEM_DEAGLE = 19;
@@ -1991,13 +1995,13 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     function markClosing() {
         _closing = true;
         clearTimeout(_closeTimer);
-        // Страховка: сбросить _closing через 1с если closeInterface не перехватился
+        // Страховка: сбросить _closing через 2с если THNT_OnInterfaceDisappear не пришёл
         _closeTimer = setTimeout(() => {
             if (_closing) {
-                console.log('[SWAP] _closing сброшен по таймауту');
+                console.log('[SWAP] _closing сброшен по таймауту (THNT не пришёл)');
                 _closing = false;
             }
-        }, 1000);
+        }, 2000);
     }
 
     function doSwap() {
@@ -2048,21 +2052,17 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return result;
     };
 
-    // ── Перехватываем closeInterface ──
-    // После закрытия ждём 300мс перед следующим свопом — даём серверу
-    // обработать закрытие прежде чем новый DisplayChange дойдёт до него.
-    const _origCloseInterface = window.closeInterface;
-    window.closeInterface = function(name) {
-        const result = _origCloseInterface.apply(this, arguments);
-        if (name === 'InventoryNew' && _closing) {
+    // ── Слушаем THNT_OnInterfaceDisappear от сервера ──
+    // Это событие приходит через sendClientEventHandle когда сервер
+    // подтверждает что инвентарь реально закрылся. Только тогда
+    // разблокируем следующий своп.
+    // Регистрируем хук через уже существующий перехватчик sendClientEventHandle.
+    window._swapOnInterfaceDisappear = function() {
+        if (_closing) {
             clearTimeout(_closeTimer);
-            console.log('[SWAP] closeInterface перехвачен — ждём 300мс перед следующим свопом');
-            _closeTimer = setTimeout(() => {
-                _closing = false;
-                console.log('[SWAP] _closing сброшен — готов к следующему свопу');
-            }, 300);
+            _closing = false;
+            console.log('[SWAP] THNT_OnInterfaceDisappear — _closing сброшен, готов к следующему свопу');
         }
-        return result;
     };
 
     function swapTaserDeagle() {
@@ -2107,6 +2107,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             setTimeout(() => { try { window.closeInterface("InventoryNew"); } catch(e) {} }, 300);
         }, 500);
     };
-    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v10 (300ms close-delay) готов');
+    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v11 (THNT-unlock) готов');
 })();
 // ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
