@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2015,7 +2015,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
         // Polling: ждём пока items появятся (инвентарь открылся)
         let attempts = 0;
-        const maxAttempts = 30; // 30 * 100ms = 3 секунды
+        const maxAttempts = 40; // 40 * 50ms = 2 секунды
         const poll = setInterval(() => {
             attempts++;
             const items = tryGetItems();
@@ -2023,9 +2023,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (!items) {
                 if (attempts >= maxAttempts) {
                     clearInterval(poll);
-                    console.log('[SWAP] items так и не появились, отмена');
-                    // пробуем закрыть на случай если открылся
+                    console.log('[SWAP] items не появились, отмена');
                     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                    snAdd('[1, "СВОП", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
                     clearBusy();
                 }
                 return;
@@ -2038,6 +2038,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (!deagleLoc) {
                 console.log('[SWAP] дигл не найден');
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                snAdd('[1, "СВОП", "Дигл не найден в инвентаре", "FF4400", 3000]');
                 clearBusy();
                 return;
             }
@@ -2058,21 +2059,24 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (toSlot < 0) {
                 console.log('[SWAP] нет свободного слота');
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                snAdd('[1, "СВОП", "Нет свободного слота!", "FF4400", 3000]');
                 clearBusy();
                 return;
             }
 
-            console.log(`[SWAP] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] → ${CT_NAMES[toCid]}[${toSlot}]`);
+            const direction = (fromCid === CT.INV) ? 'Дигл -> Рюкзак' : 'Дигл -> Инвентарь';
+            console.log(`[SWAP] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] -> ${CT_NAMES[toCid]}[${toSlot}]`);
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
                 fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
 
-            // Закрываем инвентарь через 200мс после хода
+            // Закрываем инвентарь через 150мс после хода
             setTimeout(() => {
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                snAdd(`[1, "СВОП", "${direction}", "00CC44", 2000]`);
                 clearBusy();
-            }, 200);
+            }, 150);
 
-        }, 100);
+        }, 50);
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
