@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.99 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1922,7 +1922,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 // ==================== END АВТОБРАНИЕ МВД ====================
 
 // ==================== СВОП ТАЗЕР ↔ ДИГЛ (Alt+H) ====================
-// v8 — без поллинга: слушаем OpenInterface от движка, данные уже есть
+// v9 — блокировка на время закрытия, перехват closeInterface
 (function() {
     const ITEM_TASER = 13;
     const ITEM_DEAGLE = 19;
@@ -1930,8 +1930,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
     const CT_NAMES = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
 
-    // Флаг: ждём ли открытия инвентаря для свопа
+    // _waitingForOpen: ждём openInterface от сервера
+    // _closing: инвентарь закрывается (между moveItem и реальным закрытием)
     let _waitingForOpen = false;
+    let _closing = false;
+    let _closeTimer = null;
 
     function snNotify(title, text, color) {
         try {
@@ -1985,13 +1988,26 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         );
     }
 
+    function markClosing() {
+        _closing = true;
+        clearTimeout(_closeTimer);
+        // Страховка: сбросить _closing через 1с если closeInterface не перехватился
+        _closeTimer = setTimeout(() => {
+            if (_closing) {
+                console.log('[SWAP] _closing сброшен по таймауту');
+                _closing = false;
+            }
+        }, 1000);
+    }
+
     function doSwap() {
         console.log('[SWAP] doSwap() — данные уже в интерфейсе');
         const deagleLoc = findItem(ITEM_DEAGLE);
 
         if (!deagleLoc) {
             snNotify("Своп", "Дигл не найден", "FF4444");
-            try { window.closeInterface("InventoryNew"); } catch(e) {}
+            markClosing();
+            try { window.closeInterface("InventoryNew"); } catch(e) { _closing = false; }
             return;
         }
 
@@ -2015,36 +2031,50 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             snNotify("Своп", "Дигл в неизвестном месте", "FFA500");
         }
 
-        try { window.closeInterface("InventoryNew"); } catch(e) {}
+        // Сервер сам закроет инвентарь после moveItem (THNT_OnInterfaceDisappear)
+        // Ставим флаг чтобы заблокировать следующий своп до реального закрытия
+        markClosing();
+        try { window.closeInterface("InventoryNew"); } catch(e) { _closing = false; }
     }
 
-    // ── Перехватываем engine.on("OpenInterface") ──
-    // Движок вызывает engine.on("OpenInterface", name, params) когда сервер
-    // реально открывает интерфейс с уже заполненными данными.
-    // Это надёжнее чем поллинг — данные уже есть в момент вызова.
-    const _origEngineOn = engine.on.bind(engine);
-    const _engineListeners = {};
-
-    // Патчим window.openInterface — движок вызывает его при OpenInterface event
+    // ── Перехватываем openInterface ──
+    // Когда сервер открывает инвентарь — данные уже есть, делаем своп сразу
     const _origOpenInterface = window.openInterface;
     window.openInterface = async function(name, params, deps) {
         const result = await _origOpenInterface.apply(this, arguments);
         if (name === 'InventoryNew' && _waitingForOpen) {
             _waitingForOpen = false;
             console.log('[SWAP] openInterface перехвачен — вызываем doSwap()');
-            // Небольшой microtask чтобы Vue успел записать params в компонент
             Promise.resolve().then(doSwap);
+        }
+        return result;
+    };
+
+    // ── Перехватываем closeInterface ──
+    // Сбрасываем _closing когда инвентарь реально закрылся.
+    // Это разблокирует следующий своп.
+    const _origCloseInterface = window.closeInterface;
+    window.closeInterface = function(name) {
+        const result = _origCloseInterface.apply(this, arguments);
+        if (name === 'InventoryNew' && _closing) {
+            clearTimeout(_closeTimer);
+            _closing = false;
+            console.log('[SWAP] closeInterface перехвачен — _closing сброшен, готов к следующему свопу');
         }
         return result;
     };
 
     function swapTaserDeagle() {
         if (_waitingForOpen) {
-            console.log('[SWAP] уже ждём открытия, пропускаем');
+            console.log('[SWAP] уже ждём openInterface, пропускаем');
+            return;
+        }
+        if (_closing) {
+            console.log('[SWAP] инвентарь ещё закрывается, пропускаем');
             return;
         }
 
-        // Если инвентарь уже открыт — делаем своп сразу без открытия
+        // Если инвентарь уже открыт — своп сразу без DisplayChange
         if (window.getInterfaceStatus && window.getInterfaceStatus('InventoryNew')) {
             console.log('[SWAP] инвентарь уже открыт — своп сразу');
             doSwap();
@@ -2053,11 +2083,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
         console.log('[SWAP] ставим флаг и шлём DisplayChange');
         _waitingForOpen = true;
-        // Сбрасываем флаг через 3с на случай если инвентарь не откроется
+        // Таймаут 3с — если сервер не открыл инвентарь
         setTimeout(() => {
             if (_waitingForOpen) {
                 _waitingForOpen = false;
-                console.warn('[SWAP] таймаут ожидания открытия инвентаря');
+                console.warn('[SWAP] таймаут ожидания openInterface');
                 snNotify("Своп", "Инвентарь не открылся", "FF4444");
             }
         }, 3000);
@@ -2076,6 +2106,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             setTimeout(() => { try { window.closeInterface("InventoryNew"); } catch(e) {} }, 300);
         }, 500);
     };
-    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v8 (openInterface hook) готов');
+    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v9 (close-lock) готов');
 })();
 // ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
