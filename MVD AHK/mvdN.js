@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.39 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1923,22 +1923,21 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 // ==================== END АВТОБРАНИЕ МВД ====================
 
 // ==================== СВОП ТАЗЕР ↔ ДИГЛ (Alt+H) ====================
-// v12 — один флаг _busy, запрет двойного DisplayChange
+// v13 — проверка open.status, без snNotify
 (function() {
     const ITEM_DEAGLE = 19;
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
     const CT_NAMES = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
 
-    // Единственный флаг: true пока идёт весь цикл (от DisplayChange до closeInterface)
     let _busy = false;
     let _busyTimer = null;
 
-    function setBusy(reason) {
+    function setBusy() {
         _busy = true;
         clearTimeout(_busyTimer);
         _busyTimer = setTimeout(() => {
             if (_busy) {
-                console.log('[SWAP] _busy сброшен по таймауту 3с (' + reason + ')');
+                console.log('[SWAP] _busy сброшен по таймауту 3с');
                 _busy = false;
             }
         }, 3000);
@@ -1947,17 +1946,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     function clearBusy() {
         clearTimeout(_busyTimer);
         _busy = false;
-        console.log('[SWAP] готов к следующему свопу');
-    }
-
-    function snNotify(title, text, color) {
-        try {
-            const sn = window.interface('ScreenNotification');
-            if (sn && typeof sn.hideAll === 'function') sn.hideAll();
-            setTimeout(() => {
-                try { window.interface('ScreenNotification').add(`[1, "${title}", "${text}", "${color}", 2500]`); } catch(e) {}
-            }, 60);
-        } catch(e) {}
+        console.log('[SWAP] готов');
     }
 
     function findItem(itemId) {
@@ -1985,81 +1974,81 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             const inv = window.interface('InventoryNew');
             if (!inv?.items) return -1;
             const container = inv.items[targetCid];
-            if (!container) { console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): slot 0`); return 0; }
+            if (!container) return 0;
             for (let s = 0; s < 50; s++) {
-                if (!container[s]) { console.log(`[SWAP] findFreeSlot(${CT_NAMES[targetCid]}): slot ${s}`); return s; }
+                if (!container[s]) { console.log(`[SWAP] freeSlot(${CT_NAMES[targetCid]}): ${s}`); return s; }
             }
         } catch(e) {}
         return -1;
     }
 
-    function moveItem(fromCid, fromSlot, toCid, toSlot, count) {
-        console.log(`[SWAP] moveItem: ${CT_NAMES[fromCid]}[${fromSlot}] → ${CT_NAMES[toCid]}[${toSlot}] x${count}`);
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
-            parseInt(fromCid), parseInt(fromSlot),
-            parseInt(toCid),   parseInt(toSlot),
-            parseInt(count)
-        );
-    }
-
     function doSwap() {
-        console.log('[SWAP] doSwap() — данные в интерфейсе');
+        console.log('[SWAP] doSwap()');
         const deagleLoc = findItem(ITEM_DEAGLE);
 
         if (!deagleLoc) {
-            snNotify('Своп', 'Дигл не найден', 'FF4444');
+            console.log('[SWAP] дигл не найден — закрываем');
             try { window.closeInterface('InventoryNew'); } catch(e) {}
             clearBusy();
             return;
         }
 
+        let moved = false;
         if (deagleLoc.cid === CT.INV) {
             const slot = findFreeSlot(CT.BACK);
             if (slot >= 0) {
-                moveItem(CT.INV, deagleLoc.slot, CT.BACK, slot, deagleLoc.count);
-                snNotify('Своп', 'Дигл → рюкзак', '00FF88');
-            } else {
-                snNotify('Своп', 'Рюкзак полон!', 'FF4444');
-                clearBusy();
+                console.log(`[SWAP] INV[${deagleLoc.slot}] → BACK[${slot}]`);
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
+                    CT.INV, deagleLoc.slot, CT.BACK, slot, deagleLoc.count);
+                moved = true;
             }
         } else if (deagleLoc.cid === CT.BACK) {
             const slot = findFreeSlot(CT.INV);
             if (slot >= 0) {
-                moveItem(CT.BACK, deagleLoc.slot, CT.INV, slot, deagleLoc.count);
-                snNotify('Своп', 'Дигл → рука', '00FF88');
-            } else {
-                snNotify('Своп', 'Инвентарь полон!', 'FF4444');
-                clearBusy();
+                console.log(`[SWAP] BACK[${deagleLoc.slot}] → INV[${slot}]`);
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
+                    CT.BACK, deagleLoc.slot, CT.INV, slot, deagleLoc.count);
+                moved = true;
             }
-        } else {
-            snNotify('Своп', 'Дигл в неизвестном месте', 'FFA500');
-            clearBusy();
         }
 
-        // После moveItem ждём closeInterface который придёт от сервера
-        // _busy сбросится в перехватчике closeInterface или по таймауту
-        try { window.closeInterface('InventoryNew'); } catch(e) { clearBusy(); }
+        try { window.closeInterface('InventoryNew'); } catch(e) {}
+
+        if (!moved) {
+            clearBusy();
+        }
+        // если moved — _busy сбросится в closeInterface через 500мс
     }
 
-    // ── Перехват openInterface: данные уже есть → своп ──
+    // ── Перехват openInterface ──
+    // Проверяем что инвентарь ОТКРЫЛСЯ (open.status === true в компоненте)
     const _origOpenInterface = window.openInterface;
     window.openInterface = async function(name, params, deps) {
         const result = await _origOpenInterface.apply(this, arguments);
         if (name === 'InventoryNew' && _busy) {
-            console.log('[SWAP] openInterface → doSwap()');
+            // Проверяем статус — только если открылся
+            try {
+                const comp = window.interface('InventoryNew');
+                const isOpen = window.App?.components?.InventoryNew?.open?.status;
+                console.log(`[SWAP] openInterface hook: isOpen=${isOpen}`);
+                if (isOpen !== false) {
+                    Promise.resolve().then(doSwap);
+                    return result;
+                }
+            } catch(e) {}
+            // Если не смогли проверить — всё равно делаем своп
             Promise.resolve().then(doSwap);
         }
         return result;
     };
 
-    // ── Перехват closeInterface: сбрасываем _busy ──
-    // Используем небольшую задержку чтобы сервер успел обработать закрытие
+    // ── Перехват closeInterface ──
     const _origCloseInterface = window.closeInterface;
     window.closeInterface = function(name) {
         const result = _origCloseInterface.apply(this, arguments);
         if (name === 'InventoryNew' && _busy) {
             clearTimeout(_busyTimer);
-            console.log('[SWAP] closeInterface → ждём 500мс');
+            console.log('[SWAP] closeInterface → 500мс');
             _busyTimer = setTimeout(clearBusy, 500);
         }
         return result;
@@ -2067,15 +2056,15 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
     function swapTaserDeagle() {
         if (_busy) {
-            console.log('[SWAP] занят, пропускаем');
+            console.log('[SWAP] занят');
             return;
         }
-        setBusy('DisplayChange');
+        setBusy();
         console.log('[SWAP] → DisplayChange');
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[SWAP] v12 готов');
+    console.log('[SWAP] v13 готов');
 })();
 // ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
