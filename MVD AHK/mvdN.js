@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.99 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1922,7 +1922,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 // ==================== END АВТОБРАНИЕ МВД ====================
 
 // ==================== СВОП ТАЗЕР ↔ ДИГЛ (Alt+H) ====================
-// v9 — блокировка на время закрытия, перехват closeInterface
+// v10 — задержка 300мс после closeInterface перед следующим свопом
 (function() {
     const ITEM_TASER = 13;
     const ITEM_DEAGLE = 19;
@@ -2031,8 +2031,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             snNotify("Своп", "Дигл в неизвестном месте", "FFA500");
         }
 
-        // Сервер сам закроет инвентарь после moveItem (THNT_OnInterfaceDisappear)
-        // Ставим флаг чтобы заблокировать следующий своп до реального закрытия
         markClosing();
         try { window.closeInterface("InventoryNew"); } catch(e) { _closing = false; }
     }
@@ -2051,15 +2049,18 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     };
 
     // ── Перехватываем closeInterface ──
-    // Сбрасываем _closing когда инвентарь реально закрылся.
-    // Это разблокирует следующий своп.
+    // После закрытия ждём 300мс перед следующим свопом — даём серверу
+    // обработать закрытие прежде чем новый DisplayChange дойдёт до него.
     const _origCloseInterface = window.closeInterface;
     window.closeInterface = function(name) {
         const result = _origCloseInterface.apply(this, arguments);
         if (name === 'InventoryNew' && _closing) {
             clearTimeout(_closeTimer);
-            _closing = false;
-            console.log('[SWAP] closeInterface перехвачен — _closing сброшен, готов к следующему свопу');
+            console.log('[SWAP] closeInterface перехвачен — ждём 300мс перед следующим свопом');
+            _closeTimer = setTimeout(() => {
+                _closing = false;
+                console.log('[SWAP] _closing сброшен — готов к следующему свопу');
+            }, 300);
         }
         return result;
     };
@@ -2106,6 +2107,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             setTimeout(() => { try { window.closeInterface("InventoryNew"); } catch(e) {} }, 300);
         }, 500);
     };
-    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v9 (close-lock) готов');
+    console.log('[SWAP] Alt+H — своп тазер ↔ дигл v10 (300ms close-delay) готов');
 })();
 // ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
