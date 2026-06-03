@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.39 STEP5-PREDICT-FIX ЗАГРУЖЕН ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -364,8 +364,8 @@ window.addEventListener('keydown', function(e) {
     if (e.altKey && e.key === '0') {
         sendChatInput('/dahk');
     }
-    // Alt+H — быстрый своп тазер ↔ дигл
-    if (e.altKey && (e.key === 'h' || e.key === 'H' || e.key === 'р' || e.key === 'Р')) {
+    // Numpad1 — быстрый своп тазер ↔ дигл
+    if (e.code === 'Numpad1') {
         window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
     }
 });
@@ -1922,7 +1922,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
 
-// ==================== СВОП ТАЗЕР ↔ ДИГЛ (Alt+H) ====================
+// ==================== СВОП ТАЗЕР ↔ ДИГЛ (Numpad1) ====================
 // v13 — проверка open.status, без snNotify
 (function() {
     const ITEM_DEAGLE = 19;
