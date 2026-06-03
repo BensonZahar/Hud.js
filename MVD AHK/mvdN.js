@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2. STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2057,4 +2057,4 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     window._mvdSwapTaserDeagle = swapTaserDeagle;
     console.log('[SWAP] v14 готов');
 })();
-// ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
+// ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================м
