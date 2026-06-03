@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2. STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.3 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1946,7 +1946,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
 
-// ==================== СВОП ТАЗЕР ↔ ДИГЛ (v14 — прямой доступ к items) ====================
+// ==================== СВОП ТАЗЕР ↔ ДИГЛ (v15 — polling) ====================
 (function() {
     const ITEM_DEAGLE = 19;
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
@@ -1955,28 +1955,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     let _busy = false;
     let _busyTimer = null;
 
-    function setBusy() {
-        _busy = true;
-        clearTimeout(_busyTimer);
-        _busyTimer = setTimeout(() => {
-            _busy = false;
-            console.log('[SWAP] _busy сброшен по таймауту 2с');
-        }, 2000);
-    }
-
     function clearBusy() {
         clearTimeout(_busyTimer);
         _busy = false;
         console.log('[SWAP] готов');
-    }
-
-    // Читаем items напрямую из Vue компонента (работает даже когда инвентарь закрыт)
-    function getItems() {
-        try {
-            const inv = window.interface('InventoryNew');
-            if (inv?.items) return inv.items;
-        } catch(e) {}
-        return null;
     }
 
     function findItem(items, itemId) {
@@ -1991,7 +1973,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 }
             }
         }
-        console.log('[SWAP] дигл не найден');
         return null;
     }
 
@@ -2007,54 +1988,94 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return -1;
     }
 
+    function tryGetItems() {
+        try {
+            const inv = window.interface('InventoryNew');
+            // items доступны только когда инвентарь открыт и Vue компонент смонтирован
+            const items = inv?.items;
+            if (!items) return null;
+            // проверяем что хотя бы один контейнер есть
+            if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
+        } catch(e) {}
+        return null;
+    }
+
     function swapTaserDeagle() {
         if (_busy) {
             console.log('[SWAP] занят, пропуск');
             return;
         }
+        _busy = true;
+        _busyTimer = setTimeout(() => {
+            if (_busy) { _busy = false; console.log('[SWAP] таймаут сброса'); }
+        }, 5000);
 
-        const items = getItems();
-        if (!items) {
-            console.log('[SWAP] items недоступны');
-            return;
-        }
-
-        const deagleLoc = findItem(items, ITEM_DEAGLE);
-        if (!deagleLoc) return;
-
-        let fromCid, toCid;
-        if (deagleLoc.cid === CT.INV) {
-            fromCid = CT.INV; toCid = CT.BACK;
-        } else if (deagleLoc.cid === CT.BACK) {
-            fromCid = CT.BACK; toCid = CT.INV;
-        } else {
-            console.log('[SWAP] дигл не в INV и не в BACK');
-            return;
-        }
-
-        const toSlot = findFreeSlot(items, toCid);
-        if (toSlot < 0) {
-            console.log('[SWAP] нет свободного слота');
-            return;
-        }
-
-        console.log(`[SWAP] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] → ${CT_NAMES[toCid]}[${toSlot}]`);
-        setBusy();
-
-        // Открываем инвентарь, делаем ход, закрываем — всё через сервер
+        console.log('[SWAP] открываем инвентарь...');
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
 
-        setTimeout(() => {
+        // Polling: ждём пока items появятся (инвентарь открылся)
+        let attempts = 0;
+        const maxAttempts = 30; // 30 * 100ms = 3 секунды
+        const poll = setInterval(() => {
+            attempts++;
+            const items = tryGetItems();
+
+            if (!items) {
+                if (attempts >= maxAttempts) {
+                    clearInterval(poll);
+                    console.log('[SWAP] items так и не появились, отмена');
+                    // пробуем закрыть на случай если открылся
+                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                    clearBusy();
+                }
+                return;
+            }
+
+            clearInterval(poll);
+            console.log(`[SWAP] items получены (попытка ${attempts})`);
+
+            const deagleLoc = findItem(items, ITEM_DEAGLE);
+            if (!deagleLoc) {
+                console.log('[SWAP] дигл не найден');
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                clearBusy();
+                return;
+            }
+
+            let fromCid, toCid;
+            if (deagleLoc.cid === CT.INV) {
+                fromCid = CT.INV; toCid = CT.BACK;
+            } else if (deagleLoc.cid === CT.BACK) {
+                fromCid = CT.BACK; toCid = CT.INV;
+            } else {
+                console.log('[SWAP] дигл не в INV/BACK');
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                clearBusy();
+                return;
+            }
+
+            const toSlot = findFreeSlot(items, toCid);
+            if (toSlot < 0) {
+                console.log('[SWAP] нет свободного слота');
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                clearBusy();
+                return;
+            }
+
+            console.log(`[SWAP] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] → ${CT_NAMES[toCid]}[${toSlot}]`);
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
                 fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
+
+            // Закрываем инвентарь через 200мс после хода
             setTimeout(() => {
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 clearBusy();
-            }, 150);
-        }, 200);
+            }, 200);
+
+        }, 100);
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[SWAP] v14 готов');
+    console.log('[SWAP] v15 готов');
 })();
-// ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================м
+// ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
