@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.39 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -364,11 +364,28 @@ window.addEventListener('keydown', function(e) {
     if (e.altKey && e.key === '0') {
         sendChatInput('/dahk');
     }
-    // Numpad1 — быстрый своп тазер ↔ дигл
-    if (e.code === 'Numpad1') {
+    // Numpad1 — быстрый своп тазер ↔ дигл (keydown fallback)
+    if (e.code === 'Numpad1' || (e.keyCode === 97) || (e.key === '1' && e.location === 3)) {
+        e.preventDefault && e.preventDefault();
         window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
     }
 });
+// Перехват Numpad1 через движок (OnPlayerClientSideKey)
+(function() {
+    const _origSCEH_swap = window.sendClientEventHandle;
+    window.sendClientEventHandle = function(event, ...args) {
+        if (args[0] === 'OnPlayerClientSideKey') {
+            const keyCode = parseInt(args[1]);
+            // 97 = Numpad1 в CEF движке
+            if (keyCode === 97) {
+                console.log('[SWAP] OnPlayerClientSideKey Numpad1 (97) — своп');
+                window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+                return;
+            }
+        }
+        return _origSCEH_swap.call(this, event, ...args);
+    };
+})();
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
 // Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
