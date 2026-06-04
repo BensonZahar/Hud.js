@@ -1,5 +1,5 @@
-// MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1 | AutoTazer: Alt+Q) ===");
+// MVD AHK VERSION: 2.1 (FIX-TRIGGER)
+console.log("=== MVD AHK v2.334 FIX-TRIGGER ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -364,33 +364,7 @@ window.addEventListener('keydown', function(e) {
     if (e.altKey && e.key === '0') {
         sendChatInput('/dahk');
     }
-    // Numpad1 — быстрый своп тазер ↔ дигл (keydown fallback)
-    if (e.code === 'Numpad1' || (e.keyCode === 97) || (e.key === '1' && e.location === 3)) {
-        e.preventDefault && e.preventDefault();
-        window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-    }
-    // Alt+Q — автотазер (своп тазер ↔ дигл)
-    if (e.altKey && (e.key === 'q' || e.key === 'Q')) {
-        e.preventDefault && e.preventDefault();
-        window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-    }
 });
-// Перехват Numpad1 через движок (OnPlayerClientSideKey)
-(function() {
-    const _origSCEH_swap = window.sendClientEventHandle;
-    window.sendClientEventHandle = function(event, ...args) {
-        if (args[0] === 'OnPlayerClientSideKey') {
-            const keyCode = parseInt(args[1]);
-            // 40 = Numpad1 в движке Radmir
-            if (keyCode === 40) {
-                console.log('[SWAP] OnPlayerClientSideKey Numpad1 (40) — своп');
-                window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-                return;
-            }
-        }
-        return _origSCEH_swap.call(this, event, ...args);
-    };
-})();
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
 // Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
@@ -901,12 +875,8 @@ const executePovsednevAction = (action, targetId) => {
             } else {
                 sendMessagesWithDelay([
                     `Здравия желаю, Вас беспокоит ${RANK} - ${FIRST_NAME} ${LAST_NAME}.`,
-                    "/do Удостоверение в кармане.",
-                    "/me засунул руку, затем резким движением достал удостоверение",
-                    "/do Удостоверение в руке.",
-                    "/me открыл удостоверение и показал человеку напротив",
                     `/doc ${targetId}`
-                ], [0, 1000, 1000, 1000, 1000, 1000]);
+                ], [0, 800]);
             }
             break;
       
@@ -1348,9 +1318,6 @@ window.showMinuteInputDialog = (e) => {
 };
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`Событие: ${event}, Аргументы:`, args);
-
-    // Alt+Q — автотазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
-
     if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 681)) {
         if (args[1] === 666) { // Главное меню
             const listitem = args[3];
@@ -1699,27 +1666,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     // ==================== ИНВЕНТАРЬ ====================
-    const CT_NAMES_GRAB = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
-
-    function logInventoryGrab(label) {
-        try {
-            const inv = window.interface("InventoryNew");
-            if (!inv?.items) { console.log(`[GRAB-LOG] ${label}: items недоступны`); return; }
-            const lines = [`[GRAB-LOG] ── ${label} ──`];
-            for (const cid of [0, 1, 2, 3]) {
-                const c = inv.items[cid];
-                if (!c) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): нет контейнера`); continue; }
-                const entries = Object.entries(c);
-                if (entries.length === 0) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): пусто`); continue; }
-                for (const [slot, item] of entries) {
-                    if (!item) continue;
-                    lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}) slot${slot}: id=${item.id} x${item.count||1} w=${item.weight}`);
-                }
-            }
-            console.log(lines.join('\n'));
-        } catch(e) { console.log(`[GRAB-LOG] ${label}: ошибка`, e); }
-    }
-
     function findItem(itemId) {
         try {
             const inv = window.interface("InventoryNew");
@@ -1728,14 +1674,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 const c = inv.items[cid];
                 if (!c) continue;
                 for (const [slot, item] of Object.entries(c)) {
-                    if (item?.id === itemId) {
-                        console.log(`[GRAB] findItem(id=${itemId}): найден в ${CT_NAMES_GRAB[cid]} slot${slot} x${item.count||1}`);
-                        return { cid, slot: parseInt(slot), count: item.count || 1 };
-                    }
+                    if (item?.id === itemId) return { cid, slot: parseInt(slot), count: item.count || 1 };
                 }
             }
         } catch(e) {}
-        console.log(`[GRAB] findItem(id=${itemId}): НЕ НАЙДЕН`);
         return null;
     }
 
@@ -1751,33 +1693,21 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     if (item?.id === itemId) total += (item.count || 1);
                 }
             }
-            console.log(`[GRAB] countItem(id=${itemId}): итого x${total}`);
             return total;
         } catch(e) { return 0; }
     }
 
-    function openInventory() {
-        console.log('[GRAB] openInventory()');
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
-    }
-    function closeInventory() {
-        console.log('[GRAB] closeInventory()');
-        window.closeInterface("InventoryNew");
-    }
+    function openInventory() { sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange"); }
+    function closeInventory() { window.closeInterface("InventoryNew"); }
 
     async function waitInventory(maxMs = 1000) {
-        console.log(`[GRAB] waitInventory(${maxMs}ms)...`);
         for (let i = 0; i < maxMs; i += 50) {
             try {
                 const inv = window.interface("InventoryNew");
-                if (inv?.items?.[CT.INV] !== undefined) {
-                    console.log(`[GRAB] waitInventory: готов за ${i}мс`);
-                    return true;
-                }
+                if (inv?.items?.[CT.INV] !== undefined) return true;
             } catch(e) {}
             await sleep(50);
         }
-        console.error(`[GRAB] waitInventory: таймаут!`);
         return false;
     }
 
@@ -1818,10 +1748,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
 
             // ── Шаг 2: читаем что нужно ──
-            logInventoryGrab('GRAB ДО ВЗЯТИЯ');
             const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
             const skip = (key) => skipList.includes(key);
-            console.log(`[GRAB] skipList:`, skipList);
 
             const has = {
                 medkit:      skip('medkit')      ? 999 : (findItem(ITEM.MEDKIT)      ? 1 : 0),
@@ -1861,24 +1789,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
             };
 
-            console.log('[GRAB] has:', JSON.stringify(has));
-            console.log('[GRAB] need:', JSON.stringify(need));
-
-            // ── Шаг 3: запоминаем свободные слоты и закрываем инвентарь ──
-            // Сохраняем список свободных INV-слотов — используем в шаге 5
-            const freeInvSlots = [];
-            const freeBACKSlots = [];
-            try {
-                const inv0 = window.interface("InventoryNew");
-                if (inv0?.items) {
-                    const invMap  = inv0.items[CT.INV]  || {};
-                    const backMap = inv0.items[CT.BACK] || {};
-                    for (let s = 0; s < 20; s++) if (!invMap[s])  freeInvSlots.push(s);
-                    for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
-                }
-            } catch(e) {}
-            console.log(`[GRAB] freeInvSlots (до взятия):`, freeInvSlots);
-            console.log(`[GRAB] freeBACKSlots (до взятия):`, freeBACKSlots);
+            // ── Шаг 3: закрываем инвентарь — диалог меню всё ещё живой ──
             closeInventory();
             await sleep(150);
 
@@ -1889,10 +1800,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
 
             // ── Шаг 4: диалог открыт, сразу берём — НЕ переоткрываем меню ──
-
-            // ── Тазер всегда живёт в рюкзаке (Alt+H только двигает дигл).
-            //    need.taser будет false если тазер уже в рюкзаке — пост-обработка не нужна.
-
             const toTake = [];
             if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
             if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
@@ -1901,8 +1808,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
             if (need.radarGun)    toTake.push({ name: "Тауметр",                                 idx: MENU.RADAR_GUN });
             if (need.diagnostics) toTake.push({ name: "Диагностика",                             idx: MENU.DIAGNOSTICS });
-            if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
             if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
+            if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
             if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
             if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
             if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
@@ -1910,8 +1817,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
             if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
             if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
-
-            console.log(`[GRAB] toTake:`, toTake.map(t => `${t.name}(idx=${t.idx})`).join(', '));
 
             for (let i = 0; i < toTake.length; i++) {
                 const delay = Math.floor(Math.random() * 700) + 500; // рандом 500–1200мс
@@ -1945,141 +1850,3 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
-
-// ==================== СВОП ТАЗЕР ↔ ДИГЛ (v15 — polling) ====================
-(function() {
-    const ITEM_DEAGLE = 19;
-    const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
-    const CT_NAMES = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
-
-    let _busy = false;
-    let _busyTimer = null;
-
-    function clearBusy() {
-        clearTimeout(_busyTimer);
-        _busy = false;
-        console.log('[SWAP] готов');
-    }
-
-    function findItem(items, itemId) {
-        for (const cid of [CT.INV, CT.BACK, CT.ACC, CT.EXTRA]) {
-            const c = items[cid];
-            if (!c) continue;
-            for (const [slot, item] of Object.entries(c)) {
-                if (item?.id === itemId) {
-                    const loc = { cid, slot: parseInt(slot), count: item.count || 1 };
-                    console.log(`[SWAP] findItem(Дигл): ${CT_NAMES[cid]} slot${loc.slot} x${loc.count}`);
-                    return loc;
-                }
-            }
-        }
-        return null;
-    }
-
-    function findFreeSlot(items, targetCid) {
-        const container = items[targetCid];
-        if (!container) return 0;
-        for (let s = 0; s < 50; s++) {
-            if (!container[s]) {
-                console.log(`[SWAP] freeSlot(${CT_NAMES[targetCid]}): ${s}`);
-                return s;
-            }
-        }
-        return -1;
-    }
-
-    function tryGetItems() {
-        try {
-            const inv = window.interface('InventoryNew');
-            // items доступны только когда инвентарь открыт и Vue компонент смонтирован
-            const items = inv?.items;
-            if (!items) return null;
-            // проверяем что хотя бы один контейнер есть
-            if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
-        } catch(e) {}
-        return null;
-    }
-
-    function swapTaserDeagle() {
-        if (_busy) {
-            console.log('[SWAP] занят, пропуск');
-            return;
-        }
-        _busy = true;
-        _busyTimer = setTimeout(() => {
-            if (_busy) { _busy = false; console.log('[SWAP] таймаут сброса'); }
-        }, 5000);
-
-        console.log('[SWAP] открываем инвентарь...');
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-
-        // Polling: ждём пока items появятся (инвентарь открылся)
-        let attempts = 0;
-        const maxAttempts = 40; // 40 * 50ms = 2 секунды
-        const poll = setInterval(() => {
-            attempts++;
-            const items = tryGetItems();
-
-            if (!items) {
-                if (attempts >= maxAttempts) {
-                    clearInterval(poll);
-                    console.log('[SWAP] items не появились, отмена');
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    snAdd('[1, "СВОП", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
-                    clearBusy();
-                }
-                return;
-            }
-
-            clearInterval(poll);
-            console.log(`[SWAP] items получены (попытка ${attempts})`);
-
-            const deagleLoc = findItem(items, ITEM_DEAGLE);
-            if (!deagleLoc) {
-                console.log('[SWAP] дигл не найден');
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                snAdd('[1, "СВОП", "Дигл не найден в инвентаре", "FF4400", 3000]');
-                clearBusy();
-                return;
-            }
-
-            let fromCid, toCid;
-            if (deagleLoc.cid === CT.INV) {
-                fromCid = CT.INV; toCid = CT.BACK;
-            } else if (deagleLoc.cid === CT.BACK) {
-                fromCid = CT.BACK; toCid = CT.INV;
-            } else {
-                console.log('[SWAP] дигл не в INV/BACK');
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                clearBusy();
-                return;
-            }
-
-            const toSlot = findFreeSlot(items, toCid);
-            if (toSlot < 0) {
-                console.log('[SWAP] нет свободного слота');
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                snAdd('[1, "СВОП", "Нет свободного слота!", "FF4400", 3000]');
-                clearBusy();
-                return;
-            }
-
-            const direction = (fromCid === CT.INV) ? 'Дигл -> Рюкзак' : 'Дигл -> Инвентарь';
-            console.log(`[SWAP] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] -> ${CT_NAMES[toCid]}[${toSlot}]`);
-            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
-                fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
-
-            // Закрываем инвентарь через 150мс после хода
-            setTimeout(() => {
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                snAdd(`[1, "СВОП", "${direction}", "00CC44", 2000]`);
-                clearBusy();
-            }, 150);
-
-        }, 50);
-    }
-
-    window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[SWAP] v15 готов');
-})();
-// ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
