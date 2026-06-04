@@ -85,14 +85,15 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             }
             eval(scriptText);
             // Явно выставляем window-флаги после eval.
-            // AUTO_TASER не патчим через scriptText.replace — mvdN на GitHub может не иметь этой переменной.
-            // mvdN читает window.AUTO_TASER и window.AUTO_TASER_KEY лениво в keydown — этого достаточно.
             if (AUTO_GRAB)  window.AUTO_GRAB  = true;
             if (AUTO_TASER) {
                 window.AUTO_TASER     = true;
                 window.AUTO_TASER_KEY = AUTO_TASER_KEY;
             }
-            console.log(`Скрипт ${filename} загружен и выполнен успешно`);
+            console.log(`[AHK] Скрипт ${filename} загружен и выполнен успешно`);
+            console.log(`[AHK] AUTO_TASER (const в LoadAhk) = ${AUTO_TASER}`);
+            console.log(`[AHK] window.AUTO_TASER после eval = ${window.AUTO_TASER}`);
+            console.log(`[AHK] window.AUTO_TASER_KEY после eval = ${window.AUTO_TASER_KEY}`);
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);
             if (retries > 0) {

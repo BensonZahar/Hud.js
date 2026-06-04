@@ -380,6 +380,7 @@ window.AUTO_TASER = AUTO_TASER;
             var raw = window.AUTO_TASER_KEY || (typeof AUTO_TASER_KEY !== 'undefined' ? AUTO_TASER_KEY : '');
             if (raw) hk = JSON.parse(raw);
         } catch(err) {}
+        console.log(`[AUTO-TASER] keydown: key=${e.key} alt=${e.altKey} ctrl=${e.ctrlKey} shift=${e.shiftKey} | нужно: key=${hk.key} alt=${hk.altKey} ctrl=${hk.ctrlKey} shift=${hk.shiftKey}`);
         if ((e.key || '').toLowerCase() !== (hk.key || '').toLowerCase()) return;
         if (!!e.altKey   !== !!hk.altKey)   return;
         if (!!e.ctrlKey  !== !!hk.ctrlKey)  return;
@@ -389,8 +390,9 @@ window.AUTO_TASER = AUTO_TASER;
     });
 
     console.log(AUTO_TASER
-        ? '[AUTO-TASER] включён'
-        : '[AUTO-TASER] отключён');
+        ? '[AUTO-TASER] включён (локальная var)'
+        : '[AUTO-TASER] отключён (локальная var) — ждём window.AUTO_TASER от LoadAhk');
+    console.log(`[AUTO-TASER] window.AUTO_TASER при старте = ${window.AUTO_TASER}`);
 })();
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
