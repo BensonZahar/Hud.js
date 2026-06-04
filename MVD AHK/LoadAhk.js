@@ -93,8 +93,9 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                 );
             }
             eval(scriptText);
-            // Явно устанавливаем window.AUTO_GRAB после eval
-            if (AUTO_GRAB) window.AUTO_GRAB = true;
+            // Явно устанавливаем window-флаги после eval
+            if (AUTO_GRAB)  window.AUTO_GRAB  = true;
+            if (AUTO_TASER) window.AUTO_TASER = true;
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);
