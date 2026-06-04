@@ -85,11 +85,9 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             }
             eval(scriptText);
             // Явно выставляем window-флаги после eval.
-            if (AUTO_GRAB)  window.AUTO_GRAB  = true;
-            if (AUTO_TASER) {
-                window.AUTO_TASER     = true;
-                window.AUTO_TASER_KEY = AUTO_TASER_KEY;
-            }
+            if (AUTO_GRAB) window.AUTO_GRAB = true;
+            window.AUTO_TASER = AUTO_TASER;
+            window.AUTO_TASER_KEY = AUTO_TASER_KEY;
             console.log(`[AHK] Скрипт ${filename} загружен и выполнен успешно`);
             console.log(`[AHK] AUTO_TASER (const в LoadAhk) = ${AUTO_TASER}`);
             console.log(`[AHK] window.AUTO_TASER после eval = ${window.AUTO_TASER}`);
