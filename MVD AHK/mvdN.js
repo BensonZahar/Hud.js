@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (AutoTaser: Alt+Q | SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -361,25 +361,25 @@ let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 // Обработчик горячих клавиш
 // ── Своп тазер ↔ дигл: настраиваемая клавиша ──────────────────
-// AUTO_SWAP и AUTO_SWAP_KEY патчатся установщиком. Если AUTO_SWAP=false — своп отключён.
-var AUTO_SWAP = false;
-var AUTO_SWAP_KEY = '{"key":"q","altKey":true,"ctrlKey":false,"shiftKey":false}';
-window.AUTO_SWAP = AUTO_SWAP;
+// AUTO_TASER и AUTO_TASER_KEY патчатся установщиком. Если AUTO_TASER=false — авто-тазер отключён.
+var AUTO_TASER = false;
+var AUTO_TASER_KEY = '{"key":"q","altKey":true,"ctrlKey":false,"shiftKey":false}';
+window.AUTO_TASER = AUTO_TASER;
 
 (function() {
     // Парсим hotkey
-    let _swapHk = { key: 'q', altKey: true, ctrlKey: false, shiftKey: false };
+    let _taserHk = { key: 'q', altKey: true, ctrlKey: false, shiftKey: false };
     try {
-        const raw = typeof AUTO_SWAP_KEY !== 'undefined' ? AUTO_SWAP_KEY : '{}';
-        if (raw) _swapHk = JSON.parse(raw);
+        const raw = typeof AUTO_TASER_KEY !== 'undefined' ? AUTO_TASER_KEY : '{}';
+        if (raw) _taserHk = JSON.parse(raw);
     } catch(e) {}
 
-    function matchesSwap(e) {
-        if (!window.AUTO_SWAP) return false;
-        if ((e.key || '').toLowerCase() !== (_swapHk.key || '').toLowerCase()) return false;
-        if (!!e.altKey   !== !!_swapHk.altKey)   return false;
-        if (!!e.ctrlKey  !== !!_swapHk.ctrlKey)  return false;
-        if (!!e.shiftKey !== !!_swapHk.shiftKey) return false;
+    function matchesTaser(e) {
+        if (!window.AUTO_TASER) return false;
+        if ((e.key || '').toLowerCase() !== (_taserHk.key || '').toLowerCase()) return false;
+        if (!!e.altKey   !== !!_taserHk.altKey)   return false;
+        if (!!e.ctrlKey  !== !!_taserHk.ctrlKey)  return false;
+        if (!!e.shiftKey !== !!_taserHk.shiftKey) return false;
         return true;
     }
 
@@ -387,16 +387,16 @@ window.AUTO_SWAP = AUTO_SWAP;
         if (e.altKey && e.key === '0') {
             sendChatInput('/dahk');
         }
-        if (matchesSwap(e)) {
+        if (matchesTaser(e)) {
             e.preventDefault && e.preventDefault();
             window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
         }
     });
 
-    const hkLabel = `${_swapHk.ctrlKey?'Ctrl+':''}${_swapHk.altKey?'Alt+':''}${_swapHk.shiftKey?'Shift+':''}${(_swapHk.key||'').toUpperCase()}`;
-    console.log(window.AUTO_SWAP
-        ? `[SWAP] авто-своп включён. Клавиша: ${hkLabel}`
-        : '[SWAP] авто-своп отключён');
+    const hkLabel = `${_taserHk.ctrlKey?'Ctrl+':''}${_taserHk.altKey?'Alt+':''}${_taserHk.shiftKey?'Shift+':''}${(_taserHk.key||'').toUpperCase()}`;
+    console.log(window.AUTO_TASER
+        ? `[AUTO-TASER] авто-тазер включён. Клавиша: ${hkLabel}`
+        : '[AUTO-TASER] авто-тазер отключён');
 })();
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================

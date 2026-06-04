@@ -150,7 +150,7 @@ class InstallerAPI:
             return "✓"
         return None
 
-    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, auto_swap=False, auto_swap_key=None):
+    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, auto_taser=False, auto_taser_key=None):
         def run():
             import traceback, sys
             try:
@@ -171,17 +171,17 @@ class InstallerAPI:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
                 code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
-            # ── Своп тазер ↔ дигл ───────────────────────────────────────────
-            if auto_swap and isinstance(auto_swap_key, dict):
-                key_json = json.dumps(auto_swap_key, ensure_ascii=False, separators=(',', ':'))
+            # ── Авто-тазер (своп тазер ↔ дигл) ─────────────────────────────
+            if auto_taser and isinstance(auto_taser_key, dict):
+                key_json = json.dumps(auto_taser_key, ensure_ascii=False, separators=(',', ':'))
                 key_json_esc = key_json.replace("'", "\\'")
-                code = code.replace('var AUTO_SWAP = false;', 'var AUTO_SWAP = true;')
-                code = code.replace('const AUTO_SWAP = false;', 'const AUTO_SWAP = true;')
+                code = code.replace('var AUTO_TASER = false;', 'var AUTO_TASER = true;')
+                code = code.replace('const AUTO_TASER = false;', 'const AUTO_TASER = true;')
                 import re as _re
-                code = _re.sub(r"var AUTO_SWAP_KEY = '[^']*';",
-                               f"var AUTO_SWAP_KEY = '{key_json_esc}';", code)
-                code = _re.sub(r"const AUTO_SWAP_KEY = '[^']*';",
-                               f"const AUTO_SWAP_KEY = '{key_json_esc}';", code)
+                code = _re.sub(r"var AUTO_TASER_KEY = '[^']*';",
+                               f"var AUTO_TASER_KEY = '{key_json_esc}';", code)
+                code = _re.sub(r"const AUTO_TASER_KEY = '[^']*';",
+                               f"const AUTO_TASER_KEY = '{key_json_esc}';", code)
             # ── Авто-снаряжение ─────────────────────────────────────────
             items_dict = auto_grab.get('items', {}) if auto_grab else {}
             any_item = any(v for v in items_dict.values()) if items_dict else False
@@ -237,8 +237,8 @@ class InstallerAPI:
                     'use_callsign': bool(use_callsign),
                     'use_auto_password': bool(auto_password),
                     'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                    'auto_swap': bool(auto_swap),
-                    'auto_swap_key': auto_swap_key if isinstance(auto_swap_key, dict) else {'key': 'q', 'altKey': True, 'ctrlKey': False, 'shiftKey': False},
+                    'auto_taser': bool(auto_taser),
+                    'auto_taser_key': auto_taser_key if isinstance(auto_taser_key, dict) else {'key': 'q', 'altKey': True, 'ctrlKey': False, 'shiftKey': False},
                     'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {}
                 })
                 self._notify(True)
