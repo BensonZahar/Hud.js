@@ -5,6 +5,8 @@ const LAST_NAME = "";
 const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
 const HWID = ""; // Вшивается установщиком — проверяется онлайн при каждом запуске игры
+const SWAP_ENABLED = true; // Включить свап тазер ↔ дигл (установщик может выключить)
+const SWAP_KEY = "Alt+Q"; // Хоткей свапа: "Alt+Q", "Numpad1", "F6", "Alt+F", и т.д. Пусто = отключено
 const KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/keys.json";
 // ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
@@ -190,4 +192,66 @@ function verifyAndLoad() {
 }
 // Запуск загрузчика
 verifyAndLoad();
+
+// ── Регистрация хоткея свапа ────────────────────────────────
+// SWAP_ENABLED=false или SWAP_KEY="" → слушатели не вешаются вообще
+(function() {
+    if (!SWAP_ENABLED || !SWAP_KEY) {
+        console.log('[SWAP-KEY] Свап отключён установщиком');
+        return;
+    }
+
+    // Парсим строку вида "Alt+Q", "Ctrl+Shift+F5", "Numpad1", "F6" и т.д.
+    var parts = SWAP_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+    var needAlt   = parts.indexOf('alt')   !== -1;
+    var needCtrl  = parts.indexOf('ctrl')  !== -1;
+    var needShift = parts.indexOf('shift') !== -1;
+    // Основная клавиша — последняя часть или единственная
+    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+    var mainKey   = mainParts[0] || '';
+
+    // Нормализуем: "numpad1" → code "Numpad1"; "f6" → code "F6"; одиночная буква → key "q"
+    var matchCode = null;
+    var matchKey  = null;
+    if (/^numpad(\d)$/.test(mainKey)) {
+        matchCode = 'Numpad' + mainKey.replace('numpad','');
+    } else if (/^f\d+$/.test(mainKey)) {
+        matchCode = mainKey.charAt(0).toUpperCase() + mainKey.slice(1); // "F6"
+    } else {
+        matchKey = mainKey; // одиночный символ, сравниваем e.key.toLowerCase()
+    }
+
+    function isMatch(e) {
+        if (needAlt   && !e.altKey)   return false;
+        if (needCtrl  && !e.ctrlKey)  return false;
+        if (needShift && !e.shiftKey) return false;
+        if (matchCode) return e.code === matchCode;
+        if (matchKey)  return e.key.toLowerCase() === matchKey;
+        return false;
+    }
+
+    window.addEventListener('keydown', function(e) {
+        if (!isMatch(e)) return;
+        e.preventDefault && e.preventDefault();
+        window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+    });
+
+    // Также перехватываем через движок для Numpad1 (keyCode 40 в Radmir)
+    if (matchCode === 'Numpad1') {
+        var _origSCEH_key = window.sendClientEventHandle;
+        if (_origSCEH_key) {
+            window.sendClientEventHandle = function(event) {
+                var args = Array.prototype.slice.call(arguments, 1);
+                if (args[0] === 'OnPlayerClientSideKey' && parseInt(args[1]) === 40) {
+                    console.log('[SWAP-KEY] OnPlayerClientSideKey Numpad1 (40) — своп');
+                    window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+                    return;
+                }
+                return _origSCEH_key.apply(this, arguments);
+            };
+        }
+    }
+
+    console.log('[SWAP-KEY] Хоткей зарегистрирован: ' + SWAP_KEY);
+})();
 })();
