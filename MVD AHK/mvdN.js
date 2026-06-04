@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.34 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AHK v2.34 тест если шо во ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -618,9 +618,6 @@ const startTracking = (id) => {
         }
     }, 31000);
  
-    setTimeout(() => {
-        showMvdSubMenu(giveLicenseTo);
-    }, 100);
 };
 const stopTracking = () => {
     // Очищаем все интервалы
