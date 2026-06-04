@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (AutoTaser: Alt+Q | SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.9 STEP5-PREDICT-FIX ЗАГРУЖЕН (AutoTaser: Alt+Q | SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
