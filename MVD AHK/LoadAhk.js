@@ -83,19 +83,15 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                     scriptText = scriptText.replace(/var AUTO_GRAB_SKIP = \[\];/, `var AUTO_GRAB_SKIP = ${skipJson};`);
                 }
             }
-            // ── Патчим AUTO_TASER (до eval!) ──────────────────────────
-            if (AUTO_TASER) {
-                scriptText = scriptText.replace(/var AUTO_TASER = false;/, 'var AUTO_TASER = true;');
-                const taserKeyEscaped = AUTO_TASER_KEY.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                scriptText = scriptText.replace(
-                    /var AUTO_TASER_KEY = '[^']*';/,
-                    `var AUTO_TASER_KEY = '${taserKeyEscaped}';`
-                );
-            }
             eval(scriptText);
-            // Явно устанавливаем window-флаги после eval
+            // Явно выставляем window-флаги после eval.
+            // AUTO_TASER не патчим через scriptText.replace — mvdN на GitHub может не иметь этой переменной.
+            // mvdN читает window.AUTO_TASER и window.AUTO_TASER_KEY лениво в keydown — этого достаточно.
             if (AUTO_GRAB)  window.AUTO_GRAB  = true;
-            if (AUTO_TASER) window.AUTO_TASER = true;
+            if (AUTO_TASER) {
+                window.AUTO_TASER     = true;
+                window.AUTO_TASER_KEY = AUTO_TASER_KEY;
+            }
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);

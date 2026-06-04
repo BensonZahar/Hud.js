@@ -372,12 +372,12 @@ window.AUTO_TASER = AUTO_TASER;
         if (e.altKey && e.key === '0') {
             sendChatInput('/dahk');
         }
-        // Авто-тазер: читаем флаг и клавишу лениво, в момент нажатия —
-        // чтобы поймать значения уже после патча LoadAhk
+        // Авто-тазер: читаем флаг и клавишу из window — туда записывает LoadAhk после eval
         if (!window.AUTO_TASER) return;
         var hk = { key: 'q', altKey: true, ctrlKey: false, shiftKey: false };
         try {
-            var raw = typeof AUTO_TASER_KEY !== 'undefined' ? AUTO_TASER_KEY : '{}';
+            // window.AUTO_TASER_KEY вшивается LoadAhk'ом; локальная AUTO_TASER_KEY — запасной вариант
+            var raw = window.AUTO_TASER_KEY || (typeof AUTO_TASER_KEY !== 'undefined' ? AUTO_TASER_KEY : '');
             if (raw) hk = JSON.parse(raw);
         } catch(err) {}
         if ((e.key || '').toLowerCase() !== (hk.key || '').toLowerCase()) return;
