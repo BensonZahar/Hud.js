@@ -30,10 +30,6 @@ const AUTO_GRAB_MENU_AMMO_545    = -1;
 const AUTO_GRAB_MENU_AMMO_1270   = -1;
 const AUTO_GRAB_SKIP = []; // Список предметов которые НЕ брать: ["medkit","painkiller","baton","baton2","vest","taumeter","diag","taser","deagle","magnum","akm","ammo762","aks74u","remington","ammo545","ammo12x70"]
 // ── END Авто-снаряжение ─────────────────────────────────────────
-// ── Авто-тазер (своп тазер ↔ дигл) ────────────────────────────
-const AUTO_TASER = false; // Включить авто-тазер (вшивается установщиком)
-const AUTO_TASER_KEY = '{"key":"q","altKey":true,"ctrlKey":false,"shiftKey":false}'; // JSON hotkey
-// ── END Авто-тазер ─────────────────────────────────────────────
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
@@ -83,26 +79,10 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                     scriptText = scriptText.replace(/var AUTO_GRAB_SKIP = \[\];/, `var AUTO_GRAB_SKIP = ${skipJson};`);
                 }
             }
-            // ── Патчим AUTO_TASER и AUTO_TASER_KEY прямо в тексте mvdN (до eval) ──
-            // Это гарантирует правильное значение внутри самого скрипта,
-            // независимо от var-hoisting и indirect eval.
-            if (AUTO_TASER) {
-                scriptText = scriptText.replace(/var AUTO_TASER = false;/, 'var AUTO_TASER = true;');
-            }
-            // Всегда патчим ключ — чтобы внутри mvdN был актуальный hotkey
-            scriptText = scriptText.replace(
-                /var AUTO_TASER_KEY = '[^']*';/,
-                "var AUTO_TASER_KEY = '" + AUTO_TASER_KEY.replace(/'/g, "\'") + "';"
-            );
             eval(scriptText);
-            // Дублируем в window — на случай если mvdN читает через window.AUTO_TASER
+            // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
-            window.AUTO_TASER = AUTO_TASER;
-            window.AUTO_TASER_KEY = AUTO_TASER_KEY;
-            console.log(`[AHK] Скрипт ${filename} загружен и выполнен успешно`);
-            console.log(`[AHK] AUTO_TASER (const в LoadAhk) = ${AUTO_TASER}`);
-            console.log(`[AHK] window.AUTO_TASER после eval = ${window.AUTO_TASER}`);
-            console.log(`[AHK] window.AUTO_TASER_KEY после eval = ${window.AUTO_TASER_KEY}`);
+            console.log(`Скрипт ${filename} загружен и выполнен успешно`);
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);
             if (retries > 0) {

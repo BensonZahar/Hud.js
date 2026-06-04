@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (AutoTaser: Alt+Q | SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1 | AutoTazer: Alt+Q) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -360,38 +360,36 @@ let ukPage = 0;
 let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 // Обработчик горячих клавиш
-// ── Своп тазер ↔ дигл: настраиваемая клавиша ──────────────────
-// AUTO_TASER и AUTO_TASER_KEY патчатся установщиком перед eval.
-// Если AUTO_TASER=false — авто-тазер полностью отключён, никакие клавиши не работают.
-var AUTO_TASER = false;
-var AUTO_TASER_KEY = '{"key":"q","altKey":true,"ctrlKey":false,"shiftKey":false}';
-
-(function() {
-    window.addEventListener('keydown', function(e) {
-        if (e.altKey && e.key === '0') {
-            sendChatInput('/dahk');
-        }
-        // Авто-тазер: читаем флаг и клавишу из window — туда записывает LoadAhk после eval
-        if (!window.AUTO_TASER) return;
-        var hk = { key: 'q', altKey: true, ctrlKey: false, shiftKey: false };
-        try {
-            // window.AUTO_TASER_KEY вшивается LoadAhk'ом; локальная AUTO_TASER_KEY — запасной вариант
-            var raw = window.AUTO_TASER_KEY || (typeof AUTO_TASER_KEY !== 'undefined' ? AUTO_TASER_KEY : '');
-            if (raw) hk = JSON.parse(raw);
-        } catch(err) {}
-        console.log(`[AUTO-TASER] keydown: key=${e.key} alt=${e.altKey} ctrl=${e.ctrlKey} shift=${e.shiftKey} | нужно: key=${hk.key} alt=${hk.altKey} ctrl=${hk.ctrlKey} shift=${hk.shiftKey}`);
-        if ((e.key || '').toLowerCase() !== (hk.key || '').toLowerCase()) return;
-        if (!!e.altKey   !== !!hk.altKey)   return;
-        if (!!e.ctrlKey  !== !!hk.ctrlKey)  return;
-        if (!!e.shiftKey !== !!hk.shiftKey) return;
+window.addEventListener('keydown', function(e) {
+    if (e.altKey && e.key === '0') {
+        sendChatInput('/dahk');
+    }
+    // Numpad1 — быстрый своп тазер ↔ дигл (keydown fallback)
+    if (e.code === 'Numpad1' || (e.keyCode === 97) || (e.key === '1' && e.location === 3)) {
         e.preventDefault && e.preventDefault();
         window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-    });
-
-    console.log(AUTO_TASER
-        ? '[AUTO-TASER] включён (локальная var)'
-        : '[AUTO-TASER] отключён (локальная var) — ждём window.AUTO_TASER от LoadAhk');
-    console.log(`[AUTO-TASER] window.AUTO_TASER при старте = ${window.AUTO_TASER}`);
+    }
+    // Alt+Q — автотазер (своп тазер ↔ дигл)
+    if (e.altKey && (e.key === 'q' || e.key === 'Q')) {
+        e.preventDefault && e.preventDefault();
+        window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+    }
+});
+// Перехват Numpad1 через движок (OnPlayerClientSideKey)
+(function() {
+    const _origSCEH_swap = window.sendClientEventHandle;
+    window.sendClientEventHandle = function(event, ...args) {
+        if (args[0] === 'OnPlayerClientSideKey') {
+            const keyCode = parseInt(args[1]);
+            // 40 = Numpad1 в движке Radmir
+            if (keyCode === 40) {
+                console.log('[SWAP] OnPlayerClientSideKey Numpad1 (40) — своп');
+                window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+                return;
+            }
+        }
+        return _origSCEH_swap.call(this, event, ...args);
+    };
 })();
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
@@ -1350,6 +1348,8 @@ window.showMinuteInputDialog = (e) => {
 };
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`Событие: ${event}, Аргументы:`, args);
+
+    // Alt+Q — автотазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
     if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 681)) {
         if (args[1] === 666) { // Главное меню
