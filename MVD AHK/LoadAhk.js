@@ -30,6 +30,10 @@ const AUTO_GRAB_MENU_AMMO_545    = -1;
 const AUTO_GRAB_MENU_AMMO_1270   = -1;
 const AUTO_GRAB_SKIP = []; // Список предметов которые НЕ брать: ["medkit","painkiller","baton","baton2","vest","taumeter","diag","taser","deagle","magnum","akm","ammo762","aks74u","remington","ammo545","ammo12x70"]
 // ── END Авто-снаряжение ─────────────────────────────────────────
+// ── Своп тазер ↔ дигл ──────────────────────────────────────────
+const AUTO_SWAP = false; // Включить своп (вшивается установщиком)
+const AUTO_SWAP_KEY = '{"key":"q","altKey":true,"ctrlKey":false,"shiftKey":false}'; // JSON hotkey
+// ── END Своп ───────────────────────────────────────────────────
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
@@ -82,6 +86,15 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             eval(scriptText);
             // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
+            // Патчим AUTO_SWAP
+            if (AUTO_SWAP) {
+                scriptText = scriptText.replace(/var AUTO_SWAP = false;/, 'var AUTO_SWAP = true;');
+                const swapKeyEscaped = AUTO_SWAP_KEY.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                scriptText = scriptText.replace(
+                    /var AUTO_SWAP_KEY = '[^']*';/,
+                    `var AUTO_SWAP_KEY = '${swapKeyEscaped}';`
+                );
+            }
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);

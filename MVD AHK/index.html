@@ -397,6 +397,20 @@ body{
           <input class="inp" id="f-password" type="password" placeholder="Введите пароль">
         </div>
       </div>
+      <div class="chk-row" onclick="toggleAutoSwap()">
+        <div class="chk-box" id="chk-box-swap">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <span class="chk-lbl">Своп тазер ↔ дигл</span>
+      </div>
+      <div class="cs-wrap" id="swap-wrap">
+        <div class="inp-grp">
+          <div class="inp-lbl">Горячая клавиша — нажмите нужную комбинацию</div>
+          <input class="inp" id="f-swap-key" placeholder="Нажмите клавишу..."
+            readonly style="cursor:pointer;caret-color:transparent"
+            onfocus="startSwapCapture()" onblur="stopSwapCapture()" onclick="startSwapCapture()">
+        </div>
+      </div>
       <div class="chk-row" onclick="toggleAutoGrab()">
         <div class="chk-box" id="chk-box-grab">
           <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
@@ -533,8 +547,58 @@ body{
 var folderSelected = false;
 var callsignOn = false;
 var autoPasswordOn = false;
+var autoSwapOn = false;
 var autoGrabOn = false;
-var savedAutoGrab = null; // сохранённые настройки авто-снаряжения из Python
+var savedAutoGrab = null;
+var swapHotkey = { key: 'q', altKey: true, ctrlKey: false, shiftKey: false };
+var _swapCapturing = false;
+
+function hotkeyLabel(hk) {
+  if (!hk || !hk.key) return '';
+  var parts = [];
+  if (hk.ctrlKey)  parts.push('Ctrl');
+  if (hk.altKey)   parts.push('Alt');
+  if (hk.shiftKey) parts.push('Shift');
+  var k = hk.key === ' ' ? 'Space' : (hk.key.length === 1 ? hk.key.toUpperCase() : hk.key);
+  parts.push(k);
+  return parts.join('+');
+}
+
+function startSwapCapture() {
+  _swapCapturing = true;
+  var el = document.getElementById('f-swap-key');
+  el.value = 'Нажмите комбинацию...';
+  el.style.borderColor = 'var(--accent)';
+  el.style.boxShadow = 'inset 0 0 0 1px var(--accent)';
+}
+
+function stopSwapCapture() {
+  _swapCapturing = false;
+  var el = document.getElementById('f-swap-key');
+  el.style.borderColor = '';
+  el.style.boxShadow = '';
+  if (el.value === 'Нажмите комбинацию...') el.value = hotkeyLabel(swapHotkey);
+}
+
+document.addEventListener('keydown', function(e) {
+  if (!_swapCapturing) return;
+  if (['Control','Alt','Shift','Meta'].includes(e.key)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  swapHotkey = { key: e.key, altKey: e.altKey, ctrlKey: e.ctrlKey, shiftKey: e.shiftKey };
+  document.getElementById('f-swap-key').value = hotkeyLabel(swapHotkey);
+  document.getElementById('f-swap-key').blur();
+}, true);
+
+function toggleAutoSwap() {
+  autoSwapOn = !autoSwapOn;
+  document.getElementById('chk-box-swap').classList.toggle('on', autoSwapOn);
+  document.getElementById('swap-wrap').classList.toggle('show', autoSwapOn);
+  if (autoSwapOn) {
+    var el = document.getElementById('f-swap-key');
+    if (!el.value || el.value === 'Нажмите клавишу...') el.value = hotkeyLabel(swapHotkey);
+  }
+}
 var grabItems = { painkiller:false, medkit:false, baton:false, baton2:false, vest:false, taumeter:false, diag:false, taser:false, deagle:false, akm:false, aks74u:false, remington:false, magnum:false, ammo762:false, ammo545:false, ammo12x70:false };
 var api = null;
 
@@ -624,6 +688,15 @@ window.addEventListener('pywebviewready', function() {
       }
     }
     // Авто-снаряжение — сохраняем в savedAutoGrab для getGrabSettings()
+    if (s.auto_swap) {
+      autoSwapOn = true;
+      document.getElementById('chk-box-swap').classList.add('on');
+      document.getElementById('swap-wrap').classList.add('show');
+      if (s.auto_swap_key && typeof s.auto_swap_key === 'object') {
+        swapHotkey = s.auto_swap_key;
+      }
+      document.getElementById('f-swap-key').value = hotkeyLabel(swapHotkey);
+    }
     if (s.auto_grab && typeof s.auto_grab === 'object') {
       savedAutoGrab = s.auto_grab;
       // Восстанавливаем галочку enabled
@@ -778,11 +851,12 @@ function doInsert() {
   var cs=callsignOn ? document.getElementById('f-callsign').value.trim() : '';
   var pwd=autoPasswordOn ? document.getElementById('f-password').value : '';
   var grab=getGrabSettings();
+  var swapKey=autoSwapOn ? swapHotkey : null;
   var btn=document.getElementById('btn-insert');
   btn.disabled=true;
   runBar('pbar-insert','pbar-insert-f',3000);
   if (api) {
-    api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab).then(function(){
+    api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,autoSwapOn,swapKey).then(function(){
       btn.disabled=false;
     });
   } else {

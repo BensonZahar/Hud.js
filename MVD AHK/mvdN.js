@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1 | AutoTazer: Alt+Q) ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -360,36 +360,43 @@ let ukPage = 0;
 let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 // Обработчик горячих клавиш
-window.addEventListener('keydown', function(e) {
-    if (e.altKey && e.key === '0') {
-        sendChatInput('/dahk');
-    }
-    // Numpad1 — быстрый своп тазер ↔ дигл (keydown fallback)
-    if (e.code === 'Numpad1' || (e.keyCode === 97) || (e.key === '1' && e.location === 3)) {
-        e.preventDefault && e.preventDefault();
-        window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-    }
-    // Alt+Q — автотазер (своп тазер ↔ дигл)
-    if (e.altKey && (e.key === 'q' || e.key === 'Q')) {
-        e.preventDefault && e.preventDefault();
-        window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-    }
-});
-// Перехват Numpad1 через движок (OnPlayerClientSideKey)
+// ── Своп тазер ↔ дигл: настраиваемая клавиша ──────────────────
+// AUTO_SWAP и AUTO_SWAP_KEY патчатся установщиком. Если AUTO_SWAP=false — своп отключён.
+var AUTO_SWAP = false;
+var AUTO_SWAP_KEY = '{"key":"q","altKey":true,"ctrlKey":false,"shiftKey":false}';
+window.AUTO_SWAP = AUTO_SWAP;
+
 (function() {
-    const _origSCEH_swap = window.sendClientEventHandle;
-    window.sendClientEventHandle = function(event, ...args) {
-        if (args[0] === 'OnPlayerClientSideKey') {
-            const keyCode = parseInt(args[1]);
-            // 40 = Numpad1 в движке Radmir
-            if (keyCode === 40) {
-                console.log('[SWAP] OnPlayerClientSideKey Numpad1 (40) — своп');
-                window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-                return;
-            }
+    // Парсим hotkey
+    let _swapHk = { key: 'q', altKey: true, ctrlKey: false, shiftKey: false };
+    try {
+        const raw = typeof AUTO_SWAP_KEY !== 'undefined' ? AUTO_SWAP_KEY : '{}';
+        if (raw) _swapHk = JSON.parse(raw);
+    } catch(e) {}
+
+    function matchesSwap(e) {
+        if (!window.AUTO_SWAP) return false;
+        if ((e.key || '').toLowerCase() !== (_swapHk.key || '').toLowerCase()) return false;
+        if (!!e.altKey   !== !!_swapHk.altKey)   return false;
+        if (!!e.ctrlKey  !== !!_swapHk.ctrlKey)  return false;
+        if (!!e.shiftKey !== !!_swapHk.shiftKey) return false;
+        return true;
+    }
+
+    window.addEventListener('keydown', function(e) {
+        if (e.altKey && e.key === '0') {
+            sendChatInput('/dahk');
         }
-        return _origSCEH_swap.call(this, event, ...args);
-    };
+        if (matchesSwap(e)) {
+            e.preventDefault && e.preventDefault();
+            window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+        }
+    });
+
+    const hkLabel = `${_swapHk.ctrlKey?'Ctrl+':''}${_swapHk.altKey?'Alt+':''}${_swapHk.shiftKey?'Shift+':''}${(_swapHk.key||'').toUpperCase()}`;
+    console.log(window.AUTO_SWAP
+        ? `[SWAP] авто-своп включён. Клавиша: ${hkLabel}`
+        : '[SWAP] авто-своп отключён');
 })();
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
@@ -1348,8 +1355,6 @@ window.showMinuteInputDialog = (e) => {
 };
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`Событие: ${event}, Аргументы:`, args);
-
-    // Alt+Q — автотазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
     if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 681)) {
         if (args[1] === 666) { // Главное меню
