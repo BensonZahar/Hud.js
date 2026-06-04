@@ -235,6 +235,7 @@ class InstallerAPI:
                     'last_name': last_name,
                     'callsign': callsign if use_callsign else '',
                     'use_callsign': bool(use_callsign),
+                    'auto_password': auto_password if auto_password else '',
                     'use_auto_password': bool(auto_password),
                     'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
                     'auto_taser': bool(auto_taser),

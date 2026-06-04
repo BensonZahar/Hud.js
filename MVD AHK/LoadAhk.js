@@ -83,9 +83,19 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                     scriptText = scriptText.replace(/var AUTO_GRAB_SKIP = \[\];/, `var AUTO_GRAB_SKIP = ${skipJson};`);
                 }
             }
+            // ── Патчим AUTO_TASER и AUTO_TASER_KEY прямо в тексте mvdN (до eval) ──
+            // Это гарантирует правильное значение внутри самого скрипта,
+            // независимо от var-hoisting и indirect eval.
+            if (AUTO_TASER) {
+                scriptText = scriptText.replace(/var AUTO_TASER = false;/, 'var AUTO_TASER = true;');
+            }
+            // Всегда патчим ключ — чтобы внутри mvdN был актуальный hotkey
+            scriptText = scriptText.replace(
+                /var AUTO_TASER_KEY = '[^']*';/,
+                "var AUTO_TASER_KEY = '" + AUTO_TASER_KEY.replace(/'/g, "\'") + "';"
+            );
             eval(scriptText);
-            // После eval выставляем window-флаги из констант LoadAhk.
-            // mvdN.js больше не перезаписывает window.AUTO_TASER.
+            // Дублируем в window — на случай если mvdN читает через window.AUTO_TASER
             if (AUTO_GRAB) window.AUTO_GRAB = true;
             window.AUTO_TASER = AUTO_TASER;
             window.AUTO_TASER_KEY = AUTO_TASER_KEY;
