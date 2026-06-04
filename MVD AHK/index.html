@@ -181,6 +181,8 @@ body{
 /* ── Свап хоткей ──── */
 #swap-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:0;opacity:0}
 #swap-wrap.show{max-height:52px;opacity:1}
+/* ── Хоткей открытия меню ──── */
+#menu-key-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:52px;opacity:1}
 .inp-hotkey-listening{border-color:var(--accent)!important;box-shadow:inset 0 0 0 1px var(--accent),0 0 0 2px rgba(13,115,253,.18)!important}
 
 /* ══ Window.css — verbatim ══ */
@@ -502,11 +504,11 @@ body{
           </div>
         </div>
       </div>
-      <!-- ── Хоткей меню AHK ──────────────────────── -->
-      <div style="margin:6px 0 4px 0">
-        <div class="inp-grp" style="display:flex;gap:8px;align-items:center;margin-bottom:0">
+      <!-- ── Хоткей открытия меню ──────────────────────── -->
+      <div id="menu-key-wrap">
+        <div class="inp-grp" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
           <div style="flex:1">
-            <div class="inp-lbl">Кнопка открытия AHK меню</div>
+            <div class="inp-lbl">Кнопка открытия меню АХК</div>
             <input class="inp" id="f-menu-key" placeholder="Нажмите кнопку..." readonly
               style="cursor:pointer;caret-color:transparent"
               onfocus="startListeningMenuKey()"
@@ -700,6 +702,7 @@ window.addEventListener('pywebviewready', function() {
     } else {
       document.getElementById('f-swap-key').value = swapKey;
     }
+    // Хоткей меню
     if (s.menu_key !== undefined) {
       menuKey = s.menu_key || 'Alt+0';
       document.getElementById('f-menu-key').value = menuKey;
@@ -824,7 +827,7 @@ function clearSwapKey() {
   document.getElementById('f-swap-key').value = '';
 }
 
-// ── Хоткей меню AHK ─────────────────────────────
+// ── Хоткей открытия меню ─────────────────────────
 function startListeningMenuKey() {
   _menuListening = true;
   var inp = document.getElementById('f-menu-key');
@@ -852,6 +855,7 @@ document.addEventListener('keydown', function(e) {
   e.preventDefault();
   e.stopPropagation();
 
+  // Игнорируем одиночные модификаторы
   var ignoredKeys = ['Control','Shift','Alt','Meta','AltGraph'];
   if (ignoredKeys.indexOf(e.key) !== -1) return;
 
@@ -861,16 +865,17 @@ document.addEventListener('keydown', function(e) {
   if (e.shiftKey) parts.push('Shift');
 
   var keyName = e.code;
+  // Нормализуем имя клавиши
   if (/^Key([A-Z])$/.test(e.code)) {
-    keyName = e.code.replace('Key','');
+    keyName = e.code.replace('Key',''); // KeyQ → Q
   } else if (/^Digit(\d)$/.test(e.code)) {
-    keyName = e.code.replace('Digit','');
+    keyName = e.code.replace('Digit',''); // Digit1 → 1
   } else if (/^Numpad(\d)$/.test(e.code)) {
-    keyName = e.code;
+    keyName = e.code; // Numpad1 — оставляем как есть
   } else if (/^F\d+$/.test(e.key)) {
-    keyName = e.key;
+    keyName = e.key; // F6, F1 и т.д.
   } else {
-    keyName = e.key;
+    keyName = e.key; // Прочее: Escape, Enter, Insert и т.д.
   }
   parts.push(keyName);
   var combo = parts.join('+');

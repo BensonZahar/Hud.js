@@ -359,10 +359,27 @@ let wantedStars = null;
 let ukPage = 0;
 let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
+// Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
+var MENU_KEY = "Alt+0";
 // Обработчик горячих клавиш
-// Открытие AHK меню — вызывается из LoadAhk.js по настроенному хоткею
-window._mvdOpenMenu = function() { sendChatInput('/dahk'); };
-// (прямые хоткеи убраны — управляются только через LoadAhk/установщик)
+window.addEventListener('keydown', function(e) {
+    if (MENU_KEY) {
+        var parts = MENU_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+        var needAlt   = parts.indexOf('alt')   !== -1;
+        var needCtrl  = parts.indexOf('ctrl')  !== -1;
+        var needShift = parts.indexOf('shift') !== -1;
+        var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+        var mainKey   = mainParts[0] || '';
+        var modOk = (!needAlt || e.altKey) && (!needCtrl || e.ctrlKey) && (!needShift || e.shiftKey);
+        var keyOk = e.key.toLowerCase() === mainKey || e.code.toLowerCase() === mainKey;
+        if (modOk && keyOk) {
+            sendChatInput('/dahk');
+        }
+    }
+    // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
+    // на основе настройки SWAP_KEY из установщика.
+    // Прямые хоткеи здесь убраны — не дублируем.
+});
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
 // Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
