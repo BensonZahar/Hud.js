@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.9 STEP5-PREDICT-FIX ЗАГРУЖЕН (AutoTaser: Alt+Q | SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (AutoTaser: Alt+Q | SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -365,8 +365,6 @@ let lastWantedCode = null; // последняя статья УК для авт
 // Если AUTO_TASER=false — авто-тазер полностью отключён, никакие клавиши не работают.
 var AUTO_TASER = false;
 var AUTO_TASER_KEY = '{"key":"q","altKey":true,"ctrlKey":false,"shiftKey":false}';
-window.AUTO_TASER = AUTO_TASER;
-window.AUTO_TASER_KEY = AUTO_TASER_KEY;
 
 (function() {
     window.addEventListener('keydown', function(e) {
