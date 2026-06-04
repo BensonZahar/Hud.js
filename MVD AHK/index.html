@@ -502,6 +502,21 @@ body{
           </div>
         </div>
       </div>
+      <!-- ── Хоткей меню AHK ──────────────────────── -->
+      <div style="margin:6px 0 4px 0">
+        <div class="inp-grp" style="display:flex;gap:8px;align-items:center;margin-bottom:0">
+          <div style="flex:1">
+            <div class="inp-lbl">Кнопка открытия AHK меню</div>
+            <input class="inp" id="f-menu-key" placeholder="Нажмите кнопку..." readonly
+              style="cursor:pointer;caret-color:transparent"
+              onfocus="startListeningMenuKey()"
+              onblur="stopListeningMenuKey()">
+          </div>
+          <div style="flex-shrink:0;margin-top:13px">
+            <button class="btn btn-secondary" type="button" onclick="clearMenuKey()" style="height:32px;padding:0 10px;font-size:10px">✕</button>
+          </div>
+        </div>
+      </div>
       <div class="pbar" id="pbar-insert"><div class="pbar-fill" id="pbar-insert-f"></div></div>
       <div style="margin-top:auto;display:flex;gap:8px">
         <button class="btn btn-primary" onclick="doInsert()" style="flex:1" id="btn-insert">
@@ -563,6 +578,8 @@ var savedAutoGrab = null; // сохранённые настройки авто-
 var swapEnabled = true;
 var swapKey = 'Alt+Q';
 var _swapListening = false;
+var menuKey = 'Alt+0';
+var _menuListening = false;
 var grabItems = { painkiller:false, medkit:false, baton:false, baton2:false, vest:false, taumeter:false, diag:false, taser:false, deagle:false, akm:false, aks74u:false, remington:false, magnum:false, ammo762:false, ammo545:false, ammo12x70:false };
 var api = null;
 
@@ -683,6 +700,12 @@ window.addEventListener('pywebviewready', function() {
     } else {
       document.getElementById('f-swap-key').value = swapKey;
     }
+    if (s.menu_key !== undefined) {
+      menuKey = s.menu_key || 'Alt+0';
+      document.getElementById('f-menu-key').value = menuKey;
+    } else {
+      document.getElementById('f-menu-key').value = menuKey;
+    }
     // Путь
     if (s.path_valid) {
       folderSelected = true;
@@ -801,13 +824,34 @@ function clearSwapKey() {
   document.getElementById('f-swap-key').value = '';
 }
 
+// ── Хоткей меню AHK ─────────────────────────────
+function startListeningMenuKey() {
+  _menuListening = true;
+  var inp = document.getElementById('f-menu-key');
+  inp.value = '...нажмите кнопку...';
+  inp.classList.add('inp-hotkey-listening');
+}
+
+function stopListeningMenuKey() {
+  _menuListening = false;
+  var inp = document.getElementById('f-menu-key');
+  inp.classList.remove('inp-hotkey-listening');
+  if (inp.value === '...нажмите кнопку...') {
+    inp.value = menuKey;
+  }
+}
+
+function clearMenuKey() {
+  menuKey = '';
+  document.getElementById('f-menu-key').value = '';
+}
+
 // Глобальный перехват нажатий для записи хоткея
 document.addEventListener('keydown', function(e) {
-  if (!_swapListening) return;
+  if (!_swapListening && !_menuListening) return;
   e.preventDefault();
   e.stopPropagation();
 
-  // Игнорируем одиночные модификаторы
   var ignoredKeys = ['Control','Shift','Alt','Meta','AltGraph'];
   if (ignoredKeys.indexOf(e.key) !== -1) return;
 
@@ -817,26 +861,35 @@ document.addEventListener('keydown', function(e) {
   if (e.shiftKey) parts.push('Shift');
 
   var keyName = e.code;
-  // Нормализуем имя клавиши
   if (/^Key([A-Z])$/.test(e.code)) {
-    keyName = e.code.replace('Key',''); // KeyQ → Q
+    keyName = e.code.replace('Key','');
   } else if (/^Digit(\d)$/.test(e.code)) {
-    keyName = e.code.replace('Digit',''); // Digit1 → 1
+    keyName = e.code.replace('Digit','');
   } else if (/^Numpad(\d)$/.test(e.code)) {
-    keyName = e.code; // Numpad1 — оставляем как есть
+    keyName = e.code;
   } else if (/^F\d+$/.test(e.key)) {
-    keyName = e.key; // F6, F1 и т.д.
+    keyName = e.key;
   } else {
-    keyName = e.key; // Прочее: Escape, Enter, Insert и т.д.
+    keyName = e.key;
   }
   parts.push(keyName);
-  swapKey = parts.join('+');
+  var combo = parts.join('+');
 
-  var inp = document.getElementById('f-swap-key');
-  inp.value = swapKey;
-  inp.classList.remove('inp-hotkey-listening');
-  _swapListening = false;
-  inp.blur();
+  if (_swapListening) {
+    swapKey = combo;
+    var inp = document.getElementById('f-swap-key');
+    inp.value = swapKey;
+    inp.classList.remove('inp-hotkey-listening');
+    _swapListening = false;
+    inp.blur();
+  } else if (_menuListening) {
+    menuKey = combo;
+    var inp2 = document.getElementById('f-menu-key');
+    inp2.value = menuKey;
+    inp2.classList.remove('inp-hotkey-listening');
+    _menuListening = false;
+    inp2.blur();
+  }
 }, true);
 
 // ── Шаги ────────────────────────────────────────
@@ -888,7 +941,7 @@ function doInsert() {
   btn.disabled=true;
   runBar('pbar-insert','pbar-insert-f',3000);
   if (api) {
-    api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey).then(function(){
+    api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey).then(function(){
       btn.disabled=false;
     });
   } else {
@@ -977,6 +1030,8 @@ updateSteps();
 document.getElementById('chk-box-swap').classList.toggle('on', swapEnabled);
 document.getElementById('swap-wrap').classList.toggle('show', swapEnabled);
 document.getElementById('f-swap-key').value = swapKey;
+// Меню: начальное значение Alt+0
+document.getElementById('f-menu-key').value = menuKey;
 </script>
 </body>
 </html>

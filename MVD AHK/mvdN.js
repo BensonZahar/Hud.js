@@ -360,14 +360,9 @@ let ukPage = 0;
 let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 // Обработчик горячих клавиш
-window.addEventListener('keydown', function(e) {
-    if (e.altKey && e.key === '0') {
-        sendChatInput('/dahk');
-    }
-    // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
-    // на основе настройки SWAP_KEY из установщика.
-    // Прямые хоткеи здесь убраны — не дублируем.
-});
+// Открытие AHK меню — вызывается из LoadAhk.js по настроенному хоткею
+window._mvdOpenMenu = function() { sendChatInput('/dahk'); };
+// (прямые хоткеи убраны — управляются только через LoadAhk/установщик)
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
 // Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
