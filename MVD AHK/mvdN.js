@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.34 тест если шо во ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AHK v2.34 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1545,6 +1545,8 @@ sendClientEvent = sendClientEventCustom;
 // ==================== DIALOG MONITOR (console only) ====================
 // Перехват серверных диалогов — вывод в консоль + авто-действия
 
+// Флаг: ожидаем INPUT диалог розыска после выбора "ввести вручную"
+let _awaitingRoziskInput = false;
 
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
@@ -1596,7 +1598,57 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 }
             }
 
-            // Авто-розыск УДАЛЁН — диалог "Причина выдачи розыска" теперь показывается игроку в обычном режиме
+            // ── Авто-розыск: LIST "Причина выдачи розыска" → выбрать "Ввести вручную" ──
+            if (style === 2 && title.includes('Причина выдачи розыска')) {
+                console.log('[AUTO-РОЗЫСК] Обнаружен диалог выбора причины — авто-выбор "Ввести в ручную"');
+                _awaitingRoziskInput = true;
+                setTimeout(() => {
+                    // listitem=1 — второй пункт ("Ввести причину в ручную"), response=1
+                    sendClientEvent(
+                        (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+                            ? window.gm.EVENT_EXECUTE_PUBLIC
+                            : 'server',
+                        'OnDialogResponse', dialogId, 1, 1, ''
+                    );
+                    console.log('[AUTO-РОЗЫСК] Отправлен выбор пункта 2 (ввести вручную)');
+                }, 200);
+            }
+
+            // ── Авто-розыск: INPUT "Причина выдачи розыска" → вставить причину и закрыть диалог ──
+            if (style === 1 && title.includes('Причина выдачи розыска') && _awaitingRoziskInput) {
+                _awaitingRoziskInput = false;
+                const reason = lastWantedCode || '1.1 УК';
+                const _roziskDialogId = dialogId;
+                console.log(`[AUTO-РОЗЫСК] Обнаружен INPUT диалог — авто-ввод причины "${reason}"`);
+                setTimeout(() => {
+                    // Отправляем ответ серверу напрямую через оригинальный обработчик
+                    _origSendClientEventHandle.call(
+                        window,
+                        (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+                            ? window.gm.EVENT_EXECUTE_PUBLIC
+                            : 'server',
+                        'OnDialogResponse', _roziskDialogId, 1, 0, reason
+                    );
+                    console.log(`[AUTO-РОЗЫСК] Причина "${reason}" отправлена`);
+                    lastWantedCode = null;
+                    // Закрываем UI диалога несколькими способами
+                    setTimeout(() => {
+                        try { if (typeof window.removeDialogFromQueue === 'function') window.removeDialogFromQueue(); } catch(e) {}
+                        try { if (typeof window.closeDialog === 'function') window.closeDialog(); } catch(e) {}
+                        try {
+                            const dlgInterface = window.interface && window.interface('Dialog');
+                            if (dlgInterface && typeof dlgInterface.close === 'function') dlgInterface.close();
+                            if (dlgInterface && typeof dlgInterface.hide === 'function') dlgInterface.hide();
+                        } catch(e) {}
+                        // Эмулируем нажатие ESC для закрытия диалога
+                        try {
+                            const escEvent = new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true });
+                            document.dispatchEvent(escEvent);
+                        } catch(e) {}
+                        console.log('[AUTO-РОЗЫСК] Диалог закрыт');
+                    }, 100);
+                }, 300);
+            }
         }
     } catch (err) {
         console.error('[DIALOG] Ошибка перехвата:', err.message);
