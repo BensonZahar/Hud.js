@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3399 STEP5-PREDICT-FIX ЗАГРУЖЕН (AutoTaser: Alt+Q | SWAP: Numpad1) ===");
+console.log("=== MVD AHK v2.39 STEP5-PREDICT-FIX ЗАГРУЖЕН (AutoTaser: Alt+Q | SWAP: Numpad1) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -361,20 +361,22 @@ let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 // Обработчик горячих клавиш
 // ── Своп тазер ↔ дигл: настраиваемая клавиша ──────────────────
-// AUTO_TASER и AUTO_TASER_KEY патчатся установщиком. Если AUTO_TASER=false — авто-тазер отключён.
+// AUTO_TASER и AUTO_TASER_KEY патчатся установщиком.
+// Alt+Q работает всегда (хардкод). AUTO_TASER=true активирует кастомную клавишу из установщика.
 var AUTO_TASER = false;
 var AUTO_TASER_KEY = '{"key":"q","altKey":true,"ctrlKey":false,"shiftKey":false}';
 window.AUTO_TASER = AUTO_TASER;
 
 (function() {
-    // Парсим hotkey
+    // Парсим кастомный hotkey из установщика
     let _taserHk = { key: 'q', altKey: true, ctrlKey: false, shiftKey: false };
     try {
         const raw = typeof AUTO_TASER_KEY !== 'undefined' ? AUTO_TASER_KEY : '{}';
         if (raw) _taserHk = JSON.parse(raw);
     } catch(e) {}
 
-    function matchesTaser(e) {
+    // Проверяем совпадение с кастомной клавишей (только если AUTO_TASER включён установщиком)
+    function matchesCustomTaser(e) {
         if (!window.AUTO_TASER) return false;
         if ((e.key || '').toLowerCase() !== (_taserHk.key || '').toLowerCase()) return false;
         if (!!e.altKey   !== !!_taserHk.altKey)   return false;
@@ -387,7 +389,14 @@ window.AUTO_TASER = AUTO_TASER;
         if (e.altKey && e.key === '0') {
             sendChatInput('/dahk');
         }
-        if (matchesTaser(e)) {
+        // Alt+Q — хардкодный фоллбек, работает всегда (как в базовой версии)
+        if (e.altKey && (e.key === 'q' || e.key === 'Q')) {
+            e.preventDefault && e.preventDefault();
+            window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+            return;
+        }
+        // Кастомная клавиша из установщика (если задана и отличается от Alt+Q)
+        if (matchesCustomTaser(e)) {
             e.preventDefault && e.preventDefault();
             window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
         }
@@ -395,8 +404,8 @@ window.AUTO_TASER = AUTO_TASER;
 
     const hkLabel = `${_taserHk.ctrlKey?'Ctrl+':''}${_taserHk.altKey?'Alt+':''}${_taserHk.shiftKey?'Shift+':''}${(_taserHk.key||'').toUpperCase()}`;
     console.log(window.AUTO_TASER
-        ? `[AUTO-TASER] авто-тазер включён. Клавиша: ${hkLabel}`
-        : '[AUTO-TASER] авто-тазер отключён');
+        ? `[AUTO-TASER] кастомная клавиша: ${hkLabel}`
+        : '[AUTO-TASER] Alt+Q (хардкод)');
 })();
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
