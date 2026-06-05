@@ -112,16 +112,15 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
 // ── АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────────
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {
-        var _filled = false;
+        var _filling = false; // защита от двойного срабатывания за одно появление
 
         function tryFill() {
-            if (_filled) return;
+            if (_filling) return;
 
             var passInput = document.querySelector('.authorization-field__input[type="password"]');
             if (!passInput) return;
 
-            _filled = true;
-            observer.disconnect();
+            _filling = true;
 
             // Нативный setter — Vue увидит изменение v-model
             var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
@@ -140,18 +139,27 @@ if (AUTO_PASSWORD) {
                     bubbles: true, cancelable: true
                 }));
                 console.log('[AHK AUTO-PWD] Enter отправлен');
+
+                // После Enter ждём пока форма исчезнет — тогда сбрасываем флаг
+                // чтобы при следующем /rec снова сработало
+                var waitGone = setInterval(function() {
+                    if (!document.querySelector('.authorization-field__input[type="password"]')) {
+                        _filling = false;
+                        clearInterval(waitGone);
+                        console.log('[AHK AUTO-PWD] Форма закрылась — готов к следующей авторизации');
+                    }
+                }, 300);
             }, 150);
         }
 
+        // Observer живёт вечно — не делаем disconnect()
         var observer = new MutationObserver(function() {
-            if (!_filled && document.querySelector('.authorization-field__input[type="password"]')) {
-                tryFill();
-            }
+            tryFill();
         });
 
         if (document.body) {
             observer.observe(document.body, { childList: true, subtree: true });
-            tryFill();
+            tryFill(); // на случай если форма уже есть при загрузке
         } else {
             document.addEventListener('DOMContentLoaded', function() {
                 observer.observe(document.body, { childList: true, subtree: true });
