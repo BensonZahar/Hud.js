@@ -178,6 +178,12 @@ body{
 /* ── Авто-снаряжение ──── */
 .grab-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0;margin-bottom:0}
 .grab-wrap.show{max-height:50vh;opacity:1;margin-bottom:10px}
+/* ── Свап хоткей ──── */
+#swap-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:0;opacity:0}
+#swap-wrap.show{max-height:52px;opacity:1}
+/* ── Хоткей открытия меню ──── */
+#menu-key-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:52px;opacity:1}
+.inp-hotkey-listening{border-color:var(--accent)!important;box-shadow:inset 0 0 0 1px var(--accent),0 0 0 2px rgba(13,115,253,.18)!important}
 
 /* ══ Window.css — verbatim ══ */
 /* ══ Window.css — точные значения из исходника ══ */
@@ -477,6 +483,42 @@ body{
           </div>
         </div>
       </div>
+      <!-- ── Свап тазер ↔ дигл ──────────────────────── -->
+      <div class="chk-row" onclick="toggleSwap()">
+        <div class="chk-box on" id="chk-box-swap">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <span class="chk-lbl">Авто-тазер (свап тазер ↔ дигл)</span>
+      </div>
+      <div class="cs-wrap" id="swap-wrap" style="max-height:52px;opacity:1">
+        <div class="inp-grp" style="display:flex;gap:8px;align-items:center;margin-bottom:0">
+          <div style="flex:1">
+            <div class="inp-lbl">Кнопка / комбинация</div>
+            <input class="inp" id="f-swap-key" placeholder="Нажмите кнопку..." readonly
+              style="cursor:pointer;caret-color:transparent"
+              onfocus="startListeningSwapKey()"
+              onblur="stopListeningSwapKey()">
+          </div>
+          <div style="flex-shrink:0;margin-top:13px">
+            <button class="btn btn-secondary" type="button" onclick="clearSwapKey()" style="height:32px;padding:0 10px;font-size:10px">✕</button>
+          </div>
+        </div>
+      </div>
+      <!-- ── Хоткей открытия меню ──────────────────────── -->
+      <div id="menu-key-wrap">
+        <div class="inp-grp" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+          <div style="flex:1">
+            <div class="inp-lbl">Кнопка открытия меню АХК</div>
+            <input class="inp" id="f-menu-key" placeholder="Нажмите кнопку..." readonly
+              style="cursor:pointer;caret-color:transparent"
+              onfocus="startListeningMenuKey()"
+              onblur="stopListeningMenuKey()">
+          </div>
+          <div style="flex-shrink:0;margin-top:13px">
+            <button class="btn btn-secondary" type="button" onclick="clearMenuKey()" style="height:32px;padding:0 10px;font-size:10px">✕</button>
+          </div>
+        </div>
+      </div>
       <div class="pbar" id="pbar-insert"><div class="pbar-fill" id="pbar-insert-f"></div></div>
       <div style="margin-top:auto;display:flex;gap:8px">
         <button class="btn btn-primary" onclick="doInsert()" style="flex:1" id="btn-insert">
@@ -535,6 +577,11 @@ var callsignOn = false;
 var autoPasswordOn = false;
 var autoGrabOn = false;
 var savedAutoGrab = null; // сохранённые настройки авто-снаряжения из Python
+var swapEnabled = true;
+var swapKey = 'Alt+Q';
+var _swapListening = false;
+var menuKey = 'Alt+0';
+var _menuListening = false;
 var grabItems = { painkiller:false, medkit:false, baton:false, baton2:false, vest:false, taumeter:false, diag:false, taser:false, deagle:false, akm:false, aks74u:false, remington:false, magnum:false, ammo762:false, ammo545:false, ammo12x70:false };
 var api = null;
 
@@ -643,6 +690,25 @@ window.addEventListener('pywebviewready', function() {
         });
       }
     }
+    // Свап хоткей
+    if (typeof s.swap_enabled !== 'undefined') {
+      swapEnabled = !!s.swap_enabled;
+      document.getElementById('chk-box-swap').classList.toggle('on', swapEnabled);
+      document.getElementById('swap-wrap').classList.toggle('show', swapEnabled);
+    }
+    if (s.swap_key !== undefined) {
+      swapKey = s.swap_key || 'Alt+Q';
+      document.getElementById('f-swap-key').value = swapKey;
+    } else {
+      document.getElementById('f-swap-key').value = swapKey;
+    }
+    // Хоткей меню
+    if (s.menu_key !== undefined) {
+      menuKey = s.menu_key || 'Alt+0';
+      document.getElementById('f-menu-key').value = menuKey;
+    } else {
+      document.getElementById('f-menu-key').value = menuKey;
+    }
     // Путь
     if (s.path_valid) {
       folderSelected = true;
@@ -733,6 +799,104 @@ function toggleAutoPassword() {
   document.getElementById('pwd-wrap').classList.toggle('show', autoPasswordOn);
 }
 
+// ── Свап хоткей ─────────────────────────────────
+function toggleSwap() {
+  swapEnabled = !swapEnabled;
+  document.getElementById('chk-box-swap').classList.toggle('on', swapEnabled);
+  document.getElementById('swap-wrap').classList.toggle('show', swapEnabled);
+}
+
+function startListeningSwapKey() {
+  _swapListening = true;
+  var inp = document.getElementById('f-swap-key');
+  inp.value = '...нажмите кнопку...';
+  inp.classList.add('inp-hotkey-listening');
+}
+
+function stopListeningSwapKey() {
+  _swapListening = false;
+  var inp = document.getElementById('f-swap-key');
+  inp.classList.remove('inp-hotkey-listening');
+  if (inp.value === '...нажмите кнопку...') {
+    inp.value = swapKey;
+  }
+}
+
+function clearSwapKey() {
+  swapKey = '';
+  document.getElementById('f-swap-key').value = '';
+}
+
+// ── Хоткей открытия меню ─────────────────────────
+function startListeningMenuKey() {
+  _menuListening = true;
+  var inp = document.getElementById('f-menu-key');
+  inp.value = '...нажмите кнопку...';
+  inp.classList.add('inp-hotkey-listening');
+}
+
+function stopListeningMenuKey() {
+  _menuListening = false;
+  var inp = document.getElementById('f-menu-key');
+  inp.classList.remove('inp-hotkey-listening');
+  if (inp.value === '...нажмите кнопку...') {
+    inp.value = menuKey;
+  }
+}
+
+function clearMenuKey() {
+  menuKey = '';
+  document.getElementById('f-menu-key').value = '';
+}
+
+// Глобальный перехват нажатий для записи хоткея
+document.addEventListener('keydown', function(e) {
+  if (!_swapListening && !_menuListening) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  // Игнорируем одиночные модификаторы
+  var ignoredKeys = ['Control','Shift','Alt','Meta','AltGraph'];
+  if (ignoredKeys.indexOf(e.key) !== -1) return;
+
+  var parts = [];
+  if (e.ctrlKey)  parts.push('Ctrl');
+  if (e.altKey)   parts.push('Alt');
+  if (e.shiftKey) parts.push('Shift');
+
+  var keyName = e.code;
+  // Нормализуем имя клавиши
+  if (/^Key([A-Z])$/.test(e.code)) {
+    keyName = e.code.replace('Key',''); // KeyQ → Q
+  } else if (/^Digit(\d)$/.test(e.code)) {
+    keyName = e.code.replace('Digit',''); // Digit1 → 1
+  } else if (/^Numpad(\d)$/.test(e.code)) {
+    keyName = e.code; // Numpad1 — оставляем как есть
+  } else if (/^F\d+$/.test(e.key)) {
+    keyName = e.key; // F6, F1 и т.д.
+  } else {
+    keyName = e.key; // Прочее: Escape, Enter, Insert и т.д.
+  }
+  parts.push(keyName);
+  var combo = parts.join('+');
+
+  if (_swapListening) {
+    swapKey = combo;
+    var inp = document.getElementById('f-swap-key');
+    inp.value = swapKey;
+    inp.classList.remove('inp-hotkey-listening');
+    _swapListening = false;
+    inp.blur();
+  } else if (_menuListening) {
+    menuKey = combo;
+    var inp2 = document.getElementById('f-menu-key');
+    inp2.value = menuKey;
+    inp2.classList.remove('inp-hotkey-listening');
+    _menuListening = false;
+    inp2.blur();
+  }
+}, true);
+
 // ── Шаги ────────────────────────────────────────
 function updateSteps() {
   var r = document.getElementById('f-rank').value.trim();
@@ -782,7 +946,7 @@ function doInsert() {
   btn.disabled=true;
   runBar('pbar-insert','pbar-insert-f',3000);
   if (api) {
-    api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab).then(function(){
+    api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey).then(function(){
       btn.disabled=false;
     });
   } else {
@@ -867,6 +1031,12 @@ document.querySelectorAll('.page').forEach(function(p){
   if (!p.classList.contains('active')) p.style.display='none';
 });
 updateSteps();
+// Свап: начальное состояние (включён, Alt+Q)
+document.getElementById('chk-box-swap').classList.toggle('on', swapEnabled);
+document.getElementById('swap-wrap').classList.toggle('show', swapEnabled);
+document.getElementById('f-swap-key').value = swapKey;
+// Меню: начальное значение Alt+0
+document.getElementById('f-menu-key').value = menuKey;
 </script>
 </body>
 </html>
