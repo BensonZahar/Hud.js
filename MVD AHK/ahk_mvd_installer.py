@@ -124,8 +124,9 @@ class InstallerAPI:
 
     @staticmethod
     def _remove_markers(content):
-        S = "// === HASSLE LOAD BOT CODE START ==="
-        E = "// === HASSLE LOAD BOT CODE END ==="
+        # Маркеры — невидимые zero-width символы, не видны в редакторах
+        S = '// ​‌​‌​​‌‌'
+        E = '// ​‌​​​‌​‌'
         si = content.find(S)
         if si != -1:
             ei = content.find(E, si+len(S))
@@ -225,7 +226,7 @@ class InstallerAPI:
                     self._notify(False); return
                 with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
                 idx_content = self._remove_markers(idx_content)
-                new_text = (idx_content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
+                                new_text = (idx_content + '// ​‌​‌​​‌‌\n' + obf + '\n' + '// ​‌​​​‌​‌\n')
                 new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
                 with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
                 self._set_status("st-code","Установлен","stat-card-val ok")
