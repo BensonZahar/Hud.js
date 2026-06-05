@@ -124,24 +124,82 @@ class InstallerAPI:
 
     # Невидимые маркеры: zero-width space (U+200B) + zero-width non-joiner (U+200C)
     # В редакторе выглядят как пустой JS-комментарий "//"
-    _MARK_S = "//\u200b\u200c\u200b"   # start
-    _MARK_E = "//\u200c\u200b\u200c"   # end
+    _MARK_S = "//​‌​"   # start
+    _MARK_E = "//‌​‌"   # end
+
+    # Старые читаемые маркеры (для миграции пользователей со старой версией)
+    _LEGACY_S = "// === HASSLE LOAD BOT CODE START ==="
+    _LEGACY_E = "// === HASSLE LOAD BOT CODE END ==="
 
     @classmethod
-    def _remove_markers(cls, content):
-        S, E = cls._MARK_S, cls._MARK_E
-        si = content.find(S)
-        if si != -1:
-            ei = content.find(E, si + len(S))
-            if ei != -1:
-                content = content[:si] + content[ei + len(E):]
+    def _has_code(cls, content: str) -> bool:
+        """Есть ли вставленный блок — новые или старые маркеры."""
+        return (cls._MARK_S in content) or (cls._LEGACY_S in content)
+
+    @classmethod
+    def _remove_markers(cls, content: str) -> str:
+        """Удаляет блок кода — сначала пробует новые маркеры, затем старые."""
+        for S, E in [(cls._MARK_S, cls._MARK_E), (cls._LEGACY_S, cls._LEGACY_E)]:
+            si = content.find(S)
+            if si != -1:
+                ei = content.find(E, si + len(S))
+                if ei != -1:
+                    content = content[:si] + content[ei + len(E):]
+                    break   # один блок за раз достаточно
         return content.rstrip() + '\n'
 
+    def _index_js(self):
+        """Путь к Index.js или None."""
+        if not self.radmir_path:
+            return None
+        p = self.radmir_path / "uiresources" / "assets" / "Index.js"
+        return p if p.exists() else None
+
+    def _migrate_legacy(self):
+        """Если в Index.js старые маркеры — тихо переписываем на новые."""
+        idx = self._index_js()
+        if not idx:
+            return
+        try:
+            content = idx.read_text(encoding='utf-8')
+            if self._LEGACY_S not in content:
+                return
+            si = content.find(self._LEGACY_S)
+            ei = content.find(self._LEGACY_E, si + len(self._LEGACY_S))
+            if si == -1 or ei == -1:
+                return
+            inner = content[si + len(self._LEGACY_S): ei]
+            clean = content[:si] + content[ei + len(self._LEGACY_E):]
+            new_content = (
+                clean.rstrip() + '\n'
+                + self._MARK_S + '\n'
+                + inner.strip('\n') + '\n'
+                + self._MARK_E + '\n'
+            )
+            new_content = new_content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
+            with open(idx, 'w', encoding='utf-8', newline='\n') as f:
+                f.write(new_content)
+        except Exception:
+            pass
+
     def get_saved_settings(self) -> dict:
-        """Возвращает сохранённые настройки в JS при старте"""
+        """Возвращает сохранённые настройки в JS при старте."""
+        # Миграция старых маркеров → новые (тихая, при наличии пути)
+        self._migrate_legacy()
+
         result = dict(self._saved)
-        # Сообщаем JS валиден ли путь
         result['path_valid'] = self.radmir_path is not None
+
+        # Реальная проверка наличия кода в Index.js
+        idx = self._index_js()
+        if idx:
+            try:
+                result['code_installed'] = self._has_code(idx.read_text(encoding='utf-8'))
+            except Exception:
+                result['code_installed'] = False
+        else:
+            result['code_installed'] = False
+
         return result
 
     def select_folder(self):
