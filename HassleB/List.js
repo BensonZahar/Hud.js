@@ -23,8 +23,8 @@ const USER_CONFIGS = {
         RECONNECT_ENABLED_DEFAULT: true,
         // Токены Telegram-ботов для аккаунтов Коли (вставь свои)
         BOT_TOKENS: {
-            '1': '8437476753:AAHiWXIFByf2s2TCO7JbKVj4LMKO_plrAKk',
-            '2': '8709864021:AAHCs8QCioLBWfUJLyqxVuS_TCqDIbc3Naw'
+            '1': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',
+            '2': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE'
         }
     }
 };
