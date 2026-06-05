@@ -512,11 +512,12 @@ function setTab(id, navEl) {
 }
 function selectFolder() {
   if(!api) return;
-  api.select_folder().then(function(r){ if(r) applyFolder(); });
+  api.select_folder().then(function(r){ if(r) applyFolder(r); });
 }
-function applyFolder() {
+function applyFolder(path) {
   folderSelected=true;
-  document.getElementById('path-disp').textContent='● Папка выбрана';
+  var disp = path || '● Папка выбрана';
+  document.getElementById('path-disp').textContent = disp;
   document.getElementById('path-disp').classList.add('set');
   document.getElementById('st-folder').textContent='Выбрана';
   document.getElementById('st-folder').className='stat-card-val ok';
@@ -598,7 +599,7 @@ window.addEventListener('pywebviewready', function(){
     if(typeof s.swap_enabled!=='undefined'){ swapEnabled=!!s.swap_enabled; document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled); document.getElementById('swap-wrap').classList.toggle('open',swapEnabled); }
     swapKey=(s.swap_key!==undefined)?(s.swap_key||'Alt+Q'):swapKey; document.getElementById('f-swap-key').value=swapKey;
     menuKey=(s.menu_key!==undefined)?(s.menu_key||'Alt+0'):menuKey; document.getElementById('f-menu-key').value=menuKey;
-    if(s.path_valid) applyFolder();
+    if(s.path_valid) applyFolder(s.radmir_path_display || '');
   }).catch(function(){});
 });
 

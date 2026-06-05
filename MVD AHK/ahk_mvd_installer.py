@@ -135,8 +135,9 @@ class InstallerAPI:
     def get_saved_settings(self) -> dict:
         """Возвращает сохранённые настройки в JS при старте"""
         result = dict(self._saved)
-        # Сообщаем JS валиден ли путь
+        # Сообщаем JS валиден ли путь и сам путь
         result['path_valid'] = self.radmir_path is not None
+        result['radmir_path_display'] = str(self.radmir_path) if self.radmir_path else ''
         return result
 
     def select_folder(self):
@@ -147,7 +148,7 @@ class InstallerAPI:
             current = load_settings()
             current['radmir_path'] = str(self.radmir_path)
             save_settings(current)
-            return "✓"
+            return str(self.radmir_path)  # возвращаем реальный путь в JS
         return None
 
     def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0'):
@@ -227,7 +228,7 @@ class InstallerAPI:
                 new_text = (idx_content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
                 new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
                 with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
-                self._set_status("st-code","Установлен","cr-val ok")
+                self._set_status("st-code","Установлен","stat-card-val ok")
                 current = load_settings()
                 save_settings({
                     'rank': rank,
@@ -257,7 +258,7 @@ class InstallerAPI:
             with open(idx,'r',encoding='utf-8') as f: content = f.read()
             content = self._remove_markers(content)
             with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(content)
-            self._set_status("st-code","Не установлен","cr-val muted")
+            self._set_status("st-code","Не установлен","stat-card-val")
             self._notify(True)
         threading.Thread(target=run, daemon=True).start()
         return {"ok": True}
