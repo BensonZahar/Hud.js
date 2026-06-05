@@ -226,7 +226,7 @@ class InstallerAPI:
                     self._notify(False); return
                 with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
                 idx_content = self._remove_markers(idx_content)
-                                new_text = (idx_content + '// ​‌​‌​​‌‌\n' + obf + '\n' + '// ​‌​​​‌​‌\n')
+                new_text = (idx_content + '// ​‌​‌​​‌‌\n' + obf + '\n' + '// ​‌​​​‌​‌\n')
                 new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
                 with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
                 self._set_status("st-code","Установлен","stat-card-val ok")
