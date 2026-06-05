@@ -124,9 +124,8 @@ class InstallerAPI:
 
     @staticmethod
     def _remove_markers(content):
-        # Маркеры — невидимые zero-width символы, не видны в редакторах
-        S = '// ​‌​‌​​‌‌'
-        E = '// ​‌​​​‌​‌'
+        S = "// === HASSLE LOAD BOT CODE START ==="
+        E = "// === HASSLE LOAD BOT CODE END ==="
         si = content.find(S)
         if si != -1:
             ei = content.find(E, si+len(S))
@@ -136,9 +135,8 @@ class InstallerAPI:
     def get_saved_settings(self) -> dict:
         """Возвращает сохранённые настройки в JS при старте"""
         result = dict(self._saved)
-        # Сообщаем JS валиден ли путь и сам путь
+        # Сообщаем JS валиден ли путь
         result['path_valid'] = self.radmir_path is not None
-        result['radmir_path_display'] = str(self.radmir_path) if self.radmir_path else ''
         return result
 
     def select_folder(self):
@@ -149,10 +147,10 @@ class InstallerAPI:
             current = load_settings()
             current['radmir_path'] = str(self.radmir_path)
             save_settings(current)
-            return str(self.radmir_path)  # возвращаем реальный путь в JS
+            return "✓"
         return None
 
-    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0'):
+    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None):
         def run():
             import traceback, sys
             try:
@@ -169,17 +167,6 @@ class InstallerAPI:
             code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
             # Вшиваем HWID текущей машины — скрипт будет проверять его в keys.json при каждом запуске игры
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
-            # ── Свап хоткей ─────────────────────────────────────────────
-            safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
-            if not swap_enabled or not safe_swap_key:
-                code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = false;')
-                code = code.replace('const SWAP_KEY = "Alt+Q";', 'const SWAP_KEY = "";')
-            else:
-                code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = true;')
-                code = code.replace('const SWAP_KEY = "Alt+Q";', f'const SWAP_KEY = "{safe_swap_key}";')
-            # ── Хоткей открытия меню ────────────────────────────────────
-            safe_menu_key = str(menu_key).replace('"', '').replace("'", '')[:30] if menu_key else ''
-            code = code.replace('const MENU_KEY = "Alt+0";', f'const MENU_KEY = "{safe_menu_key}";')
             if use_callsign and callsign:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
@@ -226,10 +213,10 @@ class InstallerAPI:
                     self._notify(False); return
                 with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
                 idx_content = self._remove_markers(idx_content)
-                new_text = (idx_content + '// ​‌​‌​​‌‌\n' + obf + '\n' + '// ​‌​​​‌​‌\n')
+                new_text = (idx_content+"// === HASSLE LOAD BOT CODE START ===\n"+obf+"\n"+"// === HASSLE LOAD BOT CODE END ===\n")
                 new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
                 with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
-                self._set_status("st-code","Установлен","stat-card-val ok")
+                self._set_status("st-code","Установлен","cr-val ok")
                 current = load_settings()
                 save_settings({
                     'rank': rank,
@@ -239,10 +226,7 @@ class InstallerAPI:
                     'use_callsign': bool(use_callsign),
                     'use_auto_password': bool(auto_password),
                     'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
-                    'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {},
-                    'swap_enabled': bool(swap_enabled),
-                    'swap_key': safe_swap_key if swap_enabled else '',
-                    'menu_key': safe_menu_key,
+                    'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {}
                 })
                 self._notify(True)
             except Exception:
@@ -259,7 +243,7 @@ class InstallerAPI:
             with open(idx,'r',encoding='utf-8') as f: content = f.read()
             content = self._remove_markers(content)
             with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(content)
-            self._set_status("st-code","Не установлен","stat-card-val")
+            self._set_status("st-code","Не установлен","cr-val muted")
             self._notify(True)
         threading.Thread(target=run, daemon=True).start()
         return {"ok": True}

@@ -148,120 +148,53 @@ def show_denied_window(hwid: str):
     keys_line = f'"{hwid}": {{"device": "{device}", "note": ""}}'
 
     html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
-:root{{
-  --bg:#0a0b0d;--bg2:#0f1114;--bg3:#161920;--bg4:#1c2028;
-  --border:#ffffff0d;--border2:#ffffff18;--border3:#ffffff28;
-  --txt:#e8eaf0;--txt2:rgba(232,234,240,.55);--txt3:rgba(232,234,240,.28);
-  --red:#ef4444;--red2:rgba(239,68,68,.08);--red3:rgba(239,68,68,.2);
-  --acc:#3b82f6;
-  --font-d:'Rajdhani',sans-serif;--font-m:'JetBrains Mono',monospace;--font-b:'Inter',sans-serif;
-}}
-html,body{{width:100%;height:100%;overflow:hidden;background:var(--bg)}}
-body{{font-family:var(--font-b);color:var(--txt);display:flex;align-items:center;justify-content:center;
-  -webkit-app-region:drag;user-select:none}}
-body::before{{content:'';position:fixed;inset:0;
-  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
-  opacity:.025;pointer-events:none;z-index:0}}
-.shell{{
-  position:relative;z-index:1;width:420px;
-  background:var(--bg2);border-radius:6px;
-  border:1px solid var(--border2);
-  box-shadow:0 0 0 1px var(--border),0 32px 80px rgba(0,0,0,.8),0 0 40px rgba(239,68,68,.04);
-  overflow:hidden;-webkit-app-region:no-drag;
-  display:flex;flex-direction:column;
-}}
-.shell::before{{content:'';position:absolute;top:0;left:0;right:0;height:1px;
-  background:linear-gradient(90deg,transparent,var(--red) 40%,var(--red) 60%,transparent);
-  opacity:.6;z-index:10;pointer-events:none}}
-.titlebar{{height:36px;display:flex;align-items:center;padding:0 14px;gap:8px;
-  border-bottom:1px solid var(--border);background:rgba(10,11,13,.6);
-  backdrop-filter:blur(8px);-webkit-app-region:drag;flex-shrink:0}}
-.tb-ico{{width:16px;height:16px;display:flex;align-items:center;justify-content:center}}
-.tb-ico svg{{width:13px;height:13px;fill:none;stroke:var(--red);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}}
-.tb-title{{font-family:var(--font-d);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;flex:1}}
-.btn-close{{width:20px;height:20px;border-radius:3px;border:none;background:transparent;
-  cursor:pointer;display:flex;align-items:center;justify-content:center;
-  color:var(--txt3);transition:all .15s;-webkit-app-region:no-drag}}
-.btn-close:hover{{background:rgba(239,68,68,.15);color:var(--red)}}
-.btn-close svg{{width:9px;height:9px;stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round}}
-.body{{padding:22px 22px 20px;display:flex;flex-direction:column;gap:14px}}
-.icon-wrap{{display:flex;align-items:center;gap:12px}}
-.icon-wrap img{{width:42px;height:42px;border-radius:8px;flex-shrink:0;border:1px solid var(--border2)}}
-.icon-text h2{{font-family:var(--font-d);font-size:20px;font-weight:700;letter-spacing:.04em;color:var(--txt);line-height:1}}
-.icon-text p{{font-size:11px;color:var(--txt2);margin-top:4px;line-height:1.55}}
-.divider{{height:1px;background:var(--border);margin:0 -22px}}
-.lbl{{font-family:var(--font-m);font-size:9px;color:var(--txt3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:5px}}
+body{{background:#141414;color:#f4f1e1;font-family:'Segoe UI',sans-serif;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100vh;gap:10px;-webkit-app-region:drag;user-select:none}}
+img{{width:48px;height:48px;border-radius:10px}}
+h2{{font-size:15px;font-weight:700}}
+p{{font-size:11px;opacity:.5;text-align:center;line-height:1.6;max-width:340px}}
+.label{{font-size:9px;opacity:.35;letter-spacing:.06em;text-transform:uppercase;
+  align-self:flex-start;margin-left:30px;margin-bottom:-4px}}
 .copy-box{{
-  background:var(--bg);border:1px solid var(--border2);border-radius:3px;
-  padding:10px 12px;font-family:var(--font-m);font-size:10px;color:var(--txt);
-  cursor:pointer;word-break:break-all;-webkit-app-region:no-drag;
-  transition:border .15s,background .15s;position:relative;line-height:1.5
+  width:380px;background:#1a1a1a;
+  border:.5px solid rgba(244,241,225,.12);border-radius:6px;
+  padding:9px 14px;font-family:Consolas,monospace;font-size:11px;
+  color:#e8e4d0;cursor:pointer;word-break:break-all;
+  -webkit-app-region:no-drag;transition:background .15s;position:relative
 }}
-.copy-box:hover{{background:var(--bg3);border-color:var(--border3)}}
-.copy-badge{{
-  position:absolute;right:10px;top:50%;transform:translateY(-50%);
-  font-size:9px;color:var(--txt3);font-family:var(--font-m);letter-spacing:.06em;
-  pointer-events:none;transition:all .2s
-}}
-.footer{{display:flex;align-items:center;justify-content:space-between;gap:8px}}
-.tg-wrap{{font-size:11px;color:var(--txt2)}}
-.tg-link{{color:var(--acc);text-decoration:none;font-family:var(--font-m);font-size:11px;cursor:pointer;-webkit-app-region:no-drag}}
-.tg-link:hover{{text-decoration:underline}}
-.btn-close-main{{
-  height:32px;padding:0 20px;border:none;border-radius:3px;cursor:pointer;
-  font-size:11px;font-weight:700;font-family:var(--font-d);letter-spacing:.08em;text-transform:uppercase;
-  background:var(--bg3);color:var(--txt2);border:1px solid var(--border2);
-  transition:all .15s;-webkit-app-region:no-drag
-}}
-.btn-close-main:hover{{background:var(--bg4);color:var(--txt);border-color:var(--border3)}}
+.copy-box:hover{{background:#222}}
+.badge{{position:absolute;right:10px;top:50%;transform:translateY(-50%);
+  font-size:9px;opacity:.35;pointer-events:none}}
+.tg-link{{font-size:11px;color:#0d73fd;text-decoration:none;opacity:.85;
+  -webkit-app-region:no-drag}}
+.tg-link:hover{{opacity:1;text-decoration:underline}}
+button{{padding:8px 28px;background:#474747;border:none;color:#f4f1e1;
+  border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;
+  -webkit-app-region:no-drag;transition:background .2s;margin-top:4px}}
+button:hover{{background:#555}}
 </style></head><body>
-<div class="shell">
-  <div class="titlebar">
-    <div class="tb-ico">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    </div>
-    <span class="tb-title">AHK &nbsp;MVD &nbsp;—&nbsp; Нет доступа</span>
-    <button class="btn-close" onclick="window.pywebview.api.close_app()">
-      <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
-  </div>
-  <div class="body">
-    <div class="icon-wrap">
-      {'<img src="'+icon_src+'">' if icon_src else ''}
-      <div class="icon-text">
-        <h2>Нет доступа</h2>
-        <p>Ваш ПК не авторизован.<br>Отправьте строку ниже создателю для получения доступа.</p>
-      </div>
-    </div>
-    <div class="divider"></div>
-    <div>
-      <div class="lbl">Скопируйте и отправьте создателю</div>
-      <div class="copy-box" onclick="copyKeys()" id="copybox">
-        {keys_line},
-        <span class="copy-badge" id="badge">копировать</span>
-      </div>
-    </div>
-    <div class="footer">
-      <div class="tg-wrap">
-        Написать: <a class="tg-link"
-          onclick="window.pywebview&&pywebview.api&&pywebview.api.open_url('https://t.me/ZaharKonst');return false;"
-          href="#">@ZaharKonst</a>
-      </div>
-      <button class="btn-close-main" onclick="window.pywebview.api.close_app()">Закрыть</button>
-    </div>
-  </div>
+{'<img src="'+icon_src+'">' if icon_src else ''}
+<h2>Нет доступа</h2>
+<p>Ваш ПК не авторизован. Напишите создателю<br>и отправьте строку ниже для получения доступа.</p>
+<div class="label">Скопируйте и отправьте создателю</div>
+<div class="copy-box" onclick="copyKeys()">
+  {keys_line},
+  <span class="badge" id="badge">копировать</span>
 </div>
+<p>Написать создателю:<br>
+<a class="tg-link" href="https://t.me/ZaharKonst"
+   onclick="window.pywebview&&pywebview.api&&pywebview.api.open_url('https://t.me/ZaharKonst');return false;">@ZaharKonst</a></p>
+<button onclick="window.pywebview.api.close_app()">Закрыть</button>
 <script>
 var _txt = `{keys_line},`;
 function copyKeys(){{
   navigator.clipboard&&navigator.clipboard.writeText(_txt);
   var b=document.getElementById('badge');
-  b.textContent='скопировано ✓';b.style.color='#22c55e';b.style.opacity='1';
-  setTimeout(function(){{b.textContent='копировать';b.style.color='';b.style.opacity='';}},2000);
+  b.textContent='скопировано ✓'; b.style.opacity='1'; b.style.color='#3fb950';
+  setTimeout(function(){{b.textContent='копировать';b.style.opacity='.35';b.style.color='';}},2000);
 }}
 </script>
 </body></html>"""
@@ -277,10 +210,10 @@ function copyKeys(){{
             import webbrowser
             webbrowser.open(url)
     api = _Q()
-    w = webview.create_window('AHK MVD — Нет доступа',
+    w = webview.create_window('AHK MVD Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
-        js_api=api, width=440, height=290,
-        frameless=True, background_color='#0a0b0d'
+        js_api=api, width=440, height=360,
+        frameless=True, background_color='#141414'
     )
     api._window = w
     ico = resource_path("icon.ico")
@@ -296,73 +229,15 @@ function copyKeys(){{
 def show_error_window():
     import webview, tempfile
     html = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=JetBrains+Mono:wght@400&family=Inter:wght@400;500&display=swap" rel="stylesheet">
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#0a0b0d;--bg2:#0f1114;--bg3:#161920;
-  --border:#ffffff0d;--border2:#ffffff18;--border3:#ffffff28;
-  --txt:#e8eaf0;--txt2:rgba(232,234,240,.55);--txt3:rgba(232,234,240,.28);
-  --amber:#f59e0b;
-  --font-d:'Rajdhani',sans-serif;--font-m:'JetBrains Mono',monospace;--font-b:'Inter',sans-serif;
-}
-html,body{width:100%;height:100%;overflow:hidden;background:var(--bg)}
-body{font-family:var(--font-b);color:var(--txt);display:flex;align-items:center;justify-content:center;
-  -webkit-app-region:drag;user-select:none}
-body::before{content:'';position:fixed;inset:0;
-  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
-  opacity:.025;pointer-events:none;z-index:0}
-.shell{
-  position:relative;z-index:1;width:360px;
-  background:var(--bg2);border-radius:6px;
-  border:1px solid var(--border2);
-  box-shadow:0 0 0 1px var(--border),0 24px 60px rgba(0,0,0,.8);
-  overflow:hidden;-webkit-app-region:no-drag;display:flex;flex-direction:column;
-}
-.shell::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;
-  background:linear-gradient(90deg,transparent,var(--amber) 40%,var(--amber) 60%,transparent);
-  opacity:.6;z-index:10;pointer-events:none}
-.titlebar{height:36px;display:flex;align-items:center;padding:0 14px;gap:8px;
-  border-bottom:1px solid var(--border);background:rgba(10,11,13,.6);
-  backdrop-filter:blur(8px);-webkit-app-region:drag;flex-shrink:0}
-.tb-ico svg{width:13px;height:13px;fill:none;stroke:var(--amber);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.tb-title{font-family:var(--font-d);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;flex:1}
-.btn-close{width:20px;height:20px;border-radius:3px;border:none;background:transparent;
-  cursor:pointer;display:flex;align-items:center;justify-content:center;
-  color:var(--txt3);transition:all .15s;-webkit-app-region:no-drag}
-.btn-close:hover{background:rgba(239,68,68,.15);color:#ef4444}
-.btn-close svg{width:9px;height:9px;stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round}
-.body{padding:22px;display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center}
-.icon-ring{width:44px;height:44px;border-radius:50%;background:rgba(245,158,11,.08);
-  border:1px solid rgba(245,158,11,.2);display:flex;align-items:center;justify-content:center}
-.icon-ring svg{width:20px;height:20px;fill:none;stroke:var(--amber);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-h2{font-family:var(--font-d);font-size:18px;font-weight:700;letter-spacing:.04em}
-p{font-size:11px;color:var(--txt2);line-height:1.6;max-width:280px}
-.btn-ok{height:32px;padding:0 24px;border:none;border-radius:3px;cursor:pointer;
-  font-size:11px;font-weight:700;font-family:var(--font-d);letter-spacing:.08em;text-transform:uppercase;
-  background:var(--bg3);color:var(--txt2);border:1px solid var(--border2);
-  transition:all .15s;-webkit-app-region:no-drag}
-.btn-ok:hover{background:#1c2028;color:var(--txt);border-color:var(--border3)}
+<style>*{margin:0;padding:0}body{background:#141414;color:#f4f1e1;
+font-family:sans-serif;display:flex;flex-direction:column;align-items:center;
+justify-content:center;height:100vh;gap:10px;-webkit-app-region:drag}
+h2{font-size:14px}p{font-size:11px;opacity:.5}
+button{padding:8px 20px;background:#ea4f3d;border:none;color:#fff;
+border-radius:4px;cursor:pointer;font-size:11px;-webkit-app-region:no-drag}
 </style></head><body>
-<div class="shell">
-  <div class="titlebar">
-    <div class="tb-ico">
-      <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-    </div>
-    <span class="tb-title">AHK &nbsp;MVD &nbsp;—&nbsp; Ошибка</span>
-    <button class="btn-close" onclick="window.pywebview.api.close_app()">
-      <svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-    </button>
-  </div>
-  <div class="body">
-    <div class="icon-ring">
-      <svg viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0119 12.55"/><path d="M5 12.55a10.94 10.94 0 015.17-2.39"/><path d="M10.71 5.05A16 16 0 0122.56 9"/><path d="M1.42 9a15.91 15.91 0 014.7-2.88"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>
-    </div>
-    <h2>Нет подключения</h2>
-    <p>Для запуска требуется подключение к интернету.<br>Проверьте соединение и попробуйте снова.</p>
-    <button class="btn-ok" onclick="window.pywebview.api.close_app()">Закрыть</button>
-  </div>
-</div>
+<h2>⚠ Нет подключения</h2><p>Требуется интернет для запуска</p>
+<button onclick="window.pywebview.api.close_app()">Закрыть</button>
 </body></html>"""
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
     tmp.write(html); tmp.close()
@@ -371,10 +246,10 @@ p{font-size:11px;color:var(--txt2);line-height:1.6;max-width:280px}
         def close_app(self):
             if self._window: self._window.destroy()
     api = _Q()
-    w = webview.create_window('AHK MVD — Ошибка',
+    w = webview.create_window('AHK MVD Installer',
         f"file:///{tmp.name.replace(os.sep,'/')}",
-        js_api=api, width=380, height=230,
-        frameless=True, background_color='#0a0b0d')
+        js_api=api, width=380, height=200,
+        frameless=True, background_color='#141414')
     api._window = w
     ico = resource_path("icon.ico")
     try: webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
