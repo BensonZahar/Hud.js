@@ -184,11 +184,11 @@ class InstallerAPI:
 
     def get_saved_settings(self) -> dict:
         """Возвращает сохранённые настройки в JS при старте."""
-        # Миграция старых маркеров → новые (тихая, при наличии пути)
         self._migrate_legacy()
 
         result = dict(self._saved)
         result['path_valid'] = self.radmir_path is not None
+        result['radmir_path'] = str(self.radmir_path) if self.radmir_path else ''
 
         # Реальная проверка наличия кода в Index.js
         idx = self._index_js()
@@ -204,14 +204,17 @@ class InstallerAPI:
 
     def select_folder(self):
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
-        if r and len(r):
-            self.radmir_path = Path(r[0])
-            # Сохраняем путь сразу после выбора
-            current = load_settings()
-            current['radmir_path'] = str(self.radmir_path)
-            save_settings(current)
-            return "✓"
-        return None
+        if not r or not len(r):
+            return None
+        chosen = Path(r[0])
+        # Папка обязана называться RADMIR CRMP (регистр не важен)
+        if chosen.name.upper() != "RADMIR CRMP":
+            return {"error": "not_radmir"}
+        self.radmir_path = chosen
+        current = load_settings()
+        current['radmir_path'] = str(self.radmir_path)
+        save_settings(current)
+        return {"ok": True, "path": str(self.radmir_path)}
 
     def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0'):
         def run():

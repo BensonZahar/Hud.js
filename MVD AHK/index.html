@@ -633,7 +633,12 @@ window.addEventListener('pywebviewready',function(){
     if(typeof s.swap_enabled!=='undefined'){swapEnabled=!!s.swap_enabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
     if(s.swap_key!==undefined){swapKey=s.swap_key||'Alt+Q';}document.getElementById('f-swap-key').value=swapKey;
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=menuKey;
-    if(s.path_valid){folderSelected=true;document.getElementById('path-disp').textContent='● Папка выбрана';document.getElementById('path-disp').classList.add('set');document.getElementById('st-folder').textContent='Выбрана';document.getElementById('st-folder').className='cr-val ok';document.getElementById('st-index').textContent='Проверены';document.getElementById('st-index').className='cr-val ok';document.getElementById('rm-folder').textContent='Выбрана';document.getElementById('rm-folder').className='cr-val ok';}
+    if(s.path_valid){applyFolder(s.radmir_path||'');}
+    // Статус кода — восстанавливаем из реальной проверки Index.js
+    if(s.code_installed){
+      document.getElementById('st-code').textContent='Установлен';
+      document.getElementById('st-code').className='cr-val ok';
+    }
   }).catch(function(){});
 });
 
@@ -649,8 +654,29 @@ function setTab(id,el){
   if(el){el.classList.add('active');}else{var map={home:0,insert:1,remove:2};var tabs=document.querySelectorAll('.nav-item');if(tabs[map[id]]!==undefined)tabs[map[id]].classList.add('active');}
 }
 
-function selectFolder(){if(!api)return;api.select_folder().then(function(result){if(result)applyFolder();});}
-function applyFolder(){folderSelected=true;document.getElementById('path-disp').textContent='● Папка выбрана';document.getElementById('path-disp').classList.add('set');document.getElementById('st-folder').textContent='Выбрана';document.getElementById('st-folder').className='cr-val ok';document.getElementById('st-index').textContent='Проверены';document.getElementById('st-index').className='cr-val ok';document.getElementById('rm-folder').textContent='Выбрана';document.getElementById('rm-folder').className='cr-val ok';}
+function selectFolder(){
+  if(!api)return;
+  api.select_folder().then(function(result){
+    if(!result)return;
+    if(result.error==='not_radmir'){
+      alert('Выберите папку RADMIR CRMP');
+      return;
+    }
+    if(result.ok){applyFolder(result.path);}
+  });
+}
+function applyFolder(fullPath){
+  folderSelected=true;
+  var disp=fullPath||'● Папка выбрана';
+  document.getElementById('path-disp').textContent='✓ '+disp;
+  document.getElementById('path-disp').classList.add('set');
+  document.getElementById('st-folder').textContent='Выбрана';
+  document.getElementById('st-folder').className='cr-val ok';
+  document.getElementById('st-index').textContent='Проверены';
+  document.getElementById('st-index').className='cr-val ok';
+  document.getElementById('rm-folder').textContent='Выбрана';
+  document.getElementById('rm-folder').className='cr-val ok';
+}
 
 function toggleCallsign(){callsignOn=!callsignOn;document.getElementById('chk-box').classList.toggle('on',callsignOn);document.getElementById('cs-wrap').classList.toggle('show',callsignOn);}
 function toggleAutoPassword(){autoPasswordOn=!autoPasswordOn;document.getElementById('chk-box-pwd').classList.toggle('on',autoPasswordOn);document.getElementById('pwd-wrap').classList.toggle('show',autoPasswordOn);}
