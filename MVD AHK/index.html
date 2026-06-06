@@ -26,7 +26,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 
 /* ══ Main window ══ */
 .window{
-  width:860px;height:520px;background:var(--surface);
+  width:860px;height:600px;background:var(--surface);
   border-radius:14px;border:.5px solid var(--border2);
   display:flex;overflow:hidden;position:relative;
   box-shadow:0 32px 80px rgba(0,0,0,.6);-webkit-app-region:no-drag
@@ -96,10 +96,11 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .page-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex-shrink:0;margin-top:1px}
 
 /* ══ Content ══ */
-.content{flex:1;min-height:0;padding:18px 24px;overflow-y:auto;display:flex;flex-direction:column}
+.content{flex:1;min-height:0;padding:18px 24px;overflow-y:auto;display:flex;flex-direction:column;padding-bottom:0}
 .content>*{flex-shrink:0}
 .page{display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden;animation:fade .16s ease}
 .page.active{display:flex}
+.page>.content{overflow-y:auto}
 @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 
 /* ══ Cards ══ */
@@ -199,7 +200,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .cs-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:0;opacity:0}
 .cs-wrap.show{max-height:60px;opacity:1}
 .grab-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0;margin-bottom:0}
-.grab-wrap.show{max-height:50vh;opacity:1;margin-bottom:10px}
+.grab-wrap.show{max-height:400px;opacity:1;margin-bottom:10px}
 #swap-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
 #swap-wrap.show{max-height:140px;opacity:1}
 #menu-key-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:52px;opacity:1}
@@ -217,7 +218,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 
 /* ══ Flash ══ */
 .status-flash{
-  position:fixed;bottom:16px;right:16px;
+  position:fixed;top:16px;right:16px;
   padding:8px 14px;border-radius:7px;font-size:11px;font-weight:600;
   opacity:0;pointer-events:none;transition:opacity .2s;z-index:999;
   display:flex;align-items:center;gap:6px
@@ -392,7 +393,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
         <div class="page-dot" style="background:var(--accent)"></div>
         <span class="page-title">Данные сотрудника МВД</span>
       </div>
-      <div class="content">
+      <div class="content" style="padding-bottom:14px;flex:1;min-height:0;overflow-y:auto">
         <div class="steps">
           <div class="step done" id="si0"></div>
           <div class="step" id="si1"></div>
@@ -551,8 +552,11 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
           </div>
         </div>
 
-        <div class="pbar" id="pbar-insert"><div class="pbar-fill" id="pbar-insert-f"></div></div>
-        <div style="margin-top:auto;display:flex;gap:8px">
+      </div>
+      <!-- sticky footer вне скролла -->
+      <div style="padding:12px 24px;border-top:.5px solid var(--border);background:var(--surface);flex-shrink:0">
+        <div id="pbar-insert" class="pbar" style="margin:0 0 8px"><div class="pbar-fill" id="pbar-insert-f"></div></div>
+        <div style="display:flex;gap:8px">
           <button class="btn btn-primary" onclick="doInsert()" style="flex:1" id="btn-insert">
             <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
             Вставить код
@@ -561,8 +565,6 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
         </div>
       </div>
     </div>
-
-    <!-- PAGE: Удалить AHK -->
     <div class="page" id="page-remove">
       <div class="page-header">
         <div class="page-dot" style="background:var(--danger)"></div>

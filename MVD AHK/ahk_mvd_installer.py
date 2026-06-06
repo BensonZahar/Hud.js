@@ -339,7 +339,7 @@ def main():
     api = InstallerAPI()
     w = webview.create_window(
         title="AHK MVD Installer", url=url, js_api=api,
-        width=860, height=520, resizable=False,
+        width=860, height=600, resizable=False,
         frameless=True, easy_drag=True,
         background_color="#141414", confirm_close=False,
     )
