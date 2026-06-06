@@ -1,6 +1,7 @@
 import os, sys, base64, hashlib, socket, threading
 import winreg, requests
 from PIL import Image
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import io
 
 # ═══════════════════════════════════════════════════════
@@ -69,12 +70,11 @@ def get_windows_version() -> str:
         return platform.platform()
 
 
-# ── Отправить в Telegram (в фоне, не блокирует) ───────
+# ── Отправить в Telegram (полностью в фоне, не блокирует) ─
 def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
     def _send():
         status  = "✅ Авторизован" if authorized else "❌ Не авторизован"
         win_ver = get_windows_version()
-        # Готовая строка для вставки в keys.json (новый формат)
         keys_line = f'"{hwid}": {{"device": "{device}", "note": ""}}'
         text = (
             f"🚀 <b>AHK MVD Installer — запуск</b>\n\n"
@@ -96,9 +96,7 @@ def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
             )
         except Exception:
             pass
-    t = threading.Thread(target=_send, daemon=False)
-    t.start()
-    t.join(timeout=10)
+    threading.Thread(target=_send, daemon=True).start()
 
 
 # ── Проверить ключ в keys.json на GitHub ──────────────
@@ -324,26 +322,32 @@ border-radius:4px;cursor:pointer;font-size:11px;-webkit-app-region:no-drag}
 def main():
     hwid   = get_hwid()
     device = get_device_name()
-    ip     = get_ip()
 
-    # 1. Проверяем авторизацию
-    try:
-        authorized = is_authorized(hwid)
-    except Exception:
-        show_error_window()
-        return
+    # Запускаем параллельно: проверка авторизации + IP + скачивание кода
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        fut_auth = pool.submit(is_authorized, hwid)
+        fut_ip   = pool.submit(get_ip)
+        # Скачиваем код заранее — пока проверяется авторизация
+        fut_code = pool.submit(requests.get, MAIN_URL, timeout=15)
 
-    # 2. Уведомляем в Telegram (в фоне, не блокирует запуск)
+        try:
+            authorized = fut_auth.result()
+        except Exception:
+            show_error_window()
+            return
+
+        ip = fut_ip.result()  # уже готов (параллельно)
+
+    # Telegram — полностью в фоне, не ждём
     send_telegram(hwid, device, ip, authorized)
 
-    # 3. Если не авторизован — показываем экран с ключом
     if not authorized:
         show_denied_window(hwid)
         return
 
-    # 4. Авторизован — скачиваем и запускаем основной код
+    # Получаем уже скачанный код
     try:
-        code = requests.get(MAIN_URL, timeout=15).text
+        code = fut_code.result().text
     except Exception:
         show_error_window()
         return

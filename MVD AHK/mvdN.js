@@ -382,37 +382,7 @@ window.addEventListener('keydown', function(e) {
     // Прямые хоткеи здесь убраны — не дублируем.
 });
 
-// ==================== ПРЯМЫЕ БИНДЫ (ACTION_BINDS из LoadAhk.js) ====================
-// LoadAhk.js вызывает window._mvdFireBind(action) при нажатии бинд-хоткея.
-// Для действий без ID — выполняем сразу.
-// Для действий с needsId — открываем диалог ввода ID.
-window._mvdFireBind = function(action) {
-    const actionsNeedId = ['cuffing','putInCar','arrest','uncuffing','chase','search',
-        'escort','clearWanted','confiscate','breakGlass','takeLicense'];
-    const actionsNoId = ['greeting','checkDocuments','studyDocuments','scanningTablet',
-        'removeMask','fingerprint','miranda'];
-    const actionsSpecial = ['fine','wantedFine'];
-
-    if (actionsNeedId.indexOf(action) !== -1) {
-        // Нужен ID — открываем диалог ввода ID и выполняем действие
-        currentAction = action;
-        setTimeout(function() { showIdInputDialog(giveLicenseTo); }, 30);
-    } else if (actionsNoId.indexOf(action) !== -1) {
-        // Можно выполнить сразу
-        executePovsednevAction(action, giveLicenseTo);
-    } else if (action === 'fine') {
-        setTimeout(function() { showKoapTypeMenu(giveLicenseTo); }, 30);
-    } else if (action === 'wantedFine') {
-        currentUkLines = [...ukLines];
-        ukPage = 0;
-        setTimeout(function() { showUkInputDialog(giveLicenseTo); }, 30);
-    } else {
-        console.log('[BIND] Неизвестный action: ' + action);
-    }
-};
-// ==================== END БИНДЫ ====================
-
-
+// ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
 // Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
 // и вызывает OnMultiDialogClickNavigButton при их нажатии
 const PAGINATED_DIALOG_IDS = [667, 671, 672, 673, 674];

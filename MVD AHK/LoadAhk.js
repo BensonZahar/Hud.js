@@ -33,10 +33,6 @@ const AUTO_GRAB_MENU_AMMO_545    = -1;
 const AUTO_GRAB_MENU_AMMO_1270   = -1;
 const AUTO_GRAB_SKIP = []; // Список предметов которые НЕ брать: ["medkit","painkiller","baton","baton2","vest","taumeter","diag","taser","deagle","magnum","akm","ammo762","aks74u","remington","ammo545","ammo12x70"]
 // ── END Авто-снаряжение ─────────────────────────────────────────
-// ── Бинды на действия (вшиваются установщиком) ─────────────────
-// Формат: { "greeting": "Alt+G", "checkDocuments": "Mouse4", "fine": "WheelUp", ... }
-const ACTION_BINDS = {};
-// ── END Бинды ───────────────────────────────────────────────────
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
@@ -208,174 +204,65 @@ function verifyAndLoad() {
 // Запуск загрузчика
 verifyAndLoad();
 
-// ══════════════════════════════════════════════════════════════
-// УНИВЕРСАЛЬНЫЙ ПАРСЕР ХОТКЕЕВ (keyboard + mouse + wheel)
-// Поддерживаемые форматы:
-//   Клавиши:  "Alt+Q", "Ctrl+Shift+F5", "Numpad1", "F6", "Q"
-//   Мышь:     "Mouse1"(ЛКМ) "Mouse2"(ПКМ) "Mouse3"(средняя)
-//              "Mouse4"(доп.назад) "Mouse5"(доп.вперёд)
-//   Колёсико: "WheelUp", "WheelDown"
-// ══════════════════════════════════════════════════════════════
+// ── Регистрация хоткея свапа ────────────────────────────────
+// SWAP_ENABLED=false или SWAP_KEY="" → слушатели не вешаются вообще
 (function() {
+    if (!SWAP_ENABLED || !SWAP_KEY) {
+        console.log('[SWAP-KEY] Свап отключён установщиком');
+        return;
+    }
 
-// ── Вспомогательный парсер строки хоткея ──────────────────
-function parseHotkey(str) {
-    if (!str) return null;
-    var parts = str.toLowerCase().split('+').map(function(s){ return s.trim(); });
+    // Парсим строку вида "Alt+Q", "Ctrl+Shift+F5", "Numpad1", "F6" и т.д.
+    var parts = SWAP_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
     var needAlt   = parts.indexOf('alt')   !== -1;
     var needCtrl  = parts.indexOf('ctrl')  !== -1;
     var needShift = parts.indexOf('shift') !== -1;
+    // Основная клавиша — последняя часть или единственная
     var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
-    var main = mainParts[0] || '';
+    var mainKey   = mainParts[0] || '';
 
-    // Определяем тип: mouse / wheel / keyboard
-    if (main === 'mouse1') return { type:'mouse', btn:0, needAlt:needAlt, needCtrl:needCtrl, needShift:needShift };
-    if (main === 'mouse2') return { type:'mouse', btn:2, needAlt:needAlt, needCtrl:needCtrl, needShift:needShift };
-    if (main === 'mouse3') return { type:'mouse', btn:1, needAlt:needAlt, needCtrl:needCtrl, needShift:needShift };
-    if (main === 'mouse4') return { type:'mouse', btn:3, needAlt:needAlt, needCtrl:needCtrl, needShift:needShift };
-    if (main === 'mouse5') return { type:'mouse', btn:4, needAlt:needAlt, needCtrl:needCtrl, needShift:needShift };
-    if (main === 'wheelup')   return { type:'wheel', dir:1,  needAlt:needAlt, needCtrl:needCtrl, needShift:needShift };
-    if (main === 'wheeldown') return { type:'wheel', dir:-1, needAlt:needAlt, needCtrl:needCtrl, needShift:needShift };
-
-    // Клавиатура
-    var matchCode = null, matchKey = null;
-    if (/^numpad(\d)$/.test(main)) {
-        matchCode = 'Numpad' + main.replace('numpad','');
-    } else if (/^f\d+$/.test(main)) {
-        matchCode = main.charAt(0).toUpperCase() + main.slice(1);
+    // Нормализуем: "numpad1" → code "Numpad1"; "f6" → code "F6"; одиночная буква → key "q"
+    var matchCode = null;
+    var matchKey  = null;
+    if (/^numpad(\d)$/.test(mainKey)) {
+        matchCode = 'Numpad' + mainKey.replace('numpad','');
+    } else if (/^f\d+$/.test(mainKey)) {
+        matchCode = mainKey.charAt(0).toUpperCase() + mainKey.slice(1); // "F6"
     } else {
-        matchKey = main;
+        matchKey = mainKey; // одиночный символ, сравниваем e.key.toLowerCase()
     }
-    return { type:'key', matchCode:matchCode, matchKey:matchKey,
-             needAlt:needAlt, needCtrl:needCtrl, needShift:needShift };
-}
 
-function modsOk(hk, e) {
-    return (!hk.needAlt || e.altKey) && (!hk.needCtrl || e.ctrlKey) && (!hk.needShift || e.shiftKey);
-}
-
-function keyMatches(hk, e) {
-    if (!modsOk(hk, e)) return false;
-    if (hk.matchCode) return e.code === hk.matchCode;
-    if (hk.matchKey)  return e.key.toLowerCase() === hk.matchKey;
-    return false;
-}
-
-// ── Разбираем SWAP_KEY ─────────────────────────────────────
-var swapHk = (SWAP_ENABLED && SWAP_KEY) ? parseHotkey(SWAP_KEY) : null;
-
-// ── Разбираем ACTION_BINDS ─────────────────────────────────
-var bindsParsed = {};
-if (typeof ACTION_BINDS === 'object') {
-    Object.keys(ACTION_BINDS).forEach(function(action) {
-        var hk = parseHotkey(ACTION_BINDS[action]);
-        if (hk) bindsParsed[action] = hk;
-    });
-}
-
-// Выполнить действие по action-id (из povsednevOptions) без открытия меню
-function fireBindAction(action) {
-    // Передаём в mvdN.js через глобальный хук
-    if (typeof window._mvdFireBind === 'function') {
-        window._mvdFireBind(action);
-    } else {
-        console.warn('[BINDS] window._mvdFireBind не готов, action=' + action);
+    function isMatch(e) {
+        if (needAlt   && !e.altKey)   return false;
+        if (needCtrl  && !e.ctrlKey)  return false;
+        if (needShift && !e.shiftKey) return false;
+        if (matchCode) return e.code === matchCode;
+        if (matchKey)  return e.key.toLowerCase() === matchKey;
+        return false;
     }
-}
 
-// ── keydown: клавиатурные хоткеи ──────────────────────────
-window.addEventListener('keydown', function(e) {
-    // Свап
-    if (swapHk && swapHk.type === 'key' && keyMatches(swapHk, e)) {
+    window.addEventListener('keydown', function(e) {
+        if (!isMatch(e)) return;
         e.preventDefault && e.preventDefault();
         window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-        return;
-    }
-    // Бинды
-    Object.keys(bindsParsed).forEach(function(action) {
-        var hk = bindsParsed[action];
-        if (hk.type === 'key' && keyMatches(hk, e)) {
-            e.preventDefault && e.preventDefault();
-            fireBindAction(action);
-        }
     });
-}, true);
 
-// ── mousedown: кнопки мыши ─────────────────────────────────
-window.addEventListener('mousedown', function(e) {
-    // Свап
-    if (swapHk && swapHk.type === 'mouse' && e.button === swapHk.btn && modsOk(swapHk, e)) {
-        window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-        return;
-    }
-    // Бинды
-    Object.keys(bindsParsed).forEach(function(action) {
-        var hk = bindsParsed[action];
-        if (hk.type === 'mouse' && e.button === hk.btn && modsOk(hk, e)) {
-            fireBindAction(action);
-        }
-    });
-}, true);
-
-// ── wheel: колёсико мыши ───────────────────────────────────
-window.addEventListener('wheel', function(e) {
-    var dir = e.deltaY < 0 ? 1 : -1; // 1=вверх, -1=вниз
-    // Свап
-    if (swapHk && swapHk.type === 'wheel' && swapHk.dir === dir && modsOk(swapHk, e)) {
-        e.preventDefault && e.preventDefault();
-        window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
-        return;
-    }
-    // Бинды
-    Object.keys(bindsParsed).forEach(function(action) {
-        var hk = bindsParsed[action];
-        if (hk.type === 'wheel' && hk.dir === dir && modsOk(hk, e)) {
-            e.preventDefault && e.preventDefault();
-            fireBindAction(action);
-        }
-    });
-}, { passive: false, capture: true });
-
-// ── OnPlayerClientSideKey (Numpad перехват Radmir) ─────────
-// Numpad1 = keyCode 40 в движке Radmir
-var _numpadRemap = { 40: 'Numpad1', 41: 'Numpad2', 42: 'Numpad3',
-                     43: 'Numpad4', 44: 'Numpad5', 45: 'Numpad6',
-                     46: 'Numpad7', 47: 'Numpad8', 48: 'Numpad9', 49: 'Numpad0' };
-
-var _origSCEH_key = window.sendClientEventHandle;
-if (_origSCEH_key) {
-    window.sendClientEventHandle = function(event) {
-        var args = Array.prototype.slice.call(arguments, 1);
-        if (args[0] === 'OnPlayerClientSideKey') {
-            var kc = parseInt(args[1]);
-            var code = _numpadRemap[kc];
-            if (code) {
-                // Свап через Numpad
-                if (swapHk && swapHk.type === 'key' && swapHk.matchCode === code && !swapHk.needAlt && !swapHk.needCtrl && !swapHk.needShift) {
+    // Также перехватываем через движок для Numpad1 (keyCode 40 в Radmir)
+    if (matchCode === 'Numpad1') {
+        var _origSCEH_key = window.sendClientEventHandle;
+        if (_origSCEH_key) {
+            window.sendClientEventHandle = function(event) {
+                var args = Array.prototype.slice.call(arguments, 1);
+                if (args[0] === 'OnPlayerClientSideKey' && parseInt(args[1]) === 40) {
+                    console.log('[SWAP-KEY] OnPlayerClientSideKey Numpad1 (40) — своп');
                     window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
                     return;
                 }
-                // Бинды через Numpad
-                Object.keys(bindsParsed).forEach(function(action) {
-                    var hk = bindsParsed[action];
-                    if (hk.type === 'key' && hk.matchCode === code && !hk.needAlt && !hk.needCtrl && !hk.needShift) {
-                        fireBindAction(action);
-                    }
-                });
-            }
+                return _origSCEH_key.apply(this, arguments);
+            };
         }
-        return _origSCEH_key.apply(this, arguments);
-    };
-}
+    }
 
-if (swapHk) {
-    console.log('[SWAP-KEY] Хоткей зарегистрирован: ' + SWAP_KEY + ' (тип: ' + swapHk.type + ')');
-} else {
-    console.log('[SWAP-KEY] Свап отключён установщиком');
-}
-if (Object.keys(bindsParsed).length > 0) {
-    console.log('[BINDS] Зарегистрировано бинд-хоткеев: ' + Object.keys(bindsParsed).length);
-}
-
+    console.log('[SWAP-KEY] Хоткей зарегистрирован: ' + SWAP_KEY);
 })();
 })();

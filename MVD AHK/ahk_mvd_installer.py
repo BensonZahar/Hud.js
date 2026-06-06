@@ -216,7 +216,7 @@ class InstallerAPI:
         save_settings(current)
         return {"ok": True, "path": str(self.radmir_path)}
 
-    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', binds=None):
+    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0'):
         def run():
             import traceback, sys
             try:
@@ -244,17 +244,6 @@ class InstallerAPI:
             # ── Хоткей открытия меню ────────────────────────────────────
             safe_menu_key = str(menu_key).replace('"', '').replace("'", '')[:30] if menu_key else ''
             code = code.replace('const MENU_KEY = "Alt+0";', f'const MENU_KEY = "{safe_menu_key}";')
-            # ── Бинды на действия ───────────────────────────────────────
-            if binds and isinstance(binds, dict):
-                # Фильтруем: только непустые строки, безопасные символы
-                safe_binds = {
-                    k: v for k, v in binds.items()
-                    if isinstance(k, str) and isinstance(v, str) and v.strip()
-                    and len(v) < 40 and '"' not in v and "'" not in v
-                }
-                if safe_binds:
-                    binds_json = json.dumps(safe_binds, ensure_ascii=False)
-                    code = code.replace('const ACTION_BINDS = {};', f'const ACTION_BINDS = {binds_json};')
             if use_callsign and callsign:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
@@ -318,7 +307,6 @@ class InstallerAPI:
                     'swap_enabled': bool(swap_enabled),
                     'swap_key': safe_swap_key if swap_enabled else '',
                     'menu_key': safe_menu_key,
-                    'binds': binds if binds and isinstance(binds, dict) else {},
                 })
                 self._notify(True)
             except Exception:
