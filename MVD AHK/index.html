@@ -97,6 +97,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 
 /* ══ Content ══ */
 .content{flex:1;min-height:0;padding:18px 24px;overflow-y:auto;display:flex;flex-direction:column}
+.content>*{flex-shrink:0}
 .page{display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden;animation:fade .16s ease}
 .page.active{display:flex}
 @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
