@@ -1,12 +1,11 @@
-import os, sys, random, string, threading, tempfile, requests, json
+import os, random, string, threading, tempfile, requests, json
 from pathlib import Path
 import webview
 
 GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
 AHK_URL    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
 
-# Иконка и путь к ico передаются из launcher через exec namespace
-_ICON_B64  = globals().get("_ICON_B64", "")
+# Путь к иконке передаётся из launcher через exec namespace
 _ICON_PATH = globals().get("_ICON_PATH", "")
 
 # Файл сохранённых настроек — в %APPDATA%\AHK_MVD\
@@ -41,10 +40,6 @@ def save_settings(data: dict):
         pass
 
 
-def resource_path(rel):
-    base = getattr(sys, '_MEIPASS', os.path.abspath('.'))
-    return os.path.join(base, rel)
-
 
 def get_hwid() -> str:
     """Тот же алгоритм что и в launcher.py — sha256(MachineGuid)[:16]."""
@@ -64,9 +59,6 @@ def fetch_html() -> str:
     resp = requests.get(f"{GITHUB_RAW}/index.html", timeout=15)
     resp.raise_for_status()
     html = resp.text
-    # Вставляем иконку вместо плейсхолдера
-    if _ICON_B64:
-        html = html.replace("__APP_ICON__", f"data:image/png;base64,{_ICON_B64}")
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
     tmp.write(html); tmp.close()
     return tmp.name
