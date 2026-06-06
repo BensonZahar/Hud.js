@@ -21,15 +21,15 @@
 }
 html,body{width:100%;height:100%;overflow:hidden}
 body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--bg);
-  display:flex;align-items:center;justify-content:center;
+  display:flex;align-items:stretch;justify-content:stretch;
   user-select:none;-webkit-app-region:drag}
 
 /* ══ Main window ══ */
 .window{
-  width:860px;height:600px;background:var(--surface);
-  border-radius:14px;border:.5px solid var(--border2);
+  width:100%;height:100%;background:var(--surface);
+  border-radius:0;border:none;
   display:flex;overflow:hidden;position:relative;
-  box-shadow:0 32px 80px rgba(0,0,0,.6);-webkit-app-region:no-drag
+  box-shadow:none;-webkit-app-region:no-drag
 }
 
 /* ══ Close btn ══ */
@@ -96,7 +96,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .page-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex-shrink:0;margin-top:1px}
 
 /* ══ Content ══ */
-.content{flex:1;min-height:0;padding:18px 24px;overflow-y:auto;display:flex;flex-direction:column;padding-bottom:0}
+.content{flex:1;min-height:0;padding:18px 24px 14px;overflow-y:auto;display:flex;flex-direction:column}
 .content>*{flex-shrink:0}
 .page{display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden;animation:fade .16s ease}
 .page.active{display:flex}
@@ -203,7 +203,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .grab-wrap.show{max-height:400px;opacity:1;margin-bottom:10px}
 #swap-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
 #swap-wrap.show{max-height:140px;opacity:1}
-#menu-key-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:52px;opacity:1}
+#menu-key-wrap{overflow:visible;}
 
 /* ══ Progress bar ══ */
 .pbar{height:2px;background:var(--border);border-radius:1px;overflow:hidden;margin-top:8px;display:none}
@@ -393,7 +393,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
         <div class="page-dot" style="background:var(--accent)"></div>
         <span class="page-title">Данные сотрудника МВД</span>
       </div>
-      <div class="content" style="padding-bottom:14px;flex:1;min-height:0;overflow-y:auto">
+      <div class="content">
         <div class="steps">
           <div class="step done" id="si0"></div>
           <div class="step" id="si1"></div>
