@@ -359,6 +359,7 @@ let wantedStars = null;
 let ukPage = 0;
 let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
+let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
 // Обработчик горячих клавиш
@@ -857,7 +858,10 @@ const HandleUkInput = (input) => {
         const stars = ukStarsMap[code];
         if (stars !== undefined) {
             lastWantedCode = `${code} УК`;
+            _autoWantedActive = true; // авто-причина только через наш диалог
             sendChatInput(`/su ${id} ${stars}`);
+            // Страховочный сброс — если сервер не открыл диалог за 5 секунд
+            setTimeout(() => { _autoWantedActive = false; }, 5000);
         } else {
             // статья не найдена в маппинге — показываем снова
             console.log(`[УК] Статья ${code} не найдена в маппинге`);
@@ -1591,7 +1595,9 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             }
 
             // ── Авто-розыск: LIST "Причина выдачи розыска" → выбрать "Ввести вручную" ──
-            if (style === 2 && title.includes('Причина выдачи розыска')) {
+            // Срабатывает ТОЛЬКО если /su был отправлен через наш диалог (пункт 14 меню)
+            if (style === 2 && title.includes('Причина выдачи розыска') && _autoWantedActive) {
+                _autoWantedActive = false; // сбрасываем — чтоб следующий ручной /su не сработал
                 console.log('[AUTO-РОЗЫСК] Обнаружен диалог выбора причины — авто-выбор "Ввести в ручную"');
                 _awaitingRoziskInput = true;
                 setTimeout(() => {
