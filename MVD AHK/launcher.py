@@ -142,59 +142,121 @@ def get_icon_b64() -> str:
 # ── Окно "нет доступа" ────────────────────────────────
 def show_denied_window(hwid: str):
     import webview, tempfile
-    icon_b64 = get_icon_b64()
-    icon_src = f"data:image/png;base64,{icon_b64}" if icon_b64 else ""
-    device   = get_device_name()
+    device    = get_device_name()
     keys_line = f'"{hwid}": {{"device": "{device}", "note": ""}}'
 
     html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
+<link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap' rel='stylesheet'>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
-body{{background:#141414;color:#f4f1e1;font-family:'Segoe UI',sans-serif;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  height:100vh;gap:10px;-webkit-app-region:drag;user-select:none}}
-img{{width:48px;height:48px;border-radius:10px}}
-h2{{font-size:15px;font-weight:700}}
-p{{font-size:11px;opacity:.5;text-align:center;line-height:1.6;max-width:340px}}
-.label{{font-size:9px;opacity:.35;letter-spacing:.06em;text-transform:uppercase;
-  align-self:flex-start;margin-left:30px;margin-bottom:-4px}}
-.copy-box{{
-  width:380px;background:#1a1a1a;
-  border:.5px solid rgba(244,241,225,.12);border-radius:6px;
-  padding:9px 14px;font-family:Consolas,monospace;font-size:11px;
-  color:#e8e4d0;cursor:pointer;word-break:break-all;
-  -webkit-app-region:no-drag;transition:background .15s;position:relative
+body{{
+  background:#0a0a0b;color:#e8e6f0;
+  font-family:'Inter',sans-serif;font-size:13px;
+  display:flex;align-items:center;justify-content:center;
+  height:100vh;overflow:hidden;
+  -webkit-app-region:drag;user-select:none
 }}
-.copy-box:hover{{background:#222}}
-.badge{{position:absolute;right:10px;top:50%;transform:translateY(-50%);
-  font-size:9px;opacity:.35;pointer-events:none}}
-.tg-link{{font-size:11px;color:#0d73fd;text-decoration:none;opacity:.85;
-  -webkit-app-region:no-drag}}
-.tg-link:hover{{opacity:1;text-decoration:underline}}
-button{{padding:8px 28px;background:#474747;border:none;color:#f4f1e1;
-  border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;
-  -webkit-app-region:no-drag;transition:background .2s;margin-top:4px}}
-button:hover{{background:#555}}
+.card{{
+  background:#111114;border:.5px solid rgba(255,255,255,.10);
+  border-radius:14px;width:400px;padding:28px 26px;
+  box-shadow:0 32px 80px rgba(0,0,0,.75);
+  -webkit-app-region:no-drag;
+  display:flex;flex-direction:column;align-items:center
+}}
+.win-close{{
+  position:fixed;top:13px;right:13px;
+  width:22px;height:22px;border-radius:50%;
+  background:rgba(255,255,255,.06);border:none;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s;-webkit-app-region:no-drag
+}}
+.win-close:hover{{background:#e05555}}
+.win-close svg{{width:8px;height:8px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round}}
+.icon-wrap{{
+  width:52px;height:52px;border-radius:13px;
+  background:rgba(224,85,85,.12);border:.5px solid rgba(224,85,85,.28);
+  display:flex;align-items:center;justify-content:center;margin-bottom:16px
+}}
+.icon-wrap svg{{width:24px;height:24px;stroke:#e05555;stroke-width:1.8;fill:none;stroke-linecap:round;stroke-linejoin:round}}
+h2{{font-size:16px;font-weight:600;color:#e8e6f0;margin-bottom:8px;text-align:center}}
+.sub{{font-size:11px;color:rgba(232,230,240,.5);text-align:center;line-height:1.65;margin-bottom:20px}}
+.field-label{{
+  font-size:9px;color:rgba(232,230,240,.3);text-transform:uppercase;
+  letter-spacing:.08em;margin-bottom:6px;align-self:flex-start
+}}
+.copy-box{{
+  width:100%;background:#1f1f26;border:.5px solid rgba(255,255,255,.10);
+  border-radius:8px;padding:10px 14px 28px;
+  font-family:'JetBrains Mono',Consolas,monospace;font-size:10px;
+  color:rgba(232,230,240,.7);cursor:pointer;word-break:break-all;
+  transition:background .15s,border-color .15s;position:relative;
+  margin-bottom:16px;-webkit-app-region:no-drag
+}}
+.copy-box:hover{{background:#252530;border-color:rgba(255,255,255,.16)}}
+.copy-hint{{
+  position:absolute;bottom:8px;right:12px;
+  font-size:9px;color:rgba(232,230,240,.28);
+  font-family:'Inter',sans-serif;letter-spacing:.04em;
+  transition:color .2s;pointer-events:none
+}}
+.divider{{width:100%;height:.5px;background:rgba(255,255,255,.06);margin-bottom:16px}}
+.tg-row{{
+  display:flex;align-items:center;gap:6px;
+  justify-content:center;margin-bottom:18px
+}}
+.tg-lbl{{font-size:11px;color:rgba(232,230,240,.45)}}
+.tg-link{{
+  font-size:11px;color:#4f6ef7;font-weight:500;
+  text-decoration:none;-webkit-app-region:no-drag;transition:color .15s
+}}
+.tg-link:hover{{color:#8aabff}}
+.btn{{
+  width:100%;height:36px;border:.5px solid rgba(255,255,255,.10);
+  border-radius:8px;cursor:pointer;
+  font-size:11px;font-weight:600;font-family:'Inter',sans-serif;
+  background:rgba(255,255,255,.07);color:#e8e6f0;
+  transition:background .15s;-webkit-app-region:no-drag
+}}
+.btn:hover{{background:rgba(255,255,255,.12)}}
+.btn:active{{transform:scale(.98)}}
 </style></head><body>
-{'<img src="'+icon_src+'">' if icon_src else ''}
-<h2>Нет доступа</h2>
-<p>Ваш ПК не авторизован. Напишите создателю<br>и отправьте строку ниже для получения доступа.</p>
-<div class="label">Скопируйте и отправьте создателю</div>
-<div class="copy-box" onclick="copyKeys()">
-  {keys_line},
-  <span class="badge" id="badge">копировать</span>
+<button class="win-close" onclick="window.pywebview&&pywebview.api?pywebview.api.close_app():window.close()">
+  <svg viewBox="0 0 10 10"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg>
+</button>
+<div class="card">
+  <div class="icon-wrap">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+  </div>
+  <h2>Нет доступа</h2>
+  <p class="sub">Ваш ПК не авторизован.<br>Отправьте строку ниже создателю для получения доступа.</p>
+  <span class="field-label">Скопируйте и отправьте создателю</span>
+  <div class="copy-box" id="copy-box" onclick="copyKeys()">
+    {keys_line},
+    <span class="copy-hint" id="badge">нажмите чтобы скопировать</span>
+  </div>
+  <div class="divider"></div>
+  <div class="tg-row">
+    <span class="tg-lbl">Написать создателю:</span>
+    <a class="tg-link" href="#"
+       onclick="window.pywebview&&pywebview.api&&pywebview.api.open_url('https://t.me/ZaharKonst');return false;">
+      @ZaharKonst
+    </a>
+  </div>
+  <button class="btn" onclick="window.pywebview&&pywebview.api?pywebview.api.close_app():window.close()">Закрыть</button>
 </div>
-<p>Написать создателю:<br>
-<a class="tg-link" href="https://t.me/ZaharKonst"
-   onclick="window.pywebview&&pywebview.api&&pywebview.api.open_url('https://t.me/ZaharKonst');return false;">@ZaharKonst</a></p>
-<button onclick="window.pywebview.api.close_app()">Закрыть</button>
 <script>
 var _txt = `{keys_line},`;
 function copyKeys(){{
-  navigator.clipboard&&navigator.clipboard.writeText(_txt);
-  var b=document.getElementById('badge');
-  b.textContent='скопировано ✓'; b.style.opacity='1'; b.style.color='#3fb950';
-  setTimeout(function(){{b.textContent='копировать';b.style.opacity='.35';b.style.color='';}},2000);
+  if(navigator.clipboard){{
+    navigator.clipboard.writeText(_txt);
+    var b=document.getElementById('badge');
+    b.textContent='скопировано ✓';
+    b.style.color='#3dba7a';
+    setTimeout(function(){{
+      b.textContent='нажмите чтобы скопировать';
+      b.style.color='';
+    }},2000);
+  }}
 }}
 </script>
 </body></html>"""
@@ -212,8 +274,8 @@ function copyKeys(){{
     api = _Q()
     w = webview.create_window('AHK MVD Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
-        js_api=api, width=440, height=360,
-        frameless=True, background_color='#141414'
+        js_api=api, width=460, height=430,
+        frameless=True, background_color='#0a0a0b'
     )
     api._window = w
     ico = resource_path("icon.ico")

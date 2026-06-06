@@ -199,8 +199,8 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .cs-wrap.show{max-height:60px;opacity:1}
 .grab-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0;margin-bottom:0}
 .grab-wrap.show{max-height:50vh;opacity:1;margin-bottom:10px}
-#swap-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:0;opacity:0}
-#swap-wrap.show{max-height:52px;opacity:1}
+#swap-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
+#swap-wrap.show{max-height:140px;opacity:1}
 #menu-key-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:52px;opacity:1}
 
 /* ══ Progress bar ══ */
@@ -509,35 +509,38 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
           </div>
         </div>
 
-        <!-- Swap hotkey -->
+        <!-- Auto-taser toggle -->
         <div class="chk-row" onclick="toggleSwap()">
-          <div class="chk-box on" id="chk-box-swap"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <div class="chk-box" id="chk-box-swap"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <span class="chk-lbl">Авто-тазер (свап тазер ↔ дигл)</span>
         </div>
-        <div class="cs-wrap" id="swap-wrap" style="max-height:52px;opacity:1">
-          <div class="inp-grp" style="display:flex;gap:8px;align-items:center;margin-bottom:0">
-            <div style="flex:1">
-              <label class="inp-lbl">Кнопка / комбинация</label>
-              <input class="inp inp-hotkey" id="f-swap-key" placeholder="Нажмите кнопку..." readonly
-                onfocus="startListeningSwapKey()" onblur="stopListeningSwapKey()">
+        <!-- Кнопка авто-тазера — показывается ТОЛЬКО когда включён -->
+        <div id="swap-wrap">
+          <div style="background:rgba(79,110,247,.07);border:.5px solid rgba(79,110,247,.18);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+              <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;flex-shrink:0"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              <span style="font-size:10px;color:var(--accent);font-weight:500">Авто-тазер активен</span>
             </div>
-            <div style="flex-shrink:0;margin-top:14px">
-              <button class="btn btn-secondary" type="button" onclick="clearSwapKey()" style="height:34px;padding:0 10px;font-size:11px">✕</button>
+            <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
+              <div style="flex:1">
+                <label class="inp-lbl">Кнопка свапа (тазер ↔ дигл)</label>
+                <input class="inp inp-hotkey" id="f-swap-key" placeholder="Нажмите кнопку..." readonly
+                  onfocus="startListeningSwapKey()" onblur="stopListeningSwapKey()">
+              </div>
+              <button class="btn btn-ghost" type="button" onclick="clearSwapKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
             </div>
           </div>
         </div>
 
-        <!-- Menu hotkey -->
+        <!-- Кнопка АХК-меню — всегда видна -->
         <div id="menu-key-wrap">
-          <div class="inp-grp" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+          <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
             <div style="flex:1">
               <label class="inp-lbl">Кнопка открытия меню АХК</label>
               <input class="inp inp-hotkey" id="f-menu-key" placeholder="Нажмите кнопку..." readonly
                 onfocus="startListeningMenuKey()" onblur="stopListeningMenuKey()">
             </div>
-            <div style="flex-shrink:0;margin-top:14px">
-              <button class="btn btn-secondary" type="button" onclick="clearMenuKey()" style="height:34px;padding:0 10px;font-size:11px">✕</button>
-            </div>
+            <button class="btn btn-ghost" type="button" onclick="clearMenuKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
           </div>
         </div>
 
@@ -597,7 +600,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 
 <script>
 var folderSelected=false,callsignOn=false,autoPasswordOn=false,autoGrabOn=false;
-var savedAutoGrab=null,swapEnabled=true,swapKey='Alt+Q';
+var savedAutoGrab=null,swapEnabled=false,swapKey='Alt+Q';
 var _swapListening=false,menuKey='Alt+0',_menuListening=false;
 var grabItems={painkiller:false,medkit:false,baton:false,baton2:false,vest:false,taumeter:false,diag:false,taser:false,deagle:false,akm:false,aks74u:false,remington:false,magnum:false,ammo762:false,ammo545:false,ammo12x70:false};
 var api=null;
