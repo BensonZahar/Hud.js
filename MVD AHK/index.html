@@ -85,7 +85,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .sb-foot a:hover{color:var(--accent)}
 
 /* ══ Main area ══ */
-.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.main{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 
 /* ══ Page header ══ */
 .page-header{
@@ -96,8 +96,8 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .page-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);flex-shrink:0;margin-top:1px}
 
 /* ══ Content ══ */
-.content{flex:1;padding:18px 24px;overflow-y:auto;display:flex;flex-direction:column}
-.page{display:none;flex-direction:column;flex:1;animation:fade .16s ease}
+.content{flex:1;min-height:0;padding:18px 24px;overflow-y:auto;display:flex;flex-direction:column}
+.page{display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden;animation:fade .16s ease}
 .page.active{display:flex}
 @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 
@@ -532,15 +532,21 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
           </div>
         </div>
 
-        <!-- Кнопка АХК-меню — всегда видна -->
+        <!-- Кнопка АХК-меню — всегда видна, стиль как у тазера -->
         <div id="menu-key-wrap">
-          <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:10px">
-            <div style="flex:1">
-              <label class="inp-lbl">Кнопка открытия меню АХК</label>
-              <input class="inp inp-hotkey" id="f-menu-key" placeholder="Нажмите кнопку..." readonly
-                onfocus="startListeningMenuKey()" onblur="stopListeningMenuKey()">
+          <div style="background:rgba(79,110,247,.07);border:.5px solid rgba(79,110,247,.18);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+              <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"/></svg>
+              <span style="font-size:10px;color:var(--accent);font-weight:500">Кнопка меню АХК</span>
             </div>
-            <button class="btn btn-ghost" type="button" onclick="clearMenuKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
+            <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
+              <div style="flex:1">
+                <label class="inp-lbl">Открытие меню</label>
+                <input class="inp inp-hotkey" id="f-menu-key" placeholder="Нажмите кнопку..." readonly
+                  onfocus="startListeningMenuKey()" onblur="stopListeningMenuKey()">
+              </div>
+              <button class="btn btn-ghost" type="button" onclick="clearMenuKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
+            </div>
           </div>
         </div>
 
