@@ -533,6 +533,19 @@ const getPaginatedKoap = () => {
     return currentKoapLines.join("<n>");
 };
 // ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
+// Восстанавливает уведомление отслеживания/погони если оно активно
+const restoreTrackingNotification = () => {
+    if (!currentScanId) return;
+    if (chaseNotificationOpen) {
+        setTimeout(() => {
+            try { window.interface('ScreenNotification').add(`[1, "Начата погоня", "ID: ${currentScanId}", "0000FF", 36000000]`); } catch(e) {}
+        }, 150);
+    } else if (trackingNotificationOpen) {
+        setTimeout(() => {
+            try { window.interface('ScreenNotification').add(`[1, "Идет отслеживание", "ID: ${currentScanId}", "FF0000", 36000000]`); } catch(e) {}
+        }, 150);
+    }
+};
 const snAdd = (payload) => {
     try {
         const sn = window.interface('ScreenNotification');
@@ -540,6 +553,10 @@ const snAdd = (payload) => {
         setTimeout(() => {
             try { window.interface('ScreenNotification').add(payload); } catch(e) {}
         }, 100);
+        // Если активно отслеживание/погоня — восстанавливаем уведомление после показа нового
+        if (currentScanId && (trackingNotificationOpen || chaseNotificationOpen)) {
+            restoreTrackingNotification();
+        }
     } catch(e) {}
 };
 let currentNotificationId = 0;
@@ -1341,6 +1358,7 @@ window.sendClientEventCustom = (event, ...args) => {
             } else {
                 lastMenuType = null;
                 currentMenu = null;
+                restoreTrackingNotification();
             }
         }
         else if (args[1] === 667) { // Меню Повседневная
@@ -1355,6 +1373,7 @@ window.sendClientEventCustom = (event, ...args) => {
                 currentPage = 0;
                 lastMenuType = null; currentMenu = null;
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                restoreTrackingNotification();
                 return;
             }
         }
@@ -1389,6 +1408,7 @@ window.sendClientEventCustom = (event, ...args) => {
                 currentPage = 0;
                 lastMenuType = null; currentMenu = null;
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                restoreTrackingNotification();
                 return;
             }
         }
@@ -1458,6 +1478,9 @@ window.sendClientEventCustom = (event, ...args) => {
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleMvdSubCommand(listitem);
+            } else if (args[2] === 0) {
+                // Отмена / ESC — закрываем меню, восстанавливаем уведомление
+                restoreTrackingNotification();
             }
         }
         else if (args[1] === 678) { // Выбор типа КоАП
@@ -1494,6 +1517,7 @@ window.sendChatInputCustom = e => {
         if (mvdSkins.includes(skinId)) {
             // Успешное открытие меню МВД
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
+            restoreTrackingNotification();
             if (lastMenuType === "povsednev") {
                 showPovsednevMenuPage(args[1]);
             } else if (lastMenuType === "stroy") {
