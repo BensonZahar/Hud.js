@@ -324,18 +324,18 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .grab-scroll-rail-bg{position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:2px;background:var(--border2);border-radius:1px}
 .grab-scroll-thumb{position:absolute;right:0;width:100%;background:rgba(255,255,255,.2);border-radius:1px;cursor:pointer;min-height:12px}
 .controls-button{align-items:center;display:flex;height:20px;justify-content:center;position:relative;transition:all .25s ease;z-index:2}
-.controls-button-content{align-items:center;background:rgba(255,255,255,.12);display:flex;flex:1 1;height:100%;justify-content:center;padding:0 6px;position:relative;transition:all .1s ease;z-index:9;border-radius:4px}
-.controls-button-content:hover{background:rgba(255,255,255,.18)}
+.controls-button-content{align-items:center;background:#d8d4cc;display:flex;flex:1 1;height:100%;justify-content:center;padding:0 6px;position:relative;transition:all .1s ease;z-index:9;border-radius:3px}
+.controls-button-content:hover{background:#e8e4da}
 .controls-button-icon{transition:all .25s ease}
-.controls-button-icon_key{height:8px;margin-right:3px;opacity:.7;width:8px}
+.controls-button-icon_key{height:8px;margin-right:3px;width:8px}
 .controls-button--text-wrapper{display:flex;flex-direction:column;height:100%;justify-content:center}
-.controls-button--text{align-items:center;color:var(--text);display:flex;font-family:var(--font);font-size:10px;font-weight:600;justify-content:center;line-height:69%;text-transform:uppercase;transition:all .25s ease;letter-spacing:.05em}
-.controls-button--text-border{background-color:rgba(255,255,255,.2);height:1px;margin-top:2px;width:100%}
+.controls-button--text{align-items:center;color:#010106;display:flex;font-family:"Open Sans Condensed","Open Sans",sans-serif;font-size:11px;font-style:italic;font-weight:700;justify-content:center;line-height:69%;text-transform:uppercase;transition:all .25s ease}
+.controls-button--text-border{background-color:#01010640;height:1.5px;margin-top:1.5px;width:100%}
 .controls-button_enter .controls-button-content{padding:0}
-.controls-button-shadow{background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.3));border-radius:0 0 4px 4px;bottom:0;left:0;position:absolute;right:0;top:0;z-index:10;pointer-events:none}
+.controls-button-shadow{background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.3));border-radius:0 0 3px 3px;bottom:0;left:0;position:absolute;right:0;top:0;z-index:10;pointer-events:none}
 .controls-button__container{align-items:center;display:flex;margin-right:20px}
 .controls-button__container:last-child{margin-right:0}
-.controls-button__container-text{color:var(--text2);font-family:var(--font);font-size:10px;font-weight:500;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.05em}
+.controls-button__container-text{color:rgba(244,241,225,.6);font-family:"Open Sans",sans-serif;font-size:10px;font-weight:600;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.04em;padding-left:6px}
 
 /* ══ Divider ══ */
 .divider{height:.5px;background:var(--border);margin:10px 0}
@@ -357,68 +357,159 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 /* ══ Menu settings wrap ══ */
 #menu-settings-wrap{display:none;margin-bottom:0}
 #menu-settings-wrap.show{display:block}
-.menu-item-row{
-  display:flex;align-items:center;gap:8px;
-  padding:5px 8px;border-radius:6px;cursor:pointer;
-  transition:background .12s;-webkit-app-region:no-drag
+
+/* ══ Game-style dialog hint header ══ */
+.game-dialog-wrap{margin-bottom:10px}
+.game-dialog-header{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.game-dialog-header svg{width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.game-dialog-header span{font-size:10px;color:var(--accent);font-weight:500}
+
+/* ══ Точная копия Window.css игры для диалога ══ */
+.gdlg-wrap{
+  background:#141419eb;
+  border:1.5px solid #ffffff0d;
+  border-radius:6px;
+  padding:3px;
+  pointer-events:auto;
+  position:relative;
 }
-.menu-item-row:hover{background:rgba(255,255,255,.04)}
-.menu-item-chk{
-  width:14px;height:14px;flex-shrink:0;
-  border:.5px solid rgba(255,255,255,.2);border-radius:3px;
-  display:flex;align-items:center;justify-content:center;
-  background:transparent;transition:all .12s
+.gdlg-inner{
+  border:1.5px solid #7557e633;
+  border-top:1.5px solid #7557e6;
+  border-radius:6px;
+  padding:18px;
+  box-shadow:inset 0 31px 39px -24px #7557e633;
+  position:relative;
+  overflow:hidden;
 }
-.menu-item-chk svg{width:9px;height:9px;stroke:transparent;stroke-width:2.5;fill:none;stroke-linecap:round;transition:stroke .12s}
-.menu-item-row.on .menu-item-chk{background:var(--accent);border-color:var(--accent)}
-.menu-item-row.on .menu-item-chk svg{stroke:#fff}
-.menu-item-lbl{font-size:11px;color:var(--text2);line-height:1}
-.menu-item-row.on .menu-item-lbl{color:var(--text)}
-.menu-item-bind{
-  margin-left:auto;flex-shrink:0;
-  display:flex;align-items:center;gap:4px;
+.gdlg-pattern{
+  height:191px;left:0;
+  mask-image:linear-gradient(180deg,#d9d9d9,#73737300 70%);
+  overflow:hidden;position:absolute;top:0;width:100%;pointer-events:none;
 }
-.menu-item-bind-badge{
+.gdlg-content{position:relative;z-index:1}
+.gdlg-title{
+  color:#fff;
+  font-family:"Open Sans Condensed","Open Sans",sans-serif;
+  font-size:21px;font-style:italic;font-weight:700;
+  line-height:normal;text-transform:uppercase;
+  margin-bottom:2px;
+}
+.gdlg-subtitle{
+  color:rgba(244,241,225,.6);
+  font-family:"Open Sans",sans-serif;
+  font-size:1.67vh;font-weight:600;
+  margin-bottom:4px;margin-top:2px;
+}
+
+/* список пунктов — копия window-table__items */
+.gdlg-items{line-height:0;margin-top:4px}
+
+/* пункт меню — точная копия window-table__item из Window.css игры */
+.gdlg-item{
+  background:#ffffff0d;
+  border:0.19vh solid;
+  border-color:#0000 #0000 #ffffff1a;
+  border-radius:0.37vh;
+  box-shadow:inset 0 0.93vh 1.48vh 0 #ffffff0d;
+  color:#fff;
+  cursor:pointer;
+  display:flex;
+  min-height:39px;
+  margin-top:6px;
+  position:relative;
+  transition:all .15s;
+  -webkit-app-region:no-drag;
+}
+.gdlg-item:first-child{margin-top:0}
+.gdlg-item:hover{background:#ffffff18}
+/* включён = выделен золотом (как selected в игре) */
+.gdlg-item.on{
+  background:#f9b70133;
+  border-color:#f9b701;
+  box-shadow:inset 0 0.93vh 1.48vh 0 #ffffff0d;
+}
+/* выключен = тусклый */
+.gdlg-item.off{opacity:.45}
+/* dragging states */
+.gdlg-item.dragging{opacity:.3}
+.gdlg-item.drag-over{box-shadow:inset 0 -2px 0 #f9b701,inset 0 0.93vh 1.48vh 0 #ffffff0d}
+
+/* колонка внутри пункта */
+.gdlg-item-col{
+  align-items:center;display:flex;
+  font-size:1.67vh;font-weight:600;
+  min-height:39px;justify-content:space-between;
+  padding:0 12px;text-align:left;width:100%;
+}
+.gdlg-item-col p{line-height:1.4;margin:0;flex:1}
+.gdlg-item.on .gdlg-item-col p{color:#fff}
+.gdlg-item:not(.on) .gdlg-item-col p{color:rgba(244,241,225,.55)}
+
+/* правая часть: бинд + кнопки */
+.gdlg-item-right{
+  display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:6px;
+}
+.gdlg-bind-badge{
   font-family:var(--mono);font-size:9px;font-weight:500;
-  background:rgba(79,110,247,.15);border:.5px solid rgba(79,110,247,.35);
-  color:var(--accent);border-radius:4px;padding:2px 6px;
-  white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;
+  background:rgba(249,183,1,.15);border:.5px solid rgba(249,183,1,.4);
+  color:#f9b701;border-radius:3px;padding:2px 6px;
+  white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;
   cursor:pointer;transition:background .12s;
 }
-.menu-item-bind-badge:hover{background:rgba(79,110,247,.28);}
-.menu-item-bind-btn{
-  width:18px;height:18px;border-radius:4px;border:none;
+.gdlg-bind-badge:hover{background:rgba(249,183,1,.28)}
+.gdlg-bind-btn{
+  width:18px;height:18px;border-radius:3px;border:none;
   background:rgba(255,255,255,.06);cursor:pointer;
   display:flex;align-items:center;justify-content:center;
   transition:background .12s;flex-shrink:0;
 }
-.menu-item-bind-btn:hover{background:rgba(79,110,247,.25);}
-.menu-item-bind-btn svg{width:9px;height:9px;stroke:var(--text3);stroke-width:2;fill:none;stroke-linecap:round;}
-.menu-item-bind-btn:hover svg{stroke:var(--accent);}
-.menu-item-bind-clear{
+.gdlg-bind-btn:hover{background:rgba(249,183,1,.25)}
+.gdlg-bind-btn svg{width:9px;height:9px;stroke:rgba(244,241,225,.4);stroke-width:2;fill:none;stroke-linecap:round}
+.gdlg-bind-btn:hover svg{stroke:#f9b701}
+.gdlg-bind-clear{
   width:16px;height:16px;border-radius:3px;border:none;
   background:transparent;cursor:pointer;
   display:flex;align-items:center;justify-content:center;
   transition:background .12s;flex-shrink:0;
 }
-.menu-item-bind-clear:hover{background:rgba(224,85,85,.18);}
-.menu-item-bind-clear svg{width:8px;height:8px;stroke:var(--text3);stroke-width:2;fill:none;stroke-linecap:round;}
-.menu-item-bind-clear:hover svg{stroke:var(--danger);}
+.gdlg-bind-clear:hover{background:rgba(224,85,85,.18)}
+.gdlg-bind-clear svg{width:8px;height:8px;stroke:rgba(244,241,225,.4);stroke-width:2;fill:none;stroke-linecap:round}
+.gdlg-bind-clear:hover svg{stroke:var(--danger)}
 
-/* ══ Drag handle ══ */
-.menu-item-drag{
-  width:16px;height:16px;flex-shrink:0;
+/* drag handle */
+.gdlg-drag{
+  width:22px;height:100%;flex-shrink:0;min-height:39px;
   display:flex;align-items:center;justify-content:center;
-  cursor:grab;opacity:.25;transition:opacity .12s;
+  cursor:grab;opacity:.18;transition:opacity .12s;
 }
-.menu-item-drag:active{cursor:grabbing;}
-.menu-item-row:hover .menu-item-drag{opacity:.55;}
-.menu-item-drag svg{width:10px;height:10px;stroke:var(--text);stroke-width:2;fill:none;stroke-linecap:round;}
-.menu-item-row.dragging{opacity:.4;background:rgba(79,110,247,.08);}
-.menu-item-row.drag-over{
-  background:rgba(79,110,247,.13);
-  box-shadow:inset 0 -2px 0 var(--accent);
+.gdlg-drag:active{cursor:grabbing}
+.gdlg-item:hover .gdlg-drag{opacity:.5}
+.gdlg-drag svg{width:8px;height:8px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round}
+
+/* скроллируемый список */
+.gdlg-list-wrap{position:relative;margin-top:0}
+.gdlg-list-scroll{
+  max-height:220px;overflow-y:scroll;overflow-x:hidden;
+  width:calc(100% - 9px);scrollbar-width:none;
 }
+.gdlg-list-scroll::-webkit-scrollbar{display:none}
+.gdlg-scroll-rail{position:absolute;right:0;top:0;bottom:0;width:9px;pointer-events:none}
+.gdlg-scroll-rail-bg{position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:3px;background:#ffffff1a;border-radius:2px}
+.gdlg-scroll-thumb{position:absolute;right:0;width:100%;background:linear-gradient(0deg,#bcbcbd,#fff 75%);border-radius:2px;cursor:pointer;min-height:14px}
+
+/* нижняя навигация — как в игре */
+.gdlg-nav{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-top:10px;
+}
+.gdlg-nav-hint{
+  display:flex;align-items:center;gap:4px;
+}
+.gdlg-nav-tip{font-size:9px;color:rgba(244,241,225,.4);letter-spacing:.03em;text-transform:uppercase}
+
+/* Совместимость */
+.menu-item-row{display:none!important}
 </style>
 </head>
 <body>
@@ -688,12 +779,81 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
           <span class="chk-lbl">Настройки меню «Повседневная»</span>
         </div>
         <div id="menu-settings-wrap">
-          <div style="background:rgba(79,110,247,.07);border:.5px solid rgba(79,110,247,.18);border-radius:8px;padding:10px 12px;margin-bottom:10px">
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
-              <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-              <span style="font-size:10px;color:var(--accent);font-weight:500">Отметьте пункты которые нужно показывать</span>
+          <div class="game-dialog-wrap">
+            <div class="game-dialog-header">
+              <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              <span>Кликните для вкл/выкл · Тяните для порядка · Кнопка клавиши для бинда</span>
             </div>
-            <div id="menu-items-list" style="display:flex;flex-direction:column;gap:2px"></div>
+            <!-- Диалог точно как в игре (Window.css + Modal.css) -->
+            <div class="gdlg-wrap">
+              <div class="gdlg-inner">
+                <div class="gdlg-pattern">
+                  <div style="background:linear-gradient(135deg,rgba(117,87,230,.08) 0%,transparent 60%);height:100%;width:100%"></div>
+                </div>
+                <div class="gdlg-content">
+                  <div class="gdlg-title">Повседневная <span style="font-size:12px;font-weight:400;opacity:.45;font-style:normal;letter-spacing:.04em">(стр. 1)</span></div>
+                  <div class="gdlg-subtitle">Действие</div>
+                  <div class="gdlg-list-wrap">
+                    <div class="gdlg-list-scroll" id="menu-items-list"></div>
+                    <div class="gdlg-scroll-rail" id="gdlg-rail">
+                      <div class="gdlg-scroll-rail-bg"></div>
+                      <div class="gdlg-scroll-thumb" id="gdlg-thumb"></div>
+                    </div>
+                  </div>
+                  <div class="window__buttons">
+                    <div class="controls-button__container">
+                      <div class="controls-button">
+                        <div class="controls-button-content controls-button_enter">
+                          <img class="controls-button-icon controls-button-icon_key" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAACgSURBVHgBhZCxDcJQDETPzgdCQfVrWurMACMxBwOwAi09M4QJWIBUSIQEsPEXTTBRcpIly366swz8aBFDyDfoUehCzM+tiEYgV+BxSlPm2b4DfiEgQVoBzdk7sodE2p3NKw+SWRuEFUZkjriPQSI4BpHmwDxdmrlFk0VPLPr2F51Z1arvkigrrI9EUqjOS6CtPQgPq8oVeF2Gzkk/XPctPs9GO5HRlFIKAAAAAElFTkSuQmCC">
+                          <div class="controls-button--text-wrapper">
+                            <div class="controls-button--text">Enter</div>
+                            <div class="controls-button--text-border"></div>
+                          </div>
+                        </div>
+                        <div class="controls-button-shadow"></div>
+                      </div>
+                      <span class="controls-button__container-text">Выбрать</span>
+                    </div>
+                    <div class="controls-button__container">
+                      <div class="controls-button controls-button_is-esc">
+                        <div class="controls-button-content">
+                          <div class="controls-button--text-wrapper">
+                            <div class="controls-button--text">Esc</div>
+                            <div class="controls-button--text-border"></div>
+                          </div>
+                        </div>
+                        <div class="controls-button-shadow"></div>
+                      </div>
+                      <span class="controls-button__container-text">Отмена</span>
+                    </div>
+                    <div class="controls-button__container" style="margin-left:auto">
+                      <div class="controls-button">
+                        <div class="controls-button-content">
+                          <div class="controls-button--text-wrapper">
+                            <div class="controls-button--text">A</div>
+                            <div class="controls-button--text-border"></div>
+                          </div>
+                        </div>
+                        <div class="controls-button-shadow"></div>
+                      </div>
+                      <span class="controls-button__container-text">Назад</span>
+                    </div>
+                    <div class="controls-button__container">
+                      <div class="controls-button">
+                        <div class="controls-button-content">
+                          <div class="controls-button--text-wrapper">
+                            <div class="controls-button--text">D</div>
+                            <div class="controls-button--text-border"></div>
+                          </div>
+                        </div>
+                        <div class="controls-button-shadow"></div>
+                      </div>
+                      <span class="controls-button__container-text">Далее</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -822,18 +982,18 @@ function _onDragStart(e,action){
 function _onDragOver(e,action){
   e.preventDefault();
   e.dataTransfer.dropEffect='move';
-  document.querySelectorAll('#menu-items-list .menu-item-row').forEach(function(r){
+  document.querySelectorAll('#menu-items-list .gdlg-item').forEach(function(r){
     r.classList.toggle('drag-over',r.getAttribute('data-action')===action&&action!==_dragSrc);
   });
 }
 function _onDragLeave(){
-  document.querySelectorAll('#menu-items-list .menu-item-row').forEach(function(r){
+  document.querySelectorAll('#menu-items-list .gdlg-item').forEach(function(r){
     r.classList.remove('drag-over');
   });
 }
 function _onDrop(e,targetAction){
   e.preventDefault();
-  document.querySelectorAll('#menu-items-list .menu-item-row').forEach(function(r){
+  document.querySelectorAll('#menu-items-list .gdlg-item').forEach(function(r){
     r.classList.remove('drag-over','dragging');
   });
   if(!_dragSrc||_dragSrc===targetAction)return;
@@ -845,7 +1005,7 @@ function _onDrop(e,targetAction){
   buildMenuItemsList();
 }
 function _onDragEnd(){
-  document.querySelectorAll('#menu-items-list .menu-item-row').forEach(function(r){
+  document.querySelectorAll('#menu-items-list .gdlg-item').forEach(function(r){
     r.classList.remove('dragging','drag-over');
   });
   _dragSrc=null;
@@ -855,39 +1015,43 @@ function buildMenuItemsList(){
   var container=document.getElementById('menu-items-list');
   if(!container)return;
   container.innerHTML='';
-  // Рендерим по текущему порядку
+  var displayIndex=0;
   menuItemOrder.forEach(function(action){
     var it=ALL_MENU_ITEMS.find(function(x){return x.action===action;});
     if(!it)return;
-    var row=document.createElement('div');
-    row.className='menu-item-row'+(menuItemsEnabled[it.action]?' on':'');
-    row.setAttribute('data-action',it.action);
-    row.setAttribute('draggable','true');
+    var enabled=menuItemsEnabled[it.action];
+    if(enabled)displayIndex++;
 
-    // Drag handle
-    var handle='<div class="menu-item-drag" title="Перетащить для изменения порядка"><svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg></div>';
-    // Чекбокс + лейбл
-    var chk='<div class="menu-item-chk"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>';
-    var lbl='<span class="menu-item-lbl">'+it.label+'</span>';
-
-    // Правая часть: бейдж с биндом + кнопка назначить + кнопка сбросить
+    // Лейбл без номера — номер рисуем сами
+    var rawLabel=it.label.replace(/^\d+\.\s*/,'');
+    var numStr=enabled?(displayIndex+'. '):'';
     var bind=menuItemBinds[it.action]||'';
-    var bindHtml='<div class="menu-item-bind">';
+
+    var bindHtml='<div class="gdlg-item-right">';
     if(bind){
-      bindHtml+='<span class="menu-item-bind-badge" title="Нажмите чтобы изменить" onclick="(function(e){e.stopPropagation();_showOverlay(\'bind:\'+\''+it.action+'\');})(event)">'+escHtml(bind)+'</span>';
-      bindHtml+='<button class="menu-item-bind-clear" title="Сбросить бинд" onclick="(function(e){e.stopPropagation();clearMenuBind(\''+it.action+'\');})(event)"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
+      bindHtml+='<span class="gdlg-bind-badge" title="Изменить бинд" onclick="(function(e){e.stopPropagation();_showOverlay(\'bind:\'+\''+it.action+'\');})(event)">'+escHtml(bind)+'</span>';
+      bindHtml+='<button class="gdlg-bind-clear" title="Сбросить бинд" onclick="(function(e){e.stopPropagation();clearMenuBind(\''+it.action+'\');})(event)"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>';
     } else {
-      bindHtml+='<button class="menu-item-bind-btn" title="Назначить кнопку" onclick="(function(e){e.stopPropagation();_showOverlay(\'bind:\'+\''+it.action+'\');})(event)"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg></button>';
+      bindHtml+='<button class="gdlg-bind-btn" title="Назначить кнопку" onclick="(function(e){e.stopPropagation();_showOverlay(\'bind:\'+\''+it.action+'\');})(event)"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg></button>';
     }
     bindHtml+='</div>';
 
-    row.innerHTML=handle+chk+lbl+bindHtml;
-    // Клик по строке (не по хендлу) — тоггл видимости
+    var row=document.createElement('div');
+    row.className='gdlg-item'+(enabled?' on':' off');
+    row.setAttribute('data-action',it.action);
+    row.setAttribute('draggable','true');
+
+    row.innerHTML=
+      '<div class="gdlg-drag" title="Перетащить"><svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg></div>'+
+      '<div class="gdlg-item-col">'+
+        '<p>'+escHtml(numStr+rawLabel)+'</p>'+
+        bindHtml+
+      '</div>';
+
     row.onclick=function(e){
-      if(e.target.closest('.menu-item-drag')||e.target.closest('.menu-item-bind'))return;
+      if(e.target.closest('.gdlg-drag')||e.target.closest('.gdlg-item-right'))return;
       toggleMenuItem(it.action);
     };
-    // Drag events
     row.addEventListener('dragstart',function(e){_onDragStart(e,it.action);});
     row.addEventListener('dragover',function(e){_onDragOver(e,it.action);});
     row.addEventListener('dragleave',_onDragLeave);
@@ -895,6 +1059,54 @@ function buildMenuItemsList(){
     row.addEventListener('dragend',_onDragEnd);
     container.appendChild(row);
   });
+  _renumberGdlgItems();
+  initGdlgScroll();
+}
+
+function _renumberGdlgItems(){
+  var rows=document.querySelectorAll('#menu-items-list .gdlg-item');
+  var n=0;
+  rows.forEach(function(r){
+    var pEl=r.querySelector('.gdlg-item-col p');
+    if(!pEl)return;
+    var action=r.getAttribute('data-action');
+    var it=ALL_MENU_ITEMS.find(function(x){return x.action===action;});
+    if(!it)return;
+    var rawLabel=it.label.replace(/^\d+\.\s*/,'');
+    if(r.classList.contains('on')){n++;pEl.textContent=n+'. '+rawLabel;}
+    else{pEl.textContent=rawLabel;}
+  });
+}
+function initGdlgScroll(){
+  var el=document.getElementById('menu-items-list');
+  var thumb=document.getElementById('gdlg-thumb');
+  var rail=document.getElementById('gdlg-rail');
+  if(!el||!thumb||!rail)return;
+  function updateThumb(){
+    if(el.scrollHeight<=el.clientHeight){rail.style.opacity='0';return;}
+    rail.style.opacity='1';
+    var ratio=el.clientHeight/el.scrollHeight;
+    var thumbH=Math.max(ratio*100,10);
+    var thumbTop=(el.scrollTop/el.scrollHeight)*100;
+    thumb.style.height=thumbH+'%';
+    thumb.style.top=thumbTop+'%';
+  }
+  if(!el._gdlgScrollInited){
+    el._gdlgScrollInited=true;
+    el.addEventListener('scroll',updateThumb);
+    var dragging=false,startY=0,startScroll=0;
+    thumb.addEventListener('mousedown',function(e){
+      dragging=true;startY=e.clientY;startScroll=el.scrollTop;
+      document.body.style.userSelect='none';e.preventDefault();
+    });
+    document.addEventListener('mousemove',function(e){
+      if(!dragging)return;
+      el.scrollTop=startScroll+(e.clientY-startY)*(el.scrollHeight/el.clientHeight);
+    });
+    document.addEventListener('mouseup',function(){dragging=false;document.body.style.userSelect='';});
+    new MutationObserver(updateThumb).observe(el,{childList:true,subtree:true});
+  }
+  updateThumb();
 }
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function clearMenuBind(action){
@@ -915,10 +1127,14 @@ function getMenuOrder(){
 }
 function toggleMenuItem(action){
   menuItemsEnabled[action]=!menuItemsEnabled[action];
-  var rows=document.querySelectorAll('#menu-items-list .menu-item-row');
+  var rows=document.querySelectorAll('#menu-items-list .gdlg-item');
   rows.forEach(function(r){
-    if(r.getAttribute('data-action')===action)r.classList.toggle('on',menuItemsEnabled[action]);
+    if(r.getAttribute('data-action')===action){
+      r.classList.toggle('on',menuItemsEnabled[action]);
+      r.classList.toggle('off',!menuItemsEnabled[action]);
+    }
   });
+  _renumberGdlgItems();
 }
 function getMenuHidden(){
   // Скрытые пункты — в текущем порядке
