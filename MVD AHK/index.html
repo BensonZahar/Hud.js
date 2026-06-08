@@ -364,8 +364,13 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .game-dialog-header svg{width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .game-dialog-header span{font-size:10px;color:var(--accent);font-weight:500}
 
-/* ══ Точная копия Window.css игры для диалога ══ */
+/* ══ Точная копия Modal.css + Window.css игры для диалога ══ */
+
+/* Внешняя обёртка — modal-container-wrapper */
 .gdlg-wrap{
+  display:inline-block; /* компактная ширина как в игре, не 100% */
+  min-width:340px;
+  max-width:100%;
   background:#141419eb;
   border:1.5px solid #ffffff0d;
   border-radius:6px;
@@ -373,8 +378,9 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   pointer-events:auto;
   position:relative;
 }
+/* Внутренний контейнер — modal-container с violet border-top */
 .gdlg-inner{
-  border:1.5px solid #7557e633;
+  border:1.5px solid transparent;
   border-top:1.5px solid #7557e6;
   border-radius:6px;
   padding:18px;
@@ -382,36 +388,52 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   position:relative;
   overflow:hidden;
 }
+/* Graffiti паттерн — modal__pattern-wrapper */
 .gdlg-pattern{
   height:191px;left:0;
+  -webkit-mask-image:linear-gradient(180deg,#d9d9d9,#73737300 70%);
   mask-image:linear-gradient(180deg,#d9d9d9,#73737300 70%);
   overflow:hidden;position:absolute;top:0;width:100%;pointer-events:none;
+  z-index:0;
+}
+/* SVG граффити паттерн — GraffitiPattern из игры */
+.gdlg-pattern svg{
+  width:100%;height:100%;opacity:.09;
 }
 .gdlg-content{position:relative;z-index:1}
+
+/* Заголовок — modal__title (Open Sans Condensed italic bold uppercase) */
 .gdlg-title{
   color:#fff;
   font-family:"Open Sans Condensed","Open Sans",sans-serif;
   font-size:21px;font-style:italic;font-weight:700;
   line-height:normal;text-transform:uppercase;
-  margin-bottom:2px;
+  margin:0;
 }
+/* (СТР. 1) — тот же стиль что и заголовок, только меньше */
+.gdlg-title-page{
+  font-size:13px;font-style:italic;font-weight:700;
+  color:#fff;opacity:1; /* белый, как в оригинале — не серый */
+}
+
+/* Субтитл — window__subtitle */
 .gdlg-subtitle{
   color:rgba(244,241,225,.6);
   font-family:"Open Sans",sans-serif;
-  font-size:1.67vh;font-weight:600;
-  margin-bottom:4px;margin-top:2px;
+  font-size:13px;font-weight:600;
+  margin-bottom:0;margin-top:6px;
 }
 
-/* список пунктов — копия window-table__items */
-.gdlg-items{line-height:0;margin-top:4px}
+/* Список пунктов */
+.gdlg-items{line-height:0;margin-top:8px}
 
-/* пункт меню — точная копия window-table__item из Window.css игры */
+/* Пункт меню — точная копия window-table__item */
 .gdlg-item{
   background:#ffffff0d;
   border:0.19vh solid;
-  border-color:#0000 #0000 #ffffff1a;
-  border-radius:0.37vh;
-  box-shadow:inset 0 0.93vh 1.48vh 0 #ffffff0d;
+  border-color:transparent transparent #ffffff1a transparent;
+  border-radius:3px;
+  box-shadow:inset 0 7.5px 12px 0 #ffffff0d;
   color:#fff;
   cursor:pointer;
   display:flex;
@@ -422,39 +444,38 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   -webkit-app-region:no-drag;
 }
 .gdlg-item:first-child{margin-top:0}
-.gdlg-item:hover{background:#ffffff18}
-/* включён = выделен золотом (как selected в игре) */
+.gdlg-item:hover:not(.on){background:#ffffff18}
+/* включён = selected в игре (золото) */
 .gdlg-item.on{
   background:#f9b70133;
   border-color:#f9b701;
-  box-shadow:inset 0 0.93vh 1.48vh 0 #ffffff0d;
+  box-shadow:inset 0 7.5px 12px 0 #ffffff0d;
 }
 /* выключен = тусклый */
-.gdlg-item.off{opacity:.45}
-/* dragging states */
+.gdlg-item.off{opacity:.42}
 .gdlg-item.dragging{opacity:.3}
-.gdlg-item.drag-over{box-shadow:inset 0 -2px 0 #f9b701,inset 0 0.93vh 1.48vh 0 #ffffff0d}
+.gdlg-item.drag-over{box-shadow:inset 0 -2px 0 #f9b701}
 
-/* колонка внутри пункта */
+/* Колонка внутри пункта — window-table__col */
 .gdlg-item-col{
   align-items:center;display:flex;
-  font-size:1.67vh;font-weight:600;
+  font-size:13px;font-weight:600;
   min-height:39px;justify-content:space-between;
-  padding:0 12px;text-align:left;width:100%;
+  padding:6px 12px;text-align:left;flex:1;
 }
 .gdlg-item-col p{line-height:1.4;margin:0;flex:1}
-.gdlg-item.on .gdlg-item-col p{color:#fff}
+.gdlg-item.on .gdlg-item-col p{color:#f4f1e1}
 .gdlg-item:not(.on) .gdlg-item-col p{color:rgba(244,241,225,.55)}
 
-/* правая часть: бинд + кнопки */
+/* Правая часть: бинд + кнопки */
 .gdlg-item-right{
-  display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:6px;
+  display:flex;align-items:center;gap:4px;flex-shrink:0;margin-left:4px;padding-right:8px;
 }
 .gdlg-bind-badge{
   font-family:var(--mono);font-size:9px;font-weight:500;
   background:rgba(249,183,1,.15);border:.5px solid rgba(249,183,1,.4);
   color:#f9b701;border-radius:3px;padding:2px 6px;
-  white-space:nowrap;max-width:80px;overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap;max-width:90px;overflow:hidden;text-overflow:ellipsis;
   cursor:pointer;transition:background .12s;
 }
 .gdlg-bind-badge:hover{background:rgba(249,183,1,.28)}
@@ -465,7 +486,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   transition:background .12s;flex-shrink:0;
 }
 .gdlg-bind-btn:hover{background:rgba(249,183,1,.25)}
-.gdlg-bind-btn svg{width:9px;height:9px;stroke:rgba(244,241,225,.4);stroke-width:2;fill:none;stroke-linecap:round}
+.gdlg-bind-btn svg{width:9px;height:9px;stroke:rgba(244,241,225,.35);stroke-width:2;fill:none;stroke-linecap:round}
 .gdlg-bind-btn:hover svg{stroke:#f9b701}
 .gdlg-bind-clear{
   width:16px;height:16px;border-radius:3px;border:none;
@@ -474,23 +495,24 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   transition:background .12s;flex-shrink:0;
 }
 .gdlg-bind-clear:hover{background:rgba(224,85,85,.18)}
-.gdlg-bind-clear svg{width:8px;height:8px;stroke:rgba(244,241,225,.4);stroke-width:2;fill:none;stroke-linecap:round}
+.gdlg-bind-clear svg{width:8px;height:8px;stroke:rgba(244,241,225,.35);stroke-width:2;fill:none;stroke-linecap:round}
 .gdlg-bind-clear:hover svg{stroke:var(--danger)}
 
-/* drag handle */
+/* Drag handle */
 .gdlg-drag{
-  width:22px;height:100%;flex-shrink:0;min-height:39px;
+  width:20px;flex-shrink:0;
   display:flex;align-items:center;justify-content:center;
-  cursor:grab;opacity:.18;transition:opacity .12s;
+  cursor:grab;opacity:.15;transition:opacity .12s;align-self:stretch;
+  padding-left:8px;
 }
 .gdlg-drag:active{cursor:grabbing}
-.gdlg-item:hover .gdlg-drag{opacity:.5}
+.gdlg-item:hover .gdlg-drag{opacity:.45}
 .gdlg-drag svg{width:8px;height:8px;stroke:#fff;stroke-width:2;fill:none;stroke-linecap:round}
 
-/* скроллируемый список */
-.gdlg-list-wrap{position:relative;margin-top:0}
+/* Скролл список */
+.gdlg-list-wrap{position:relative;margin-top:8px}
 .gdlg-list-scroll{
-  max-height:220px;overflow-y:scroll;overflow-x:hidden;
+  max-height:210px;overflow-y:scroll;overflow-x:hidden;
   width:calc(100% - 9px);scrollbar-width:none;
 }
 .gdlg-list-scroll::-webkit-scrollbar{display:none}
@@ -498,15 +520,19 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .gdlg-scroll-rail-bg{position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:3px;background:#ffffff1a;border-radius:2px}
 .gdlg-scroll-thumb{position:absolute;right:0;width:100%;background:linear-gradient(0deg,#bcbcbd,#fff 75%);border-radius:2px;cursor:pointer;min-height:14px}
 
-/* нижняя навигация — как в игре */
-.gdlg-nav{
+/* Кнопки навигации — два ряда как в игре */
+/* Верхний ряд: window__paginate */
+.gdlg-paginate{
   display:flex;align-items:center;justify-content:space-between;
   margin-top:10px;
 }
-.gdlg-nav-hint{
-  display:flex;align-items:center;gap:4px;
+/* Нижний ряд: window__buttons */
+.gdlg-buttons{
+  display:flex;align-items:center;
+  margin-top:8px;
 }
-.gdlg-nav-tip{font-size:9px;color:rgba(244,241,225,.4);letter-spacing:.03em;text-transform:uppercase}
+.gdlg-buttons .controls-button__container{margin-right:14px}
+.gdlg-buttons .controls-button__container:last-child{margin-right:0}
 
 /* Совместимость */
 .menu-item-row{display:none!important}
@@ -784,15 +810,32 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
               <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
               <span>Кликните для вкл/выкл · Тяните для порядка · Кнопка клавиши для бинда</span>
             </div>
-            <!-- Диалог точно как в игре (Window.css + Modal.css) -->
             <div class="gdlg-wrap">
               <div class="gdlg-inner">
+                <!-- GraffitiPattern: SVG паттерн с mask-image градиентом как в игре -->
                 <div class="gdlg-pattern">
-                  <div style="background:linear-gradient(135deg,rgba(117,87,230,.08) 0%,transparent 60%);height:100%;width:100%"></div>
+                  <svg viewBox="0 0 400 191" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" style="width:100%;height:100%">
+                    <defs>
+                      <pattern id="gp1" x="0" y="0" width="72" height="72" patternUnits="userSpaceOnUse">
+                        <text x="4" y="44" font-family="Arial Black,Arial" font-size="42" font-weight="900" font-style="italic" fill="#fff" opacity="0.45" transform="rotate(-15,36,36)">М</text>
+                      </pattern>
+                      <pattern id="gp2" x="22" y="10" width="90" height="60" patternUnits="userSpaceOnUse">
+                        <text x="0" y="38" font-family="Arial Black,Arial" font-size="38" font-weight="900" font-style="italic" fill="#fff" opacity="0.28" transform="rotate(-10,45,30)">ВД</text>
+                      </pattern>
+                      <pattern id="gp3" x="8" y="5" width="130" height="50" patternUnits="userSpaceOnUse">
+                        <text x="0" y="34" font-family="Arial Black,Arial" font-size="28" font-weight="900" font-style="italic" fill="#fff" opacity="0.18" transform="rotate(-8,65,25)">POLICE</text>
+                      </pattern>
+                    </defs>
+                    <rect width="400" height="191" fill="url(#gp3)"/>
+                    <rect width="400" height="191" fill="url(#gp2)"/>
+                    <rect width="400" height="191" fill="url(#gp1)"/>
+                  </svg>
                 </div>
                 <div class="gdlg-content">
-                  <div class="gdlg-title">Повседневная <span style="font-size:12px;font-weight:400;opacity:.45;font-style:normal;letter-spacing:.04em">(стр. 1)</span></div>
+                  <!-- Заголовок: белый italic uppercase, (СТР. 1) тоже белый как в оригинале -->
+                  <div class="gdlg-title">Повседневная <span class="gdlg-title-page">(СТР. 1)</span></div>
                   <div class="gdlg-subtitle">Действие</div>
+                  <!-- Список пунктов со скроллом -->
                   <div class="gdlg-list-wrap">
                     <div class="gdlg-list-scroll" id="menu-items-list"></div>
                     <div class="gdlg-scroll-rail" id="gdlg-rail">
@@ -800,7 +843,35 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
                       <div class="gdlg-scroll-thumb" id="gdlg-thumb"></div>
                     </div>
                   </div>
-                  <div class="window__buttons">
+                  <!-- Верхний ряд: A НАЗАД / ДАЛЕЕ D (window__paginate) -->
+                  <div class="gdlg-paginate">
+                    <div class="controls-button__container">
+                      <div class="controls-button">
+                        <div class="controls-button-content">
+                          <div class="controls-button--text-wrapper">
+                            <div class="controls-button--text">A</div>
+                            <div class="controls-button--text-border"></div>
+                          </div>
+                        </div>
+                        <div class="controls-button-shadow"></div>
+                      </div>
+                      <span class="controls-button__container-text">Назад</span>
+                    </div>
+                    <div class="controls-button__container" style="flex-direction:row-reverse">
+                      <div class="controls-button">
+                        <div class="controls-button-content">
+                          <div class="controls-button--text-wrapper">
+                            <div class="controls-button--text">D</div>
+                            <div class="controls-button--text-border"></div>
+                          </div>
+                        </div>
+                        <div class="controls-button-shadow"></div>
+                      </div>
+                      <span class="controls-button__container-text" style="padding:0 8px 0 0">Далее</span>
+                    </div>
+                  </div>
+                  <!-- Нижний ряд: ENTER ВЫБРАТЬ / ESC ОТМЕНА (window__buttons) -->
+                  <div class="gdlg-buttons">
                     <div class="controls-button__container">
                       <div class="controls-button">
                         <div class="controls-button-content controls-button_enter">
@@ -825,30 +896,6 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
                         <div class="controls-button-shadow"></div>
                       </div>
                       <span class="controls-button__container-text">Отмена</span>
-                    </div>
-                    <div class="controls-button__container" style="margin-left:auto">
-                      <div class="controls-button">
-                        <div class="controls-button-content">
-                          <div class="controls-button--text-wrapper">
-                            <div class="controls-button--text">A</div>
-                            <div class="controls-button--text-border"></div>
-                          </div>
-                        </div>
-                        <div class="controls-button-shadow"></div>
-                      </div>
-                      <span class="controls-button__container-text">Назад</span>
-                    </div>
-                    <div class="controls-button__container">
-                      <div class="controls-button">
-                        <div class="controls-button-content">
-                          <div class="controls-button--text-wrapper">
-                            <div class="controls-button--text">D</div>
-                            <div class="controls-button--text-border"></div>
-                          </div>
-                        </div>
-                        <div class="controls-button-shadow"></div>
-                      </div>
-                      <span class="controls-button__container-text">Далее</span>
                     </div>
                   </div>
                 </div>
