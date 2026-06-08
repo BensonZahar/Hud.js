@@ -212,7 +212,7 @@ verifyAndLoad();
         return;
     }
 
-    // Парсим строку вида "Alt+Q", "Ctrl+Shift+F5", "Numpad1", "F6" и т.д.
+    // Парсим строку вида "Alt+Q", "Ctrl+Shift+F5", "Numpad1", "F6", "WheelUp", "MouseMiddle" и т.д.
     var parts = SWAP_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
     var needAlt   = parts.indexOf('alt')   !== -1;
     var needCtrl  = parts.indexOf('ctrl')  !== -1;
@@ -222,9 +222,16 @@ verifyAndLoad();
     var mainKey   = mainParts[0] || '';
 
     // Нормализуем: "numpad1" → code "Numpad1"; "f6" → code "F6"; одиночная буква → key "q"
-    var matchCode = null;
-    var matchKey  = null;
-    if (/^numpad(\d)$/.test(mainKey)) {
+    var matchCode   = null;
+    var matchKey    = null;
+    var matchWheel  = null; // 'up' | 'down'
+    var matchMouse  = null; // кнопка мыши: 1=средняя, 3=назад, 4=вперёд
+    if (mainKey === 'wheelup')   { matchWheel = 'up'; }
+    else if (mainKey === 'wheeldown') { matchWheel = 'down'; }
+    else if (mainKey === 'mousemiddle') { matchMouse = 1; }
+    else if (mainKey === 'mouseback')   { matchMouse = 3; }
+    else if (mainKey === 'mouseforward'){ matchMouse = 4; }
+    else if (/^numpad(\d)$/.test(mainKey)) {
         matchCode = 'Numpad' + mainKey.replace('numpad','');
     } else if (/^f\d+$/.test(mainKey)) {
         matchCode = mainKey.charAt(0).toUpperCase() + mainKey.slice(1); // "F6"
@@ -232,10 +239,14 @@ verifyAndLoad();
         matchKey = mainKey; // одиночный символ, сравниваем e.key.toLowerCase()
     }
 
-    function isMatch(e) {
+    function isModMatch(e) {
         if (needAlt   && !e.altKey)   return false;
         if (needCtrl  && !e.ctrlKey)  return false;
         if (needShift && !e.shiftKey) return false;
+        return true;
+    }
+    function isMatch(e) {
+        if (!isModMatch(e)) return false;
         if (matchCode) return e.code === matchCode;
         if (matchKey)  return e.key.toLowerCase() === matchKey;
         return false;
@@ -246,6 +257,29 @@ verifyAndLoad();
         e.preventDefault && e.preventDefault();
         window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
     });
+
+    // Колёсико мыши
+    if (matchWheel) {
+        window.addEventListener('wheel', function(e) {
+            if (!isModMatch(e)) return;
+            var dir = e.deltaY < 0 ? 'up' : 'down';
+            if (dir !== matchWheel) return;
+            e.preventDefault && e.preventDefault();
+            window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+        }, { passive: false });
+        console.log('[SWAP-KEY] Колёсико зарегистрировано: Wheel' + (matchWheel === 'up' ? 'Up' : 'Down'));
+    }
+
+    // Кнопки мыши (средняя и боковые)
+    if (matchMouse !== null) {
+        window.addEventListener('mousedown', function(e) {
+            if (e.button !== matchMouse) return;
+            if (!isModMatch(e)) return;
+            e.preventDefault && e.preventDefault();
+            window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+        });
+        console.log('[SWAP-KEY] Кнопка мыши зарегистрирована: button=' + matchMouse);
+    }
 
     // Также перехватываем через движок для Numpad1 (keyCode 40 в Radmir)
     if (matchCode === 'Numpad1') {
