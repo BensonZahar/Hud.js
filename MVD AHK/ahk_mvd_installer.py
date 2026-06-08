@@ -208,7 +208,7 @@ class InstallerAPI:
         save_settings(current)
         return {"ok": True, "path": str(self.radmir_path)}
 
-    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None):
+    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None):
         def run():
             import traceback, sys
             try:
@@ -240,6 +240,10 @@ class InstallerAPI:
             hidden_list = menu_hidden if isinstance(menu_hidden, list) else []
             hidden_json = json.dumps(hidden_list)
             code = code.replace('const MENU_HIDDEN_ITEMS = [];', f'const MENU_HIDDEN_ITEMS = {hidden_json};')
+            # ── Биндинги пунктов меню ────────────────────────────────────
+            binds_dict = {k: v for k, v in (menu_binds or {}).items() if v}
+            binds_json = json.dumps(binds_dict, ensure_ascii=False)
+            code = code.replace('const MENU_BINDS = {};', f'const MENU_BINDS = {binds_json};')
             if use_callsign and callsign:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
@@ -304,6 +308,7 @@ class InstallerAPI:
                     'swap_key': safe_swap_key if swap_enabled else '',
                     'menu_key': safe_menu_key,
                     'menu_hidden': hidden_list,
+                    'menu_binds': binds_dict,
                 })
                 self._notify(True)
             except Exception:

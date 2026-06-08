@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.34 ЗАГРУЖЕН (SWP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AHK v2.34 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -364,6 +364,28 @@ let _autoWantedActive = false; // флаг: /su отправлен через м
 var MENU_KEY = "Alt+0";
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
 var MENU_HIDDEN_ITEMS = [];
+// Биндинги прямого вызова пунктов меню — настраивается установщиком
+// Формат: { "greeting": "Alt+G", "cuffing": "Alt+C", ... }
+var MENU_BINDS = {};
+
+// Вспомогательная функция: проверяет совпадение e с комбо-строкой вида "Alt+G"
+function _matchesCombo(e, combo) {
+    if (!combo) return false;
+    var parts = combo.toLowerCase().split('+').map(function(s){ return s.trim(); });
+    var needAlt   = parts.indexOf('alt')   !== -1;
+    var needCtrl  = parts.indexOf('ctrl')  !== -1;
+    var needShift = parts.indexOf('shift') !== -1;
+    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+    var mainKey   = mainParts[0] || '';
+    var modOk = (!needAlt   || e.altKey)   &&
+                (!needCtrl  || e.ctrlKey)  &&
+                (!needShift || e.shiftKey) &&
+                (needAlt   || !e.altKey)   &&
+                (needCtrl  || !e.ctrlKey)  &&
+                (needShift || !e.shiftKey);
+    return modOk && (e.key.toLowerCase() === mainKey || e.code.toLowerCase() === mainKey);
+}
+
 // Обработчик горячих клавиш
 window.addEventListener('keydown', function(e) {
     if (MENU_KEY) {
@@ -377,6 +399,27 @@ window.addEventListener('keydown', function(e) {
         var keyOk = e.key.toLowerCase() === mainKey || e.code.toLowerCase() === mainKey;
         if (modOk && keyOk) {
             sendChatInput('/dahk');
+        }
+    }
+    // Прямые биндинги пунктов меню «Повседневная»
+    if (MENU_BINDS && typeof MENU_BINDS === 'object') {
+        for (var _action in MENU_BINDS) {
+            if (!_matchesCombo(e, MENU_BINDS[_action])) continue;
+            e.preventDefault && e.preventDefault();
+            var _opt = povsednevOptions.find(function(o){ return o.action === _action; });
+            if (!_opt) break;
+            currentAction = _action;
+            if (_opt.needsId) {
+                setTimeout(function(){ showIdInputDialog(giveLicenseTo || -1); }, 50);
+            } else if (_action === 'fine') {
+                setTimeout(function(){ showKoapTypeMenu(giveLicenseTo || -1); }, 50);
+            } else if (_action === 'wantedFine') {
+                currentUkLines = [...ukLines]; ukPage = 0;
+                setTimeout(function(){ showUkInputDialog(giveLicenseTo || -1); }, 50);
+            } else {
+                executePovsednevAction(_action, giveLicenseTo || -1);
+            }
+            break;
         }
     }
     // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
