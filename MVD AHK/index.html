@@ -359,8 +359,8 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 #menu-settings-wrap.show{display:block}
 
 /* ══ Game-style dialog hint header ══ */
-.game-dialog-wrap{margin-bottom:10px}
-.game-dialog-header{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.game-dialog-wrap{margin-bottom:10px;display:flex;flex-direction:column;align-items:center}
+.game-dialog-header{display:flex;align-items:center;gap:6px;margin-bottom:8px;align-self:flex-start}
 .game-dialog-header svg{width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .game-dialog-header span{font-size:10px;color:var(--accent);font-weight:500}
 
@@ -368,7 +368,6 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 
 /* Внешняя обёртка — modal-container-wrapper */
 .gdlg-wrap{
-  display:inline-block; /* компактная ширина как в игре, не 100% */
   min-width:340px;
   max-width:100%;
   background:#141419eb;
@@ -388,11 +387,11 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   position:relative;
   overflow:hidden;
 }
-/* Graffiti паттерн — modal__pattern-wrapper */
+/* Graffiti паттерн — modal__pattern-wrapper: height как 23.61vh от 1080px = ~255px, но обрезаем маской */
 .gdlg-pattern{
-  height:191px;left:0;
-  -webkit-mask-image:linear-gradient(180deg,#d9d9d9,#73737300 70%);
-  mask-image:linear-gradient(180deg,#d9d9d9,#73737300 70%);
+  height:120px;left:0;
+  -webkit-mask-image:linear-gradient(180deg,#d9d9d9,#73737300 60%);
+  mask-image:linear-gradient(180deg,#d9d9d9,#73737300 60%);
   overflow:hidden;position:absolute;top:0;width:100%;pointer-events:none;
   z-index:0;
 }
