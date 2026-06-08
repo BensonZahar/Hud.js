@@ -1230,7 +1230,9 @@ window.showGiveLicenseDialog = (e) => {
 window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "povsednev";
-    const _visible = povsednevOptions.filter(o => !MENU_HIDDEN_ITEMS.includes(o.action));
+    const _visible = povsednevOptions
+        .filter(o => !MENU_HIDDEN_ITEMS.includes(o.action))
+        .map((o, i) => ({ ...o, name: `${i + 1}. ${o.name.replace(/^\d+\.\s*/, '')}` }));
     const menuList = getPaginatedMenu(_visible);
     const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < _visible.length ? 1 : 0;
     window.addDialogInQueue(
