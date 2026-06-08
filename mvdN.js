@@ -362,57 +362,105 @@ let lastWantedCode = null; // последняя статья УК для авт
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
-// Обработчик горячих клавиш
-window.addEventListener('keydown', function(e) {
-    if (MENU_KEY) {
-        var parts = MENU_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+
+// ── Парсинг MENU_KEY ────────────────────────────────────────────
+(function() {
+    function parseHotkey(raw) {
+        if (!raw) return null;
+        var parts = raw.toLowerCase().split('+').map(function(s){ return s.trim(); });
         var needAlt   = parts.indexOf('alt')   !== -1;
         var needCtrl  = parts.indexOf('ctrl')  !== -1;
         var needShift = parts.indexOf('shift') !== -1;
         var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
         var mainKey   = mainParts[0] || '';
-        var modOk = (!needAlt || e.altKey) && (!needCtrl || e.ctrlKey) && (!needShift || e.shiftKey);
-        var keyOk = e.key.toLowerCase() === mainKey || e.code.toLowerCase() === mainKey;
-        if (modOk && keyOk) {
-            sendChatInput('/dahk');
+
+        var matchCode  = null;
+        var matchKey   = null;
+        var matchWheel = null; // 'up' | 'down'
+        var matchMouse = null; // 0=лев, 1=сред, 2=прав, 3=назад, 4=вперёд
+
+        if      (mainKey === 'wheelup')       { matchWheel = 'up'; }
+        else if (mainKey === 'wheeldown')      { matchWheel = 'down'; }
+        else if (mainKey === 'mouseleft')      { matchMouse = 0; }
+        else if (mainKey === 'mousemiddle')    { matchMouse = 1; }
+        else if (mainKey === 'mouseright')     { matchMouse = 2; }
+        else if (mainKey === 'mouseback')      { matchMouse = 3; }
+        else if (mainKey === 'mouseforward')   { matchMouse = 4; }
+        else if (/^numpad\d$/.test(mainKey))   { matchCode = 'Numpad' + mainKey.replace('numpad',''); }
+        else if (/^numpad/.test(mainKey))      { matchCode = mainKey.charAt(0).toUpperCase() + mainKey.slice(1); }
+        else if (/^f\d+$/.test(mainKey))       { matchCode = mainKey.charAt(0).toUpperCase() + mainKey.slice(1); }
+        else                                   { matchKey = mainKey; }
+
+        return { needAlt, needCtrl, needShift, matchCode, matchKey, matchWheel, matchMouse };
+    }
+
+    function modOk(hk, e) {
+        if (hk.needAlt   && !e.altKey)   return false;
+        if (hk.needCtrl  && !e.ctrlKey)  return false;
+        if (hk.needShift && !e.shiftKey) return false;
+        return true;
+    }
+
+    function openMenu() { sendChatInput('/dahk'); }
+
+    // Клавиатура
+    window.addEventListener('keydown', function(e) {
+        if (!MENU_KEY) return;
+        var hk = parseHotkey(MENU_KEY);
+        if (!hk || hk.matchWheel !== null || hk.matchMouse !== null) return;
+        if (!modOk(hk, e)) return;
+        var keyOk = false;
+        if (hk.matchCode) {
+            keyOk = e.code.toLowerCase() === hk.matchCode.toLowerCase();
+        } else if (hk.matchKey) {
+            // Буквы/цифры: KeyA→a, Digit1→1, иначе e.key
+            var codeKey = e.code;
+            if (/^Key([A-Z])$/.test(e.code))   codeKey = e.code.replace('Key','').toLowerCase();
+            else if (/^Digit(\d)$/.test(e.code)) codeKey = e.code.replace('Digit','');
+            keyOk = (e.key.toLowerCase() === hk.matchKey) || (codeKey === hk.matchKey);
         }
-    }
-    // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
-    // на основе настройки SWAP_KEY из установщика.
-    // Прямые хоткеи здесь убраны — не дублируем.
-});
+        if (keyOk) openMenu();
+        // Хоткей свапа тазер ↔ дигл регистрируется в LoadAhk.js — здесь не дублируем.
+    });
 
-// ==================== ПРЯМЫЕ БИНДЫ (ACTION_BINDS из LoadAhk.js) ====================
-// LoadAhk.js вызывает window._mvdFireBind(action) при нажатии бинд-хоткея.
-// Для действий без ID — выполняем сразу.
-// Для действий с needsId — открываем диалог ввода ID.
-window._mvdFireBind = function(action) {
-    const actionsNeedId = ['cuffing','putInCar','arrest','uncuffing','chase','search',
-        'escort','clearWanted','confiscate','breakGlass','takeLicense'];
-    const actionsNoId = ['greeting','checkDocuments','studyDocuments','scanningTablet',
-        'removeMask','fingerprint','miranda'];
-    const actionsSpecial = ['fine','wantedFine'];
+    // Колёсико мыши
+    window.addEventListener('wheel', function(e) {
+        if (!MENU_KEY) return;
+        var hk = parseHotkey(MENU_KEY);
+        if (!hk || hk.matchWheel === null) return;
+        if (!modOk(hk, e)) return;
+        var dir = e.deltaY < 0 ? 'up' : 'down';
+        if (dir === hk.matchWheel) openMenu();
+    }, { passive: true });
 
-    if (actionsNeedId.indexOf(action) !== -1) {
-        // Нужен ID — открываем диалог ввода ID и выполняем действие
-        currentAction = action;
-        setTimeout(function() { showIdInputDialog(giveLicenseTo); }, 30);
-    } else if (actionsNoId.indexOf(action) !== -1) {
-        // Можно выполнить сразу
-        executePovsednevAction(action, giveLicenseTo);
-    } else if (action === 'fine') {
-        setTimeout(function() { showKoapTypeMenu(giveLicenseTo); }, 30);
-    } else if (action === 'wantedFine') {
-        currentUkLines = [...ukLines];
-        ukPage = 0;
-        setTimeout(function() { showUkInputDialog(giveLicenseTo); }, 30);
-    } else {
-        console.log('[BIND] Неизвестный action: ' + action);
-    }
-};
-// ==================== END БИНДЫ ====================
+    // Кнопки мыши (все включая левую и правую)
+    var _pendingMenuMouse = null;
+    window.addEventListener('mousedown', function(e) {
+        if (!MENU_KEY) return;
+        var hk = parseHotkey(MENU_KEY);
+        if (!hk || hk.matchMouse === null) return;
+        if (e.button !== hk.matchMouse) return;
+        if (!modOk(hk, e)) return;
+        if (e.button === 0 || e.button === 2) {
+            // Левая/правая — ждём mouseup чтобы не конфликтовать с игровым UI
+            _pendingMenuMouse = true;
+        } else {
+            openMenu();
+        }
+    });
+    window.addEventListener('mouseup', function(e) {
+        if (!_pendingMenuMouse) return;
+        _pendingMenuMouse = false;
+        if (!MENU_KEY) return;
+        var hk = parseHotkey(MENU_KEY);
+        if (!hk || hk.matchMouse === null) return;
+        if (e.button !== hk.matchMouse) return;
+        if (!modOk(hk, e)) return;
+        openMenu();
+    });
+})();
 
-
+// ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
 // Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
 // и вызывает OnMultiDialogClickNavigButton при их нажатии
 const PAGINATED_DIALOG_IDS = [667, 671, 672, 673, 674];
@@ -563,6 +611,19 @@ const getPaginatedKoap = () => {
     return currentKoapLines.join("<n>");
 };
 // ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
+// Восстанавливает уведомление отслеживания/погони если оно активно
+const restoreTrackingNotification = () => {
+    if (!currentScanId) return;
+    if (chaseNotificationOpen) {
+        setTimeout(() => {
+            try { window.interface('ScreenNotification').add(`[1, "Начата погоня", "ID: ${currentScanId}", "0000FF", 36000000]`); } catch(e) {}
+        }, 150);
+    } else if (trackingNotificationOpen) {
+        setTimeout(() => {
+            try { window.interface('ScreenNotification').add(`[1, "Идет отслеживание", "ID: ${currentScanId}", "FF0000", 36000000]`); } catch(e) {}
+        }, 150);
+    }
+};
 const snAdd = (payload) => {
     try {
         const sn = window.interface('ScreenNotification');
@@ -570,6 +631,10 @@ const snAdd = (payload) => {
         setTimeout(() => {
             try { window.interface('ScreenNotification').add(payload); } catch(e) {}
         }, 100);
+        // Если активно отслеживание/погоня — восстанавливаем уведомление после показа нового
+        if (currentScanId && (trackingNotificationOpen || chaseNotificationOpen)) {
+            restoreTrackingNotification();
+        }
     } catch(e) {}
 };
 let currentNotificationId = 0;
@@ -911,8 +976,8 @@ const executePovsednevAction = (action, targetId) => {
                 sendMessagesWithDelay([
                     `Работает сотрудник СОБР | Мой позывной ${CALLSIGN}`,
                     "Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
-                    "Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 21.1 УК.",
-                    "Если Вы убежите или попробуете это сделать я сочту это за 8.1 УК."
+                    "Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
+                    "Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
                 ], [0, 500, 500, 500]);
             } else {
                 sendMessagesWithDelay([
@@ -926,7 +991,7 @@ const executePovsednevAction = (action, targetId) => {
             if (isOmonSkin) {
                 sendMessagesWithDelay([
                     "/s Работает СОБР, руки за голову!",
-                    "/s Если Вы убежите или попробуете это сделать я сочту это за 8.1 УК",
+                    "/s Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК",
                     "/s Готовим свои документы!"
                 ], [750, 1000, 1000]);
             } else {
@@ -1371,6 +1436,7 @@ window.sendClientEventCustom = (event, ...args) => {
             } else {
                 lastMenuType = null;
                 currentMenu = null;
+                restoreTrackingNotification();
             }
         }
         else if (args[1] === 667) { // Меню Повседневная
@@ -1385,6 +1451,7 @@ window.sendClientEventCustom = (event, ...args) => {
                 currentPage = 0;
                 lastMenuType = null; currentMenu = null;
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                restoreTrackingNotification();
                 return;
             }
         }
@@ -1419,6 +1486,7 @@ window.sendClientEventCustom = (event, ...args) => {
                 currentPage = 0;
                 lastMenuType = null; currentMenu = null;
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                restoreTrackingNotification();
                 return;
             }
         }
@@ -1488,6 +1556,9 @@ window.sendClientEventCustom = (event, ...args) => {
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleMvdSubCommand(listitem);
+            } else if (args[2] === 0) {
+                // Отмена / ESC — закрываем меню, восстанавливаем уведомление
+                restoreTrackingNotification();
             }
         }
         else if (args[1] === 678) { // Выбор типа КоАП
@@ -1524,6 +1595,7 @@ window.sendChatInputCustom = e => {
         if (mvdSkins.includes(skinId)) {
             // Успешное открытие меню МВД
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
+            restoreTrackingNotification();
             if (lastMenuType === "povsednev") {
                 showPovsednevMenuPage(args[1]);
             } else if (lastMenuType === "stroy") {

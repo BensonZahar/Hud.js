@@ -249,6 +249,36 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 }
 .toast-bg.show{opacity:1}
 
+/* ══ Key-capture overlay ══ */
+.key-overlay{
+  position:fixed;inset:0;z-index:99999;
+  background:rgba(10,10,11,.92);backdrop-filter:blur(6px);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+  opacity:0;pointer-events:none;transition:opacity .18s ease
+}
+.key-overlay.show{opacity:1;pointer-events:all}
+.key-overlay-box{
+  background:var(--surface2);border:.5px solid var(--border2);
+  border-radius:14px;padding:32px 40px;
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  box-shadow:0 8px 40px rgba(0,0,0,.6)
+}
+.key-overlay-title{font-size:13px;font-weight:600;color:var(--text);letter-spacing:.02em}
+.key-overlay-sub{font-size:11px;color:var(--text3);text-align:center;line-height:1.6}
+.key-overlay-hint{
+  display:flex;align-items:center;gap:8px;
+  font-size:11px;color:var(--text3);margin-top:2px
+}
+.key-overlay-hint span{
+  background:var(--surface3);border:.5px solid var(--border2);
+  border-radius:5px;padding:3px 9px;font-family:var(--mono);font-size:10px;color:var(--text2)
+}
+.key-overlay-cancel{
+  font-size:10px;color:var(--text3);cursor:pointer;
+  padding:6px 14px;border-radius:6px;transition:background .15s
+}
+.key-overlay-cancel:hover{background:rgba(255,255,255,.06);color:var(--text)}
+
 /* ══ Scrollbar ══ */
 ::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-track{background:transparent}
@@ -307,38 +337,8 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .controls-button__container:last-child{margin-right:0}
 .controls-button__container-text{color:var(--text2);font-family:var(--font);font-size:10px;font-weight:500;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.05em}
 
-/* ══ Binds page ══ */
-.bind-row{
-  display:flex;align-items:center;gap:8px;
-  padding:8px 10px;background:var(--surface3);
-  border:.5px solid var(--border);border-radius:8px;
-  margin-bottom:6px;-webkit-app-region:no-drag
-}
-.bind-name{flex:1;font-size:11px;color:var(--text2);line-height:1.3;min-width:0}
-.bind-name b{color:var(--text);font-weight:500;display:block}
-.bind-name span{font-size:10px;color:var(--text3)}
-.bind-input-wrap{display:flex;gap:5px;align-items:center;flex-shrink:0}
-.bind-inp{
-  width:130px;background:var(--surface2);border:.5px solid var(--border2);
-  border-radius:6px;color:var(--text);font-size:10px;height:28px;
-  padding:0 8px;font-family:var(--mono);cursor:pointer;
-  caret-color:transparent;outline:none;transition:border .15s;text-align:center;
-  user-select:text;-webkit-user-select:text;-webkit-app-region:no-drag
-}
-.bind-inp:focus,.bind-inp.listening{border-color:rgba(79,110,247,.55);background:rgba(79,110,247,.07)}
-.bind-inp::placeholder{color:var(--text3);font-family:var(--font)}
-.bind-clear{
-  width:24px;height:24px;border:none;border-radius:5px;cursor:pointer;
-  background:rgba(255,255,255,.05);color:var(--text3);font-size:11px;
-  display:flex;align-items:center;justify-content:center;transition:all .15s;
-  flex-shrink:0;-webkit-app-region:no-drag
-}
-.bind-clear:hover{background:var(--danger-dim);color:var(--danger)}
-.binds-section-label{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin:12px 0 6px;padding-left:2px}
-
-/* ══ Scrollbar binds ══ */
-#binds-scroll{flex:1;overflow-y:auto;padding-right:2px}
-
+/* ══ Divider ══ */
+.divider{height:.5px;background:var(--border);margin:10px 0}
 
 /* ══ Tag badge ══ */
 .badge{
@@ -383,10 +383,6 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
       <div class="nav-item" onclick="setTab('remove',this)">
         <div class="nav-ico"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
         <span class="nav-lbl">Удалить AHK</span>
-      </div>
-      <div class="nav-item" onclick="setTab('binds',this)">
-        <div class="nav-ico"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M6 14h.01M10 14h4"/></svg></div>
-        <span class="nav-lbl">Бинды</span>
       </div>
     </div>
 
@@ -673,201 +669,17 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   </div>
 </div>
 
-  </div>
-</div>
-
-<!-- ══ PAGE: Бинды ══ -->
-<div class="page" id="page-binds" style="display:none">
-  <div class="page-header">
-    <div class="page-dot" style="background:var(--gold)"></div>
-    <span class="page-title">Бинды — прямые хоткеи на действия</span>
-  </div>
-  <div class="content" style="display:flex;flex-direction:column;overflow:hidden;padding-bottom:0">
-    <div class="info-box" style="margin-bottom:8px;flex-shrink:0">
-      Назначьте кнопку на любое действие — оно сработает <b>сразу без открытия меню</b>.<br>
-      Поддерживается: <span class="hotkey">Alt+Q</span> <span class="hotkey">F6</span> <span class="hotkey">Numpad1</span> <span class="hotkey">Mouse4</span> <span class="hotkey">Mouse5</span> <span class="hotkey">WheelUp</span> <span class="hotkey">WheelDown</span>
-    </div>
-    <div id="binds-scroll">
-
-      <div class="binds-section-label">Повседневная служба</div>
-
-      <div class="bind-row">
-        <div class="bind-name"><b>Приветствие</b><span>/doc — первый контакт</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-greeting" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('greeting')" onblur="stopBindListen('greeting')">
-          <button class="bind-clear" onclick="clearBind('greeting')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Проверка документов</b><span>Требование предъявить документы</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-checkDocuments" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('checkDocuments')" onblur="stopBindListen('checkDocuments')">
-          <button class="bind-clear" onclick="clearBind('checkDocuments')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Изучение документов</b><span>Осмотр документов гражданина</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-studyDocuments" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('studyDocuments')" onblur="stopBindListen('studyDocuments')">
-          <button class="bind-clear" onclick="clearBind('studyDocuments')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Сканирование</b><span>Сканирование планшетом</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-scanningTablet" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('scanningTablet')" onblur="stopBindListen('scanningTablet')">
-          <button class="bind-clear" onclick="clearBind('scanningTablet')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Надевание наручников</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-cuffing" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('cuffing')" onblur="stopBindListen('cuffing')">
-          <button class="bind-clear" onclick="clearBind('cuffing')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Посадка в машину</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-putInCar" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('putInCar')" onblur="stopBindListen('putInCar')">
-          <button class="bind-clear" onclick="clearBind('putInCar')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Доставка в участок</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-arrest" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('arrest')" onblur="stopBindListen('arrest')">
-          <button class="bind-clear" onclick="clearBind('arrest')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Снятие наручников</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-uncuffing" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('uncuffing')" onblur="stopBindListen('uncuffing')">
-          <button class="bind-clear" onclick="clearBind('uncuffing')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Преследование</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-chase" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('chase')" onblur="stopBindListen('chase')">
-          <button class="bind-clear" onclick="clearBind('chase')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Обыск</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-search" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('search')" onblur="stopBindListen('search')">
-          <button class="bind-clear" onclick="clearBind('search')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Конвоирование</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-escort" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('escort')" onblur="stopBindListen('escort')">
-          <button class="bind-clear" onclick="clearBind('escort')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Снятие розыска</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-clearWanted" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('clearWanted')" onblur="stopBindListen('clearWanted')">
-          <button class="bind-clear" onclick="clearBind('clearWanted')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Изъятие веществ</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-confiscate" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('confiscate')" onblur="stopBindListen('confiscate')">
-          <button class="bind-clear" onclick="clearBind('confiscate')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Разбитие стекла</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-breakGlass" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('breakGlass')" onblur="stopBindListen('breakGlass')">
-          <button class="bind-clear" onclick="clearBind('breakGlass')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Снятие маски</b></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-removeMask" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('removeMask')" onblur="stopBindListen('removeMask')">
-          <button class="bind-clear" onclick="clearBind('removeMask')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Сканирование отпечатков</b></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-fingerprint" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('fingerprint')" onblur="stopBindListen('fingerprint')">
-          <button class="bind-clear" onclick="clearBind('fingerprint')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Изъятие прав</b><span>Требует ID цели</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-takeLicense" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('takeLicense')" onblur="stopBindListen('takeLicense')">
-          <button class="bind-clear" onclick="clearBind('takeLicense')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Права Миранды</b></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-miranda" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('miranda')" onblur="stopBindListen('miranda')">
-          <button class="bind-clear" onclick="clearBind('miranda')" title="Очистить">✕</button>
-        </div>
-      </div>
-
-      <div class="binds-section-label" style="margin-top:14px">Выдача штрафа / розыска</div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Выдать штраф</b><span>Открывает меню КоАП [/ticket]</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-fine" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('fine')" onblur="stopBindListen('fine')">
-          <button class="bind-clear" onclick="clearBind('fine')" title="Очистить">✕</button>
-        </div>
-      </div>
-      <div class="bind-row">
-        <div class="bind-name"><b>Выдать розыск</b><span>Открывает меню УК [/su]</span></div>
-        <div class="bind-input-wrap">
-          <input class="bind-inp" id="bind-wantedFine" placeholder="Нажмите..." readonly
-            onfocus="startBindListen('wantedFine')" onblur="stopBindListen('wantedFine')">
-          <button class="bind-clear" onclick="clearBind('wantedFine')" title="Очистить">✕</button>
-        </div>
-      </div>
-
-      <div style="height:10px;flex-shrink:0"></div>
+<!-- Key-capture overlay -->
+<div class="key-overlay" id="key-overlay">
+  <div class="key-overlay-box">
+    <svg viewBox="0 0 24 24" style="width:28px;height:28px;stroke:var(--accent);stroke-width:1.5;fill:none;stroke-linecap:round;stroke-linejoin:round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M6 11h.01M10 11h.01M14 11h.01M18 11h.01M6 15h4M14 15h4"/><path d="M8 7V4M16 7V4"/></svg>
+    <div class="key-overlay-title" id="key-overlay-title">Нажмите кнопку или комбинацию</div>
+    <div class="key-overlay-sub">Клавиша, комбинация (Alt/Ctrl/Shift + клавиша),<br>колёсико мыши ↑↓ или боковые кнопки мыши</div>
+    <div class="key-overlay-hint">
+      <span>Esc</span><span style="background:none;border:none;padding:0">— отмена</span>
     </div>
   </div>
-  <!-- sticky footer -->
-  <div style="padding:12px 24px;border-top:.5px solid var(--border);background:var(--surface);flex-shrink:0">
-    <div id="pbar-binds" class="pbar" style="margin:0 0 8px"><div class="pbar-fill" id="pbar-binds-f"></div></div>
-    <div style="display:flex;gap:8px">
-      <button class="btn btn-primary" onclick="doInsertWithBinds()" style="flex:1" id="btn-binds-save">
-        <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-        Сохранить и вставить код
-      </button>
-      <button class="btn btn-ghost" onclick="clearAllBinds()">Сбросить все</button>
-    </div>
-  </div>
+  <div class="key-overlay-cancel" id="key-overlay-cancel">Отмена</div>
 </div>
 
 <div class="toast-bg" id="toast-bg"></div>
@@ -881,159 +693,9 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 <script>
 var folderSelected=false,callsignOn=false,autoPasswordOn=false,autoGrabOn=false;
 var savedAutoGrab=null,swapEnabled=false,swapKey='Alt+Q';
-var _swapListening=false,menuKey='Alt+0',_menuListening=false;
+var menuKey='Alt+0';
 var grabItems={painkiller:false,medkit:false,baton:false,baton2:false,vest:false,taumeter:false,diag:false,taser:false,deagle:false,akm:false,aks74u:false,remington:false,magnum:false,ammo762:false,ammo545:false,ammo12x70:false};
 var api=null;
-
-// ── Бинды ───────────────────────────────────────────────
-var BIND_ACTIONS = ['greeting','checkDocuments','studyDocuments','scanningTablet',
-  'cuffing','putInCar','arrest','uncuffing','chase','search','escort','clearWanted',
-  'confiscate','breakGlass','removeMask','fingerprint','takeLicense','miranda',
-  'fine','wantedFine'];
-var binds = {}; // { action: "Alt+G", ... }
-var _bindListening = null; // текущий action для которого слушаем
-
-function _captureHotkey(e, isWheel, wheelDir) {
-    if (!_bindListening && !_swapListening && !_menuListening) return;
-    var combo = '';
-    if (isWheel) {
-        var mods = [];
-        if (e.ctrlKey) mods.push('Ctrl');
-        if (e.altKey)  mods.push('Alt');
-        if (e.shiftKey) mods.push('Shift');
-        mods.push(wheelDir > 0 ? 'WheelUp' : 'WheelDown');
-        combo = mods.join('+');
-    } else if (e.type === 'mousedown') {
-        // Mouse-кнопки (не ЛКМ/ПКМ без модификаторов — они используются для управления интерфейсом)
-        var btnNames = {0:'Mouse1',1:'Mouse3',2:'Mouse2',3:'Mouse4',4:'Mouse5'};
-        var btnName = btnNames[e.button];
-        if (!btnName) return;
-        var mods = [];
-        if (e.ctrlKey) mods.push('Ctrl');
-        if (e.altKey)  mods.push('Alt');
-        if (e.shiftKey) mods.push('Shift');
-        mods.push(btnName);
-        combo = mods.join('+');
-    } else {
-        // Клавиатура
-        e.preventDefault(); e.stopPropagation();
-        var ignored = ['Control','Shift','Alt','Meta','AltGraph'];
-        if (ignored.indexOf(e.key) !== -1) return;
-        var parts = [];
-        if (e.ctrlKey) parts.push('Ctrl');
-        if (e.altKey)  parts.push('Alt');
-        if (e.shiftKey) parts.push('Shift');
-        var keyName = e.code;
-        if (/^Key([A-Z])$/.test(e.code))    keyName = e.code.replace('Key','');
-        else if (/^Digit(\d)$/.test(e.code)) keyName = e.code.replace('Digit','');
-        else if (/^Numpad(\d)$/.test(e.code)) keyName = e.code;
-        else if (/^F\d+$/.test(e.key))       keyName = e.key;
-        else keyName = e.key;
-        parts.push(keyName);
-        combo = parts.join('+');
-    }
-    if (!combo) return;
-
-    if (_bindListening) {
-        binds[_bindListening] = combo;
-        var inp = document.getElementById('bind-' + _bindListening);
-        if (inp) { inp.value = combo; inp.classList.remove('listening'); inp.blur(); }
-        _bindListening = null;
-    } else if (_swapListening) {
-        swapKey = combo;
-        var inp2 = document.getElementById('f-swap-key');
-        if (inp2) { inp2.value = swapKey; inp2.classList.remove('inp-hotkey-listening'); inp2.blur(); }
-        _swapListening = false;
-    } else if (_menuListening) {
-        menuKey = combo;
-        var inp3 = document.getElementById('f-menu-key');
-        if (inp3) { inp3.value = menuKey; inp3.classList.remove('inp-hotkey-listening'); inp3.blur(); }
-        _menuListening = false;
-    }
-}
-
-document.addEventListener('keydown', function(e) {
-    if (_bindListening || _swapListening || _menuListening) _captureHotkey(e, false, 0);
-}, true);
-document.addEventListener('mousedown', function(e) {
-    // Для mouse кнопок: только 3,4 (без ЛКМ/ПКМ чтобы интерфейс работал нормально)
-    // Но для бинд-поля (listening) перехватываем все кнопки кроме 0 (ЛКМ - нажатие фокуса)
-    if ((_bindListening || _swapListening || _menuListening) && e.button !== 0) {
-        _captureHotkey(e, false, 0);
-    }
-}, true);
-document.addEventListener('wheel', function(e) {
-    if (_bindListening || _swapListening || _menuListening) {
-        e.preventDefault();
-        _captureHotkey(e, true, e.deltaY < 0 ? 1 : -1);
-    }
-}, { capture: true, passive: false });
-
-function startBindListen(action) {
-    _bindListening = action;
-    var inp = document.getElementById('bind-' + action);
-    if (inp) { inp.value = '...нажмите кнопку...'; inp.classList.add('listening'); }
-}
-function stopBindListen(action) {
-    if (_bindListening === action) {
-        _bindListening = null;
-        var inp = document.getElementById('bind-' + action);
-        if (inp) {
-            inp.classList.remove('listening');
-            inp.value = binds[action] || '';
-        }
-    }
-}
-function clearBind(action) {
-    delete binds[action];
-    var inp = document.getElementById('bind-' + action);
-    if (inp) inp.value = '';
-}
-function clearAllBinds() {
-    binds = {};
-    BIND_ACTIONS.forEach(function(a) {
-        var inp = document.getElementById('bind-' + a);
-        if (inp) inp.value = '';
-    });
-}
-function getBinds() { return Object.assign({}, binds); }
-
-function restoreBinds(savedBinds) {
-    if (!savedBinds || typeof savedBinds !== 'object') return;
-    binds = {};
-    Object.keys(savedBinds).forEach(function(action) {
-        var val = savedBinds[action];
-        if (val && typeof val === 'string') {
-            binds[action] = val;
-            var inp = document.getElementById('bind-' + action);
-            if (inp) inp.value = val;
-        }
-    });
-}
-
-// Вставить код с бинд-данными (кнопка на странице Бинды)
-function doInsertWithBinds() {
-    if (!folderSelected) { flash(false); setTab('home', null); return; }
-    var rank = document.getElementById('f-rank').value.trim();
-    var fn   = document.getElementById('f-fname').value.trim();
-    var ln   = document.getElementById('f-lname').value.trim();
-    if (!rank || !fn || !ln) {
-        flash(false);
-        // Переводим на страницу вставки чтобы заполнили данные
-        setTab('insert', null);
-        return;
-    }
-    var cs   = callsignOn ? document.getElementById('f-callsign').value.trim() : '';
-    var pwd  = autoPasswordOn ? document.getElementById('f-password').value : '';
-    var grab = getGrabSettings();
-    var btn  = document.getElementById('btn-binds-save');
-    btn.disabled = true;
-    runBar('pbar-binds', 'pbar-binds-f', 3000);
-    if (api) {
-        api.insert_code(rank, fn, ln, cs, callsignOn, pwd, grab, swapEnabled, swapKey, menuKey, getBinds())
-            .then(function() { btn.disabled = false; });
-    } else { flash(false); btn.disabled = false; }
-}
 
 function toggleAutoGrab(){autoGrabOn=!autoGrabOn;document.getElementById('chk-box-grab').classList.toggle('on',autoGrabOn);document.getElementById('grab-wrap').classList.toggle('show',autoGrabOn);}
 function toggleGrabItem(item){grabItems[item]=!grabItems[item];document.getElementById('wmi-'+item).classList.toggle('selected',grabItems[item]);}
@@ -1054,7 +716,6 @@ window.addEventListener('pywebviewready',function(){
     if(typeof s.swap_enabled!=='undefined'){swapEnabled=!!s.swap_enabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
     if(s.swap_key!==undefined){swapKey=s.swap_key||'Alt+Q';}document.getElementById('f-swap-key').value=swapKey;
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=menuKey;
-    if(s.binds&&typeof s.binds==='object'){restoreBinds(s.binds);}
     if(s.path_valid){applyFolder(s.radmir_path||'');}
     // Статус кода — восстанавливаем из реальной проверки Index.js
     if(s.code_installed){
@@ -1096,7 +757,7 @@ function setTab(id,el){
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');p.style.display='none';});
   var pg=document.getElementById('page-'+id);pg.style.display='flex';
   setTimeout(function(){pg.classList.add('active');},10);
-  if(el){el.classList.add('active');}else{var map={home:0,insert:1,remove:2,binds:3};var tabs=document.querySelectorAll('.nav-item');if(tabs[map[id]]!==undefined)tabs[map[id]].classList.add('active');}
+  if(el){el.classList.add('active');}else{var map={home:0,insert:1,remove:2};var tabs=document.querySelectorAll('.nav-item');if(tabs[map[id]]!==undefined)tabs[map[id]].classList.add('active');}
 }
 
 function selectFolder(){
@@ -1127,21 +788,142 @@ function toggleCallsign(){callsignOn=!callsignOn;document.getElementById('chk-bo
 function toggleAutoPassword(){autoPasswordOn=!autoPasswordOn;document.getElementById('chk-box-pwd').classList.toggle('on',autoPasswordOn);document.getElementById('pwd-wrap').classList.toggle('show',autoPasswordOn);}
 function toggleSwap(){swapEnabled=!swapEnabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
 
-function startListeningSwapKey(){_swapListening=true;var inp=document.getElementById('f-swap-key');inp.value='...нажмите кнопку...';inp.classList.add('inp-hotkey-listening');}
-function stopListeningSwapKey(){_swapListening=false;var inp=document.getElementById('f-swap-key');inp.classList.remove('inp-hotkey-listening');if(inp.value==='...нажмите кнопку...')inp.value=swapKey;}
+// ── Key-capture overlay logic ──────────────────────────────────
+var _captureTarget=null; // 'swap' | 'menu'
+
+function _showOverlay(target){
+  _captureTarget=target;
+  var ov=document.getElementById('key-overlay');
+  var title=document.getElementById('key-overlay-title');
+  title.textContent=target==='swap'?'Кнопка свапа тазер ↔ дигл':'Кнопка открытия меню АХК';
+  ov.classList.add('show');
+}
+function _hideOverlay(){
+  document.getElementById('key-overlay').classList.remove('show');
+  _captureTarget=null;
+}
+function _applyCapture(combo){
+  if(_captureTarget==='swap'){
+    swapKey=combo;
+    document.getElementById('f-swap-key').value=combo;
+  } else if(_captureTarget==='menu'){
+    menuKey=combo;
+    document.getElementById('f-menu-key').value=combo;
+  }
+  _hideOverlay();
+}
+
+document.getElementById('key-overlay-cancel').addEventListener('mouseup',function(e){e.stopPropagation();_hideOverlay();});
+// Клик по фону (вне бокса) — НЕ вешаем, чтобы правая/левая мышь не закрывала оверлей случайно
+
+function startListeningSwapKey(){_showOverlay('swap');}
+function stopListeningSwapKey(){/* blur — оверлей управляет сам */}
 function clearSwapKey(){swapKey='';document.getElementById('f-swap-key').value='';}
-function startListeningMenuKey(){_menuListening=true;var inp=document.getElementById('f-menu-key');inp.value='...нажмите кнопку...';inp.classList.add('inp-hotkey-listening');}
-function stopListeningMenuKey(){_menuListening=false;var inp=document.getElementById('f-menu-key');inp.classList.remove('inp-hotkey-listening');if(inp.value==='...нажмите кнопку...')inp.value=menuKey;}
+function startListeningMenuKey(){_showOverlay('menu');}
+function stopListeningMenuKey(){/* blur — оверлей управляет сам */}
 function clearMenuKey(){menuKey='';document.getElementById('f-menu-key').value='';}
 
-// Старый обработчик заменён на _captureHotkey выше — он обрабатывает бинды, swap и menu одновременно
+// ── Клавиатура ──
+document.addEventListener('keydown',function(e){
+  if(!_captureTarget)return;
+  e.preventDefault();e.stopPropagation();
+  if(e.key==='Escape'){_hideOverlay();return;}
+  // Только-модификаторы пропускаем
+  var ignored=['Control','Shift','Alt','Meta','AltGraph','Dead'];
+  if(ignored.indexOf(e.key)!==-1)return;
+  var parts=[];
+  if(e.ctrlKey)parts.push('Ctrl');
+  if(e.altKey)parts.push('Alt');
+  if(e.shiftKey)parts.push('Shift');
+  var keyName;
+  // Буквы: KeyA → A
+  if(/^Key([A-Z])$/.test(e.code)){keyName=e.code.replace('Key','');}
+  // Цифры над буквами: Digit1 → 1
+  else if(/^Digit(\d)$/.test(e.code)){keyName=e.code.replace('Digit','');}
+  // Numpad цифры: Numpad0-9 → Numpad0
+  else if(/^Numpad\d$/.test(e.code)){keyName=e.code;}
+  // Numpad операторы: NumpadAdd, NumpadMultiply и т.д.
+  else if(/^Numpad/.test(e.code)){keyName=e.code;}
+  // F1-F24
+  else if(/^F\d+$/.test(e.key)){keyName=e.key;}
+  // Пробел
+  else if(e.code==='Space'){keyName='Space';}
+  // Стрелки
+  else if(e.code==='ArrowUp'){keyName='Up';}
+  else if(e.code==='ArrowDown'){keyName='Down';}
+  else if(e.code==='ArrowLeft'){keyName='Left';}
+  else if(e.code==='ArrowRight'){keyName='Right';}
+  // Enter, Tab, Backspace, Delete, Insert, Home, End, PageUp, PageDown
+  else if(e.code==='Enter'||e.code==='NumpadEnter'){keyName='Enter';}
+  else if(e.code==='Tab'){keyName='Tab';}
+  else if(e.code==='Backspace'){keyName='Backspace';}
+  else if(e.code==='Delete'){keyName='Delete';}
+  else if(e.code==='Insert'){keyName='Insert';}
+  else if(e.code==='Home'){keyName='Home';}
+  else if(e.code==='End'){keyName='End';}
+  else if(e.code==='PageUp'){keyName='PageUp';}
+  else if(e.code==='PageDown'){keyName='PageDown';}
+  // CapsLock, PrintScreen, ScrollLock, Pause
+  else if(e.code==='CapsLock'){keyName='CapsLock';}
+  else if(e.code==='PrintScreen'){keyName='PrintScreen';}
+  else if(e.code==='ScrollLock'){keyName='ScrollLock';}
+  else if(e.code==='Pause'){keyName='Pause';}
+  // Спец-символы: берём e.key если он читаемый (один символ), иначе e.code
+  else if(e.key&&e.key.length===1){keyName=e.key;}
+  else{keyName=e.code;}
+  if(!keyName)return;
+  parts.push(keyName);
+  _applyCapture(parts.join('+'));
+},true);
 
+// ── Колёсико мыши ──
+document.addEventListener('wheel',function(e){
+  if(!_captureTarget)return;
+  e.preventDefault();e.stopPropagation();
+  var parts=[];
+  if(e.ctrlKey)parts.push('Ctrl');if(e.altKey)parts.push('Alt');if(e.shiftKey)parts.push('Shift');
+  parts.push(e.deltaY<0?'WheelUp':'WheelDown');
+  _applyCapture(parts.join('+'));
+},{capture:true,passive:false});
+
+// ── Все кнопки мыши включая левую и правую ──
+// Используем mousedown для всех кроме левой/правой (они могут случайно срабатывать на UI)
+// Для левой и правой используем mouseup чтобы не конфликтовать с кнопкой "Отмена"
+var _pendingMouseBtn=null;
+document.addEventListener('mousedown',function(e){
+  if(!_captureTarget)return;
+  var btnNames={0:'MouseLeft',1:'MouseMiddle',2:'MouseRight',3:'MouseBack',4:'MouseForward'};
+  var name=btnNames[e.button]!==undefined?btnNames[e.button]:('Mouse'+e.button);
+  e.preventDefault();e.stopPropagation();
+  if(e.button===0||e.button===2){
+    // Для левой/правой запоминаем и ждём mouseup — на случай что это просто клик по "Отмена"
+    _pendingMouseBtn={name:name,ctrl:e.ctrlKey,alt:e.altKey,shift:e.shiftKey};
+    return;
+  }
+  // Остальные — сразу
+  var parts=[];
+  if(e.ctrlKey)parts.push('Ctrl');if(e.altKey)parts.push('Alt');if(e.shiftKey)parts.push('Shift');
+  parts.push(name);
+  _applyCapture(parts.join('+'));
+},{capture:true});
+
+document.addEventListener('mouseup',function(e){
+  if(!_pendingMouseBtn)return;
+  if(!_captureTarget){_pendingMouseBtn=null;return;}
+  // Проверяем что mouseup не пришёл от кнопки "Отмена"
+  if(e.target&&e.target.id==='key-overlay-cancel'){_pendingMouseBtn=null;return;}
+  var p=_pendingMouseBtn;_pendingMouseBtn=null;
+  var parts=[];
+  if(p.ctrl)parts.push('Ctrl');if(p.alt)parts.push('Alt');if(p.shift)parts.push('Shift');
+  parts.push(p.name);
+  _applyCapture(parts.join('+'));
+},{capture:true});
 
 function updateSteps(){var r=document.getElementById('f-rank').value.trim();var f=document.getElementById('f-fname').value.trim();var l=document.getElementById('f-lname').value.trim();var done=(r?1:0)+(f?1:0)+(l?1:0);for(var i=0;i<3;i++){var el=document.getElementById('si'+i);el.className='step'+(i<done?' done':'')+(i===done-1&&done<3?' cur':'');}}
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();if(!rank||!fn||!ln){flash(false);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,getBinds()).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();if(!rank||!fn||!ln){flash(false);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){if(!folderSelected){flash(false);setTab('home',null);return;}var btn=document.getElementById('btn-remove');btn.disabled=true;runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
