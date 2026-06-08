@@ -813,40 +813,70 @@ function _applyCapture(combo){
   _hideOverlay();
 }
 
-document.getElementById('key-overlay-cancel').addEventListener('click',function(){_hideOverlay();});
-// Клик по фону (вне бокса) — тоже отмена
-document.getElementById('key-overlay').addEventListener('click',function(e){
-  if(e.target===this)_hideOverlay();
-});
+// Кнопка "Отмена" — mousedown + stopPropagation перехватывает ДО обработчика оверлея
+document.getElementById('key-overlay-cancel').addEventListener('mousedown',function(e){e.stopPropagation();_hideOverlay();});
 
 function startListeningSwapKey(){_showOverlay('swap');}
-function stopListeningSwapKey(){/* blur — ничего не делаем, оверлей управляет сам */}
+function stopListeningSwapKey(){/* blur — оверлей управляет сам */}
 function clearSwapKey(){swapKey='';document.getElementById('f-swap-key').value='';}
 function startListeningMenuKey(){_showOverlay('menu');}
-function stopListeningMenuKey(){/* blur — ничего не делаем */}
+function stopListeningMenuKey(){/* blur — оверлей управляет сам */}
 function clearMenuKey(){menuKey='';document.getElementById('f-menu-key').value='';}
 
-// Клавиатура
+// ── Клавиатура ──
 document.addEventListener('keydown',function(e){
   if(!_captureTarget)return;
   e.preventDefault();e.stopPropagation();
-  // Escape — отмена
   if(e.key==='Escape'){_hideOverlay();return;}
-  var ignored=['Control','Shift','Alt','Meta','AltGraph'];
+  // Только-модификаторы пропускаем
+  var ignored=['Control','Shift','Alt','Meta','AltGraph','Dead'];
   if(ignored.indexOf(e.key)!==-1)return;
   var parts=[];
-  if(e.ctrlKey)parts.push('Ctrl');if(e.altKey)parts.push('Alt');if(e.shiftKey)parts.push('Shift');
-  var keyName=e.code;
+  if(e.ctrlKey)parts.push('Ctrl');
+  if(e.altKey)parts.push('Alt');
+  if(e.shiftKey)parts.push('Shift');
+  var keyName;
+  // Буквы: KeyA → A
   if(/^Key([A-Z])$/.test(e.code)){keyName=e.code.replace('Key','');}
+  // Цифры над буквами: Digit1 → 1
   else if(/^Digit(\d)$/.test(e.code)){keyName=e.code.replace('Digit','');}
-  else if(/^Numpad(\d)$/.test(e.code)){keyName=e.code;}
+  // Numpad цифры: Numpad0-9 → Numpad0
+  else if(/^Numpad\d$/.test(e.code)){keyName=e.code;}
+  // Numpad операторы: NumpadAdd, NumpadMultiply и т.д.
+  else if(/^Numpad/.test(e.code)){keyName=e.code;}
+  // F1-F24
   else if(/^F\d+$/.test(e.key)){keyName=e.key;}
-  else{keyName=e.key;}
+  // Пробел
+  else if(e.code==='Space'){keyName='Space';}
+  // Стрелки
+  else if(e.code==='ArrowUp'){keyName='Up';}
+  else if(e.code==='ArrowDown'){keyName='Down';}
+  else if(e.code==='ArrowLeft'){keyName='Left';}
+  else if(e.code==='ArrowRight'){keyName='Right';}
+  // Enter, Tab, Backspace, Delete, Insert, Home, End, PageUp, PageDown
+  else if(e.code==='Enter'||e.code==='NumpadEnter'){keyName='Enter';}
+  else if(e.code==='Tab'){keyName='Tab';}
+  else if(e.code==='Backspace'){keyName='Backspace';}
+  else if(e.code==='Delete'){keyName='Delete';}
+  else if(e.code==='Insert'){keyName='Insert';}
+  else if(e.code==='Home'){keyName='Home';}
+  else if(e.code==='End'){keyName='End';}
+  else if(e.code==='PageUp'){keyName='PageUp';}
+  else if(e.code==='PageDown'){keyName='PageDown';}
+  // CapsLock, PrintScreen, ScrollLock, Pause
+  else if(e.code==='CapsLock'){keyName='CapsLock';}
+  else if(e.code==='PrintScreen'){keyName='PrintScreen';}
+  else if(e.code==='ScrollLock'){keyName='ScrollLock';}
+  else if(e.code==='Pause'){keyName='Pause';}
+  // Спец-символы: берём e.key если он читаемый (один символ), иначе e.code
+  else if(e.key&&e.key.length===1){keyName=e.key;}
+  else{keyName=e.code;}
+  if(!keyName)return;
   parts.push(keyName);
   _applyCapture(parts.join('+'));
 },true);
 
-// Колёсико мыши
+// ── Колёсико мыши ──
 document.addEventListener('wheel',function(e){
   if(!_captureTarget)return;
   e.preventDefault();e.stopPropagation();
@@ -856,19 +886,27 @@ document.addEventListener('wheel',function(e){
   _applyCapture(parts.join('+'));
 },{capture:true,passive:false});
 
-// Кнопки мыши (средняя = 1, боковые = 3/4)
-document.addEventListener('mousedown',function(e){
-  if(!_captureTarget)return;
-  // Кнопка 0 (левая) и 2 (правая) — не захватываем (нужны для UI)
-  if(e.button===0||e.button===2)return;
-  e.preventDefault();e.stopPropagation();
-  var btnNames={1:'MouseMiddle',3:'MouseBack',4:'MouseForward'};
-  var name=btnNames[e.button]||('Mouse'+e.button);
-  var parts=[];
-  if(e.ctrlKey)parts.push('Ctrl');if(e.altKey)parts.push('Alt');if(e.shiftKey)parts.push('Shift');
-  parts.push(name);
-  _applyCapture(parts.join('+'));
-},{capture:true});
+// ── Все кнопки мыши включая левую и правую ──
+// Слушаем mousedown на всём оверлее (весь экран).
+// Кнопку "Отмена" исключаем явно по id — всё остальное захватываем.
+(function(){
+  var btnNames={0:'MouseLeft',1:'MouseMiddle',2:'MouseRight',3:'MouseBack',4:'MouseForward'};
+  document.getElementById('key-overlay').addEventListener('mousedown',function(e){
+    if(!_captureTarget)return;
+    // Клик по кнопке "Отмена" — закрываем, не записываем
+    var t=e.target;
+    while(t&&t!==this){
+      if(t.id==='key-overlay-cancel'){_hideOverlay();return;}
+      t=t.parentElement;
+    }
+    e.preventDefault();e.stopPropagation();
+    var name=btnNames[e.button]!==undefined?btnNames[e.button]:('Mouse'+e.button);
+    var parts=[];
+    if(e.ctrlKey)parts.push('Ctrl');if(e.altKey)parts.push('Alt');if(e.shiftKey)parts.push('Shift');
+    parts.push(name);
+    _applyCapture(parts.join('+'));
+  });
+})();
 
 function updateSteps(){var r=document.getElementById('f-rank').value.trim();var f=document.getElementById('f-fname').value.trim();var l=document.getElementById('f-lname').value.trim();var done=(r?1:0)+(f?1:0)+(l?1:0);for(var i=0;i<3;i++){var el=document.getElementById('si'+i);el.className='step'+(i<done?' done':'')+(i===done-1&&done<3?' cur':'');}}
 
