@@ -367,6 +367,29 @@ var MENU_HIDDEN_ITEMS = [];
 // Биндинги прямого вызова пунктов меню — настраивается установщиком
 // Формат: { "greeting": "Alt+G", "cuffing": "Alt+C", ... }
 var MENU_BINDS = {};
+// Порядок пунктов меню «Повседневная» — настраивается установщиком
+// Формат: ["greeting","cuffing","checkDocuments",...] (пусто = по умолчанию)
+var MENU_ORDER = [];
+
+// Применяем порядок пунктов если задан
+(function() {
+    if (!MENU_ORDER || !MENU_ORDER.length) return;
+    var ordered = [];
+    // Сначала — пункты в заданном порядке
+    MENU_ORDER.forEach(function(action) {
+        var found = povsednevOptions.find(function(o) { return o.action === action; });
+        if (found) ordered.push(found);
+    });
+    // Затем — любые пункты которых не было в MENU_ORDER (новые, добавленные позже)
+    povsednevOptions.forEach(function(o) {
+        if (!ordered.find(function(x) { return x.action === o.action; })) {
+            ordered.push(o);
+        }
+    });
+    // Переписываем массив на месте чтобы все ссылки на povsednevOptions остались валидны
+    povsednevOptions.length = 0;
+    ordered.forEach(function(o) { povsednevOptions.push(o); });
+})();
 
 // Вспомогательная функция: проверяет совпадение e с комбо-строкой вида "Alt+G"
 function _matchesCombo(e, combo) {

@@ -404,6 +404,21 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .menu-item-bind-clear:hover{background:rgba(224,85,85,.18);}
 .menu-item-bind-clear svg{width:8px;height:8px;stroke:var(--text3);stroke-width:2;fill:none;stroke-linecap:round;}
 .menu-item-bind-clear:hover svg{stroke:var(--danger);}
+
+/* ══ Drag handle ══ */
+.menu-item-drag{
+  width:16px;height:16px;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  cursor:grab;opacity:.25;transition:opacity .12s;
+}
+.menu-item-drag:active{cursor:grabbing;}
+.menu-item-row:hover .menu-item-drag{opacity:.55;}
+.menu-item-drag svg{width:10px;height:10px;stroke:var(--text);stroke-width:2;fill:none;stroke-linecap:round;}
+.menu-item-row.dragging{opacity:.4;background:rgba(79,110,247,.08);}
+.menu-item-row.drag-over{
+  background:rgba(79,110,247,.13);
+  box-shadow:inset 0 -2px 0 var(--accent);
+}
 </style>
 </head>
 <body>
@@ -790,16 +805,67 @@ ALL_MENU_ITEMS.forEach(function(it){menuItemsEnabled[it.action]=true;});
 // action -> комбо-строка ('' = не задан)
 var menuItemBinds={};
 ALL_MENU_ITEMS.forEach(function(it){menuItemBinds[it.action]='';});
+// Порядок пунктов меню (массив action-строк)
+var menuItemOrder=ALL_MENU_ITEMS.map(function(it){return it.action;});
+
+// ── Drag-and-drop для пунктов меню ──────────────────────────────
+var _dragSrc=null;
+function _onDragStart(e,action){
+  _dragSrc=action;
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain',action);
+  setTimeout(function(){
+    var row=document.querySelector('#menu-items-list [data-action="'+action+'"]');
+    if(row)row.classList.add('dragging');
+  },0);
+}
+function _onDragOver(e,action){
+  e.preventDefault();
+  e.dataTransfer.dropEffect='move';
+  document.querySelectorAll('#menu-items-list .menu-item-row').forEach(function(r){
+    r.classList.toggle('drag-over',r.getAttribute('data-action')===action&&action!==_dragSrc);
+  });
+}
+function _onDragLeave(){
+  document.querySelectorAll('#menu-items-list .menu-item-row').forEach(function(r){
+    r.classList.remove('drag-over');
+  });
+}
+function _onDrop(e,targetAction){
+  e.preventDefault();
+  document.querySelectorAll('#menu-items-list .menu-item-row').forEach(function(r){
+    r.classList.remove('drag-over','dragging');
+  });
+  if(!_dragSrc||_dragSrc===targetAction)return;
+  var from=menuItemOrder.indexOf(_dragSrc);
+  var to=menuItemOrder.indexOf(targetAction);
+  if(from===-1||to===-1)return;
+  menuItemOrder.splice(from,1);
+  menuItemOrder.splice(to,0,_dragSrc);
+  buildMenuItemsList();
+}
+function _onDragEnd(){
+  document.querySelectorAll('#menu-items-list .menu-item-row').forEach(function(r){
+    r.classList.remove('dragging','drag-over');
+  });
+  _dragSrc=null;
+}
 
 function buildMenuItemsList(){
   var container=document.getElementById('menu-items-list');
   if(!container)return;
   container.innerHTML='';
-  ALL_MENU_ITEMS.forEach(function(it){
+  // Рендерим по текущему порядку
+  menuItemOrder.forEach(function(action){
+    var it=ALL_MENU_ITEMS.find(function(x){return x.action===action;});
+    if(!it)return;
     var row=document.createElement('div');
     row.className='menu-item-row'+(menuItemsEnabled[it.action]?' on':'');
     row.setAttribute('data-action',it.action);
+    row.setAttribute('draggable','true');
 
+    // Drag handle
+    var handle='<div class="menu-item-drag" title="Перетащить для изменения порядка"><svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/></svg></div>';
     // Чекбокс + лейбл
     var chk='<div class="menu-item-chk"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>';
     var lbl='<span class="menu-item-lbl">'+it.label+'</span>';
@@ -815,8 +881,18 @@ function buildMenuItemsList(){
     }
     bindHtml+='</div>';
 
-    row.innerHTML=chk+lbl+bindHtml;
-    row.onclick=function(){ toggleMenuItem(it.action); };
+    row.innerHTML=handle+chk+lbl+bindHtml;
+    // Клик по строке (не по хендлу) — тоггл видимости
+    row.onclick=function(e){
+      if(e.target.closest('.menu-item-drag')||e.target.closest('.menu-item-bind'))return;
+      toggleMenuItem(it.action);
+    };
+    // Drag events
+    row.addEventListener('dragstart',function(e){_onDragStart(e,it.action);});
+    row.addEventListener('dragover',function(e){_onDragOver(e,it.action);});
+    row.addEventListener('dragleave',_onDragLeave);
+    row.addEventListener('drop',function(e){_onDrop(e,it.action);});
+    row.addEventListener('dragend',_onDragEnd);
     container.appendChild(row);
   });
 }
@@ -827,8 +903,15 @@ function clearMenuBind(action){
 }
 function getMenuBinds(){
   var result={};
-  ALL_MENU_ITEMS.forEach(function(it){if(menuItemBinds[it.action])result[it.action]=menuItemBinds[it.action];});
+  // Возвращаем биндинги в текущем порядке
+  menuItemOrder.forEach(function(action){if(menuItemBinds[action])result[action]=menuItemBinds[action];});
   return result;
+}
+function getMenuOrder(){
+  // Возвращаем только если порядок отличается от дефолтного
+  var def=ALL_MENU_ITEMS.map(function(it){return it.action;});
+  var same=menuItemOrder.length===def.length&&menuItemOrder.every(function(a,i){return a===def[i];});
+  return same?[]:menuItemOrder.slice();
 }
 function toggleMenuItem(action){
   menuItemsEnabled[action]=!menuItemsEnabled[action];
@@ -838,7 +921,8 @@ function toggleMenuItem(action){
   });
 }
 function getMenuHidden(){
-  return ALL_MENU_ITEMS.filter(function(it){return !menuItemsEnabled[it.action];}).map(function(it){return it.action;});
+  // Скрытые пункты — в текущем порядке
+  return menuItemOrder.filter(function(action){return !menuItemsEnabled[action];});
 }
 function toggleMenuSettings(){
   menuSettingsOn=!menuSettingsOn;
@@ -884,6 +968,19 @@ window.addEventListener('pywebviewready',function(){
         document.getElementById('menu-settings-wrap').classList.add('show');
       }
       if(menuSettingsOn)buildMenuItemsList();
+    }
+    if(s.menu_order&&Array.isArray(s.menu_order)&&s.menu_order.length>0){
+      // Восстанавливаем порядок: сначала известные action-ы в сохранённом порядке,
+      // затем добавляем любые новые (которых нет в сохранённом)
+      var known=s.menu_order.filter(function(a){return ALL_MENU_ITEMS.some(function(it){return it.action===a;});});
+      var extra=ALL_MENU_ITEMS.map(function(it){return it.action;}).filter(function(a){return known.indexOf(a)===-1;});
+      menuItemOrder=known.concat(extra);
+      if(!menuSettingsOn){
+        menuSettingsOn=true;
+        document.getElementById('chk-box-menu-settings').classList.add('on');
+        document.getElementById('menu-settings-wrap').classList.add('show');
+      }
+      buildMenuItemsList();
     }
     if(s.path_valid){applyFolder(s.radmir_path||'');}
     // Статус кода — восстанавливаем из реальной проверки Index.js
@@ -1091,7 +1188,7 @@ function updateSteps(){var r=document.getElementById('f-rank').value.trim();var 
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();if(!rank||!fn||!ln){flash(false);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var hidden=getMenuHidden();var binds=getMenuBinds();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,hidden,binds).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();if(!rank||!fn||!ln){flash(false);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var hidden=getMenuHidden();var binds=getMenuBinds();var order=getMenuOrder();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,hidden,binds,order).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){if(!folderSelected){flash(false);setTab('home',null);return;}var btn=document.getElementById('btn-remove');btn.disabled=true;runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 

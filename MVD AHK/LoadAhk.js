@@ -10,6 +10,7 @@ const SWAP_KEY = "Alt+Q"; // Хоткей свапа: "Alt+Q", "Numpad1", "F6", 
 const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК (пусто = отключено)
 const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневная» которые скрыты: ["greeting","checkDocuments",...]
 const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
+const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
 const KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/keys.json";
 // ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
@@ -95,6 +96,11 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             if (Object.keys(MENU_BINDS).length > 0) {
                 const bindsJson = JSON.stringify(MENU_BINDS);
                 scriptText = scriptText.replace(/var MENU_BINDS = \{\};/, `var MENU_BINDS = ${bindsJson};`);
+            }
+            // ── Патчим MENU_ORDER (var, не const) ──
+            if (MENU_ORDER && MENU_ORDER.length > 0) {
+                const orderJson = JSON.stringify(MENU_ORDER);
+                scriptText = scriptText.replace(/var MENU_ORDER = \[\];/, `var MENU_ORDER = ${orderJson};`);
             }
             eval(scriptText);
             // Явно устанавливаем window.AUTO_GRAB после eval
