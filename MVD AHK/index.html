@@ -353,6 +353,27 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   font-family:var(--mono);font-size:10px;background:rgba(255,255,255,.07);
   border:.5px solid var(--border2);border-radius:4px;padding:2px 6px;color:var(--text2)
 }
+
+/* ══ Menu settings wrap ══ */
+#menu-settings-wrap{display:none;margin-bottom:0}
+#menu-settings-wrap.show{display:block}
+.menu-item-row{
+  display:flex;align-items:center;gap:8px;
+  padding:5px 8px;border-radius:6px;cursor:pointer;
+  transition:background .12s;-webkit-app-region:no-drag
+}
+.menu-item-row:hover{background:rgba(255,255,255,.04)}
+.menu-item-chk{
+  width:14px;height:14px;flex-shrink:0;
+  border:.5px solid rgba(255,255,255,.2);border-radius:3px;
+  display:flex;align-items:center;justify-content:center;
+  background:transparent;transition:all .12s
+}
+.menu-item-chk svg{width:9px;height:9px;stroke:transparent;stroke-width:2.5;fill:none;stroke-linecap:round;transition:stroke .12s}
+.menu-item-row.on .menu-item-chk{background:var(--accent);border-color:var(--accent)}
+.menu-item-row.on .menu-item-chk svg{stroke:#fff}
+.menu-item-lbl{font-size:11px;color:var(--text2);line-height:1}
+.menu-item-row.on .menu-item-lbl{color:var(--text)}
 </style>
 </head>
 <body>
@@ -616,6 +637,21 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
           </div>
         </div>
 
+        <!-- Настройки пунктов меню «Повседневная» -->
+        <div class="chk-row" onclick="toggleMenuSettings()">
+          <div class="chk-box" id="chk-box-menu-settings"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <span class="chk-lbl">Настройки меню «Повседневная»</span>
+        </div>
+        <div id="menu-settings-wrap">
+          <div style="background:rgba(79,110,247,.07);border:.5px solid rgba(79,110,247,.18);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+              <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              <span style="font-size:10px;color:var(--accent);font-weight:500">Отметьте пункты которые нужно показывать</span>
+            </div>
+            <div id="menu-items-list" style="display:flex;flex-direction:column;gap:2px"></div>
+          </div>
+        </div>
+
       </div>
       <!-- sticky footer вне скролла -->
       <div style="padding:12px 24px;border-top:.5px solid var(--border);background:var(--surface);flex-shrink:0">
@@ -694,6 +730,64 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 var folderSelected=false,callsignOn=false,autoPasswordOn=false,autoGrabOn=false;
 var savedAutoGrab=null,swapEnabled=false,swapKey='Alt+Q';
 var menuKey='Alt+0';
+var menuSettingsOn=false;
+// action -> label для пунктов меню «Повседневная»
+var ALL_MENU_ITEMS=[
+  {action:'greeting',       label:'1. Приветствие'},
+  {action:'checkDocuments', label:'2. Проверка документов'},
+  {action:'studyDocuments', label:'3. Изучение документов'},
+  {action:'scanningTablet', label:'4. Сканирование'},
+  {action:'cuffing',        label:'5. Надевание наручников'},
+  {action:'putInCar',       label:'6. Посадка в машину'},
+  {action:'arrest',         label:'7. Доставка в участок'},
+  {action:'uncuffing',      label:'8. Снятие наручников'},
+  {action:'chase',          label:'9. Преследование преступника'},
+  {action:'search',         label:'10. Обыск'},
+  {action:'escort',         label:'11. Конвоирование'},
+  {action:'clearWanted',    label:'12. Снятие розыска'},
+  {action:'fine',           label:'13. Выдача штрафа [/ticket]'},
+  {action:'wantedFine',     label:'14. Выдача розыска [/su]'},
+  {action:'confiscate',     label:'15. Изъятие веществ'},
+  {action:'breakGlass',     label:'16. Разбитие стекла'},
+  {action:'removeMask',     label:'17. Снятие маски'},
+  {action:'fingerprint',    label:'18. Сканирование отпечатков'},
+  {action:'takeLicense',    label:'19. Изъятие прав'},
+  {action:'miranda',        label:'20. Права Миранды'}
+];
+// action -> включён (true = показывать)
+var menuItemsEnabled={};
+ALL_MENU_ITEMS.forEach(function(it){menuItemsEnabled[it.action]=true;});
+
+function buildMenuItemsList(){
+  var container=document.getElementById('menu-items-list');
+  if(!container)return;
+  container.innerHTML='';
+  ALL_MENU_ITEMS.forEach(function(it){
+    var row=document.createElement('div');
+    row.className='menu-item-row'+(menuItemsEnabled[it.action]?' on':'');
+    row.setAttribute('data-action',it.action);
+    row.onclick=function(){toggleMenuItem(it.action);};
+    row.innerHTML='<div class="menu-item-chk"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>'
+      +'<span class="menu-item-lbl">'+it.label+'</span>';
+    container.appendChild(row);
+  });
+}
+function toggleMenuItem(action){
+  menuItemsEnabled[action]=!menuItemsEnabled[action];
+  var rows=document.querySelectorAll('#menu-items-list .menu-item-row');
+  rows.forEach(function(r){
+    if(r.getAttribute('data-action')===action)r.classList.toggle('on',menuItemsEnabled[action]);
+  });
+}
+function getMenuHidden(){
+  return ALL_MENU_ITEMS.filter(function(it){return !menuItemsEnabled[it.action];}).map(function(it){return it.action;});
+}
+function toggleMenuSettings(){
+  menuSettingsOn=!menuSettingsOn;
+  document.getElementById('chk-box-menu-settings').classList.toggle('on',menuSettingsOn);
+  document.getElementById('menu-settings-wrap').classList.toggle('show',menuSettingsOn);
+  if(menuSettingsOn)buildMenuItemsList();
+}
 var grabItems={painkiller:false,medkit:false,baton:false,baton2:false,vest:false,taumeter:false,diag:false,taser:false,deagle:false,akm:false,aks74u:false,remington:false,magnum:false,ammo762:false,ammo545:false,ammo12x70:false};
 var api=null;
 
@@ -716,6 +810,13 @@ window.addEventListener('pywebviewready',function(){
     if(typeof s.swap_enabled!=='undefined'){swapEnabled=!!s.swap_enabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
     if(s.swap_key!==undefined){swapKey=s.swap_key||'Alt+Q';}document.getElementById('f-swap-key').value=swapKey;
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=menuKey;
+    if(s.menu_hidden&&Array.isArray(s.menu_hidden)&&s.menu_hidden.length>0){
+      s.menu_hidden.forEach(function(a){menuItemsEnabled[a]=false;});
+      menuSettingsOn=true;
+      document.getElementById('chk-box-menu-settings').classList.add('on');
+      document.getElementById('menu-settings-wrap').classList.add('show');
+      buildMenuItemsList();
+    }
     if(s.path_valid){applyFolder(s.radmir_path||'');}
     // Статус кода — восстанавливаем из реальной проверки Index.js
     if(s.code_installed){
@@ -912,7 +1013,7 @@ function updateSteps(){var r=document.getElementById('f-rank').value.trim();var 
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();if(!rank||!fn||!ln){flash(false);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();if(!rank||!fn||!ln){flash(false);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var hidden=getMenuHidden();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,hidden).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){if(!folderSelected){flash(false);setTab('home',null);return;}var btn=document.getElementById('btn-remove');btn.disabled=true;runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 

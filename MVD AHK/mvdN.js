@@ -362,6 +362,8 @@ let lastWantedCode = null; // последняя статья УК для авт
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
+// Скрытые пункты меню «Повседневная» — настраивается установщиком
+var MENU_HIDDEN_ITEMS = [];
 // Обработчик горячих клавиш
 window.addEventListener('keydown', function(e) {
     if (MENU_KEY) {
@@ -712,9 +714,10 @@ const SendGiveLicenseCommand = (to, index) => {
     }
 };
 const HandlePovsednevCommand = (optionIndex) => {
+    const _visible = povsednevOptions.filter(o => !MENU_HIDDEN_ITEMS.includes(o.action));
     const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
-    if (adjustedIndex >= 0 && adjustedIndex < povsednevOptions.length) {
-        const option = povsednevOptions[adjustedIndex];
+    if (adjustedIndex >= 0 && adjustedIndex < _visible.length) {
+        const option = _visible[adjustedIndex];
         currentAction = option.action;
   
         // Динамическая проверка needsId: для "greeting" не запрашивать ID, если скин ОМОН (15340)
@@ -1227,8 +1230,9 @@ window.showGiveLicenseDialog = (e) => {
 window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "povsednev";
-    const menuList = getPaginatedMenu(povsednevOptions);
-    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < povsednevOptions.length ? 1 : 0;
+    const _visible = povsednevOptions.filter(o => !MENU_HIDDEN_ITEMS.includes(o.action));
+    const menuList = getPaginatedMenu(_visible);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < _visible.length ? 1 : 0;
     window.addDialogInQueue(
         `[667,5,"Повседневная (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
         menuList,

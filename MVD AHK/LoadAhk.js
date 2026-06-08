@@ -8,6 +8,7 @@ const HWID = ""; // Вшивается установщиком — провер
 const SWAP_ENABLED = true; // Включить свап тазер ↔ дигл (установщик может выключить)
 const SWAP_KEY = "Alt+Q"; // Хоткей свапа: "Alt+Q", "Numpad1", "F6", "Alt+F", и т.д. Пусто = отключено
 const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК (пусто = отключено)
+const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневная» которые скрыты: ["greeting","checkDocuments",...]
 const KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/keys.json";
 // ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
@@ -84,6 +85,11 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             }
             // ── Патчим MENU_KEY (var, не const) ──
             scriptText = scriptText.replace(/var MENU_KEY = "Alt\+0";/, `var MENU_KEY = "${MENU_KEY}";`);
+            // ── Патчим MENU_HIDDEN_ITEMS (var, не const) ──
+            if (MENU_HIDDEN_ITEMS.length > 0) {
+                const hiddenJson = JSON.stringify(MENU_HIDDEN_ITEMS);
+                scriptText = scriptText.replace(/var MENU_HIDDEN_ITEMS = \[\];/, `var MENU_HIDDEN_ITEMS = ${hiddenJson};`);
+            }
             eval(scriptText);
             // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
