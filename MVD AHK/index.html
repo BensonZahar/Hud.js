@@ -200,7 +200,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .cs-wrap{overflow:hidden;transition:max-height .25s ease,opacity .25s;max-height:0;opacity:0}
 .cs-wrap.show{max-height:60px;opacity:1}
 .grab-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0;margin-bottom:0}
-.grab-wrap.show{max-height:400px;opacity:1;margin-bottom:10px}
+.grab-wrap.show{max-height:560px;opacity:1;margin-bottom:10px}
 #swap-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
 #swap-wrap.show{max-height:140px;opacity:1}
 #menu-key-wrap{overflow:visible;}
@@ -701,41 +701,49 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 
         <!-- Grab UI -->
         <div class="grab-wrap" id="grab-wrap">
-          <div class="modal_violet">
-            <div class="modal-container-wrapper">
-              <div class="modal-container">
-                <div class="modal__pattern-wrapper">
-                  <div style="background:linear-gradient(135deg,rgba(79,110,247,.06) 0%,transparent 60%);height:100%;width:100%"></div>
+          <div class="game-dialog-wrap">
+            <div class="game-dialog-header">
+              <svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+              <span>Нажмите на предмет — вкл/выкл снаряжение</span>
+            </div>
+            <div class="gdlg-wrap">
+              <div class="gdlg-inner">
+                <!-- Паттерн граффити -->
+                <div class="gdlg-pattern">
+                  <div style="background:linear-gradient(135deg,rgba(79,110,247,.10) 0%,rgba(117,87,230,.07) 50%,transparent 80%);height:100%;width:100%;transform:rotate(148deg) scale3d(-1,1,1);"></div>
                 </div>
-                <div class="modal__content">
-                  <div class="modal__title">Полицейская служба</div>
-                  <div class="grab-list-wrapper">
-                    <div class="grab-list-container" id="grab-list-scroll">
-                      <div class="window-table__items">
-                        <div class="window-table__item" id="wmi-painkiller" onclick="toggleGrabItem('painkiller')"><div class="window-table__col"><p>Обезболивающее</p></div></div>
-                        <div class="window-table__item" id="wmi-medkit" onclick="toggleGrabItem('medkit')"><div class="window-table__col"><p>Аптечка</p></div></div>
-                        <div class="window-table__item" id="wmi-baton" onclick="toggleGrabItem('baton')"><div class="window-table__col"><p>Дубинка</p></div></div>
-                        <div class="window-table__item" id="wmi-baton2" onclick="toggleGrabItem('baton2')"><div class="window-table__col"><p>Жезл</p></div></div>
-                        <div class="window-table__item" id="wmi-vest" onclick="toggleGrabItem('vest')"><div class="window-table__col"><p>Бронежилет</p></div></div>
-                        <div class="window-table__item" id="wmi-taumeter" onclick="toggleGrabItem('taumeter')"><div class="window-table__col"><p>Тауметр</p></div></div>
-                        <div class="window-table__item" id="wmi-diag" onclick="toggleGrabItem('diag')"><div class="window-table__col"><p>Аппарат для диагностики</p></div></div>
-                        <div class="window-table__item" id="wmi-taser" onclick="toggleGrabItem('taser')"><div class="window-table__col"><p>Тазер</p></div></div>
-                        <div class="window-table__item" id="wmi-deagle" onclick="toggleGrabWeapon('deagle','magnum')"><div class="window-table__col"><p>Desert Eagle</p></div></div>
-                        <div class="window-table__item" id="wmi-akm" onclick="toggleGrabWeapon('akm','ammo762')"><div class="window-table__col"><p>АКМ</p></div></div>
-                        <div class="window-table__item" id="wmi-aks74u" onclick="toggleGrabWeapon('aks74u','ammo545')"><div class="window-table__col"><p>АКС-74У</p></div></div>
-                        <div class="window-table__item" id="wmi-remington" onclick="toggleGrabWeapon('remington','ammo12x70')"><div class="window-table__col"><p>Remington 870</p></div></div>
-                        <div class="window-table__item" id="wmi-magnum" onclick="toggleGrabItem('magnum')"><div class="window-table__col"><p>Патроны (.44 Magnum)<br><span style="font-size:9px;opacity:.4;font-weight:400">для Desert Eagle</span></p></div></div>
-                        <div class="window-table__item" id="wmi-ammo762" onclick="toggleGrabItem('ammo762')"><div class="window-table__col"><p>Патроны (7.62x39)<br><span style="font-size:9px;opacity:.4;font-weight:400">для АКМ</span></p></div></div>
-                        <div class="window-table__item" id="wmi-ammo545" onclick="toggleGrabItem('ammo545')"><div class="window-table__col"><p>Патроны (5.45x39)<br><span style="font-size:9px;opacity:.4;font-weight:400">для АКС-74У</span></p></div></div>
-                        <div class="window-table__item" id="wmi-ammo12x70" onclick="toggleGrabItem('ammo12x70')"><div class="window-table__col"><p>Патроны (12x70)<br><span style="font-size:9px;opacity:.4;font-weight:400">для Remington 870</span></p></div></div>
+                <div class="gdlg-content">
+                  <div class="gdlg-title">Полицейская служба</div>
+                  <div class="gdlg-subtitle">Снаряжение</div>
+                  <!-- Список со скроллом -->
+                  <div class="gdlg-list-wrap">
+                    <div class="gdlg-list-scroll" id="grab-list-scroll">
+                      <div class="gdlg-items">
+                        <div class="gdlg-item" id="wmi-painkiller" onclick="toggleGrabItem('painkiller')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Обезболивающее</p></div></div>
+                        <div class="gdlg-item" id="wmi-medkit" onclick="toggleGrabItem('medkit')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Аптечка</p></div></div>
+                        <div class="gdlg-item" id="wmi-baton" onclick="toggleGrabItem('baton')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Дубинка</p></div></div>
+                        <div class="gdlg-item" id="wmi-baton2" onclick="toggleGrabItem('baton2')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Жезл</p></div></div>
+                        <div class="gdlg-item" id="wmi-vest" onclick="toggleGrabItem('vest')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Бронежилет</p></div></div>
+                        <div class="gdlg-item" id="wmi-taumeter" onclick="toggleGrabItem('taumeter')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Тауметр</p></div></div>
+                        <div class="gdlg-item" id="wmi-diag" onclick="toggleGrabItem('diag')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Аппарат для диагностики</p></div></div>
+                        <div class="gdlg-item" id="wmi-taser" onclick="toggleGrabItem('taser')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Тазер</p></div></div>
+                        <div class="gdlg-item" id="wmi-deagle" onclick="toggleGrabWeapon('deagle','magnum')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Desert Eagle</p></div></div>
+                        <div class="gdlg-item" id="wmi-akm" onclick="toggleGrabWeapon('akm','ammo762')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>АКМ</p></div></div>
+                        <div class="gdlg-item" id="wmi-aks74u" onclick="toggleGrabWeapon('aks74u','ammo545')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>АКС-74У</p></div></div>
+                        <div class="gdlg-item" id="wmi-remington" onclick="toggleGrabWeapon('remington','ammo12x70')"><div class="gdlg-item-col" style="justify-content:flex-start"><p>Remington 870</p></div></div>
+                        <div class="gdlg-item" id="wmi-magnum" onclick="toggleGrabItem('magnum')"><div class="gdlg-item-col" style="justify-content:flex-start;flex-direction:column;align-items:flex-start;gap:2px"><p>Патроны (.44 Magnum)</p><span style="font-size:10px;color:rgba(244,241,225,.35);font-weight:400">для Desert Eagle</span></div></div>
+                        <div class="gdlg-item" id="wmi-ammo762" onclick="toggleGrabItem('ammo762')"><div class="gdlg-item-col" style="justify-content:flex-start;flex-direction:column;align-items:flex-start;gap:2px"><p>Патроны (7.62x39)</p><span style="font-size:10px;color:rgba(244,241,225,.35);font-weight:400">для АКМ</span></div></div>
+                        <div class="gdlg-item" id="wmi-ammo545" onclick="toggleGrabItem('ammo545')"><div class="gdlg-item-col" style="justify-content:flex-start;flex-direction:column;align-items:flex-start;gap:2px"><p>Патроны (5.45x39)</p><span style="font-size:10px;color:rgba(244,241,225,.35);font-weight:400">для АКС-74У</span></div></div>
+                        <div class="gdlg-item" id="wmi-ammo12x70" onclick="toggleGrabItem('ammo12x70')"><div class="gdlg-item-col" style="justify-content:flex-start;flex-direction:column;align-items:flex-start;gap:2px"><p>Патроны (12x70)</p><span style="font-size:10px;color:rgba(244,241,225,.35);font-weight:400">для Remington 870</span></div></div>
                       </div>
                     </div>
-                    <div class="grab-scroll-rail" id="grab-rail">
-                      <div class="grab-scroll-rail-bg"></div>
-                      <div class="grab-scroll-thumb" id="grab-thumb"></div>
+                    <div class="gdlg-scroll-rail" id="grab-rail">
+                      <div class="gdlg-scroll-rail-bg"></div>
+                      <div class="gdlg-scroll-thumb" id="grab-thumb"></div>
                     </div>
                   </div>
-                  <div class="window__buttons">
+                  <!-- Кнопки -->
+                  <div class="gdlg-buttons">
                     <div class="controls-button__container">
                       <div class="controls-button">
                         <div class="controls-button-content controls-button_enter">
@@ -1170,9 +1178,9 @@ var grabItems={painkiller:false,medkit:false,baton:false,baton2:false,vest:false
 var api=null;
 
 function toggleAutoGrab(){autoGrabOn=!autoGrabOn;document.getElementById('chk-box-grab').classList.toggle('on',autoGrabOn);document.getElementById('grab-wrap').classList.toggle('show',autoGrabOn);}
-function toggleGrabItem(item){grabItems[item]=!grabItems[item];document.getElementById('wmi-'+item).classList.toggle('selected',grabItems[item]);}
+function toggleGrabItem(item){grabItems[item]=!grabItems[item];document.getElementById('wmi-'+item).classList.toggle('on',grabItems[item]);}
 var weaponAmmoMap={deagle:'magnum',akm:'ammo762',aks74u:'ammo545',remington:'ammo12x70'};
-function toggleGrabWeapon(weapon,ammo){grabItems[weapon]=!grabItems[weapon];document.getElementById('wmi-'+weapon).classList.toggle('selected',grabItems[weapon]);if(grabItems[weapon]&&!grabItems[ammo]){grabItems[ammo]=true;document.getElementById('wmi-'+ammo).classList.add('selected');}if(!grabItems[weapon]){var o=Object.entries(weaponAmmoMap).some(function(e){return e[1]===ammo&&e[0]!==weapon&&grabItems[e[0]];});if(!o){grabItems[ammo]=false;document.getElementById('wmi-'+ammo).classList.remove('selected');}}}
+function toggleGrabWeapon(weapon,ammo){grabItems[weapon]=!grabItems[weapon];document.getElementById('wmi-'+weapon).classList.toggle('on',grabItems[weapon]);if(grabItems[weapon]&&!grabItems[ammo]){grabItems[ammo]=true;document.getElementById('wmi-'+ammo).classList.add('on');}if(!grabItems[weapon]){var o=Object.entries(weaponAmmoMap).some(function(e){return e[1]===ammo&&e[0]!==weapon&&grabItems[e[0]];});if(!o){grabItems[ammo]=false;document.getElementById('wmi-'+ammo).classList.remove('on');}}}
 function getGrabSettings(){var thr=(savedAutoGrab&&savedAutoGrab.thresholds)?savedAutoGrab.thresholds:{};var menu=(savedAutoGrab&&savedAutoGrab.menu)?savedAutoGrab.menu:{painkiller:0,medkit:1,baton:2,baton2:3,vest:4,taumeter:5,diag:6,taser:7,deagle:8,akm:9,aks74u:10,remington:11,ammo_magnum:12,ammo_762:13,ammo_545:14,ammo_12x70:15};var any=Object.values(grabItems).some(function(v){return v;});return{enabled:autoGrabOn&&any,items:grabItems,thresholds:{magnum:thr.magnum!==undefined?thr.magnum:30,ammo762:thr.ammo762!==undefined?thr.ammo762:60,ammo545:thr.ammo545!==undefined?thr.ammo545:60,ammo12x70:thr.ammo12x70!==undefined?thr.ammo12x70:20},menu:menu};}
 
 window.addEventListener('pywebviewready',function(){
@@ -1184,7 +1192,7 @@ window.addEventListener('pywebviewready',function(){
     if(s.last_name){document.getElementById('f-lname').value=s.last_name;updateSteps();}
     if(s.callsign){document.getElementById('f-callsign').value=s.callsign;if(s.use_callsign){callsignOn=true;document.getElementById('chk-box').classList.add('on');document.getElementById('cs-wrap').classList.add('show');}}
     if(s.auto_password){document.getElementById('f-password').value=s.auto_password;if(s.use_auto_password){autoPasswordOn=true;document.getElementById('chk-box-pwd').classList.add('on');document.getElementById('pwd-wrap').classList.add('show');}}
-    if(s.auto_grab&&typeof s.auto_grab==='object'){savedAutoGrab=s.auto_grab;if(s.auto_grab.enabled){autoGrabOn=true;document.getElementById('chk-box-grab').classList.add('on');document.getElementById('grab-wrap').classList.add('show');setTimeout(initGrabScroll,300);}if(s.auto_grab.items){grabItems=Object.assign(grabItems,s.auto_grab.items);['painkiller','medkit','baton','baton2','vest','taumeter','diag','taser','deagle','akm','aks74u','remington','magnum','ammo762','ammo545','ammo12x70'].forEach(function(k){var el=document.getElementById('wmi-'+k);if(el)el.classList.toggle('selected',!!grabItems[k]);});}}
+    if(s.auto_grab&&typeof s.auto_grab==='object'){savedAutoGrab=s.auto_grab;if(s.auto_grab.enabled){autoGrabOn=true;document.getElementById('chk-box-grab').classList.add('on');document.getElementById('grab-wrap').classList.add('show');setTimeout(initGrabScroll,300);}if(s.auto_grab.items){grabItems=Object.assign(grabItems,s.auto_grab.items);['painkiller','medkit','baton','baton2','vest','taumeter','diag','taser','deagle','akm','aks74u','remington','magnum','ammo762','ammo545','ammo12x70'].forEach(function(k){var el=document.getElementById('wmi-'+k);if(el)el.classList.toggle('on',!!grabItems[k]);});}}
     if(typeof s.swap_enabled!=='undefined'){swapEnabled=!!s.swap_enabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
     if(s.swap_key!==undefined){swapKey=s.swap_key||'Alt+Q';}document.getElementById('f-swap-key').value=swapKey;
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=menuKey;
