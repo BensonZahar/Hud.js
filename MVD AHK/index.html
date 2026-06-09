@@ -433,28 +433,26 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .gdlg-content{position:relative;z-index:1}
 
 /* Заголовок — modal__title (Open Sans Condensed italic bold uppercase) */
-/* Заголовок — точно modal__title: Open Sans Condensed italic bold uppercase 2.59vh */
+/* Заголовок — точно modal__title из Modal.css */
 .gdlg-title{
   color:#fff;
   font-family:"Open Sans Condensed","Open Sans",sans-serif;
   font-size:2.59vh;font-style:italic;font-weight:700;
   line-height:normal;text-transform:uppercase;
-  margin:0;letter-spacing:0;
+  margin:0;
 }
-/* (СТР. 1) — в той же строке что заголовок, мельче */
+/* (СТР. 1) — дочерний span, margin:0 как modal__title * в оригинале, тот же размер */
 .gdlg-title-page{
-  font-family:"Open Sans Condensed","Open Sans",sans-serif;
-  font-size:1.67vh;font-style:italic;font-weight:700;
-  color:#fff;opacity:1;
-  vertical-align:middle;
+  margin:0;
 }
 
-/* Субтитл — точно window__subtitle: 1.67vh, margin-bottom:1.37vh, margin-top:0.37vh */
+/* Субтитл — точно window__subtitle из Window.css */
 .gdlg-subtitle{
   color:rgba(244,241,225,.6);
   font-family:"Open Sans",sans-serif;
   font-size:1.67vh;font-weight:600;
   margin-bottom:1.37vh;margin-top:0.37vh;
+  text-align:center;
 }
 
 /* Список пунктов */
