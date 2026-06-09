@@ -411,6 +411,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 }
 /* (СТР. 1) — тот же стиль что и заголовок, только меньше */
 .gdlg-title-page{
+  font-family:"Open Sans Condensed","Open Sans",sans-serif;
   font-size:13px;font-style:italic;font-weight:700;
   color:#fff;opacity:1; /* белый, как в оригинале — не серый */
 }
@@ -464,7 +465,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 }
 .gdlg-item-col p{line-height:1.4;margin:0;flex:1;text-align:center}
 .gdlg-item.on .gdlg-item-col p{color:#f4f1e1}
-.gdlg-item:not(.on) .gdlg-item-col p{color:rgba(244,241,225,.55)}
+.gdlg-item:not(.on) .gdlg-item-col p{color:#fff}
 
 /* Правая часть: бинд + кнопки */
 .gdlg-item-right{
@@ -744,7 +745,6 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
                 </div>
                 <div class="gdlg-content">
                   <div class="gdlg-title">ПОЛИЦЕЙСКАЯ СЛУЖБА</div>
-                  <div class="gdlg-subtitle">Снаряжение</div>
                   <!-- Список со скроллом -->
                   <div class="gdlg-list-wrap">
                     <div class="gdlg-list-scroll" id="grab-list-scroll">
