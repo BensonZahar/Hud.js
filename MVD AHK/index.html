@@ -288,7 +288,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 /* ══ Game item list (Auto-grab) ══ */
 .window{--wd-margin:2.22vh;--wd-font-size:1.67vh}
 .window__buttons{display:flex;margin-top:10px}
-.window__buttons .controls-button__container{margin-right:14px}
+.window__buttons .controls-button__container{margin-right:1.48vh}
 .window__buttons .controls-button__container:last-child{margin-right:0}
 .window-table__col{align-items:center;display:flex;font-size:12px;font-weight:500;min-height:36px;justify-content:center;padding:5px 10px;text-align:center;flex-direction:column;width:100%;color:var(--text)}
 .window-table__col p{line-height:1.4;margin:0}
@@ -323,19 +323,50 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .grab-scroll-rail{position:absolute;right:0;top:0;bottom:0;width:8px;pointer-events:none}
 .grab-scroll-rail-bg{position:absolute;left:50%;transform:translateX(-50%);top:0;bottom:0;width:2px;background:var(--border2);border-radius:1px}
 .grab-scroll-thumb{position:absolute;right:0;width:100%;background:rgba(255,255,255,.2);border-radius:1px;cursor:pointer;min-height:12px}
-.controls-button{align-items:center;display:flex;height:20px;justify-content:center;position:relative;transition:all .25s ease;z-index:2}
-.controls-button-content{align-items:center;background:#d8d4cc;display:flex;flex:1 1;height:100%;justify-content:center;padding:0 6px;position:relative;transition:all .1s ease;z-index:9;border-radius:3px}
-.controls-button-content:hover{background:#e8e4da}
+/* ══ controls-button — точная копия Button.css из игры ══ */
+.controls-button{align-items:center;display:flex;height:2.22vh;justify-content:center;position:relative;transition:all .25s ease;z-index:2}
+.controls-button-content{align-items:center;background:#d8d4cc;display:flex;flex:1 1;height:100%;justify-content:center;padding:0 0.74vh;position:relative;transition:all .1s ease;z-index:9;border-radius:0.74vh;box-shadow:0 0.37vh 0.74vh -0.37vh #00000052,0 0.09vh 0.19vh 0 #00000052;overflow:hidden;border:0.09vh solid #0c0a06}
 .controls-button-icon{transition:all .25s ease}
-.controls-button-icon_key{height:8px;margin-right:3px;width:8px}
+.controls-button-icon_key{height:0.93vh;margin-right:0.37vh;transition:opacity .25s ease;width:0.93vh}
 .controls-button--text-wrapper{display:flex;flex-direction:column;height:100%;justify-content:center}
-.controls-button--text{align-items:center;color:#010106;display:flex;font-family:"Open Sans Condensed","Open Sans",sans-serif;font-size:11px;font-style:italic;font-weight:700;justify-content:center;line-height:69%;text-transform:uppercase;transition:all .25s ease}
-.controls-button--text-border{background-color:#01010640;height:1.5px;margin-top:1.5px;width:100%}
+.controls-button--text{align-items:center;color:#010106;display:flex;font-family:"Open Sans Condensed","Open Sans",sans-serif;font-size:1.3vh;font-style:italic;font-weight:700;justify-content:center;line-height:69%;text-transform:uppercase;transition:all .25s ease}
+.controls-button--text-border{background-color:#01010640;height:0.19vh;margin-top:0.19vh;width:100%}
+/* Размеры по длине текста (как controls-button_length-N в игре) */
+.controls-button_length-1,.controls-button_length-3{width:2.4vh}
+.controls-button_length-1 .controls-button-content,.controls-button_length-3 .controls-button-content{padding:0}
+.controls-button_length-3{width:3.89vh}
+.controls-button_length-5{width:5.56vh}
+.controls-button_length-5 .controls-button-content{padding:0}
+/* Enter: фиксированная ширина 6.85vh, без padding */
+.controls-button_enter{width:6.85vh}
 .controls-button_enter .controls-button-content{padding:0}
-.controls-button-shadow{background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.3));border-radius:0 0 3px 3px;bottom:0;left:0;position:absolute;right:0;top:0;z-index:10;pointer-events:none}
-.controls-button__container{align-items:center;display:flex;margin-right:20px}
+/* ESC при ховере: красный фон, скрыть текст */
+.controls-button_is-esc.controls-button_is-hovered .controls-button-content,.controls-button_is-esc:hover .controls-button-content{background:#fb2c36}
+.controls-button_is-esc.controls-button_is-hovered .controls-button-icon_key,.controls-button_is-esc:hover .controls-button-icon_key{opacity:0}
+.controls-button_is-esc.controls-button_is-hovered .controls-button--text,.controls-button_is-esc:hover .controls-button--text{opacity:0}
+/* Pressed */
+.controls-button.pressed .controls-button--text-border{display:none}
+.controls-button.pressed .controls-button-content{transform:translateY(0.19vh)}
+.controls-button.pressed .controls-button-shadow{opacity:0}
+/* Hover (убирает border-line снизу текста) */
+.controls-button_with-hover.clickable:hover .controls-button--text-border{display:none}
+.controls-button_with-hover.clickable:hover .controls-button-content{background:#e8e4dc}
+/* Gold / Secondary */
+.controls-button_gold .controls-button-content{background:#ffb110}
+.controls-button_secondary .controls-button-content{background:#44403b}
+.controls-button_secondary .controls-button--text{color:#eeeee6}
+/* Disabled */
+.controls-button_disabled{pointer-events:none}
+.controls-button_disabled .controls-button-shadow{opacity:0}
+.controls-button_disabled .controls-button-content{background:#292524}
+.controls-button_disabled .controls-button--text{color:#eeeee633}
+.controls-button_disabled .controls-button--text-border{display:none}
+/* Shadow */
+.controls-button-shadow{background:linear-gradient(180deg,transparent 50%,rgba(0,0,0,.3));border-radius:0 0 0.74vh 0.74vh;bottom:0;left:0;position:absolute;right:0;top:0;z-index:10;pointer-events:none}
+/* Container */
+.controls-button__container{align-items:center;display:flex;margin-right:1.48vh}
 .controls-button__container:last-child{margin-right:0}
-.controls-button__container-text{color:rgba(244,241,225,.6);font-family:"Open Sans",sans-serif;font-size:10px;font-weight:600;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.04em;padding-left:6px}
+.controls-button__container-text{color:rgba(244,241,225,.6);font-family:"Open Sans",sans-serif;font-size:1.11vh;font-weight:600;line-height:normal;text-align:center;text-transform:uppercase;letter-spacing:.04em;padding-left:0.56vh}
 
 /* ══ Divider ══ */
 .divider{height:.5px;background:var(--border);margin:10px 0}
@@ -371,19 +402,19 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   min-width:340px;
   max-width:100%;
   background:#141419eb;
-  border:1.5px solid #ffffff0d;
-  border-radius:6px;
-  padding:3px;
+  border:0.19vh solid #ffffff0d;
+  border-radius:0.74vh;
+  padding:0.37vh;
   pointer-events:auto;
   position:relative;
 }
 /* Внутренний контейнер — modal-container с violet border-top */
 .gdlg-inner{
-  border:1.5px solid transparent;
-  border-top:1.5px solid #7557e6;
-  border-radius:6px;
-  padding:18px;
-  box-shadow:inset 0 31px 39px -24px #7557e633;
+  border:0.19vh solid transparent;
+  border-top:0.19vh solid #7557e6;
+  border-radius:0.74vh;
+  padding:2.22vh;
+  box-shadow:inset 0 3.89vh 4.81vh -2.96vh #7557e633;
   position:relative;
   overflow:hidden;
 }
@@ -402,26 +433,28 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .gdlg-content{position:relative;z-index:1}
 
 /* Заголовок — modal__title (Open Sans Condensed italic bold uppercase) */
+/* Заголовок — точно modal__title: Open Sans Condensed italic bold uppercase 2.59vh */
 .gdlg-title{
   color:#fff;
   font-family:"Open Sans Condensed","Open Sans",sans-serif;
-  font-size:22px;font-style:italic;font-weight:700;
+  font-size:2.59vh;font-style:italic;font-weight:700;
   line-height:normal;text-transform:uppercase;
-  margin:0;letter-spacing:0.02em;
+  margin:0;letter-spacing:0;
 }
-/* (СТР. 1) — тот же стиль что и заголовок, только меньше */
+/* (СТР. 1) — в той же строке что заголовок, мельче */
 .gdlg-title-page{
   font-family:"Open Sans Condensed","Open Sans",sans-serif;
-  font-size:13px;font-style:italic;font-weight:700;
-  color:#fff;opacity:1; /* белый, как в оригинале — не серый */
+  font-size:1.67vh;font-style:italic;font-weight:700;
+  color:#fff;opacity:1;
+  vertical-align:middle;
 }
 
-/* Субтитл — window__subtitle */
+/* Субтитл — точно window__subtitle: 1.67vh, margin-bottom:1.37vh, margin-top:0.37vh */
 .gdlg-subtitle{
   color:rgba(244,241,225,.6);
   font-family:"Open Sans",sans-serif;
-  font-size:13px;font-weight:600;
-  margin-bottom:0;margin-top:6px;
+  font-size:1.67vh;font-weight:600;
+  margin-bottom:1.37vh;margin-top:0.37vh;
 }
 
 /* Список пунктов */
@@ -572,7 +605,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   display:flex;align-items:center;
   margin-top:8px;
 }
-.gdlg-buttons .controls-button__container{margin-right:14px}
+.gdlg-buttons .controls-button__container{margin-right:1.48vh}
 .gdlg-buttons .controls-button__container:last-child{margin-right:0}
 
 /* Совместимость */
@@ -782,8 +815,8 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
                   <!-- Кнопки -->
                   <div class="gdlg-buttons">
                     <div class="controls-button__container">
-                      <div class="controls-button">
-                        <div class="controls-button-content controls-button_enter">
+                      <div class="controls-button controls-button_enter clickable controls-button_with-hover">
+                        <div class="controls-button-content">
                           <img class="controls-button-icon controls-button-icon_key" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAACgSURBVHgBhZCxDcJQDETPzgdCQfVrWurMACMxBwOwAi09M4QJWIBUSIQEsPEXTTBRcpIly366swz8aBFDyDfoUehCzM+tiEYgV+BxSlPm2b4DfiEgQVoBzdk7sodE2p3NKw+SWRuEFUZkjriPQSI4BpHmwDxdmrlFk0VPLPr2F51Z1arvkigrrI9EUqjOS6CtPQgPq8oVeF2Gzkk/XPctPs9GO5HRlFIKAAAAAElFTkSuQmCC">
                           <div class="controls-button--text-wrapper">
                             <div class="controls-button--text">Взять</div>
@@ -795,7 +828,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
                       <span class="controls-button__container-text">Взять</span>
                     </div>
                     <div class="controls-button__container">
-                      <div class="controls-button controls-button_is-esc">
+                      <div class="controls-button controls-button_is-esc controls-button_length-3 clickable controls-button_with-hover">
                         <div class="controls-button-content">
                           <div class="controls-button--text-wrapper">
                             <div class="controls-button--text">Esc</div>
@@ -882,7 +915,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
                   <!-- Верхний ряд: A НАЗАД / ДАЛЕЕ D (window__paginate) -->
                   <div class="gdlg-paginate">
                     <div class="controls-button__container" id="gdlg-btn-prev" style="cursor:pointer;opacity:0.3" onclick="menuPagePrev()">
-                      <div class="controls-button">
+                      <div class="controls-button controls-button_length-1 clickable controls-button_with-hover">
                         <div class="controls-button-content">
                           <div class="controls-button--text-wrapper">
                             <div class="controls-button--text">A</div>
@@ -894,7 +927,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
                       <span class="controls-button__container-text">Назад</span>
                     </div>
                     <div class="controls-button__container" id="gdlg-btn-next" style="cursor:pointer;flex-direction:row-reverse" onclick="menuPageNext()">
-                      <div class="controls-button">
+                      <div class="controls-button controls-button_length-1 clickable controls-button_with-hover">
                         <div class="controls-button-content">
                           <div class="controls-button--text-wrapper">
                             <div class="controls-button--text">D</div>
@@ -903,14 +936,14 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
                         </div>
                         <div class="controls-button-shadow"></div>
                       </div>
-                      <span class="controls-button__container-text" style="padding:0 8px 0 0">Далее</span>
+                      <span class="controls-button__container-text" style="padding:0 0.74vh 0 0">Далее</span>
                     </div>
                   </div>
                   <!-- Нижний ряд: ENTER ВЫБРАТЬ / ESC ОТМЕНА (window__buttons) -->
                   <div class="gdlg-buttons">
                     <div class="controls-button__container">
-                      <div class="controls-button">
-                        <div class="controls-button-content controls-button_enter">
+                      <div class="controls-button controls-button_enter clickable controls-button_with-hover">
+                        <div class="controls-button-content">
                           <img class="controls-button-icon controls-button-icon_key" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAACXBIWXMAAAsTAAALEwEAmpwYAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAACgSURBVHgBhZCxDcJQDETPzgdCQfVrWurMACMxBwOwAi09M4QJWIBUSIQEsPEXTTBRcpIly366swz8aBFDyDfoUehCzM+tiEYgV+BxSlPm2b4DfiEgQVoBzdk7sodE2p3NKw+SWRuEFUZkjriPQSI4BpHmwDxdmrlFk0VPLPr2F51Z1arvkigrrI9EUqjOS6CtPQgPq8oVeF2Gzkk/XPctPs9GO5HRlFIKAAAAAElFTkSuQmCC">
                           <div class="controls-button--text-wrapper">
                             <div class="controls-button--text">Enter</div>
@@ -922,7 +955,7 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
                       <span class="controls-button__container-text">Выбрать</span>
                     </div>
                     <div class="controls-button__container">
-                      <div class="controls-button controls-button_is-esc">
+                      <div class="controls-button controls-button_is-esc controls-button_length-3 clickable controls-button_with-hover">
                         <div class="controls-button-content">
                           <div class="controls-button--text-wrapper">
                             <div class="controls-button--text">Esc</div>
