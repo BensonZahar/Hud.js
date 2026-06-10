@@ -7,7 +7,7 @@ const USER_CONFIGS = {
         RECONNECT_ENABLED_DEFAULT: true,
         // Токены Telegram-ботов для аккаунтов Захара (1–8)
         BOT_TOKENS: {
-            '1': '8641308857:AAGyBkHJu3OGLiDZD8bXbIfFJuOEh2_dz-Y',
+            '1': '8512909288:AAEoTnIgdkvmrZ6DIVEgVFnG97tOzQQK3KU',
             '2': '8335162903:AAEIIBJJwJybcfk3sZBrMhv3hWm2u4FeRHY',
             '3': '8549354393:AAH3KUXtuSBZJ4SO4qw5s5WmWJ9_kypclBY',
             '4': '7314669193:AAEMOdTUVpuKptq5x-Wf_uqoNtcYnMM12oU', // новые
