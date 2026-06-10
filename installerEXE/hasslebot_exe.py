@@ -964,7 +964,7 @@ class MEmuHudManager:
             self.full_logging = True
             self.debug_allowed = True
             if self.fetch_code_files():
-                self.selected_code_name = "Kolya"
+                self.selected_code_name = "Zahar"
                 self.root.after(0, self.finalize_launch)
             else:
                 self.log("[X] Ошибка: Не удалось загрузить конфигурации")
