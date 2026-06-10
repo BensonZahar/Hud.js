@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.34 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AHK v2.3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -504,11 +504,65 @@ window.sendClientEventHandle = function(event, ...args) {
     return _origSendClientEventHandle.call(this, event, ...args);
 };
 // ==================== END A/D ====================
+
+// ==================== CHAT LOGGING HELPERS ====================
+function normalizeColor(color) {
+    let normalized = String(color).toUpperCase();
+    if (normalized.startsWith('#')) normalized = normalized.slice(1);
+    if (normalized.length === 8) normalized = normalized.slice(0, 6);
+    return '0x' + normalized;
+}
+const CHAT_RADIUS = { SELF: 0, CLOSE: 1, MEDIUM: 2, FAR: 3, RADIO: 4, UNKNOWN: -1 };
+function getChatRadius(color) {
+    switch (normalizeColor(color)) {
+        case '0xEEEEEE': return CHAT_RADIUS.SELF;
+        case '0xCECECE': return CHAT_RADIUS.CLOSE;
+        case '0x999999': return CHAT_RADIUS.MEDIUM;
+        case '0x6B6B6B': return CHAT_RADIUS.FAR;
+        case '0x33CC66': return CHAT_RADIUS.RADIO;
+        default:         return CHAT_RADIUS.UNKNOWN;
+    }
+}
+function normalizeToCyrillic(text) {
+    const map = {
+        'A':'А','a':'а','B':'В','b':'в','C':'С','c':'с','E':'Е','e':'е',
+        'H':'Н','h':'н','K':'К','k':'к','M':'М','m':'м','O':'О','o':'о',
+        'P':'Р','p':'р','T':'Т','x':'х','X':'Х','y':'у','Y':'У'
+    };
+    return String(text).replace(/[A-Za-z]/g, ch => map[ch] || ch);
+}
+const RADIUS_LABELS = {
+    [CHAT_RADIUS.SELF]:    { label: 'SELF',   color: '#EEEEEE' },
+    [CHAT_RADIUS.CLOSE]:   { label: 'CLOSE',  color: '#CECECE' },
+    [CHAT_RADIUS.MEDIUM]:  { label: 'MEDIUM', color: '#999999' },
+    [CHAT_RADIUS.FAR]:     { label: 'FAR',    color: '#6B6B6B' },
+    [CHAT_RADIUS.RADIO]:   { label: 'RADIO',  color: '#33CC66' },
+    [CHAT_RADIUS.UNKNOWN]: { label: '?',      color: '#AAAAAA' },
+};
+// ==================== END CHAT LOGGING HELPERS ====================
+
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
         const originalAddFunction = window.interface('Hud').$refs.chat.add;
  
         window.interface('Hud').$refs.chat.add = function(message, ...args) {
+            // ========== ЛОГИРОВАНИЕ ЧАТА (как в Code.js) ==========
+            try {
+                const _msg    = String(message);
+                const _color  = args[0];          // первый arg — цвет (если есть)
+                const _radius = getChatRadius(_color);
+                const _rl     = RADIUS_LABELS[_radius] || RADIUS_LABELS[CHAT_RADIUS.UNKNOWN];
+                const _now    = new Date();
+                const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
+                const _colorHex = _color !== undefined ? normalizeColor(_color).replace('0x','') : '??????';
+                console.log(
+                    `%c[${_ts}][MVD-CHAT][${_rl.label}]%c #${_colorHex}%c ${_msg}`,
+                    'color:#88CCFF;font-weight:bold',
+                    `color:#${_colorHex}`,
+                    'color:inherit'
+                );
+            } catch (_e) { /* тихо игнорируем */ }
+            // ========== КОНЕЦ ЛОГИРОВАНИЯ ==========
             // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
             if (shouldBlockMessage(message)) {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
