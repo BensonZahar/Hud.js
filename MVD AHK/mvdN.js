@@ -432,7 +432,11 @@ window.addEventListener('keydown', function(e) {
             var _opt = povsednevOptions.find(function(o){ return o.action === _action; });
             if (!_opt) break;
             currentAction = _action;
-            if (_opt.needsId) {
+            currentMenu = "povsednev"; // FIX: устанавливаем currentMenu чтобы диалог 668 сработал
+            // FIX: СОБР-скин (15340) для greeting не требует ID — как в HandlePovsednevCommand
+            var _isOmonSkin = skinId === 15340;
+            var _needsIdForThis = _opt.needsId && !(_action === 'greeting' && _isOmonSkin);
+            if (_needsIdForThis) {
                 setTimeout(function(){ showIdInputDialog(giveLicenseTo || -1); }, 50);
             } else if (_action === 'fine') {
                 setTimeout(function(){ showKoapTypeMenu(giveLicenseTo || -1); }, 50);
@@ -1505,10 +1509,10 @@ window.sendClientEventCustom = (event, ...args) => {
         }
         else if (args[1] === 668) { // Диалог ввода ID
             const inputId = args[4];
-            if (args[2] === 1 && giveLicenseTo !== -1 && currentAction) {
-                if (currentMenu === "povsednev") {
-                    executePovsednevAction(currentAction, inputId);
-                }
+            // FIX: убрана проверка currentMenu === "povsednev" и giveLicenseTo !== -1
+            // чтобы бинд-кнопки работали независимо от того открывалось ли меню через /dahk
+            if (args[2] === 1 && currentAction) {
+                executePovsednevAction(currentAction, inputId);
             }
             currentAction = null;
         }
