@@ -1,5 +1,5 @@
-// MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AK v233. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+// MVD AHK VERSION: 2.3 (NAPARNICK)
+console.log("=== MVD AK v23. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -360,6 +360,26 @@ let ukPage = 0;
 let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
+// ==================== НАПАРНИК ====================
+let partnerNick = null;            // Ник напарника (из ответа /id)
+let partnerId = null;              // ID напарника
+let partnerTrackingEnabled = false; // "Следить за напарником" включено
+let partnerMessageEnabled = false;  // "Сообщение для напарника" включено
+let _awaitingPartnerId = false;    // Ждём ответ /id для установки напарника
+let partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
+function getPartnerTrackingLabel() {
+    if (partnerTrackingEnabled && partnerNick && partnerId) {
+        return `Следить: {00FF00}${partnerNick}[${partnerId}]`;
+    }
+    return `Следить за напарником | {FF0000}Выкл`;
+}
+function getPartnerMenuLabel() {
+    if (partnerTrackingEnabled && partnerNick && partnerId) {
+        return `Напарник | {00FF00}${partnerNick}[${partnerId}]`;
+    }
+    return `Напарник | {FF0000}Выкл`;
+}
+// ==================== КОНЕЦ НАПАРНИК STATE ====================
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
@@ -626,6 +646,46 @@ const setupChatHandler = () => {
             }
             // ==================== КОНЕЦ ПИКА НИКА ====================
 
+            // ==================== ПИК НИКА НАПАРНИКА ИЗ /id ====================
+            if (typeof message === 'string' && _awaitingPartnerId && window._pendingPartnerId) {
+                const idPartnerMatch = message.match(/^([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
+                if (idPartnerMatch && idPartnerMatch[2] === String(window._pendingPartnerId)) {
+                    const nick = idPartnerMatch[1];
+                    partnerNick = nick;
+                    partnerTrackingEnabled = true;
+                    _awaitingPartnerId = false;
+                    window._pendingPartnerId = null;
+                    snAdd(`[1, "Напарник", "Напарник: ${nick}[${partnerId}]", "00FF00", 3000]`);
+                    console.log(`[PARTNER] ✅ Напарник установлен: ${nick}[${partnerId}]`);
+                }
+            }
+            // ==================== КОНЕЦ ПИКА НИКА НАПАРНИКА ====================
+
+            // ==================== ОБНАРУЖЕНИЕ СООБЩЕНИЯ НАПАРНИКА ====================
+            // Формат в консоли: [SELF|#EEEEEE] - текст {0000FF}{v:NICK}[ID]: Отслеживаю X
+            // Проверяем: цвет строки = SELF (#EEEEEE) + тег напарника в тексте
+            if (typeof message === 'string' && partnerTrackingEnabled && partnerNick && partnerId) {
+                const msgStr = String(message);
+                const msgRadius = getChatRadius(args[0]);
+                const isSelfMsg = msgRadius === CHAT_RADIUS.SELF;
+                // Полный формат: {0000FF}{v:NICK}[ID] — как видно в консоли
+                const hasPartnerTag =
+                    msgStr.includes(`{0000FF}{v:${partnerNick}}[${partnerId}]`) || // точный МВД формат
+                    msgStr.includes(`{v:${partnerNick}}[${partnerId}]`) ||           // любой цвет префикс
+                    msgStr.includes(`${partnerNick}[${partnerId}]`);                 // запасной (радио)
+                if (isSelfMsg && hasPartnerTag) {
+                    const trackMatch = msgStr.match(/Отслеживаю\s+(\d+)/);
+                    if (trackMatch) {
+                        const suspectId = trackMatch[1];
+                        console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] начал отслеживание ID: ${suspectId}`);
+                        snAdd(`[1, "Напарник", "${partnerNick}: отслеживает ID ${suspectId}", "00AAFF", 3000]`);
+                        // Запускаем отслеживание через 600мс (после уведомления)
+                        setTimeout(() => startTracking(suspectId), 600);
+                    }
+                }
+            }
+            // ==================== КОНЕЦ ОБНАРУЖЕНИЯ СООБЩЕНИЯ НАПАРНИКА ====================
+
             // ==================== АВТО-СТОП: НЕВОЗМОЖНО ОПРЕДЕЛИТЬ / ТАКОГО ИГРОКА НЕТ ====================
             if (typeof message === 'string' && currentScanId && !window._trackingStopPending) {
                 const isNoLocation = message.includes('Невозможно определить местоположение игрока');
@@ -891,6 +951,18 @@ const startTracking = (id) => {
     setTimeout(() => {
         openTrackingNotification(id);
     }, 800);
+
+    // ==================== СООБЩЕНИЕ НАПАРНИКУ ====================
+    // Если включено "Сообщение для напарника" — отправляем в радио чтобы напарник
+    // получил событие и тоже начал отслеживание этого же ID
+    if (partnerMessageEnabled) {
+        const badge = (typeof CALLSIGN !== 'undefined' && CALLSIGN) ? ` Ж:${CALLSIGN}` : '';
+        setTimeout(() => {
+            sendChatInput(`Отслеживаю ${id}${badge}`);
+            console.log(`[PARTNER] 📡 Отправлено сообщение напарнику: Отслеживаю ${id}${badge}`);
+        }, 1200);
+    }
+    // ==================== КОНЕЦ СООБЩЕНИЯ НАПАРНИКУ ====================
  
     // Начальные команды (без /id — уже отправлен выше)
     sendMessagesWithDelay([
@@ -1090,6 +1162,9 @@ const HandleMvdSubCommand = (index) => {
             setTimeout(() => {
                 showMvdSubMenu(giveLicenseTo);
             }, 50);
+            break;
+        case "naparnick":
+            setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
             break;
     }
 };
@@ -1574,6 +1649,7 @@ window.showMvdSubMenu = (e) => {
     if (window.AUTO_GRAB === true) {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
+    availableSub.push({ name: getPartnerMenuLabel(), id: "naparnick" });
     shownMvdSubTypes = availableSub;
     let licenseList = '';
     availableSub.forEach((license, index) => {
@@ -1581,6 +1657,24 @@ window.showMvdSubMenu = (e) => {
     });
     window.addDialogInQueue(`[677,2,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
+// ==================== МЕНЮ НАПАРНИКА ====================
+window.showPartnerMenu = (e) => {
+    giveLicenseTo = e;
+    const trackLabel = getPartnerTrackingLabel();
+    const menuList =
+        `1. ${trackLabel}<n>` +
+        `2. ${partnerMessageName}`;
+    window.addDialogInQueue(`[682,2,"Напарник","","Выбрать","Назад",0,0]`, menuList, 0);
+};
+window.showPartnerIdInputDialog = (e) => {
+    giveLicenseTo = e;
+    const cur = (partnerNick && partnerId) ? `Текущий: ${partnerNick}[${partnerId}]` : `Не задан`;
+    window.addDialogInQueue(
+        `[683,1,"Напарник — Ввод ID","Введите ID напарника (${cur}):","Подтвердить","Отмена",0,0]`,
+        "", 0
+    );
+};
+// ==================== КОНЕЦ МЕНЮ НАПАРНИКА ====================
 window.showKoapTypeMenu = (e) => {
     giveLicenseTo = e;
     currentMenu = "koap_type";
@@ -1634,7 +1728,7 @@ window.sendClientEventCustom = (event, ...args) => {
 
     // Alt+Q — автотазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
-    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 681)) {
+    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 683)) {
         if (args[1] === 666) { // Главное меню
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
@@ -1787,6 +1881,56 @@ window.sendClientEventCustom = (event, ...args) => {
                 wantedStars = null;
             }
         }
+        // ==================== НАПАРНИК ДИАЛОГИ ====================
+        else if (args[1] === 682) { // Меню Напарник
+            const listitem = args[3];
+            if (args[2] === 1) {
+                if (listitem === 0) {
+                    // "Следить за напарником" — если уже включено, отключаем; иначе запрашиваем ID
+                    if (partnerTrackingEnabled) {
+                        partnerNick = null;
+                        partnerId = null;
+                        partnerTrackingEnabled = false;
+                        _awaitingPartnerId = false;
+                        snAdd('[1, "Напарник", "Слежка за напарником отключена", "FF0000", 2500]');
+                        console.log('[PARTNER] Слежка отключена');
+                        setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
+                    } else {
+                        setTimeout(() => showPartnerIdInputDialog(giveLicenseTo), 50);
+                    }
+                } else if (listitem === 1) {
+                    // "Сообщение для напарника" — переключатель
+                    partnerMessageEnabled = !partnerMessageEnabled;
+                    partnerMessageName = `Сообщение для напарника | ${partnerMessageEnabled ? '{00FF00}Вкл' : '{FF0000}Выкл'}`;
+                    snAdd(`[1, "Напарник", "Сообщение: ${partnerMessageEnabled ? 'Вкл' : 'Выкл'}", "${partnerMessageEnabled ? '00FF00' : 'FF0000'}", 2500]`);
+                    console.log(`[PARTNER] Сообщение для напарника: ${partnerMessageEnabled ? 'вкл' : 'выкл'}`);
+                    setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
+                }
+            } else if (args[2] === 0) {
+                // Назад — в МВД подменю
+                setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+            }
+        }
+        else if (args[1] === 683) { // Ввод ID напарника
+            const inputId = args[4];
+            if (args[2] === 1 && inputId && inputId.trim()) {
+                const rawId = inputId.trim();
+                // Сохраняем ID предварительно и запускаем /id для получения ника
+                partnerId = rawId;
+                partnerNick = null;
+                partnerTrackingEnabled = true;
+                _awaitingPartnerId = true;
+                window._pendingPartnerId = rawId;
+                sendChatInput(`/id ${rawId}`);
+                snAdd(`[1, "Напарник", "Ищу игрока ID: ${rawId}...", "FFAA00", 3000]`);
+                console.log(`[PARTNER] Установка напарника: /id ${rawId}`);
+                setTimeout(() => showPartnerMenu(giveLicenseTo), 2500);
+            } else {
+                // Отмена — возврат в меню напарника
+                setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
+            }
+        }
+        // ==================== КОНЕЦ НАПАРНИК ДИАЛОГИ ====================
     } else {
         window.sendClientEventHandle(event, ...args);
     }
@@ -1849,6 +1993,13 @@ window.sendChatInputCustom = e => {
         autoCuffEnabled = false;
         trackingName = `Отслеживание | {FF0000}Выкл`;
         autoCuffName = `Auto-cuff | {FF0000}Выкл`;
+        // Сброс напарника
+        partnerNick = null;
+        partnerId = null;
+        partnerTrackingEnabled = false;
+        partnerMessageEnabled = false;
+        _awaitingPartnerId = false;
+        partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
         sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
