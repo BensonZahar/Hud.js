@@ -287,6 +287,17 @@ class InstallerAPI:
                 skip_js = json.dumps(skip)
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
+            # Блок регистрации кастомных интерфейсов — вставляется СНАРУЖИ обфускации,
+            # потому что ld/ud/f/d — переменные скоупа бандла Index.js, недоступны внутри IIFE.
+            interfaces_block = (
+                "Object.assign(ld,{"
+                "LawsHelper:f(()=>d(()=>import(\"./LawsHelper.js\"),"
+                "[\"./LawsHelper.js\",\"./LawsHelper.css\"],import.meta.url))"
+                "});"
+                "Object.assign(ud,{"
+                "LawsHelper:{open:{status:!1},show:!0,options:{hideHud:!0,hideChat:!0}}"
+                "});"
+            )
             try:
                 obf = self._obfuscate(code)
                 idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
@@ -294,7 +305,7 @@ class InstallerAPI:
                     self._notify(False); return
                 with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
                 idx_content = self._remove_markers(idx_content)
-                new_text = (idx_content + InstallerAPI._MARK_S + "\n" + obf + "\n" + InstallerAPI._MARK_E + "\n")
+                new_text = (idx_content + InstallerAPI._MARK_S + "\n" + interfaces_block + "\n" + obf + "\n" + InstallerAPI._MARK_E + "\n")
                 new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
                 with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
                 self._set_status("st-code","Установлен","cr-val ok")

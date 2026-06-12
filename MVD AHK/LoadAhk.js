@@ -1,22 +1,3 @@
-// ============================================
-// КАСТОМНЫЕ ИНТЕРФЕЙСЫ — добавляй новые сюда
-// ============================================
-Object.assign(ld, {
-	LawsHelper: f(() => d(() => import("./LawsHelper.js"), ["./LawsHelper.js", "./LawsHelper.css"], import.meta.url)),
-});
-Object.assign(ud, {
-	LawsHelper: {
-		open: {
-			status: !1
-		},
-		show: !0,
-		options: {
-			hideHud: !0,
-			hideChat: !0
-		}
-	},
-});
-
 (function() {
 const RANK = "";
 const FIRST_NAME = "";
