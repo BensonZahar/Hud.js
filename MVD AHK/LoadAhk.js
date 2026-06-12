@@ -102,21 +102,14 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                 const orderJson = JSON.stringify(MENU_ORDER);
                 scriptText = scriptText.replace(/var MENU_ORDER = \[\];/, `var MENU_ORDER = ${orderJson};`);
             }
-            // ── Патчим wantedFine: открываем LawsHelper вместо старого диалога УК ──
-            // Патч 1: бинд-хоткей (блок с _action === 'wantedFine')
-            scriptText = scriptText.replace(
-                `} else if (_action === 'wantedFine') {\n                currentUkLines = [...ukLines]; ukPage = 0;\n                setTimeout(function(){ showUkInputDialog(giveLicenseTo || -1); }, 50);`,
-                `} else if (_action === 'wantedFine') {\n                window._duranWantedTargetId = giveLicenseTo || -1;\n                setTimeout(function(){ window.openInterface('LawsHelper'); }, 50);`
-            );
-            // Патч 2: обычный клик по пункту меню (блок option.action === "wantedFine")
-            scriptText = scriptText.replace(
-                `} else if (option.action === "wantedFine") {\n            currentUkLines = [...ukLines];\n            ukPage = 0;\n            setTimeout(() => {\n                showUkInputDialog(giveLicenseTo);\n            }, 50);`,
-                `} else if (option.action === "wantedFine") {\n            window._duranWantedTargetId = giveLicenseTo;\n            setTimeout(() => {\n                window.openInterface('LawsHelper');\n            }, 50);`
-            );
+            // ── Патчи wantedFine → LawsHelper живут в IntLoad.js ────────────────
+            // (загружается ниже после eval, через loadIntLoad)
             eval(scriptText);
             // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
+            // ── Загружаем IntLoad.js — логика кастомных интерфейсов ──
+            loadIntLoad();
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);
             if (retries > 0) {
@@ -138,6 +131,34 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     };
     xhr.send();
 }
+// ── Загрузчик IntLoad.js — логика кастомных интерфейсов ───────
+const INTLOAD_URL = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js';
+function loadIntLoad(retries) {
+    if (retries === undefined) retries = 3;
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', INTLOAD_URL + '?_=' + Date.now(), true);
+    xhr.onload = function() {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+                eval(xhr.responseText);
+                console.log('[LoadAhk] IntLoad.js загружен');
+            } catch(e) {
+                console.error('[LoadAhk] Ошибка выполнения IntLoad.js:', e);
+            }
+        } else if (retries > 0) {
+            setTimeout(function() { loadIntLoad(retries - 1); }, 2000);
+        } else {
+            console.warn('[LoadAhk] Не удалось загрузить IntLoad.js');
+        }
+    };
+    xhr.onerror = function() {
+        if (retries > 0) setTimeout(function() { loadIntLoad(retries - 1); }, 2000);
+        else console.warn('[LoadAhk] IntLoad.js: ошибка сети');
+    };
+    xhr.send();
+}
+// ── END IntLoad ───────────────────────────────────────────────
+
 // ── АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────────
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {

@@ -4,6 +4,13 @@ import webview
 
 GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
 AHK_URL    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
+CUSTOM_UI_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
+
+# Файлы кастомных интерфейсов которые нужно скопировать в assets/
+CUSTOM_UI_FILES = [
+    "LawsHelper.js",
+    "LawsHelper.css",
+]
 
 # Путь к иконке передаётся из launcher через exec namespace
 _ICON_PATH = globals().get("_ICON_PATH", "")
@@ -194,6 +201,25 @@ class InstallerAPI:
 
         return result
 
+    def _deploy_custom_ui_files(self):
+        """Скачивает файлы кастомных интерфейсов из GitHub и кладёт в assets/.
+        Вызывается при каждой установке — файлы обновляются автоматически."""
+        if not self.radmir_path:
+            return
+        assets_dir = self.radmir_path / "uiresources" / "assets"
+        if not assets_dir.exists():
+            return
+        for filename in CUSTOM_UI_FILES:
+            url = f"{CUSTOM_UI_URL}/{filename}"
+            try:
+                resp = requests.get(url, timeout=20)
+                resp.raise_for_status()
+                dest = assets_dir / filename
+                dest.write_bytes(resp.content)
+                print(f'[IntLoad] Скопирован {filename} → assets/')
+            except Exception as e:
+                print(f'[IntLoad] Не удалось скачать {filename}: {e}')
+
     def select_folder(self):
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
         if not r or not len(r):
@@ -213,6 +239,8 @@ class InstallerAPI:
             import traceback, sys
             try:
                 if not self._check_dirs(): self._notify(False); return
+                # Скачиваем/обновляем файлы кастомных интерфейсов в assets/
+                self._deploy_custom_ui_files()
                 resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
                 code = resp.text.strip()
                 if not code: self._notify(False); return
