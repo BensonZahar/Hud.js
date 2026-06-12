@@ -626,29 +626,45 @@ const setupChatHandler = () => {
             }
             // ==================== КОНЕЦ ПИКА НИКА ====================
 
-            // ==================== АВТО-СТОП: НЕВОЗМОЖНО ОПРЕДЕЛИТЬ МЕСТОПОЛОЖЕНИЕ ====================
-            if (typeof message === 'string' && currentScanId) {
-                if (message.includes('Невозможно определить местоположение игрока')) {
-                    console.log('[TRACKING] ⚠️ Невозможно определить местоположение — стоп через 2с');
-                    // Показываем уведомление с серым цветом как в чате (#CECECE)
+            // ==================== АВТО-СТОП: НЕВОЗМОЖНО ОПРЕДЕЛИТЬ / ТАКОГО ИГРОКА НЕТ ====================
+            if (typeof message === 'string' && currentScanId && !window._trackingStopPending) {
+                const isNoLocation = message.includes('Невозможно определить местоположение игрока');
+                const isNoPlayer   = message.includes('Такого игрока нет');
+
+                if (isNoLocation || isNoPlayer) {
+                    const reason = isNoPlayer
+                        ? 'Такого игрока нет'
+                        : 'Невозможно определить местоположение';
+                    console.log(`[TRACKING] ⚠️ ${reason} — стоп немедленно`);
+                    window._trackingStopPending = true;
+
+                    // Останавливаем всё сразу (интервалы, флаги) — но БЕЗ hideAll
+                    // чтобы серое уведомление успело показаться и догореть само
+                    if (scanInterval)    { clearInterval(scanInterval);    scanInterval    = null; }
+                    if (setmarkInterval) { clearInterval(setmarkInterval); setmarkInterval = null; }
+                    if (pgInterval)      { clearInterval(pgInterval);      pgInterval      = null; }
+                    trackingNotificationOpen = false;
+                    chaseNotificationOpen    = false;
+                    currentScanId            = null;
+                    trackingNickname         = null;
+                    trackingName             = `Отслеживание | {FF0000}Выкл`;
+                    isInActiveChase          = false;
+
+                    // Показываем серое уведомление (цвет как в чате #CECECE), 2.5 сек
                     try {
                         const sn = window.interface('ScreenNotification');
                         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
                         setTimeout(() => {
                             try {
                                 window.interface('ScreenNotification').add(
-                                    `[1, "Отслеживание", "Невозможно определить местоположение", "CECECE", 3000]`
+                                    `[1, "Отслеживание", "${reason}", "CECECE", 2500]`
                                 );
                             } catch(e) {}
                         }, 100);
                     } catch(e) {}
-                    // Через 2 секунды останавливаем автоотслеживание
-                    setTimeout(() => {
-                        if (currentScanId) {
-                            console.log('[TRACKING] 🛑 Авто-стоп: игрок недоступен');
-                            stopTracking();
-                        }
-                    }, 2000);
+
+                    setTimeout(() => { window._trackingStopPending = false; }, 3000);
+                    console.log(`[TRACKING] 🛑 Авто-стоп: ${reason}`);
                 }
             }
             // ==================== КОНЕЦ АВТО-СТОП ====================
