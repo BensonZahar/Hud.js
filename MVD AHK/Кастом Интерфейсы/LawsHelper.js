@@ -21,8 +21,8 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 	return (openBlock(), createElementBlock("div", _hoisted_1, [
 		createBaseVNode("div", _hoisted_2, [
 			createBaseVNode("div", _hoisted_3, [
-				_cache[1] || (_cache[1] = createBaseVNode("span", {class:"laws-helper__title-main"}, "DURAN", -1)),
-				_cache[2] || (_cache[2] = createBaseVNode("span", {class:"laws-helper__title-sub"}, "HELPER", -1)),
+				_cache[1] || (_cache[1] = createBaseVNode("span", {class:"laws-helper__title-main"}, "KONST", -1)),
+				_cache[2] || (_cache[2] = createBaseVNode("span", {class:"laws-helper__title-sub"}, "AHK MVD", -1)),
 				createBaseVNode("span", _hoisted_4, toDisplayString($data.version), 1)
 			]),
 			createBaseVNode("div", _hoisted_6, [
