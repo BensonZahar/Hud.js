@@ -1,3 +1,495 @@
+import{r as resolveComponent,o as openBlock,c as createElementBlock,b as createVNode,a as createBaseVNode,F as Fragment,h as renderList,n as normalizeClass,e as createTextVNode,t as toDisplayString,f as createCommentVNode,w as withCtx,T as Transition,_ as _export_sfc}from"./index.js";
+
+const _hoisted_1={class:"laws-helper iface-container"};
+const _hoisted_2={class:"laws-helper__header"};
+const _hoisted_3={class:"laws-helper__title"};
+const _hoisted_4={class:"laws-helper__title-version"};
+const _hoisted_5={class:"laws-helper__header-right"};
+const _hoisted_6={class:"laws-helper__tabs"};
+const _hoisted_7={class:"laws-helper__search"};
+const _hoisted_8={class:"laws-helper__body"};
+
+const SVG_SEARCH=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5.5" cy="5.5" r="4" stroke="rgba(255,255,255,0.4)" stroke-width="1.5"/><line x1="8.5" y1="8.5" x2="13" y2="13" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+const SVG_STAR=`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 3l3.09 6.26L26 10.27l-5 4.87 1.18 6.88L16 18.77l-6.18 3.25L11 15.14 6 10.27l6.91-1.01L16 3z" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/></svg>`;
+const SVG_BURGER=`<svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><rect y="0" width="14" height="1.5" rx="0.75" fill="rgba(255,255,255,0.6)"/><rect y="4.25" width="14" height="1.5" rx="0.75" fill="rgba(255,255,255,0.6)"/><rect y="8.5" width="14" height="1.5" rx="0.75" fill="rgba(255,255,255,0.6)"/></svg>`;
+const SVG_CHECK=`<svg width="10" height="8" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4l3 3 5-6" stroke="#1c1c1e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const SVG_RECEIPT=`<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="2" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/><line x1="8" y1="8" x2="20" y2="8" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/><line x1="8" y1="12" x2="20" y2="12" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/><line x1="8" y1="16" x2="16" y2="16" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/><line x1="8" y1="20" x2="14" y2="20" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/></svg>`;
+const SVG_BACK=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 2L4 7l5 5" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+// ── Данные меню /dahk ─────────────────────────────────────────────
+const DAHK_MENU_MAIN=[
+	{id:"povsednev", label:"Повседневная", icon:"👮"},
+	{id:"stroy",     label:"Строй",        icon:"🪖"},
+	{id:"tracking",  label:"Отслеживание", icon:"📡", toggle:true},
+	{id:"autocuff",  label:"Auto-cuff",    icon:"🔗", toggle:true},
+	{id:"naparnick", label:"Напарник",     icon:"🤝"},
+];
+const DAHK_POVSEDNEV=[
+	{id:"greeting",       label:"Приветствие",           icon:"👋", needsId:true},
+	{id:"checkDocuments", label:"Проверка документов",   icon:"📋"},
+	{id:"studyDocuments", label:"Изучение документов",   icon:"🔍"},
+	{id:"scanningTablet", label:"Сканирование",          icon:"📱"},
+	{id:"cuffing",        label:"Надевание наручников",  icon:"⛓️",  needsId:true},
+	{id:"putInCar",       label:"Посадка в машину",      icon:"🚗",  needsId:true},
+	{id:"arrest",         label:"Доставка в участок",    icon:"🏢",  needsId:true},
+	{id:"uncuffing",      label:"Снятие наручников",     icon:"🔓",  needsId:true},
+	{id:"chase",          label:"Преследование",         icon:"🚨",  needsId:true},
+	{id:"search",         label:"Обыск",                 icon:"🔎",  needsId:true},
+	{id:"escort",         label:"Конвоирование",         icon:"🚶",  needsId:true},
+	{id:"clearWanted",    label:"Снятие розыска",        icon:"✅",  needsId:true},
+	{id:"fine",           label:"Штраф [/ticket]",       icon:"💸",  special:"fine"},
+	{id:"wantedFine",     label:"Розыск [/su]",          icon:"⭐",  special:"wanted"},
+	{id:"confiscate",     label:"Изъятие веществ",       icon:"🧪",  needsId:true},
+	{id:"breakGlass",     label:"Разбитие стекла",       icon:"🪟",  needsId:true},
+	{id:"removeMask",     label:"Снятие маски",          icon:"😷"},
+	{id:"fingerprint",    label:"Сканирование отпечатков",icon:"🖐️"},
+	{id:"takeLicense",    label:"Изъятие прав",          icon:"🪪",  needsId:true},
+	{id:"miranda",        label:"Права Миранды",         icon:"⚖️"},
+];
+const DAHK_STROY=[
+	{id:"stroy1",   label:"Объявление о строе (Основное)", icon:"📢", needsHour:true},
+	{id:"stroy2",   label:"Объявление о строе (Повтор)",   icon:"🔁", needsHour:true},
+	{id:"lecture",  label:"Лекция",                        icon:"📖", sub:"lecture"},
+	{id:"training", label:"Тренировка",                    icon:"🏋️", sub:"training"},
+	{id:"special",  label:"Спец.Задание",                  icon:"🎯", sub:"special"},
+];
+const DAHK_LECTURE=[
+	{id:"ust1", label:"Устав",        icon:"📜"},
+	{id:"sub1", label:"Субординация", icon:"🎖️"},
+];
+const DAHK_TRAINING=[
+	{id:"trenya1", label:"Начало тренировки",      icon:"🏁"},
+	{id:"trenya2", label:"Разминка рук",            icon:"💪"},
+	{id:"trenya3", label:"Отжимания",               icon:"🤸"},
+	{id:"trenya4", label:"Бег по плацу",            icon:"🏃"},
+	{id:"trenya5", label:"Восточное единоборство",  icon:"🥋"},
+	{id:"trenya6", label:"Завершение тренировки",   icon:"🏆"},
+];
+const DAHK_SPECIAL=[
+	{id:"rp1", label:"Начало задания",    icon:"▶️"},
+	{id:"rp2", label:"Завершение задания",icon:"🏁"},
+];
+const DAHK_NAPARNICK=[
+	{id:"partner_track",   label:"Следить за напарником", icon:"👁️", toggle:true},
+	{id:"partner_message", label:"Сообщение напарнику",   icon:"📻", toggle:true},
+];
+
+function render(_ctx,_cache,$props,$setup,$data,$options){
+	const currentTabKey=$options.visibleTabs[$data.currentTab]?.key;
+	return (openBlock(), createElementBlock("div", _hoisted_1, [
+		// ─── ШАПКА ────────────────────────────────────────────────────
+		createBaseVNode("div", _hoisted_2, [
+			createBaseVNode("div", _hoisted_3, [
+				_cache[1] || (_cache[1] = createBaseVNode("span", {class:"laws-helper__title-main"}, "DURAN", -1)),
+				_cache[2] || (_cache[2] = createBaseVNode("span", {class:"laws-helper__title-sub"}, "HELPER", -1)),
+				createBaseVNode("span", _hoisted_4, toDisplayString($data.version), 1)
+			]),
+			createBaseVNode("div", _hoisted_6, [
+				(openBlock(true), createElementBlock(Fragment, null, renderList($options.visibleTabs, (tab, i) => (
+					openBlock(), createElementBlock("div", {
+						class: normalizeClass(["laws-helper__tab", {"laws-helper__tab_active": i===$data.currentTab}]),
+						key: tab.key,
+						onClick: $event => $options.selectTab(i)
+					}, toDisplayString(tab.title), 11, ["onClick"])
+				)), 128))
+			]),
+			createBaseVNode("div", _hoisted_5, [
+				createBaseVNode("div", {class:"laws-helper__icon-btn", innerHTML: SVG_BURGER}),
+				createBaseVNode("div", {
+					class: "laws-helper__icon-btn laws-helper__close-btn",
+					onClick: $options.close
+				}, "X", 8, ["onClick"])
+			])
+		]),
+		// ─── ПОИСК (скрыт для таба МЕНЮ) ─────────────────────────────
+		currentTabKey !== "dahk"
+			? (openBlock(), createElementBlock("div", {key:"search", ...{class:"laws-helper__search"}}, [
+				createBaseVNode("span", {class:"laws-helper__search-icon", innerHTML: SVG_SEARCH}),
+				createBaseVNode("input", {
+					type: "text",
+					placeholder: currentTabKey === "fines" ? "Поиск статьи КоАП..." : "Поиск нарушения...",
+					value: $data.search,
+					onInput: $event => { $data.search = $event.target.value }
+				}, null, 40, ["value","onInput","placeholder"])
+			]))
+			: createCommentVNode("", true),
+		// ─── ТЕЛО ─────────────────────────────────────────────────────
+		createBaseVNode("div", _hoisted_8, [
+			// ═══ ТАБ: МЕНЮ /dahk ══════════════════════════════════════
+			currentTabKey === "dahk"
+				? (openBlock(), createElementBlock("div", {key:"dahk", class:"laws-helper__dahk"}, [
+					// Хлебные крошки
+					createBaseVNode("div", {class:"lh-dahk__breadcrumb"}, [
+						$data.dahkLevel !== "main"
+							? (openBlock(), createElementBlock("div", {
+								key:"back",
+								class:"lh-dahk__back",
+								innerHTML: SVG_BACK + "<span>Назад</span>",
+								onClick: $options.dahkBack
+							}, null, 8, ["onClick"]))
+							: createCommentVNode("", true),
+						createBaseVNode("span", {class:"lh-dahk__breadcrumb-path"}, toDisplayString($options.dahkBreadcrumb), 1)
+					]),
+					// ── Уровень: MAIN ──────────────────────────────────
+					$data.dahkLevel === "main"
+						? (openBlock(), createElementBlock("div", {key:"main", class:"lh-dahk__list"}, [
+							(openBlock(true), createElementBlock(Fragment, null, renderList($options.dahkMainItems, (item) => (
+								openBlock(), createElementBlock("div", {
+									key: item.id,
+									class: normalizeClass(["lh-dahk__item", {"lh-dahk__item_toggle": item.toggle, "lh-dahk__item_on": $options.dahkToggleState(item.id)}]),
+									onClick: $event => $options.dahkMainClick(item)
+								}, [
+									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
+									item.toggle
+										? (openBlock(), createElementBlock("span", {
+											key:"badge",
+											class: normalizeClass(["lh-dahk__badge", $options.dahkToggleState(item.id) ? "lh-dahk__badge_on" : "lh-dahk__badge_off"])
+										}, toDisplayString($options.dahkToggleState(item.id) ? "ВКЛ" : "ВЫКЛ"), 2))
+										: (openBlock(), createElementBlock("span", {key:"arr", class:"lh-dahk__arrow"}, "›"))
+								], 10, ["onClick"])
+							)), 128))
+						]))
+						: createCommentVNode("", true),
+					// ── Уровень: POVSEDNEV ─────────────────────────────
+					$data.dahkLevel === "povsednev"
+						? (openBlock(), createElementBlock("div", {key:"pov", class:"lh-dahk__list"}, [
+							(openBlock(true), createElementBlock(Fragment, null, renderList(DAHK_POVSEDNEV, (item) => (
+								openBlock(), createElementBlock("div", {
+									key: item.id,
+									class: "lh-dahk__item",
+									onClick: $event => $options.dahkActionClick(item)
+								}, [
+									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
+									createBaseVNode("span", {class:"lh-dahk__arrow"}, "›")
+								], 8, ["onClick"])
+							)), 128))
+						]))
+						: createCommentVNode("", true),
+					// ── Уровень: STROY ─────────────────────────────────
+					$data.dahkLevel === "stroy"
+						? (openBlock(), createElementBlock("div", {key:"stroy", class:"lh-dahk__list"}, [
+							(openBlock(true), createElementBlock(Fragment, null, renderList(DAHK_STROY, (item) => (
+								openBlock(), createElementBlock("div", {
+									key: item.id,
+									class: "lh-dahk__item",
+									onClick: $event => $options.dahkStroyClick(item)
+								}, [
+									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
+									createBaseVNode("span", {class:"lh-dahk__arrow"}, "›")
+								], 8, ["onClick"])
+							)), 128))
+						]))
+						: createCommentVNode("", true),
+					// ── Уровень: LECTURE / TRAINING / SPECIAL ──────────
+					($data.dahkLevel === "lecture" || $data.dahkLevel === "training" || $data.dahkLevel === "special")
+						? (openBlock(), createElementBlock("div", {key:"sub", class:"lh-dahk__list"}, [
+							(openBlock(true), createElementBlock(Fragment, null, renderList($options.dahkSubItems, (item) => (
+								openBlock(), createElementBlock("div", {
+									key: item.id,
+									class: "lh-dahk__item",
+									onClick: $event => $options.dahkSubClick(item)
+								}, [
+									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
+									createBaseVNode("span", {class:"lh-dahk__arrow"}, "›")
+								], 8, ["onClick"])
+							)), 128))
+						]))
+						: createCommentVNode("", true),
+					// ── Уровень: NAPARNICK ─────────────────────────────
+					$data.dahkLevel === "naparnick"
+						? (openBlock(), createElementBlock("div", {key:"nap", class:"lh-dahk__list"}, [
+							// Поле ввода ID напарника
+							createBaseVNode("div", {class:"lh-dahk__input-row"}, [
+								createBaseVNode("span", {class:"lh-dahk__input-label"}, "ID НАПАРНИКА"),
+								createBaseVNode("input", {
+									class:"lh-dahk__input",
+									type:"text",
+									placeholder:"Введите ID",
+									value: $data.dahkPartnerIdInput,
+									onInput: $event => { $data.dahkPartnerIdInput = $event.target.value }
+								}, null, 40, ["value","onInput"]),
+								createBaseVNode("button", {
+									class:"lh-dahk__confirm-btn",
+									onClick: $options.dahkSetPartner
+								}, "ЗАДАТЬ", 8, ["onClick"])
+							]),
+							(openBlock(true), createElementBlock(Fragment, null, renderList(DAHK_NAPARNICK, (item) => (
+								openBlock(), createElementBlock("div", {
+									key: item.id,
+									class: normalizeClass(["lh-dahk__item lh-dahk__item_toggle", {"lh-dahk__item_on": $options.dahkToggleState(item.id)}]),
+									onClick: $event => $options.dahkNaparnickToggle(item)
+								}, [
+									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
+									createBaseVNode("span", {
+										class: normalizeClass(["lh-dahk__badge", $options.dahkToggleState(item.id) ? "lh-dahk__badge_on" : "lh-dahk__badge_off"])
+									}, toDisplayString($options.dahkToggleState(item.id) ? "ВКЛ" : "ВЫКЛ"), 2)
+								], 10, ["onClick"])
+							)), 128))
+						]))
+						: createCommentVNode("", true),
+					// ── Уровень: INPUT ID ──────────────────────────────
+					$data.dahkLevel === "inputId"
+						? (openBlock(), createElementBlock("div", {key:"inputId", class:"lh-dahk__input-screen"}, [
+							createBaseVNode("div", {class:"lh-dahk__input-screen-title"}, toDisplayString($data.dahkPendingAction?.label || "Действие"), 1),
+							createBaseVNode("div", {class:"lh-dahk__input-screen-sub"}, "Введите ID игрока"),
+							createBaseVNode("input", {
+								class:"lh-dahk__input lh-dahk__input_big",
+								type:"text",
+								placeholder:"ID игрока",
+								value: $data.dahkTargetId,
+								onInput: $event => { $data.dahkTargetId = $event.target.value },
+								onKeydown: $event => { if($event.key==="Enter") $options.dahkConfirmAction() }
+							}, null, 40, ["value","onInput","onKeydown"]),
+							createBaseVNode("div", {class:"lh-dahk__action-btns"}, [
+								createBaseVNode("button", {
+									class:"lh-dahk__btn lh-dahk__btn_cancel",
+									onClick: $options.dahkBack
+								}, "ОТМЕНА", 8, ["onClick"]),
+								createBaseVNode("button", {
+									class:"lh-dahk__btn lh-dahk__btn_confirm",
+									onClick: $options.dahkConfirmAction
+								}, "ВЫПОЛНИТЬ", 8, ["onClick"])
+							])
+						]))
+						: createCommentVNode("", true),
+					// ── Уровень: INPUT HOUR (строй) ────────────────────
+					$data.dahkLevel === "inputHour"
+						? (openBlock(), createElementBlock("div", {key:"inputHour", class:"lh-dahk__input-screen"}, [
+							createBaseVNode("div", {class:"lh-dahk__input-screen-title"}, toDisplayString($data.dahkPendingAction?.label || "Строй"), 1),
+							createBaseVNode("div", {class:"lh-dahk__input-screen-sub"}, "Время начала строя (МСК)"),
+							createBaseVNode("div", {class:"lh-dahk__time-row"}, [
+								createBaseVNode("input", {
+									class:"lh-dahk__input lh-dahk__input_time",
+									type:"text",
+									placeholder:"Час (0–23)",
+									value: $data.dahkHour,
+									onInput: $event => { $data.dahkHour = $event.target.value }
+								}, null, 40, ["value","onInput"]),
+								createBaseVNode("span", {class:"lh-dahk__time-sep"}, ":"),
+								createBaseVNode("input", {
+									class:"lh-dahk__input lh-dahk__input_time",
+									type:"text",
+									placeholder:"Мин (0–59)",
+									value: $data.dahkMinute,
+									onInput: $event => { $data.dahkMinute = $event.target.value }
+								}, null, 40, ["value","onInput"])
+							]),
+							createBaseVNode("div", {class:"lh-dahk__action-btns"}, [
+								createBaseVNode("button", {
+									class:"lh-dahk__btn lh-dahk__btn_cancel",
+									onClick: $options.dahkBack
+								}, "ОТМЕНА", 8, ["onClick"]),
+								createBaseVNode("button", {
+									class:"lh-dahk__btn lh-dahk__btn_confirm",
+									onClick: $options.dahkConfirmHour
+								}, "ВЫПОЛНИТЬ", 8, ["onClick"])
+							])
+						]))
+						: createCommentVNode("", true),
+					// ── Уровень: TRACKING INPUT ────────────────────────
+					$data.dahkLevel === "trackingInput"
+						? (openBlock(), createElementBlock("div", {key:"trackInput", class:"lh-dahk__input-screen"}, [
+							createBaseVNode("div", {class:"lh-dahk__input-screen-title"}, "ОТСЛЕЖИВАНИЕ", 1),
+							createBaseVNode("div", {class:"lh-dahk__input-screen-sub"}, "Введите ID для отслеживания"),
+							createBaseVNode("input", {
+								class:"lh-dahk__input lh-dahk__input_big",
+								type:"text",
+								placeholder:"ID игрока",
+								value: $data.dahkTrackingId,
+								onInput: $event => { $data.dahkTrackingId = $event.target.value },
+								onKeydown: $event => { if($event.key==="Enter") $options.dahkConfirmTracking() }
+							}, null, 40, ["value","onInput","onKeydown"]),
+							createBaseVNode("div", {class:"lh-dahk__action-btns"}, [
+								createBaseVNode("button", {
+									class:"lh-dahk__btn lh-dahk__btn_cancel",
+									onClick: $options.dahkBack
+								}, "ОТМЕНА", 8, ["onClick"]),
+								createBaseVNode("button", {
+									class:"lh-dahk__btn lh-dahk__btn_confirm",
+									onClick: $options.dahkConfirmTracking
+								}, "НАЧАТЬ", 8, ["onClick"])
+							])
+						]))
+						: createCommentVNode("", true)
+				]))
+			// ═══ ТАБ: РОЗЫСК ══════════════════════════════════════════
+			: currentTabKey === "wanted"
+				? (openBlock(), createElementBlock("div", {key:"wanted", class:"laws-helper__wanted-layout"}, [
+					createBaseVNode("div", {class:"laws-helper__laws-list"}, [
+						(openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredArticles, (art) => (
+							openBlock(), createElementBlock("div", {
+								key: art.id,
+								class: normalizeClass(["laws-helper__article-row", {"laws-helper__article-row_checked": $data.selectedArticles.includes(art.id)}]),
+								onClick: $event => $options.toggleArticle(art.id)
+							}, [
+								createBaseVNode("div", {class:"laws-helper__article-check"}, [
+									createBaseVNode("div", {
+										class: normalizeClass(["laws-helper__checkbox", {"laws-helper__checkbox_checked": $data.selectedArticles.includes(art.id)}])
+									}, [
+										$data.selectedArticles.includes(art.id)
+											? (openBlock(), createElementBlock("span", {key:"chk", class:"laws-helper__checkbox-svg", innerHTML: SVG_CHECK}))
+											: createCommentVNode("", true)
+									], 2)
+								]),
+								createBaseVNode("div", {class:"laws-helper__article-num"}, toDisplayString(art.num), 1),
+								createBaseVNode("div", {
+									class: normalizeClass(["laws-helper__article-type", "laws-helper__article-type_" + art.type.toLowerCase()])
+								}, toDisplayString(art.type), 2),
+								createBaseVNode("div", {class:"laws-helper__article-info"}, [
+									createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1),
+									art.note ? (openBlock(), createElementBlock("div", {key:"note", class:"laws-helper__article-note"}, "Примечание: " + toDisplayString(art.note), 1)) : createCommentVNode("", true)
+								]),
+								createBaseVNode("div", {class:"laws-helper__article-term"}, toDisplayString(art.term), 1)
+							], 10, ["onClick"])
+						)), 128))
+					]),
+					createBaseVNode("div", {class:"laws-helper__wanted-panel"}, [
+						createBaseVNode("div", {class:"laws-helper__wanted-title"}, "ВЫДАЧА РОЗЫСКА"),
+						createBaseVNode("div", {class:"laws-helper__wanted-title-line"}),
+						$data.selectedArticles.length === 0
+							? (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__wanted-empty"}, [
+								createBaseVNode("div", {class:"laws-helper__wanted-star-icon", innerHTML: SVG_STAR}),
+								createBaseVNode("div", {class:"laws-helper__wanted-empty-text"}, [
+									createBaseVNode("span", null, "Список нарушений пуст."),
+									createBaseVNode("span", null, "Кликните по статье слева,"),
+									createBaseVNode("span", null, "чтобы добавить в розыск.")
+								])
+							]))
+							: (openBlock(), createElementBlock("div", {key:"list", class:"laws-helper__wanted-selected-list"}, [
+								(openBlock(true), createElementBlock(Fragment, null, renderList($options.selectedArticleObjects, (art) => (
+									openBlock(), createElementBlock("div", {key:art.id, class:"laws-helper__wanted-sel-item"}, [
+										createBaseVNode("span", {class:"laws-helper__wanted-sel-num"}, toDisplayString(art.num), 1),
+										createBaseVNode("span", {class:"laws-helper__wanted-sel-title"}, toDisplayString(art.title), 1),
+										createBaseVNode("span", {class:"laws-helper__wanted-sel-term"}, toDisplayString(art.term), 1)
+									])
+								)), 128))
+							])),
+						createBaseVNode("div", {class:"laws-helper__wanted-stars-row"}, [
+							createBaseVNode("span", {class:"laws-helper__wanted-stars-label"}, "ЗВЕЗДЫ РОЗЫСКА:"),
+							createBaseVNode("span", {class:"laws-helper__wanted-stars-value"}, toDisplayString($options.totalTerm) + " лет", 1)
+						]),
+						createBaseVNode("div", {class:"laws-helper__wanted-id-label"}, "ID НАРУШИТЕЛЯ"),
+						createBaseVNode("input", {
+							class: "laws-helper__wanted-id-input",
+							type: "text",
+							placeholder: "Введите ID нарушителя",
+							value: $data.wantedId,
+							onInput: $event => { $data.wantedId = $event.target.value }
+						}, null, 40, ["value","onInput"]),
+						createBaseVNode("div", {class:"laws-helper__wanted-btns"}, [
+							createBaseVNode("button", {
+								class: "laws-helper__wanted-btn laws-helper__wanted-btn_clear",
+								onClick: $options.clearWanted
+							}, "ОЧИСТИТЬ", 8, ["onClick"]),
+							createBaseVNode("button", {
+								class: "laws-helper__wanted-btn laws-helper__wanted-btn_issue",
+								onClick: $options.issueWanted
+							}, "ОБЪЯВИТЬ В РОЗЫСК", 8, ["onClick"])
+						])
+					])
+				]))
+			// ═══ ТАБ: ШТРАФЫ ══════════════════════════════════════════
+			: currentTabKey === "fines"
+				? (openBlock(), createElementBlock("div", {key:"fines", class:"laws-helper__wanted-layout"}, [
+					createBaseVNode("div", {class:"laws-helper__laws-list"}, [
+						createBaseVNode("div", {class:"laws-helper__fine-filter"}, [
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn", {"laws-helper__fine-filter-btn_active": $data.fineKoapType === "all"}]),
+								onClick: $event => { $data.fineKoapType = "all"; }
+							}, "Все", 10, ["onClick"]),
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__fine-filter-btn_dps", {"laws-helper__fine-filter-btn_active": $data.fineKoapType === "ДПС"}]),
+								onClick: $event => { $data.fineKoapType = "ДПС"; }
+							}, "ДПС", 10, ["onClick"]),
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__fine-filter-btn_pps", {"laws-helper__fine-filter-btn_active": $data.fineKoapType === "ППС"}]),
+								onClick: $event => { $data.fineKoapType = "ППС"; }
+							}, "ППС", 10, ["onClick"])
+						]),
+						(openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredKoapArticles, (art) => (
+							openBlock(), createElementBlock("div", {
+								key: art.id,
+								class: normalizeClass(["laws-helper__article-row", {"laws-helper__article-row_checked": $data.selectedFineArticles.includes(art.id)}]),
+								onClick: $event => $options.toggleFineArticle(art.id)
+							}, [
+								createBaseVNode("div", {class:"laws-helper__article-check"}, [
+									createBaseVNode("div", {
+										class: normalizeClass(["laws-helper__checkbox", {"laws-helper__checkbox_checked": $data.selectedFineArticles.includes(art.id)}])
+									}, [
+										$data.selectedFineArticles.includes(art.id)
+											? (openBlock(), createElementBlock("span", {key:"chk", class:"laws-helper__checkbox-svg", innerHTML: SVG_CHECK}))
+											: createCommentVNode("", true)
+									], 2)
+								]),
+								createBaseVNode("div", {class:"laws-helper__article-num"}, toDisplayString(art.num), 1),
+								createBaseVNode("div", {
+									class: normalizeClass(["laws-helper__article-type", "laws-helper__article-type_" + art.type.toLowerCase()])
+								}, toDisplayString(art.type), 2),
+								createBaseVNode("div", {class:"laws-helper__article-info"}, [
+									createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1),
+									art.note ? (openBlock(), createElementBlock("div", {key:"note", class:"laws-helper__article-note"}, toDisplayString(art.note), 1)) : createCommentVNode("", true)
+								]),
+								createBaseVNode("div", {class:"laws-helper__article-term"}, toDisplayString(art.fine.toLocaleString("ru-RU")) + " ₽", 1)
+							], 10, ["onClick"])
+						)), 128))
+					]),
+					createBaseVNode("div", {class:"laws-helper__wanted-panel"}, [
+						createBaseVNode("div", {class:"laws-helper__wanted-title"}, "ВЫДАЧА ШТРАФА"),
+						createBaseVNode("div", {class:"laws-helper__wanted-title-line laws-helper__fine-title-line"}),
+						$data.selectedFineArticles.length === 0
+							? (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__wanted-empty"}, [
+								createBaseVNode("div", {class:"laws-helper__wanted-star-icon", innerHTML: SVG_RECEIPT}),
+								createBaseVNode("div", {class:"laws-helper__wanted-empty-text"}, [
+									createBaseVNode("span", null, "Список нарушений пуст."),
+									createBaseVNode("span", null, "Кликните по статье слева,"),
+									createBaseVNode("span", null, "чтобы добавить в штраф.")
+								])
+							]))
+							: (openBlock(), createElementBlock("div", {key:"list", class:"laws-helper__wanted-selected-list"}, [
+								(openBlock(true), createElementBlock(Fragment, null, renderList($options.selectedFineArticleObjects, (art) => (
+									openBlock(), createElementBlock("div", {key:art.id, class:"laws-helper__wanted-sel-item"}, [
+										createBaseVNode("span", {class:"laws-helper__wanted-sel-num"}, toDisplayString(art.num), 1),
+										createBaseVNode("span", {class:"laws-helper__wanted-sel-title"}, toDisplayString(art.title), 1),
+										createBaseVNode("span", {class:"laws-helper__fine-sel-amount"}, toDisplayString(art.fine.toLocaleString("ru-RU")) + " ₽", 1)
+									])
+								)), 128))
+							])),
+						createBaseVNode("div", {class:"laws-helper__wanted-stars-row"}, [
+							createBaseVNode("span", {class:"laws-helper__wanted-stars-label"}, "СУММА ШТРАФА:"),
+							createBaseVNode("span", {class:"laws-helper__fine-total"}, toDisplayString($options.totalFine.toLocaleString("ru-RU")) + " ₽", 1)
+						]),
+						createBaseVNode("div", {class:"laws-helper__wanted-id-label"}, "ID НАРУШИТЕЛЯ"),
+						createBaseVNode("input", {
+							class: "laws-helper__wanted-id-input",
+							type: "text",
+							placeholder: "Введите ID нарушителя",
+							value: $data.fineId,
+							onInput: $event => { $data.fineId = $event.target.value }
+						}, null, 40, ["value","onInput"]),
+						createBaseVNode("div", {class:"laws-helper__wanted-btns"}, [
+							createBaseVNode("button", {
+								class: "laws-helper__wanted-btn laws-helper__wanted-btn_clear",
+								onClick: $options.clearFine
+							}, "ОЧИСТИТЬ", 8, ["onClick"]),
+							createBaseVNode("button", {
+								class: "laws-helper__wanted-btn laws-helper__fine-btn_issue",
+								onClick: $options.issueFine
+							}, "ВЫДАТЬ ШТРАФ", 8, ["onClick"])
+						])
+					])
+				]))
+			// ═══ ОСТАЛЬНЫЕ ТАБЫ ═══════════════════════════════════════
+			: (openBlock(), createElementBlock("div", {key:"other", class:"laws-helper__content"}, [
+				createBaseVNode("div", {innerHTML: $options.currentContent})
+			]))
+		])
+	]));
+}
 // ══════════════════════════════════════════════════════════════════
 //  КоАП статьи — ШТРАФЫ (ДПС + ППС)
 // ══════════════════════════════════════════════════════════════════
