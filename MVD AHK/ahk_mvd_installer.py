@@ -2,15 +2,10 @@ import os, random, string, threading, tempfile, requests, json
 from pathlib import Path
 import webview
 
-GITHUB_RAW = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
-AHK_URL    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
+GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
+AHK_URL       = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
+INTLOAD_URL   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
 CUSTOM_UI_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
-
-# Файлы кастомных интерфейсов которые нужно скопировать в assets/
-CUSTOM_UI_FILES = [
-    "LawsHelper.js",
-    "LawsHelper.css",
-]
 
 # Путь к иконке передаётся из launcher через exec namespace
 _ICON_PATH = globals().get("_ICON_PATH", "")
@@ -201,24 +196,70 @@ class InstallerAPI:
 
         return result
 
-    def _deploy_custom_ui_files(self):
+    @staticmethod
+    def _fetch_custom_interfaces() -> list:
+        """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
+        Возвращает список словарей: [{name, files, hideHud, hideChat}, ...]
+        При ошибке возвращает пустой список."""
+        import re
+        try:
+            text = requests.get(INTLOAD_URL, timeout=15).text
+            m = re.search(
+                r'window\._duranCustomInterfaces\s*=\s*(\[.*?\]);',
+                text, re.DOTALL
+            )
+            if not m:
+                print('[Installer] _duranCustomInterfaces не найден в IntLoad.js')
+                return []
+            import json as _json
+            return _json.loads(m.group(1))
+        except Exception as e:
+            print(f'[Installer] Не удалось загрузить IntLoad.js: {e}')
+            return []
+
+    @staticmethod
+    def _build_interfaces_block(ifaces: list) -> str:
+        """Генерирует Object.assign(ld,...) / Object.assign(ud,...) из реестра."""
+        if not ifaces:
+            return ""
+        ld_parts, ud_parts = [], []
+        for iface in ifaces:
+            name      = iface["name"]
+            files     = iface["files"]
+            js_file   = next((f for f in files if f.endswith(".js")), files[0])
+            files_js  = "[" + ",".join(f'"{f}"' for f in files) + "]"
+            hide_hud  = "!0" if iface.get("hideHud")  else "!1"
+            hide_chat = "!0" if iface.get("hideChat") else "!1"
+            ld_parts.append(
+                f'{name}:f(()=>d(()=>import("./{js_file}"),{files_js},import.meta.url))'
+            )
+            ud_parts.append(
+                f'{name}:{{open:{{status:!1}},show:!0,options:{{hideHud:{hide_hud},hideChat:{hide_chat}}}}}'
+            )
+        return (
+            f'Object.assign(ld,{{{",".join(ld_parts)}}});'
+            f'Object.assign(ud,{{{",".join(ud_parts)}}});'
+        )
+
+    def _deploy_custom_ui_files(self, ifaces: list):
         """Скачивает файлы кастомных интерфейсов из GitHub и кладёт в assets/.
-        Вызывается при каждой установке — файлы обновляются автоматически."""
+        Список файлов берётся из реестра IntLoad.js — менять .py не нужно."""
         if not self.radmir_path:
             return
         assets_dir = self.radmir_path / "uiresources" / "assets"
         if not assets_dir.exists():
             return
-        for filename in CUSTOM_UI_FILES:
+        all_files = [f for iface in ifaces for f in iface.get("files", [])]
+        for filename in all_files:
             url = f"{CUSTOM_UI_URL}/{filename}"
             try:
                 resp = requests.get(url, timeout=20)
                 resp.raise_for_status()
                 dest = assets_dir / filename
                 dest.write_bytes(resp.content)
-                print(f'[IntLoad] Скопирован {filename} → assets/')
+                print(f'[Installer] Скопирован {filename} → assets/')
             except Exception as e:
-                print(f'[IntLoad] Не удалось скачать {filename}: {e}')
+                print(f'[Installer] Не удалось скачать {filename}: {e}')
 
     def select_folder(self):
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
@@ -239,8 +280,10 @@ class InstallerAPI:
             import traceback, sys
             try:
                 if not self._check_dirs(): self._notify(False); return
+                # Читаем реестр интерфейсов из IntLoad.js на GitHub
+                ifaces = self._fetch_custom_interfaces()
                 # Скачиваем/обновляем файлы кастомных интерфейсов в assets/
-                self._deploy_custom_ui_files()
+                self._deploy_custom_ui_files(ifaces)
                 resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
                 code = resp.text.strip()
                 if not code: self._notify(False); return
@@ -317,15 +360,8 @@ class InstallerAPI:
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
             # Блок регистрации кастомных интерфейсов — вставляется СНАРУЖИ обфускации,
             # потому что ld/ud/f/d — переменные скоупа бандла Index.js, недоступны внутри IIFE.
-            interfaces_block = (
-                "Object.assign(ld,{"
-                "LawsHelper:f(()=>d(()=>import(\"./LawsHelper.js\"),"
-                "[\"./LawsHelper.js\",\"./LawsHelper.css\"],import.meta.url))"
-                "});"
-                "Object.assign(ud,{"
-                "LawsHelper:{open:{status:!1},show:!0,options:{hideHud:!0,hideChat:!0}}"
-                "});"
-            )
+            # Генерируется динамически из window._duranCustomInterfaces в IntLoad.js.
+            interfaces_block = self._build_interfaces_block(ifaces)
             try:
                 obf = self._obfuscate(code)
                 idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
