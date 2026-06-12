@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.33 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AHK v2.3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1658,6 +1658,17 @@ window.sendChatInputCustom = e => {
         }
     } else if (args[0] == "/console") {
         try {
+            if (window.App) {
+                if (!window.App.isDevelopment) {
+                    window.App.isDevelopment = true;
+                    if (window.App.engine != "legacy" && typeof engine !== "undefined") {
+                        engine.trigger("ActivateDevelopmentMode");
+                    }
+                }
+                if (typeof window.App.setConsoleActive === "function") {
+                    window.App.setConsoleActive(true);
+                }
+            }
             const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
             if (consoleRef && typeof consoleRef.toggle === 'function') {
                 consoleRef.toggle();
