@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v233. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -360,6 +360,14 @@ let ukPage = 0;
 let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
+// Публичный API для LawsHelper — устанавливает причину и активирует авто-розыск
+window._mvdSetLastWantedCode = function(code) {
+    lastWantedCode = code;
+    _autoWantedActive = true;
+    // Страховочный сброс — если сервер не открыл диалог за 5 секунд
+    setTimeout(function() { _autoWantedActive = false; }, 5000);
+    console.log('[AUTO-РОЗЫСК] lastWantedCode="' + code + '", _autoWantedActive=true (через LawsHelper)');
+};
 // ==================== НАПАРНИК ====================
 let partnerNick = null;            // Ник напарника (из ответа /id)
 let partnerId = null;              // ID напарника
