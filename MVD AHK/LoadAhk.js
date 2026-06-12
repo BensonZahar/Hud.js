@@ -102,21 +102,31 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                 const orderJson = JSON.stringify(MENU_ORDER);
                 scriptText = scriptText.replace(/var MENU_ORDER = \[\];/, `var MENU_ORDER = ${orderJson};`);
             }
-            // ── Патчим wantedFine: открываем LawsHelper вместо диалога 681 ──────
-            // Делаем это ПОСЛЕ eval — mvdN определяет window.showUkInputDialog
-            // в конце своего кода (строка ~1729), перезаписываем его сразу.
+            // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
+            // Делаем это ПОСЛЕ eval — mvdN определяет эти функции в window,
+            // перезаписываем их сразу после eval.
             eval(scriptText);
-            // ── Перехват window.showUkInputDialog ─────────────────────────────
-            // mvdN выставляет эту функцию в window и вызывает её при wantedFine.
-            // Перезаписываем сразу после eval — до того как игрок успеет кликнуть.
+            // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
+            // Вызывается mvdN при action === 'wantedFine'.
+            // Открываем LawsHelper в режиме 'wanted' — только таб РОЗЫСК.
             var _origShowUk = window.showUkInputDialog;
             window.showUkInputDialog = function(targetId) {
                 window._duranWantedTargetId = (targetId !== undefined) ? targetId : -1;
+                window._duranOpenMode = 'wanted';
                 window.openInterface('LawsHelper');
             };
-            // Оригинал сохранён в window на случай если LawsHelper захочет восстановить
             window._origShowUkInputDialog = _origShowUk;
-            // ── END перехват ──────────────────────────────────────────────────
+            // ── Перехват window.showKoapTypeMenu (ШТРАФ) ─────────────────────
+            // Вызывается mvdN при action === 'fine'.
+            // Открываем LawsHelper в режиме 'fine' — только таб ШТРАФЫ.
+            var _origShowKoap = window.showKoapTypeMenu;
+            window.showKoapTypeMenu = function(targetId) {
+                window._duranFineTargetId = (targetId !== undefined) ? targetId : -1;
+                window._duranOpenMode = 'fine';
+                window.openInterface('LawsHelper');
+            };
+            window._origShowKoapTypeMenu = _origShowKoap;
+            // ── END перехваты ─────────────────────────────────────────────────
             // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
