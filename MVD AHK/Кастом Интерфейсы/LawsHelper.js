@@ -14,9 +14,10 @@ const SVG_SEARCH=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xm
 const SVG_STAR=`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 3l3.09 6.26L26 10.27l-5 4.87 1.18 6.88L16 18.77l-6.18 3.25L11 15.14 6 10.27l6.91-1.01L16 3z" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/></svg>`;
 const SVG_BURGER=`<svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><rect y="0" width="14" height="1.5" rx="0.75" fill="rgba(255,255,255,0.6)"/><rect y="4.25" width="14" height="1.5" rx="0.75" fill="rgba(255,255,255,0.6)"/><rect y="8.5" width="14" height="1.5" rx="0.75" fill="rgba(255,255,255,0.6)"/></svg>`;
 const SVG_CHECK=`<svg width="10" height="8" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4l3 3 5-6" stroke="#1c1c1e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const SVG_RECEIPT=`<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="2" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/><line x1="8" y1="8" x2="20" y2="8" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/><line x1="8" y1="12" x2="20" y2="12" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/><line x1="8" y1="16" x2="16" y2="16" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/><line x1="8" y1="20" x2="14" y2="20" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/></svg>`;
 
 function render(_ctx,_cache,$props,$setup,$data,$options){
-	const currentTabKey=$data.tabs[$data.currentTab]?.key;
+	const currentTabKey=$options.visibleTabs[$data.currentTab]?.key;
 	return (openBlock(), createElementBlock("div", _hoisted_1, [
 		createBaseVNode("div", _hoisted_2, [
 			createBaseVNode("div", _hoisted_3, [
@@ -25,7 +26,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 				createBaseVNode("span", _hoisted_4, toDisplayString($data.version), 1)
 			]),
 			createBaseVNode("div", _hoisted_6, [
-				(openBlock(true), createElementBlock(Fragment, null, renderList($data.tabs, (tab, i) => (
+				(openBlock(true), createElementBlock(Fragment, null, renderList($options.visibleTabs, (tab, i) => (
 					openBlock(), createElementBlock("div", {
 						class: normalizeClass(["laws-helper__tab", {"laws-helper__tab_active": i===$data.currentTab}]),
 						key: tab.key,
@@ -45,12 +46,13 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 			createBaseVNode("span", {class:"laws-helper__search-icon", innerHTML: SVG_SEARCH}),
 			createBaseVNode("input", {
 				type: "text",
-				placeholder: "Поиск нарушения...",
+				placeholder: currentTabKey === "fines" ? "Поиск статьи КоАП..." : "Поиск нарушения...",
 				value: $data.search,
 				onInput: $event => { $data.search = $event.target.value }
-			}, null, 40, ["value","onInput"])
+			}, null, 40, ["value","onInput","placeholder"])
 		]),
 		createBaseVNode("div", _hoisted_8, [
+			// ─── ТАБ: РОЗЫСК ──────────────────────────────────────────────
 			currentTabKey === "wanted"
 				? (openBlock(), createElementBlock("div", {key:"wanted", class:"laws-helper__wanted-layout"}, [
 					createBaseVNode("div", {class:"laws-helper__laws-list"}, [
@@ -126,13 +128,179 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 						])
 					])
 				]))
-				: (openBlock(), createElementBlock("div", {key:"other", class:"laws-helper__content"}, [
-					createBaseVNode("div", {innerHTML: $options.currentContent})
+			// ─── ТАБ: ШТРАФЫ ──────────────────────────────────────────────
+			: currentTabKey === "fines"
+				? (openBlock(), createElementBlock("div", {key:"fines", class:"laws-helper__wanted-layout"}, [
+					// Левая колонка — список КоАП статей
+					createBaseVNode("div", {class:"laws-helper__laws-list"}, [
+						// Фильтр по типу КоАП
+						createBaseVNode("div", {class:"laws-helper__fine-filter"}, [
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn", {"laws-helper__fine-filter-btn_active": $data.fineKoapType === "all"}]),
+								onClick: $event => { $data.fineKoapType = "all"; }
+							}, "Все", 10, ["onClick"]),
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__fine-filter-btn_dps", {"laws-helper__fine-filter-btn_active": $data.fineKoapType === "ДПС"}]),
+								onClick: $event => { $data.fineKoapType = "ДПС"; }
+							}, "ДПС", 10, ["onClick"]),
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__fine-filter-btn_pps", {"laws-helper__fine-filter-btn_active": $data.fineKoapType === "ППС"}]),
+								onClick: $event => { $data.fineKoapType = "ППС"; }
+							}, "ППС", 10, ["onClick"])
+						]),
+						// Список статей КоАП
+						(openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredKoapArticles, (art) => (
+							openBlock(), createElementBlock("div", {
+								key: art.id,
+								class: normalizeClass(["laws-helper__article-row", {"laws-helper__article-row_checked": $data.selectedFineArticles.includes(art.id)}]),
+								onClick: $event => $options.toggleFineArticle(art.id)
+							}, [
+								createBaseVNode("div", {class:"laws-helper__article-check"}, [
+									createBaseVNode("div", {
+										class: normalizeClass(["laws-helper__checkbox", {"laws-helper__checkbox_checked": $data.selectedFineArticles.includes(art.id)}])
+									}, [
+										$data.selectedFineArticles.includes(art.id)
+											? (openBlock(), createElementBlock("span", {key:"chk", class:"laws-helper__checkbox-svg", innerHTML: SVG_CHECK}))
+											: createCommentVNode("", true)
+									], 2)
+								]),
+								createBaseVNode("div", {class:"laws-helper__article-num"}, toDisplayString(art.num), 1),
+								createBaseVNode("div", {
+									class: normalizeClass(["laws-helper__article-type", "laws-helper__article-type_" + art.type.toLowerCase()])
+								}, toDisplayString(art.type), 2),
+								createBaseVNode("div", {class:"laws-helper__article-info"}, [
+									createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1),
+									art.note ? (openBlock(), createElementBlock("div", {key:"note", class:"laws-helper__article-note"}, toDisplayString(art.note), 1)) : createCommentVNode("", true)
+								]),
+								createBaseVNode("div", {class:"laws-helper__article-term"}, toDisplayString(art.fine.toLocaleString("ru-RU")) + " ₽", 1)
+							], 10, ["onClick"])
+						)), 128))
+					]),
+					// Правая колонка — панель штрафа
+					createBaseVNode("div", {class:"laws-helper__wanted-panel"}, [
+						createBaseVNode("div", {class:"laws-helper__wanted-title"}, "ВЫДАЧА ШТРАФА"),
+						createBaseVNode("div", {class:"laws-helper__wanted-title-line laws-helper__fine-title-line"}),
+						$data.selectedFineArticles.length === 0
+							? (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__wanted-empty"}, [
+								createBaseVNode("div", {class:"laws-helper__wanted-star-icon", innerHTML: SVG_RECEIPT}),
+								createBaseVNode("div", {class:"laws-helper__wanted-empty-text"}, [
+									createBaseVNode("span", null, "Список нарушений пуст."),
+									createBaseVNode("span", null, "Кликните по статье слева,"),
+									createBaseVNode("span", null, "чтобы добавить в штраф.")
+								])
+							]))
+							: (openBlock(), createElementBlock("div", {key:"list", class:"laws-helper__wanted-selected-list"}, [
+								(openBlock(true), createElementBlock(Fragment, null, renderList($options.selectedFineArticleObjects, (art) => (
+									openBlock(), createElementBlock("div", {key:art.id, class:"laws-helper__wanted-sel-item"}, [
+										createBaseVNode("span", {class:"laws-helper__wanted-sel-num"}, toDisplayString(art.num), 1),
+										createBaseVNode("span", {class:"laws-helper__wanted-sel-title"}, toDisplayString(art.title), 1),
+										createBaseVNode("span", {class:"laws-helper__fine-sel-amount"}, toDisplayString(art.fine.toLocaleString("ru-RU")) + " ₽", 1)
+									])
+								)), 128))
+							])),
+						createBaseVNode("div", {class:"laws-helper__wanted-stars-row"}, [
+							createBaseVNode("span", {class:"laws-helper__wanted-stars-label"}, "СУММА ШТРАФА:"),
+							createBaseVNode("span", {class:"laws-helper__fine-total"}, toDisplayString($options.totalFine.toLocaleString("ru-RU")) + " ₽", 1)
+						]),
+						createBaseVNode("div", {class:"laws-helper__wanted-id-label"}, "ID НАРУШИТЕЛЯ"),
+						createBaseVNode("input", {
+							class: "laws-helper__wanted-id-input",
+							type: "text",
+							placeholder: "Введите ID нарушителя",
+							value: $data.fineId,
+							onInput: $event => { $data.fineId = $event.target.value }
+						}, null, 40, ["value","onInput"]),
+						createBaseVNode("div", {class:"laws-helper__wanted-btns"}, [
+							createBaseVNode("button", {
+								class: "laws-helper__wanted-btn laws-helper__wanted-btn_clear",
+								onClick: $options.clearFine
+							}, "ОЧИСТИТЬ", 8, ["onClick"]),
+							createBaseVNode("button", {
+								class: "laws-helper__wanted-btn laws-helper__fine-btn_issue",
+								onClick: $options.issueFine
+							}, "ВЫДАТЬ ШТРАФ", 8, ["onClick"])
+						])
+					])
 				]))
+			// ─── ОСТАЛЬНЫЕ ТАБЫ (ЗАКОНЫ, БИНДЕР) ─────────────────────────
+			: (openBlock(), createElementBlock("div", {key:"other", class:"laws-helper__content"}, [
+				createBaseVNode("div", {innerHTML: $options.currentContent})
+			]))
 		])
 	]));
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  КоАП статьи — ШТРАФЫ (ДПС + ППС)
+// ══════════════════════════════════════════════════════════════════
+const KOAP_ARTICLES=[
+	// ── ДПС ──────────────────────────────────────────────────────
+	{id:"dps-1.1",    num:"1.1",    type:"ДПС", title:"Управление т/с без регистрационного знака",                        note:"Искл: разрешено без номеров если пробег не превысил 100 км",  fine:5000},
+	{id:"dps-2.1",    num:"2.1",    type:"ДПС", title:"Управление т/с с неисправным двигателем (дымление)",               note:"",                                                              fine:10000},
+	{id:"dps-3.1",    num:"3.1",    type:"ДПС", title:"Управление т/с в алкогольном/наркотическом опьянении",             note:"+ изъятие водительского удостоверения",                         fine:20000},
+	{id:"dps-3.2",    num:"3.2",    type:"ДПС", title:"Разговор по телефону во время движения",                            note:"",                                                              fine:5500},
+	{id:"dps-3.3",    num:"3.3",    type:"ДПС", title:"Нарушение правил пользования звуковыми сигналами",                 note:"использование не по назначению, троллинг",                      fine:6500},
+	{id:"dps-3.4",    num:"3.4",    type:"ДПС", title:"Движение с выключенными габаритными огнями (21:00–06:00)",         note:"",                                                              fine:5000},
+	{id:"dps-3.5",    num:"3.5",    type:"ДПС", title:"Нарушение ПДД пешеходом",                                          note:"Искл: сотрудник ПО при исполнении",                             fine:5000},
+	{id:"dps-3.6",    num:"3.6",    type:"ДПС", title:"Управление т/с с тонировкой стекол ниже 50%",                     note:"Искл: ФСБ при исполнении",                                     fine:15000},
+	{id:"dps-3.7",    num:"3.7",    type:"ДПС", title:"Движение без пристегнутого ремня или надетого шлема",              note:"",                                                              fine:5000},
+	{id:"dps-3.8",    num:"3.8",    type:"ДПС", title:"Намеренное создание дорожных заторов, помех",                      note:"",                                                              fine:10000},
+	{id:"dps-4.1",    num:"4.1",    type:"ДПС", title:"Пересечение ж/д пути вне переезда или при закрытом шлагбауме",    note:"+ лишение водительского удостоверения",                         fine:25000},
+	{id:"dps-5.1",    num:"5.1",    type:"ДПС", title:"Разворот или движение задним ходом по автомагистрали",             note:"",                                                              fine:15000},
+	{id:"dps-6.1",    num:"6.1",    type:"ДПС", title:"Проезд на красный сигнал светофора",                               note:"",                                                              fine:10000},
+	{id:"dps-6.1.1",  num:"6.1.1",  type:"ДПС", title:"Проезд на жёлтый сигнал светофора",                               note:"",                                                              fine:5000},
+	{id:"dps-6.1.2",  num:"6.1.2",  type:"ДПС", title:"Проезд на запрещающий сигнал + ДТП",                              note:"+ лишение ВУ",                                                 fine:20000},
+	{id:"dps-7.1",    num:"7.1",    type:"ДПС", title:"Разворот/движение задним ходом в запрещённых местах",              note:"пешеходный переход, мост, ж/д переезд",                        fine:15000},
+	{id:"dps-7.2",    num:"7.2",    type:"ДПС", title:"Агрессивное вождение (таран, подрезы, выезды на встречную)",       note:"+ изъятие лицензии на вождение",                               fine:20000},
+	{id:"dps-7.3",    num:"7.3",    type:"ДПС", title:"Невыполнение требования уступить дорогу с преимуществом",          note:"",                                                              fine:10000},
+	{id:"dps-8.1",    num:"8.1",    type:"ДПС", title:"Остановка/стоянка/парковка в неположенном месте",                  note:"+ эвакуация; с аварийкой можно стоять до 5 мин",               fine:8000},
+	{id:"dps-8.2",    num:"8.2",    type:"ДПС", title:"Движение т/с по велосипедным/пешеходным дорожкам, газонам",       note:"",                                                              fine:6500},
+	{id:"dps-8.3",    num:"8.3",    type:"ДПС", title:"Движение т/с по встречной полосе",                                 note:"+ изъятие лицензии на вождение",                               fine:10000},
+	{id:"dps-8.3.1",  num:"8.3.1",  type:"ДПС", title:"Движение по встречной полосе + ДТП",                              note:"+ изъятие лицензии",                                           fine:20000},
+	{id:"dps-9.1",    num:"9.1",    type:"ДПС", title:"Разворот/поворот через сплошную линию разметки",                   note:"",                                                              fine:12000},
+	{id:"dps-9.2",    num:"9.2",    type:"ДПС", title:"Разворот/поворот через двойную сплошную",                          note:"",                                                              fine:15000},
+	{id:"dps-9.3",    num:"9.3",    type:"ДПС", title:"Пересечение двойной сплошной линии",                               note:"",                                                              fine:13000},
+	{id:"dps-9.4",    num:"9.4",    type:"ДПС", title:"Пересечение сплошной линии разметки",                              note:"при ДТП — также изымается лицензия",                           fine:15000},
+	{id:"dps-10.1",   num:"10.1",   type:"ДПС", title:"Непредоставление преимущества маршрутному транспорту",             note:"",                                                              fine:5000},
+	{id:"dps-10.2",   num:"10.2",   type:"ДПС", title:"Непредоставление преимущества спец. службам с маячком/сиреной",   note:"+ изъятие лицензии",                                           fine:15000},
+	{id:"dps-10.3",   num:"10.3",   type:"ДПС", title:"Непредоставление преимущества колонне гос. служб",                note:"+ изъятие лицензии",                                           fine:20000},
+	{id:"dps-10.4",   num:"10.4",   type:"ДПС", title:"Невыполнение требования уступить дорогу пешеходам/велосипедистам",note:"",                                                              fine:10000},
+	{id:"dps-11.1",   num:"11.1",   type:"ДПС", title:"Виновник ДТП без вреда здоровью",                                  note:"",                                                              fine:10000},
+	{id:"dps-11.1.1", num:"11.1.1", type:"ДПС", title:"Виновник ДТП с тяжким вредом здоровью/смертью",                  note:"+ изъятие лицензии на оружие",                                 fine:25000},
+	{id:"dps-11.2",   num:"11.2",   type:"ДПС", title:"Оставление места ДТП",                                             note:"",                                                              fine:15000},
+	{id:"dps-11.3",   num:"11.3",   type:"ДПС", title:"Создание аварийных ситуаций, провокация на ДТП, автоподставы",    note:"+ изъятие водительского удостоверения",                         fine:20000},
+	{id:"dps-12.1",   num:"12.1",   type:"ДПС", title:"Превышение скорости более чем на 30 км/ч (80–90 км/ч)",           note:"",                                                              fine:5000},
+	{id:"dps-12.2",   num:"12.2",   type:"ДПС", title:"Превышение скорости более чем на 50 км/ч (90–120 км/ч)",          note:"",                                                              fine:7000},
+	{id:"dps-12.3",   num:"12.3",   type:"ДПС", title:"Превышение на 30+ км/ч + ДТП",                                    note:"также изымается лицензия",                                     fine:15000},
+	{id:"dps-12.4",   num:"12.4",   type:"ДПС", title:"Превышение на 50+ км/ч + ДТП",                                    note:"+ изъятие водительского удостоверения + лицензия",             fine:25000},
+	{id:"dps-13.1",   num:"13.1",   type:"ДПС", title:"Оскорбление гражданского лица / сотрудника гос. структур",        note:"",                                                              fine:10000},
+	{id:"dps-13.1.1", num:"13.1.1", type:"ДПС", title:"Не грубое оскорбление сотрудника правоохранительных органов",     note:"",                                                              fine:10000},
+	{id:"dps-13.2",   num:"13.2",   type:"ДПС", title:"Мелкое хулиганство",                                               note:"нецензурная брань, громкие крики в общественных местах",       fine:8000},
+	{id:"dps-13.3",   num:"13.3",   type:"ДПС", title:"Курение в общественных местах",                                    note:"",                                                              fine:5000},
+	{id:"dps-13.4",   num:"13.4",   type:"ДПС", title:"Распитие спиртных напитков в общественных местах",                note:"",                                                              fine:7000},
+	{id:"dps-13.5",   num:"13.5",   type:"ДПС", title:"Громкая музыка в жилых зонах в ночное время (23:00–06:00)",       note:"",                                                              fine:4000},
+	{id:"dps-13.6",   num:"13.6",   type:"ДПС", title:"Ношение отмычек или спец. приспособлений для проникновения",      note:"",                                                              fine:15000},
+	// ── ППС ──────────────────────────────────────────────────────
+	{id:"pps-20.1",   num:"20.1",   type:"ППС", title:"Оскорбление — унижение чести и достоинства",                       note:"",                                                              fine:5000},
+	{id:"pps-20.2",   num:"20.2",   type:"ППС", title:"Дискриминация по полу, расе, национальности и т.д.",               note:"",                                                              fine:5000},
+	{id:"pps-20.3",   num:"20.3",   type:"ППС", title:"Нанесение побоев или иных насильственных действий",                note:"или административный арест",                                   fine:30000},
+	{id:"pps-20.4",   num:"20.4",   type:"ППС", title:"Занятие народной медициной без разрешения",                        note:"",                                                              fine:4000},
+	{id:"pps-20.5",   num:"20.5",   type:"ППС", title:"Потребление наркотических средств без назначения врача",           note:"или административный арест",                                   fine:10000},
+	{id:"pps-20.6",   num:"20.6",   type:"ППС", title:"Занятие проституцией",                                             note:"",                                                              fine:3000},
+	{id:"pps-20.7",   num:"20.7",   type:"ППС", title:"Курение в общественных местах",                                    note:"",                                                              fine:3000},
+	{id:"pps-20.8",   num:"20.8",   type:"ППС", title:"Распитие спиртных напитков в общественных местах",                note:"",                                                              fine:5000},
+	{id:"pps-20.9",   num:"20.9",   type:"ППС", title:"Мелкое хулиганство",                                               note:"или административный арест",                                   fine:2000},
+	{id:"pps-30.1",   num:"30.1",   type:"ППС", title:"Нарушение порядка проведения собрания/митинга/шествия",            note:"",                                                              fine:20000},
+	{id:"pps-30.2",   num:"30.2",   type:"ППС", title:"Нарушение правил перевозки и транспортирования оружия",            note:"",                                                              fine:2000},
+	{id:"pps-30.3",   num:"30.3",   type:"ППС", title:"Появление в общественном месте в состоянии опьянения",             note:"",                                                              fine:3000},
+	{id:"pps-30.4",   num:"30.4",   type:"ППС", title:"Организация/участие в блокировании транспортных коммуникаций",     note:"",                                                              fine:100000},
+	{id:"pps-40.1",   num:"40.1",   type:"ППС", title:"Подкуп избирателей",                                               note:"+ арест до 15 суток",                                         fine:120000},
+	{id:"pps-40.2",   num:"40.2",   type:"ППС", title:"Агитация в день тишины",                                           note:"+ арест до 15 суток",                                         fine:200000},
+];
+
+// ══════════════════════════════════════════════════════════════════
+//  УК РФ статьи — РОЗЫСК (без изменений)
+// ══════════════════════════════════════════════════════════════════
 const UK_ARTICLES=[
 	{id:"1.1",    num:"1.1",    type:"УК", title:"Нападение на гражданское лицо без использования оружия",                          note:"", term:2},
 	{id:"1.1.1",  num:"1.1.1",  type:"УК", title:"Побои",                                                                             note:"", term:1},
@@ -199,25 +367,39 @@ const _sfc_main={
 	name:"LawsHelper",
 	data(){
 		return{
-			version:"V4.0.0",
+			version:"V4.1.0",
 			search:"",
-			currentTab:2,
+			// ── режим открытия: 'wanted' | 'fine' | null (все табы) ──
+			mode:null,
+			// currentTab = индекс в visibleTabs (не в полном tabs)
+			currentTab:2, // дефолт: индекс 2 = РОЗЫСК в полном списке
+			// ── РОЗЫСК ───────────────────────────────────────────────
 			wantedId:"",
 			selectedArticles:[],
+			// ── ШТРАФЫ ───────────────────────────────────────────────
+			fineId:"",
+			fineKoapType:"all", // 'all' | 'ДПС' | 'ППС'
+			selectedFineArticles:[],
 			tabs:[
-				{key:"laws",title:"ЗАКОНЫ"},
-				{key:"fines",title:"ШТРАФЫ"},
-				{key:"wanted",title:"РОЗЫСК"},
-				{key:"binder",title:"БИНДЕР"}
+				{key:"laws",   title:"ЗАКОНЫ"},
+				{key:"fines",  title:"ШТРАФЫ"},
+				{key:"wanted", title:"РОЗЫСК"},
+				{key:"binder", title:"БИНДЕР"}
 			],
 			content:{
 				laws:`<b>[ЕУСС] Единый устав Силовых Структур</b><br><br>Тестовый раздел "Законы". Здесь будет содержимое УК, КоАП и других нормативных актов.`,
-				fines:`<div class="laws-helper__placeholder">Раздел "Штрафы" — в разработке</div>`,
 				binder:`<div class="laws-helper__placeholder">Раздел "Биндер" — в разработке</div>`
 			}
 		}
 	},
 	computed:{
+		// ── Список табов с учётом режима ─────────────────────────
+		visibleTabs(){
+			if(this.mode==="wanted")return this.tabs.filter(t=>t.key==="wanted");
+			if(this.mode==="fine")  return this.tabs.filter(t=>t.key==="fines");
+			return this.tabs;
+		},
+		// ── РОЗЫСК: фильтрация УК статей ─────────────────────────
 		filteredArticles(){
 			const q=this.search.trim().toLowerCase();
 			if(!q)return UK_ARTICLES;
@@ -233,9 +415,29 @@ const _sfc_main={
 		totalTerm(){
 			return this.selectedArticleObjects.reduce((s,a)=>s+a.term,0);
 		},
+		// ── ШТРАФЫ: фильтрация КоАП статей ───────────────────────
+		filteredKoapArticles(){
+			let arts=KOAP_ARTICLES;
+			if(this.fineKoapType!=="all")arts=arts.filter(a=>a.type===this.fineKoapType);
+			const q=this.search.trim().toLowerCase();
+			if(!q)return arts;
+			return arts.filter(a=>
+				a.num.includes(q)||
+				a.title.toLowerCase().includes(q)||
+				(a.note&&a.note.toLowerCase().includes(q))
+			);
+		},
+		selectedFineArticleObjects(){
+			return KOAP_ARTICLES.filter(a=>this.selectedFineArticles.includes(a.id));
+		},
+		totalFine(){
+			return this.selectedFineArticleObjects.reduce((s,a)=>s+a.fine,0);
+		},
 		currentContent(){
-			const key=this.tabs[this.currentTab].key;
-			return this.content[key]||"";
+			const vtabs=this.visibleTabs;
+			const tab=vtabs[this.currentTab];
+			if(!tab)return"";
+			return this.content[tab.key]||"";
 		}
 	},
 	created(){this.$data.noAdaptation=!0},
@@ -286,6 +488,8 @@ const _sfc_main={
 .laws-helper__article-type{border-radius:0.22vh;flex-shrink:0;font-size:1.11vh;font-weight:700;letter-spacing:0.04vh;margin-top:0.15vh;padding:0.19vh 0.56vh;}
 .laws-helper__article-type_ук{background:#e2554422;color:#e25544;}
 .laws-helper__article-type_коап{background:#ffc14d22;color:#ffc14d;}
+.laws-helper__article-type_дпс{background:#4caf5022;color:#4caf50;}
+.laws-helper__article-type_ппс{background:#2196f322;color:#2196f3;}
 .laws-helper__article-info{flex:1 1 auto;}
 .laws-helper__article-title{color:#ffffffdd;font-size:1.3vh;font-weight:600;line-height:1.4;}
 .laws-helper__article-note{color:#ffffff66;font-size:1.2vh;line-height:1.4;margin-top:0.28vh;}
@@ -293,6 +497,7 @@ const _sfc_main={
 .laws-helper__wanted-panel{background:#1e1e20;border-left:0.09vh solid #ffffff0a;display:flex;flex-direction:column;flex-shrink:0;padding:1.48vh 1.67vh;width:22vh;}
 .laws-helper__wanted-title{color:#ffffffcc;font-size:1.2vh;font-weight:700;letter-spacing:0.09vh;margin-bottom:0.56vh;}
 .laws-helper__wanted-title-line{background:#ffc14d;border-radius:0.19vh;height:0.19vh;margin-bottom:1.11vh;width:100%;}
+.laws-helper__fine-title-line{background:#4caf50!important;}
 .laws-helper__wanted-empty{align-items:center;display:flex;flex-direction:column;flex:1 1 auto;gap:0.74vh;justify-content:flex-start;padding-top:1.85vh;}
 .laws-helper__wanted-star-icon{align-items:center;display:flex;justify-content:center;}
 .laws-helper__wanted-star-icon svg{height:3.7vh;width:3.7vh;}
@@ -305,9 +510,11 @@ const _sfc_main={
 .laws-helper__wanted-sel-num{color:#ffc14d;font-size:1.11vh;font-weight:700;}
 .laws-helper__wanted-sel-title{color:#ffffffcc;flex:1 1 auto;font-size:1.11vh;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .laws-helper__wanted-sel-term{color:#ffffff66;font-size:1.11vh;font-weight:600;white-space:nowrap;}
+.laws-helper__fine-sel-amount{color:#4caf50;font-size:1.11vh;font-weight:600;white-space:nowrap;}
 .laws-helper__wanted-stars-row{align-items:baseline;display:flex;gap:0.56vh;justify-content:space-between;margin-top:auto;padding-top:1.11vh;}
 .laws-helper__wanted-stars-label{color:#ffffff66;font-size:1.11vh;font-weight:600;letter-spacing:0.04vh;}
 .laws-helper__wanted-stars-value{color:#ffc14d;font-size:1.67vh;font-weight:700;}
+.laws-helper__fine-total{color:#4caf50;font-size:1.48vh;font-weight:700;}
 .laws-helper__wanted-id-label{color:#ffffff55;font-size:1.11vh;font-weight:700;letter-spacing:0.07vh;margin-bottom:0.56vh;margin-top:1.11vh;}
 .laws-helper__wanted-id-input{-webkit-appearance:none;background:#2a2a2c;border:0.09vh solid #ffffff1a;border-radius:0.37vh;box-sizing:border-box;color:#fff;font-family:"Open Sans",Arial,sans-serif;font-size:1.3vh;outline:none;padding:0.74vh 0.93vh;width:100%;}
 .laws-helper__wanted-id-input::placeholder{color:#ffffff44;}
@@ -316,11 +523,37 @@ const _sfc_main={
 @media (platform:pc){.laws-helper__wanted-btn:hover{opacity:0.85;}}
 .laws-helper__wanted-btn_clear{background:#2c2c2e;color:#ffffffcc;}
 .laws-helper__wanted-btn_issue{background:#e25544;color:#fff;}
+.laws-helper__fine-btn_issue{background:#4caf50;border:none;border-radius:0.37vh;color:#fff;cursor:pointer;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.11vh;font-weight:700;letter-spacing:0.04vh;padding:0.93vh 0.37vh;transition:opacity 0.15s ease;}
+@media (platform:pc){.laws-helper__fine-btn_issue:hover{opacity:0.85;}}
+.laws-helper__fine-filter{align-items:center;background:#1a1a1c;border-bottom:0.09vh solid #ffffff0a;display:flex;flex-shrink:0;gap:0.46vh;padding:0.74vh 1.11vh;}
+.laws-helper__fine-filter-btn{background:transparent;border:0.09vh solid #ffffff22;border-radius:0.37vh;color:#ffffff66;cursor:pointer;font-size:1.2vh;font-weight:700;padding:0.37vh 0.93vh;transition:all 0.12s ease;}
+.laws-helper__fine-filter-btn_active{border-color:#ffffff44;color:#fff;}
+.laws-helper__fine-filter-btn_dps.laws-helper__fine-filter-btn_active{background:#4caf5022;border-color:#4caf5066;color:#4caf50;}
+.laws-helper__fine-filter-btn_pps.laws-helper__fine-filter-btn_active{background:#2196f322;border-color:#2196f366;color:#2196f3;}
 `;
 		document.head.appendChild(_style);
-		// Подставляем ID нарушителя переданный из mvdN (/dahk → Выдача розыска)
-		if(window._duranWantedTargetId && window._duranWantedTargetId !== -1){
-			this.wantedId = String(window._duranWantedTargetId);
+		// ── Режим открытия: 'wanted' | 'fine' | null ────────────────
+		const openMode=window._duranOpenMode||null;
+		window._duranOpenMode=null; // потребляем — не оставляем для следующего открытия
+		this.mode=openMode;
+		if(openMode==="fine"){
+			// Открыт через штраф — показываем только ШТРАФЫ, индекс 0 в visibleTabs
+			this.currentTab=0;
+			if(window._duranFineTargetId&&window._duranFineTargetId!==-1){
+				this.fineId=String(window._duranFineTargetId);
+			}
+		} else if(openMode==="wanted"){
+			// Открыт через розыск — показываем только РОЗЫСК, индекс 0 в visibleTabs
+			this.currentTab=0;
+			if(window._duranWantedTargetId&&window._duranWantedTargetId!==-1){
+				this.wantedId=String(window._duranWantedTargetId);
+			}
+		} else {
+			// Открыт без режима (все табы) — дефолт на РОЗЫСК (индекс 2)
+			this.currentTab=2;
+			if(window._duranWantedTargetId&&window._duranWantedTargetId!==-1){
+				this.wantedId=String(window._duranWantedTargetId);
+			}
 		}
 		this._prevOnKeyUp=window.onKeyUp;
 		window.onKeyUp=(e)=>{
@@ -335,6 +568,7 @@ const _sfc_main={
 	},
 	methods:{
 		selectTab(i){this.currentTab=i;this.search=""},
+		// ── РОЗЫСК ──────────────────────────────────────────────────
 		toggleArticle(id){
 			const idx=this.selectedArticles.indexOf(id);
 			if(idx===-1)this.selectedArticles.push(id);
@@ -345,15 +579,37 @@ const _sfc_main={
 			const id=this.wantedId.trim();
 			if(!id||this.selectedArticles.length===0)return;
 			const totalStars=this.totalTerm;
-			// mvdN формат: /su ID звёзды  (число = сумма лет)
-			if(typeof window.sendClientEventCustom==="function"){
-				// через mvdN — триггерим _autoWantedActive + авто-причина
-				const lastCode=this.selectedArticleObjects.map(a=>a.num+" УК").join(", ");
-				if(window._mvdSetLastWantedCode)window._mvdSetLastWantedCode(lastCode);
-			}
+			const lastCode=this.selectedArticleObjects.map(a=>a.num+" УК").join(", ");
+			if(window._mvdSetLastWantedCode)window._mvdSetLastWantedCode(lastCode);
 			const cmd=`/su ${id} ${totalStars}`;
 			if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
 			else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
+			this.close()
+		},
+		// ── ШТРАФЫ ──────────────────────────────────────────────────
+		toggleFineArticle(id){
+			const idx=this.selectedFineArticles.indexOf(id);
+			if(idx===-1)this.selectedFineArticles.push(id);
+			else this.selectedFineArticles.splice(idx,1)
+		},
+		clearFine(){
+			this.selectedFineArticles=[];
+			this.fineId="";
+			window._duranFineTargetId=null
+		},
+		issueFine(){
+			const id=this.fineId.trim();
+			if(!id||this.selectedFineArticles.length===0)return;
+			const arts=this.selectedFineArticleObjects;
+			// Отправляем отдельную команду /ticket на каждую выбранную статью
+			// с задержкой 500мс между ними чтобы сервер не потерял
+			arts.forEach((art,i)=>{
+				setTimeout(()=>{
+					const cmd=`/ticket ${id} ${art.fine} ${art.num} КоАП`;
+					if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
+					else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
+				},i*500);
+			});
 			this.close()
 		},
 		close(){window.closeInterface("LawsHelper")}
