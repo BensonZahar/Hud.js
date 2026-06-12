@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AK v2.333 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -617,8 +617,10 @@ const setupChatHandler = () => {
                     if (nick !== trackingNickname) {
                         trackingNickname = nick;
                         console.log(`[TRACKING] 👤 Ник получен: ${nick}`);
-                        // Обновляем уведомление с ником
-                        openTrackingNotification(currentScanId);
+                        // Если уведомление уже открыто без ника — обновляем
+                        if (trackingNotificationOpen || chaseNotificationOpen) {
+                            openTrackingNotification(currentScanId);
+                        }
                     }
                 }
             }
@@ -793,14 +795,14 @@ const getPaginatedKoap = () => {
 // Восстанавливает уведомление отслеживания/погони если оно активно
 const restoreTrackingNotification = () => {
     if (!currentScanId) return;
-    const label = trackingNickname ? `${trackingNickname} | ID: ${currentScanId}` : `ID: ${currentScanId}`;
+    const text = trackingNickname ? `${trackingNickname}<br>ID: ${currentScanId}` : `ID: ${currentScanId}`;
     if (chaseNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(`[1, "Начата погоня", "${label}", "0000FF", 36000000]`); } catch(e) {}
+            try { window.interface('ScreenNotification').add(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`); } catch(e) {}
         }, 150);
     } else if (trackingNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(`[1, "Идет отслеживание", "${label}", "FF0000", 36000000]`); } catch(e) {}
+            try { window.interface('ScreenNotification').add(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`); } catch(e) {}
         }, 150);
     }
 };
@@ -822,18 +824,18 @@ let currentNotificationId = 0;
 let isInActiveChase = false; // Флаг активной погони
 const openTrackingNotification = (id) => {
     currentNotificationId++;
-    const label = trackingNickname ? `${trackingNickname} | ID: ${id}` : `ID: ${id}`;
+    const text = trackingNickname ? `${trackingNickname}<br>ID: ${id}` : `ID: ${id}`;
     trackingNotificationOpen = true;
     chaseNotificationOpen = false;
-    snAdd(`[1, "Идет отслеживание", "${label}", "FF0000", 36000000]`, true);
+    snAdd(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`, true);
     console.log('[TRACKING] ScreenNotification открыт (красный)');
 };
 const openChaseNotification = (id) => {
     currentNotificationId++;
-    const label = trackingNickname ? `${trackingNickname} | ID: ${id}` : `ID: ${id}`;
+    const text = trackingNickname ? `${trackingNickname}<br>ID: ${id}` : `ID: ${id}`;
     trackingNotificationOpen = false;
     chaseNotificationOpen = true;
-    snAdd(`[1, "Начата погоня", "${label}", "0000FF", 36000000]`, true);
+    snAdd(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`, true);
     console.log('[CHASE] ScreenNotification открыт (синий)');
 };
 const closeTrackingNotifications = () => {
@@ -869,15 +871,17 @@ const startTracking = (id) => {
     trackingNickname = null;
     isInActiveChase = false; // Сброс флага погони
  
-    // Открываем красное уведомление
-    openTrackingNotification(id);
+    // Сначала отправляем /id — ждём 800мс ответа, потом открываем уведомление с ником
+    sendChatInput(`/id ${currentScanId}`);
+    setTimeout(() => {
+        openTrackingNotification(id);
+    }, 800);
  
-    // Начальные команды
+    // Начальные команды (без /id — уже отправлен выше)
     sendMessagesWithDelay([
-        `/id ${currentScanId}`,
         `/setmark ${currentScanId}`,
         `/pg ${currentScanId}`
-    ], [0, 500, 1000]);
+    ], [500, 1000]);
  
     // Интервал /pg каждые 2 секунды (только если НЕ в активной погоне)
     pgInterval = setInterval(() => {
