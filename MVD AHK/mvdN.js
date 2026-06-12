@@ -1950,6 +1950,24 @@ window.sendClientEventCustom = (event, ...args) => {
             }
         }
         // ==================== КОНЕЦ НАПАРНИК ДИАЛОГИ ====================
+    } else if (args[0] === "OnDialogResponse" && _wantedDialogId !== null && args[1] === _wantedDialogId) {
+        // ==================== /WANTED: ВЫБОР ИГРОКА → АВТО-ОТСЛЕЖИВАНИЕ ====================
+        if (args[2] === 1) {
+            const listitem = parseInt(args[3]);
+            const player = _wantedPlayers[listitem];
+            if (player) {
+                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание`);
+                _wantedDialogId = null;
+                setTimeout(() => startTracking(player.id), 100);
+            } else {
+                console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
+                _wantedDialogId = null;
+            }
+        } else {
+            _wantedDialogId = null;
+        }
+        window.sendClientEventHandle(event, ...args);
+        // ==================== КОНЕЦ /WANTED ====================
     } else {
         window.sendClientEventHandle(event, ...args);
     }
@@ -2045,6 +2063,10 @@ sendClientEvent = sendClientEventCustom;
 // Флаг: ожидаем INPUT диалог розыска после выбора "ввести вручную"
 let _awaitingRoziskInput = false;
 
+// ── /wanted список: сохраняем ID игроков при открытии диалога ──
+let _wantedDialogId = null;      // ID серверного диалога /wanted
+let _wantedPlayers = [];         // [ { nick, id }, ... ] — в порядке строк
+
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
     try {
@@ -2093,6 +2115,23 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     console.log('=== [MVD-GRAB v2.1] 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
                 }
+            }
+
+            // ── /wanted: TABLIST_HEADERS "Список разыскиваемых" — сохраняем игроков ──
+            if ((style === 4 || style === 5) && title.includes('разыскиваемых')) {
+                _wantedDialogId = dialogId;
+                _wantedPlayers = [];
+                if (content) {
+                    const raw = Array.isArray(content) ? content.join('') : String(content);
+                    // Строки разделены <n>, каждая строка: "Ник[ID]<t>Дистанция" или "Ник[ID]	Дистанция"
+                    const rows = raw.split('<n>');
+                    rows.forEach(row => {
+                        // Извлекаем Ник[ID] из строки — формат "Nick_Name[123]"
+                        const m = row.match(/([A-Za-z0-9_]+)\[(\d+)\]/);
+                        if (m) _wantedPlayers.push({ nick: m[1], id: m[2] });
+                    });
+                }
+                console.log(`[WANTED] Диалог id=${dialogId}, игроков: ${_wantedPlayers.length}`, _wantedPlayers.map(p => p.nick + '[' + p.id + ']').join(', '));
             }
 
             // ── Авто-розыск: LIST "Причина выдачи розыска" → выбрать "Ввести вручную" ──
