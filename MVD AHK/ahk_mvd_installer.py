@@ -196,39 +196,47 @@ class InstallerAPI:
 
         return result
 
+    # Фоллбэк если IntLoad.js на GitHub ещё без реестра
+    _IFACES_FALLBACK = [
+        {"name": "LawsHelper", "files": ["LawsHelper.js", "LawsHelper.css"], "hideHud": True, "hideChat": True},
+    ]
+
     @staticmethod
     def _fetch_custom_interfaces() -> list:
         """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
-        Возвращает список словарей: [{name, files, hideHud, hideChat}, ...]
-        При ошибке возвращает пустой список."""
-        import re, json as _json
+        Если реестр не найден — возвращает _IFACES_FALLBACK."""
+        import re
         try:
-            text = requests.get(INTLOAD_URL, timeout=15).text
-            # Находим позицию открывающей '[' после объявления
+            print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
+            resp = requests.get(INTLOAD_URL, timeout=15)
+            print(f'[Installer] HTTP {resp.status_code}, длина {len(resp.text)} байт')
+            text = resp.text
+
             m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
             if not m:
-                print('[Installer] _duranCustomInterfaces не найден в IntLoad.js')
-                return []
+                print('[Installer] _duranCustomInterfaces не найден — используем фоллбэк')
+                return InstallerAPI._IFACES_FALLBACK
+
             start = m.start(1)
-            # Считаем скобки чтобы найти точную закрывающую ']'
             depth, i = 0, start
             while i < len(text):
-                if text[i] == '[':
-                    depth += 1
+                if text[i] == '[':   depth += 1
                 elif text[i] == ']':
                     depth -= 1
-                    if depth == 0:
-                        break
+                    if depth == 0: break
                 i += 1
             raw = text[start:i + 1]
-            # JS true/false → Python, убираем trailing commas
-            raw = re.sub(r',\s*([}\]])', r'\1', raw)   # trailing commas
-            raw = raw.replace(':true', ':True').replace(':false', ':False') \
+            print(f'[Installer] Найден массив: {raw[:120]}')
+
+            raw = re.sub(r',\s*([}\]])', r'\1', raw)
+            raw = raw.replace(':true',  ':True') .replace(':false',  ':False') \
                      .replace(': true', ': True').replace(': false', ': False')
-            return eval(raw)  # список Python-словарей
+            result = eval(raw)
+            print(f'[Installer] Распарсено: {[r["name"] for r in result]}')
+            return result
         except Exception as e:
-            print(f'[Installer] Не удалось загрузить IntLoad.js: {e}')
-            return []
+            print(f'[Installer] Ошибка парсинга IntLoad.js: {e} — используем фоллбэк')
+            return InstallerAPI._IFACES_FALLBACK
 
     @staticmethod
     def _build_interfaces_block(ifaces: list) -> str:
