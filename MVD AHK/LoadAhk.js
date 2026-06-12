@@ -102,10 +102,21 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                 const orderJson = JSON.stringify(MENU_ORDER);
                 scriptText = scriptText.replace(/var MENU_ORDER = \[\];/, `var MENU_ORDER = ${orderJson};`);
             }
-            // ── Патч wantedFine → LawsHelper ─────────────────────────────────────
-            // Не нужен: LawsHelper.js при mounted() перезаписывает window.showUkInputDialog
-            // напрямую — mvdN вызывает его, и интерфейс открывается автоматически.
+            // ── Патчим wantedFine: открываем LawsHelper вместо диалога 681 ──────
+            // Делаем это ПОСЛЕ eval — mvdN определяет window.showUkInputDialog
+            // в конце своего кода (строка ~1729), перезаписываем его сразу.
             eval(scriptText);
+            // ── Перехват window.showUkInputDialog ─────────────────────────────
+            // mvdN выставляет эту функцию в window и вызывает её при wantedFine.
+            // Перезаписываем сразу после eval — до того как игрок успеет кликнуть.
+            var _origShowUk = window.showUkInputDialog;
+            window.showUkInputDialog = function(targetId) {
+                window._duranWantedTargetId = (targetId !== undefined) ? targetId : -1;
+                window.openInterface('LawsHelper');
+            };
+            // Оригинал сохранён в window на случай если LawsHelper захочет восстановить
+            window._origShowUkInputDialog = _origShowUk;
+            // ── END перехват ──────────────────────────────────────────────────
             // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
