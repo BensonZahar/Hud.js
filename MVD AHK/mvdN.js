@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AK v2. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2333. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -650,17 +650,14 @@ const setupChatHandler = () => {
                     trackingName             = `Отслеживание | {FF0000}Выкл`;
                     isInActiveChase          = false;
 
-                    // Показываем серое уведомление (цвет как в чате #CECECE), 2.5 сек
+                    // Показываем серое уведомление синхронно — без setTimeout,
+                    // чтобы никакой другой snAdd не успел сделать hideAll между hideAll и add
                     try {
                         const sn = window.interface('ScreenNotification');
-                        if (sn && typeof sn.hideAll === 'function') sn.hideAll();
-                        setTimeout(() => {
-                            try {
-                                window.interface('ScreenNotification').add(
-                                    `[1, "Отслеживание", "${reason}", "CECECE", 2500]`
-                                );
-                            } catch(e) {}
-                        }, 100);
+                        if (sn) {
+                            if (typeof sn.hideAll === 'function') sn.hideAll();
+                            sn.add(`[1, "Отслеживание", "${reason}", "CECECE", 2500]`);
+                        }
                     } catch(e) {}
 
                     setTimeout(() => { window._trackingStopPending = false; }, 3000);
@@ -824,6 +821,8 @@ const restoreTrackingNotification = () => {
 };
 const snAdd = (payload, skipRestore = false) => {
     try {
+        // Если показывается финальное уведомление (серое) — не трогаем его через hideAll
+        if (window._trackingStopPending) return;
         const sn = window.interface('ScreenNotification');
         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
         setTimeout(() => {
