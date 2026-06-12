@@ -607,6 +607,92 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ПОГОНИ ====================
+
+            // ==================== ПИК НИКА ИЗ /id ====================
+            // Ловим ответ сервера на /id: "Ник, ID: 43, уровень: 44, PING: 59, клиент: RADMIR (PC)"
+            if (typeof message === 'string' && currentScanId) {
+                const idInfoMatch = message.match(/^([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
+                if (idInfoMatch && idInfoMatch[2] === String(currentScanId)) {
+                    const nick = idInfoMatch[1];
+                    if (nick !== trackingNickname) {
+                        trackingNickname = nick;
+                        console.log(`[TRACKING] 👤 Ник получен: ${nick}`);
+                        // Обновляем уведомление с ником
+                        openTrackingNotification(currentScanId);
+                    }
+                }
+            }
+            // ==================== КОНЕЦ ПИКА НИКА ====================
+
+            // ==================== АВТО-СТОП: НЕВОЗМОЖНО ОПРЕДЕЛИТЬ МЕСТОПОЛОЖЕНИЕ ====================
+            if (typeof message === 'string' && currentScanId) {
+                if (message.includes('Невозможно определить местоположение игрока')) {
+                    console.log('[TRACKING] ⚠️ Невозможно определить местоположение — стоп через 2с');
+                    // Показываем уведомление с серым цветом как в чате (#CECECE)
+                    try {
+                        const sn = window.interface('ScreenNotification');
+                        if (sn && typeof sn.hideAll === 'function') sn.hideAll();
+                        setTimeout(() => {
+                            try {
+                                window.interface('ScreenNotification').add(
+                                    `[1, "Отслеживание", "Невозможно определить местоположение", "CECECE", 3000]`
+                                );
+                            } catch(e) {}
+                        }, 100);
+                    } catch(e) {}
+                    // Через 2 секунды останавливаем автоотслеживание
+                    setTimeout(() => {
+                        if (currentScanId) {
+                            console.log('[TRACKING] 🛑 Авто-стоп: игрок недоступен');
+                            stopTracking();
+                        }
+                    }, 2000);
+                }
+            }
+            // ==================== КОНЕЦ АВТО-СТОП ====================
+
+            // ==================== КД /setmark: ПОВТОР ЧЕРЕЗ N СЕКУНД ====================
+            if (typeof message === 'string' && currentScanId) {
+                // Сервер пишет на /setmark: "Система отслеживания ещё загружает актуальное местоположение подозреваемого. Подождите X сек."
+                const cdMatch = message.match(/[Пп]одождите\s+(\d+)\s*сек/);
+                if (cdMatch) {
+                    const waitSec = parseInt(cdMatch[1]);
+                    console.log(`[TRACKING] ⏳ КД /setmark: ${waitSec} сек`);
+                    // Показываем оранжевое уведомление со счётчиком
+                    try {
+                        const sn = window.interface('ScreenNotification');
+                        if (sn && typeof sn.hideAll === 'function') sn.hideAll();
+                        setTimeout(() => {
+                            try {
+                                window.interface('ScreenNotification').add(
+                                    `[1, "Отслеживание", "/setmark КД: ${waitSec} сек", "FFAA00", ${(waitSec + 1) * 1000}]`
+                                );
+                            } catch(e) {}
+                        }, 100);
+                    } catch(e) {}
+                    // Приостанавливаем setmarkInterval на время КД чтобы не спамить
+                    if (setmarkInterval) {
+                        clearInterval(setmarkInterval);
+                        setmarkInterval = null;
+                        console.log('[TRACKING] setmarkInterval приостановлен на время КД');
+                    }
+                    // Через waitSec секунд повторяем /setmark и возобновляем интервал
+                    setTimeout(() => {
+                        if (currentScanId) {
+                            console.log(`[TRACKING] 🔄 Повтор /setmark после КД (${waitSec}с)`);
+                            sendChatInput(`/setmark ${currentScanId}`);
+                            // Возобновляем интервал /setmark каждые 31с
+                            if (!setmarkInterval) {
+                                setmarkInterval = setInterval(() => {
+                                    if (currentScanId) sendChatInput(`/setmark ${currentScanId}`);
+                                }, 31000);
+                            }
+                        }
+                    }, waitSec * 1000);
+                }
+            }
+            // ==================== КОНЕЦ КД /setmark ====================
+
             // Auto-cuff logic
             if (autoCuffEnabled && typeof message === 'string') {
                 const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
@@ -707,13 +793,14 @@ const getPaginatedKoap = () => {
 // Восстанавливает уведомление отслеживания/погони если оно активно
 const restoreTrackingNotification = () => {
     if (!currentScanId) return;
+    const label = trackingNickname ? `${trackingNickname} | ID: ${currentScanId}` : `ID: ${currentScanId}`;
     if (chaseNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(`[1, "Начата погоня", "ID: ${currentScanId}", "0000FF", 36000000]`); } catch(e) {}
+            try { window.interface('ScreenNotification').add(`[1, "Начата погоня", "${label}", "0000FF", 36000000]`); } catch(e) {}
         }, 150);
     } else if (trackingNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(`[1, "Идет отслеживание", "ID: ${currentScanId}", "FF0000", 36000000]`); } catch(e) {}
+            try { window.interface('ScreenNotification').add(`[1, "Идет отслеживание", "${label}", "FF0000", 36000000]`); } catch(e) {}
         }, 150);
     }
 };
@@ -734,14 +821,16 @@ let currentNotificationId = 0;
 let isInActiveChase = false; // Флаг активной погони
 const openTrackingNotification = (id) => {
     currentNotificationId++;
-    snAdd(`[1, "Идет отслеживание", "ID: ${id}", "FF0000", 36000000]`);
+    const label = trackingNickname ? `${trackingNickname} | ID: ${id}` : `ID: ${id}`;
+    snAdd(`[1, "Идет отслеживание", "${label}", "FF0000", 36000000]`);
     trackingNotificationOpen = true;
     chaseNotificationOpen = false;
     console.log('[TRACKING] ScreenNotification открыт (красный)');
 };
 const openChaseNotification = (id) => {
     currentNotificationId++;
-    snAdd(`[1, "Начата погоня", "ID: ${id}", "0000FF", 36000000]`);
+    const label = trackingNickname ? `${trackingNickname} | ID: ${id}` : `ID: ${id}`;
+    snAdd(`[1, "Начата погоня", "${label}", "0000FF", 36000000]`);
     trackingNotificationOpen = false;
     chaseNotificationOpen = true;
     console.log('[CHASE] ScreenNotification открыт (синий)');
