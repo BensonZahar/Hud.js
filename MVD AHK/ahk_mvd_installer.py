@@ -201,18 +201,31 @@ class InstallerAPI:
         """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
         Возвращает список словарей: [{name, files, hideHud, hideChat}, ...]
         При ошибке возвращает пустой список."""
-        import re
+        import re, json as _json
         try:
             text = requests.get(INTLOAD_URL, timeout=15).text
-            m = re.search(
-                r'window\._duranCustomInterfaces\s*=\s*(\[.*?\]);',
-                text, re.DOTALL
-            )
+            # Находим позицию открывающей '[' после объявления
+            m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
             if not m:
                 print('[Installer] _duranCustomInterfaces не найден в IntLoad.js')
                 return []
-            import json as _json
-            return _json.loads(m.group(1))
+            start = m.start(1)
+            # Считаем скобки чтобы найти точную закрывающую ']'
+            depth, i = 0, start
+            while i < len(text):
+                if text[i] == '[':
+                    depth += 1
+                elif text[i] == ']':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                i += 1
+            raw = text[start:i + 1]
+            # JS true/false → Python, убираем trailing commas
+            raw = re.sub(r',\s*([}\]])', r'\1', raw)   # trailing commas
+            raw = raw.replace(':true', ':True').replace(':false', ':False') \
+                     .replace(': true', ': True').replace(': false', ': False')
+            return eval(raw)  # список Python-словарей
         except Exception as e:
             print(f'[Installer] Не удалось загрузить IntLoad.js: {e}')
             return []
