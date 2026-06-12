@@ -21,7 +21,7 @@
     //   hideHud  — скрывать ХАД при открытии
     //   hideChat — скрывать чат при открытии
     window._duranCustomInterfaces = [
-        { name: "LawsHelper", files: ["LawsHelper.js", "LawsHelper.css"], hideHud: true,  hideChat: true  },
+        { name: "LawsHelper", files: ["LawsHelper.js", "LawsHelper.css"], hideHud: false,  hideChat: false  },
     ];
 
     // ── Патч wantedFine → LawsHelper ─────────────────────────────────
