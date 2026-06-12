@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AK v2.3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -574,10 +574,8 @@ const setupChatHandler = () => {
                 const _rl     = RADIUS_LABELS[_radius] || RADIUS_LABELS[CHAT_RADIUS.UNKNOWN];
                 const _now    = new Date();
                 const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
-                const _inlineColor = getInlineColor(_msg);
-                const _colorTag = _inlineColor
-                    ? `[${_rl.label}][#${_inlineColor}]`
-                    : `[${_rl.label}|${_rl.color}]`;
+                const _actualColor = normalizeColor(_color).replace('0x', '');
+                const _colorTag = `[${_rl.label}|#${_actualColor}]`;
                 console.log(`[${_ts}]${_colorTag} ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
             // ========== КОНЕЦ ЛОГИРОВАНИЯ ==========
@@ -680,10 +678,8 @@ setupChatHandler();
                 const _rl     = RADIUS_LABELS[_radius] || RADIUS_LABELS[CHAT_RADIUS.UNKNOWN];
                 const _now    = new Date();
                 const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
-                const _inlineColor = getInlineColor(_msg);
-                const _colorTag = _inlineColor
-                    ? `[${_rl.label}][#${_inlineColor}]`
-                    : `[${_rl.label}|${_rl.color}]`;
+                const _actualColor = normalizeColor(_color).replace('0x', '');
+                const _colorTag = `[${_rl.label}|#${_actualColor}]`;
                 console.log(`[${_ts}]${_colorTag} ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
         }
