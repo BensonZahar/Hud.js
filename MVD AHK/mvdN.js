@@ -1708,7 +1708,9 @@ window.sendChatInputCustom = e => {
         }
     } else if (args[0] == "/console") {
         try {
-            if (window.App) {
+            const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
+            const willOpen = !consoleRef || !consoleRef.isOpened;
+            if (willOpen && window.App) {
                 if (!window.App.isDevelopment) {
                     window.App.isDevelopment = true;
                     if (window.App.engine != "legacy" && typeof engine !== "undefined") {
@@ -1719,7 +1721,6 @@ window.sendChatInputCustom = e => {
                     window.App.setConsoleActive(true);
                 }
             }
-            const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
             if (consoleRef && typeof consoleRef.toggle === 'function') {
                 consoleRef.toggle();
             } else {
