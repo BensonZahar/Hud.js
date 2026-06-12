@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AHK v2.3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -452,6 +452,15 @@ window.addEventListener('keydown', function(e) {
     // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
     // на основе настройки SWAP_KEY из установщика.
     // Прямые хоткеи здесь убраны — не дублируем.
+
+    // ==================== ALT — ПОКАЗАТЬ/СКРЫТЬ КУРСОР ПРИ ОТКРЫТОЙ КОНСОЛИ ====================
+    if (e.keyCode === window.KEY_CODE_ALT) {
+        const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
+        if (consoleRef && consoleRef.isOpened) {
+            window.cursorStatus = !window.cursorStatus;
+            window.setCursorStatus('Console', window.cursorStatus);
+        }
+    }
 });
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
