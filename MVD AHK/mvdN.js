@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v233.8 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v233.888 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -637,6 +637,7 @@ const setupChatHandler = () => {
                     const nick = idInfoMatch[1];
                     if (nick !== trackingNickname) {
                         trackingNickname = nick;
+                        trackingName = `Отслеживание | {00FF00}${nick}[${currentScanId}]`;
                         console.log(`[TRACKING] 👤 Ник получен: ${nick}`);
                         // Если уведомление уже открыто без ника — обновляем
                         if (trackingNotificationOpen || chaseNotificationOpen) {
@@ -674,12 +675,21 @@ const setupChatHandler = () => {
                     msgStr.includes(`{v:${partnerNick}}[${partnerId}]`) ||    // без скобок (запасной)
                     msgStr.includes(`${partnerNick}[${partnerId}]`);           // радио/другие каналы
                 if (hasPartnerTag) {
-                    const trackMatch = msgStr.match(/Отслеживаю\s+(\d+)/);
+                    const trackMatch = msgStr.match(/Отслеживаю жетон\s+(\d+)/);
                     if (trackMatch) {
                         const suspectId = trackMatch[1];
                         console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] начал отслеживание ID: ${suspectId}`);
                         snAdd(`[1, "Напарник", "${partnerNick}: отслеживает ID ${suspectId}", "00AAFF", 3000]`);
                         setTimeout(() => startTracking(suspectId), 600);
+                    }
+                    const stopMatch = msgStr.match(/Закончил отслеживание за жетоном\s+(\d+)/);
+                    if (stopMatch) {
+                        const suspectId = stopMatch[1];
+                        console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] закончил отслеживание ID: ${suspectId}`);
+                        snAdd(`[1, "Напарник", "${partnerNick}: закончил отслеживание ${suspectId}", "FF4444", 3000]`);
+                        if (currentScanId === suspectId || currentScanId === String(suspectId)) {
+                            stopTracking();
+                        }
                     }
                 }
             }
@@ -941,7 +951,7 @@ const startTracking = (id) => {
     }
  
     currentScanId = id;
-    trackingName = `Отслеживание | {00FF00}Вкл`;
+    trackingName = `Отслеживание | {00FF00}ID: ${id}`;
     trackingNickname = null;
     isInActiveChase = false; // Сброс флага погони
  
@@ -955,10 +965,13 @@ const startTracking = (id) => {
     // Если включено "Сообщение для напарника" — отправляем в радио чтобы напарник
     // получил событие и тоже начал отслеживание этого же ID
     if (partnerMessageEnabled) {
-        const badge = (typeof CALLSIGN !== 'undefined' && CALLSIGN) ? ` Ж:${CALLSIGN}` : '';
         setTimeout(() => {
-            sendChatInput(`Отслеживаю ${id}${badge}`);
-            console.log(`[PARTNER] 📡 Отправлено сообщение напарнику: Отслеживаю ${id}${badge}`);
+            if (!currentScanId) {
+                console.log(`[PARTNER] ⛔ Сообщение не отправлено — отслеживание уже остановлено`);
+                return;
+            }
+            sendChatInput(`Отслеживаю жетон ${id}`);
+            console.log(`[PARTNER] 📡 Отправлено сообщение напарнику: Отслеживаю жетон ${id}`);
         }, 1200);
     }
     // ==================== КОНЕЦ СООБЩЕНИЯ НАПАРНИКУ ====================
@@ -1001,6 +1014,14 @@ const stopTracking = () => {
  
     // Закрываем все уведомления
     closeTrackingNotifications();
+
+    // ==================== СООБЩЕНИЕ НАПАРНИКУ О КОНЦЕ ОТСЛЕЖИВАНИЯ ====================
+    if (partnerMessageEnabled && currentScanId) {
+        const stoppedId = currentScanId;
+        sendChatInput(`Закончил отслеживание за жетоном ${stoppedId}`);
+        console.log(`[PARTNER] 📡 Отправлено: Закончил отслеживание за жетоном ${stoppedId}`);
+    }
+    // ==================== КОНЕЦ СООБЩЕНИЯ О КОНЦЕ ОТСЛЕЖИВАНИЯ ====================
  
     currentScanId = null;
     trackingNickname = null;
@@ -1923,7 +1944,6 @@ window.sendClientEventCustom = (event, ...args) => {
                 sendChatInput(`/id ${rawId}`);
                 snAdd(`[1, "Напарник", "Ищу игрока ID: ${rawId}...", "FFAA00", 3000]`);
                 console.log(`[PARTNER] Установка напарника: /id ${rawId}`);
-                setTimeout(() => showPartnerMenu(giveLicenseTo), 2500);
             } else {
                 // Отмена — возврат в меню напарника
                 setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
