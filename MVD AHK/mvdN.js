@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v233.888 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v233.8 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -630,8 +630,9 @@ const setupChatHandler = () => {
 
             // ==================== ПИК НИКА ИЗ /id ====================
             // Ловим ответ сервера на /id: "Ник, ID: 43, уровень: 44, PING: 59, клиент: RADMIR (PC)"
+            // Поддержка CLEO-префикса времени: "[17:59:42:606]: Ник, ID: ..."
             if (typeof message === 'string' && currentScanId) {
-                const idInfoMatch = message.match(/^([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
+                const idInfoMatch = message.match(/(?:^\[\d{2}:\d{2}:\d{2}(?::\d+)?\]:\s*)?([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
                 if (idInfoMatch && idInfoMatch[2] === String(currentScanId)) {
                     const nick = idInfoMatch[1];
                     if (nick !== trackingNickname) {
@@ -648,7 +649,7 @@ const setupChatHandler = () => {
 
             // ==================== ПИК НИКА НАПАРНИКА ИЗ /id ====================
             if (typeof message === 'string' && _awaitingPartnerId && window._pendingPartnerId) {
-                const idPartnerMatch = message.match(/^([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
+                const idPartnerMatch = message.match(/(?:^\[\d{2}:\d{2}:\d{2}(?::\d+)?\]:\s*)?([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
                 if (idPartnerMatch && idPartnerMatch[2] === String(window._pendingPartnerId)) {
                     const nick = idPartnerMatch[1];
                     partnerNick = nick;
