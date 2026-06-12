@@ -240,25 +240,6 @@ const _sfc_main={
 	},
 	created(){this.$data.noAdaptation=!0},
 	mounted(){
-		// ── Перехватываем window.showUkInputDialog ──────────────────────────
-		// mvdN выставляет эту функцию в window и вызывает её при wantedFine.
-		// Перезаписываем её здесь — патч живёт в интерфейсе, не в LoadAhk.
-		this._prevShowUkInputDialog = window.showUkInputDialog;
-		const _self = this;
-		window.showUkInputDialog = function(targetId) {
-			window._duranWantedTargetId = targetId;
-			// Если интерфейс уже открыт — просто обновляем ID
-			if (_self.wantedId === "" && targetId && targetId !== -1) {
-				_self.wantedId = String(targetId);
-			}
-			// Открываем LawsHelper вместо старого диалога УК
-			window.openInterface("LawsHelper");
-		};
-		// ───────────────────────────────────────────────────────────────────
-		// Подставляем ID нарушителя переданный из mvdN (/dahk → Выдача розыска)
-		if(window._duranWantedTargetId && window._duranWantedTargetId !== -1){
-			this.wantedId = String(window._duranWantedTargetId);
-		}
 		const _style=document.createElement("style");
 		_style.id="laws-helper-style";
 		_style.textContent=`
@@ -337,6 +318,10 @@ const _sfc_main={
 .laws-helper__wanted-btn_issue{background:#e25544;color:#fff;}
 `;
 		document.head.appendChild(_style);
+		// Подставляем ID нарушителя переданный из mvdN (/dahk → Выдача розыска)
+		if(window._duranWantedTargetId && window._duranWantedTargetId !== -1){
+			this.wantedId = String(window._duranWantedTargetId);
+		}
 		this._prevOnKeyUp=window.onKeyUp;
 		window.onKeyUp=(e)=>{
 			if(e===window.KEY_CODE_ESC){this.close();return}
@@ -344,8 +329,6 @@ const _sfc_main={
 		}
 	},
 	unmounted(){
-		// Восстанавливаем оригинальный showUkInputDialog при закрытии
-		window.showUkInputDialog = this._prevShowUkInputDialog;
 		window.onKeyUp=this._prevOnKeyUp;
 		const s=document.getElementById("laws-helper-style");
 		if(s)s.remove()
