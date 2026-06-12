@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.2 (REOPEN-FIX)
-console.log("=== MVD AK v2. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.333 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -804,7 +804,7 @@ const restoreTrackingNotification = () => {
         }, 150);
     }
 };
-const snAdd = (payload) => {
+const snAdd = (payload, skipRestore = false) => {
     try {
         const sn = window.interface('ScreenNotification');
         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
@@ -812,7 +812,8 @@ const snAdd = (payload) => {
             try { window.interface('ScreenNotification').add(payload); } catch(e) {}
         }, 100);
         // Если активно отслеживание/погоня — восстанавливаем уведомление после показа нового
-        if (currentScanId && (trackingNotificationOpen || chaseNotificationOpen)) {
+        // skipRestore=true когда вызов идёт из самих openTracking/openChase (чтобы не затирать ник)
+        if (!skipRestore && currentScanId && (trackingNotificationOpen || chaseNotificationOpen)) {
             restoreTrackingNotification();
         }
     } catch(e) {}
@@ -822,17 +823,17 @@ let isInActiveChase = false; // Флаг активной погони
 const openTrackingNotification = (id) => {
     currentNotificationId++;
     const label = trackingNickname ? `${trackingNickname} | ID: ${id}` : `ID: ${id}`;
-    snAdd(`[1, "Идет отслеживание", "${label}", "FF0000", 36000000]`);
     trackingNotificationOpen = true;
     chaseNotificationOpen = false;
+    snAdd(`[1, "Идет отслеживание", "${label}", "FF0000", 36000000]`, true);
     console.log('[TRACKING] ScreenNotification открыт (красный)');
 };
 const openChaseNotification = (id) => {
     currentNotificationId++;
     const label = trackingNickname ? `${trackingNickname} | ID: ${id}` : `ID: ${id}`;
-    snAdd(`[1, "Начата погоня", "${label}", "0000FF", 36000000]`);
     trackingNotificationOpen = false;
     chaseNotificationOpen = true;
+    snAdd(`[1, "Начата погоня", "${label}", "0000FF", 36000000]`, true);
     console.log('[CHASE] ScreenNotification открыт (синий)');
 };
 const closeTrackingNotifications = () => {
