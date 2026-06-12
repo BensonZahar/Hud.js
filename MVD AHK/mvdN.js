@@ -543,7 +543,14 @@ const RADIUS_LABELS = {
     [CHAT_RADIUS.RADIO]:   { label: 'RADIO',  color: '#33CC66' },
     [CHAT_RADIUS.UNKNOWN]: { label: '?',      color: '#AAAAAA' },
 };
+// Извлекает первый встроенный цветовой код {RRGGBB} из текста сообщения
+function getInlineColor(text) {
+    const m = String(text).match(/\{([0-9A-Fa-f]{6})\}/);
+    return m ? m[1].toUpperCase() : null;
+}
 // ==================== END CHAT LOGGING HELPERS ====================
+
+let _mainChatHandlerReady = false;
 
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
@@ -558,8 +565,9 @@ const setupChatHandler = () => {
                 const _rl     = RADIUS_LABELS[_radius] || RADIUS_LABELS[CHAT_RADIUS.UNKNOWN];
                 const _now    = new Date();
                 const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
-                const _colorHex = _color !== undefined ? normalizeColor(_color).replace('0x','') : '??????';
-                console.log(`[${_ts}][${_rl.label}] ${_msg}`);
+                const _inlineColor = getInlineColor(_msg);
+                const _colorTag = _inlineColor ? `[${_rl.label}][${_inlineColor}]` : `[${_rl.label}]`;
+                console.log(`[${_ts}]${_colorTag} ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
             // ========== КОНЕЦ ЛОГИРОВАНИЯ ==========
             // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
@@ -634,11 +642,44 @@ const setupChatHandler = () => {
         console.log('[Auto-cuff] Обработчик чата успешно установлен');
         console.log('[CHASE] Отслеживание погони активировано');
         console.log('[FINE] Отслеживание штрафов активировано');
+        _mainChatHandlerReady = true;
     } else {
         setTimeout(setupChatHandler, 100);
     }
 };
 setupChatHandler();
+
+// ==================== РАННЕЕ ЛОГИРОВАНИЕ ВСЕХ ЧАТ-СООБЩЕНИЙ ====================
+// window.onChatMessage вызывается движком для КАЖДОГО сообщения с сервера,
+// доступен с самого старта (не зависит от монтирования Vue/Hud), поэтому
+// здесь не теряются сообщения, пришедшие до setupChatHandler.
+(() => {
+    const originalOnChatMessage = window.onChatMessage;
+    if (typeof originalOnChatMessage !== 'function') {
+        console.log('[MVD-CHAT] window.onChatMessage не найден — раннее логирование не установлено');
+        return;
+    }
+    window.onChatMessage = function(message, args) {
+        if (!_mainChatHandlerReady) {
+            try {
+                const _msg    = String(message);
+                // args приходит как массив, args[2] (после .slice(2) внутри оригинала) — цвет
+                const _color  = Array.isArray(args) ? args[2] : undefined;
+                const _radius = getChatRadius(_color);
+                const _rl     = RADIUS_LABELS[_radius] || RADIUS_LABELS[CHAT_RADIUS.UNKNOWN];
+                const _now    = new Date();
+                const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
+                const _inlineColor = getInlineColor(_msg);
+                const _colorTag = _inlineColor ? `[${_rl.label}][${_inlineColor}]` : `[${_rl.label}]`;
+                console.log(`[${_ts}]${_colorTag} ${_msg}`);
+            } catch (_e) { /* тихо игнорируем */ }
+        }
+        return originalOnChatMessage.apply(this, arguments);
+    };
+    console.log('[MVD-CHAT] Раннее логирование чата установлено (onChatMessage)');
+})();
+// ==================== КОНЕЦ РАННЕГО ЛОГИРОВАНИЯ ====================
+
 const getPaginatedMenu = (options) => {
     const start = currentPage * ITEMS_PER_PAGE;
     const end = start + ITEMS_PER_PAGE;
