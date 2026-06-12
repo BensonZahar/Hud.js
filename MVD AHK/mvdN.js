@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v23. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v233.888 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -662,24 +662,22 @@ const setupChatHandler = () => {
             // ==================== КОНЕЦ ПИКА НИКА НАПАРНИКА ====================
 
             // ==================== ОБНАРУЖЕНИЕ СООБЩЕНИЯ НАПАРНИКА ====================
-            // Формат в консоли: [SELF|#EEEEEE] - текст {0000FF}{v:NICK}[ID]: Отслеживаю X
-            // Проверяем: цвет строки = SELF (#EEEEEE) + тег напарника в тексте
+            // Реальный формат в консоли:
+            // [CLOSE|#CECECE] - Отслеживаю 395 {0000FF}({v:Calvin_Miller})[294]
+            // Сервер сам добавляет {COLOR}({v:NICK})[ID] в конец любого локального сообщения
             if (typeof message === 'string' && partnerTrackingEnabled && partnerNick && partnerId) {
                 const msgStr = String(message);
-                const msgRadius = getChatRadius(args[0]);
-                const isSelfMsg = msgRadius === CHAT_RADIUS.SELF;
-                // Полный формат: {0000FF}{v:NICK}[ID] — как видно в консоли
+                // Формат имени со скобками: ({v:NICK})[ID]
                 const hasPartnerTag =
-                    msgStr.includes(`{0000FF}{v:${partnerNick}}[${partnerId}]`) || // точный МВД формат
-                    msgStr.includes(`{v:${partnerNick}}[${partnerId}]`) ||           // любой цвет префикс
-                    msgStr.includes(`${partnerNick}[${partnerId}]`);                 // запасной (радио)
-                if (isSelfMsg && hasPartnerTag) {
+                    msgStr.includes(`({v:${partnerNick}})[${partnerId}]`) || // основной формат
+                    msgStr.includes(`{v:${partnerNick}}[${partnerId}]`) ||    // без скобок (запасной)
+                    msgStr.includes(`${partnerNick}[${partnerId}]`);           // радио/другие каналы
+                if (hasPartnerTag) {
                     const trackMatch = msgStr.match(/Отслеживаю\s+(\d+)/);
                     if (trackMatch) {
                         const suspectId = trackMatch[1];
                         console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] начал отслеживание ID: ${suspectId}`);
                         snAdd(`[1, "Напарник", "${partnerNick}: отслеживает ID ${suspectId}", "00AAFF", 3000]`);
-                        // Запускаем отслеживание через 600мс (после уведомления)
                         setTimeout(() => startTracking(suspectId), 600);
                     }
                 }
