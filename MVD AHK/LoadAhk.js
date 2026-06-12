@@ -1,3 +1,22 @@
+// ============================================
+// КАСТОМНЫЕ ИНТЕРФЕЙСЫ — добавляй новые сюда
+// ============================================
+Object.assign(ld, {
+	LawsHelper: f(() => d(() => import("./LawsHelper.js"), ["./LawsHelper.js", "./LawsHelper.css"], import.meta.url)),
+});
+Object.assign(ud, {
+	LawsHelper: {
+		open: {
+			status: !1
+		},
+		show: !0,
+		options: {
+			hideHud: !0,
+			hideChat: !0
+		}
+	},
+});
+
 (function() {
 const RANK = "";
 const FIRST_NAME = "";
@@ -102,6 +121,17 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                 const orderJson = JSON.stringify(MENU_ORDER);
                 scriptText = scriptText.replace(/var MENU_ORDER = \[\];/, `var MENU_ORDER = ${orderJson};`);
             }
+            // ── Патчим wantedFine: открываем LawsHelper вместо старого диалога УК ──
+            // Патч 1: бинд-хоткей (блок с _action === 'wantedFine')
+            scriptText = scriptText.replace(
+                `} else if (_action === 'wantedFine') {\n                currentUkLines = [...ukLines]; ukPage = 0;\n                setTimeout(function(){ showUkInputDialog(giveLicenseTo || -1); }, 50);`,
+                `} else if (_action === 'wantedFine') {\n                window._duranWantedTargetId = giveLicenseTo || -1;\n                setTimeout(function(){ window.openInterface('LawsHelper'); }, 50);`
+            );
+            // Патч 2: обычный клик по пункту меню (блок option.action === "wantedFine")
+            scriptText = scriptText.replace(
+                `} else if (option.action === "wantedFine") {\n            currentUkLines = [...ukLines];\n            ukPage = 0;\n            setTimeout(() => {\n                showUkInputDialog(giveLicenseTo);\n            }, 50);`,
+                `} else if (option.action === "wantedFine") {\n            window._duranWantedTargetId = giveLicenseTo;\n            setTimeout(() => {\n                window.openInterface('LawsHelper');\n            }, 50);`
+            );
             eval(scriptText);
             // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
