@@ -559,12 +559,7 @@ const setupChatHandler = () => {
                 const _now    = new Date();
                 const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
                 const _colorHex = _color !== undefined ? normalizeColor(_color).replace('0x','') : '??????';
-                console.log(
-                    `%c[${_ts}][MVD-CHAT][${_rl.label}]%c #${_colorHex}%c ${_msg}`,
-                    'color:#88CCFF;font-weight:bold',
-                    `color:#${_colorHex}`,
-                    'color:inherit'
-                );
+                console.log(`[${_ts}][${_rl.label}] ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
             // ========== КОНЕЦ ЛОГИРОВАНИЯ ==========
             // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
@@ -1660,6 +1655,17 @@ window.sendChatInputCustom = e => {
         } else {
             // Ошибка: скин не подходит
             snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
+        }
+    } else if (args[0] == "/console") {
+        try {
+            const consoleRef = window.interface && window.interface('Console');
+            if (consoleRef && typeof consoleRef.toggle === 'function') {
+                consoleRef.toggle();
+            } else {
+                console.log('[CONSOLE] Интерфейс Console не найден');
+            }
+        } catch (e) {
+            console.log('[CONSOLE] Ошибка переключения консоли:', e.message);
         }
     } else if (args[0] == "/mvdreset") {
         lastMenuType = null;
