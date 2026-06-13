@@ -730,6 +730,16 @@ const stopTracking = () => {
 const toggleAutoCuff = () => {
     autoCuffEnabled = !autoCuffEnabled;
 };
+const togglePartnerTracking = () => {
+    partnerTrackingEnabled = !partnerTrackingEnabled;
+    console.log(`[PARTNER] partnerTrackingEnabled = ${partnerTrackingEnabled}`);
+};
+const togglePartnerMessage = () => {
+    partnerMessageEnabled = !partnerMessageEnabled;
+    console.log(`[PARTNER] partnerMessageEnabled = ${partnerMessageEnabled}`);
+};
+window.togglePartnerTracking = togglePartnerTracking;
+window.togglePartnerMessage  = togglePartnerMessage;
 const toggleAutoGrab = () => {
     autoGrabEnabled = !autoGrabEnabled;
     try {
