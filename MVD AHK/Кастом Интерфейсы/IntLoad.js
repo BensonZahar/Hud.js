@@ -14,59 +14,63 @@
     // и автоматически генерирует Object.assign(ld,...) / Object.assign(ud,...)
     // в Index.js. Чтобы добавить новый интерфейс — добавь сюда запись,
     // переустанови через установщик. Менять .py не нужно.
-    //
-    // Поля:
-    //   name     — имя интерфейса (openInterface / closeInterface)
-    //   files    — файлы которые копируются в assets/ (первый .js — точка входа)
-    //   hideHud  — скрывать ХАД при открытии
-    //   hideChat — скрывать чат при открытии
     window._duranCustomInterfaces = [
-        { name: "LawsHelper", files: ["LawsHelper.js", "LawsHelper.css"], hideHud: false,  hideChat: false  },
+        { name: "LawsHelper", files: ["LawsHelper.js", "LawsHelper.css"], hideHud: false, hideChat: false },
     ];
 
-    // ── Патч wantedFine → LawsHelper ─────────────────────────────────
-    // mvdN.js уже выполнен. Патчим через monkey-patch window-функций,
-    // которые mvdN выставляет наружу.
-    //
-    // mvdN регистрирует обработчик биндов через window._mvdBindHandler,
-    // а клик по пункту меню — через window._mvdMenuAction.
-    // Перехватываем оба.
-
+    // ── Патч wantedFine → LawsHelper (таб РОЗЫСК) ────────────────────
     function patchWantedFine() {
-        // ── Патч 1: бинд-хоткей ─────────────────────────────────────
-        // LoadAhk передаёт scriptText в IntLoad через window._intLoadPatchFn
-        // ПЕРЕД eval(mvdN) — поэтому текстовые замены уже сделаны.
-        // Этот патч — страховка на случай если текстовый патч не сработал
-        // (например mvdN обновился и изменился текст).
-
         var _origBindHandler = window._mvdBindAction;
         if (typeof _origBindHandler === 'function') {
             window._mvdBindAction = function(action, targetId) {
                 if (action === 'wantedFine') {
                     window._duranWantedTargetId = targetId || -1;
+                    window._duranOpenMode = "wanted";
+                    setTimeout(function() { window.openInterface('LawsHelper'); }, 50);
+                    return;
+                }
+                if (action === 'fine') {
+                    window._duranFineTargetId = targetId || -1;
+                    window._duranOpenMode = "fine";
+                    setTimeout(function() { window.openInterface('LawsHelper'); }, 50);
+                    return;
+                }
+                if (action === 'dahk') {
+                    window._duranOpenMode = null;
                     setTimeout(function() { window.openInterface('LawsHelper'); }, 50);
                     return;
                 }
                 return _origBindHandler.apply(this, arguments);
             };
-            console.log('[IntLoad] Патч wantedFine (bind) установлен');
+            console.log('[IntLoad] Патч bind (wantedFine / fine / dahk) установлен');
         }
 
-        // ── Патч 2: клик по пункту меню ─────────────────────────────
         var _origMenuAction = window._mvdMenuAction;
         if (typeof _origMenuAction === 'function') {
             window._mvdMenuAction = function(option, targetId) {
-                if (option && option.action === 'wantedFine') {
+                if (!option) return _origMenuAction.apply(this, arguments);
+                if (option.action === 'wantedFine') {
                     window._duranWantedTargetId = targetId;
+                    window._duranOpenMode = "wanted";
+                    setTimeout(function() { window.openInterface('LawsHelper'); }, 50);
+                    return;
+                }
+                if (option.action === 'fine') {
+                    window._duranFineTargetId = targetId;
+                    window._duranOpenMode = "fine";
+                    setTimeout(function() { window.openInterface('LawsHelper'); }, 50);
+                    return;
+                }
+                if (option.action === 'dahk') {
+                    window._duranOpenMode = null;
                     setTimeout(function() { window.openInterface('LawsHelper'); }, 50);
                     return;
                 }
                 return _origMenuAction.apply(this, arguments);
             };
-            console.log('[IntLoad] Патч wantedFine (menu) установлен');
+            console.log('[IntLoad] Патч menu (wantedFine / fine / dahk) установлен');
         }
 
-        // Если mvdN ещё не выставил хуки — ставим флаг, mvdN проверит его
         window._intLoadWantedFineReady = true;
     }
 
