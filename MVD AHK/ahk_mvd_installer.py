@@ -196,26 +196,23 @@ class InstallerAPI:
 
         return result
 
-    # Фоллбэк если IntLoad.js на GitHub ещё без реестра
-    _IFACES_FALLBACK = [
-        {"name": "LawsHelper", "files": ["LawsHelper.js", "LawsHelper.css"], "hideHud": True, "hideChat": True},
-    ]
-
     @staticmethod
     def _fetch_custom_interfaces() -> list:
         """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
-        Если реестр не найден — возвращает _IFACES_FALLBACK."""
+        Единственный источник реестра — добавлять новые интерфейсы только в IntLoad.js.
+        Возвращает [] если GitHub недоступен или реестр не найден."""
         import re
         try:
             print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
             resp = requests.get(INTLOAD_URL, timeout=15)
+            resp.raise_for_status()
             print(f'[Installer] HTTP {resp.status_code}, длина {len(resp.text)} байт')
             text = resp.text
 
             m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
             if not m:
-                print('[Installer] _duranCustomInterfaces не найден — используем фоллбэк')
-                return InstallerAPI._IFACES_FALLBACK
+                print('[Installer] _duranCustomInterfaces не найден в IntLoad.js')
+                return []
 
             start = m.start(1)
             depth, i = 0, start
@@ -232,11 +229,11 @@ class InstallerAPI:
             raw = raw.replace(':true',  ':True') .replace(':false',  ':False') \
                      .replace(': true', ': True').replace(': false', ': False')
             result = eval(raw)
-            print(f'[Installer] Распарсено: {[r["name"] for r in result]}')
+            print(f'[Installer] Распарсено интерфейсов: {[r["name"] for r in result]}')
             return result
         except Exception as e:
-            print(f'[Installer] Ошибка парсинга IntLoad.js: {e} — используем фоллбэк')
-            return InstallerAPI._IFACES_FALLBACK
+            print(f'[Installer] Не удалось загрузить IntLoad.js: {e}')
+            return []
 
     @staticmethod
     def _build_interfaces_block(ifaces: list) -> str:
