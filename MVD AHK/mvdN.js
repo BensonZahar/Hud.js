@@ -730,7 +730,7 @@ const setupChatHandler = () => {
                     // Показываем серое уведомление синхронно — без setTimeout,
                     // чтобы никакой другой snAdd не успел сделать hideAll между hideAll и add
                     try {
-                        const sn = window.interface('NotificationMVD');
+                        const sn = window.interface('ScreenNotification');
                         if (sn) {
                             if (typeof sn.hideAll === 'function') sn.hideAll();
                             sn.add(`[1, "Отслеживание", "${reason}", "CECECE", 2500]`);
@@ -752,11 +752,11 @@ const setupChatHandler = () => {
                     console.log(`[TRACKING] ⏳ КД /setmark: ${waitSec} сек`);
                     // Показываем оранжевое уведомление со счётчиком
                     try {
-                        const sn = window.interface('NotificationMVD');
+                        const sn = window.interface('ScreenNotification');
                         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
                         setTimeout(() => {
                             try {
-                                window.interface('NotificationMVD').add(
+                                window.interface('ScreenNotification').add(
                                     `[1, "Отслеживание", "/setmark КД: ${waitSec} сек", "FFAA00", ${(waitSec + 1) * 1000}]`
                                 );
                             } catch(e) {}
@@ -888,39 +888,22 @@ const restoreTrackingNotification = () => {
     const text = trackingNickname ? `${trackingNickname}<br>ID: ${currentScanId}` : `ID: ${currentScanId}`;
     if (chaseNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('NotificationMVD').add(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`); } catch(e) {}
+            try { window.interface('ScreenNotification').add(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`); } catch(e) {}
         }, 150);
     } else if (trackingNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('NotificationMVD').add(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`); } catch(e) {}
+            try { window.interface('ScreenNotification').add(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`); } catch(e) {}
         }, 150);
     }
 };
-const snAdd = (payload, skipRestore = false, _retries = 0) => {
+const snAdd = (payload, skipRestore = false) => {
     try {
         // Если показывается финальное уведомление (серое) — не трогаем его через hideAll
         if (window._trackingStopPending) return;
-
-        // FIX: проверяем что NotificationMVD уже загружен (не Vue-$refs false, а наш объект)
-        const sn = window.interface('NotificationMVD');
-        const snReady = sn && typeof sn.add === 'function';
-
-        if (!snReady) {
-            // NotificationMVD ещё не инициализирован — повторяем до 10 раз каждые 200мс
-            if (_retries < 10) {
-                setTimeout(() => snAdd(payload, skipRestore, _retries + 1), 200);
-            } else {
-                console.warn('[snAdd] NotificationMVD не готов после 10 попыток, payload:', payload);
-            }
-            return;
-        }
-
-        if (typeof sn.hideAll === 'function') sn.hideAll();
+        const sn = window.interface('ScreenNotification');
+        if (sn && typeof sn.hideAll === 'function') sn.hideAll();
         setTimeout(() => {
-            try {
-                const sn2 = window.interface('NotificationMVD');
-                if (sn2 && typeof sn2.add === 'function') sn2.add(payload);
-            } catch(e) {}
+            try { window.interface('ScreenNotification').add(payload); } catch(e) {}
         }, 100);
         // Если активно отслеживание/погоня — восстанавливаем уведомление после показа нового
         // skipRestore=true когда вызов идёт из самих openTracking/openChase (чтобы не затирать ник)
@@ -949,7 +932,7 @@ const openChaseNotification = (id) => {
 };
 const closeTrackingNotifications = () => {
     try {
-        const screenNotif = window.interface('NotificationMVD');
+        const screenNotif = window.interface('ScreenNotification');
         if (screenNotif && typeof screenNotif.hideAll === 'function') {
             screenNotif.hideAll();
             trackingNotificationOpen = false;
