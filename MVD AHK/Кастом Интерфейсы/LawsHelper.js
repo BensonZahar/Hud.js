@@ -886,6 +886,18 @@ const _sfc_main={
 		} else {
 			// Открыт без режима — дефолт на МЕНЮ
 			this.currentTab=0;
+			// Если IntLoad задал начальный уровень (showPovsednevMenuPage / showStroyMenuPage)
+			const initLevel=window._duranInitLevel||null;
+			window._duranInitLevel=null;
+			if(initLevel==="povsednev"||initLevel==="stroy"){
+				this.dahkLevel=initLevel;
+			}
+			// Предзаполняем targetId если пришёл из mvdN
+			const tId=window._duranTargetId;
+			window._duranTargetId=null;
+			if(tId!=null&&tId!==-1&&tId!==""){
+				this.dahkTargetId=String(tId);
+			}
 		}
 		this._prevOnKeyUp=window.onKeyUp;
 		window.onKeyUp=(e)=>{
