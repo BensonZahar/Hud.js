@@ -612,9 +612,9 @@ const _sfc_main={
 			});
 			this.close()
 		},
-		close(){window.closeInterface("LawsHelper")}
+		close(){window.closeInterface("Zkm")}
 	}
 };
 
-const LawsHelper=_export_sfc(_sfc_main,[["render",render]]);
-export{LawsHelper as default};
+const Zkm=_export_sfc(_sfc_main,[["render",render]]);
+export{Zkm as default};
