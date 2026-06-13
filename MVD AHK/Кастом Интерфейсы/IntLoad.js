@@ -12,8 +12,7 @@
     // ══════════════════════════════════════════════════════════════════
 
     window._duranCustomInterfaces = [
-        { name: "Zkm",              files: ["zkm.js", "zkm.css"],                           hideHud: false, hideChat: false },
-        { name: "NotificationMVD",  files: ["NotificationMVD.js", "NotificationMVD.css"],   hideHud: false, hideChat: false },
+        { name: "Zkm", files: ["zkm.js", "zkm.css"], hideHud: false, hideChat: false },
     ];
 
     console.log('[IntLoad] Загружен');
