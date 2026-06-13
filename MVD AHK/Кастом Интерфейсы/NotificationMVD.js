@@ -21,6 +21,18 @@
 (function () {
 
     // ─────────────────────────────────────────────
+    //  FIX: Авто-инжект CSS (если загрузчик не подключил файл)
+    // ─────────────────────────────────────────────
+    (function injectCSS() {
+        if (document.getElementById('mvd-notif-css')) return;
+        const link = document.createElement('link');
+        link.id   = 'mvd-notif-css';
+        link.rel  = 'stylesheet';
+        link.href = './NotificationMVD.css';
+        (document.head || document.documentElement).appendChild(link);
+    })();
+
+    // ─────────────────────────────────────────────
     //  Хелперы
     // ─────────────────────────────────────────────
 
@@ -166,6 +178,11 @@
     const POSITIONS = { 0: 'top', 1: 'left', 2: 'bottom' };
 
     function ensureDOM() {
+        // FIX: проверяем что document.body уже существует
+        if (!document.body) {
+            document.addEventListener('DOMContentLoaded', ensureDOM);
+            return;
+        }
         if (_root && document.body.contains(_root)) return;
 
         _root = document.createElement('div');
@@ -185,7 +202,7 @@
     //  Очередь / состояние
     // ─────────────────────────────────────────────
     let _lastId = 0;
-    /** Map<id, { el, timers: [] }> */
+    /** Map<id, { card, timers: [] }> */
     const _active = new Map();
 
     // ─────────────────────────────────────────────
@@ -203,12 +220,19 @@
 
             ensureDOM();
 
+            // FIX: если body ещё не готов — ensureDOM подписался на DOMContentLoaded,
+            // откладываем add до следующего тика
+            if (!_root) {
+                setTimeout(() => add(payload), 50);
+                return;
+            }
+
             const slotName = POSITIONS[pos] || 'top';
             const slot = _slots[slotName];
 
-            const accent = resolveAccent(colorRaw);
-            const icon   = getIcon(accent);
-            const badge  = getBadge(title, accent);
+            const accent   = resolveAccent(colorRaw);
+            const icon     = getIcon(accent);
+            const badge    = getBadge(title, accent);
             const bodyHtml = colorizeText(text);
 
             // Создаём элемент
