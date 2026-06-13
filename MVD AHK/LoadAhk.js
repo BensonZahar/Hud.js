@@ -107,8 +107,6 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             // перезаписываем их сразу после eval.
             eval(scriptText);
             // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
-            // Вызывается mvdN при action === 'wantedFine'.
-            // Открываем LawsHelper в режиме 'wanted' — только таб РОЗЫСК.
             var _origShowUk = window.showUkInputDialog;
             window.showUkInputDialog = function(targetId) {
                 window._duranWantedTargetId = (targetId !== undefined) ? targetId : -1;
@@ -117,8 +115,6 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             };
             window._origShowUkInputDialog = _origShowUk;
             // ── Перехват window.showKoapTypeMenu (ШТРАФ) ─────────────────────
-            // Вызывается mvdN при action === 'fine'.
-            // Открываем LawsHelper в режиме 'fine' — только таб ШТРАФЫ.
             var _origShowKoap = window.showKoapTypeMenu;
             window.showKoapTypeMenu = function(targetId) {
                 window._duranFineTargetId = (targetId !== undefined) ? targetId : -1;
@@ -126,6 +122,85 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                 window.openInterface('LawsHelper');
             };
             window._origShowKoapTypeMenu = _origShowKoap;
+            // ── Перехват showMvdSubMenu (главное меню МВД, диалог 677) ────────
+            // Именно эта функция показывает то старое системное меню на скрине.
+            var _origShowMvdSubMenu = window.showMvdSubMenu;
+            window.showMvdSubMenu = function(targetId) {
+                window._duranOpenMode = null;
+                window._duranInitLevel = null;
+                window._duranTargetId = (targetId !== undefined) ? targetId : -1;
+                window.openInterface('LawsHelper');
+            };
+            window._origShowMvdSubMenu = _origShowMvdSubMenu;
+            // ── Перехват showPovsednevMenuPage (подменю Повседневная, диалог 667) ─
+            var _origShowPovsednev = window.showPovsednevMenuPage;
+            window.showPovsednevMenuPage = function(targetId) {
+                window._duranOpenMode = null;
+                window._duranInitLevel = 'povsednev';
+                window._duranTargetId = (targetId !== undefined) ? targetId : -1;
+                window.openInterface('LawsHelper');
+            };
+            window._origShowPovsednevMenuPage = _origShowPovsednev;
+            // ── Перехват showStroyMenuPage (подменю Строй, диалог 671) ────────
+            var _origShowStroy = window.showStroyMenuPage;
+            window.showStroyMenuPage = function(targetId) {
+                window._duranOpenMode = null;
+                window._duranInitLevel = 'stroy';
+                window._duranTargetId = (targetId !== undefined) ? targetId : -1;
+                window.openInterface('LawsHelper');
+            };
+            window._origShowStroyMenuPage = _origShowStroy;
+            // ── Пробрасываем хелперы для LawsHelper → mvdN ───────────────────
+            window._mvdStopTracking = function() {
+                if (typeof window.stopTracking === 'function') window.stopTracking();
+            };
+            window._mvdStartTracking = function(id) {
+                if (typeof window.startTracking === 'function') { window.startTracking(id); }
+                else {
+                    window.sendChatInput && window.sendChatInput('/id ' + id);
+                    setTimeout(function(){ window.sendChatInput && window.sendChatInput('/setmark ' + id); }, 500);
+                }
+            };
+            window._mvdToggleAutoCuff = function() {
+                if (typeof window.toggleAutoCuff === 'function') window.toggleAutoCuff();
+            };
+            window._mvdToggleAutoGrab = function() {
+                if (typeof window.toggleAutoGrab === 'function') window.toggleAutoGrab();
+            };
+            window._mvdTogglePartnerTrack = function() {
+                if (typeof window.togglePartnerTracking === 'function') window.togglePartnerTracking();
+            };
+            window._mvdTogglePartnerMessage = function() {
+                if (typeof window.togglePartnerMessage === 'function') window.togglePartnerMessage();
+            };
+            window._mvdSetPartnerId = function(id) {
+                window._pendingPartnerId = id;
+                window.sendChatInput && window.sendChatInput('/id ' + id);
+            };
+            // Поллинг состояний mvdN → window._mvd* (каждые 500мс)
+            setInterval(function() {
+                try {
+                    if (typeof window._mvdGetState === 'function') {
+                        var st = window._mvdGetState();
+                        window._mvdTrackingActive       = !!st.currentScanId;
+                        window._mvdAutoCuffEnabled      = !!st.autoCuffEnabled;
+                        window._mvdPartnerTrackEnabled  = !!st.partnerTrackingEnabled;
+                        window._mvdPartnerMessageEnabled= !!st.partnerMessageEnabled;
+                        window._mvdPartnerNick          = st.partnerNick || null;
+                        window._mvdPartnerId            = st.partnerId   || null;
+                        window._mvdRANK                 = st.rank        || RANK || '';
+                        window._mvdFIRST_NAME           = st.firstName   || FIRST_NAME || '';
+                        window._mvdLAST_NAME            = st.lastName    || LAST_NAME  || '';
+                        window._mvdRANK_TAG             = st.rankTag     || ('[' + (st.rank || RANK || 'МВД') + ']');
+                    } else {
+                        // Fallback: читаем константы из LoadAhk
+                        window._mvdRANK       = window._mvdRANK       || RANK       || '';
+                        window._mvdFIRST_NAME = window._mvdFIRST_NAME || FIRST_NAME || '';
+                        window._mvdLAST_NAME  = window._mvdLAST_NAME  || LAST_NAME  || '';
+                        window._mvdRANK_TAG   = window._mvdRANK_TAG   || ('[' + (RANK || 'МВД') + ']');
+                    }
+                } catch(e) {}
+            }, 500);
             // ── END перехваты ─────────────────────────────────────────────────
             // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
