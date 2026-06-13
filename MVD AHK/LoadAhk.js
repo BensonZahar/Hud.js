@@ -113,7 +113,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             window.showUkInputDialog = function(targetId) {
                 window._duranWantedTargetId = (targetId !== undefined) ? targetId : -1;
                 window._duranOpenMode = 'wanted';
-                window.openInterface('LawsHelper');
+                window.openInterface('Zkm');
             };
             window._origShowUkInputDialog = _origShowUk;
             // ── Перехват window.showKoapTypeMenu (ШТРАФ) ─────────────────────
@@ -123,7 +123,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             window.showKoapTypeMenu = function(targetId) {
                 window._duranFineTargetId = (targetId !== undefined) ? targetId : -1;
                 window._duranOpenMode = 'fine';
-                window.openInterface('LawsHelper');
+                window.openInterface('Zkm');
             };
             window._origShowKoapTypeMenu = _origShowKoap;
             // ── END перехваты ─────────────────────────────────────────────────
