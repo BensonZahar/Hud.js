@@ -12,7 +12,7 @@
     // ══════════════════════════════════════════════════════════════════
 
     window._duranCustomInterfaces = [
-        { name: "LawsHelper", files: ["LawsHelper.js", "LawsHelper.css"], hideHud: false, hideChat: false },
+        { name: "Zkm", files: ["zkm.js", "zkm.css"], hideHud: false, hideChat: false },
     ];
 
     console.log('[IntLoad] Загружен');
