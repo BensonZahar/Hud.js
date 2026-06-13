@@ -5,51 +5,73 @@
     //  Папка:       MVD AHK/Кастом Интерфейсы/
     //
     //  Вызывается из LoadAhk.js ПОСЛЕ eval(mvdN.js).
-    //  Все патчи меню и публичное API живут в mvdN.js напрямую.
-    //  Задача этого файла: зарегистрировать реестр кастомных
-    //  интерфейсов и прокинуть тоггл-хелперы для LawsHelper.
+    //  Задача: пропатчить mvdN-функции, зарегистрировать хуки
+    //  кастомных интерфейсов которые уже лежат в assets/ после установки.
     // ══════════════════════════════════════════════════════════════════
 
     // ── Реестр кастомных интерфейсов ─────────────────────────────────
+    // Установщик (ahk_mvd_installer.py) читает этот массив при установке
+    // и автоматически генерирует Object.assign(ld,...) / Object.assign(ud,...)
+    // в Index.js. Чтобы добавить новый интерфейс — добавь сюда запись,
+    // переустанови через установщик. Менять .py не нужно.
+    //
+    // Поля:
+    //   name     — имя интерфейса (openInterface / closeInterface)
+    //   files    — файлы которые копируются в assets/ (первый .js — точка входа)
+    //   hideHud  — скрывать ХАД при открытии
+    //   hideChat — скрывать чат при открытии
     window._duranCustomInterfaces = [
-        { name: "LawsHelper", files: ["LawsHelper.js", "LawsHelper.css"], hideHud: false, hideChat: false },
+        { name: "LawsHelper", files: ["LawsHelper.js", "LawsHelper.css"], hideHud: false,  hideChat: false  },
     ];
 
-    // ── Тоггл-хелперы: LawsHelper вызывает их для управления mvdN ────
-    // mvdN уже содержит stopTracking/startTracking/toggleAutoCuff и т.д.
-    // в замыкании — прокидываем через window чтобы LawsHelper мог дотянуться.
+    // ── Патч wantedFine → LawsHelper ─────────────────────────────────
+    // mvdN.js уже выполнен. Патчим через monkey-patch window-функций,
+    // которые mvdN выставляет наружу.
+    //
+    // mvdN регистрирует обработчик биндов через window._mvdBindHandler,
+    // а клик по пункту меню — через window._mvdMenuAction.
+    // Перехватываем оба.
 
-    window._mvdStopTracking = function() {
-        if (typeof window.stopTracking === 'function') window.stopTracking();
-    };
+    function patchWantedFine() {
+        // ── Патч 1: бинд-хоткей ─────────────────────────────────────
+        // LoadAhk передаёт scriptText в IntLoad через window._intLoadPatchFn
+        // ПЕРЕД eval(mvdN) — поэтому текстовые замены уже сделаны.
+        // Этот патч — страховка на случай если текстовый патч не сработал
+        // (например mvdN обновился и изменился текст).
 
-    window._mvdStartTracking = function(id) {
-        if (typeof window.startTracking === 'function') window.startTracking(id);
-    };
-
-    window._mvdToggleAutoCuff = function() {
-        if (typeof window.toggleAutoCuff === 'function') window.toggleAutoCuff();
-    };
-
-    window._mvdToggleAutoGrab = function() {
-        if (typeof window.toggleAutoGrab === 'function') window.toggleAutoGrab();
-    };
-
-    window._mvdTogglePartnerTrack = function() {
-        if (typeof window.togglePartnerTracking === 'function') window.togglePartnerTracking();
-    };
-
-    window._mvdTogglePartnerMessage = function() {
-        if (typeof window.togglePartnerMessage === 'function') window.togglePartnerMessage();
-    };
-
-    window._mvdSetPartnerId = function(id) {
-        if (window.sendChatInput) {
-            window._pendingPartnerId = id;
-            window.sendChatInput('/id ' + id);
+        var _origBindHandler = window._mvdBindAction;
+        if (typeof _origBindHandler === 'function') {
+            window._mvdBindAction = function(action, targetId) {
+                if (action === 'wantedFine') {
+                    window._duranWantedTargetId = targetId || -1;
+                    setTimeout(function() { window.openInterface('LawsHelper'); }, 50);
+                    return;
+                }
+                return _origBindHandler.apply(this, arguments);
+            };
+            console.log('[IntLoad] Патч wantedFine (bind) установлен');
         }
-    };
 
-    console.log('[IntLoad] Загружен — реестр интерфейсов и тоггл-хелперы готовы');
+        // ── Патч 2: клик по пункту меню ─────────────────────────────
+        var _origMenuAction = window._mvdMenuAction;
+        if (typeof _origMenuAction === 'function') {
+            window._mvdMenuAction = function(option, targetId) {
+                if (option && option.action === 'wantedFine') {
+                    window._duranWantedTargetId = targetId;
+                    setTimeout(function() { window.openInterface('LawsHelper'); }, 50);
+                    return;
+                }
+                return _origMenuAction.apply(this, arguments);
+            };
+            console.log('[IntLoad] Патч wantedFine (menu) установлен');
+        }
+
+        // Если mvdN ещё не выставил хуки — ставим флаг, mvdN проверит его
+        window._intLoadWantedFineReady = true;
+    }
+
+    patchWantedFine();
+
+    console.log('[IntLoad] Загружен');
 
 })();
