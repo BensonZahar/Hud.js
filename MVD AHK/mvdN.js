@@ -730,7 +730,7 @@ const setupChatHandler = () => {
                     // Показываем серое уведомление синхронно — без setTimeout,
                     // чтобы никакой другой snAdd не успел сделать hideAll между hideAll и add
                     try {
-                        const sn = window.interface('ScreenNotification');
+                        const sn = window.interface('NotificationMVD');
                         if (sn) {
                             if (typeof sn.hideAll === 'function') sn.hideAll();
                             sn.add(`[1, "Отслеживание", "${reason}", "CECECE", 2500]`);
@@ -752,11 +752,11 @@ const setupChatHandler = () => {
                     console.log(`[TRACKING] ⏳ КД /setmark: ${waitSec} сек`);
                     // Показываем оранжевое уведомление со счётчиком
                     try {
-                        const sn = window.interface('ScreenNotification');
+                        const sn = window.interface('NotificationMVD');
                         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
                         setTimeout(() => {
                             try {
-                                window.interface('ScreenNotification').add(
+                                window.interface('NotificationMVD').add(
                                     `[1, "Отслеживание", "/setmark КД: ${waitSec} сек", "FFAA00", ${(waitSec + 1) * 1000}]`
                                 );
                             } catch(e) {}
@@ -888,11 +888,11 @@ const restoreTrackingNotification = () => {
     const text = trackingNickname ? `${trackingNickname}<br>ID: ${currentScanId}` : `ID: ${currentScanId}`;
     if (chaseNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`); } catch(e) {}
+            try { window.interface('NotificationMVD').add(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`); } catch(e) {}
         }, 150);
     } else if (trackingNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`); } catch(e) {}
+            try { window.interface('NotificationMVD').add(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`); } catch(e) {}
         }, 150);
     }
 };
@@ -900,10 +900,10 @@ const snAdd = (payload, skipRestore = false) => {
     try {
         // Если показывается финальное уведомление (серое) — не трогаем его через hideAll
         if (window._trackingStopPending) return;
-        const sn = window.interface('ScreenNotification');
+        const sn = window.interface('NotificationMVD');
         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(payload); } catch(e) {}
+            try { window.interface('NotificationMVD').add(payload); } catch(e) {}
         }, 100);
         // Если активно отслеживание/погоня — восстанавливаем уведомление после показа нового
         // skipRestore=true когда вызов идёт из самих openTracking/openChase (чтобы не затирать ник)
@@ -932,7 +932,7 @@ const openChaseNotification = (id) => {
 };
 const closeTrackingNotifications = () => {
     try {
-        const screenNotif = window.interface('ScreenNotification');
+        const screenNotif = window.interface('NotificationMVD');
         if (screenNotif && typeof screenNotif.hideAll === 'function') {
             screenNotif.hideAll();
             trackingNotificationOpen = false;
