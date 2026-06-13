@@ -1045,10 +1045,11 @@ const _sfc_main={
 		// Состояние тогглов из mvdN
 		dahkToggleState(id){
 			try{
-				if(id==="tracking")   return !!window._mvdTrackingActive || (typeof window._duranTrackingId!=="undefined"&&window._duranTrackingId!==null&&window._duranTrackingId!=="");
-				if(id==="autocuff")   return !!window._mvdAutoCuffEnabled;
-				if(id==="partner_track")   return !!window._mvdPartnerTrackEnabled;
-				if(id==="partner_message") return !!window._mvdPartnerMessageEnabled;
+				const st=typeof window._mvdGetState==="function"?window._mvdGetState():{};
+				if(id==="tracking")       return !!st.currentScanId;
+				if(id==="autocuff")       return !!st.autoCuffEnabled;
+				if(id==="partner_track")  return !!st.partnerTrackingEnabled;
+				if(id==="partner_message")return !!st.partnerMessageEnabled;
 			}catch(e){}
 			return false;
 		},
