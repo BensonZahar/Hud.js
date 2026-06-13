@@ -896,14 +896,31 @@ const restoreTrackingNotification = () => {
         }, 150);
     }
 };
-const snAdd = (payload, skipRestore = false) => {
+const snAdd = (payload, skipRestore = false, _retries = 0) => {
     try {
         // Если показывается финальное уведомление (серое) — не трогаем его через hideAll
         if (window._trackingStopPending) return;
+
+        // FIX: проверяем что NotificationMVD уже загружен (не Vue-$refs false, а наш объект)
         const sn = window.interface('NotificationMVD');
-        if (sn && typeof sn.hideAll === 'function') sn.hideAll();
+        const snReady = sn && typeof sn.add === 'function';
+
+        if (!snReady) {
+            // NotificationMVD ещё не инициализирован — повторяем до 10 раз каждые 200мс
+            if (_retries < 10) {
+                setTimeout(() => snAdd(payload, skipRestore, _retries + 1), 200);
+            } else {
+                console.warn('[snAdd] NotificationMVD не готов после 10 попыток, payload:', payload);
+            }
+            return;
+        }
+
+        if (typeof sn.hideAll === 'function') sn.hideAll();
         setTimeout(() => {
-            try { window.interface('NotificationMVD').add(payload); } catch(e) {}
+            try {
+                const sn2 = window.interface('NotificationMVD');
+                if (sn2 && typeof sn2.add === 'function') sn2.add(payload);
+            } catch(e) {}
         }, 100);
         // Если активно отслеживание/погоня — восстанавливаем уведомление после показа нового
         // skipRestore=true когда вызов идёт из самих openTracking/openChase (чтобы не затирать ник)
