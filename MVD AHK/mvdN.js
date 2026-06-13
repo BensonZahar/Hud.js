@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.11111 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -20,6 +20,193 @@ const rankTags = {
 };
 const mvdSkins = [15321, 15323, 15325, 15330, 15332, 15334, 15335, 190, 148, 15340, 15341, 15342, 15343, 15344, 15348, 15351];
 const stroyRanks = ["Капитан", "Майор", "Подполковник", "Полковник", "Генерал"];
+// КоАП тексты (сокращенные)
+const dpsKoapLines = [
+    "{FFD700}Глава 1. Нарушения, касаемо регистрации т/с",
+    "{00FF00}1.1.{FFFFFF} Управление т/с без регистрационного знака | {FF0000}Штраф 5.000 рублей{FFFFFF}. (Искл: разрешено без номеров если пробег не превысил 100 км)",
+    "",
+    "{FFD700}Глава 2. Нарушения касаемо технического состояния т/с",
+    "{00FF00}2.1.{FFFFFF} Управление т/с с неисправным двигателем (дымление без аварийных сигналов) | {FF0000}Штраф 10.000 рублей{FFFFFF}.",
+    "",
+    "{FFD700}Глава 3. Безопасность движения",
+    "{00FF00}3.1.{FFFFFF} Управление т/с в алкогольном/наркотическом опьянении | {FF0000}Штраф 20.000 рублей{FFFFFF} + изъятие водительского удостоверения.",
+    "{00FF00}3.2.{FFFFFF} Разговор по телефону во время движения | {FF0000}Штраф 5.500 рублей{FFFFFF}.",
+    "{00FF00}3.3.{FFFFFF} Нарушение правил пользования звуковыми сигналами/аварийной сигнализацией (использование не по назначению, троллинг) | {FF0000}Штраф 6.500 рублей{FFFFFF}.",
+    "{00FF00}3.4.{FFFFFF} Движение с выключенными габаритными огнями в ночное/вечернее время (с 21:00 по 6:00) | {FF0000}Штраф 5.000 рублей{FFFFFF}.",
+    "{00FF00}3.5.{FFFFFF} Нарушение ПДД пешеходом (переход в неположенном месте, бег по дороге) | {FF0000}Штраф 5.000 рублей{FFFFFF}. Искл: сотрудник ПО при исполнении.",
+    "{00FF00}3.6.{FFFFFF} Управление т/с с тонировкой лобового/боковых передних стекол ниже 50% | {FF0000}Штраф 15.000 рублей{FFFFFF}. Искл: ФСБ при исполнении.",
+    "{00FF00}3.7.{FFFFFF} Движение без пристегнутого ремня или надетого шлема | {FF0000}Штраф 5.000 рублей{FFFFFF}.",
+    "{00FF00}3.8.{FFFFFF} Намеренное создание дорожных заторов, помех | {FF0000}Штраф 10.000 рублей{FFFFFF}.",
+    "",
+    "{FFD700}Глава 4. Железная дорога",
+    "{00FF00}4.1.{FFFFFF} Пересечение ж/д пути вне переезда или при закрытом шлагбауме | {FF0000}Штраф 25.000 рублей{FFFFFF} + лишение водительского удостоверения.",
+    "",
+    "{FFD700}Глава 5. Автомагистраль",
+    "{00FF00}5.1.{FFFFFF} Разворот или движение задним ходом по автомагистрали | {FF0000}Штраф 15.000 рублей{FFFFFF}.",
+    "",
+    "{FFD700}Глава 6. Перекресток",
+    "{00FF00}6.1.{FFFFFF} Проезд на красный сигнал светофора | {FF0000}Штраф 10.000 рублей{FFFFFF}.",
+    "{00FF00}6.1.1.{FFFFFF} Проезд на жёлтый сигнал светофора | {FF0000}Штраф 5.000 рублей{FFFFFF}.",
+    "{00FF00}6.1.2.{FFFFFF} Проезд на запрещающий/предупреждающий сигнал, в следствии чего произошло ДТП | {FF0000}Штраф 20.000 рублей{FFFFFF} + лишение удостоверения.",
+    "",
+    "{FFD700}Глава 7. Маневрирование",
+    "{00FF00}7.1.{FFFFFF} Разворот/движение задним ходом в запрещённых местах (пешеходный переход, мост, ж/д переезд) | {FF0000}Штраф 15.000 рублей{FFFFFF}.",
+    "{00FF00}7.2.{FFFFFF} Агрессивное вождение (таран, подрезы, выезды на встречную) | {FF0000}Штраф 20.000 рублей{FFFFFF} + изъятие лицензии на вождение.",
+    "{00FF00}7.3.{FFFFFF} Невыполнение требования уступить дорогу т/с с преимущественным правом проезда | {FF0000}Штраф 10.000 рублей{FFFFFF}.",
+    "",
+    "{FFD700}Глава 8. Парковка, движение т/с",
+    "{00FF00}8.1.{FFFFFF} Остановка/стоянка/парковка в неположенном месте | {FF0000}Штраф 8.000 рублей{FFFFFF} + эвакуация. (Искл: с аварийкой можно стоять до 5 мин, если не создаёт помеху)",
+    "{00FF00}8.2.{FFFFFF} Движение т/с по велосипедным/пешеходным дорожкам, газонам или тротуарам | {FF0000}Штраф 6.500 рублей{FFFFFF}.",
+    "{00FF00}8.3.{FFFFFF} Движение т/с по встречной полосе | {FF0000}Штраф 10.000 рублей{FFFFFF} + изъятие лицензии на вождение.",
+    "{00FF00}8.3.1.{FFFFFF} Движение по встречной, в следствии чего произошло ДТП | {FF0000}Штраф 20.000 рублей{FFFFFF} + изъятие лицензии.",
+    "",
+    "{FFD700}Глава 9. Знаки и разметка",
+    "{00FF00}9.1.{FFFFFF} Разворот/поворот через сплошную линию разметки | {FF0000}Штраф 12.000 рублей{FFFFFF}.",
+    "{00FF00}9.2.{FFFFFF} Разворот/поворот через двойную сплошную | {FF0000}Штраф 15.000 рублей{FFFFFF}.",
+    "{00FF00}9.3.{FFFFFF} Пересечение двойной сплошной линии | {FF0000}Штраф 13.000 рублей{FFFFFF}.",
+    "{00FF00}9.4.{FFFFFF} Пересечение сплошной линии разметки | {FF0000}Штраф 15.000 рублей{FFFFFF}.",
+    "*В случае ДТП после нарушений гл.9 — также изымается лицензия на вождение.",
+    "",
+    "{FFD700}Глава 10. Преимущество на дороге",
+    "{00FF00}10.1.{FFFFFF} Непредоставление преимущества маршрутному транспорту на остановках | {FF0000}Штраф 5.000 рублей{FFFFFF}.",
+    "{00FF00}10.2.{FFFFFF} Непредоставление преимущества спец. службам с маячком и сиреной или игнорирование громкоговорителя ФСБ | {FF0000}Штраф 15.000 рублей{FFFFFF} + изъятие лицензии.",
+    "{00FF00}10.3.{FFFFFF} Непредоставление преимущества колонне в сопровождении гос. служб | {FF0000}Штраф 20.000 рублей{FFFFFF} + изъятие лицензии.",
+    "{00FF00}10.4.{FFFFFF} Невыполнение требования уступить дорогу пешеходам/велосипедистам | {FF0000}Штраф 10.000 рублей{FFFFFF}.",
+    "",
+    "{FFD700}Глава 11. ДТП",
+    "{00FF00}11.1.{FFFFFF} Виновник ДТП без вреда здоровью | {FF0000}Штраф 10.000 рублей{FFFFFF}.",
+    "{00FF00}11.1.1.{FFFFFF} Виновник ДТП с тяжким вредом здоровью/смертью | {FF0000}Штраф 25.000 рублей{FFFFFF} + изъятие лицензии на оружие.",
+    "{00FF00}11.2.{FFFFFF} Оставление места ДТП | {FF0000}Штраф 15.000 рублей{FFFFFF}.",
+    "{00FF00}11.3.{FFFFFF} Создание аварийных ситуаций, провокация на ДТП, автоподставы | {FF0000}Штраф 20.000 рублей{FFFFFF} + изъятие водительского удостоверения.",
+    "",
+    "{FFD700}Глава 12. Скоростной режим",
+    "{00FF00}12.1.{FFFFFF} Превышение скорости более чем на 30 км/ч (80-90 км/ч) | {FF0000}Штраф 5.000 рублей{FFFFFF}.",
+    "{00FF00}12.2.{FFFFFF} Превышение скорости более чем на 50 км/ч (90-120 км/ч) | {FF0000}Штраф 7.000 рублей{FFFFFF}.",
+    "{00FF00}12.3.{FFFFFF} Превышение на 30+ км/ч, в следствии чего произошло ДТП | {FF0000}Штраф 15.000 рублей{FFFFFF}.",
+    "{00FF00}12.4.{FFFFFF} Превышение на 50+ км/ч, в следствии чего произошло ДТП | {FF0000}Штраф 25.000 рублей{FFFFFF} + изъятие водительского удостоверения.",
+    "*В случае ДТП после нарушений гл.12 — также изымается лицензия на вождение.",
+    "",
+    "{FFD700}Глава 13. Административные правонарушения общественного порядка",
+    "{00FF00}13.1.{FFFFFF} Оскорбление гражданского лица / сотрудника гос. структур | {FF0000}Штраф 10.000 рублей{FFFFFF}.",
+    "{00FF00}13.1.1.{FFFFFF} Не грубое оскорбление сотрудника правоохранительных органов | {FF0000}Штраф 10.000 рублей{FFFFFF}.",
+    "{00FF00}13.2.{FFFFFF} Мелкое хулиганство (нецензурная брань, громкие крики в общественных местах) | {FF0000}Штраф 8.000 рублей{FFFFFF}.",
+    "{00FF00}13.3.{FFFFFF} Курение в общественных местах | {FF0000}Штраф 5.000 рублей{FFFFFF}.",
+    "{00FF00}13.4.{FFFFFF} Распитие спиртных напитков в общественных местах | {FF0000}Штраф 7.000 рублей{FFFFFF}.",
+    "{00FF00}13.5.{FFFFFF} Громкая музыка в жилых зонах в ночное время (23:00-06:00) | {FF0000}Штраф 4.000 рублей{FFFFFF}.",
+    "{00FF00}13.6.{FFFFFF} Ношение отмычек или спец. приспособлений для незаконного проникновения | {FF0000}Штраф 15.000 рублей{FFFFFF}."
+];
+const ppsKoapLines = [
+    "{FFD700}Общий раздел нарушений КоАП:",
+    "",
+    "{FFD700}Глава 1 || Административные правонарушения, посягающие на права граждан",
+    "{00FF00}20.1.{FFFFFF} Оскорбление, то есть унижение чести и достоинства другого лица, выраженное в неприличной форме - влечет наложение административного штрафа на граждан в размере {FF0000}5.000 рублей{FFFFFF}.",
+    "{00FF00}20.2.{FFFFFF} Дискриминация, то есть нарушение прав, свобод и законных интересов человека и гражданина в зависимости от его пола, расы, цвета кожи, национальности, языка, происхождения, имущественного, семейного, социального и должностного положения, возраста, места жительства, отношения к религии, убеждений, принадлежности или не принадлежности к общественным объединениям или каким-либо социальным группам - влечет наложение административного штрафа на граждан в размере от {FF0000}1.000 до 5.000 рублей{FFFFFF}.",
+    "",
+    "{FFD700}Глава 2 || Административные правонарушения, посягающие на здоровье, санитарно-эпидемиологическое благополучие населения и общественную нравственность",
+    "{00FF00}20.3.{FFFFFF} Нанесение побоев или совершение иных насильственных действий, причинивших физическую боль, если эти действия не содержат уголовно наказуемого деяния - влечет наложение административного штрафа в размере от {FF0000}5.000 до 30.000 рублей{FFFFFF}, либо административный арест.",
+    "{00FF00}20.4.{FFFFFF} Занятие народной медициной без получения разрешения, установленного законом - влечет наложение административного штрафа в размере от {FF0000}2.000 до 4.000 рублей{FFFFFF}.",
+    "{00FF00}20.5.{FFFFFF} Потребление наркотических средств или психотропных веществ без назначения врача либо новых потенциально опасных псих-активных веществ, за исключением случаев, указанных в УК - влечет наложение административного штрафа в размере от {FF0000}5.000 до 10.000 рублей{FFFFFF} или административный арест.",
+    "{00FF00}20.6.{FFFFFF} Занятие проституцией - влечет наложение административного штрафа в размере от {FF0000}1.500 до 3.000 тысяч рублей{FFFFFF}.",
+    "{00FF00}20.7.{FFFFFF} Курение в общественных местах - влечет наложение административного штрафа в размере от {FF0000}2.000 до 3.000 тысяч рублей{FFFFFF}.",
+    "{00FF00}20.8.{FFFFFF} Распитие спиртных напитков в общественных местах - влечет наложение административного штрафа в размере от {FF0000}3.000 до 5.000 тысяч рублей{FFFFFF}.",
+    "",
+    "{FFD700}Глава 3 || Административные правонарушения, посягающие на общественный порядок и общественную безопасность",
+    "{00FF00}20.9.{FFFFFF} Мелкое хулиганство, то есть нарушение общественного порядка, выражающее явное неуважение к обществу, сопровождающееся нецензурной бранью в общественных местах, оскорбительным приставанием к гражданам, а равно уничтожением или повреждением чужого имущества - влечет наложение административного штрафа в размере от {FF0000}1.000 до 2.000 рублей{FFFFFF} или административный арест.",
+    "{00FF00}30.1.{FFFFFF} Нарушение организатором публичного мероприятия установленного порядка организации либо проведения собрания, митинга, демонстрации, шествия или пикетирования, за исключением случаев, предусмотренных частями УК - влечет наложение административного штрафа на граждан в размере от {FF0000}10.000 до 20.000 рублей{FFFFFF}.",
+    "{00FF00}30.2.{FFFFFF} Нарушение правил перевозки, транспортирования оружия и патронов к нему - влечет наложение административного штрафа в размере от {FF0000}1.000 до 2.000 рублей{FFFFFF}.",
+    "{00FF00}30.3.{FFFFFF} Появление на улицах, стадионах, в скверах, парках, в транспортном средстве общего пользования, в других общественных местах в состоянии опьянения, оскорбляющем человеческое достоинство и общественную нравственность - влечет наложение административного штрафа в размере от {FF0000}1.000 до 3.000 рублей{FFFFFF}.",
+    "{00FF00}30.4{FFFFFF} Организация блокирования, а равно активное участие в блокировании транспортных коммуникаций, за исключением случаев, предусмотренных УК - влечет наложение административного штрафа на граждан в размере от {FF0000}30.000 до 100.000 рублей{FFFFFF}.",
+    "",
+    "{FFD700}Глава 4 || Административные правонарушения, посягающие на общественный порядок в день тишины.",
+    "{00FF00}40.1{FFFFFF} Подкуп избирателей, влечет наложение административного штрафа на граждан в размере от {FF0000}40.000 до 120.000{FFFFFF}, а так же арест до {FF0000}15 суток{FFFFFF}.",
+    "{00FF00}40.2{FFFFFF} Агитация в день тишины, влечет наложение административного штрафа на граждан в размере от {FF0000}40.000 до 200.000{FFFFFF}, а так же арест до {FF0000}15 суток{FFFFFF}."
+];
+// УК РФ статьи для розыска
+const ukLines = [
+    "{FFD700}Глава 1. Преступления против жизни и здоровья человека.",
+    "{00FF00}1.1.{FFFFFF} Нападение на гражданское лицо без использования оружия | {FF0000}2 года",
+    "{00FF00}1.1.1.{FFFFFF} Побои | {FF0000}1 год",
+    "{00FF00}1.1.2.{FFFFFF} Нападение на гражданское лицо с применением холодного оружия | {FF0000}3 года",
+    "{00FF00}1.1.3.{FFFFFF} Вооружённое нападение на гражданское лицо | {FF0000}4 года",
+    "{00FF00}1.2.{FFFFFF} Причинение смерти по неосторожности без оружия | {FF0000}1 год",
+    "{00FF00}1.2.1.{FFFFFF} Причинение смерти по неосторожности при управлении транспортом | {FF0000}2 года",
+    "{00FF00}1.3.{FFFFFF} Угроза причинения вреда здоровью (слова) | {FF0000}1 год",
+    "{00FF00}1.3.1.{FFFFFF} Угроза причинения вреда здоровью с использованием оружия | {FF0000}2 года",
+    "{00FF00}1.4.{FFFFFF} Изнасилование | {FF0000}2 года",
+    "{00FF00}1.5.{FFFFFF} Воспрепятствование оказанию медицинской помощи | {FF0000}2 года",
+    "",
+    "{FFD700}Глава 2. Преступления против свободы и чести личности.",
+    "{00FF00}2.1.{FFFFFF} Похищение человека | {FF0000}4 года",
+    "{00FF00}2.2.{FFFFFF} Клевета | {FF0000}2 года",
+    "",
+    "{FFD700}Глава 3. Преступление против собственности.",
+    "{00FF00}3.1.{FFFFFF} Кража | {FF0000}2 года",
+    "{00FF00}3.1.1.{FFFFFF} Разбой | {FF0000}3 года",
+    "{00FF00}3.2.{FFFFFF} Умышленное повреждение или порча частного имущества | {FF0000}2 года",
+    "{00FF00}3.2.1.{FFFFFF} Умышленное повреждение или порча государственного имущества | {FF0000}3 года",
+    "",
+    "{FFD700}Глава 4. Преступления против общественной безопасности.",
+    "{00FF00}4.1.{FFFFFF} Террористический акт | {FF0000}6 лет",
+    "{00FF00}4.1.1.{FFFFFF} Заведомо ложное сообщение об акте терроризма | {FF0000}3 года",
+    "{00FF00}4.2.{FFFFFF} Несообщение о преступлении | {FF0000}2 года",
+    "{00FF00}4.3.{FFFFFF} Массовые беспорядки | {FF0000}5 лет",
+    "{00FF00}4.4.{FFFFFF} Участие в несанкционированных митингах | {FF0000}2 года",
+    "{00FF00}4.4.1.{FFFFFF} Организация несанкционированного митинга | {FF0000}3 года",
+    "{00FF00}4.5.{FFFFFF} Ношение оружия в открытом виде | {FF0000}2 года",
+    "{00FF00}4.5.1.{FFFFFF} Ношение оружия в открытом виде в общественных местах | {FF0000}3 года",
+    "{00FF00}4.5.2.{FFFFFF} Ношение оружия и патронов без лицензии | {FF0000}2 года",
+    "{00FF00}4.5.3.{FFFFFF} Ношение оружия в открытом виде без лицензии | {FF0000}4 года",
+    "{00FF00}4.5.4.{FFFFFF} Ношение оружия в открытом виде в общественных местах без лицензии | {FF0000}5 лет",
+    "{00FF00}4.6.{FFFFFF} Незаконное приобретение/передача/изготовление оружия и боеприпасов | {FF0000}2 года",
+    "{00FF00}4.7.{FFFFFF} Помеха проведению мероприятий гос. структур | {FF0000}1 год",
+    "{00FF00}4.8.{FFFFFF} Проникновение на желтую зону | {FF0000}2 года",
+    "{00FF00}4.8.1.{FFFFFF} Проникновение на красную зону | {FF0000}4 года",
+    "{00FF00}4.8.2.{FFFFFF} Проникновение на частную территорию без разрешения | {FF0000}1 год",
+    "{00FF00}4.9.{FFFFFF} Соучастие в преступлении | {FF0000}3 года",
+    "{00FF00}4.9.1.{FFFFFF} Принуждение к совершению нарушения законодательства",
+    "",
+    "{FFD700}Глава 5. Преступления против сотрудников гос. организаций.",
+    "{00FF00}5.1.{FFFFFF} Нападение на сотрудника гос. организации при исполнении | {FF0000}4 года",
+    "{00FF00}5.1.1.{FFFFFF} Нападение на сотрудника силовых структур при исполнении | {FF0000}5 лет",
+    "{00FF00}5.1.2.{FFFFFF} Нападение на государственного деятеля при исполнении | {FF0000}6 лет",
+    "{00FF00}5.2.{FFFFFF} Неподчинение законному требованию сотрудника ПО или МО | {FF0000}1 год",
+    "{00FF00}5.2.1.{FFFFFF} Побег от сотрудников ПО | {FF0000}2 года",
+    "{00FF00}5.3.{FFFFFF} Создание помехи сотруднику ПО при исполнении | {FF0000}2 года",
+    "{00FF00}5.3.1.{FFFFFF} Провокация сотрудников правоохранительных органов | {FF0000}2 года",
+    "{00FF00}5.4.{FFFFFF} Оскорбление сотрудников ПО в грубой форме | {FF0000}1 год",
+    "{00FF00}5.5.{FFFFFF} Ложный вызов | {FF0000}2 года",
+    "{00FF00}5.6.{FFFFFF} Дача ложных показаний | {FF0000}2 года",
+    "{00FF00}5.7.{FFFFFF} Дача или попытка дачи взятки | {FF0000}3 года",
+    "{00FF00}5.8.{FFFFFF} Случайное разглашение государственной тайны | {FF0000}1 год",
+    "{00FF00}5.8.1.{FFFFFF} Намеренное разглашение/передача гос. тайны | {FF0000}3 года",
+    "{00FF00}5.9.{FFFFFF} Шпионаж | {FF0000}4 года",
+    "{00FF00}5.10.{FFFFFF} Присвоение полномочий должностного лица | {FF0000}3 года",
+    "",
+    "{FFD700}Глава 6. Преступления сотрудниками Гос. Организаций.",
+    "{00FF00}6.1.1.{FFFFFF} Укрывательство преступлений | {FF0000}2 года",
+    "{00FF00}6.2.{FFFFFF} Превышение должностных полномочий | {FF0000}2 года",
+    "{00FF00}6.3.{FFFFFF} Халатность | {FF0000}4 года",
+    "{00FF00}6.4.{FFFFFF} Разглашение сведений должностным лицом гос. тайны | {FF0000}4 года",
+    "{00FF00}6.5.{FFFFFF} Вооружённый мятеж | {FF0000}6 лет",
+    "{00FF00}6.6.{FFFFFF} Неоказание помощи больному | {FF0000}3 года",
+    "{00FF00}6.7.{FFFFFF} Дезертирство | {FF0000}3 года",
+    "{00FF00}6.8.{FFFFFF} Получение взятки должностным лицом | {FF0000}3 года",
+    "",
+    "{FFD700}Глава 7. Преступления, касаемо наркотических веществ.",
+    "{00FF00}7.2.{FFFFFF} Хранение или перевозка наркотических веществ | {FF0000}3 года",
+    "{00FF00}7.3.{FFFFFF} Приобретение, сбыт, распространение наркотических веществ | {FF0000}4 года",
+    "{00FF00}7.4.{FFFFFF} Производство, изготовление, выращивание наркотических веществ | {FF0000}3 года"
+];
+// Маппинг статья УК → звёзды (из срока в годах/летах)
+const ukStarsMap = {};
+ukLines.forEach(line => {
+    const codeMatch = line.match(/\{00FF00\}([\d.]+)\.\{FFFFFF\}/);
+    const yearsMatch = line.match(/\{FF0000\}(\d+)\s*(год|года|лет)/);
+    if (codeMatch && yearsMatch) {
+        ukStarsMap[codeMatch[1]] = parseInt(yearsMatch[1]);
+    }
+});
+
 let skinId = null;
 // 3. Функция получения скина
 function getSkinIdFromStore() {
@@ -71,32 +258,64 @@ setTimeout(() => {
     }
     trackSkinId();
 }, 500);
-// Список действий «Повседневная» — используется только для прямых
-// хоткеев (MENU_BINDS) и для проверки needsId. Отображение пунктов
-// в интерфейсе целиком на стороне LawsHelper (DAHK_POVSEDNEV).
-const povsednevOptions = [
-    { name: "Приветствие", action: "greeting", needsId: true },
-    { name: "Проверка документов", action: "checkDocuments" },
-    { name: "Изучение документов", action: "studyDocuments" },
-    { name: "Сканирование", action: "scanningTablet" },
-    { name: "Надевание наручников", action: "cuffing", needsId: true },
-    { name: "Посадка в машину", action: "putInCar", needsId: true },
-    { name: "Доставка в участок", action: "arrest", needsId: true },
-    { name: "Снятие наручников", action: "uncuffing", needsId: true },
-    { name: "Преследование преступника", action: "chase", needsId: true },
-    { name: "Обыск", action: "search", needsId: true },
-    { name: "Конвоирование", action: "escort", needsId: true },
-    { name: "Снятие розыска", action: "clearWanted", needsId: true },
-    { name: "Выдача штрафа [/ticket]", action: "fine" },
-    { name: "Выдача розыска [/su]", action: "wantedFine" },
-    { name: "Изъятие веществ", action: "confiscate", needsId: true },
-    { name: "Разбитие стекла", action: "breakGlass", needsId: true },
-    { name: "Снятие маски", action: "removeMask" },
-    { name: "Сканирование отпечатков", action: "fingerprint" },
-    { name: "Изъятие прав", action: "takeLicense", needsId: true },
-    { name: "Права Миранды", action: "miranda" }
+const licenseTypes = [
+    { name: "МВД", id: "mvd_main" }
 ];
+const mvdSubTypes = [
+    { name: "Повседневная", id: "povsednev" },
+    { name: "Строй", id: "stroy" }
+];
+let trackingName = `Отслеживание | {FF0000}Выкл`;
+let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
 let autoGrabEnabled = true;
+let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`;
+const povsednevOptions = [
+    { name: "1. Приветствие", action: "greeting", needsId: true },
+    { name: "2. Проверка документов", action: "checkDocuments" },
+    { name: "3. Изучение документов", action: "studyDocuments" },
+    { name: "4. Сканирование", action: "scanningTablet" },
+    { name: "5. Надевание наручников", action: "cuffing", needsId: true },
+    { name: "6. Посадка в машину", action: "putInCar", needsId: true },
+    { name: "7. Доставка в участок", action: "arrest", needsId: true },
+    { name: "8. Снятие наручников", action: "uncuffing", needsId: true },
+    { name: "9. Преследование преступника", action: "chase", needsId: true },
+    { name: "10. Обыск", action: "search", needsId: true },
+    { name: "11. Конвоирование", action: "escort", needsId: true },
+    { name: "12. Снятие розыска", action: "clearWanted", needsId: true },
+    { name: "13. Выдача штрафа [/ticket]", action: "fine" },
+    { name: "14. Выдача розыска [/su]", action: "wantedFine" },
+    { name: "15. Изъятие веществ", action: "confiscate", needsId: true },
+    { name: "16. Разбитие стекла", action: "breakGlass", needsId: true },
+    { name: "17. Снятие маски", action: "removeMask" },
+    { name: "18. Сканирование отпечатков", action: "fingerprint" },
+    { name: "19. Изъятие прав", action: "takeLicense", needsId: true },
+    { name: "20. Права Миранды", action: "miranda" }
+];
+const stroyOptions = [
+    { name: "1. Объявление о строе (Основное)", action: "stroy1", needsInput: true },
+    { name: "2. Объявление о строе (Повтор)", action: "stroy2", needsInput: true },
+    { name: "3. Лекция", action: "lecture", sub: true },
+    { name: "4. Тренировка", action: "training", sub: true },
+    { name: "5. Спец.Задание", action: "special", sub: true }
+];
+const lectureOptions = [
+    { name: "1. Устав", action: "ust1" },
+    { name: "2. Субординация", action: "sub1" }
+];
+const trainingOptions = [
+    { name: "1. Начало тренировки", action: "trenya1" },
+    { name: "2. Разминка рук", action: "trenya2" },
+    { name: "3. Отжимания", action: "trenya3" },
+    { name: "4. Бег по плацу", action: "trenya4" },
+    { name: "4. Восточное единоборство", action: "trenya5" },
+    { name: "4. Завершение тренировки", action: "trenya6" }
+];
+const specialOptions = [
+    { name: "1. Начало задания", action: "rp1" },
+    { name: "2. Завершение задания", action: "rp2" }
+];
+const ITEMS_PER_PAGE = 7;
+const KOAP_LINES_PER_PAGE = 50; // Для пагинации КоАП
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
 const messageFilters = [
     "* Игрок слишком далеко"
@@ -112,8 +331,17 @@ function shouldBlockMessage(message) {
     }
     return false;
 }
+let currentPage = 0;
+let shownLicenseTypes = [];
+let shownMvdSubTypes = [];
+let lastMenuType = null; // "povsednev" or "omon" or "stroy" or null
 let giveLicenseTo = -1;
 let targetId = null;
+let currentMenu = null;
+let currentSubMenu = null;
+let currentAction = null;
+let currentStroyAction = null;
+let tempHour = null;
 let scanInterval = null;
 let setmarkInterval = null;
 let pgInterval = null;
@@ -123,6 +351,13 @@ let chaseNotificationOpen = false;
 let trackingNickname = null;
 let currentScanId = null;
 let autoCuffEnabled = false;
+let currentKoapType = null;
+let koapPage = 0;
+let currentKoapLines = [];
+// Розыск (wanted) state
+let wantedStars = null;
+let ukPage = 0;
+let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
 // Публичный API для LawsHelper — устанавливает причину и активирует авто-розыск
@@ -139,6 +374,19 @@ let partnerId = null;              // ID напарника
 let partnerTrackingEnabled = false; // "Следить за напарником" включено
 let partnerMessageEnabled = false;  // "Сообщение для напарника" включено
 let _awaitingPartnerId = false;    // Ждём ответ /id для установки напарника
+let partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
+function getPartnerTrackingLabel() {
+    if (partnerTrackingEnabled && partnerNick && partnerId) {
+        return `Следить: {00FF00}${partnerNick}[${partnerId}]`;
+    }
+    return `Следить за напарником | {FF0000}Выкл`;
+}
+function getPartnerMenuLabel() {
+    if (partnerTrackingEnabled && partnerNick && partnerId) {
+        return `Напарник | {00FF00}${partnerNick}[${partnerId}]`;
+    }
+    return `Напарник | {FF0000}Выкл`;
+}
 // ==================== КОНЕЦ НАПАРНИК STATE ====================
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
@@ -211,24 +459,18 @@ window.addEventListener('keydown', function(e) {
             e.preventDefault && e.preventDefault();
             var _opt = povsednevOptions.find(function(o){ return o.action === _action; });
             if (!_opt) break;
-            // FIX: СОБР-скин (15340) для greeting не требует ID
+            currentAction = _action;
+            currentMenu = "povsednev"; // FIX: устанавливаем currentMenu чтобы диалог 668 сработал
+            // FIX: СОБР-скин (15340) для greeting не требует ID — как в HandlePovsednevCommand
             var _isOmonSkin = skinId === 15340;
             var _needsIdForThis = _opt.needsId && !(_action === 'greeting' && _isOmonSkin);
-            if (_action === 'fine') {
-                window._duranOpenMode = 'fine';
-                window._duranFineTargetId = giveLicenseTo || -1;
-                window.openInterface('LawsHelper');
+            if (_needsIdForThis) {
+                setTimeout(function(){ showIdInputDialog(giveLicenseTo || -1); }, 50);
+            } else if (_action === 'fine') {
+                setTimeout(function(){ showKoapTypeMenu(giveLicenseTo || -1); }, 50);
             } else if (_action === 'wantedFine') {
-                window._duranOpenMode = 'wanted';
-                window._duranWantedTargetId = giveLicenseTo || -1;
-                window.openInterface('LawsHelper');
-            } else if (_needsIdForThis) {
-                // Открываем LawsHelper на экране ввода ID для этого действия
-                window._duranOpenMode = null;
-                window._duranInitLevel = 'povsednevAction';
-                window._duranInitAction = _action;
-                window._duranTargetId = giveLicenseTo || -1;
-                window.openInterface('LawsHelper');
+                currentUkLines = [...ukLines]; ukPage = 0;
+                setTimeout(function(){ showUkInputDialog(giveLicenseTo || -1); }, 50);
             } else {
                 executePovsednevAction(_action, giveLicenseTo || -1);
             }
@@ -249,8 +491,59 @@ window.addEventListener('keydown', function(e) {
     }
 });
 
-// Сохраняем оригинальный обработчик — используется в авто-розыске (см. ниже)
+// ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
+// Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
+// и вызывает OnMultiDialogClickNavigButton при их нажатии
+const PAGINATED_DIALOG_IDS = [667, 671, 672, 673, 674];
+let _lastPaginatedDialogId = null; // ID последнего открытого пагинированного диалога
+let _navPending = false; // флаг: A/D навигация обработана, блокируем следующий OnDialogResponse(response=0)
+
+// Перехватываем нативные A/D кнопки навигации TABLIST_HEADERS диалогов
 const _origSendClientEventHandle = window.sendClientEventHandle;
+window.sendClientEventHandle = function(event, ...args) {
+    if (args[0] === 'OnMultiDialogClickNavigButton') {
+        const direction = parseInt(args[1]); // 0 = назад (A), 1 = вперёд (D)
+        const dlgId = parseInt(args[2]);
+        if (PAGINATED_DIALOG_IDS.includes(dlgId)) {
+            _navPending = true;
+            setTimeout(() => { _navPending = false; }, 300); // сброс на случай если OnDialogResponse не пришёл
+            console.log(`[NAV] A/D dlg=${dlgId} dir=${direction}`);
+            if (direction === 1) {
+                // D — следующая страница
+                currentPage++;
+            } else {
+                // A — предыдущая страница или выход в родительское меню
+                if (currentPage > 0) {
+                    currentPage--;
+                } else {
+                    // Первая страница — выход назад
+                    currentPage = 0;
+                    if (dlgId === 667) {
+                        lastMenuType = null; currentMenu = null;
+                        setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                    } else if (dlgId === 671) {
+                        lastMenuType = null; currentMenu = null;
+                        setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                    } else if (dlgId === 672 || dlgId === 673 || dlgId === 674) {
+                        currentSubMenu = null;
+                        setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
+                    }
+                    return;
+                }
+            }
+            // Перезагружаем текущее меню с новой страницей
+            setTimeout(() => {
+                if (dlgId === 667) showPovsednevMenuPage(giveLicenseTo);
+                else if (dlgId === 671) showStroyMenuPage(giveLicenseTo);
+                else if (dlgId === 672) showLectureMenuPage(giveLicenseTo);
+                else if (dlgId === 673) showTrainingMenuPage(giveLicenseTo);
+                else if (dlgId === 674) showSpecialMenuPage(giveLicenseTo);
+            }, 50);
+            return;
+        }
+    }
+    return _origSendClientEventHandle.call(this, event, ...args);
+};
 // ==================== END A/D ====================
 
 // ==================== CHAT LOGGING HELPERS ====================
@@ -352,6 +645,7 @@ const setupChatHandler = () => {
                     const nick = idInfoMatch[1];
                     if (nick !== trackingNickname) {
                         trackingNickname = nick;
+                        trackingName = `Отслеживание | {00FF00}${nick}[${currentScanId}]`;
                         console.log(`[TRACKING] 👤 Ник получен: ${nick}`);
                         // Если уведомление уже открыто без ника — обновляем
                         if (trackingNotificationOpen || chaseNotificationOpen) {
@@ -430,6 +724,7 @@ const setupChatHandler = () => {
                     chaseNotificationOpen    = false;
                     currentScanId            = null;
                     trackingNickname         = null;
+                    trackingName             = `Отслеживание | {FF0000}Выкл`;
                     isInActiveChase          = false;
 
                     // Показываем серое уведомление синхронно — без setTimeout,
@@ -572,6 +867,20 @@ setupChatHandler();
 })();
 // ==================== КОНЕЦ РАННЕГО ЛОГИРОВАНИЯ ====================
 
+const getPaginatedMenu = (options) => {
+    const start = currentPage * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    const pageItems = options.slice(start, end);
+    // TABLIST_HEADERS: первая строка — заголовок колонки
+    let menuList = "Действие<n>";
+    pageItems.forEach((option) => {
+        menuList += `${option.name}<n>`;
+    });
+    return menuList;
+};
+const getPaginatedKoap = () => {
+    return currentKoapLines.join("<n>");
+};
 // ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
 // Восстанавливает уведомление отслеживания/погони если оно активно
 const restoreTrackingNotification = () => {
@@ -650,6 +959,7 @@ const startTracking = (id) => {
     }
  
     currentScanId = id;
+    trackingName = `Отслеживание | {00FF00}ID: ${id}`;
     trackingNickname = null;
     isInActiveChase = false; // Сброс флага погони
  
@@ -723,36 +1033,18 @@ const stopTracking = () => {
  
     currentScanId = null;
     trackingNickname = null;
+    trackingName = `Отслеживание | {FF0000}Выкл`;
     isInActiveChase = false;
  
     console.log('[TRACKING] Отслеживание остановлено');
 };
 const toggleAutoCuff = () => {
     autoCuffEnabled = !autoCuffEnabled;
+    autoCuffName = `Auto-cuff | ${autoCuffEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
 };
-const togglePartnerTracking = () => {
-    partnerTrackingEnabled = !partnerTrackingEnabled;
-    if (!partnerTrackingEnabled) {
-        // Выключили — сбрасываем состояние напарника
-        partnerNick = null;
-        partnerId = null;
-        _awaitingPartnerId = false;
-        window._pendingPartnerId = null;
-    }
-    snAdd(`[1, "Напарник", "Слежка: ${partnerTrackingEnabled ? 'Вкл' : 'Выкл'}", "${partnerTrackingEnabled ? '00FF00' : 'FF4444'}", 2500]`);
-    console.log('[PARTNER] partnerTrackingEnabled =', partnerTrackingEnabled);
-};
-const togglePartnerMessage = () => {
-    partnerMessageEnabled = !partnerMessageEnabled;
-    snAdd(`[1, "Напарник", "Сообщение: ${partnerMessageEnabled ? 'Вкл' : 'Выкл'}", "${partnerMessageEnabled ? '00FF00' : 'FF4444'}", 2500]`);
-    console.log('[PARTNER] partnerMessageEnabled =', partnerMessageEnabled);
-};
-window.togglePartnerTracking = togglePartnerTracking;
-window.togglePartnerMessage  = togglePartnerMessage;
 const toggleAutoGrab = () => {
     autoGrabEnabled = !autoGrabEnabled;
-    snAdd(`[1, "Авто-снаряжение", "${autoGrabEnabled ? 'Включено' : 'Выключено'}", "${autoGrabEnabled ? '00FF00' : 'FF4444'}", 2500]`);
-    console.log('[MVD-GRAB] autoGrabEnabled =', autoGrabEnabled);
+    autoGrabName = `Авто-снаряжение | ${autoGrabEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
     try {
         if (autoGrabEnabled) {
             const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length)
@@ -784,6 +1076,201 @@ const toggleAutoGrab = () => {
         }
     } catch(e) {
         console.warn('[MVD-GRAB] toggleAutoGrab notify error:', e);
+    }
+};
+const SendGiveLicenseCommand = (to, index) => {
+    if (index < 0 || index >= shownLicenseTypes.length)
+        return;
+    const selected = shownLicenseTypes[index];
+    switch (selected.id) {
+        case "mvd_main": // МВД
+            lastMenuType = "mvd_sub";
+            setTimeout(() => {
+                showMvdSubMenu(giveLicenseTo);
+            }, 100);
+            break;
+    }
+};
+const HandlePovsednevCommand = (optionIndex) => {
+    const _visible = povsednevOptions.filter(o => !MENU_HIDDEN_ITEMS.includes(o.action));
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
+    if (adjustedIndex >= 0 && adjustedIndex < _visible.length) {
+        const option = _visible[adjustedIndex];
+        currentAction = option.action;
+  
+        // Динамическая проверка needsId: для "greeting" не запрашивать ID, если скин ОМОН (15340)
+        const isOmonSkin = skinId === 15340;
+        const needsIdForThis = option.needsId && !(option.action === "greeting" && isOmonSkin);
+  
+        if (needsIdForThis) {
+            setTimeout(() => {
+                showIdInputDialog(giveLicenseTo);
+            }, 50);
+        } else if (option.action === "fine") {
+            setTimeout(() => {
+                showKoapTypeMenu(giveLicenseTo);
+            }, 50);
+        } else if (option.action === "wantedFine") {
+            currentUkLines = [...ukLines];
+            ukPage = 0;
+            setTimeout(() => {
+                showUkInputDialog(giveLicenseTo);
+            }, 50);
+        } else {
+            executePovsednevAction(option.action, giveLicenseTo);
+        }
+    }
+};
+const HandleStroyCommand = (optionIndex) => {
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
+    if (adjustedIndex >= 0 && adjustedIndex < stroyOptions.length) {
+        const option = stroyOptions[adjustedIndex];
+        currentStroyAction = option.action;
+  
+        if (option.needsInput) {
+            setTimeout(() => {
+                showHourInputDialog(giveLicenseTo);
+            }, 50);
+        } else if (option.sub) {
+            currentSubMenu = option.action;
+            currentPage = 0;
+            setTimeout(() => {
+                if (option.action === "lecture") {
+                    showLectureMenuPage(giveLicenseTo);
+                } else if (option.action === "training") {
+                    showTrainingMenuPage(giveLicenseTo);
+                } else if (option.action === "special") {
+                    showSpecialMenuPage(giveLicenseTo);
+                }
+            }, 50);
+        } else {
+            executeStroyAction(option.action);
+        }
+    }
+};
+const HandleMvdSubCommand = (index) => {
+    if (index < 0 || index >= shownMvdSubTypes.length)
+        return;
+    const selected = shownMvdSubTypes[index];
+    switch (selected.id) {
+        case "povsednev":
+            lastMenuType = "povsednev";
+            currentPage = 0;
+            setTimeout(() => {
+                showPovsednevMenuPage(giveLicenseTo);
+            }, 50);
+            break;
+        case "stroy":
+            lastMenuType = "stroy";
+            currentPage = 0;
+            setTimeout(() => {
+                showStroyMenuPage(giveLicenseTo);
+            }, 50);
+            break;
+        case "tracking":
+            if (currentScanId) {
+                stopTracking();
+                setTimeout(() => {
+                    showMvdSubMenu(giveLicenseTo);
+                }, 50);
+            } else {
+                setTimeout(() => {
+                    showTrackingInputDialog(giveLicenseTo);
+                }, 100);
+            }
+            break;
+        case "autocuff":
+            toggleAutoCuff();
+            setTimeout(() => {
+                showMvdSubMenu(giveLicenseTo);
+            }, 50);
+            break;
+        case "autograb":
+            toggleAutoGrab();
+            setTimeout(() => {
+                showMvdSubMenu(giveLicenseTo);
+            }, 50);
+            break;
+        case "naparnick":
+            setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
+            break;
+    }
+};
+const HandleLectureCommand = (optionIndex) => {
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
+    if (adjustedIndex >= 0 && adjustedIndex < lectureOptions.length) {
+        const option = lectureOptions[adjustedIndex];
+        executeStroyAction(option.action);
+    }
+};
+const HandleTrainingCommand = (optionIndex) => {
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
+    if (adjustedIndex >= 0 && adjustedIndex < trainingOptions.length) {
+        const option = trainingOptions[adjustedIndex];
+        executeStroyAction(option.action);
+    }
+};
+const HandleSpecialCommand = (optionIndex) => {
+    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
+    if (adjustedIndex >= 0 && adjustedIndex < specialOptions.length) {
+        const option = specialOptions[adjustedIndex];
+        executeStroyAction(option.action);
+    }
+};
+const HandleKoapTypeCommand = (index) => {
+    if (index === 0) {
+        currentKoapType = 'pps';
+    } else if (index === 1) {
+        currentKoapType = 'dps';
+    }
+    currentKoapLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
+    koapPage = 0;
+    setTimeout(() => {
+        showKoapInputDialog(giveLicenseTo);
+    }, 50);
+};
+const HandleKoapInput = (input) => {
+    const lowerInput = input.toLowerCase().trim();
+    if (lowerInput === 'все' || lowerInput === 'all') {
+        currentKoapLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
+        setTimeout(() => { showKoapInputDialog(giveLicenseTo); }, 50);
+        return;
+    }
+    const parts = input.trim().split(/\s+/);
+    if (parts.length === 3) {
+        const [id, cost, code] = parts;
+        sendChatInput(`/ticket ${id} ${cost} ${code} КоАП`);
+    } else if (lowerInput) {
+        const originalLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
+        currentKoapLines = originalLines.filter(l => l.toLowerCase().includes(lowerInput));
+        setTimeout(() => { showKoapInputDialog(giveLicenseTo); }, 50);
+    }
+};
+const HandleUkInput = (input) => {
+    const lowerInput = input.toLowerCase().trim();
+    if (lowerInput === 'все' || lowerInput === 'all') {
+        currentUkLines = [...ukLines];
+        setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
+        return;
+    }
+    const parts = input.trim().split(/\s+/);
+    if (parts.length === 2) {
+        const [id, code] = parts;
+        const stars = ukStarsMap[code];
+        if (stars !== undefined) {
+            lastWantedCode = `${code} УК`;
+            _autoWantedActive = true; // авто-причина только через наш диалог
+            sendChatInput(`/su ${id} ${stars}`);
+            // Страховочный сброс — если сервер не открыл диалог за 5 секунд
+            setTimeout(() => { _autoWantedActive = false; }, 5000);
+        } else {
+            // статья не найдена в маппинге — показываем снова
+            console.log(`[УК] Статья ${code} не найдена в маппинге`);
+            setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
+        }
+    } else if (lowerInput) {
+        currentUkLines = ukLines.filter(l => l.toLowerCase().includes(lowerInput));
+        setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
     }
 };
 const executePovsednevAction = (action, targetId) => {
@@ -1107,128 +1594,371 @@ const executeStroyAction = (action, hour = null, minute = null) => {
             break;
     }
 };
-// ════════════════════════════════════════════════════════════════
-//  ОТКРЫТИЕ LAWSHELPER — вместо системных диалогов
-// ════════════════════════════════════════════════════════════════
-// Главное меню МВД (раньше диалог 677)
-window.showMvdSubMenu = (e) => {
+window.showGiveLicenseDialog = (e) => {
     giveLicenseTo = e;
-    window._duranOpenMode = null;
-    window._duranInitLevel = null;
-    window._duranTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('LawsHelper');
+    currentMenu = null;
+    let availableTypes = [];
+    if (mvdSkins.includes(skinId)) {
+        availableTypes.push({ name: "МВД", id: "mvd_main" });
+    }
+    shownLicenseTypes = availableTypes;
+    let licenseList = '';
+    availableTypes.forEach((license, index) => {
+        licenseList += `${index + 1}. ${license.name}<n>`;
+    });
+    window.addDialogInQueue(`[666,2,"АХК tg:ZaharKonst | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
-// Подменю «Повседневная» (раньше диалог 667)
 window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
-    window._duranOpenMode = null;
-    window._duranInitLevel = 'povsednev';
-    window._duranTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('LawsHelper');
+    currentMenu = "povsednev";
+    const _visible = povsednevOptions
+        .filter(o => !MENU_HIDDEN_ITEMS.includes(o.action))
+        .map((o, i) => ({ ...o, name: `${i + 1}. ${o.name.replace(/^\d+\.\s*/, '')}` }));
+    const menuList = getPaginatedMenu(_visible);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < _visible.length ? 1 : 0;
+    window.addDialogInQueue(
+        `[667,5,"Повседневная (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
+        menuList,
+        0
+    );
 };
-// Подменю «Строй» (раньше диалог 671)
 window.showStroyMenuPage = (e) => {
     giveLicenseTo = e;
-    window._duranOpenMode = null;
-    window._duranInitLevel = 'stroy';
-    window._duranTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('LawsHelper');
+    currentMenu = "stroy";
+    const menuList = getPaginatedMenu(stroyOptions);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < stroyOptions.length ? 1 : 0;
+    window.addDialogInQueue(
+        `[671,5,"Строй (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
+        menuList,
+        0
+    );
 };
-// Розыск (раньше диалог 681)
-window.showUkInputDialog = (e) => {
+window.showLectureMenuPage = (e) => {
     giveLicenseTo = e;
-    window._duranOpenMode = 'wanted';
-    window._duranWantedTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('LawsHelper');
+    const menuList = getPaginatedMenu(lectureOptions);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < lectureOptions.length ? 1 : 0;
+    window.addDialogInQueue(
+        `[672,5,"Лекция (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
+        menuList,
+        0
+    );
 };
-// Штрафы (раньше диалог 678/679)
+window.showTrainingMenuPage = (e) => {
+    giveLicenseTo = e;
+    const menuList = getPaginatedMenu(trainingOptions);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < trainingOptions.length ? 1 : 0;
+    window.addDialogInQueue(
+        `[673,5,"Тренировка (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
+        menuList,
+        0
+    );
+};
+window.showSpecialMenuPage = (e) => {
+    giveLicenseTo = e;
+    const menuList = getPaginatedMenu(specialOptions);
+    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < specialOptions.length ? 1 : 0;
+    window.addDialogInQueue(
+        `[674,5,"Спец.Задание (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
+        menuList,
+        0
+    );
+};
+window.showMvdSubMenu = (e) => {
+    giveLicenseTo = e;
+    currentMenu = "mvd_sub";
+    let availableSub = [
+        { name: "Повседневная", id: "povsednev" }
+    ];
+    if (stroyRanks.includes(RANK)) {
+        availableSub.push({ name: "Строй", id: "stroy" });
+    }
+    availableSub.push({ name: trackingName, id: "tracking" });
+    availableSub.push({ name: autoCuffName, id: "autocuff" });
+    if (window.AUTO_GRAB === true) {
+        availableSub.push({ name: autoGrabName, id: "autograb" });
+    }
+    availableSub.push({ name: getPartnerMenuLabel(), id: "naparnick" });
+    shownMvdSubTypes = availableSub;
+    let licenseList = '';
+    availableSub.forEach((license, index) => {
+        licenseList += `${index + 1}. ${license.name}<n>`;
+    });
+    window.addDialogInQueue(`[677,2,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
+};
+// ==================== МЕНЮ НАПАРНИКА ====================
+window.showPartnerMenu = (e) => {
+    giveLicenseTo = e;
+    const trackLabel = getPartnerTrackingLabel();
+    const menuList =
+        `1. ${trackLabel}<n>` +
+        `2. ${partnerMessageName}`;
+    window.addDialogInQueue(`[682,2,"Напарник","","Выбрать","Назад",0,0]`, menuList, 0);
+};
+window.showPartnerIdInputDialog = (e) => {
+    giveLicenseTo = e;
+    const cur = (partnerNick && partnerId) ? `Текущий: ${partnerNick}[${partnerId}]` : `Не задан`;
+    window.addDialogInQueue(
+        `[683,1,"Напарник — Ввод ID","Введите ID напарника (${cur}):","Подтвердить","Отмена",0,0]`,
+        "", 0
+    );
+};
+// ==================== КОНЕЦ МЕНЮ НАПАРНИКА ====================
 window.showKoapTypeMenu = (e) => {
     giveLicenseTo = e;
-    window._duranOpenMode = 'fine';
-    window._duranFineTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('LawsHelper');
+    currentMenu = "koap_type";
+    const menuList = "1. ППС КоАП (Административный)<n>2. ДПС КоАП (ПДД)";
+    window.addDialogInQueue(`[678,2,"Выбор типа КоАП","","Выбрать","Отмена",0,0]`, menuList, 0);
 };
-
-// ════════════════════════════════════════════════════════════════
-//  ПУБЛИЧНОЕ API ДЛЯ LAWSHELPER
-// ════════════════════════════════════════════════════════════════
-
-// Текущее состояние — читается LawsHelper напрямую (без поллинга)
-window._mvdGetState = function() {
-    return {
-        currentScanId: currentScanId,
-        autoCuffEnabled: autoCuffEnabled,
-        autoGrabEnabled: autoGrabEnabled,
-        partnerTrackingEnabled: partnerTrackingEnabled,
-        partnerMessageEnabled: partnerMessageEnabled,
-        partnerNick: partnerNick,
-        partnerId: partnerId,
-        rank: RANK || '',
-        firstName: FIRST_NAME || '',
-        lastName: LAST_NAME || '',
-        rankTag: rankTags[RANK] || ('[' + (RANK || 'МВД') + ']'),
-        stroyAccess: stroyRanks.includes(RANK),
-        // Настройки меню «Повседневная» из установщика — LawsHelper фильтрует/сортирует DAHK_POVSEDNEV
-        menuHiddenItems: (typeof MENU_HIDDEN_ITEMS !== 'undefined' && MENU_HIDDEN_ITEMS) || [],
-        menuOrder: (typeof MENU_ORDER !== 'undefined' && MENU_ORDER) || [],
-    };
-};
-
-// Хоткей открытия меню МВД (Alt+0 и т.д.) — вызывается из обработчика keydown ниже
-window._mvdBindAction = function(action, targetId) {
-    if (action === 'wantedFine') {
-        window._duranOpenMode = 'wanted';
-        window._duranWantedTargetId = targetId || -1;
-        window.openInterface('LawsHelper');
-        return;
+window.showKoapInputDialog = (e) => {
+    giveLicenseTo = e;
+    const typeUpper = currentKoapType.toUpperCase();
+    let title = `${typeUpper === 'DPS' ? 'ДПС' : 'ППС'} КоАП`;
+    if (currentKoapLines.length < (currentKoapType === 'dps' ? dpsKoapLines.length : ppsKoapLines.length)) {
+        title += ' [Поиск]';
     }
-    if (action === 'fine') {
-        window._duranOpenMode = 'fine';
-        window._duranFineTargetId = targetId || -1;
-        window.openInterface('LawsHelper');
-        return;
-    }
-    // По умолчанию — главное меню МВД
-    window._duranOpenMode = null;
-    window._duranInitLevel = null;
-    window._duranTargetId = targetId || -1;
-    window.openInterface('LawsHelper');
+    const text = getPaginatedKoap();
+    window.addDialogInQueue(`[679,1,"${title}","Ввод: ID статья сумма | Поиск: введи текст | Сброс: все","Подтвердить","Отмена",0,0]`, text, 0);
 };
-
-// Клик по пункту меню в LawsHelper, требующий действия от mvdN
-window._mvdMenuAction = function(option, targetId) {
-    if (!option) return;
-    if (option.action === 'wantedFine') {
-        window._duranOpenMode = 'wanted';
-        window._duranWantedTargetId = targetId || -1;
-        window.openInterface('LawsHelper');
-        return;
-    }
-    if (option.action === 'fine') {
-        window._duranOpenMode = 'fine';
-        window._duranFineTargetId = targetId || -1;
-        window.openInterface('LawsHelper');
-        return;
-    }
+window.showWantedStarsInputDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[680,1,"Розыск — Кол-во звёзд","Введите количество звёзд (1-6):","Далее","Отмена",0,0]`, "", 0);
 };
-
-// Задать напарника по ID — вызывается из LawsHelper
-window._mvdSetPartnerId = function(id) {
-    partnerId = id;
-    _awaitingPartnerId = true;
-    window._pendingPartnerId = id;
-    snAdd(`[1, "Напарник", "Ищем ID: ${id}...", "FFAA00", 3000]`);
-    if (typeof window.sendChatInput === 'function') window.sendChatInput('/id ' + id);
-    console.log('[PARTNER] _mvdSetPartnerId =', id, ', ожидаем /id ответ');
+const getPaginatedUk = () => {
+    return currentUkLines.join('<n>');
 };
-
+window.showUkInputDialog = (e) => {
+    giveLicenseTo = e;
+    let title = `УК РФ`;
+    if (currentUkLines.length < ukLines.length) {
+        title += ' [Поиск]';
+    }
+    const text = getPaginatedUk();
+    window.addDialogInQueue(`[681,1,"${title}","Ввод: ID статья | Поиск: введи текст | Сброс: все","Подтвердить","Отмена",0,0]`, text, 0);
+};
+window.showIdInputDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
+};
+window.showTrackingInputDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[669,1,"Отслеживание","Введите ID для отслеживания:","Начать","Отмена",0,0]`, "", 0);
+};
+window.showHourInputDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[675,1,"Ввод часа","Введите когда начнется строй (Час. по МСК):","Подтвердить","Отмена",0,0]`, "", 0);
+};
+window.showMinuteInputDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[676,1,"Ввод минуты","Введите когда начнется строй (Мин. по МСК):","Подтвердить","Отмена",0,0]`, "", 0);
+};
 window.sendClientEventCustom = (event, ...args) => {
-
     console.log(`Событие: ${event}, Аргументы:`, args);
 
     // Alt+Q — автотазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
-    if (args[0] === "OnDialogResponse" && _wantedDialogId !== null && args[1] === _wantedDialogId) {
+    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 683)) {
+        if (args[1] === 666) { // Главное меню
+            const listitem = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                SendGiveLicenseCommand(giveLicenseTo, listitem);
+            } else {
+                lastMenuType = null;
+                currentMenu = null;
+                restoreTrackingNotification();
+            }
+        }
+        else if (args[1] === 667) { // Меню Повседневная
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandlePovsednevCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                // ESC — возврат в МВД подменю
+                currentPage = 0;
+                lastMenuType = null; currentMenu = null;
+                setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                restoreTrackingNotification();
+                return;
+            }
+        }
+        else if (args[1] === 668) { // Диалог ввода ID
+            const inputId = args[4];
+            // FIX: убрана проверка currentMenu === "povsednev" и giveLicenseTo !== -1
+            // чтобы бинд-кнопки работали независимо от того открывалось ли меню через /dahk
+            if (args[2] === 1 && currentAction) {
+                executePovsednevAction(currentAction, inputId);
+            }
+            currentAction = null;
+        }
+        else if (args[1] === 669) { // Диалог ввода ID для отслеживания
+            const inputId = args[4];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                startTracking(inputId);
+            } else {
+                stopTracking();
+                setTimeout(() => {
+                    showMvdSubMenu(giveLicenseTo);
+                }, 50);
+            }
+        }
+        else if (args[1] === 671) { // Меню Строй
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleStroyCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                currentPage = 0;
+                lastMenuType = null; currentMenu = null;
+                setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                restoreTrackingNotification();
+                return;
+            }
+        }
+        else if (args[1] === 672) { // Меню Лекция
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleLectureCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                currentPage = 0;
+                currentSubMenu = null;
+                setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
+                return;
+            }
+        }
+        else if (args[1] === 673) { // Меню Тренировка
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleTrainingCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                currentPage = 0;
+                currentSubMenu = null;
+                setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
+                return;
+            }
+        }
+        else if (args[1] === 674) { // Меню Спец.Задание
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleSpecialCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                currentPage = 0;
+                currentSubMenu = null;
+                setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
+                return;
+            }
+        }
+        else if (args[1] === 675) { // Ввод часа
+            const inputHour = args[4];
+            if (args[2] === 1 && giveLicenseTo !== -1 && currentStroyAction) {
+                tempHour = inputHour;
+                setTimeout(() => {
+                    showMinuteInputDialog(giveLicenseTo);
+                }, 50);
+            }
+            else {
+                currentStroyAction = null;
+            }
+        }
+        else if (args[1] === 676) { // Ввод минуты
+            const inputMinute = args[4];
+            if (args[2] === 1 && giveLicenseTo !== -1 && currentStroyAction && tempHour) {
+                executeStroyAction(currentStroyAction, tempHour, inputMinute);
+            }
+            currentStroyAction = null;
+            tempHour = null;
+        }
+        else if (args[1] === 677) { // Меню МВД sub
+            const listitem = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleMvdSubCommand(listitem);
+            } else if (args[2] === 0) {
+                // Отмена / ESC — закрываем меню, восстанавливаем уведомление
+                restoreTrackingNotification();
+            }
+        }
+        else if (args[1] === 678) { // Выбор типа КоАП
+            const listitem = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleKoapTypeCommand(listitem);
+            }
+        }
+        else if (args[1] === 679) { // Input для КоАП
+            const input = args[4];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleKoapInput(input);
+            }
+        }
+        else if (args[1] === 681) { // Input для УК (розыск)
+            const input = args[4];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleUkInput(input);
+            } else {
+                wantedStars = null;
+            }
+        }
+        // ==================== НАПАРНИК ДИАЛОГИ ====================
+        else if (args[1] === 682) { // Меню Напарник
+            const listitem = args[3];
+            if (args[2] === 1) {
+                if (listitem === 0) {
+                    // "Следить за напарником" — если уже включено, отключаем; иначе запрашиваем ID
+                    if (partnerTrackingEnabled) {
+                        partnerNick = null;
+                        partnerId = null;
+                        partnerTrackingEnabled = false;
+                        _awaitingPartnerId = false;
+                        snAdd('[1, "Напарник", "Слежка за напарником отключена", "FF0000", 2500]');
+                        console.log('[PARTNER] Слежка отключена');
+                        setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
+                    } else {
+                        setTimeout(() => showPartnerIdInputDialog(giveLicenseTo), 50);
+                    }
+                } else if (listitem === 1) {
+                    // "Сообщение для напарника" — переключатель
+                    partnerMessageEnabled = !partnerMessageEnabled;
+                    partnerMessageName = `Сообщение для напарника | ${partnerMessageEnabled ? '{00FF00}Вкл' : '{FF0000}Выкл'}`;
+                    snAdd(`[1, "Напарник", "Сообщение: ${partnerMessageEnabled ? 'Вкл' : 'Выкл'}", "${partnerMessageEnabled ? '00FF00' : 'FF0000'}", 2500]`);
+                    console.log(`[PARTNER] Сообщение для напарника: ${partnerMessageEnabled ? 'вкл' : 'выкл'}`);
+                    setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
+                }
+            } else if (args[2] === 0) {
+                // Назад — в МВД подменю
+                setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+            }
+        }
+        else if (args[1] === 683) { // Ввод ID напарника
+            const inputId = args[4];
+            if (args[2] === 1 && inputId && inputId.trim()) {
+                const rawId = inputId.trim();
+                // Сохраняем ID предварительно и запускаем /id для получения ника
+                partnerId = rawId;
+                partnerNick = null;
+                partnerTrackingEnabled = true;
+                _awaitingPartnerId = true;
+                window._pendingPartnerId = rawId;
+                sendChatInput(`/id ${rawId}`);
+                snAdd(`[1, "Напарник", "Ищу игрока ID: ${rawId}...", "FFAA00", 3000]`);
+                console.log(`[PARTNER] Установка напарника: /id ${rawId}`);
+            } else {
+                // Отмена — возврат в меню напарника
+                setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
+            }
+        }
+        // ==================== КОНЕЦ НАПАРНИК ДИАЛОГИ ====================
+    } else if (args[0] === "OnDialogResponse" && _wantedDialogId !== null && args[1] === _wantedDialogId) {
         // ==================== /WANTED: ВЫБОР ИГРОКА → АВТО-ОТСЛЕЖИВАНИЕ ====================
         if (args[2] === 1) {
             const listitem = parseInt(args[3]);
@@ -1261,7 +1991,15 @@ window.sendChatInputCustom = e => {
             // Успешное открытие меню МВД
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
             restoreTrackingNotification();
-            showMvdSubMenu(args[1]);
+            if (lastMenuType === "povsednev") {
+                showPovsednevMenuPage(args[1]);
+            } else if (lastMenuType === "stroy") {
+                showStroyMenuPage(args[1]);
+            } else if (lastMenuType === "mvd_sub") {
+                showMvdSubMenu(args[1]);
+            } else {
+                showMvdSubMenu(args[1]);
+            }
         } else {
             // Ошибка: скин не подходит
             snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
@@ -1290,15 +2028,24 @@ window.sendChatInputCustom = e => {
             console.log('[CONSOLE] Ошибка переключения консоли:', e.message);
         }
     } else if (args[0] == "/mvdreset") {
+        lastMenuType = null;
+        currentMenu = null;
+        currentSubMenu = null;
+        currentAction = null;
+        currentStroyAction = null;
+        currentPage = 0;
         stopTracking();
         autoCuffEnabled = false;
+        trackingName = `Отслеживание | {FF0000}Выкл`;
+        autoCuffName = `Auto-cuff | {FF0000}Выкл`;
         // Сброс напарника
         partnerNick = null;
         partnerId = null;
         partnerTrackingEnabled = false;
         partnerMessageEnabled = false;
         _awaitingPartnerId = false;
-        sendChatInput("Настройки МВД сброшены.");
+        partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
+        sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
     }
@@ -1371,7 +2118,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             }
 
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
-            if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && autoGrabEnabled && typeof window.autoGrab === 'function') {
+            if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
                 if (!window._mvdGrabProcessing) {
                     console.log('=== [MVD-GRAB v2.1] 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
@@ -1467,12 +2214,11 @@ var AUTO_GRAB_SKIP = [];
 // Явно пишем в window чтобы showMvdSubMenu (загруженный ДО eval) видел значение
 window.AUTO_GRAB = AUTO_GRAB;
 window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
-// Блок авто-снаряжения всегда запускается — autoGrab() сам проверяет autoGrabEnabled
-// AUTO_GRAB=true из LoadAhk только разрешает брать снаряжение при первом открытии службы;
-// тоггл в меню управляет через autoGrabEnabled напрямую
-;(function() {
+// Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
+if (AUTO_GRAB || window.AUTO_GRAB === true) {
+(function() {
     console.log('=== [MVD-GRAB v2.1] 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН ===');
-    window.AUTO_GRAB = true;
+    window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
 
     // ==================== ID ПРЕДМЕТОВ ====================
     const ITEM = {
@@ -1781,6 +2527,7 @@ window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
     });
     console.log('=== [MVD-GRAB v2.1] ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
+} // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
 
 // ==================== СВОП ТАЗЕР ↔ ДИГЛ (v15 — polling) ====================
