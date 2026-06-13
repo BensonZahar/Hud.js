@@ -16,62 +16,106 @@ const SVG_CHECK=`<svg width="10" height="8" viewBox="0 0 10 8" fill="none" xmlns
 const SVG_RECEIPT=`<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="2" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/><line x1="8" y1="8" x2="20" y2="8" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/><line x1="8" y1="12" x2="20" y2="12" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/><line x1="8" y1="16" x2="16" y2="16" stroke="rgba(255,255,255,0.3)" stroke-width="1.2"/><line x1="8" y1="20" x2="14" y2="20" stroke="rgba(255,255,255,0.2)" stroke-width="1.2"/></svg>`;
 const SVG_BACK=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 2L4 7l5 5" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+// ── SVG-иконки для пунктов меню (вместо эмодзи) ──────────────────
+const ICONS={
+	cop:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="5" r="3" stroke="currentColor" stroke-width="1.3"/><path d="M2 14c0-3.314 2.686-5 6-5s6 1.686 6 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><rect x="5" y="1" width="6" height="1.5" rx="0.75" fill="currentColor"/></svg>`,
+	helmet:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 9C3 5.686 5.239 3 8 3s5 2.686 5 6v1H3V9z" stroke="currentColor" stroke-width="1.3"/><rect x="2" y="10" width="12" height="2" rx="1" fill="currentColor"/></svg>`,
+	radar:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="2" fill="currentColor"/><path d="M5 8a3 3 0 0 1 3-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M3 8a5 5 0 0 1 5-5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M11 8a3 3 0 0 1-3 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13 8a5 5 0 0 1-5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+	cuff:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/><circle cx="11" cy="8" r="2.5" stroke="currentColor" stroke-width="1.3"/><line x1="7.5" y1="8" x2="8.5" y2="8" stroke="currentColor" stroke-width="1.3"/></svg>`,
+	partner:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5.5" cy="5" r="2" stroke="currentColor" stroke-width="1.2"/><circle cx="10.5" cy="5" r="2" stroke="currentColor" stroke-width="1.2"/><path d="M1 13c0-2.5 2-4 4.5-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M15 13c0-2.5-2-4-4.5-4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M8 13c0-2.5 1-3.5 2.5-3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+	wave:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 8c1-2 2-2 3 0s2 2 3 0 2-2 3 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M4 5l1.5 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+	doc:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="1" width="10" height="14" rx="1.5" stroke="currentColor" stroke-width="1.3"/><line x1="6" y1="5" x2="10" y2="5" stroke="currentColor" stroke-width="1.2"/><line x1="6" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.2"/><line x1="6" y1="11" x2="9" y2="11" stroke="currentColor" stroke-width="1.2"/></svg>`,
+	search_doc:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="1" width="9" height="12" rx="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="12" cy="12" r="2.5" stroke="currentColor" stroke-width="1.3"/><line x1="13.8" y1="13.8" x2="15.5" y2="15.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+	tablet:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="1" width="10" height="14" rx="2" stroke="currentColor" stroke-width="1.3"/><rect x="6" y="12" width="4" height="1" rx="0.5" fill="currentColor"/></svg>`,
+	car:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 9l1.5-4h9L14 9v3H2V9z" stroke="currentColor" stroke-width="1.3"/><circle cx="4.5" cy="12.5" r="1.2" stroke="currentColor" stroke-width="1.1"/><circle cx="11.5" cy="12.5" r="1.2" stroke="currentColor" stroke-width="1.1"/></svg>`,
+	building:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="4" width="12" height="11" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M6 15V10h4v5" stroke="currentColor" stroke-width="1.2"/><path d="M2 7h12" stroke="currentColor" stroke-width="1.1"/><rect x="1" y="2" width="14" height="2.5" rx="0.75" fill="currentColor" opacity="0.5"/></svg>`,
+	unlock:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="7" width="10" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 7V5a3 3 0 0 1 6 0" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="8" cy="11" r="1" fill="currentColor"/></svg>`,
+	siren:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="9" r="3" stroke="currentColor" stroke-width="1.3"/><path d="M3 9H1M15 9h-2M8 4V2M4.5 5.5L3 4M11.5 5.5L13 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+	magnify:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="6.5" cy="6.5" r="4" stroke="currentColor" stroke-width="1.3"/><line x1="9.5" y1="9.5" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+	walk:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="2.5" r="1.5" fill="currentColor"/><path d="M8 4.5l-2 4 2 1 1 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M8 4.5l1.5 3.5-1.5 1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M6 8.5l-2 2M9.5 8l2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+	check_circle:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="6.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 8l2.5 2.5L11 5.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+	money:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="4" width="14" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8.5" r="2" stroke="currentColor" stroke-width="1.2"/><line x1="1" y1="6.5" x2="15" y2="6.5" stroke="currentColor" stroke-width="1.1"/><line x1="1" y1="10.5" x2="15" y2="10.5" stroke="currentColor" stroke-width="1.1"/></svg>`,
+	star_badge:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 2l1.5 3 3.5.5-2.5 2.5.5 3.5L8 10l-3 1.5.5-3.5L3 5.5l3.5-.5z" stroke="currentColor" stroke-width="1.2" fill="none"/></svg>`,
+	flask:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 2h4M7 2v4L4 12a1 1 0 0 0 .9 1.5h6.2A1 1 0 0 0 12 12L9 6V2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+	window_break:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="3" width="12" height="10" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M2 8h5l2-3 2 5 2-2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+	mask:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 6c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2v1.5C14 10 11.3 13 8 13S2 10 2 7.5V6z" stroke="currentColor" stroke-width="1.3"/><line x1="5" y1="9" x2="11" y2="9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+	fingerprint:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 14C5 14 2 11.5 2 8c0-3 2.7-5 6-5s6 2 6 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M5 8c0-1.7 1.3-3 3-3s3 1.3 3 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M7 8a1 1 0 0 1 2 0" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+	license:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="3" width="14" height="10" rx="1.5" stroke="currentColor" stroke-width="1.3"/><circle cx="5" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/><line x1="9" y1="6" x2="13" y2="6" stroke="currentColor" stroke-width="1.2"/><line x1="9" y1="9" x2="13" y2="9" stroke="currentColor" stroke-width="1.2"/></svg>`,
+	scale:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="8" y1="2" x2="8" y2="14" stroke="currentColor" stroke-width="1.3"/><line x1="3" y1="5" x2="13" y2="5" stroke="currentColor" stroke-width="1.3"/><path d="M3 5l-2 4h4z" stroke="currentColor" stroke-width="1.1"/><path d="M13 5l-2 4h4z" stroke="currentColor" stroke-width="1.1"/><line x1="5" y1="14" x2="11" y2="14" stroke="currentColor" stroke-width="1.3"/></svg>`,
+	announce:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 6h2l6-3v10l-6-3H2V6z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M12 6c1 .5 1.5 1.2 1.5 2S13 9.5 12 10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+	repeat:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 6a5 5 0 0 1 10 0v.5M13 10a5 5 0 0 1-10 0v-.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M11 4l2 2-2 2M5 8l-2 2 2 2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+	book:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2h8a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.3"/><line x1="5" y1="5" x2="10" y2="5" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="11" x2="8" y2="11" stroke="currentColor" stroke-width="1.2"/></svg>`,
+	weights:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="6" width="4" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="11" y="6" width="4" height="5" rx="1" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="8.5" x2="11" y2="8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+	target:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.2"/><circle cx="8" cy="8" r="1" fill="currentColor"/></svg>`,
+	scroll:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 2h8a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a2 2 0 0 1 0-4h1V3a1 1 0 0 0-1-1z" stroke="currentColor" stroke-width="1.3"/><line x1="7" y1="5" x2="11" y2="5" stroke="currentColor" stroke-width="1.2"/><line x1="7" y1="8" x2="11" y2="8" stroke="currentColor" stroke-width="1.2"/></svg>`,
+	rank:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 2l1 3h3l-2.5 2 1 3L8 8.5 5.5 10l1-3L4 5h3z" stroke="currentColor" stroke-width="1.2"/><line x1="3" y1="13" x2="13" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><line x1="5" y1="11.5" x2="11" y2="11.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+	flag_start:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="4" y1="2" x2="4" y2="14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M4 2h8l-2 3 2 3H4V2z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`,
+	trophy:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 2h6v5a3 3 0 0 1-6 0V2z" stroke="currentColor" stroke-width="1.3"/><path d="M2 3h3v3a1.5 1.5 0 0 1-3 0V3zM11 3h3v3a1.5 1.5 0 0 1-3 0V3z" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="10" x2="8" y2="13" stroke="currentColor" stroke-width="1.3"/><line x1="5" y1="13" x2="11" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+	arm:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4 12l2-5 2-1 4-3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><circle cx="12" cy="3" r="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M6 7l1 5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+	pushup:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="4" r="1.5" fill="currentColor"/><path d="M2 11l4-3 3 2 3-4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><line x1="1" y1="13" x2="15" y2="13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+	run:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="3" r="1.5" fill="currentColor"/><path d="M10 4.5l-2 3-3 1.5M8 7.5l1 4M5 9l-2 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M10 5l3-1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
+	karate:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="9" cy="3" r="1.5" fill="currentColor"/><path d="M9 4.5L7 8l-3 2M9 4.5l3 2M7 8l1 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+	play:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 3l9 5-9 5V3z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
+	eye:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 8c0-1 3-5 7-5s7 4 7 5-3 5-7 5S1 9 1 8z" stroke="currentColor" stroke-width="1.3"/><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/></svg>`,
+	radio:`<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="6" width="10" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M5 6l4-4 4 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="8" cy="10" r="1.5" stroke="currentColor" stroke-width="1.2"/><line x1="6" y1="8" x2="10" y2="8" stroke="currentColor" stroke-width="1.1"/></svg>`,
+};
+
 // ── Данные меню /dahk ─────────────────────────────────────────────
 const DAHK_MENU_MAIN=[
-	{id:"povsednev", label:"Повседневная", icon:"👮"},
-	{id:"stroy",     label:"Строй",        icon:"🪖"},
-	{id:"tracking",  label:"Отслеживание", icon:"📡", toggle:true},
-	{id:"autocuff",  label:"Auto-cuff",    icon:"🔗", toggle:true},
-	{id:"naparnick", label:"Напарник",     icon:"🤝"},
+	{id:"povsednev", label:"Повседневная", iconKey:"cop"},
+	{id:"stroy",     label:"Строй",        iconKey:"helmet"},
+	{id:"tracking",  label:"Отслеживание", iconKey:"radar",   toggle:true},
+	{id:"autocuff",  label:"Auto-cuff",    iconKey:"cuff",    toggle:true},
+	{id:"naparnick", label:"Напарник",     iconKey:"partner"},
 ];
 const DAHK_POVSEDNEV=[
-	{id:"greeting",       label:"Приветствие",           icon:"👋", needsId:true},
-	{id:"checkDocuments", label:"Проверка документов",   icon:"📋"},
-	{id:"studyDocuments", label:"Изучение документов",   icon:"🔍"},
-	{id:"scanningTablet", label:"Сканирование",          icon:"📱"},
-	{id:"cuffing",        label:"Надевание наручников",  icon:"⛓️",  needsId:true},
-	{id:"putInCar",       label:"Посадка в машину",      icon:"🚗",  needsId:true},
-	{id:"arrest",         label:"Доставка в участок",    icon:"🏢",  needsId:true},
-	{id:"uncuffing",      label:"Снятие наручников",     icon:"🔓",  needsId:true},
-	{id:"chase",          label:"Преследование",         icon:"🚨",  needsId:true},
-	{id:"search",         label:"Обыск",                 icon:"🔎",  needsId:true},
-	{id:"escort",         label:"Конвоирование",         icon:"🚶",  needsId:true},
-	{id:"clearWanted",    label:"Снятие розыска",        icon:"✅",  needsId:true},
-	{id:"fine",           label:"Штраф [/ticket]",       icon:"💸",  special:"fine"},
-	{id:"wantedFine",     label:"Розыск [/su]",          icon:"⭐",  special:"wanted"},
-	{id:"confiscate",     label:"Изъятие веществ",       icon:"🧪",  needsId:true},
-	{id:"breakGlass",     label:"Разбитие стекла",       icon:"🪟",  needsId:true},
-	{id:"removeMask",     label:"Снятие маски",          icon:"😷"},
-	{id:"fingerprint",    label:"Сканирование отпечатков",icon:"🖐️"},
-	{id:"takeLicense",    label:"Изъятие прав",          icon:"🪪",  needsId:true},
-	{id:"miranda",        label:"Права Миранды",         icon:"⚖️"},
+	{id:"greeting",       label:"Приветствие",            iconKey:"wave",         needsId:true},
+	{id:"checkDocuments", label:"Проверка документов",    iconKey:"doc"},
+	{id:"studyDocuments", label:"Изучение документов",    iconKey:"search_doc"},
+	{id:"scanningTablet", label:"Сканирование",           iconKey:"tablet"},
+	{id:"cuffing",        label:"Надевание наручников",   iconKey:"cuff",         needsId:true},
+	{id:"putInCar",       label:"Посадка в машину",       iconKey:"car",          needsId:true},
+	{id:"arrest",         label:"Доставка в участок",     iconKey:"building",     needsId:true},
+	{id:"uncuffing",      label:"Снятие наручников",      iconKey:"unlock",       needsId:true},
+	{id:"chase",          label:"Преследование",          iconKey:"siren",        needsId:true},
+	{id:"search",         label:"Обыск",                  iconKey:"magnify",      needsId:true},
+	{id:"escort",         label:"Конвоирование",          iconKey:"walk",         needsId:true},
+	{id:"clearWanted",    label:"Снятие розыска",         iconKey:"check_circle", needsId:true},
+	{id:"fine",           label:"Штраф [/ticket]",        iconKey:"money",        special:"fine"},
+	{id:"wantedFine",     label:"Розыск [/su]",           iconKey:"star_badge",   special:"wanted"},
+	{id:"confiscate",     label:"Изъятие веществ",        iconKey:"flask",        needsId:true},
+	{id:"breakGlass",     label:"Разбитие стекла",        iconKey:"window_break", needsId:true},
+	{id:"removeMask",     label:"Снятие маски",           iconKey:"mask"},
+	{id:"fingerprint",    label:"Сканирование отпечатков",iconKey:"fingerprint"},
+	{id:"takeLicense",    label:"Изъятие прав",           iconKey:"license",      needsId:true},
+	{id:"miranda",        label:"Права Миранды",          iconKey:"scale"},
 ];
 const DAHK_STROY=[
-	{id:"stroy1",   label:"Объявление о строе (Основное)", icon:"📢", needsHour:true},
-	{id:"stroy2",   label:"Объявление о строе (Повтор)",   icon:"🔁", needsHour:true},
-	{id:"lecture",  label:"Лекция",                        icon:"📖", sub:"lecture"},
-	{id:"training", label:"Тренировка",                    icon:"🏋️", sub:"training"},
-	{id:"special",  label:"Спец.Задание",                  icon:"🎯", sub:"special"},
+	{id:"stroy1",   label:"Объявление о строе (Основное)", iconKey:"announce", needsHour:true},
+	{id:"stroy2",   label:"Объявление о строе (Повтор)",   iconKey:"repeat",   needsHour:true},
+	{id:"lecture",  label:"Лекция",                        iconKey:"book",     sub:"lecture"},
+	{id:"training", label:"Тренировка",                    iconKey:"weights",  sub:"training"},
+	{id:"special",  label:"Спец.Задание",                  iconKey:"target",   sub:"special"},
 ];
 const DAHK_LECTURE=[
-	{id:"ust1", label:"Устав",        icon:"📜"},
-	{id:"sub1", label:"Субординация", icon:"🎖️"},
+	{id:"ust1", label:"Устав",        iconKey:"scroll"},
+	{id:"sub1", label:"Субординация", iconKey:"rank"},
 ];
 const DAHK_TRAINING=[
-	{id:"trenya1", label:"Начало тренировки",      icon:"🏁"},
-	{id:"trenya2", label:"Разминка рук",            icon:"💪"},
-	{id:"trenya3", label:"Отжимания",               icon:"🤸"},
-	{id:"trenya4", label:"Бег по плацу",            icon:"🏃"},
-	{id:"trenya5", label:"Восточное единоборство",  icon:"🥋"},
-	{id:"trenya6", label:"Завершение тренировки",   icon:"🏆"},
+	{id:"trenya1", label:"Начало тренировки",      iconKey:"flag_start"},
+	{id:"trenya2", label:"Разминка рук",            iconKey:"arm"},
+	{id:"trenya3", label:"Отжимания",               iconKey:"pushup"},
+	{id:"trenya4", label:"Бег по плацу",            iconKey:"run"},
+	{id:"trenya5", label:"Восточное единоборство",  iconKey:"karate"},
+	{id:"trenya6", label:"Завершение тренировки",   iconKey:"trophy"},
 ];
 const DAHK_SPECIAL=[
-	{id:"rp1", label:"Начало задания",    icon:"▶️"},
-	{id:"rp2", label:"Завершение задания",icon:"🏁"},
+	{id:"rp1", label:"Начало задания",    iconKey:"play"},
+	{id:"rp2", label:"Завершение задания",iconKey:"flag_start"},
 ];
 const DAHK_NAPARNICK=[
-	{id:"partner_track",   label:"Следить за напарником", icon:"👁️", toggle:true},
-	{id:"partner_message", label:"Сообщение напарнику",   icon:"📻", toggle:true},
+	{id:"partner_track",   label:"Следить за напарником", iconKey:"eye",   toggle:true},
+	{id:"partner_message", label:"Сообщение напарнику",   iconKey:"radio", toggle:true},
 ];
 
 function render(_ctx,_cache,$props,$setup,$data,$options){
@@ -139,7 +183,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 									class: normalizeClass(["lh-dahk__item", {"lh-dahk__item_toggle": item.toggle, "lh-dahk__item_on": $options.dahkToggleState(item.id)}]),
 									onClick: $event => $options.dahkMainClick(item)
 								}, [
-									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-icon lh-dahk__item-icon_svg", innerHTML: ICONS[item.iconKey]||""}),
 									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
 									item.toggle
 										? (openBlock(), createElementBlock("span", {
@@ -160,7 +204,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 									class: "lh-dahk__item",
 									onClick: $event => $options.dahkActionClick(item)
 								}, [
-									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-icon lh-dahk__item-icon_svg", innerHTML: ICONS[item.iconKey]||""}),
 									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
 									createBaseVNode("span", {class:"lh-dahk__arrow"}, "›")
 								], 8, ["onClick"])
@@ -176,7 +220,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 									class: "lh-dahk__item",
 									onClick: $event => $options.dahkStroyClick(item)
 								}, [
-									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-icon lh-dahk__item-icon_svg", innerHTML: ICONS[item.iconKey]||""}),
 									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
 									createBaseVNode("span", {class:"lh-dahk__arrow"}, "›")
 								], 8, ["onClick"])
@@ -192,30 +236,36 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 									class: "lh-dahk__item",
 									onClick: $event => $options.dahkSubClick(item)
 								}, [
-									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-icon lh-dahk__item-icon_svg", innerHTML: ICONS[item.iconKey]||""}),
 									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
 									createBaseVNode("span", {class:"lh-dahk__arrow"}, "›")
 								], 8, ["onClick"])
 							)), 128))
 						]))
 						: createCommentVNode("", true),
-					// ── Уровень: NAPARNICK ─────────────────────────────
+			// ── Уровень: NAPARNICK ─────────────────────────────
 					$data.dahkLevel === "naparnick"
 						? (openBlock(), createElementBlock("div", {key:"nap", class:"lh-dahk__list"}, [
-							// Поле ввода ID напарника
-							createBaseVNode("div", {class:"lh-dahk__input-row"}, [
-								createBaseVNode("span", {class:"lh-dahk__input-label"}, "ID НАПАРНИКА"),
-								createBaseVNode("input", {
-									class:"lh-dahk__input",
-									type:"text",
-									placeholder:"Введите ID",
-									value: $data.dahkPartnerIdInput,
-									onInput: $event => { $data.dahkPartnerIdInput = $event.target.value }
-								}, null, 40, ["value","onInput"]),
-								createBaseVNode("button", {
-									class:"lh-dahk__confirm-btn",
-									onClick: $options.dahkSetPartner
-								}, "ЗАДАТЬ", 8, ["onClick"])
+							// Секция задания ID напарника
+							createBaseVNode("div", {class:"lh-dahk__partner-section"}, [
+								createBaseVNode("div", {class:"lh-dahk__partner-current"}, [
+									createBaseVNode("span", {class:"lh-dahk__input-label"}, "НАПАРНИК"),
+									createBaseVNode("span", {class:"lh-dahk__partner-id-display"}, toDisplayString(window._mvdPartnerId||window._pendingPartnerId||"не задан"), 1)
+								]),
+								createBaseVNode("div", {class:"lh-dahk__input-row"}, [
+									createBaseVNode("input", {
+										class:"lh-dahk__input",
+										type:"text",
+										placeholder:"Введите ID напарника",
+										value: $data.dahkPartnerIdInput,
+										onInput: $event => { $data.dahkPartnerIdInput = $event.target.value },
+										onKeydown: $event => { if($event.key==="Enter") $options.dahkSetPartner() }
+									}, null, 40, ["value","onInput","onKeydown"]),
+									createBaseVNode("button", {
+										class:"lh-dahk__confirm-btn",
+										onClick: $options.dahkSetPartner
+									}, "ЗАДАТЬ", 8, ["onClick"])
+								])
 							]),
 							(openBlock(true), createElementBlock(Fragment, null, renderList(DAHK_NAPARNICK, (item) => (
 								openBlock(), createElementBlock("div", {
@@ -223,7 +273,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 									class: normalizeClass(["lh-dahk__item lh-dahk__item_toggle", {"lh-dahk__item_on": $options.dahkToggleState(item.id)}]),
 									onClick: $event => $options.dahkNaparnickToggle(item)
 								}, [
-									createBaseVNode("span", {class:"lh-dahk__item-icon"}, toDisplayString(item.icon), 1),
+									createBaseVNode("span", {class:"lh-dahk__item-icon lh-dahk__item-icon_svg", innerHTML: ICONS[item.iconKey]||""}),
 									createBaseVNode("span", {class:"lh-dahk__item-label"}, toDisplayString(item.label), 1),
 									createBaseVNode("span", {
 										class: normalizeClass(["lh-dahk__badge", $options.dahkToggleState(item.id) ? "lh-dahk__badge_on" : "lh-dahk__badge_off"])
@@ -866,8 +916,23 @@ const _sfc_main={
 .lh-dahk__input-row{align-items:center;display:flex;gap:0.74vh;margin-bottom:0.74vh;padding:0.74vh 1.48vh 0;}
 .lh-dahk__input-label{color:#ffffff55;flex-shrink:0;font-size:1.11vh;font-weight:700;letter-spacing:0.07vh;}
 .lh-dahk__confirm-btn{background:#ffc14d;border:none;border-radius:0.37vh;color:#1c1c1e;cursor:pointer;flex-shrink:0;font-family:"Open Sans",Arial,sans-serif;font-size:1.11vh;font-weight:700;padding:0.56vh 1.11vh;}
-`;
+.lh-dahk__item-icon_svg{align-items:center;color:rgba(255,255,255,0.55);display:flex;height:1.85vh;justify-content:center;width:1.85vh;}
+.lh-dahk__item_on .lh-dahk__item-icon_svg{color:rgba(255,193,77,0.8);}
+.lh-dahk__item-icon_svg svg{height:100%;width:100%;}
+.lh-dahk__partner-section{background:#1a1a1c;border-bottom:0.09vh solid #ffffff0d;flex-shrink:0;padding:0.74vh 0 0.37vh;}
+.lh-dahk__partner-current{align-items:center;display:flex;gap:0.74vh;justify-content:space-between;padding:0 1.48vh 0.56vh;}
+.lh-dahk__partner-id-display{background:#2c2c2e;border-radius:0.22vh;color:#ffc14d;font-size:1.11vh;font-weight:700;letter-spacing:0.04vh;padding:0.19vh 0.74vh;}`;
 		document.head.appendChild(_style);
+		// ── Гарантируем что худ и чат остаются видимыми ──────────────
+		// IntLoad регистрирует hideHud:false, hideChat:false, но на всякий
+		// случай явно показываем их если движок успел скрыть
+		try {
+			if(typeof window.showHud==="function") window.showHud();
+			if(typeof window.showChat==="function") window.showChat();
+			// Альтернативные API некоторых версий движка
+			if(typeof window._setHudVisible==="function") window._setHudVisible(true);
+			if(typeof window._setChatVisible==="function") window._setChatVisible(true);
+		} catch(e) {}
 		const openMode=window._duranOpenMode||null;
 		window._duranOpenMode=null;
 		this.mode=openMode;
@@ -1062,31 +1127,49 @@ const _sfc_main={
 		// Клик по пункту напарника
 		dahkNaparnickToggle(item){
 			if(item.id==="partner_track"){
-				if(typeof window._mvdTogglePartnerTrack==="function") window._mvdTogglePartnerTrack();
-				else {
-					// Запрашиваем ID напарника если не задан
-					const curNick=window._mvdPartnerNick;
-					if(!curNick){
-						this.dahkNav("inputId");
-						this.dahkPendingAction={id:"_setPartner",label:"Напарник"};
+				const active=this.dahkToggleState("partner_track");
+				if(active){
+					// Уже включён — выключаем
+					if(typeof window._mvdTogglePartnerTrack==="function") window._mvdTogglePartnerTrack();
+					else { window._mvdPartnerTrackEnabled=false; window._mvdPartnerNick=null; window._mvdPartnerId=null; }
+				} else {
+					// Выключен — нужен ID напарника
+					const curId=window._mvdPartnerId||window._pendingPartnerId;
+					if(curId){
+						// ID уже известен — просто включаем
+						if(typeof window._mvdTogglePartnerTrack==="function") window._mvdTogglePartnerTrack();
+						else window._mvdPartnerTrackEnabled=true;
+					} else {
+						// Запрашиваем ID
+						this.dahkPartnerIdInput="";
+						// НЕ навигируем, input-row уже виден на экране naparnick
 					}
 				}
 			} else if(item.id==="partner_message"){
 				if(typeof window._mvdTogglePartnerMessage==="function") window._mvdTogglePartnerMessage();
+				else window._mvdPartnerMessageEnabled=!window._mvdPartnerMessageEnabled;
 			}
 			this.$forceUpdate();
 		},
 		dahkSetPartner(){
 			const id=this.dahkPartnerIdInput.trim();
 			if(!id)return;
+			// Сохраняем ID напарника
+			window._pendingPartnerId=id;
+			window._mvdPartnerId=id;
 			if(typeof window._mvdSetPartnerId==="function"){
 				window._mvdSetPartnerId(id);
 			} else {
-				// Fallback: отправляем /id
 				if(typeof window.sendChatInput==="function") window.sendChatInput(`/id ${id}`);
-				window._pendingPartnerId=id;
-				window._mvdPartnerTrackEnabled=true;
 			}
+			// Автоматически включаем отслеживание после задания ID
+			setTimeout(()=>{
+				if(!this.dahkToggleState("partner_track")){
+					if(typeof window._mvdTogglePartnerTrack==="function") window._mvdTogglePartnerTrack();
+					else window._mvdPartnerTrackEnabled=true;
+				}
+				this.$forceUpdate();
+			},300);
 			this.dahkPartnerIdInput="";
 		},
 		// Подтверждение ввода ID → выполнить действие
