@@ -196,47 +196,41 @@ class InstallerAPI:
 
         return result
 
-    # Фоллбэк если IntLoad.js на GitHub ещё без реестра
-    _IFACES_FALLBACK = [
-        {"name": "LawsHelper", "files": ["LawsHelper.js", "LawsHelper.css"], "hideHud": True, "hideChat": True},
-    ]
-
     @staticmethod
     def _fetch_custom_interfaces() -> list:
         """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
-        Если реестр не найден — возвращает _IFACES_FALLBACK."""
+        Это единственный источник истины — фоллбэка нет.
+        При ошибке бросает исключение, установка прерывается."""
         import re
-        try:
-            print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
-            resp = requests.get(INTLOAD_URL, timeout=15)
-            print(f'[Installer] HTTP {resp.status_code}, длина {len(resp.text)} байт')
-            text = resp.text
+        print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
+        resp = requests.get(INTLOAD_URL, timeout=15)
+        resp.raise_for_status()
+        print(f'[Installer] HTTP {resp.status_code}, длина {len(resp.text)} байт')
+        text = resp.text
 
-            m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
-            if not m:
-                print('[Installer] _duranCustomInterfaces не найден — используем фоллбэк')
-                return InstallerAPI._IFACES_FALLBACK
+        m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
+        if not m:
+            raise ValueError('[Installer] _duranCustomInterfaces не найден в IntLoad.js')
 
-            start = m.start(1)
-            depth, i = 0, start
-            while i < len(text):
-                if text[i] == '[':   depth += 1
-                elif text[i] == ']':
-                    depth -= 1
-                    if depth == 0: break
-                i += 1
-            raw = text[start:i + 1]
-            print(f'[Installer] Найден массив: {raw[:120]}')
+        start = m.start(1)
+        depth, i = 0, start
+        while i < len(text):
+            if text[i] == '[':   depth += 1
+            elif text[i] == ']':
+                depth -= 1
+                if depth == 0: break
+            i += 1
+        raw = text[start:i + 1]
+        print(f'[Installer] Найден массив: {raw[:120]}')
 
-            raw = re.sub(r',\s*([}\]])', r'\1', raw)
-            raw = raw.replace(':true',  ':True') .replace(':false',  ':False') \
-                     .replace(': true', ': True').replace(': false', ': False')
-            result = eval(raw)
-            print(f'[Installer] Распарсено: {[r["name"] for r in result]}')
-            return result
-        except Exception as e:
-            print(f'[Installer] Ошибка парсинга IntLoad.js: {e} — используем фоллбэк')
-            return InstallerAPI._IFACES_FALLBACK
+        raw = re.sub(r',\s*([}\]])', r'\1', raw)
+        raw = raw.replace(':true',  ':True') .replace(':false',  ':False') \
+                 .replace(': true', ': True').replace(': false', ': False')
+        result = eval(raw)
+        if not result:
+            raise ValueError('[Installer] _duranCustomInterfaces пустой')
+        print(f'[Installer] Распарсено интерфейсов: {[r["name"] for r in result]}')
+        return result
 
     @staticmethod
     def _build_interfaces_block(ifaces: list) -> str:
