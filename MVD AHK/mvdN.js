@@ -1,5 +1,5 @@
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2. ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.11111 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -732,16 +732,27 @@ const toggleAutoCuff = () => {
 };
 const togglePartnerTracking = () => {
     partnerTrackingEnabled = !partnerTrackingEnabled;
+    if (!partnerTrackingEnabled) {
+        // Выключили — сбрасываем состояние напарника
+        partnerNick = null;
+        partnerId = null;
+        _awaitingPartnerId = false;
+        window._pendingPartnerId = null;
+    }
+    snAdd(`[1, "Напарник", "Слежка: ${partnerTrackingEnabled ? 'Вкл' : 'Выкл'}", "${partnerTrackingEnabled ? '00FF00' : 'FF4444'}", 2500]`);
     console.log('[PARTNER] partnerTrackingEnabled =', partnerTrackingEnabled);
 };
 const togglePartnerMessage = () => {
     partnerMessageEnabled = !partnerMessageEnabled;
+    snAdd(`[1, "Напарник", "Сообщение: ${partnerMessageEnabled ? 'Вкл' : 'Выкл'}", "${partnerMessageEnabled ? '00FF00' : 'FF4444'}", 2500]`);
     console.log('[PARTNER] partnerMessageEnabled =', partnerMessageEnabled);
 };
 window.togglePartnerTracking = togglePartnerTracking;
 window.togglePartnerMessage  = togglePartnerMessage;
 const toggleAutoGrab = () => {
     autoGrabEnabled = !autoGrabEnabled;
+    snAdd(`[1, "Авто-снаряжение", "${autoGrabEnabled ? 'Включено' : 'Выключено'}", "${autoGrabEnabled ? '00FF00' : 'FF4444'}", 2500]`);
+    console.log('[MVD-GRAB] autoGrabEnabled =', autoGrabEnabled);
     try {
         if (autoGrabEnabled) {
             const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length)
@@ -1206,6 +1217,7 @@ window._mvdSetPartnerId = function(id) {
     partnerId = id;
     _awaitingPartnerId = true;
     window._pendingPartnerId = id;
+    snAdd(`[1, "Напарник", "Ищем ID: ${id}...", "FFAA00", 3000]`);
     if (typeof window.sendChatInput === 'function') window.sendChatInput('/id ' + id);
     console.log('[PARTNER] _mvdSetPartnerId =', id, ', ожидаем /id ответ');
 };
@@ -1359,7 +1371,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             }
 
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
-            if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
+            if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && autoGrabEnabled && typeof window.autoGrab === 'function') {
                 if (!window._mvdGrabProcessing) {
                     console.log('=== [MVD-GRAB v2.1] 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
@@ -1455,11 +1467,12 @@ var AUTO_GRAB_SKIP = [];
 // Явно пишем в window чтобы showMvdSubMenu (загруженный ДО eval) видел значение
 window.AUTO_GRAB = AUTO_GRAB;
 window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
-// Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
-if (AUTO_GRAB || window.AUTO_GRAB === true) {
-(function() {
+// Блок авто-снаряжения всегда запускается — autoGrab() сам проверяет autoGrabEnabled
+// AUTO_GRAB=true из LoadAhk только разрешает брать снаряжение при первом открытии службы;
+// тоггл в меню управляет через autoGrabEnabled напрямую
+;(function() {
     console.log('=== [MVD-GRAB v2.1] 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН ===');
-    window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
+    window.AUTO_GRAB = true;
 
     // ==================== ID ПРЕДМЕТОВ ====================
     const ITEM = {
@@ -1768,7 +1781,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     });
     console.log('=== [MVD-GRAB v2.1] ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
-} // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
 
 // ==================== СВОП ТАЗЕР ↔ ДИГЛ (v15 — polling) ====================
