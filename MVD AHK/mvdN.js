@@ -1705,9 +1705,9 @@ window.showPartnerIdInputDialog = (e) => {
 // ==================== КОНЕЦ МЕНЮ НАПАРНИКА ====================
 window.showKoapTypeMenu = (e) => {
     giveLicenseTo = e;
-    currentMenu = "koap_type";
-    const menuList = "1. ППС КоАП (Административный)<n>2. ДПС КоАП (ПДД)";
-    window.addDialogInQueue(`[678,2,"Выбор типа КоАП","","Выбрать","Отмена",0,0]`, menuList, 0);
+    window._duranOpenMode = 'fine';
+    window._duranFineTargetId = (e !== undefined && e !== null) ? e : -1;
+    window.openInterface('LawsHelper');
 };
 window.showKoapInputDialog = (e) => {
     giveLicenseTo = e;
@@ -1728,12 +1728,9 @@ const getPaginatedUk = () => {
 };
 window.showUkInputDialog = (e) => {
     giveLicenseTo = e;
-    let title = `УК РФ`;
-    if (currentUkLines.length < ukLines.length) {
-        title += ' [Поиск]';
-    }
-    const text = getPaginatedUk();
-    window.addDialogInQueue(`[681,1,"${title}","Ввод: ID статья | Поиск: введи текст | Сброс: все","Подтвердить","Отмена",0,0]`, text, 0);
+    window._duranOpenMode = 'wanted';
+    window._duranWantedTargetId = (e !== undefined && e !== null) ? e : -1;
+    window.openInterface('LawsHelper');
 };
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
