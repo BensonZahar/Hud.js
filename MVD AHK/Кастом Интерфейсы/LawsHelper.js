@@ -67,7 +67,9 @@ const DAHK_MENU_MAIN=[
 	{id:"tracking",  label:"Отслеживание", iconKey:"radar",   toggle:true},
 	{id:"autocuff",  label:"Auto-cuff",    iconKey:"cuff",    toggle:true},
 	{id:"naparnick", label:"Напарник",     iconKey:"partner"},
+	{id:"autograb",  label:"Авто-снаряжение",iconKey:"star_badge",toggle:true},
 ];
+
 const DAHK_POVSEDNEV=[
 	{id:"greeting",       label:"Приветствие",            iconKey:"wave",         needsId:true},
 	{id:"checkDocuments", label:"Проверка документов",    iconKey:"doc"},
@@ -995,6 +997,10 @@ const _sfc_main={
 			const cmd=`/su ${id} ${totalStars}`;
 			if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
 			else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
+			// Запускаем авто-отслеживание после розыска
+			if(typeof window._mvdStartTracking==="function"){
+				setTimeout(()=>window._mvdStartTracking(id),800);
+			}
 			this.close()
 		},
 		// ════════════════════════════════════════════════════
@@ -1048,6 +1054,7 @@ const _sfc_main={
 				const st=typeof window._mvdGetState==="function"?window._mvdGetState():{};
 				if(id==="tracking")       return !!st.currentScanId;
 				if(id==="autocuff")       return !!st.autoCuffEnabled;
+				if(id==="autograb")       return !!st.autoGrabEnabled;
 				if(id==="partner_track")  return !!st.partnerTrackingEnabled;
 				if(id==="partner_message")return !!st.partnerMessageEnabled;
 			}catch(e){}
@@ -1073,9 +1080,12 @@ const _sfc_main={
 				return;
 			}
 			if(item.id==="autocuff"){
-				// Тогглим autocuff через mvdN
 				if(typeof window._mvdToggleAutoCuff==="function") window._mvdToggleAutoCuff();
-				// Форсируем ре-рендер
+				this.$forceUpdate();
+				return;
+			}
+			if(item.id==="autograb"){
+				if(typeof window._mvdToggleAutoGrab==="function") window._mvdToggleAutoGrab();
 				this.$forceUpdate();
 				return;
 			}
@@ -1130,25 +1140,24 @@ const _sfc_main={
 			if(item.id==="partner_track"){
 				const active=this.dahkToggleState("partner_track");
 				if(active){
-					// Уже включён — выключаем
 					if(typeof window._mvdTogglePartnerTrack==="function") window._mvdTogglePartnerTrack();
-					else { window._mvdPartnerTrackEnabled=false; window._mvdPartnerNick=null; window._mvdPartnerId=null; }
 				} else {
-					// Выключен — нужен ID напарника
-					const curId=window._mvdPartnerId||window._pendingPartnerId;
+					// Нужен ID — если уже задан, просто включаем
+					const st=typeof window._mvdGetState==="function"?window._mvdGetState():{};
+					const curId=st.partnerId||window._pendingPartnerId;
 					if(curId){
-						// ID уже известен — просто включаем
 						if(typeof window._mvdTogglePartnerTrack==="function") window._mvdTogglePartnerTrack();
-						else window._mvdPartnerTrackEnabled=true;
 					} else {
-						// Запрашиваем ID
+						// Фокусируем поле ввода ID
 						this.dahkPartnerIdInput="";
-						// НЕ навигируем, input-row уже виден на экране naparnick
+						this.$nextTick(()=>{
+							const inp=document.querySelector(".lh-dahk__input");
+							if(inp)inp.focus();
+						});
 					}
 				}
 			} else if(item.id==="partner_message"){
 				if(typeof window._mvdTogglePartnerMessage==="function") window._mvdTogglePartnerMessage();
-				else window._mvdPartnerMessageEnabled=!window._mvdPartnerMessageEnabled;
 			}
 			this.$forceUpdate();
 		},
