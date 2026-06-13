@@ -201,7 +201,7 @@ class InstallerAPI:
         """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
         Единственный источник реестра — добавлять новые интерфейсы только в IntLoad.js.
         Возвращает [] если GitHub недоступен или реестр не найден."""
-        import re
+        import re, json
         try:
             print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
             resp = requests.get(INTLOAD_URL, timeout=15)
@@ -225,10 +225,12 @@ class InstallerAPI:
             raw = text[start:i + 1]
             print(f'[Installer] Найден массив: {raw[:120]}')
 
+            # Убираем trailing-запятые (невалидны в JSON)
             raw = re.sub(r',\s*([}\]])', r'\1', raw)
-            raw = raw.replace(':true',  ':True') .replace(':false',  ':False') \
-                     .replace(': true', ': True').replace(': false', ': False')
-            result = eval(raw)
+            # Кавычим unquoted JS-ключи объектов (name:, files:, hideHud:...) → валидный JSON
+            raw = re.sub(r'([{,]\s*)([a-zA-Z_\$][a-zA-Z0-9_\$]*)\s*:', r'\1"\2":', raw)
+            # json.loads понимает true/false/null нативно — замены не нужны
+            result = json.loads(raw)
             print(f'[Installer] Распарсено интерфейсов: {[r["name"] for r in result]}')
             return result
         except Exception as e:
