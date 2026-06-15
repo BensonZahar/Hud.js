@@ -1101,6 +1101,37 @@ window._mvdToggleTracking = () => {
         setTimeout(() => showTrackingInputDialog(giveLicenseTo), 50);
     }
 };
+
+// ── Публичные API напарника для MvdMenu (кастомный интерфейс) ────────────────
+window._mvdPartnerGetState = function() {
+    return {
+        tracking: partnerTrackingEnabled,
+        message:  partnerMessageEnabled,
+        nick:     partnerNick,
+        id:       partnerId,
+    };
+};
+window._mvdPartnerDisable = function() {
+    partnerNick = null;
+    partnerId = null;
+    partnerTrackingEnabled = false;
+    _awaitingPartnerId = false;
+    snAdd('[1, "Напарник", "Слежка за напарником отключена", "FF0000", 2500]');
+};
+window._mvdPartnerSetId = function(rawId) {
+    partnerId = rawId;
+    partnerNick = null;
+    partnerTrackingEnabled = true;
+    _awaitingPartnerId = true;
+    window._pendingPartnerId = rawId;
+    snAdd(`[1, "Напарник", "Ищу игрока ID: ${rawId}...", "FFAA00", 3000]`);
+    sendChatInput(`/id ${rawId}`);
+};
+window._mvdPartnerSetMessage = function(val) {
+    partnerMessageEnabled = val;
+    partnerMessageName = `Сообщение для напарника | ${val ? '{00FF00}Вкл' : '{FF0000}Выкл'}`;
+    snAdd(`[1, "Напарник", "Сообщение: ${val ? 'Вкл' : 'Выкл'}", "${val ? '00FF00' : 'FF0000'}", 2500]`);
+};
 // ── END публичные флаги ───────────────────────────────────────────────────────
 
 const SendGiveLicenseCommand = (to, index) => {
@@ -1637,8 +1668,9 @@ window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "povsednev";
     currentPage = 0;
-    // Передаём targetId компоненту через глобальную переменную
+    // Передаём targetId и стартовый экран компоненту через глобальные переменные
     window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
+    window._mvdMenuStartScreen = 'povsednev';
     window.openInterface('MvdMenu');
 };
 
