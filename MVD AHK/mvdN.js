@@ -1078,6 +1078,31 @@ const toggleAutoGrab = () => {
         console.warn('[MVD-GRAB] toggleAutoGrab notify error:', e);
     }
 };
+// ── Публичные флаги состояния для MvdMenu ─────────────────────────────────────
+// MvdMenu читает эти свойства при каждом открытии mainMenuItems
+Object.defineProperty(window, '_mvdCurrentScanId',   { get: () => currentScanId,   configurable: true });
+Object.defineProperty(window, '_mvdAutoCuffEnabled', { get: () => autoCuffEnabled, configurable: true });
+Object.defineProperty(window, '_mvdAutoGrabEnabled', { get: () => autoGrabEnabled, configurable: true });
+// Геттер метки напарника
+window._mvdGetPartnerLabel = function() {
+    if (partnerTrackingEnabled && partnerNick && partnerId) {
+        return 'Напарник: ' + partnerNick + '[' + partnerId + ']';
+    }
+    return 'Напарник | Выкл';
+};
+// Toggle-обёртки для MvdMenu
+window._mvdToggleAutoCuff = () => { toggleAutoCuff(); };
+window._mvdToggleAutoGrab = () => { toggleAutoGrab(); };
+// Отслеживание: если активно — останавливает; иначе открывает диалог ввода
+window._mvdToggleTracking = () => {
+    if (currentScanId) {
+        stopTracking();
+    } else {
+        setTimeout(() => showTrackingInputDialog(giveLicenseTo), 50);
+    }
+};
+// ── END публичные флаги ───────────────────────────────────────────────────────
+
 const SendGiveLicenseCommand = (to, index) => {
     if (index < 0 || index >= shownLicenseTypes.length)
         return;
@@ -1784,12 +1809,14 @@ window.sendClientEventCustom = (event, ...args) => {
         }
         else if (args[1] === 668) { // Диалог ввода ID
             const inputId = args[4];
-            // FIX: убрана проверка currentMenu === "povsednev" и giveLicenseTo !== -1
-            // чтобы бинд-кнопки работали независимо от того открывалось ли меню через /dahk
-            if (args[2] === 1 && currentAction) {
-                executePovsednevAction(currentAction, inputId);
+            // Читаем action из currentAction (биндинги) или window._mvdMenuPendingAction (MvdMenu — fallback)
+            const resolvedAction = currentAction || window._mvdMenuPendingAction || null;
+            if (args[2] === 1 && resolvedAction) {
+                giveLicenseTo = inputId;
+                executePovsednevAction(resolvedAction, inputId);
             }
             currentAction = null;
+            window._mvdMenuPendingAction = null;
         }
         else if (args[1] === 669) { // Диалог ввода ID для отслеживания
             const inputId = args[4];
@@ -1990,14 +2017,11 @@ window.sendChatInputCustom = e => {
             // Успешное открытие меню МВД
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
             restoreTrackingNotification();
-            if (lastMenuType === "povsednev") {
-                showPovsednevMenuPage(args[1]);
-            } else if (lastMenuType === "stroy") {
+            if (lastMenuType === "stroy") {
                 showStroyMenuPage(args[1]);
-            } else if (lastMenuType === "mvd_sub") {
-                showMvdSubMenu(args[1]);
             } else {
-                showMvdSubMenu(args[1]);
+                // Повседневная и всё остальное — кастомное MvdMenu
+                showPovsednevMenuPage(args[1]);
             }
         } else {
             // Ошибка: скин не подходит
