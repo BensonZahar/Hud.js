@@ -1674,6 +1674,16 @@ window.showPovsednevMenuPage = (e) => {
     window.openInterface('MvdMenu');
 };
 
+// Открыть главное меню МВД (экран "main") — для общего хоткея MENU_KEY
+window.showMvdMainMenuPage = (e) => {
+    giveLicenseTo = e;
+    currentMenu = "main";
+    currentPage = 0;
+    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
+    window._mvdMenuStartScreen = 'main';
+    window.openInterface('MvdMenu');
+};
+
 // Публичный API для MvdMenu — выполнить действие Повседневной напрямую
 window._mvdExecuteAction = function(action, id) {
     giveLicenseTo = (id !== undefined && id !== null && id !== -1) ? id : giveLicenseTo;
@@ -2052,8 +2062,8 @@ window.sendChatInputCustom = e => {
             if (lastMenuType === "stroy") {
                 showStroyMenuPage(args[1]);
             } else {
-                // Повседневная и всё остальное — кастомное MvdMenu
-                showPovsednevMenuPage(args[1]);
+                // Главное меню МВД (экран main) — Повседневная открывается оттуда отдельным пунктом
+                showMvdMainMenuPage(args[1]);
             }
         } else {
             // Ошибка: скин не подходит
