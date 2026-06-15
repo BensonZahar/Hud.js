@@ -266,12 +266,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             onKeydown:$event=>{if($event.key==="Enter")$options.confirmPartnerId()},
                         },null,40,["value","onInput","onKeydown"]),
                     ]),
-                    createBaseVNode("div",{
-                        class:normalizeClass(["mvdmenu__id-confirm-big",{
-                            "mvdmenu__id-confirm-big_active": $data.partnerIdValue.trim().length>0
-                        }]),
-                        onClick:$options.confirmPartnerId
-                    },"ПОДТВЕРДИТЬ",2),
                 ])
                 : createCommentVNode("",true),
 
@@ -279,18 +273,22 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             createBaseVNode("div",{class:"mvdmenu__footer"},[
                 createBaseVNode("span",{class:"mvdmenu__footer-hint"},
                     toDisplayString(
-                        $data.targetId!==null&&$data.targetId!==-1
-                            ? "Цель: ID "+$data.targetId
-                            : ($data.screen==="idInput" ? "ID не задан" : "ID не задан — потребуется при необходимости")
+                        $data.screen==="partnerIdInput"
+                            ? ($data.partnerNick && $data.partnerId ? "Текущий напарник: "+$data.partnerNick+"["+$data.partnerId+"]" : "Введите ID напарника")
+                            : ($data.targetId!==null&&$data.targetId!==-1
+                                ? "Цель: ID "+$data.targetId
+                                : ($data.screen==="idInput" ? "ID не задан" : "ID не задан — потребуется при необходимости"))
                     )
                 ),
                 createBaseVNode("div",{class:"mvdmenu__footer-actions"},[
-                    $data.screen==="idInput"
+                    ($data.screen==="idInput"||$data.screen==="partnerIdInput")
                         ? createBaseVNode("div",{
                             class:normalizeClass(["mvdmenu__id-confirm-big","mvdmenu__id-confirm-footer",{
-                                "mvdmenu__id-confirm-big_active": $data.idValue.trim().length>0
+                                "mvdmenu__id-confirm-big_active": $data.screen==="idInput"
+                                    ? $data.idValue.trim().length>0
+                                    : $data.partnerIdValue.trim().length>0
                             }]),
-                            onClick:$options.confirmId
+                            onClick:$data.screen==="idInput"?$options.confirmId:$options.confirmPartnerId
                           },"ПОДТВЕРДИТЬ",2)
                         : createCommentVNode("",true),
                     createBaseVNode("div",{class:"mvdmenu__close-footer-btn",onClick:$options.close},"ЗАКРЫТЬ")
