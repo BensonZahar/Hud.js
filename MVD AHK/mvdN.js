@@ -1611,16 +1611,18 @@ window.showGiveLicenseDialog = (e) => {
 window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "povsednev";
-    const _visible = povsednevOptions
-        .filter(o => !MENU_HIDDEN_ITEMS.includes(o.action))
-        .map((o, i) => ({ ...o, name: `${i + 1}. ${o.name.replace(/^\d+\.\s*/, '')}` }));
-    const menuList = getPaginatedMenu(_visible);
-    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < _visible.length ? 1 : 0;
-    window.addDialogInQueue(
-        `[667,5,"Повседневная (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
-        menuList,
-        0
-    );
+    currentPage = 0;
+    // Передаём targetId компоненту через глобальную переменную
+    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
+    window.openInterface('MvdMenu');
+};
+
+// Публичный API для MvdMenu — выполнить действие Повседневной напрямую
+window._mvdExecuteAction = function(action, id) {
+    giveLicenseTo = (id !== undefined && id !== null && id !== -1) ? id : giveLicenseTo;
+    currentAction = action;
+    currentMenu = "povsednev";
+    executePovsednevAction(action, giveLicenseTo);
 };
 window.showStroyMenuPage = (e) => {
     giveLicenseTo = e;
