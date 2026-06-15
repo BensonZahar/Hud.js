@@ -190,13 +190,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             onKeydown:$event=>{if($event.key==="Enter")$options.confirmId()},
                         },null,40,["value","onInput","onKeydown"]),
                     ]),
-                    // Кнопка подтвердить — большая, всегда видна
-                    createBaseVNode("div",{
-                        class:normalizeClass(["mvdmenu__id-confirm-big",{
-                            "mvdmenu__id-confirm-big_active": $data.idValue.trim().length>0
-                        }]),
-                        onClick:$options.confirmId
-                    },"ПОДТВЕРДИТЬ",2),
                     // Подсказка: если targetId уже задан
                     $data.targetId!==null&&$data.targetId!==-1
                         ? createBaseVNode("div",{class:"mvdmenu__id-saved-hint"},
@@ -291,6 +284,14 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             : "ID не задан"
                     )
                 ),
+                $data.screen==="idInput"
+                    ? createBaseVNode("div",{
+                        class:normalizeClass(["mvdmenu__id-confirm-big","mvdmenu__id-confirm-footer",{
+                            "mvdmenu__id-confirm-big_active": $data.idValue.trim().length>0
+                        }]),
+                        onClick:$options.confirmId
+                      },"ПОДТВЕРДИТЬ",2)
+                    : createCommentVNode("",true),
                 createBaseVNode("div",{class:"mvdmenu__close-footer-btn",onClick:$options.close},"ЗАКРЫТЬ")
             ])
 
@@ -484,10 +485,12 @@ const _sfc_main={
                 this.pendingActionLabel=opt.label;
                 this.idValue=(id!==null&&id!==-1)?String(id):"";
                 this.screen="idInput";
-                setTimeout(()=>{
-                    const inp=document.querySelector(".mvdmenu__id-input");
-                    if(inp){inp.focus();inp.select();}
-                },60);
+                this.$nextTick(()=>{
+                    setTimeout(()=>{
+                        const inp=this.$el.querySelector(".mvdmenu__id-input");
+                        if(inp){inp.focus();inp.select();}
+                    },60);
+                });
             } else {
                 this.close();
                 setTimeout(()=>{
@@ -523,10 +526,23 @@ const _sfc_main={
             ?window._mvdMenuTargetId:null;
         window._mvdMenuTargetId=null;
 
-        // Читаем начальный экран (povsednev если открыто из showPovsednevMenuPage)
+        // Читаем начальный экран (povsednev если открыто из showPovsednevMenuPage,
+        // main если открыто общим хоткеем МВД)
         if(window._mvdMenuStartScreen==="povsednev"){
             this.screen="povsednev";
-            window._mvdMenuStartScreen=null;
+        } else if(window._mvdMenuStartScreen==="main"){
+            this.screen="main";
+        }
+        window._mvdMenuStartScreen=null;
+
+        // Автофокус, если открылись прямо на экране ввода ID
+        if(this.screen==="idInput"){
+            this.$nextTick(()=>{
+                setTimeout(()=>{
+                    const inp=this.$el.querySelector(".mvdmenu__id-input");
+                    if(inp){inp.focus();inp.select();}
+                },60);
+            });
         }
 
         // Синхронизируем состояние напарника при монтировании
@@ -562,7 +578,8 @@ const _sfc_main={
 .mvdmenu__search{align-items:center;background:rgba(18,18,23,0.8);border-bottom:0.09vh solid rgba(255,255,255,.07);display:flex;gap:0.93vh;padding:0.74vh 1.48vh;position:relative;z-index:1;}
 .mvdmenu__search-icon{align-items:center;display:flex;flex-shrink:0;height:1.48vh;justify-content:center;width:1.48vh;}
 .mvdmenu__search-icon svg{height:100%;width:100%;}
-.mvdmenu__search input{-webkit-appearance:none;background:transparent;border:none;color:#e8e6f0;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.3vh;outline:none;}
+.mvdmenu__search input{-webkit-appearance:none!important;appearance:none!important;background:transparent!important;background-color:transparent!important;border:none!important;box-shadow:none!important;color:#e8e6f0!important;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.3vh;margin:0;outline:none!important;padding:0;}
+.mvdmenu__search input:focus,.mvdmenu__search input:active,.mvdmenu__search input:hover{background:transparent!important;background-color:transparent!important;}
 .mvdmenu__search input::placeholder{color:rgba(255,255,255,.25);}
 
 /* List */
@@ -605,6 +622,7 @@ const _sfc_main={
 .mvdmenu__id-confirm-big_active{background:rgba(249,183,1,.15);border-color:rgba(249,183,1,.4);color:#f9b701;}
 @media (platform:pc){.mvdmenu__id-confirm-big_active:hover{background:rgba(249,183,1,.28);border-color:rgba(249,183,1,.7);}}
 .mvdmenu__id-saved-hint{color:rgba(255,255,255,.22);font-size:1.0vh;text-align:center;}
+.mvdmenu__id-confirm-footer{flex:0 0 auto;padding:0.46vh 1.48vh;width:auto;margin-right:0.74vh;}
 
 /* Footer */
 .mvdmenu__footer{align-items:center;background:rgba(10,10,14,0.5);border-top:0.09vh solid rgba(255,255,255,.06);display:flex;justify-content:space-between;padding:0.93vh 1.48vh;position:relative;z-index:1;}
