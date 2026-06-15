@@ -83,7 +83,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             // ЭКРАН: main — МВД меню
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="main"
-                ? createBaseVNode("div",{class:"mvdmenu__screen",key:"main"},[
+                ? (openBlock(),createElementBlock(Fragment,{key:"main"},[
                     createBaseVNode("div",{class:"mvdmenu__list"},[
                         (openBlock(true),createElementBlock(Fragment,null,
                             renderList($options.mainMenuItems,(item,i)=>(
@@ -117,14 +117,14 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             ))
                         ,128))
                     ])
-                ])
+                  ],64))
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
             // ЭКРАН: povsednev — Список повседневных действий
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="povsednev"
-                ? createBaseVNode("div",{key:"povsednev",class:"mvdmenu__screen"},[
+                ? (openBlock(),createElementBlock(Fragment,{key:"povsednev"},[
                     // Поиск
                     createBaseVNode("div",{class:"mvdmenu__search"},[
                         createBaseVNode("span",{class:"mvdmenu__search-icon",innerHTML:SVG_SEARCH}),
@@ -168,7 +168,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             ? createBaseVNode("div",{class:"mvdmenu__empty"},"Ничего не найдено")
                             : createCommentVNode("",true)
                     ])
-                ])
+                  ],64))
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
@@ -203,7 +203,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             // ЭКРАН: partner — Меню напарника (кастомный, без старого диалога)
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="partner"
-                ? createBaseVNode("div",{key:"partner",class:"mvdmenu__screen"},[
+                ? (openBlock(),createElementBlock(Fragment,{key:"partner"},[
                     createBaseVNode("div",{class:"mvdmenu__list"},[
                         // 1. Следить за напарником
                         createBaseVNode("div",{
@@ -242,7 +242,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             }, toDisplayString($data.partnerMessage?"Вкл":"Выкл"))
                         ],2),
                     ])
-                ])
+                  ],64))
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
@@ -281,18 +281,20 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                     toDisplayString(
                         $data.targetId!==null&&$data.targetId!==-1
                             ? "Цель: ID "+$data.targetId
-                            : "ID не задан"
+                            : ($data.screen==="idInput" ? "ID не задан" : "ID не задан — потребуется при необходимости")
                     )
                 ),
-                $data.screen==="idInput"
-                    ? createBaseVNode("div",{
-                        class:normalizeClass(["mvdmenu__id-confirm-big","mvdmenu__id-confirm-footer",{
-                            "mvdmenu__id-confirm-big_active": $data.idValue.trim().length>0
-                        }]),
-                        onClick:$options.confirmId
-                      },"ПОДТВЕРДИТЬ",2)
-                    : createCommentVNode("",true),
-                createBaseVNode("div",{class:"mvdmenu__close-footer-btn",onClick:$options.close},"ЗАКРЫТЬ")
+                createBaseVNode("div",{class:"mvdmenu__footer-actions"},[
+                    $data.screen==="idInput"
+                        ? createBaseVNode("div",{
+                            class:normalizeClass(["mvdmenu__id-confirm-big","mvdmenu__id-confirm-footer",{
+                                "mvdmenu__id-confirm-big_active": $data.idValue.trim().length>0
+                            }]),
+                            onClick:$options.confirmId
+                          },"ПОДТВЕРДИТЬ",2)
+                        : createCommentVNode("",true),
+                    createBaseVNode("div",{class:"mvdmenu__close-footer-btn",onClick:$options.close},"ЗАКРЫТЬ")
+                ])
             ])
 
         ])
@@ -521,34 +523,9 @@ const _sfc_main={
     },
     created(){this.$data.noAdaptation=true},
     mounted(){
-        // Читаем targetId
-        this.targetId=(typeof window._mvdMenuTargetId!=="undefined"&&window._mvdMenuTargetId!==null)
-            ?window._mvdMenuTargetId:null;
-        window._mvdMenuTargetId=null;
-
-        // Читаем начальный экран (povsednev если открыто из showPovsednevMenuPage,
-        // main если открыто общим хоткеем МВД)
-        if(window._mvdMenuStartScreen==="povsednev"){
-            this.screen="povsednev";
-        } else if(window._mvdMenuStartScreen==="main"){
-            this.screen="main";
-        }
-        window._mvdMenuStartScreen=null;
-
-        // Автофокус, если открылись прямо на экране ввода ID
-        if(this.screen==="idInput"){
-            this.$nextTick(()=>{
-                setTimeout(()=>{
-                    const inp=this.$el.querySelector(".mvdmenu__id-input");
-                    if(inp){inp.focus();inp.select();}
-                },60);
-            });
-        }
-
-        // Синхронизируем состояние напарника при монтировании
-        this._syncPartnerState();
-
-        // CSS
+        // CSS — вставляем СНАЧАЛА, до любых reactive-изменений (screen/targetId),
+        // чтобы первый перерендер не происходил без применённых стилей
+        // (старая версия без переключения screen такой проблемы не имела)
         const s=document.createElement("style");
         s.id="mvdmenu-style";
         s.textContent=`
@@ -571,15 +548,11 @@ const _sfc_main={
 .mvdmenu__close-btn{align-items:center;background:rgba(255,255,255,.06);border-radius:0.37vh;color:rgba(255,255,255,.5);cursor:pointer;display:flex;font-size:1.3vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s ease;width:2.96vh;}
 @media (platform:pc){.mvdmenu__close-btn:hover{background:#e05555;color:#fff;}}
 
-/* Screen */
-.mvdmenu__screen{display:flex;flex-direction:column;flex:1 1 auto;overflow:hidden;}
-
 /* Search */
 .mvdmenu__search{align-items:center;background:rgba(18,18,23,0.8);border-bottom:0.09vh solid rgba(255,255,255,.07);display:flex;gap:0.93vh;padding:0.74vh 1.48vh;position:relative;z-index:1;}
 .mvdmenu__search-icon{align-items:center;display:flex;flex-shrink:0;height:1.48vh;justify-content:center;width:1.48vh;}
 .mvdmenu__search-icon svg{height:100%;width:100%;}
-.mvdmenu__search input{-webkit-appearance:none!important;appearance:none!important;background:transparent!important;background-color:transparent!important;border:none!important;box-shadow:none!important;color:#e8e6f0!important;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.3vh;margin:0;outline:none!important;padding:0;}
-.mvdmenu__search input:focus,.mvdmenu__search input:active,.mvdmenu__search input:hover{background:transparent!important;background-color:transparent!important;}
+.mvdmenu__search input{-webkit-appearance:none;background:transparent;border:none;color:#e8e6f0;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.3vh;outline:none;}
 .mvdmenu__search input::placeholder{color:rgba(255,255,255,.25);}
 
 /* List */
@@ -622,15 +595,43 @@ const _sfc_main={
 .mvdmenu__id-confirm-big_active{background:rgba(249,183,1,.15);border-color:rgba(249,183,1,.4);color:#f9b701;}
 @media (platform:pc){.mvdmenu__id-confirm-big_active:hover{background:rgba(249,183,1,.28);border-color:rgba(249,183,1,.7);}}
 .mvdmenu__id-saved-hint{color:rgba(255,255,255,.22);font-size:1.0vh;text-align:center;}
-.mvdmenu__id-confirm-footer{flex:0 0 auto;padding:0.46vh 1.48vh;width:auto;margin-right:0.74vh;}
+.mvdmenu__id-confirm-footer{flex:0 0 auto;padding:0.46vh 1.11vh;width:auto;}
 
 /* Footer */
-.mvdmenu__footer{align-items:center;background:rgba(10,10,14,0.5);border-top:0.09vh solid rgba(255,255,255,.06);display:flex;justify-content:space-between;padding:0.93vh 1.48vh;position:relative;z-index:1;}
-.mvdmenu__footer-hint{color:rgba(255,255,255,.28);font-size:1.11vh;font-weight:400;}
-.mvdmenu__close-footer-btn{background:rgba(255,255,255,.06);border-radius:0.37vh;color:rgba(255,255,255,.5);cursor:pointer;font-size:1.0vh;font-weight:700;letter-spacing:0.05vh;padding:0.46vh 1.11vh;transition:all 0.15s ease;}
+.mvdmenu__footer{align-items:center;background:rgba(10,10,14,0.5);border-top:0.09vh solid rgba(255,255,255,.06);display:flex;gap:0.74vh;justify-content:space-between;padding:0.93vh 1.48vh;position:relative;z-index:1;}
+.mvdmenu__footer-hint{color:rgba(255,255,255,.28);flex:1 1 auto;font-size:1.11vh;font-weight:400;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mvdmenu__footer-actions{align-items:center;display:flex;flex-shrink:0;gap:0.46vh;}
+.mvdmenu__close-footer-btn{background:rgba(255,255,255,.06);border-radius:0.37vh;color:rgba(255,255,255,.5);cursor:pointer;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.05vh;padding:0.46vh 1.11vh;transition:all 0.15s ease;white-space:nowrap;}
 @media (platform:pc){.mvdmenu__close-footer-btn:hover{background:rgba(255,255,255,.12);color:#fff;}}
         `;
         document.head.appendChild(s);
+
+        // Читаем targetId
+        this.targetId=(typeof window._mvdMenuTargetId!=="undefined"&&window._mvdMenuTargetId!==null)
+            ?window._mvdMenuTargetId:null;
+        window._mvdMenuTargetId=null;
+
+        // Читаем начальный экран (povsednev если открыто из showPovsednevMenuPage,
+        // main если открыто общим хоткеем МВД)
+        if(window._mvdMenuStartScreen==="povsednev"){
+            this.screen="povsednev";
+        } else if(window._mvdMenuStartScreen==="main"){
+            this.screen="main";
+        }
+        window._mvdMenuStartScreen=null;
+
+        // Автофокус, если открылись прямо на экране ввода ID
+        if(this.screen==="idInput"){
+            this.$nextTick(()=>{
+                setTimeout(()=>{
+                    const inp=this.$el.querySelector(".mvdmenu__id-input");
+                    if(inp){inp.focus();inp.select();}
+                },60);
+            });
+        }
+
+        // Синхронизируем состояние напарника при монтировании
+        this._syncPartnerState();
 
         // ESC handler
         this._prevOnKeyUp=window.onKeyUp;
