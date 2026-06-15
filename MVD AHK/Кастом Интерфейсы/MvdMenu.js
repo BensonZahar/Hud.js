@@ -60,7 +60,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             // ── Header ───────────────────────────────────────────────────────
             createBaseVNode("div",{class:"mvdmenu__header"},[
                 createBaseVNode("div",{class:"mvdmenu__header-left"},[
-                    // Кнопка назад (только на экранах не-main)
+                    // Кнопка назад (только на не-main экранах)
                     $data.screen!=="main"
                         ? createBaseVNode("div",{
                             class:"mvdmenu__back-btn",
@@ -80,41 +80,43 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             ]),
 
             // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: main — МВД меню (аналог диалога 677)
+            // ЭКРАН: main — МВД меню
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="main"
-                ? createBaseVNode("div",{class:"mvdmenu__list",key:"main"},[
-                    (openBlock(true),createElementBlock(Fragment,null,
-                        renderList($options.mainMenuItems,(item,i)=>(
-                            openBlock(),createElementBlock("div",{
-                                key:item.id,
-                                class:normalizeClass(["mvdmenu__item",{
-                                    "mvdmenu__item_toggle_on": item.toggleOn===true,
-                                    "mvdmenu__item_toggle_off": item.toggleOn===false,
-                                }]),
-                                onClick:$event=>$options.selectMain(item)
-                            },[
-                                createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                    toDisplayString(String(i+1).padStart(2,"0"))
-                                ),
-                                createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                    toDisplayString(item.label)
-                                ),
-                                // Стрелка → для пунктов-переходов
-                                item.arrow
-                                    ? createBaseVNode("div",{class:"mvdmenu__item-arrow",innerHTML:SVG_ARROW})
-                                    : createCommentVNode("",true),
-                                // Статус toggle
-                                item.toggleOn!==undefined
-                                    ? createBaseVNode("div",{
-                                        class:normalizeClass(["mvdmenu__item-status",
-                                            item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                        ])
-                                      }, toDisplayString(item.toggleOn?"Вкл":"Выкл"))
-                                    : createCommentVNode("",true),
-                            ],10,["onClick"])
-                        ))
-                    ,128))
+                ? createBaseVNode("div",{class:"mvdmenu__screen",key:"main"},[
+                    createBaseVNode("div",{class:"mvdmenu__list"},[
+                        (openBlock(true),createElementBlock(Fragment,null,
+                            renderList($options.mainMenuItems,(item,i)=>(
+                                openBlock(),createElementBlock("div",{
+                                    key:item.id,
+                                    class:normalizeClass(["mvdmenu__item",{
+                                        "mvdmenu__item_toggle_on": item.toggleOn===true,
+                                        "mvdmenu__item_toggle_off": item.toggleOn===false,
+                                    }]),
+                                    onClick:$event=>$options.selectMain(item)
+                                },[
+                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
+                                        toDisplayString(String(i+1).padStart(2,"0"))
+                                    ),
+                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
+                                        toDisplayString(item.label)
+                                    ),
+                                    // Стрелка → для пунктов-переходов
+                                    item.arrow
+                                        ? createBaseVNode("div",{class:"mvdmenu__item-arrow",innerHTML:SVG_ARROW})
+                                        : createCommentVNode("",true),
+                                    // Статус toggle
+                                    item.toggleOn!==undefined
+                                        ? createBaseVNode("div",{
+                                            class:normalizeClass(["mvdmenu__item-status",
+                                                item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
+                                            ])
+                                          }, toDisplayString(item.toggleOn?"Вкл":"Выкл"))
+                                        : createCommentVNode("",true),
+                                ],10,["onClick"])
+                            ))
+                        ,128))
+                    ])
                 ])
                 : createCommentVNode("",true),
 
@@ -139,7 +141,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                 openBlock(),createElementBlock("div",{
                                     key:opt.action,
                                     class:normalizeClass(["mvdmenu__item",{
-                                        "mvdmenu__item_special": opt.special,
                                         "mvdmenu__item_fine":    opt.special==="fine",
                                         "mvdmenu__item_wanted":  opt.special==="wanted",
                                     }]),
@@ -171,7 +172,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: idInput — Ввод ID игрока (встроенный)
+            // ЭКРАН: idInput — Ввод ID игрока
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="idInput"
                 ? createBaseVNode("div",{key:"idInput",class:"mvdmenu__id-screen"},[
@@ -183,22 +184,101 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                         createBaseVNode("input",{
                             class:"mvdmenu__id-input",
                             type:"text",
-                            placeholder:"ID...",
+                            placeholder:"Введите ID...",
                             value:$data.idValue,
                             onInput:$event=>{$data.idValue=$event.target.value},
                             onKeydown:$event=>{if($event.key==="Enter")$options.confirmId()},
                         },null,40,["value","onInput","onKeydown"]),
-                        createBaseVNode("div",{
-                            class:"mvdmenu__id-confirm-btn",
-                            onClick:$options.confirmId
-                        },"OK")
                     ]),
+                    // Кнопка подтвердить — большая, всегда видна
+                    createBaseVNode("div",{
+                        class:normalizeClass(["mvdmenu__id-confirm-big",{
+                            "mvdmenu__id-confirm-big_active": $data.idValue.trim().length>0
+                        }]),
+                        onClick:$options.confirmId
+                    },"ПОДТВЕРДИТЬ",2),
                     // Подсказка: если targetId уже задан
                     $data.targetId!==null&&$data.targetId!==-1
                         ? createBaseVNode("div",{class:"mvdmenu__id-saved-hint"},
-                            toDisplayString("Последний ID: "+$data.targetId+" — нажмите ENTER без ввода")
+                            toDisplayString("Прошлый ID: "+$data.targetId+" (Enter без ввода)")
                           )
                         : createCommentVNode("",true),
+                ])
+                : createCommentVNode("",true),
+
+            // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: partner — Меню напарника (кастомный, без старого диалога)
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="partner"
+                ? createBaseVNode("div",{key:"partner",class:"mvdmenu__screen"},[
+                    createBaseVNode("div",{class:"mvdmenu__list"},[
+                        // 1. Следить за напарником
+                        createBaseVNode("div",{
+                            class:normalizeClass(["mvdmenu__item",{
+                                "mvdmenu__item_toggle_on": $data.partnerTracking,
+                                "mvdmenu__item_toggle_off": !$data.partnerTracking,
+                            }]),
+                            onClick:$options.togglePartnerTracking
+                        },[
+                            createBaseVNode("div",{class:"mvdmenu__item-num"},"01"),
+                            createBaseVNode("div",{class:"mvdmenu__item-label"},
+                                toDisplayString($data.partnerTracking && $data.partnerNick
+                                    ? "Следить: "+$data.partnerNick+"["+$data.partnerId+"]"
+                                    : "Следить за напарником")
+                            ),
+                            createBaseVNode("div",{
+                                class:normalizeClass(["mvdmenu__item-status",
+                                    $data.partnerTracking?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
+                                ])
+                            }, toDisplayString($data.partnerTracking?"Вкл":"Выкл"))
+                        ],2),
+                        // 2. Сообщение для напарника
+                        createBaseVNode("div",{
+                            class:normalizeClass(["mvdmenu__item",{
+                                "mvdmenu__item_toggle_on": $data.partnerMessage,
+                                "mvdmenu__item_toggle_off": !$data.partnerMessage,
+                            }]),
+                            onClick:$options.togglePartnerMessage
+                        },[
+                            createBaseVNode("div",{class:"mvdmenu__item-num"},"02"),
+                            createBaseVNode("div",{class:"mvdmenu__item-label"},"Сообщение для напарника"),
+                            createBaseVNode("div",{
+                                class:normalizeClass(["mvdmenu__item-status",
+                                    $data.partnerMessage?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
+                                ])
+                            }, toDisplayString($data.partnerMessage?"Вкл":"Выкл"))
+                        ],2),
+                    ])
+                ])
+                : createCommentVNode("",true),
+
+            // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: partnerIdInput — Ввод ID напарника
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="partnerIdInput"
+                ? createBaseVNode("div",{key:"partnerIdInput",class:"mvdmenu__id-screen"},[
+                    createBaseVNode("div",{class:"mvdmenu__id-action-label"},"Следить за напарником"),
+                    createBaseVNode("div",{class:"mvdmenu__id-hint"},
+                        toDisplayString($data.partnerNick && $data.partnerId
+                            ? "Текущий: "+$data.partnerNick+"["+$data.partnerId+"]"
+                            : "Введите ID напарника:")
+                    ),
+                    createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
+                        createBaseVNode("input",{
+                            class:"mvdmenu__id-input",
+                            type:"text",
+                            placeholder:"ID напарника...",
+                            value:$data.partnerIdValue,
+                            onInput:$event=>{$data.partnerIdValue=$event.target.value},
+                            onKeydown:$event=>{if($event.key==="Enter")$options.confirmPartnerId()},
+                        },null,40,["value","onInput","onKeydown"]),
+                    ]),
+                    createBaseVNode("div",{
+                        class:normalizeClass(["mvdmenu__id-confirm-big",{
+                            "mvdmenu__id-confirm-big_active": $data.partnerIdValue.trim().length>0
+                        }]),
+                        onClick:$options.confirmPartnerId
+                    },"ПОДТВЕРДИТЬ",2),
                 ])
                 : createCommentVNode("",true),
 
@@ -223,48 +303,48 @@ const _sfc_main={
     name:"MvdMenu",
     data(){
         return{
-            screen:"main",       // "main" | "povsednev" | "idInput"
+            // screen: "main" | "povsednev" | "idInput" | "partner" | "partnerIdInput"
+            screen:"main",
             search:"",
             targetId:null,
             idValue:"",
             pendingAction:null,
             pendingActionLabel:"",
+            // ── Напарник (синк с window) ──
+            partnerTracking: false,
+            partnerMessage:  false,
+            partnerNick:     null,
+            partnerId:       null,
+            partnerIdValue:  "",
         }
     },
     computed:{
         headerVersion(){
-            if(this.screen==="main")      return "МЕНЮ";
-            if(this.screen==="povsednev") return "ПОВСЕДНЕВНАЯ";
-            if(this.screen==="idInput")   return "ВВОД ID";
+            if(this.screen==="main")            return "МЕНЮ";
+            if(this.screen==="povsednev")       return "ПОВСЕДНЕВНАЯ";
+            if(this.screen==="idInput")         return "ВВОД ID";
+            if(this.screen==="partner")         return "НАПАРНИК";
+            if(this.screen==="partnerIdInput")  return "ID НАПАРНИКА";
             return "";
         },
-        // Пункты главного меню МВД — зеркало showMvdSubMenu из mvdN.js
         mainMenuItems(){
             const items=[];
-            // 1. Повседневная — всегда
             items.push({id:"povsednev", label:"Повседневная", arrow:true});
-            // 2. Отслеживание — состояние из window
             const trackingOn = !!(typeof window._mvdTrackingActive!=="undefined"
                 ? window._mvdTrackingActive
                 : (window._mvdCurrentScanId != null));
-            items.push({
-                id:"tracking",
-                label:"Отслеживание",
-                toggleOn: trackingOn
-            });
-            // 3. Auto-cuff
+            items.push({id:"tracking", label:"Отслеживание", toggleOn: trackingOn});
             const autocuffOn = !!(typeof window._mvdAutoCuffEnabled!=="undefined"
                 ? window._mvdAutoCuffEnabled : false);
             items.push({id:"autocuff", label:"Auto-cuff", toggleOn: autocuffOn});
-            // 4. Авто-снаряжение — только если AUTO_GRAB===true
             if(typeof window.AUTO_GRAB!=="undefined"&&window.AUTO_GRAB===true){
                 const grabOn = !!(typeof window._mvdAutoGrabEnabled!=="undefined"
                     ? window._mvdAutoGrabEnabled : true);
                 items.push({id:"autograb", label:"Авто-снаряжение", toggleOn: grabOn});
             }
-            // 5. Напарник
-            const partnerLabel = (typeof window._mvdGetPartnerLabel==="function")
-                ? window._mvdGetPartnerLabel()
+            // Напарник — показываем текущий статус
+            const partnerLabel = this.partnerTracking && this.partnerNick
+                ? "Напарник: "+this.partnerNick+"["+this.partnerId+"]"
                 : "Напарник";
             items.push({id:"naparnick", label: partnerLabel, arrow:true});
             return items;
@@ -303,9 +383,14 @@ const _sfc_main={
             } else if(this.screen==="povsednev"){
                 this.screen="main";
                 this.search="";
+            } else if(this.screen==="partnerIdInput"){
+                this.screen="partner";
+                this.partnerIdValue="";
+            } else if(this.screen==="partner"){
+                this.screen="main";
             }
         },
-        // ── Главное меню — выбор пункта ──────────────────────────────────────
+        // ── Главное меню ──────────────────────────────────────────────────────
         selectMain(item){
             if(item.id==="povsednev"){
                 this.screen="povsednev";
@@ -326,11 +411,60 @@ const _sfc_main={
                     if(typeof window._mvdToggleAutoGrab==="function") window._mvdToggleAutoGrab();
                 },80);
             } else if(item.id==="naparnick"){
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window.showPartnerMenu==="function") window.showPartnerMenu(this.targetId!=null?this.targetId:-1);
-                },80);
+                // Открываем кастомный экран напарника — БЕЗ старого диалога
+                this._syncPartnerState();
+                this.screen="partner";
             }
+        },
+        // ── Синхронизация состояния напарника из window ───────────────────────
+        _syncPartnerState(){
+            // mvdN хранит состояние в замыкании, экспортируем через window
+            if(typeof window._mvdPartnerGetState==="function"){
+                const s=window._mvdPartnerGetState();
+                this.partnerTracking = !!s.tracking;
+                this.partnerMessage  = !!s.message;
+                this.partnerNick     = s.nick || null;
+                this.partnerId       = s.id   || null;
+            }
+        },
+        // ── Напарник — переключить слежку ────────────────────────────────────
+        togglePartnerTracking(){
+            this._syncPartnerState();
+            if(this.partnerTracking){
+                // Отключить
+                if(typeof window._mvdPartnerDisable==="function") window._mvdPartnerDisable();
+                this.partnerTracking=false;
+                this.partnerNick=null;
+                this.partnerId=null;
+            } else {
+                // Запросить ID — переходим на экран ввода
+                this.partnerIdValue="";
+                this.screen="partnerIdInput";
+                setTimeout(()=>{
+                    const inp=document.querySelector(".mvdmenu__id-input");
+                    if(inp){inp.focus();inp.select();}
+                },60);
+            }
+        },
+        // ── Напарник — переключить сообщение ─────────────────────────────────
+        togglePartnerMessage(){
+            this._syncPartnerState();
+            const newVal=!this.partnerMessage;
+            if(typeof window._mvdPartnerSetMessage==="function") window._mvdPartnerSetMessage(newVal);
+            this.partnerMessage=newVal;
+        },
+        // ── Напарник — подтвердить ID ─────────────────────────────────────────
+        confirmPartnerId(){
+            const idStr=this.partnerIdValue.trim();
+            if(!idStr) return;
+            const rawId=parseInt(idStr,10);
+            if(isNaN(rawId)||rawId<=0) return;
+            if(typeof window._mvdPartnerSetId==="function") window._mvdPartnerSetId(rawId);
+            this.partnerId=rawId;
+            this.partnerTracking=true;
+            this.partnerNick=null; // ник подтянется из ответа /id
+            this.partnerIdValue="";
+            this.screen="partner";
         },
         // ── Повседневная — выбор действия ────────────────────────────────────
         selectOption(opt){
@@ -346,12 +480,10 @@ const _sfc_main={
                     if(typeof window.showUkInputDialog==="function") window.showUkInputDialog(id);
                 },80);
             } else if(opt.needsId){
-                // → показываем встроенный экран ввода ID
                 this.pendingAction=opt.action;
                 this.pendingActionLabel=opt.label;
                 this.idValue=(id!==null&&id!==-1)?String(id):"";
                 this.screen="idInput";
-                // фокус на input чуть позже
                 setTimeout(()=>{
                     const inp=document.querySelector(".mvdmenu__id-input");
                     if(inp){inp.focus();inp.select();}
@@ -367,11 +499,9 @@ const _sfc_main={
         // ── Подтверждение ввода ID ────────────────────────────────────────────
         confirmId(){
             let id=this.idValue.trim();
-            // Если пусто — используем последний targetId
             if(!id&&this.targetId!==null&&this.targetId!==-1) id=String(this.targetId);
             if(!id) return;
             const action=this.pendingAction;
-            // Сохраняем ID для следующих действий
             this.targetId=id;
             this.pendingAction=null;
             this.pendingActionLabel="";
@@ -388,13 +518,19 @@ const _sfc_main={
     },
     created(){this.$data.noAdaptation=true},
     mounted(){
-        // Читаем targetId из глобальной переменной
+        // Читаем targetId
         this.targetId=(typeof window._mvdMenuTargetId!=="undefined"&&window._mvdMenuTargetId!==null)
             ?window._mvdMenuTargetId:null;
         window._mvdMenuTargetId=null;
 
-        // Экспортируем публичные геттеры состояния для mainMenuItems
-        // (mvdN.js должен выставлять эти флаги при toggle)
+        // Читаем начальный экран (povsednev если открыто из showPovsednevMenuPage)
+        if(window._mvdMenuStartScreen==="povsednev"){
+            this.screen="povsednev";
+            window._mvdMenuStartScreen=null;
+        }
+
+        // Синхронизируем состояние напарника при монтировании
+        this._syncPartnerState();
 
         // CSS
         const s=document.createElement("style");
@@ -419,7 +555,7 @@ const _sfc_main={
 .mvdmenu__close-btn{align-items:center;background:rgba(255,255,255,.06);border-radius:0.37vh;color:rgba(255,255,255,.5);cursor:pointer;display:flex;font-size:1.3vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s ease;width:2.96vh;}
 @media (platform:pc){.mvdmenu__close-btn:hover{background:#e05555;color:#fff;}}
 
-/* Screen wrapper */
+/* Screen */
 .mvdmenu__screen{display:flex;flex-direction:column;flex:1 1 auto;overflow:hidden;}
 
 /* Search */
@@ -445,7 +581,6 @@ const _sfc_main={
 .mvdmenu__item_toggle_on{border-left:0.19vh solid rgba(61,186,122,.5);}
 @media (platform:pc){.mvdmenu__item_toggle_on:hover{background:rgba(61,186,122,.05);}}
 .mvdmenu__item_toggle_off{border-left:0.19vh solid rgba(224,85,85,.3);}
-
 .mvdmenu__item-num{color:rgba(255,255,255,.25);flex-shrink:0;font-size:1.11vh;font-weight:700;min-width:2.4vh;}
 .mvdmenu__item-label{color:rgba(255,255,255,.87);flex:1 1 auto;font-size:1.3vh;font-weight:600;line-height:1.4;}
 .mvdmenu__item-tag{border-radius:0.22vh;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.04vh;padding:0.15vh 0.5vh;}
@@ -455,20 +590,21 @@ const _sfc_main={
 .mvdmenu__item-status{border-radius:0.22vh;flex-shrink:0;font-size:0.93vh;font-weight:700;padding:0.15vh 0.56vh;}
 .mvdmenu__item-status_on{background:rgba(61,186,122,.15);color:rgba(61,186,122,1);}
 .mvdmenu__item-status_off{background:rgba(224,85,85,.12);color:rgba(224,85,85,0.9);}
-
 .mvdmenu__empty{color:rgba(255,255,255,.25);font-size:1.3vh;font-style:italic;padding:2.22vh;text-align:center;}
 
 /* ID Input screen */
-.mvdmenu__id-screen{align-items:center;display:flex;flex-direction:column;gap:1.48vh;padding:2.22vh 2.22vh 1.85vh;}
+.mvdmenu__id-screen{align-items:stretch;display:flex;flex-direction:column;gap:1.2vh;padding:2vh 2vh 1.6vh;position:relative;z-index:1;}
 .mvdmenu__id-action-label{background:rgba(249,183,1,.08);border:0.09vh solid rgba(249,183,1,.2);border-radius:0.37vh;color:rgba(249,183,1,.9);font-size:1.3vh;font-weight:700;padding:0.74vh 1.48vh;text-align:center;width:100%;box-sizing:border-box;}
 .mvdmenu__id-hint{color:rgba(255,255,255,.45);font-size:1.2vh;text-align:center;}
-.mvdmenu__id-input-row{align-items:center;display:flex;gap:0.74vh;width:100%;}
-.mvdmenu__id-input{-webkit-appearance:none;background:rgba(255,255,255,.06);border:0.09vh solid rgba(255,255,255,.12);border-radius:0.37vh;caret-color:#f9b701;color:#e8e6f0;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.67vh;outline:none;padding:0.74vh 1.11vh;transition:border-color 0.15s ease;}
-.mvdmenu__id-input:focus{border-color:rgba(249,183,1,.5);}
-.mvdmenu__id-input::placeholder{color:rgba(255,255,255,.25);}
-.mvdmenu__id-confirm-btn{align-items:center;background:rgba(249,183,1,.15);border:0.09vh solid rgba(249,183,1,.3);border-radius:0.37vh;color:#f9b701;cursor:pointer;display:flex;font-size:1.2vh;font-weight:700;height:3.33vh;justify-content:center;transition:all 0.15s ease;width:4.44vh;flex-shrink:0;}
-@media (platform:pc){.mvdmenu__id-confirm-btn:hover{background:rgba(249,183,1,.28);border-color:rgba(249,183,1,.6);}}
-.mvdmenu__id-saved-hint{color:rgba(255,255,255,.25);font-size:1.07vh;text-align:center;}
+.mvdmenu__id-input-row{align-items:center;display:flex;width:100%;}
+.mvdmenu__id-input{-webkit-appearance:none;background:rgba(255,255,255,.06);border:0.09vh solid rgba(255,255,255,.14);border-radius:0.46vh;caret-color:#f9b701;color:#e8e6f0;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.85vh;outline:none;padding:0.93vh 1.2vh;transition:border-color 0.15s ease;width:100%;box-sizing:border-box;}
+.mvdmenu__id-input:focus{border-color:rgba(249,183,1,.55);}
+.mvdmenu__id-input::placeholder{color:rgba(255,255,255,.22);}
+/* Большая кнопка подтвердить */
+.mvdmenu__id-confirm-big{align-items:center;background:rgba(255,255,255,.05);border:0.09vh solid rgba(255,255,255,.1);border-radius:0.46vh;color:rgba(255,255,255,.35);cursor:pointer;display:flex;font-size:1.2vh;font-weight:700;justify-content:center;letter-spacing:0.08vh;padding:1vh 0;transition:all 0.15s ease;width:100%;box-sizing:border-box;}
+.mvdmenu__id-confirm-big_active{background:rgba(249,183,1,.15);border-color:rgba(249,183,1,.4);color:#f9b701;}
+@media (platform:pc){.mvdmenu__id-confirm-big_active:hover{background:rgba(249,183,1,.28);border-color:rgba(249,183,1,.7);}}
+.mvdmenu__id-saved-hint{color:rgba(255,255,255,.22);font-size:1.0vh;text-align:center;}
 
 /* Footer */
 .mvdmenu__footer{align-items:center;background:rgba(10,10,14,0.5);border-top:0.09vh solid rgba(255,255,255,.06);display:flex;justify-content:space-between;padding:0.93vh 1.48vh;position:relative;z-index:1;}
@@ -478,11 +614,17 @@ const _sfc_main={
         `;
         document.head.appendChild(s);
 
-        // ESC: если на экране ввода ID — назад; иначе закрыть
+        // ESC handler
         this._prevOnKeyUp=window.onKeyUp;
         window.onKeyUp=(e)=>{
             if(e===window.KEY_CODE_ESC){
-                if(this.screen==="idInput"||this.screen==="povsednev"){
+                if(this.screen==="idInput"){
+                    this.goBack();
+                } else if(this.screen==="povsednev"){
+                    this.goBack();
+                } else if(this.screen==="partner"){
+                    this.goBack();
+                } else if(this.screen==="partnerIdInput"){
                     this.goBack();
                 } else {
                     this.close();
