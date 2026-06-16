@@ -73,6 +73,29 @@ def fetch_html() -> str:
     return tmp.name
 
 
+# ── Лёгкий лоадер, показывается мгновенно пока качается основной UI ──
+_LOADER_HTML = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden}
+body{
+  background:#0a0a0b;color:#e8e6f0;font-family:'Segoe UI',Arial,sans-serif;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100vh;gap:16px;-webkit-app-region:drag;user-select:none
+}
+.spinner{
+  width:30px;height:30px;border-radius:50%;
+  border:2.5px solid rgba(255,255,255,.10);border-top-color:#4f6ef7;
+  animation:spin .8s linear infinite
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.lbl{font-size:12px;color:rgba(232,230,240,.55);letter-spacing:.02em}
+</style></head><body>
+<div class="spinner"></div>
+<div class="lbl">Открываем установщик…</div>
+</body></html>"""
+
+
 class InstallerAPI:
     def __init__(self):
         self._saved = load_settings()  # сохранённые настройки
@@ -473,19 +496,41 @@ class InstallerAPI:
 
 
 def main():
-    html_tmp = fetch_html()
-    url = f"file:///{html_tmp.replace(os.sep, '/')}"
     api = InstallerAPI()
     w = webview.create_window(
-        title="AHK MVD Installer", url=url, js_api=api,
+        title="AHK MVD Installer", html=_LOADER_HTML, js_api=api,
         width=860, height=640, resizable=False,
         frameless=True, easy_drag=True,
         background_color="#111114", confirm_close=False,
     )
     api._window = w
+
+    html_tmp_holder = {}
+
+    def _load_real_ui():
+        try:
+            html_tmp = fetch_html()
+            html_tmp_holder['path'] = html_tmp
+            url = f"file:///{html_tmp.replace(os.sep, '/')}"
+            w.load_url(url)
+        except Exception:
+            w.load_html(
+                "<body style='background:#0a0a0b;color:#e8e6f0;"
+                "display:flex;align-items:center;justify-content:center;"
+                "height:100vh;font-family:sans-serif;font-size:13px;"
+                "-webkit-app-region:drag'>⚠ Не удалось загрузить интерфейс. "
+                "Проверьте интернет и перезапустите.</body>"
+            )
+
+    # Качаем index.html параллельно с отрисовкой окна — не блокируем старт
+    w.events.loaded += lambda: threading.Thread(target=_load_real_ui, daemon=True).start()
+
     try:
         webview.start(icon=_ICON_PATH if os.path.exists(_ICON_PATH) else None, debug=False)
     except TypeError:
         webview.start(debug=False)
-    try: os.unlink(html_tmp)
-    except: pass
+
+    tmp_path = html_tmp_holder.get('path')
+    if tmp_path:
+        try: os.unlink(tmp_path)
+        except: pass

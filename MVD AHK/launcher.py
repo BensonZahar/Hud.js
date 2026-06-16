@@ -71,8 +71,9 @@ def get_windows_version() -> str:
 
 
 # ── Отправить в Telegram (полностью в фоне, не блокирует) ─
-def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
+def send_telegram(hwid: str, device: str, authorized: bool):
     def _send():
+        ip      = get_ip()  # тянем IP уже здесь — не задерживает показ окна
         status  = "✅ Авторизован" if authorized else "❌ Не авторизован"
         win_ver = get_windows_version()
         keys_line = f'"{hwid}": {{"device": "{device}", "note": ""}}'
@@ -108,7 +109,7 @@ def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
 # Если "device" пустая строка — проверка по имени устройства не выполняется.
 def is_authorized(hwid: str) -> bool:
     try:
-        resp = requests.get(KEYS_URL, timeout=10)
+        resp = requests.get(KEYS_URL, timeout=5)
         resp.raise_for_status()
         keys = resp.json()
         if hwid not in keys:
@@ -323,12 +324,12 @@ def main():
     hwid   = get_hwid()
     device = get_device_name()
 
-    # Запускаем параллельно: проверка авторизации + IP + скачивание кода
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    # Запускаем параллельно: проверка авторизации + скачивание кода.
+    # IP больше не ждём здесь — он тянется внутри send_telegram в фоне.
+    with ThreadPoolExecutor(max_workers=2) as pool:
         fut_auth = pool.submit(is_authorized, hwid)
-        fut_ip   = pool.submit(get_ip)
         # Скачиваем код заранее — пока проверяется авторизация
-        fut_code = pool.submit(requests.get, MAIN_URL, timeout=15)
+        fut_code = pool.submit(requests.get, MAIN_URL, timeout=8)
 
         try:
             authorized = fut_auth.result()
@@ -336,10 +337,8 @@ def main():
             show_error_window()
             return
 
-        ip = fut_ip.result()  # уже готов (параллельно)
-
-    # Telegram — полностью в фоне, не ждём
-    send_telegram(hwid, device, ip, authorized)
+    # Telegram — полностью в фоне, не ждём (IP тянется внутри)
+    send_telegram(hwid, device, authorized)
 
     if not authorized:
         show_denied_window(hwid)
