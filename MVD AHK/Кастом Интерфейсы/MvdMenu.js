@@ -276,7 +276,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                     ]),
                     createBaseVNode("div",{
                         class:normalizeClass(["mvdmenu__id-confirm-big",{
-                            "mvdmenu__id-confirm-big_active": $data.partnerIdValue&&$data.partnerIdValue.trim().length>0
+                            "mvdmenu__id-confirm-big_active": $data.partnerIdValue.trim().length>0
                         }]),
                         onClick:$options.confirmPartnerId
                     },"ПОДТВЕРДИТЬ",2),
@@ -302,7 +302,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                     ]),
                     createBaseVNode("div",{
                         class:normalizeClass(["mvdmenu__id-confirm-big",{
-                            "mvdmenu__id-confirm-big_active": $data.trackingIdValue&&$data.trackingIdValue.trim().length>0
+                            "mvdmenu__id-confirm-big_active": $data.trackingIdValue.trim().length>0
                         }]),
                         onClick:$options.confirmTrackingId
                     },"ПОДТВЕРДИТЬ",2),
@@ -442,10 +442,9 @@ const _sfc_main={
                     },80);
                 } else {
                     // Открываем кастомный экран ввода ID для отслеживания
-                    this.trackingIdValue=null;
+                    this.trackingIdValue="";
                     this.screen="trackingInput";
                     this.$nextTick(()=>{
-                        this.trackingIdValue="";
                         setTimeout(()=>{
                             const inp=this.$el.querySelector(".mvdmenu__id-input");
                             if(inp){inp.focus();inp.select();}
@@ -490,10 +489,9 @@ const _sfc_main={
                 this.partnerId=null;
             } else {
                 // Запросить ID — переходим на экран ввода
-                this.partnerIdValue=null;
+                this.partnerIdValue="";
                 this.screen="partnerIdInput";
                 setTimeout(()=>{
-                    this.partnerIdValue="";
                     const inp=document.querySelector(".mvdmenu__id-input");
                     if(inp){inp.focus();inp.select();}
                 },60);
@@ -695,29 +693,6 @@ const _sfc_main={
 
         // Синхронизируем состояние напарника при монтировании
         this._syncPartnerState();
-
-        // Публичный API: вызывается из mvdN перед openInterface чтобы сбросить
-        // screen/state даже если компонент не пересоздаётся (Vue keep-alive)
-        window._mvdMenuReactivate = () => {
-            this.search = "";
-            this.idValue = "";
-            this.trackingIdValue = "";
-            this.partnerIdValue = "";
-            this.pendingAction = null;
-            this.pendingActionLabel = "";
-            // Читаем стартовый экран
-            if(window._mvdMenuStartScreen === "povsednev"){
-                this.screen = "povsednev";
-            } else {
-                this.screen = "main";
-            }
-            window._mvdMenuStartScreen = null;
-            // Читаем targetId
-            this.targetId = (typeof window._mvdMenuTargetId !== "undefined" && window._mvdMenuTargetId !== null)
-                ? window._mvdMenuTargetId : null;
-            window._mvdMenuTargetId = null;
-            this._syncPartnerState();
-        };
 
         // ESC handler
         this._prevOnKeyUp=window.onKeyUp;
