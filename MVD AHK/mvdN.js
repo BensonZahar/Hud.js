@@ -465,7 +465,11 @@ window.addEventListener('keydown', function(e) {
             var _isOmonSkin = skinId === 15340;
             var _needsIdForThis = _opt.needsId && !(_action === 'greeting' && _isOmonSkin);
             if (_needsIdForThis) {
-                setTimeout(function(){ showIdInputDialog(giveLicenseTo || -1); }, 50);
+                window._mvdMenuTargetId = (giveLicenseTo !== undefined && giveLicenseTo !== null) ? giveLicenseTo : null;
+                window._mvdMenuPendingAction = _action;
+                window._mvdMenuPendingActionLabel = _opt.name.replace(/^\d+\.\s*/, '');
+                window._mvdMenuStartScreen = 'idInput';
+                setTimeout(function(){ window.openInterface('MvdMenu'); }, 50);
             } else if (_action === 'fine') {
                 setTimeout(function(){ showKoapTypeMenu(giveLicenseTo || -1); }, 50);
             } else if (_action === 'wantedFine') {
@@ -1159,8 +1163,12 @@ const HandlePovsednevCommand = (optionIndex) => {
         const needsIdForThis = option.needsId && !(option.action === "greeting" && isOmonSkin);
   
         if (needsIdForThis) {
+            window._mvdMenuTargetId = (giveLicenseTo !== undefined && giveLicenseTo !== null) ? giveLicenseTo : null;
+            window._mvdMenuPendingAction = option.action;
+            window._mvdMenuPendingActionLabel = option.name.replace(/^\d+\.\s*/, '');
+            window._mvdMenuStartScreen = 'idInput';
             setTimeout(() => {
-                showIdInputDialog(giveLicenseTo);
+                window.openInterface('MvdMenu');
             }, 50);
         } else if (option.action === "fine") {
             setTimeout(() => {
