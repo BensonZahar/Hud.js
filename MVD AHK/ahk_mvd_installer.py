@@ -1,4 +1,4 @@
-import os, random, string, threading, tempfile, requests, json
+import os, random, string, threading, tempfile, requests, json, time
 from pathlib import Path
 import webview
 
@@ -304,14 +304,26 @@ class InstallerAPI:
             # ── CSS-плейсхолдер (нужен только чтобы CEF не падал на preload;
             # реальные стили подтягивает сам {js_file} с GitHub в рантайме) ──
             if css_file:
-                try:
-                    url = f"{LOADERS_URL}/{css_file}"
-                    resp = requests.get(url, timeout=20)
-                    resp.raise_for_status()
-                    (assets_dir / css_file).write_bytes(resp.content)
-                    print(f'[Installer] CSS-плейсхолдер скачан: {css_file} → assets/')
-                except Exception as e:
-                    print(f'[Installer] Не удалось скачать CSS-плейсхолдер {css_file}, создаю локально: {e}')
+                url = f"{LOADERS_URL}/{css_file}"
+                last_err = None
+                downloaded = False
+                for attempt in range(3):
+                    try:
+                        resp = requests.get(url, timeout=20)
+                        resp.raise_for_status()
+                        if not resp.content.strip():
+                            raise ValueError("пустой ответ от GitHub")
+                        (assets_dir / css_file).write_bytes(resp.content)
+                        print(f'[Installer] CSS скачан: {css_file} → assets/ (попытка {attempt + 1})')
+                        downloaded = True
+                        break
+                    except Exception as e:
+                        last_err = e
+                        print(f'[Installer] Попытка {attempt + 1}/3 скачать {css_file} не удалась: {e}')
+                        if attempt < 2:
+                            time.sleep(1.5)
+                if not downloaded:
+                    print(f'[Installer] Не удалось скачать {css_file} после 3 попыток ({last_err}), создаю локально')
                     placeholder = "/* placeholder — реальные стили подгружаются динамически из %s (с GitHub) */\n" % js_file
                     (assets_dir / css_file).write_text(placeholder, encoding='utf-8', newline='\n')
 
