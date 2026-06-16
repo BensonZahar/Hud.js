@@ -283,8 +283,8 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 createBaseVNode("div",{class:"mvdmenu__footer-actions"},[
                     ($data.screen==="idInput"||$data.screen==="partnerIdInput")
                         ? createBaseVNode("div",{
-                            class:normalizeClass(["mvdmenu__id-confirm-footer-btn",{
-                                "mvdmenu__id-confirm-footer-btn_active": $data.screen==="idInput"
+                            class:normalizeClass(["mvdmenu__id-confirm-big","mvdmenu__id-confirm-footer",{
+                                "mvdmenu__id-confirm-big_active": $data.screen==="idInput"
                                     ? $data.idValue.trim().length>0
                                     : $data.partnerIdValue.trim().length>0
                             }]),
@@ -311,7 +311,6 @@ const _sfc_main={
             idValue:"",
             pendingAction:null,
             pendingActionLabel:"",
-            directIdEntry:false,
             // ── Напарник (синк с window) ──
             partnerTracking: false,
             partnerMessage:  false,
@@ -378,10 +377,6 @@ const _sfc_main={
         },
         goBack(){
             if(this.screen==="idInput"){
-                if(this.directIdEntry){
-                    this.close();
-                    return;
-                }
                 this.screen="povsednev";
                 this.pendingAction=null;
                 this.pendingActionLabel="";
@@ -593,7 +588,12 @@ const _sfc_main={
 .mvdmenu__id-input{-webkit-appearance:none;background:rgba(255,255,255,.06);border:0.09vh solid rgba(255,255,255,.14);border-radius:0.46vh;caret-color:#f9b701;color:#e8e6f0;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.85vh;outline:none;padding:0.93vh 1.2vh;transition:border-color 0.15s ease;width:100%;box-sizing:border-box;}
 .mvdmenu__id-input:focus{border-color:rgba(249,183,1,.55);}
 .mvdmenu__id-input::placeholder{color:rgba(255,255,255,.22);}
+/* Большая кнопка подтвердить */
+.mvdmenu__id-confirm-big{align-items:center;background:rgba(255,255,255,.05);border:0.09vh solid rgba(255,255,255,.1);border-radius:0.46vh;color:rgba(255,255,255,.35);cursor:pointer;display:flex;font-size:1.2vh;font-weight:700;justify-content:center;letter-spacing:0.08vh;padding:1vh 0;transition:all 0.15s ease;width:100%;box-sizing:border-box;}
+.mvdmenu__id-confirm-big_active{background:rgba(249,183,1,.15);border-color:rgba(249,183,1,.4);color:#f9b701;}
+@media (platform:pc){.mvdmenu__id-confirm-big_active:hover{background:rgba(249,183,1,.28);border-color:rgba(249,183,1,.7);}}
 .mvdmenu__id-saved-hint{color:rgba(255,255,255,.22);font-size:1.0vh;text-align:center;}
+.mvdmenu__id-confirm-footer{flex:0 0 auto;padding:0.46vh 1.11vh;width:auto;}
 
 /* Footer */
 .mvdmenu__footer{align-items:center;background:rgba(10,10,14,0.5);border-top:0.09vh solid rgba(255,255,255,.06);display:flex;gap:0.74vh;justify-content:space-between;padding:0.93vh 1.48vh;position:relative;z-index:1;}
@@ -601,9 +601,6 @@ const _sfc_main={
 .mvdmenu__footer-actions{align-items:center;display:flex;flex-shrink:0;gap:0.46vh;}
 .mvdmenu__close-footer-btn{background:rgba(255,255,255,.06);border-radius:0.37vh;color:rgba(255,255,255,.5);cursor:pointer;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.05vh;padding:0.46vh 1.11vh;transition:all 0.15s ease;white-space:nowrap;}
 @media (platform:pc){.mvdmenu__close-footer-btn:hover{background:rgba(255,255,255,.12);color:#fff;}}
-.mvdmenu__id-confirm-footer-btn{background:rgba(255,255,255,.06);border-radius:0.37vh;color:rgba(255,255,255,.3);cursor:pointer;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.05vh;padding:0.46vh 1.11vh;transition:all 0.15s ease;white-space:nowrap;}
-.mvdmenu__id-confirm-footer-btn_active{background:rgba(249,183,1,.15);color:#f9b701;}
-@media (platform:pc){.mvdmenu__id-confirm-footer-btn_active:hover{background:rgba(249,183,1,.28);}}
         `;
         document.head.appendChild(s);
 
@@ -613,21 +610,13 @@ const _sfc_main={
         window._mvdMenuTargetId=null;
 
         // Читаем начальный экран (povsednev если открыто из showPovsednevMenuPage,
-        // main если открыто общим хоткеем МВД, idInput если открыто needsId-действием напрямую)
+        // main если открыто общим хоткеем МВД)
         if(window._mvdMenuStartScreen==="povsednev"){
             this.screen="povsednev";
         } else if(window._mvdMenuStartScreen==="main"){
             this.screen="main";
-        } else if(window._mvdMenuStartScreen==="idInput"){
-            this.screen="idInput";
-            this.pendingAction=window._mvdMenuPendingAction||null;
-            this.pendingActionLabel=window._mvdMenuPendingActionLabel||"";
-            this.idValue=(this.targetId!==null&&this.targetId!==-1)?String(this.targetId):"";
-            this.directIdEntry=true;
         }
         window._mvdMenuStartScreen=null;
-        window._mvdMenuPendingAction=null;
-        window._mvdMenuPendingActionLabel=null;
 
         // Автофокус, если открылись прямо на экране ввода ID
         if(this.screen==="idInput"){
