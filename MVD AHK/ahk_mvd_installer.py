@@ -7,6 +7,13 @@ AHK_URL       = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%2
 INTLOAD_URL   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
 CUSTOM_UI_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
 
+# ── Папка с готовыми файлами-лоадерами (генерируются вручную, кладутся на GitHub) ──
+GITHUB_USER       = "BensonZahar"
+GITHUB_REPO       = "Hud.js"
+CUSTOM_UI_FOLDER  = "MVD AHK/Кастом Интерфейсы"             # папка с реальными интерфейсами (curr. zkm.js, MvdMenu.js)
+LOADERS_FOLDER    = "MVD AHK/Кастом Интерфейсы/Загрузчики"   # папка с готовыми лоадерами — именно их кладём в assets/
+LOADERS_URL       = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
+
 # Путь к иконке передаётся из launcher через exec namespace
 _ICON_PATH = globals().get("_ICON_PATH", "")
 
@@ -262,24 +269,51 @@ class InstallerAPI:
         )
 
     def _deploy_custom_ui_files(self, ifaces: list):
-        """Скачивает файлы кастомных интерфейсов из GitHub и кладёт в assets/.
-        Список файлов берётся из реестра IntLoad.js — менять .py не нужно."""
+        """Скачивает ГОТОВЫЕ файлы-лоадеры из папки Загрузчики/ на GitHub и
+        кладёт их в assets/ под именами реальных интерфейсов (zkm.js, MvdMenu.js
+        и т.п. из реестра IntLoad.js). Сами лоадеры — самодостаточные XHR+eval
+        обёртки, которые в игре подтягивают актуальный код интерфейсов с GitHub
+        из MVD AHK/Кастом Интерфейсы/. Правка логики лоадера = правка файла в
+        Загрузчики/ на GitHub, переустановка/пересборка не нужна.
+        Список интерфейсов и их файлов берётся из реестра IntLoad.js — менять .py не нужно."""
         if not self.radmir_path:
             return
         assets_dir = self.radmir_path / "uiresources" / "assets"
         if not assets_dir.exists():
             return
-        all_files = [f for iface in ifaces for f in iface.get("files", [])]
-        for filename in all_files:
-            url = f"{CUSTOM_UI_URL}/{filename}"
+
+        for iface in ifaces:
+            name = iface.get("name")
+            files = iface.get("files", [])
+            js_file = next((f for f in files if f.endswith(".js")), None)
+            css_file = next((f for f in files if f.endswith(".css")), None)
+            if not name or not js_file:
+                continue
+
+            # ── JS-лоадер ──
             try:
+                url = f"{LOADERS_URL}/{js_file}"
                 resp = requests.get(url, timeout=20)
                 resp.raise_for_status()
-                dest = assets_dir / filename
-                dest.write_bytes(resp.content)
-                print(f'[Installer] Скопирован {filename} → assets/')
+                (assets_dir / js_file).write_bytes(resp.content)
+                print(f'[Installer] Лоадер скачан: {js_file} → assets/')
             except Exception as e:
-                print(f'[Installer] Не удалось скачать {filename}: {e}')
+                print(f'[Installer] Не удалось скачать лоадер {js_file} из Загрузчики/: {e}')
+                continue
+
+            # ── CSS-плейсхолдер (нужен только чтобы CEF не падал на preload;
+            # реальные стили подтягивает сам {js_file} с GitHub в рантайме) ──
+            if css_file:
+                try:
+                    url = f"{LOADERS_URL}/{css_file}"
+                    resp = requests.get(url, timeout=20)
+                    resp.raise_for_status()
+                    (assets_dir / css_file).write_bytes(resp.content)
+                    print(f'[Installer] CSS-плейсхолдер скачан: {css_file} → assets/')
+                except Exception as e:
+                    print(f'[Installer] Не удалось скачать CSS-плейсхолдер {css_file}, создаю локально: {e}')
+                    placeholder = "/* placeholder — реальные стили подгружаются динамически из %s (с GitHub) */\n" % js_file
+                    (assets_dir / css_file).write_text(placeholder, encoding='utf-8', newline='\n')
 
     def select_folder(self):
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
