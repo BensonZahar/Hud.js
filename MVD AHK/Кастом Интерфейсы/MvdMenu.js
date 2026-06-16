@@ -292,14 +292,13 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                     createBaseVNode("div",{class:"mvdmenu__id-hint"},"Введите ID для отслеживания:"),
                     createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
                         createBaseVNode("input",{
-                            key:"tracking-input-field",
                             class:"mvdmenu__id-input",
                             type:"text",
                             placeholder:"ID игрока...",
                             value:$data.trackingIdValue,
                             onInput:$event=>{$data.trackingIdValue=$event.target.value},
                             onKeydown:$event=>{if($event.key==="Enter")$options.confirmTrackingId()},
-                        },null,40,["key","value","onInput","onKeydown"]),
+                        },null,40,["value","onInput","onKeydown"]),
                     ]),
                     createBaseVNode("div",{
                         class:normalizeClass(["mvdmenu__id-confirm-big",{
@@ -352,7 +351,6 @@ const _sfc_main={
             partnerIdValue:  "",
             // ── Отслеживание ──
             trackingIdValue: "",
-            trackingActive: false,
         }
     },
     computed:{
@@ -368,7 +366,10 @@ const _sfc_main={
         mainMenuItems(){
             const items=[];
             items.push({id:"povsednev", label:"Повседневная", arrow:true});
-            items.push({id:"tracking", label:"Отслеживание", toggleOn: this.trackingActive});
+            const trackingOn = !!(typeof window._mvdTrackingActive!=="undefined"
+                ? window._mvdTrackingActive
+                : (window._mvdCurrentScanId != null));
+            items.push({id:"tracking", label:"Отслеживание", toggleOn: trackingOn});
             const autocuffOn = !!(typeof window._mvdAutoCuffEnabled!=="undefined"
                 ? window._mvdAutoCuffEnabled : false);
             items.push({id:"autocuff", label:"Auto-cuff", toggleOn: autocuffOn});
@@ -434,7 +435,7 @@ const _sfc_main={
                 this.screen="povsednev";
             } else if(item.id==="tracking"){
                 // Если уже активно — останавливаем через window
-                if(this.trackingActive){
+                if(window._mvdCurrentScanId){
                     this.close();
                     setTimeout(()=>{
                         if(typeof window._mvdToggleTracking==="function") window._mvdToggleTracking();
@@ -444,13 +445,9 @@ const _sfc_main={
                     this.trackingIdValue="";
                     this.screen="trackingInput";
                     this.$nextTick(()=>{
-                        // Принудительно сбрасываем значение input в DOM
-                        // (Vue может переиспользовать DOM-узел от другого экрана)
-                        const inp=this.$el.querySelector(".mvdmenu__id-input");
-                        if(inp){inp.value="";}
                         setTimeout(()=>{
-                            const inp2=this.$el.querySelector(".mvdmenu__id-input");
-                            if(inp2){inp2.focus();inp2.select();}
+                            const inp=this.$el.querySelector(".mvdmenu__id-input");
+                            if(inp){inp.focus();inp.select();}
                         },60);
                     });
                 }
@@ -526,7 +523,6 @@ const _sfc_main={
             const rawId=parseInt(idStr,10);
             if(isNaN(rawId)||rawId<=0) return;
             this.trackingIdValue="";
-            this.trackingActive=true;
             this.close();
             setTimeout(()=>{
                 if(typeof window.startTracking==="function") window.startTracking(rawId);
@@ -697,9 +693,6 @@ const _sfc_main={
 
         // Синхронизируем состояние напарника при монтировании
         this._syncPartnerState();
-
-        // Синхронизируем состояние отслеживания при монтировании
-        this.trackingActive = !!(window._mvdCurrentScanId);
 
         // ESC handler
         this._prevOnKeyUp=window.onKeyUp;
