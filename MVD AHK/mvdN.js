@@ -1101,6 +1101,8 @@ window._mvdToggleTracking = () => {
         setTimeout(() => showTrackingInputDialog(giveLicenseTo), 50);
     }
 };
+// Запуск отслеживания по ID напрямую (для кастомного экрана MvdMenu)
+window._mvdStartTracking = (id) => { startTracking(id); };
 
 // ── Публичные API напарника для MvdMenu (кастомный интерфейс) ────────────────
 window._mvdPartnerGetState = function() {
