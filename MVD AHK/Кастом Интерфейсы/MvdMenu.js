@@ -277,28 +277,40 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 ])
                 : createCommentVNode("",true),
 
+            // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: trackingInput — Ввод ID для отслеживания
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="trackingInput"
+                ? createBaseVNode("div",{key:"trackingInput",class:"mvdmenu__id-screen"},[
+                    createBaseVNode("div",{class:"mvdmenu__id-action-label"},"Отслеживание"),
+                    createBaseVNode("div",{class:"mvdmenu__id-hint"},"Введите ID для отслеживания:"),
+                    createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
+                        createBaseVNode("input",{
+                            class:"mvdmenu__id-input",
+                            type:"text",
+                            placeholder:"ID игрока...",
+                            value:$data.trackingIdValue,
+                            onInput:$event=>{$data.trackingIdValue=$event.target.value},
+                            onKeydown:$event=>{if($event.key==="Enter")$options.confirmTrackingId()},
+                        },null,40,["value","onInput","onKeydown"]),
+                    ]),
+                ])
+                : createCommentVNode("",true),
+
             // ── Footer ───────────────────────────────────────────────────────
             createBaseVNode("div",{class:"mvdmenu__footer"},[
                 createBaseVNode("span",{class:"mvdmenu__footer-hint"},
                     toDisplayString(
                         $data.screen==="partnerIdInput"
                             ? ($data.partnerNick && $data.partnerId ? "Текущий напарник: "+$data.partnerNick+"["+$data.partnerId+"]" : "Введите ID напарника")
-                            : ($data.targetId!==null&&$data.targetId!==-1
-                                ? "Цель: ID "+$data.targetId
-                                : ($data.screen==="idInput" ? "ID не задан" : "ID не задан — потребуется при необходимости"))
+                            : $data.screen==="trackingInput"
+                                ? "Введите ID и нажмите Enter"
+                                : ($data.targetId!==null&&$data.targetId!==-1
+                                    ? "Цель: ID "+$data.targetId
+                                    : ($data.screen==="idInput" ? "ID не задан" : "ID не задан — потребуется при необходимости"))
                     )
                 ),
                 createBaseVNode("div",{class:"mvdmenu__footer-actions"},[
-                    ($data.screen==="idInput"||$data.screen==="partnerIdInput")
-                        ? createBaseVNode("div",{
-                            class:normalizeClass(["mvdmenu__id-confirm-big","mvdmenu__id-confirm-footer",{
-                                "mvdmenu__id-confirm-big_active": $data.screen==="idInput"
-                                    ? $data.idValue.trim().length>0
-                                    : $data.partnerIdValue.trim().length>0
-                            }]),
-                            onClick:$data.screen==="idInput"?$options.confirmId:$options.confirmPartnerId
-                          },"ПОДТВЕРДИТЬ",2)
-                        : createCommentVNode("",true),
                     createBaseVNode("div",{class:"mvdmenu__close-footer-btn",onClick:$options.close},"ЗАКРЫТЬ")
                 ])
             ])
@@ -325,6 +337,8 @@ const _sfc_main={
             partnerNick:     null,
             partnerId:       null,
             partnerIdValue:  "",
+            // ── Отслеживание ──
+            trackingIdValue: "",
         }
     },
     computed:{
@@ -334,6 +348,7 @@ const _sfc_main={
             if(this.screen==="idInput")         return "ВВОД ID";
             if(this.screen==="partner")         return "НАПАРНИК";
             if(this.screen==="partnerIdInput")  return "ID НАПАРНИКА";
+            if(this.screen==="trackingInput")   return "ОТСЛЕЖИВАНИЕ";
             return "";
         },
         mainMenuItems(){
@@ -397,6 +412,9 @@ const _sfc_main={
                 this.partnerIdValue="";
             } else if(this.screen==="partner"){
                 this.screen="main";
+            } else if(this.screen==="trackingInput"){
+                this.screen="main";
+                this.trackingIdValue="";
             }
         },
         // ── Главное меню ──────────────────────────────────────────────────────
@@ -404,11 +422,23 @@ const _sfc_main={
             if(item.id==="povsednev"){
                 this.screen="povsednev";
             } else if(item.id==="tracking"){
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window._mvdToggleTracking==="function") window._mvdToggleTracking();
-                    else if(typeof window.showTrackingInputDialog==="function") window.showTrackingInputDialog(this.targetId!=null?this.targetId:-1);
-                },80);
+                // Если уже активно — останавливаем через window
+                if(window._mvdCurrentScanId){
+                    this.close();
+                    setTimeout(()=>{
+                        if(typeof window._mvdToggleTracking==="function") window._mvdToggleTracking();
+                    },80);
+                } else {
+                    // Открываем кастомный экран ввода ID для отслеживания
+                    this.trackingIdValue="";
+                    this.screen="trackingInput";
+                    this.$nextTick(()=>{
+                        setTimeout(()=>{
+                            const inp=this.$el.querySelector(".mvdmenu__id-input");
+                            if(inp){inp.focus();inp.select();}
+                        },60);
+                    });
+                }
             } else if(item.id==="autocuff"){
                 this.close();
                 setTimeout(()=>{
@@ -457,7 +487,6 @@ const _sfc_main={
         },
         // ── Напарник — переключить сообщение ─────────────────────────────────
         togglePartnerMessage(){
-            this._syncPartnerState();
             const newVal=!this.partnerMessage;
             if(typeof window._mvdPartnerSetMessage==="function") window._mvdPartnerSetMessage(newVal);
             this.partnerMessage=newVal;
@@ -474,6 +503,20 @@ const _sfc_main={
             this.partnerNick=null; // ник подтянется из ответа /id
             this.partnerIdValue="";
             this.screen="partner";
+        },
+        // ── Отслеживание — подтвердить ID ────────────────────────────────────
+        confirmTrackingId(){
+            const idStr=this.trackingIdValue.trim();
+            if(!idStr) return;
+            const rawId=parseInt(idStr,10);
+            if(isNaN(rawId)||rawId<=0) return;
+            this.trackingIdValue="";
+            this.close();
+            setTimeout(()=>{
+                if(typeof window.startTracking==="function") window.startTracking(rawId);
+                else if(typeof window._mvdStartTracking==="function") window._mvdStartTracking(rawId);
+                else if(typeof window.showTrackingInputDialog==="function") window.showTrackingInputDialog(rawId);
+            },80);
         },
         // ── Повседневная — выбор действия ────────────────────────────────────
         selectOption(opt){
@@ -650,6 +693,8 @@ const _sfc_main={
                 } else if(this.screen==="partner"){
                     this.goBack();
                 } else if(this.screen==="partnerIdInput"){
+                    this.goBack();
+                } else if(this.screen==="trackingInput"){
                     this.goBack();
                 } else {
                     this.close();
