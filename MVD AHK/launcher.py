@@ -71,9 +71,8 @@ def get_windows_version() -> str:
 
 
 # ── Отправить в Telegram (полностью в фоне, не блокирует) ─
-def send_telegram(hwid: str, device: str, authorized: bool):
+def send_telegram(hwid: str, device: str, ip: str, authorized: bool):
     def _send():
-        ip      = get_ip()  # тянем IP уже здесь — не задерживает показ окна
         status  = "✅ Авторизован" if authorized else "❌ Не авторизован"
         win_ver = get_windows_version()
         keys_line = f'"{hwid}": {{"device": "{device}", "note": ""}}'
@@ -109,7 +108,7 @@ def send_telegram(hwid: str, device: str, authorized: bool):
 # Если "device" пустая строка — проверка по имени устройства не выполняется.
 def is_authorized(hwid: str) -> bool:
     try:
-        resp = requests.get(KEYS_URL, timeout=5)
+        resp = requests.get(KEYS_URL, timeout=10)
         resp.raise_for_status()
         keys = resp.json()
         if hwid not in keys:
@@ -139,7 +138,7 @@ def get_icon_b64() -> str:
 
 
 # ── Окно "нет доступа" ────────────────────────────────
-def show_denied_window(hwid: str, w=None):
+def show_denied_window(hwid: str):
     import webview, tempfile
     device    = get_device_name()
     keys_line = f'"{hwid}": {{"device": "{device}", "note": ""}}'
@@ -260,19 +259,6 @@ function copyKeys(){{
 </script>
 </body></html>"""
 
-    # Если окно уже существует (передано из main) — просто подменяем контент.
-    if w is not None:
-        class _Q:
-            def __init__(self): self._window = w
-            def close_app(self):
-                if self._window: self._window.destroy()
-            def open_url(self, url):
-                import webbrowser
-                webbrowser.open(url)
-        w._js_api_override = _Q()  # для справки, не используется pywebview напрямую
-        w.load_html(html)
-        return
-
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
     tmp.write(html); tmp.close()
 
@@ -284,12 +270,12 @@ function copyKeys(){{
             import webbrowser
             webbrowser.open(url)
     api = _Q()
-    nw = webview.create_window('AHK MVD Installer',
+    w = webview.create_window('AHK MVD Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
         js_api=api, width=460, height=430,
         frameless=True, background_color='#0a0a0b'
     )
-    api._window = nw
+    api._window = w
     ico = resource_path("icon.ico")
     try:
         webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
@@ -300,7 +286,7 @@ function copyKeys(){{
 
 
 # ── Окно "нет интернета" ──────────────────────────────
-def show_error_window(w=None):
+def show_error_window():
     import webview, tempfile
     html = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
 <style>*{margin:0;padding:0}body{background:#141414;color:#f4f1e1;
@@ -313,11 +299,6 @@ border-radius:4px;cursor:pointer;font-size:11px;-webkit-app-region:no-drag}
 <h2>⚠ Нет подключения</h2><p>Требуется интернет для запуска</p>
 <button onclick="window.pywebview.api.close_app()">Закрыть</button>
 </body></html>"""
-
-    if w is not None:
-        w.load_html(html)
-        return
-
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
     tmp.write(html); tmp.close()
     class _Q:
@@ -325,11 +306,11 @@ border-radius:4px;cursor:pointer;font-size:11px;-webkit-app-region:no-drag}
         def close_app(self):
             if self._window: self._window.destroy()
     api = _Q()
-    nw = webview.create_window('AHK MVD Installer',
+    w = webview.create_window('AHK MVD Installer',
         f"file:///{tmp.name.replace(os.sep,'/')}",
         js_api=api, width=380, height=200,
         frameless=True, background_color='#141414')
-    api._window = nw
+    api._window = w
     ico = resource_path("icon.ico")
     try: webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
     except TypeError: webview.start(debug=False)
@@ -337,95 +318,46 @@ border-radius:4px;cursor:pointer;font-size:11px;-webkit-app-region:no-drag}
     except: pass
 
 
-# ── Лёгкий лоадер — показывается мгновенно при старте exe ──
-_LOADER_HTML = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden}
-body{
-  background:#0a0a0b;color:#e8e6f0;font-family:'Segoe UI',Arial,sans-serif;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  height:100vh;gap:16px;-webkit-app-region:drag;user-select:none
-}
-.spinner{
-  width:30px;height:30px;border-radius:50%;
-  border:2.5px solid rgba(255,255,255,.10);border-top-color:#4f6ef7;
-  animation:spin .8s linear infinite
-}
-@keyframes spin{to{transform:rotate(360deg)}}
-.lbl{font-size:12px;color:rgba(232,230,240,.55);letter-spacing:.02em}
-</style></head><body>
-<div class="spinner"></div>
-<div class="lbl">Открываем установщик…</div>
-</body></html>"""
-
-
-def _close_loader_api_factory(window_holder):
-    class _Q:
-        def close_app(self):
-            if window_holder.get('w'):
-                window_holder['w'].destroy()
-        def open_url(self, url):
-            import webbrowser
-            webbrowser.open(url)
-    return _Q()
-
-
 # ── Main ──────────────────────────────────────────────
 def main():
-    import webview
+    hwid   = get_hwid()
+    device = get_device_name()
 
-    window_holder = {'w': None}
-    api = _close_loader_api_factory(window_holder)
-
-    w = webview.create_window(
-        'AHK MVD Installer', html=_LOADER_HTML, js_api=api,
-        width=860, height=640, resizable=False,
-        frameless=True, easy_drag=True,
-        background_color='#0a0a0b', confirm_close=False,
-    )
-    window_holder['w'] = w
-
-    def _startup_flow():
-        hwid   = get_hwid()
-        device = get_device_name()
-
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            fut_auth = pool.submit(is_authorized, hwid)
-            fut_code = pool.submit(requests.get, MAIN_URL, timeout=8)
-
-            try:
-                authorized = fut_auth.result()
-            except Exception:
-                show_error_window(w)
-                return
-
-        send_telegram(hwid, device, authorized)
-
-        if not authorized:
-            show_denied_window(hwid, w)
-            return
+    # Запускаем параллельно: проверка авторизации + IP + скачивание кода
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        fut_auth = pool.submit(is_authorized, hwid)
+        fut_ip   = pool.submit(get_ip)
+        # Скачиваем код заранее — пока проверяется авторизация
+        fut_code = pool.submit(requests.get, MAIN_URL, timeout=15)
 
         try:
-            code = fut_code.result().text
+            authorized = fut_auth.result()
         except Exception:
-            show_error_window(w)
+            show_error_window()
             return
 
-        icon_b64  = get_icon_b64()
-        icon_path = resource_path('icon.ico')
+        ip = fut_ip.result()  # уже готов (параллельно)
 
-        ns = {'_ICON_B64': icon_b64, '_ICON_PATH': icon_path, '_EXISTING_WINDOW': w}
-        exec(compile(code, 'ahk_mvd_installer.py', 'exec'), ns)
-        ns['main']()
+    # Telegram — полностью в фоне, не ждём
+    send_telegram(hwid, device, ip, authorized)
 
-    threading.Thread(target=_startup_flow, daemon=True).start()
+    if not authorized:
+        show_denied_window(hwid)
+        return
 
-    ico = resource_path('icon.ico')
+    # Получаем уже скачанный код
     try:
-        webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
-    except TypeError:
-        webview.start(debug=False)
+        code = fut_code.result().text
+    except Exception:
+        show_error_window()
+        return
+
+    icon_b64  = get_icon_b64()
+    icon_path = resource_path("icon.ico")
+
+    ns = {"_ICON_B64": icon_b64, "_ICON_PATH": icon_path}
+    exec(compile(code, 'ahk_mvd_installer.py', 'exec'), ns)
+    ns['main']()
 
 
 if __name__ == '__main__':
