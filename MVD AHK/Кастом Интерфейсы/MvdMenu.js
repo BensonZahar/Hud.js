@@ -214,7 +214,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 ? (openBlock(),createElementBlock(Fragment,{key:"partner"},[
                     createBaseVNode("div",{class:"mvdmenu__list"},[
                         // 1. Следить за напарником
-                        createBaseVNode("div",{
+                        (openBlock(),createElementBlock("div",{
                             class:normalizeClass(["mvdmenu__item",{
                                 "mvdmenu__item_toggle_on": $data.partnerTracking,
                                 "mvdmenu__item_toggle_off": !$data.partnerTracking,
@@ -232,9 +232,9 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                     $data.partnerTracking?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
                                 ])
                             }, toDisplayString($data.partnerTracking?"Вкл":"Выкл"))
-                        ],2),
+                        ])),
                         // 2. Сообщение для напарника
-                        createBaseVNode("div",{
+                        (openBlock(),createElementBlock("div",{
                             class:normalizeClass(["mvdmenu__item",{
                                 "mvdmenu__item_toggle_on": $data.partnerMessage,
                                 "mvdmenu__item_toggle_off": !$data.partnerMessage,
@@ -248,7 +248,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                     $data.partnerMessage?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
                                 ])
                             }, toDisplayString($data.partnerMessage?"Вкл":"Выкл"))
-                        ],2),
+                        ])),
                     ])
                   ],64))
                 : createCommentVNode("",true),
@@ -274,6 +274,12 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             onKeydown:$event=>{if($event.key==="Enter")$options.confirmPartnerId()},
                         },null,40,["value","onInput","onKeydown"]),
                     ]),
+                    createBaseVNode("div",{
+                        class:normalizeClass(["mvdmenu__id-confirm-big",{
+                            "mvdmenu__id-confirm-big_active": $data.partnerIdValue.trim().length>0
+                        }]),
+                        onClick:$options.confirmPartnerId
+                    },"ПОДТВЕРДИТЬ",2),
                 ])
                 : createCommentVNode("",true),
 
@@ -294,6 +300,12 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             onKeydown:$event=>{if($event.key==="Enter")$options.confirmTrackingId()},
                         },null,40,["value","onInput","onKeydown"]),
                     ]),
+                    createBaseVNode("div",{
+                        class:normalizeClass(["mvdmenu__id-confirm-big",{
+                            "mvdmenu__id-confirm-big_active": $data.trackingIdValue.trim().length>0
+                        }]),
+                        onClick:$options.confirmTrackingId
+                    },"ПОДТВЕРДИТЬ",2),
                 ])
                 : createCommentVNode("",true),
 
