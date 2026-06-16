@@ -204,20 +204,17 @@ class InstallerAPI:
         return result
 
     @staticmethod
-    def _fetch_custom_interfaces(self):
-        """Скачивает IntLoad.js с GitHub, парсит window._duranCustomInterfaces
-        и сохраняет сырой текст файла (он же содержит buildInterfacesBlock,
-        используемый позже в _build_interfaces_block — повторно скачивать не нужно).
+    def _fetch_custom_interfaces() -> list:
+        """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
         Единственный источник реестра — добавлять новые интерфейсы только в IntLoad.js.
         Возвращает [] если GitHub недоступен или реестр не найден."""
-        import re
+        import re, json
         try:
             print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
             resp = requests.get(INTLOAD_URL, timeout=15)
             resp.raise_for_status()
             print(f'[Installer] HTTP {resp.status_code}, длина {len(resp.text)} байт')
             text = resp.text
-            self._intload_raw = text  # сохраняем для _build_interfaces_block
 
             m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
             if not m:
@@ -245,47 +242,31 @@ class InstallerAPI:
             return result
         except Exception as e:
             print(f'[Installer] Не удалось загрузить IntLoad.js: {e}')
-            self._intload_raw = None
             return []
 
-    def _build_interfaces_block(self, ifaces: list) -> str:
-        """Генерирует Object.assign(ld,...) / Object.assign(ud,...) — но сам
-        ФОРМАТ генерации больше не зашит в .py. Функция buildInterfacesBlock
-        живёт прямо в IntLoad.js на GitHub (тот же файл, что и реестр —
-        отдельный запрос не нужен) и выполняется прямо в окне pywebview.
-        Если формат вставки в Index.js поменяется — правится только IntLoad.js
-        на GitHub, переустановка/пересборка не нужна.
-        """
+    @staticmethod
+    def _build_interfaces_block(ifaces: list) -> str:
+        """Генерирует Object.assign(ld,...) / Object.assign(ud,...) из реестра."""
         if not ifaces:
             return ""
-        template_code = getattr(self, '_intload_raw', None)
-        if not template_code:
-            print('[Installer] IntLoad.js не был загружен — нет buildInterfacesBlock')
-            return ""
-
-        if not self._window:
-            print('[Installer] Нет активного окна для выполнения buildInterfacesBlock')
-            return ""
-
-        ifaces_json = json.dumps(ifaces, ensure_ascii=False)
-        # IntLoad.js — самовызывающаяся функция (function(){...})() — она сама
-        # выставляет window.__buildInterfacesBlock при выполнении.
-        # Выполняем её, затем зовём сохранённую функцию с актуальными данными.
-        js_call = (
-            "(function(){"
-            f"{template_code}\n"
-            f"return window.__buildInterfacesBlock({ifaces_json});"
-            "})()"
+        ld_parts, ud_parts = [], []
+        for iface in ifaces:
+            name      = iface["name"]
+            files     = iface["files"]
+            js_file   = next((f for f in files if f.endswith(".js")), files[0])
+            files_js  = "[" + ",".join(f'"{f}"' for f in files) + "]"
+            hide_hud  = "!0" if iface.get("hideHud")  else "!1"
+            hide_chat = "!0" if iface.get("hideChat") else "!1"
+            ld_parts.append(
+                f'{name}:f(()=>d(()=>import("./{js_file}"),{files_js},import.meta.url))'
+            )
+            ud_parts.append(
+                f'{name}:{{open:{{status:!1}},show:!0,options:{{hideHud:{hide_hud},hideChat:{hide_chat}}}}}'
+            )
+        return (
+            f'Object.assign(ld,{{{",".join(ld_parts)}}});'
+            f'Object.assign(ud,{{{",".join(ud_parts)}}});'
         )
-        try:
-            result = self._window.evaluate_js(js_call)
-            if not result:
-                print('[Installer] InterfacesBlockTemplate.js вернул пустой результат')
-                return ""
-            return result
-        except Exception as e:
-            print(f'[Installer] Ошибка выполнения InterfacesBlockTemplate.js: {e}')
-            return ""
 
     def _deploy_custom_ui_files(self, ifaces: list):
         """Скачивает ГОТОВЫЕ файлы-лоадеры из папки Загрузчики/ на GitHub и
