@@ -959,6 +959,7 @@ const startTracking = (id) => {
     }
  
     currentScanId = id;
+    window._mvdCurrentScanId = id; // экспорт для MvdMenu
     trackingName = `Отслеживание | {00FF00}ID: ${id}`;
     trackingNickname = null;
     isInActiveChase = false; // Сброс флага погони
@@ -1032,6 +1033,7 @@ const stopTracking = () => {
     // ==================== КОНЕЦ СООБЩЕНИЯ О КОНЦЕ ОТСЛЕЖИВАНИЯ ====================
  
     currentScanId = null;
+    window._mvdCurrentScanId = null; // экспорт для MvdMenu
     trackingNickname = null;
     trackingName = `Отслеживание | {FF0000}Выкл`;
     isInActiveChase = false;
