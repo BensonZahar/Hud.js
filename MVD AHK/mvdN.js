@@ -1674,8 +1674,6 @@ window.showPovsednevMenuPage = (e) => {
     window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
     window._mvdMenuStartScreen = 'povsednev';
     window.openInterface('MvdMenu');
-    // Сбрасываем state компонента если он уже был смонтирован (не пересоздаётся)
-    if (typeof window._mvdMenuReactivate === 'function') window._mvdMenuReactivate();
 };
 
 // Открыть главное меню МВД (экран "main") — для общего хоткея MENU_KEY
@@ -1686,8 +1684,6 @@ window.showMvdMainMenuPage = (e) => {
     window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
     window._mvdMenuStartScreen = 'main';
     window.openInterface('MvdMenu');
-    // Сбрасываем state компонента если он уже был смонтирован (не пересоздаётся)
-    if (typeof window._mvdMenuReactivate === 'function') window._mvdMenuReactivate();
 };
 
 // Публичный API для MvdMenu — выполнить действие Повседневной напрямую
