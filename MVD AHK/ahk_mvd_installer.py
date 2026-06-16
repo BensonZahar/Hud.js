@@ -496,6 +496,39 @@ class InstallerAPI:
 
 
 def main():
+    existing_window = globals().get('_EXISTING_WINDOW')
+
+    if existing_window is not None:
+        # Окно уже создано и показано в launcher.py (с лоадером) —
+        # просто переиспользуем его, не создаём новое.
+        w = existing_window
+        api = InstallerAPI()
+        api._window = w
+        try:
+            w.set_js_api  # noqa: B018 — доступности проверка, не вызываем
+        except Exception:
+            pass
+
+        def _load_real_ui():
+            try:
+                html_tmp = fetch_html()
+                url = f"file:///{html_tmp.replace(os.sep, '/')}"
+                w.load_url(url)
+            except Exception:
+                w.load_html(
+                    "<body style='background:#0a0a0b;color:#e8e6f0;"
+                    "display:flex;align-items:center;justify-content:center;"
+                    "height:100vh;font-family:sans-serif;font-size:13px;"
+                    "-webkit-app-region:drag'>⚠ Не удалось загрузить интерфейс. "
+                    "Проверьте интернет и перезапустите.</body>"
+                )
+
+        threading.Thread(target=_load_real_ui, daemon=True).start()
+        # webview.start() уже вызван в launcher.py — здесь просто отдаём
+        # управление обратно, GUI-loop продолжает крутиться там.
+        return
+
+    # ── Fallback: прямой запуск ahk_mvd_installer.py без launcher.py ──
     api = InstallerAPI()
     w = webview.create_window(
         title="AHK MVD Installer", html=_LOADER_HTML, js_api=api,
@@ -506,6 +539,7 @@ def main():
     api._window = w
 
     html_tmp_holder = {}
+    _ui_loaded = {'done': False}
 
     def _load_real_ui():
         try:
@@ -522,8 +556,13 @@ def main():
                 "Проверьте интернет и перезапустите.</body>"
             )
 
-    # Качаем index.html параллельно с отрисовкой окна — не блокируем старт
-    w.events.loaded += lambda: threading.Thread(target=_load_real_ui, daemon=True).start()
+    def _on_loaded():
+        if _ui_loaded['done']:
+            return
+        _ui_loaded['done'] = True
+        threading.Thread(target=_load_real_ui, daemon=True).start()
+
+    w.events.loaded += _on_loaded
 
     try:
         webview.start(icon=_ICON_PATH if os.path.exists(_ICON_PATH) else None, debug=False)
