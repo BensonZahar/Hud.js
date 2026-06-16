@@ -196,6 +196,14 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             toDisplayString("Прошлый ID: "+$data.targetId+" (Enter без ввода)")
                           )
                         : createCommentVNode("",true),
+                    // Кнопка подтвердить внутри экрана
+                    createBaseVNode("div",{
+                        class:normalizeClass(["mvdmenu__id-confirm-big",{
+                            "mvdmenu__id-confirm-big_active":
+                                $data.idValue.trim().length>0||($data.targetId!==null&&$data.targetId!==-1)
+                        }]),
+                        onClick:$options.confirmId
+                    },"ПОДТВЕРДИТЬ",2),
                 ])
                 : createCommentVNode("",true),
 
