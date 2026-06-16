@@ -172,38 +172,41 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: idInput — Ввод ID игрока
+            // ЭКРАН: idInput — Ввод ID (общий для повседневной и напарника)
             // ══════════════════════════════════════════════════════════════════
-            $data.screen==="idInput"
+            ($data.screen==="idInput"||$data.screen==="partnerIdInput")
                 ? createBaseVNode("div",{key:"idInput",class:"mvdmenu__id-screen"},[
                     createBaseVNode("div",{class:"mvdmenu__id-action-label"},
-                        toDisplayString($data.pendingActionLabel)
+                        toDisplayString($data.screen==="partnerIdInput"
+                            ? "Следить за напарником"
+                            : $data.pendingActionLabel)
                     ),
-                    createBaseVNode("div",{class:"mvdmenu__id-hint"},"Введите ID игрока:"),
+                    createBaseVNode("div",{class:"mvdmenu__id-hint"},
+                        toDisplayString($data.screen==="partnerIdInput"
+                            ? ($data.partnerNick && $data.partnerId
+                                ? "Текущий: "+$data.partnerNick+"["+$data.partnerId+"]"
+                                : "Введите ID напарника:")
+                            : "Введите ID игрока:")
+                    ),
                     createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
                         createBaseVNode("input",{
                             class:"mvdmenu__id-input",
                             type:"text",
-                            placeholder:"Введите ID...",
-                            value:$data.idValue,
-                            onInput:$event=>{$data.idValue=$event.target.value},
-                            onKeydown:$event=>{if($event.key==="Enter")$options.confirmId()},
-                        },null,40,["value","onInput","onKeydown"]),
+                            placeholder:$data.screen==="partnerIdInput"?"ID напарника...":"Введите ID...",
+                            value:$data.screen==="partnerIdInput"?$data.partnerIdValue:$data.idValue,
+                            onInput:$event=>{$data.screen==="partnerIdInput"
+                                ?($data.partnerIdValue=$event.target.value)
+                                :($data.idValue=$event.target.value)},
+                            onKeydown:$event=>{if($event.key==="Enter")
+                                ($data.screen==="partnerIdInput"?$options.confirmPartnerId:$options.confirmId)()},
+                        },null,40,["value","onInput","onKeydown","placeholder"]),
                     ]),
-                    // Подсказка: если targetId уже задан
-                    $data.targetId!==null&&$data.targetId!==-1
+                    // Подсказка прошлого ID (только для повседневной)
+                    $data.screen==="idInput"&&$data.targetId!==null&&$data.targetId!==-1
                         ? createBaseVNode("div",{class:"mvdmenu__id-saved-hint"},
                             toDisplayString("Прошлый ID: "+$data.targetId+" (Enter без ввода)")
                           )
                         : createCommentVNode("",true),
-                    // Кнопка подтвердить внутри экрана
-                    createBaseVNode("div",{
-                        class:normalizeClass(["mvdmenu__id-confirm-big",{
-                            "mvdmenu__id-confirm-big_active":
-                                $data.idValue.trim().length>0||($data.targetId!==null&&$data.targetId!==-1)
-                        }]),
-                        onClick:$options.confirmId
-                    },"ПОДТВЕРДИТЬ",2),
                 ])
                 : createCommentVNode("",true),
 
@@ -253,36 +256,14 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                   ],64))
                 : createCommentVNode("",true),
 
-            // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: partnerIdInput — Ввод ID напарника
-            // ══════════════════════════════════════════════════════════════════
-            $data.screen==="partnerIdInput"
-                ? createBaseVNode("div",{key:"partnerIdInput",class:"mvdmenu__id-screen"},[
-                    createBaseVNode("div",{class:"mvdmenu__id-action-label"},"Следить за напарником"),
-                    createBaseVNode("div",{class:"mvdmenu__id-hint"},
-                        toDisplayString($data.partnerNick && $data.partnerId
-                            ? "Текущий: "+$data.partnerNick+"["+$data.partnerId+"]"
-                            : "Введите ID напарника:")
-                    ),
-                    createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
-                        createBaseVNode("input",{
-                            class:"mvdmenu__id-input",
-                            type:"text",
-                            placeholder:"ID напарника...",
-                            value:$data.partnerIdValue,
-                            onInput:$event=>{$data.partnerIdValue=$event.target.value},
-                            onKeydown:$event=>{if($event.key==="Enter")$options.confirmPartnerId()},
-                        },null,40,["value","onInput","onKeydown"]),
-                    ]),
-                ])
-                : createCommentVNode("",true),
+
 
             // ── Footer ───────────────────────────────────────────────────────
             createBaseVNode("div",{class:"mvdmenu__footer"},[
                 createBaseVNode("span",{class:"mvdmenu__footer-hint"},
                     toDisplayString(
                         $data.screen==="partnerIdInput"
-                            ? ($data.partnerNick && $data.partnerId ? "Текущий напарник: "+$data.partnerNick+"["+$data.partnerId+"]" : "Введите ID напарника")
+                            ? ($data.partnerNick && $data.partnerId ? "Напарник: "+$data.partnerNick+"["+$data.partnerId+"]" : "Введите ID напарника")
                             : ($data.targetId!==null&&$data.targetId!==-1
                                 ? "Цель: ID "+$data.targetId
                                 : ($data.screen==="idInput" ? "ID не задан" : "ID не задан — потребуется при необходимости"))
@@ -291,9 +272,9 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 createBaseVNode("div",{class:"mvdmenu__footer-actions"},[
                     ($data.screen==="idInput"||$data.screen==="partnerIdInput")
                         ? createBaseVNode("div",{
-                            class:normalizeClass(["mvdmenu__id-confirm-big","mvdmenu__id-confirm-footer",{
-                                "mvdmenu__id-confirm-big_active": $data.screen==="idInput"
-                                    ? $data.idValue.trim().length>0
+                            class:normalizeClass(["mvdmenu__confirm-footer-btn",{
+                                "mvdmenu__confirm-footer-btn_active": $data.screen==="idInput"
+                                    ? ($data.idValue.trim().length>0||($data.targetId!==null&&$data.targetId!==-1))
                                     : $data.partnerIdValue.trim().length>0
                             }]),
                             onClick:$data.screen==="idInput"?$options.confirmId:$options.confirmPartnerId
@@ -596,12 +577,11 @@ const _sfc_main={
 .mvdmenu__id-input{-webkit-appearance:none;background:rgba(255,255,255,.06);border:0.09vh solid rgba(255,255,255,.14);border-radius:0.46vh;caret-color:#f9b701;color:#e8e6f0;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.85vh;outline:none;padding:0.93vh 1.2vh;transition:border-color 0.15s ease;width:100%;box-sizing:border-box;}
 .mvdmenu__id-input:focus{border-color:rgba(249,183,1,.55);}
 .mvdmenu__id-input::placeholder{color:rgba(255,255,255,.22);}
-/* Большая кнопка подтвердить */
-.mvdmenu__id-confirm-big{align-items:center;background:rgba(255,255,255,.05);border:0.09vh solid rgba(255,255,255,.1);border-radius:0.46vh;color:rgba(255,255,255,.35);cursor:pointer;display:flex;font-size:1.2vh;font-weight:700;justify-content:center;letter-spacing:0.08vh;padding:1vh 0;transition:all 0.15s ease;width:100%;box-sizing:border-box;}
-.mvdmenu__id-confirm-big_active{background:rgba(249,183,1,.15);border-color:rgba(249,183,1,.4);color:#f9b701;}
-@media (platform:pc){.mvdmenu__id-confirm-big_active:hover{background:rgba(249,183,1,.28);border-color:rgba(249,183,1,.7);}}
 .mvdmenu__id-saved-hint{color:rgba(255,255,255,.22);font-size:1.0vh;text-align:center;}
-.mvdmenu__id-confirm-footer{flex:0 0 auto;padding:0.46vh 1.11vh;width:auto;}
+/* Кнопка подтвердить в футере — как close-footer-btn, но с акцентом при активности */
+.mvdmenu__confirm-footer-btn{background:rgba(255,255,255,.06);border-radius:0.37vh;color:rgba(255,255,255,.25);cursor:pointer;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.05vh;padding:0.46vh 1.11vh;transition:all 0.15s ease;white-space:nowrap;}
+.mvdmenu__confirm-footer-btn_active{background:rgba(249,183,1,.15);color:#f9b701;}
+@media (platform:pc){.mvdmenu__confirm-footer-btn_active:hover{background:rgba(249,183,1,.28);color:#f9b701;}}
 
 /* Footer */
 .mvdmenu__footer{align-items:center;background:rgba(10,10,14,0.5);border-top:0.09vh solid rgba(255,255,255,.06);display:flex;gap:0.74vh;justify-content:space-between;padding:0.93vh 1.48vh;position:relative;z-index:1;}
