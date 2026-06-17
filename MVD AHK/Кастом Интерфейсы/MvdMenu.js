@@ -70,9 +70,8 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                         : createCommentVNode("",true),
                     createBaseVNode("div",{class:"mvdmenu__title"},[
                         createBaseVNode("span",{class:"mvdmenu__title-main"},"МВД"),
-                        createBaseVNode("span",{class:"mvdmenu__title-sub"}," АХК"),
-                        createBaseVNode("span",{class:"mvdmenu__title-version"},
-                            toDisplayString($options.headerVersion)
+                        createBaseVNode("span",{class:"mvdmenu__title-sub"},
+                            toDisplayString($options.headerSubtitle)
                         )
                     ])
                 ]),
@@ -167,6 +166,12 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                         $options.filteredOptions.length===0
                             ? createBaseVNode("div",{class:"mvdmenu__empty"},"Ничего не найдено")
                             : createCommentVNode("",true)
+                    ]),
+                    createBaseVNode("div",{class:"mvdmenu__footer"},[
+                        createBaseVNode("div",{
+                            class:"mvdmenu__footer-back-btn",
+                            onClick:$options.goBack
+                        },"← НАЗАД")
                     ])
                   ],64))
                 : createCommentVNode("",true),
@@ -192,10 +197,16 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                 onKeydown:$options.onIdInputKeydown,
                             },null,40,["value","onInput","onKeydown"])
                         ]),
-                        createBaseVNode("div",{
-                            class:"mvdmenu__id-confirm-btn",
-                            onClick:$options.confirmIdInput
-                        },"ПОДТВЕРДИТЬ")
+                        createBaseVNode("div",{class:"mvdmenu__id-action-row"},[
+                            createBaseVNode("div",{
+                                class:"mvdmenu__id-back-btn",
+                                onClick:$options.cancelIdInput
+                            },"НАЗАД"),
+                            createBaseVNode("div",{
+                                class:"mvdmenu__id-confirm-btn",
+                                onClick:$options.confirmIdInput
+                            },"ПОДТВЕРДИТЬ"),
+                        ])
                     ])
                   ],64))
                 : createCommentVNode("",true),
@@ -242,6 +253,12 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                 ])
                             }, toDisplayString($data.partnerMessage?"Вкл":"Выкл"))
                         ])),
+                    ]),
+                    createBaseVNode("div",{class:"mvdmenu__footer"},[
+                        createBaseVNode("div",{
+                            class:"mvdmenu__footer-back-btn",
+                            onClick:$options.goBack
+                        },"← НАЗАД")
                     ])
                   ],64))
                 : createCommentVNode("",true),
@@ -273,12 +290,12 @@ const _sfc_main={
         }
     },
     computed:{
-        headerVersion(){
-            if(this.screen==="main")            return "МЕНЮ";
-            if(this.screen==="povsednev")       return "ПОВСЕДНЕВНАЯ";
-            if(this.screen==="partner")         return "НАПАРНИК";
-            if(this.screen==="id-input")        return this.idInputContext==="tracking"?"ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?"НАПАРНИК":"ВВОД ID";
-            return "";
+        headerSubtitle(){
+            if(this.screen==="main")            return " АХК";
+            if(this.screen==="povsednev")       return " ПОВСЕДНЕВНАЯ";
+            if(this.screen==="partner")         return " НАПАРНИК";
+            if(this.screen==="id-input")        return this.idInputContext==="tracking"?" ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?" НАПАРНИК":" ВВОД ID";
+            return " АХК";
         },
         mainMenuItems(){
             const items=[];
@@ -582,8 +599,15 @@ const _sfc_main={
 .mvdmenu__id-input-field:focus{border-color:rgba(249,183,1,0.5);}
 .mvdmenu__id-input-field::placeholder{color:#f4f1e144;font-weight:400;}
 .mvdmenu__id-input-field::-webkit-inner-spin-button,.mvdmenu__id-input-field::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
-.mvdmenu__id-confirm-btn{background:rgba(249,183,1,0.12);border:0.19vh solid rgba(249,183,1,0.25);border-radius:0.37vh;color:rgba(249,183,1,0.9);cursor:pointer;font-size:1.3vh;font-weight:700;letter-spacing:0.08vh;padding:1.1vh 0;text-align:center;transition:all 0.15s ease;width:100%;}
+.mvdmenu__id-action-row{display:flex;gap:0.74vh;}
+.mvdmenu__id-back-btn{background:rgba(244,241,225,0.06);border:0.19vh solid rgba(244,241,225,0.12);border-radius:0.37vh;color:rgba(244,241,225,0.45);cursor:pointer;flex-shrink:0;font-size:1.3vh;font-weight:700;letter-spacing:0.08vh;padding:1.1vh 1.3vh;text-align:center;transition:all 0.15s ease;}
+@media (platform:pc){.mvdmenu__id-back-btn:hover{background:rgba(244,241,225,0.1);color:rgba(244,241,225,0.7);}}
+.mvdmenu__id-confirm-btn{background:rgba(249,183,1,0.12);border:0.19vh solid rgba(249,183,1,0.25);border-radius:0.37vh;color:rgba(249,183,1,0.9);cursor:pointer;flex:1 1 auto;font-size:1.3vh;font-weight:700;letter-spacing:0.08vh;padding:1.1vh 0;text-align:center;transition:all 0.15s ease;}
 @media (platform:pc){.mvdmenu__id-confirm-btn:hover{background:rgba(249,183,1,0.22);border-color:rgba(249,183,1,0.55);color:#f9b701;}}
+/* Footer back button */
+.mvdmenu__footer{border-top:0.19vh solid #f4f1e11a;padding:1.11vh 1.67vh;position:relative;z-index:1;}
+.mvdmenu__footer-back-btn{background:rgba(244,241,225,0.06);border:0.19vh solid rgba(244,241,225,0.12);border-radius:0.37vh;color:rgba(244,241,225,0.45);cursor:pointer;font-size:1.3vh;font-weight:700;letter-spacing:0.08vh;padding:0.9vh 1.3vh;text-align:center;transition:all 0.15s ease;}
+@media (platform:pc){.mvdmenu__footer-back-btn:hover{background:rgba(244,241,225,0.1);color:rgba(244,241,225,0.7);}}
         `;
         document.head.appendChild(s);
 
