@@ -89,8 +89,9 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                     class:normalizeClass(["mvdmenu__item",{
                                         "mvdmenu__item_toggle_on": item.toggleOn===true,
                                         "mvdmenu__item_toggle_off": item.toggleOn===false,
+                                        "mvdmenu__item_selected": $data.selectedIndex===i,
                                     }]),
-                                    onClick:$event=>$options.selectMain(item)
+                                    onClick:$event=>{$data.selectedIndex=i;$options.selectMain(item);}
                                 },[
                                     createBaseVNode("div",{class:"mvdmenu__item-num"},
                                         toDisplayString(String(i+1).padStart(2,"0"))
@@ -140,8 +141,9 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                     class:normalizeClass(["mvdmenu__item",{
                                         "mvdmenu__item_fine":    opt.special==="fine",
                                         "mvdmenu__item_wanted":  opt.special==="wanted",
+                                        "mvdmenu__item_selected": $data.selectedIndex===i,
                                     }]),
-                                    onClick:$event=>$options.selectOption(opt)
+                                    onClick:$event=>{$data.selectedIndex=i;$options.selectOption(opt);}
                                 },[
                                     createBaseVNode("div",{class:"mvdmenu__item-num"},
                                         toDisplayString(String($options.globalIndex(opt)+1).padStart(2,"0"))
@@ -212,8 +214,9 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                     class:normalizeClass(["mvdmenu__item",{
                                         "mvdmenu__item_toggle_on": item.toggleOn===true,
                                         "mvdmenu__item_toggle_off": item.toggleOn===false,
+                                        "mvdmenu__item_selected": $data.selectedIndex===i,
                                     }]),
-                                    onClick:$event=>$options[item.onClick]()
+                                    onClick:$event=>{$data.selectedIndex=i;$options[item.onClick]();}
                                 },[
                                     createBaseVNode("div",{class:"mvdmenu__item-num"},
                                         toDisplayString(String(i+1).padStart(2,"0"))
@@ -246,6 +249,8 @@ const _sfc_main={
             screen:"main",
             search:"",
             targetId:null,
+            // ── Навигация по списку стрелочками/Enter ──
+            selectedIndex:0,
             // ── Реактивные флаги тоглов главного меню (читаем из window сразу) ──
             trackingOn: !!(typeof window._mvdTrackingActive!=="undefined"
                 ? window._mvdTrackingActive
@@ -333,8 +338,41 @@ const _sfc_main={
                 }
             ];
         },
+        // ── Текущий список пунктов для клавиатурной навигации (зависит от экрана) ──
+        currentListItems(){
+            if(this.screen==="main")      return this.mainMenuItems;
+            if(this.screen==="povsednev") return this.filteredOptions;
+            if(this.screen==="partner")   return this.partnerMenuItems;
+            return [];
+        },
+    },
+    watch:{
+        // Сбрасываем выделение при смене экрана или фильтрации поиском —
+        // иначе индекс может "уехать" на несуществующий пункт
+        screen(){ this.selectedIndex=0; },
+        search(){ this.selectedIndex=0; },
     },
     methods:{
+        // ── Клавиатурная навигация: стрелки двигают индекс по кругу, Enter подтверждает ──
+        moveSelection(delta){
+            const items=this.currentListItems;
+            if(!items.length) return;
+            const len=items.length;
+            this.selectedIndex=((this.selectedIndex+delta)%len+len)%len;
+            this.$nextTick(()=>{
+                const sel=this.$el.querySelector(".mvdmenu__item_selected");
+                if(sel) sel.scrollIntoView({block:"nearest"});
+            });
+        },
+        confirmSelected(){
+            const items=this.currentListItems;
+            if(!items.length) return;
+            const idx=Math.min(Math.max(this.selectedIndex,0),items.length-1);
+            const item=items[idx];
+            if(this.screen==="main") this.selectMain(item);
+            else if(this.screen==="povsednev") this.selectOption(item);
+            else if(this.screen==="partner" && typeof this[item.onClick]==="function") this[item.onClick]();
+        },
         globalIndex(opt){
             return this.visibleOptions.indexOf(opt);
         },
@@ -582,6 +620,8 @@ const _sfc_main={
 .mvdmenu__item_toggle_on{border-left:0.19vh solid rgba(61,186,122,.5);}
 @media (platform:pc){.mvdmenu__item_toggle_on:hover{background:rgba(61,186,122,.05);}}
 .mvdmenu__item_toggle_off{border-left:0.19vh solid rgba(224,85,85,.3);}
+.mvdmenu__item_selected{background:rgba(249,183,1,.1);border-left:0.19vh solid #f9b701;}
+.mvdmenu__item_selected .mvdmenu__item-label{color:#f4f1e1;}
 .mvdmenu__item-num{color:#f4f1e166;flex-shrink:0;font-size:1.11vh;font-weight:700;min-width:2.4vh;}
 .mvdmenu__item-label{color:#f4f1e1cc;flex:1 1 auto;font-size:1.3vh;font-weight:600;line-height:1.4;}
 .mvdmenu__item-tag{border-radius:0.22vh;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.04vh;padding:0.15vh 0.5vh;}
@@ -639,6 +679,22 @@ const _sfc_main={
                     this.close();
                 }
                 return;
+            }
+            // Навигация по списку стрелочками + подтверждение по Enter
+            // (для id-input не перехватываем — там Enter уже обрабатывает сам инпут)
+            if(this.screen==="main"||this.screen==="povsednev"||this.screen==="partner"){
+                if(e===window.KEY_CODE_ARROW_TOP){
+                    this.moveSelection(-1);
+                    return;
+                }
+                if(e===window.KEY_CODE_ARROW_BOTTOM){
+                    this.moveSelection(1);
+                    return;
+                }
+                if(e===window.KEY_CODE_ENTER){
+                    this.confirmSelected();
+                    return;
+                }
             }
             if(typeof this._prevOnKeyUp==="function") this._prevOnKeyUp(e);
         };
