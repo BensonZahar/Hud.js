@@ -205,42 +205,30 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             $data.screen==="partner"
                 ? (openBlock(),createElementBlock(Fragment,{key:"partner"},[
                     createBaseVNode("div",{class:"mvdmenu__list"},[
-                        // 1. Следить за напарником
-                        (openBlock(),createElementBlock("div",{
-                            class:normalizeClass(["mvdmenu__item",{
-                                "mvdmenu__item_toggle_on": $data.partnerTracking,
-                                "mvdmenu__item_toggle_off": !$data.partnerTracking,
-                            }]),
-                            onClick:$options.togglePartnerTracking
-                        },[
-                            createBaseVNode("div",{class:"mvdmenu__item-num"},"01"),
-                            createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                toDisplayString($data.partnerTracking && $data.partnerNick
-                                    ? "Следить: "+$data.partnerNick+"["+$data.partnerId+"]"
-                                    : "Следить за напарником")
-                            ),
-                            createBaseVNode("div",{
-                                class:normalizeClass(["mvdmenu__item-status",
-                                    $data.partnerTracking?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                ])
-                            }, toDisplayString($data.partnerTracking?"Вкл":"Выкл"))
-                        ])),
-                        // 2. Сообщение для напарника
-                        (openBlock(),createElementBlock("div",{
-                            class:normalizeClass(["mvdmenu__item",{
-                                "mvdmenu__item_toggle_on": $data.partnerMessage,
-                                "mvdmenu__item_toggle_off": !$data.partnerMessage,
-                            }]),
-                            onClick:$options.togglePartnerMessage
-                        },[
-                            createBaseVNode("div",{class:"mvdmenu__item-num"},"02"),
-                            createBaseVNode("div",{class:"mvdmenu__item-label"},"Сообщение для напарника"),
-                            createBaseVNode("div",{
-                                class:normalizeClass(["mvdmenu__item-status",
-                                    $data.partnerMessage?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                ])
-                            }, toDisplayString($data.partnerMessage?"Вкл":"Выкл"))
-                        ])),
+                        (openBlock(true),createElementBlock(Fragment,null,
+                            renderList($options.partnerMenuItems,(item,i)=>(
+                                openBlock(),createElementBlock("div",{
+                                    key:item.id,
+                                    class:normalizeClass(["mvdmenu__item",{
+                                        "mvdmenu__item_toggle_on": item.toggleOn===true,
+                                        "mvdmenu__item_toggle_off": item.toggleOn===false,
+                                    }]),
+                                    onClick:$event=>$options[item.onClick]()
+                                },[
+                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
+                                        toDisplayString(String(i+1).padStart(2,"0"))
+                                    ),
+                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
+                                        toDisplayString(item.label)
+                                    ),
+                                    createBaseVNode("div",{
+                                        class:normalizeClass(["mvdmenu__item-status",
+                                            item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
+                                        ])
+                                    }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
+                                ],10,["onClick"])
+                            ))
+                        ,128))
                     ]),
                   ],64))
                 : createCommentVNode("",true),
@@ -266,11 +254,11 @@ const _sfc_main={
                 ? window._mvdAutoCuffEnabled : false),
             autograbOn: !!(typeof window._mvdAutoGrabEnabled!=="undefined"
                 ? window._mvdAutoGrabEnabled : true),
-            // ── Напарник (синк с window) ──
-            partnerTracking: false,
-            partnerMessage:  false,
-            partnerNick:     null,
-            partnerId:       null,
+            // ── Напарник (читаем из window сразу, как trackingOn/autocuffOn) ──
+            partnerTracking: (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return !!(s&&s.tracking); }catch(e){ return false; } })(),
+            partnerMessage:  (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return !!(s&&s.message);  }catch(e){ return false; } })(),
+            partnerNick:     (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return (s&&s.nick)||null;  }catch(e){ return null;  } })(),
+            partnerId:       (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return (s&&s.id)||null;    }catch(e){ return null;  } })(),
             // ── ID-input ──
             idInputValue:"",
             idInputLabel:"Введите ID игрока",
@@ -321,6 +309,25 @@ const _sfc_main={
             const q=this.search.trim().toLowerCase();
             if(!q)return this.visibleOptions;
             return this.visibleOptions.filter(o=>o.label.toLowerCase().includes(q)||o.action.toLowerCase().includes(q));
+        },
+        // ── Список пунктов меню напарника (через computed — как mainMenuItems) ──
+        partnerMenuItems(){
+            return [
+                {
+                    id:"tracking",
+                    label: this.partnerTracking && this.partnerNick
+                        ? "Следить: "+this.partnerNick+"["+this.partnerId+"]"
+                        : "Следить за напарником",
+                    toggleOn: this.partnerTracking,
+                    onClick: "togglePartnerTracking"
+                },
+                {
+                    id:"message",
+                    label: "Сообщение для напарника",
+                    toggleOn: this.partnerMessage,
+                    onClick: "togglePartnerMessage"
+                }
+            ];
         },
     },
     methods:{
@@ -415,6 +422,7 @@ const _sfc_main={
             const newVal=!this.partnerMessage;
             if(typeof window._mvdPartnerSetMessage==="function") window._mvdPartnerSetMessage(newVal);
             this.partnerMessage=newVal;
+            if(typeof this.$forceUpdate==="function") this.$forceUpdate();
         },
         // ── Повседневная — выбор действия ────────────────────────────────────
         selectOption(opt){
@@ -489,9 +497,7 @@ const _sfc_main={
                     this.targetId=id;
                     this.close();
                     setTimeout(()=>{
-                        if(typeof window.startTracking==="function") window.startTracking(id);
-                        else if(typeof window.showTrackingInputDialog==="function")
-                            window._mvdStartTrackingDirect=id;
+                        if(typeof window._mvdStartTracking==="function") window._mvdStartTracking(id);
                     },80);
                 } else {
                     this.screen="main";
