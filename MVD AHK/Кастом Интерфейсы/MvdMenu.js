@@ -566,7 +566,6 @@ const _sfc_main={
             this.screen=this._idPrevScreen||"main";
         },
         onIdInputKeydown(e){
-            if(e.key==="Enter") this.confirmIdInput();
             if(e.key==="Escape") this.cancelIdInput();
         },
         close(){
@@ -681,7 +680,6 @@ const _sfc_main={
                 return;
             }
             // Навигация по списку стрелочками + подтверждение по Enter
-            // (для id-input не перехватываем — там Enter уже обрабатывает сам инпут)
             if(this.screen==="main"||this.screen==="povsednev"||this.screen==="partner"){
                 if(e===window.KEY_CODE_ARROW_TOP){
                     this.moveSelection(-1);
@@ -693,6 +691,15 @@ const _sfc_main={
                 }
                 if(e===window.KEY_CODE_ENTER){
                     this.confirmSelected();
+                    return;
+                }
+            }
+            // Подтверждение ввода ID по Enter
+            // (нативный keydown на самом инпуте в этом клиенте не всегда долетает,
+            // поэтому ловим Enter здесь же, как и для остальных экранов)
+            if(this.screen==="id-input"){
+                if(e===window.KEY_CODE_ENTER){
+                    this.confirmIdInput();
                     return;
                 }
             }
