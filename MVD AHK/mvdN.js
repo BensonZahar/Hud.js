@@ -1253,6 +1253,10 @@ const HandleMvdSubCommand = (index) => {
         case "naparnick":
             setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
             break;
+        case "laws":
+            window._duranOpenMode = 'laws';
+            window.openInterface('Zkm');
+            break;
     }
 };
 const HandleLectureCommand = (optionIndex) => {
@@ -1750,6 +1754,7 @@ window.showMvdSubMenu = (e) => {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
     availableSub.push({ name: getPartnerMenuLabel(), id: "naparnick" });
+    availableSub.push({ name: "Законы", id: "laws" });
     shownMvdSubTypes = availableSub;
     let licenseList = '';
     availableSub.forEach((license, index) => {
@@ -2115,10 +2120,10 @@ window.sendChatInputCustom = e => {
         partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
         sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
     } else if (args[0] == "/hp") {
-        // ==================== ТЕСТ: /hp — открыть интерфейс LawsHelper (ЗКМ) ====================
+        // ==================== ТЕСТ: /hp — открыть интерфейс Zkm (ЗКМ) ====================
         window._duranOpenMode = null; // null = показать все табы (ЗАКОНЫ/ШТРАФЫ/РОЗЫСК/БИНДЕР)
-        window.openInterface('LawsHelper');
-        console.log('[TEST /hp] Открываю интерфейс LawsHelper');
+        window.openInterface('Zkm');
+        console.log('[TEST /hp] Открываю интерфейс Zkm');
         // ==================== КОНЕЦ /hp ====================
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
