@@ -172,6 +172,35 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: id-input — Ввод ID
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="id-input"
+                ? (openBlock(),createElementBlock(Fragment,{key:"id-input"},[
+                    createBaseVNode("div",{class:"mvdmenu__id-input-wrap"},[
+                        createBaseVNode("div",{class:"mvdmenu__id-input-label"},
+                            toDisplayString($data.idInputLabel||"Введите ID игрока")
+                        ),
+                        createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
+                            createBaseVNode("input",{
+                                class:"mvdmenu__id-input-field",
+                                id:"mvdmenu-id-field",
+                                type:"number",
+                                min:"1",
+                                placeholder:"ID игрока...",
+                                value:$data.idInputValue,
+                                onInput:$event=>{$data.idInputValue=$event.target.value},
+                                onKeydown:$options.onIdInputKeydown,
+                            },null,40,["value","onInput","onKeydown"])
+                        ]),
+                        createBaseVNode("div",{
+                            class:"mvdmenu__id-confirm-btn",
+                            onClick:$options.confirmIdInput
+                        },"ПОДТВЕРДИТЬ")
+                    ])
+                  ],64))
+                : createCommentVNode("",true),
+
+            // ══════════════════════════════════════════════════════════════════
             // ЭКРАН: partner — Меню напарника (кастомный, без старого диалога)
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="partner"
@@ -217,20 +246,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                   ],64))
                 : createCommentVNode("",true),
 
-            // ── Footer ───────────────────────────────────────────────────────
-            createBaseVNode("div",{class:"mvdmenu__footer"},[
-                createBaseVNode("span",{class:"mvdmenu__footer-hint"},
-                    toDisplayString(
-                        $data.targetId!==null&&$data.targetId!==-1
-                            ? "Цель: ID "+$data.targetId
-                            : "ID не задан — потребуется при необходимости"
-                    )
-                ),
-                createBaseVNode("div",{class:"mvdmenu__footer-actions"},[
-                    createBaseVNode("div",{class:"mvdmenu__close-footer-btn",onClick:$options.close},"ЗАКРЫТЬ")
-                ])
-            ])
-
         ])
     ]));
 }
@@ -240,7 +255,7 @@ const _sfc_main={
     name:"MvdMenu",
     data(){
         return{
-            // screen: "main" | "povsednev" | "partner"
+            // screen: "main" | "povsednev" | "partner" | "id-input"
             screen:"main",
             search:"",
             targetId:null,
@@ -249,6 +264,12 @@ const _sfc_main={
             partnerMessage:  false,
             partnerNick:     null,
             partnerId:       null,
+            // ── ID-input ──
+            idInputValue:"",
+            idInputLabel:"Введите ID игрока",
+            // "action" | "tracking" | "partner"
+            idInputContext:null,
+            _idPrevScreen:null,
         }
     },
     computed:{
@@ -256,6 +277,7 @@ const _sfc_main={
             if(this.screen==="main")            return "МЕНЮ";
             if(this.screen==="povsednev")       return "ПОВСЕДНЕВНАЯ";
             if(this.screen==="partner")         return "НАПАРНИК";
+            if(this.screen==="id-input")        return this.idInputContext==="tracking"?"ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?"НАПАРНИК":"ВВОД ID";
             return "";
         },
         mainMenuItems(){
@@ -306,7 +328,10 @@ const _sfc_main={
             return this.visibleOptions.indexOf(opt);
         },
         goBack(){
-            if(this.screen==="povsednev"){
+            if(this.screen==="id-input"){
+                this.screen=this._idPrevScreen||"main";
+                this.idInputValue="";
+            } else if(this.screen==="povsednev"){
                 this.screen="main";
                 this.search="";
             } else if(this.screen==="partner"){
@@ -324,12 +349,13 @@ const _sfc_main={
                         if(typeof window._mvdToggleTracking==="function") window._mvdToggleTracking();
                     },80);
                 } else {
-                    // Серверный диалог ввода ID для отслеживания (669)
-                    this.close();
-                    setTimeout(()=>{
-                        if(typeof window.showTrackingInputDialog==="function")
-                            window.showTrackingInputDialog(this.targetId);
-                    },80);
+                    // Собственный экран ввода ID для отслеживания
+                    this.idInputLabel="Введите ID для отслеживания";
+                    this.idInputValue=this.targetId!==null&&this.targetId!==-1?String(this.targetId):"";
+                    this.idInputContext="tracking";
+                    this._idPrevScreen="main";
+                    this.screen="id-input";
+                    this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
                 }
             } else if(item.id==="autocuff"){
                 this.close();
@@ -365,12 +391,14 @@ const _sfc_main={
                 this.partnerNick=null;
                 this.partnerId=null;
             } else {
-                // Серверный диалог ввода ID напарника (683)
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window.showPartnerIdInputDialog==="function")
-                        window.showPartnerIdInputDialog(this.targetId);
-                },80);
+                // Собственный экран ввода ID напарника
+                const cur=(this.partnerNick&&this.partnerId)?`Текущий: ${this.partnerNick}[${this.partnerId}]`:`Не задан`;
+                this.idInputLabel=`Введите ID напарника (${cur})`;
+                this.idInputValue=this.targetId!==null&&this.targetId!==-1?String(this.targetId):"";
+                this.idInputContext="partner";
+                this._idPrevScreen="partner";
+                this.screen="id-input";
+                this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
             }
         },
         // ── Напарник — переключить сообщение ─────────────────────────────────
@@ -393,13 +421,25 @@ const _sfc_main={
                     if(typeof window.showUkInputDialog==="function") window.showUkInputDialog(id);
                 },80);
             } else if(opt.needsId){
-                // Серверный диалог ввода ID (668) — устанавливаем действие и закрываем меню
-                this.close();
-                setTimeout(()=>{
-                    window._mvdMenuPendingAction = opt.action;
-                    if(typeof window.showIdInputDialog==="function")
-                        window.showIdInputDialog(id !== null && id !== -1 ? id : -1);
-                },80);
+                // Проверяем: если targetId уже задан — сразу выполняем, иначе показываем экран ввода
+                if(this.targetId!==null&&this.targetId!==-1){
+                    const id=this.targetId;
+                    this.close();
+                    setTimeout(()=>{
+                        window._mvdMenuPendingAction=opt.action;
+                        if(typeof window._mvdExecuteAction==="function")
+                            window._mvdExecuteAction(opt.action,id);
+                    },80);
+                } else {
+                    // Собственный экран ввода ID
+                    this.idInputLabel="Введите ID игрока";
+                    this.idInputValue="";
+                    this.idInputContext="action";
+                    this._idPrevScreen="povsednev";
+                    this._pendingOpt=opt;
+                    this.screen="id-input";
+                    this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
+                }
             } else {
                 this.close();
                 setTimeout(()=>{
@@ -407,6 +447,69 @@ const _sfc_main={
                         window._mvdExecuteAction(opt.action,id);
                 },80);
             }
+        },
+        // ── ID-input ──────────────────────────────────────────────────────
+        openIdInput(label,defaultVal,context,prevScreen){
+            this.idInputLabel=label||"Введите ID игрока";
+            this.idInputValue=defaultVal!=null&&defaultVal!==-1?String(defaultVal):"";
+            this.idInputContext=context;
+            this._idPrevScreen=prevScreen||"main";
+            this.screen="id-input";
+            this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
+        },
+        confirmIdInput(){
+            const raw=String(this.idInputValue||"").trim();
+            const id=raw===""?-1:parseInt(raw,10);
+            const ctx=this.idInputContext;
+            if(ctx==="action"){
+                const opt=this._pendingOpt;
+                if(opt&&id>0){
+                    this.targetId=id;
+                    this.close();
+                    setTimeout(()=>{
+                        window._mvdMenuPendingAction=opt.action;
+                        if(typeof window._mvdExecuteAction==="function")
+                            window._mvdExecuteAction(opt.action,id);
+                    },80);
+                } else {
+                    this.screen=this._idPrevScreen||"povsednev";
+                    this.idInputValue="";
+                }
+            } else if(ctx==="tracking"){
+                if(id>0){
+                    this.targetId=id;
+                    this.close();
+                    setTimeout(()=>{
+                        if(typeof window.startTracking==="function") window.startTracking(id);
+                        else if(typeof window.showTrackingInputDialog==="function")
+                            window._mvdStartTrackingDirect=id;
+                    },80);
+                } else {
+                    this.screen="main";
+                    this.idInputValue="";
+                }
+            } else if(ctx==="partner"){
+                if(id>0){
+                    this.targetId=id;
+                    this.close();
+                    setTimeout(()=>{
+                        // Эмулируем ответ диалога 683 вручную
+                        if(typeof window.sendClientEventCustom==="function")
+                            window.sendClientEventCustom("custom","OnDialogResponse",683,1,0,String(id),"");
+                    },80);
+                } else {
+                    this.screen="partner";
+                    this.idInputValue="";
+                }
+            }
+        },
+        cancelIdInput(){
+            this.idInputValue="";
+            this.screen=this._idPrevScreen||"main";
+        },
+        onIdInputKeydown(e){
+            if(e.key==="Enter") this.confirmIdInput();
+            if(e.key==="Escape") this.cancelIdInput();
         },
         close(){
             window.closeInterface("MvdMenu");
@@ -470,12 +573,17 @@ const _sfc_main={
 .mvdmenu__item-status_off{background:rgba(224,85,85,.12);color:rgba(224,85,85,0.9);}
 .mvdmenu__empty{color:#f4f1e166;font-size:1.3vh;font-style:italic;padding:2.22vh;text-align:center;}
 
-/* Footer */
-.mvdmenu__footer{align-items:center;background:#141419;border-top:0.19vh solid #f4f1e11a;display:flex;gap:0.74vh;justify-content:space-between;padding:0.93vh 1.48vh;position:relative;z-index:1;}
-.mvdmenu__footer-hint{color:#f4f1e166;flex:1 1 auto;font-size:1.11vh;font-weight:400;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.mvdmenu__footer-actions{align-items:center;display:flex;flex-shrink:0;gap:0.46vh;}
-.mvdmenu__close-footer-btn{background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.05vh;padding:0.46vh 1.11vh;transition:all 0.15s ease;white-space:nowrap;}
-@media (platform:pc){.mvdmenu__close-footer-btn:hover{background:#ffffff1a;color:#f4f1e1;}}
+
+/* ID Input screen */
+.mvdmenu__id-input-wrap{display:flex;flex-direction:column;gap:1.3vh;padding:2vh 1.85vh 1.85vh;position:relative;z-index:1;}
+.mvdmenu__id-input-label{color:#f4f1e1cc;font-size:1.3vh;font-weight:600;line-height:1.4;}
+.mvdmenu__id-input-row{display:flex;gap:0.74vh;}
+.mvdmenu__id-input-field{-webkit-appearance:none;appearance:none;background:#ffffff08;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;padding:0.74vh 1.11vh;transition:border-color 0.15s;}
+.mvdmenu__id-input-field:focus{border-color:rgba(249,183,1,0.5);}
+.mvdmenu__id-input-field::placeholder{color:#f4f1e144;font-weight:400;}
+.mvdmenu__id-input-field::-webkit-inner-spin-button,.mvdmenu__id-input-field::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+.mvdmenu__id-confirm-btn{background:rgba(249,183,1,0.12);border:0.19vh solid rgba(249,183,1,0.25);border-radius:0.37vh;color:rgba(249,183,1,0.9);cursor:pointer;font-size:1.3vh;font-weight:700;letter-spacing:0.08vh;padding:1.1vh 0;text-align:center;transition:all 0.15s ease;width:100%;}
+@media (platform:pc){.mvdmenu__id-confirm-btn:hover{background:rgba(249,183,1,0.22);border-color:rgba(249,183,1,0.55);color:#f9b701;}}
         `;
         document.head.appendChild(s);
 
@@ -499,7 +607,9 @@ const _sfc_main={
         this._prevOnKeyUp=window.onKeyUp;
         window.onKeyUp=(e)=>{
             if(e===window.KEY_CODE_ESC){
-                if(this.screen==="povsednev"){
+                if(this.screen==="id-input"){
+                    this.cancelIdInput();
+                } else if(this.screen==="povsednev"){
                     this.goBack();
                 } else if(this.screen==="partner"){
                     this.goBack();
