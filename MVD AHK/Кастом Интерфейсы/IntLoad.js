@@ -16,8 +16,9 @@
     // ══════════════════════════════════════════════════════════════════
 
     window._duranCustomInterfaces = [
-        { name: "Zkm",     files: ["zkm.js", "zkm.css"], hideHud: false, hideChat: false },
-        { name: "MvdMenu", files: ["MvdMenu.js"],         hideHud: false, hideChat: false },
+        { name: "Zkm",                files: ["zkm.js", "zkm.css"],        hideHud: false, hideChat: false },
+        { name: "MvdMenu",            files: ["MvdMenu.js"],               hideHud: false, hideChat: false },
+        { name: "ScreenNotification", files: ["ZkmScreenNotification.js"], hideHud: false, hideChat: false },
     ];
 
     console.log('[IntLoad] Загружен');
