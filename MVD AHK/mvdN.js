@@ -1081,6 +1081,7 @@ const toggleAutoGrab = () => {
 // ── Публичные флаги состояния для MvdMenu ─────────────────────────────────────
 // MvdMenu читает эти свойства при каждом открытии mainMenuItems
 Object.defineProperty(window, '_mvdCurrentScanId',   { get: () => currentScanId,   configurable: true });
+Object.defineProperty(window, '_mvdTrackingNick',    { get: () => trackingNickname, configurable: true });
 Object.defineProperty(window, '_mvdAutoCuffEnabled', { get: () => autoCuffEnabled, configurable: true });
 Object.defineProperty(window, '_mvdAutoGrabEnabled', { get: () => autoGrabEnabled, configurable: true });
 // Геттер метки напарника
