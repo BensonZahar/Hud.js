@@ -250,6 +250,7 @@ const _sfc_main={
             trackingOn: !!(typeof window._mvdTrackingActive!=="undefined"
                 ? window._mvdTrackingActive
                 : (window._mvdCurrentScanId != null)),
+            trackingNick: (typeof window._mvdTrackingNick!=="undefined" ? window._mvdTrackingNick : null),
             autocuffOn: !!(typeof window._mvdAutoCuffEnabled!=="undefined"
                 ? window._mvdAutoCuffEnabled : false),
             autograbOn: !!(typeof window._mvdAutoGrabEnabled!=="undefined"
@@ -278,7 +279,10 @@ const _sfc_main={
         mainMenuItems(){
             const items=[];
             items.push({id:"povsednev", label:"Повседневная", arrow:true});
-            items.push({id:"tracking", label:"Отслеживание", toggleOn: this.trackingOn});
+            const trackingLabel = this.trackingOn && this.trackingNick
+                ? "Отслеживание: "+this.trackingNick+"["+(window._mvdCurrentScanId??"")+"]"
+                : "Отслеживание";
+            items.push({id:"tracking", label: trackingLabel, toggleOn: this.trackingOn});
             items.push({id:"autocuff", label:"Auto-cuff", toggleOn: this.autocuffOn});
             if(typeof window.AUTO_GRAB!=="undefined"&&window.AUTO_GRAB===true){
                 items.push({id:"autograb", label:"Авто-снаряжение", toggleOn: this.autograbOn});
@@ -383,6 +387,7 @@ const _sfc_main={
             this.trackingOn = !!(typeof window._mvdTrackingActive!=="undefined"
                 ? window._mvdTrackingActive
                 : (window._mvdCurrentScanId != null));
+            this.trackingNick = (typeof window._mvdTrackingNick!=="undefined" ? window._mvdTrackingNick : null);
             this.autocuffOn = !!(typeof window._mvdAutoCuffEnabled!=="undefined"
                 ? window._mvdAutoCuffEnabled : false);
             this.autograbOn = !!(typeof window._mvdAutoGrabEnabled!=="undefined"
