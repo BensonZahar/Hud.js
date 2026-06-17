@@ -108,7 +108,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                             class:normalizeClass(["mvdmenu__item-status",
                                                 item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
                                             ])
-                                          }, toDisplayString(item.toggleOn?"Вкл":"Выкл"))
+                                          }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
                                         : createCommentVNode("",true),
                                 ],10,["onClick"])
                             ))
@@ -258,6 +258,14 @@ const _sfc_main={
             screen:"main",
             search:"",
             targetId:null,
+            // ── Реактивные флаги тоглов главного меню (читаем из window сразу) ──
+            trackingOn: !!(typeof window._mvdTrackingActive!=="undefined"
+                ? window._mvdTrackingActive
+                : (window._mvdCurrentScanId != null)),
+            autocuffOn: !!(typeof window._mvdAutoCuffEnabled!=="undefined"
+                ? window._mvdAutoCuffEnabled : false),
+            autograbOn: !!(typeof window._mvdAutoGrabEnabled!=="undefined"
+                ? window._mvdAutoGrabEnabled : true),
             // ── Напарник (синк с window) ──
             partnerTracking: false,
             partnerMessage:  false,
@@ -282,17 +290,10 @@ const _sfc_main={
         mainMenuItems(){
             const items=[];
             items.push({id:"povsednev", label:"Повседневная", arrow:true});
-            const trackingOn = !!(typeof window._mvdTrackingActive!=="undefined"
-                ? window._mvdTrackingActive
-                : (window._mvdCurrentScanId != null));
-            items.push({id:"tracking", label:"Отслеживание", toggleOn: trackingOn});
-            const autocuffOn = !!(typeof window._mvdAutoCuffEnabled!=="undefined"
-                ? window._mvdAutoCuffEnabled : false);
-            items.push({id:"autocuff", label:"Auto-cuff", toggleOn: autocuffOn});
+            items.push({id:"tracking", label:"Отслеживание", toggleOn: this.trackingOn});
+            items.push({id:"autocuff", label:"Auto-cuff", toggleOn: this.autocuffOn});
             if(typeof window.AUTO_GRAB!=="undefined"&&window.AUTO_GRAB===true){
-                const grabOn = !!(typeof window._mvdAutoGrabEnabled!=="undefined"
-                    ? window._mvdAutoGrabEnabled : true);
-                items.push({id:"autograb", label:"Авто-снаряжение", toggleOn: grabOn});
+                items.push({id:"autograb", label:"Авто-снаряжение", toggleOn: this.autograbOn});
             }
             // Напарник — показываем текущий статус
             const partnerLabel = this.partnerTracking && this.partnerNick
@@ -344,7 +345,8 @@ const _sfc_main={
             if(item.id==="povsednev"){
                 this.screen="povsednev";
             } else if(item.id==="tracking"){
-                if(window._mvdCurrentScanId){
+                if(this.trackingOn || window._mvdCurrentScanId){
+                    this.trackingOn=false;
                     this.close();
                     setTimeout(()=>{
                         if(typeof window._mvdToggleTracking==="function") window._mvdToggleTracking();
@@ -359,19 +361,25 @@ const _sfc_main={
                     this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
                 }
             } else if(item.id==="autocuff"){
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window._mvdToggleAutoCuff==="function") window._mvdToggleAutoCuff();
-                },80);
+                this.autocuffOn=!this.autocuffOn;
+                if(typeof window._mvdToggleAutoCuff==="function") window._mvdToggleAutoCuff();
             } else if(item.id==="autograb"){
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window._mvdToggleAutoGrab==="function") window._mvdToggleAutoGrab();
-                },80);
+                this.autograbOn=!this.autograbOn;
+                if(typeof window._mvdToggleAutoGrab==="function") window._mvdToggleAutoGrab();
             } else if(item.id==="naparnick"){
                 this._syncPartnerState();
                 this.screen="partner";
             }
+        },
+        // ── Синхронизация тоглов главного меню из window ─────────────────────
+        _syncToggleState(){
+            this.trackingOn = !!(typeof window._mvdTrackingActive!=="undefined"
+                ? window._mvdTrackingActive
+                : (window._mvdCurrentScanId != null));
+            this.autocuffOn = !!(typeof window._mvdAutoCuffEnabled!=="undefined"
+                ? window._mvdAutoCuffEnabled : false);
+            this.autograbOn = !!(typeof window._mvdAutoGrabEnabled!=="undefined"
+                ? window._mvdAutoGrabEnabled : true);
         },
         // ── Синхронизация состояния напарника из window ───────────────────────
         _syncPartnerState(){
@@ -603,6 +611,7 @@ const _sfc_main={
         window._mvdMenuStartScreen=null;
 
         // Синхронизируем состояние напарника при монтировании
+        this._syncToggleState();
         this._syncPartnerState();
 
         // ESC handler
