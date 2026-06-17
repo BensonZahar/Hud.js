@@ -512,6 +512,7 @@ const _sfc_main={
 		visibleTabs(){
 			if(this.mode==="wanted")return this.tabs.filter(t=>t.key==="wanted");
 			if(this.mode==="fine")  return this.tabs.filter(t=>t.key==="fines");
+			if(this.mode==="laws")  return this.tabs.filter(t=>t.key==="laws");
 			return this.tabs;
 		},
 		// ── РОЗЫСК: фильтрация УК статей ─────────────────────────
@@ -729,7 +730,7 @@ const _sfc_main={
 				this.wantedId=String(window._duranWantedTargetId);
 			}
 		} else if(openMode==="laws"){
-			// Открыт через пункт меню «Законы» — показываем все табы, дефолт на ЗАКОНЫ (индекс 0)
+			// Открыт через пункт меню «Законы» — показываем только ЗАКОНЫ, индекс 0 в visibleTabs
 			this.currentTab=0;
 		} else {
 			// Открыт без режима (все табы) — дефолт на РОЗЫСК (индекс 2)
