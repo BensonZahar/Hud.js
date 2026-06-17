@@ -2114,6 +2114,12 @@ window.sendChatInputCustom = e => {
         _awaitingPartnerId = false;
         partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
         sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
+    } else if (args[0] == "/hp") {
+        // ==================== ТЕСТ: /hp — открыть интерфейс LawsHelper (ЗКМ) ====================
+        window._duranOpenMode = null; // null = показать все табы (ЗАКОНЫ/ШТРАФЫ/РОЗЫСК/БИНДЕР)
+        window.openInterface('LawsHelper');
+        console.log('[TEST /hp] Открываю интерфейс LawsHelper');
+        // ==================== КОНЕЦ /hp ====================
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
     }
