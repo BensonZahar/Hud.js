@@ -15,6 +15,9 @@ const SVG_STAR=`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmln
 const SVG_BURGER=`<svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><rect y="0" width="14" height="1.5" rx="0.75" fill="rgba(244,241,225,0.6)"/><rect y="4.25" width="14" height="1.5" rx="0.75" fill="rgba(244,241,225,0.6)"/><rect y="8.5" width="14" height="1.5" rx="0.75" fill="rgba(244,241,225,0.6)"/></svg>`;
 const SVG_CHECK=`<svg width="10" height="8" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4l3 3 5-6" stroke="#141414" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const SVG_RECEIPT=`<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="2" fill="rgba(244,241,225,0.06)" stroke="rgba(244,241,225,0.18)" stroke-width="1.2"/><line x1="8" y1="8" x2="20" y2="8" stroke="rgba(244,241,225,0.25)" stroke-width="1.2"/><line x1="8" y1="12" x2="20" y2="12" stroke="rgba(244,241,225,0.25)" stroke-width="1.2"/><line x1="8" y1="16" x2="16" y2="16" stroke="rgba(244,241,225,0.25)" stroke-width="1.2"/><line x1="8" y1="20" x2="14" y2="20" stroke="rgba(244,241,225,0.15)" stroke-width="1.2"/></svg>`;
+const SVG_CHEVRON=`<svg width="8" height="8" viewBox="0 0 8 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 1l3 3-3 3" stroke="rgba(244,241,225,0.5)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const SVG_DOC=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 1.5h5.5L11 4v8.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5z" stroke="rgba(249,183,1,0.6)" stroke-width="1.1" fill="rgba(249,183,1,0.06)"/><path d="M8.5 1.5V4H11" stroke="rgba(249,183,1,0.6)" stroke-width="1.1"/></svg>`;
+const SVG_BOOK_EMPTY=`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 6a2 2 0 0 1 2-2h7v24H7a2 2 0 0 1-2-2V6z" fill="rgba(244,241,225,0.06)" stroke="rgba(244,241,225,0.15)" stroke-width="1.1"/><path d="M27 6a2 2 0 0 0-2-2h-7v24h7a2 2 0 0 0 2-2V6z" fill="rgba(244,241,225,0.06)" stroke="rgba(244,241,225,0.15)" stroke-width="1.1"/><line x1="16" y1="4" x2="16" y2="30" stroke="rgba(244,241,225,0.15)" stroke-width="1.1"/></svg>`;
 
 function render(_ctx,_cache,$props,$setup,$data,$options){
 	const currentTabKey=$options.visibleTabs[$data.currentTab]?.key;
@@ -50,14 +53,70 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 			createBaseVNode("span", {class:"laws-helper__search-icon", innerHTML: SVG_SEARCH}),
 			createBaseVNode("input", {
 				type: "text",
-				placeholder: currentTabKey === "fines" ? "Поиск статьи КоАП..." : "Поиск нарушения...",
+				placeholder: currentTabKey === "fines" ? "Поиск статьи КоАП..." : currentTabKey === "laws" ? "Поиск по статьям и документам..." : "Поиск нарушения...",
 				value: $data.search,
 				onInput: $event => { $data.search = $event.target.value }
 			}, null, 40, ["value","onInput","placeholder"])
 		]),
 		createBaseVNode("div", _hoisted_8, [
+			// ─── ТАБ: ЗАКОНЫ ──────────────────────────────────────────────
+			currentTabKey === "laws"
+				? (openBlock(), createElementBlock("div", {key:"laws", class:"laws-helper__laws-layout"}, [
+					createBaseVNode("div", {class:"laws-helper__tree"}, [
+						(openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredLawDocuments, (doc) => (
+							openBlock(), createElementBlock("div", {key:doc.id, class:"laws-helper__tree-doc"}, [
+								createBaseVNode("div", {
+									class: normalizeClass(["laws-helper__tree-doc-row", {"laws-helper__tree-doc-row_open": $data.expandedDocs.includes(doc.id)}]),
+									onClick: $event => $options.toggleDoc(doc.id)
+								}, [
+									createBaseVNode("span", {
+										class: normalizeClass(["laws-helper__tree-chevron", {"laws-helper__tree-chevron_open": $data.expandedDocs.includes(doc.id)}]),
+										innerHTML: SVG_CHEVRON
+									}, null, 2),
+									createBaseVNode("span", {class:"laws-helper__tree-doc-icon", innerHTML: SVG_DOC}),
+									createBaseVNode("span", {class:"laws-helper__tree-doc-title"}, toDisplayString(doc.title), 1)
+								], 10, ["onClick"]),
+								$data.expandedDocs.includes(doc.id)
+									? (openBlock(), createElementBlock("div", {key:"arts", class:"laws-helper__tree-articles"}, [
+										(openBlock(true), createElementBlock(Fragment, null, renderList(doc.articles, (art) => (
+											openBlock(), createElementBlock("div", {
+												key: art.id,
+												class: normalizeClass(["laws-helper__tree-article", {"laws-helper__tree-article_active": $data.selectedLawArticleId === art.id}]),
+												onClick: $event => $options.selectLawArticle(art.id)
+											}, [
+												createBaseVNode("span", {class:"laws-helper__tree-article-num"}, toDisplayString(art.num), 1),
+												createBaseVNode("span", {class:"laws-helper__tree-article-title"}, toDisplayString(art.title), 1)
+											], 10, ["onClick"])
+										)), 128))
+									]))
+									: createCommentVNode("", true)
+							])
+						)), 128))
+					]),
+					createBaseVNode("div", {class:"laws-helper__reader"}, [
+						$options.selectedLawArticle
+							? (openBlock(), createElementBlock("div", {key:"article", class:"laws-helper__reader-content"}, [
+								createBaseVNode("div", {class:"laws-helper__reader-doc-label"}, toDisplayString($options.selectedLawArticle.docTitle), 1),
+								createBaseVNode("div", {class:"laws-helper__reader-title"}, [
+									createBaseVNode("span", {class:"laws-helper__reader-num"}, "Ст. " + toDisplayString($options.selectedLawArticle.num), 1),
+									createTextVNode(" " + toDisplayString($options.selectedLawArticle.title))
+								]),
+								createBaseVNode("div", {class:"laws-helper__reader-divider"}),
+								$options.selectedLawArticle.text
+									? (openBlock(), createElementBlock("div", {key:"text", class:"laws-helper__reader-text", innerHTML: $options.selectedLawArticle.text}))
+									: (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__reader-empty-text"}, "Текст статьи пока не добавлен."))
+							]))
+							: (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__reader-empty"}, [
+								createBaseVNode("div", {class:"laws-helper__reader-empty-icon", innerHTML: SVG_BOOK_EMPTY}),
+								createBaseVNode("div", {class:"laws-helper__reader-empty-text-block"}, [
+									createBaseVNode("span", null, "Выберите статью слева,"),
+									createBaseVNode("span", null, "чтобы прочитать её текст.")
+								])
+							]))
+					])
+				]))
 			// ─── ТАБ: РОЗЫСК ──────────────────────────────────────────────
-			currentTabKey === "wanted"
+			: currentTabKey === "wanted"
 				? (openBlock(), createElementBlock("div", {key:"wanted", class:"laws-helper__wanted-layout"}, [
 					createBaseVNode("div", {class:"laws-helper__laws-list"}, [
 						(openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredArticles, (art) => (
@@ -226,7 +285,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 						])
 					])
 				]))
-			// ─── ОСТАЛЬНЫЕ ТАБЫ (ЗАКОНЫ, БИНДЕР) ─────────────────────────
+			// ─── ОСТАЛЬНЫЕ ТАБЫ (БИНДЕР) ──────────────────────────────────
 			: (openBlock(), createElementBlock("div", {key:"other", class:"laws-helper__content"}, [
 				createBaseVNode("div", {innerHTML: $options.currentContent})
 			]))
@@ -367,6 +426,55 @@ const UK_ARTICLES=[
 	{id:"7.4",    num:"7.4",    type:"УК", title:"Производство, изготовление, выращивание наркотических веществ",                   note:"", term:3},
 ];
 
+// ══════════════════════════════════════════════════════════════════
+//  ЗАКОНЫ — дерево документов (заглушка структуры, текст добавляется позже)
+//  Уровни: Документ → Статья (2 уровня)
+// ══════════════════════════════════════════════════════════════════
+const LAW_DOCUMENTS=[
+	{
+		id:"ustav",
+		title:"Устав",
+		articles:[
+			{id:"ustav-1",  num:"1",  title:"Общие положения",            text:""},
+			{id:"ustav-2",  num:"2",  title:"Структура и подчинённость",  text:""},
+			{id:"ustav-3",  num:"3",  title:"Права сотрудника",           text:""},
+			{id:"ustav-4",  num:"4",  title:"Обязанности сотрудника",     text:""},
+			{id:"ustav-5",  num:"5",  title:"Дисциплинарная ответственность", text:""}
+		]
+	},
+	{
+		id:"koap",
+		title:"КоАП",
+		articles:[
+			{id:"koap-1",  num:"1",  title:"Общие положения",                text:""},
+			{id:"koap-2",  num:"2",  title:"Административные правонарушения", text:""},
+			{id:"koap-3",  num:"3",  title:"Административные взыскания",     text:""},
+			{id:"koap-4",  num:"4",  title:"Порядок производства по делам",  text:""}
+		]
+	},
+	{
+		id:"proc",
+		title:"Процессуальный кодекс",
+		articles:[
+			{id:"proc-1",  num:"1",  title:"Общие положения",         text:""},
+			{id:"proc-2",  num:"2",  title:"Возбуждение дела",        text:""},
+			{id:"proc-3",  num:"3",  title:"Следственные действия",   text:""},
+			{id:"proc-4",  num:"4",  title:"Судебное разбирательство",text:""},
+			{id:"proc-5",  num:"5",  title:"Обжалование",             text:""}
+		]
+	},
+	{
+		id:"euss",
+		title:"ЕУСС",
+		articles:[
+			{id:"euss-1",  num:"1",  title:"Общие положения",                text:""},
+			{id:"euss-2",  num:"2",  title:"Взаимодействие силовых структур",text:""},
+			{id:"euss-3",  num:"3",  title:"Координация и подчинённость",    text:""},
+			{id:"euss-4",  num:"4",  title:"Особые условия и режимы",        text:""}
+		]
+	}
+];
+
 const _sfc_main={
 	name:"LawsHelper",
 	data(){
@@ -384,6 +492,10 @@ const _sfc_main={
 			fineId:"",
 			fineKoapType:"all", // 'all' | 'ДПС' | 'ППС'
 			selectedFineArticles:[],
+			// ── ЗАКОНЫ: дерево документов ─────────────────────────────
+			lawDocuments:LAW_DOCUMENTS,
+			expandedDocs:[LAW_DOCUMENTS[0]?.id].filter(Boolean), // первый документ раскрыт по умолчанию
+			selectedLawArticleId:null,
 			tabs:[
 				{key:"laws",   title:"ЗАКОНЫ"},
 				{key:"fines",  title:"ШТРАФЫ"},
@@ -391,7 +503,6 @@ const _sfc_main={
 				{key:"binder", title:"БИНДЕР"}
 			],
 			content:{
-				laws:`<b>[ЕУСС] Единый устав Силовых Структур</b><br><br>Тестовый раздел "Законы". Здесь будет содержимое УК, КоАП и других нормативных актов.`,
 				binder:`<div class="laws-helper__placeholder">Раздел "Биндер" — в разработке</div>`
 			}
 		}
@@ -436,6 +547,30 @@ const _sfc_main={
 		},
 		totalFine(){
 			return this.selectedFineArticleObjects.reduce((s,a)=>s+a.fine,0);
+		},
+		// ── ЗАКОНЫ: дерево с фильтрацией по поиску ───────────────
+		filteredLawDocuments(){
+			const q=this.search.trim().toLowerCase();
+			if(!q)return this.lawDocuments;
+			return this.lawDocuments
+				.map(doc=>{
+					const matchedArticles=doc.articles.filter(a=>
+						a.num.toLowerCase().includes(q)||
+						a.title.toLowerCase().includes(q)
+					);
+					if(doc.title.toLowerCase().includes(q))return doc;
+					if(matchedArticles.length===0)return null;
+					return{...doc,articles:matchedArticles};
+				})
+				.filter(Boolean);
+		},
+		selectedLawArticle(){
+			if(!this.selectedLawArticleId)return null;
+			for(const doc of this.lawDocuments){
+				const found=doc.articles.find(a=>a.id===this.selectedLawArticleId);
+				if(found)return{...found,docTitle:doc.title};
+			}
+			return null;
 		},
 		currentContent(){
 			const vtabs=this.visibleTabs;
@@ -541,6 +676,40 @@ const _sfc_main={
 .laws-helper__fine-filter-btn_active{border-color:#f4f1e133;color:#f4f1e1;}
 .laws-helper__fine-filter-btn_dps.laws-helper__fine-filter-btn_active{background:rgba(10,153,71,.1);border-color:rgba(10,153,71,.4);color:#0a9947;}
 .laws-helper__fine-filter-btn_pps.laws-helper__fine-filter-btn_active{background:rgba(249,183,1,.1);border-color:rgba(249,183,1,.4);color:#f9b701;}
+
+/* ══ ЗАКОНЫ: дерево + читалка ═══════════════════════════════════ */
+.laws-helper__laws-layout{display:flex;flex:1 1 auto;min-height:0;overflow:hidden;}
+.laws-helper__tree{border-right:0.19vh solid #f4f1e11a;flex:0 0 38%;max-width:38%;overflow-y:auto;padding:0.74vh 0;}
+.laws-helper__tree::-webkit-scrollbar{width:0.56vh;}
+.laws-helper__tree::-webkit-scrollbar-thumb{background:#f4f1e11a;border-radius:0.28vh;}
+.laws-helper__tree-doc{border-bottom:0.09vh solid #f4f1e10d;}
+.laws-helper__tree-doc-row{align-items:center;cursor:pointer;display:flex;gap:0.56vh;padding:0.93vh 1.11vh;transition:background 0.12s ease;}
+@media (platform:pc){.laws-helper__tree-doc-row:hover{background:#f4f1e108;}}
+.laws-helper__tree-doc-row_open{background:#f9b7010d;}
+.laws-helper__tree-chevron{align-items:center;display:flex;flex-shrink:0;height:1.48vh;justify-content:center;transform:rotate(0deg);transition:transform 0.15s ease;width:1.48vh;}
+.laws-helper__tree-chevron_open{transform:rotate(90deg);}
+.laws-helper__tree-doc-icon{align-items:center;display:flex;flex-shrink:0;}
+.laws-helper__tree-doc-title{color:#f4f1e1;font-family:"Open Sans",var(--fallback-font);font-size:1.2vh;font-weight:700;letter-spacing:0.02vh;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.laws-helper__tree-articles{display:flex;flex-direction:column;padding-bottom:0.37vh;}
+.laws-helper__tree-article{align-items:baseline;cursor:pointer;display:flex;gap:0.56vh;padding:0.65vh 1.11vh 0.65vh 3.15vh;transition:background 0.12s ease;}
+@media (platform:pc){.laws-helper__tree-article:hover{background:#f4f1e108;}}
+.laws-helper__tree-article_active{background:rgba(249,183,1,.1);box-shadow:inset 0.28vh 0 0 0 #f9b701;}
+.laws-helper__tree-article-num{color:#f9b701cc;flex-shrink:0;font-family:"Open Sans",var(--fallback-font);font-size:1.02vh;font-weight:700;}
+.laws-helper__tree-article_active .laws-helper__tree-article-num{color:#f9b701;}
+.laws-helper__tree-article-title{color:#f4f1e1a8;font-family:"Open Sans",var(--fallback-font);font-size:1.02vh;line-height:1.4;}
+.laws-helper__tree-article_active .laws-helper__tree-article-title{color:#f4f1e1e8;}
+.laws-helper__reader{flex:1 1 auto;min-height:0;overflow-y:auto;padding:1.85vh 2.22vh;}
+.laws-helper__reader::-webkit-scrollbar{width:0.56vh;}
+.laws-helper__reader::-webkit-scrollbar-thumb{background:#f4f1e11a;border-radius:0.28vh;}
+.laws-helper__reader-doc-label{color:#f9b701;font-family:"Open Sans",var(--fallback-font);font-size:1.02vh;font-weight:700;letter-spacing:0.09vh;text-transform:uppercase;}
+.laws-helper__reader-title{color:#f4f1e1;font-family:"Open Sans",var(--fallback-font);font-size:1.57vh;font-weight:700;line-height:1.4;margin-top:0.56vh;}
+.laws-helper__reader-num{color:#f4f1e1cc;}
+.laws-helper__reader-divider{background:#f4f1e11a;height:0.09vh;margin:1.11vh 0;width:100%;}
+.laws-helper__reader-text{color:#f4f1e1cc;font-family:"Open Sans",var(--fallback-font);font-size:1.2vh;line-height:1.7;white-space:pre-wrap;}
+.laws-helper__reader-empty-text{color:#f4f1e166;font-family:"Open Sans",var(--fallback-font);font-size:1.11vh;font-style:italic;}
+.laws-helper__reader-empty{align-items:center;display:flex;flex-direction:column;gap:1.11vh;height:100%;justify-content:center;opacity:0.6;}
+.laws-helper__reader-empty-icon{opacity:0.5;}
+.laws-helper__reader-empty-text-block{color:#f4f1e166;display:flex;flex-direction:column;font-family:"Open Sans",var(--fallback-font);font-size:1.11vh;line-height:1.5;text-align:center;}
 `
 		document.head.appendChild(_style);
 		// ── Режим открытия: 'wanted' | 'fine' | null ────────────────
@@ -559,6 +728,9 @@ const _sfc_main={
 			if(window._duranWantedTargetId&&window._duranWantedTargetId!==-1){
 				this.wantedId=String(window._duranWantedTargetId);
 			}
+		} else if(openMode==="laws"){
+			// Открыт через пункт меню «Законы» — показываем все табы, дефолт на ЗАКОНЫ (индекс 0)
+			this.currentTab=0;
 		} else {
 			// Открыт без режима (все табы) — дефолт на РОЗЫСК (индекс 2)
 			this.currentTab=2;
@@ -579,6 +751,13 @@ const _sfc_main={
 	},
 	methods:{
 		selectTab(i){this.currentTab=i;this.search=""},
+		// ── ЗАКОНЫ ──────────────────────────────────────────────────
+		toggleDoc(id){
+			const idx=this.expandedDocs.indexOf(id);
+			if(idx===-1)this.expandedDocs.push(id);
+			else this.expandedDocs.splice(idx,1)
+		},
+		selectLawArticle(id){this.selectedLawArticleId=id},
 		// ── РОЗЫСК ──────────────────────────────────────────────────
 		toggleArticle(id){
 			const idx=this.selectedArticles.indexOf(id);

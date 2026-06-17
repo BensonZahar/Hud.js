@@ -297,6 +297,7 @@ const _sfc_main={
                 ? "Напарник: "+this.partnerNick+"["+this.partnerId+"]"
                 : "Напарник";
             items.push({id:"naparnick", label: partnerLabel, arrow:true});
+            items.push({id:"laws", label:"Законы", arrow:true});
             return items;
         },
         visibleOptions(){
@@ -418,6 +419,12 @@ const _sfc_main={
             } else if(item.id==="naparnick"){
                 this._syncPartnerState();
                 this.screen="partner";
+            } else if(item.id==="laws"){
+                window._duranOpenMode="laws";
+                this.close();
+                setTimeout(()=>{
+                    window.openInterface("Zkm");
+                },80);
             }
         },
         // ── Синхронизация тоглов главного меню из window ─────────────────────
