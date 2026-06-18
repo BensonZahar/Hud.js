@@ -14,20 +14,20 @@
     transition: opacity 0.35s ease, transform 0.35s ease;
 }
 
-/* ── Позиции ── */
-.zkm-sn--top    { top: 8.8vh;    left: 50%; transform: translateX(-50%); }
-.zkm-sn--left   { left: 4.26vh;  top: 54vh; }
-.zkm-sn--bottom { bottom: 5.93vh; left: 50%; transform: translateX(-50%); }
+/* ── Позиции — translate(x, y) везде одинаковый формат ── */
+.zkm-sn--top    { top: 8.8vh;     left: 50%;    transform: translate(-50%, 0); }
+.zkm-sn--bottom { bottom: 5.93vh; left: 50%;    transform: translate(-50%, 0); }
+.zkm-sn--left   { left: 4.26vh;   top: 54vh;    transform: translate(0, 0);    }
 
-/* ── Enter ── */
-.zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translateX(-50%) translateY(-2.22vh); }
-.zkm-sn--bottom.zkm-sn--enter { opacity: 0; transform: translateX(-50%) translateY(2.22vh);  }
-.zkm-sn--left.zkm-sn--enter   { opacity: 0; transform: translateX(-2.22vh); }
+/* ── Enter: одинаковые функции → браузер плавно интерполирует ── */
+.zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2.22vh); }
+.zkm-sn--bottom.zkm-sn--enter { opacity: 0; transform: translate(-50%,  2.22vh); }
+.zkm-sn--left.zkm-sn--enter   { opacity: 0; transform: translate(-2.22vh, 0);    }
 
 /* ── Leave ── */
-.zkm-sn--top.zkm-sn--leave    { opacity: 0; transform: translateX(-50%) translateY(-1.11vh); }
-.zkm-sn--bottom.zkm-sn--leave { opacity: 0; transform: translateX(-50%) translateY(1.11vh);  }
-.zkm-sn--left.zkm-sn--leave   { opacity: 0; transform: translateX(-1.11vh); }
+.zkm-sn--top.zkm-sn--leave    { opacity: 0; transform: translate(-50%, -1.11vh); }
+.zkm-sn--bottom.zkm-sn--leave { opacity: 0; transform: translate(-50%,  1.11vh); }
+.zkm-sn--left.zkm-sn--leave   { opacity: 0; transform: translate(-1.11vh, 0);    }
 
 .zkm-sn__shimmer {
     position: absolute;
@@ -36,7 +36,6 @@
     background: linear-gradient(135deg, #f9b70108 0%, transparent 60%);
     border-radius: inherit;
 }
-
 .zkm-sn__header {
     display: flex;
     align-items: center;
@@ -47,7 +46,6 @@
     position: relative;
     z-index: 1;
 }
-
 .zkm-sn__bar {
     width: 0.28vh;
     flex-shrink: 0;
@@ -55,7 +53,6 @@
     align-self: stretch;
     min-height: 1.4vh;
 }
-
 .zkm-sn__title {
     font-family: "Open Sans Condensed", "Open Sans", Arial, sans-serif;
     font-size: 1.3vh;
@@ -68,7 +65,6 @@
     position: relative;
     z-index: 1;
 }
-
 .zkm-sn__text {
     font-size: 1.2vh;
     font-weight: 600;
@@ -77,5 +73,4 @@
     position: relative;
     z-index: 1;
 }
-
 .zkm-sn__text-line { display: block; }

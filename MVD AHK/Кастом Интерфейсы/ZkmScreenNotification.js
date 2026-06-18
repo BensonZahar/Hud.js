@@ -1,8 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════
-//  ZKM Screen Notification — v2.0
-//  Грузится через _duranCustomInterfaces (startup:true) в IntLoad.js.
-//  CSS подключается отдельно: ZkmScreenNotification.css
-// ═══════════════════════════════════════════════════════════════════
+// ZKM Screen Notification — v2.1
 ;(function () {
     'use strict';
 
@@ -56,14 +52,11 @@
                 el.style.boxShadow =
                     'inset 0 3.89vh 4.81vh -2.96vh rgba(' + rgb + ',.18),' +
                     '0 .28vh 1.48vh 0 #00000055';
-
                 el.innerHTML =
                     '<div class="zkm-sn__shimmer"></div>' +
                     '<div class="zkm-sn__header">' +
                         '<div class="zkm-sn__bar" style="background:' + accent + '"></div>' +
-                        '<div class="zkm-sn__title" style="color:' + accent + '">' +
-                            strip(d[1]) +
-                        '</div>' +
+                        '<div class="zkm-sn__title" style="color:' + accent + '">' + strip(d[1]) + '</div>' +
                     '</div>' +
                     '<div class="zkm-sn__text">' +
                         strip(d[2]).split(/<br\s*\/?>/i).map(function (l) {
@@ -72,7 +65,15 @@
                     '</div>';
 
                 document.body.appendChild(el);
-                setTimeout(function () { el.classList.remove('zkm-sn--enter'); }, 20);
+
+                // Двойной rAF: гарантирует что enter-состояние отрисовалось
+                // прежде чем мы его убираем — без этого браузер пропускает начальный кадр
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () {
+                        el.classList.remove('zkm-sn--enter');
+                    });
+                });
+
                 queue.set(id, {
                     el: el,
                     t:  setTimeout(function () { removeSN(id); }, dur)
@@ -92,7 +93,7 @@
                     configurable: true,
                     enumerable:   true
                 });
-                console.log('[ZKM-SN] v2.0 готов ($refs)');
+                console.log('[ZKM-SN] v2.1 готов');
                 return;
             } catch (_) {}
         }
@@ -102,7 +103,7 @@
                 if (name === 'ScreenNotification') return ZkmSN;
                 return _orig.apply(this, arguments);
             };
-            console.log('[ZKM-SN] v2.0 готов (hook)');
+            console.log('[ZKM-SN] v2.1 готов (hook)');
             return;
         }
         setTimeout(patch, 100);
