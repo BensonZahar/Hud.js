@@ -85,27 +85,37 @@
     };
 
     function patch() {
+        var hooked = false;
+
+        // Основной способ: хук window.interface — именно так ScreenNotification
+        // вызывается из mvdN.js (window.interface('ScreenNotification').add(...)).
+        if (typeof window.interface === 'function' && !window.interface.__zkmSNHooked) {
+            var _orig = window.interface;
+            var hookFn = function (name) {
+                if (name === 'ScreenNotification') return ZkmSN;
+                return _orig.apply(this, arguments);
+            };
+            hookFn.__zkmSNHooked = true;
+            window.interface = hookFn;
+            hooked = true;
+            console.log('[ZKM-SN] v2.0 готов (hook window.interface)');
+        }
+
+        // Бонус: если что-то обращается напрямую к $refs.ScreenNotification —
+        // подкладываем туда же. Не критично, поэтому в try/catch и не мешает хуку.
         if (window.App && window.App.$refs) {
             try {
                 Object.defineProperty(window.App.$refs, 'ScreenNotification', {
                     get: function () { return ZkmSN; },
+                    set: function () {}, // глушим переприсвоение Vue, чтобы не падало в strict-режиме
                     configurable: true,
                     enumerable:   true
                 });
-                console.log('[ZKM-SN] v2.0 готов ($refs)');
-                return;
+                console.log('[ZKM-SN] $refs.ScreenNotification также подменён');
             } catch (_) {}
         }
-        if (typeof window.interface === 'function') {
-            var _orig = window.interface;
-            window.interface = function (name) {
-                if (name === 'ScreenNotification') return ZkmSN;
-                return _orig.apply(this, arguments);
-            };
-            console.log('[ZKM-SN] v2.0 готов (hook)');
-            return;
-        }
-        setTimeout(patch, 100);
+
+        if (!hooked) setTimeout(patch, 100);
     }
     patch();
 
