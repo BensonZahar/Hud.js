@@ -613,6 +613,7 @@ function getInlineColor(text) {
 // ==================== END CHAT LOGGING HELPERS ====================
 
 let _mainChatHandlerReady = false;
+let _pendingFineId = null; // ID игрока которому отправили /ticket — ждём подтверждения сервера
 
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
@@ -833,18 +834,22 @@ const setupChatHandler = () => {
             }
             // ==================== ОТСЛЕЖИВАНИЕ ШТРАФОВ ====================
             if (typeof message === 'string') {
-                if (message.includes('Вы получили премию к зарплате в размере')) {
+                // Ждём синее подтверждение сервера: "... выписал штраф Nick[ID] ..."
+                // Только если МЫ отправляли /ticket (_pendingFineId установлен)
+                if (_pendingFineId && message.includes('выписал штраф') && message.includes(`[${_pendingFineId}]`)) {
                     try {
                         window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
-                        console.log('[FINE] InformationTimer запущен на 5 минут');
-                    } catch (err) {
-                        console.error('[FINE] Ошибка открытия InformationTimer:', err);
+                        console.log(`[FINE] InformationTimer запущен — штраф для ID ${_pendingFineId} подтверждён`);
+                    } catch(err) {
+                        console.error('[FINE] Ошибка InformationTimer:', err);
                     }
+                    _pendingFineId = null;
                 }
-             
+
                 if (message.includes('Вы недавно выдавали штраф')) {
                     snAdd('[1, "Выдача штрафа", "У вас еще к/д на выдачу штрафа", "FF0000", 5000]');
                     console.log('[FINE] ScreenNotification: кулдаун штрафа');
+                    _pendingFineId = null; // сбрасываем — штраф не прошёл
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
@@ -1328,6 +1333,8 @@ const HandleKoapInput = (input) => {
     if (parts.length === 3) {
         const [id, cost, code] = parts;
         sendChatInput(`/ticket ${id} ${cost} ${code} КоАП`);
+        _pendingFineId = id; // запоминаем — ждём подтверждения от сервера
+        console.log(`[FINE] /ticket отправлен, ждём подтверждения для ID: ${id}`);
     } else if (lowerInput) {
         const originalLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
         currentKoapLines = originalLines.filter(l => l.toLowerCase().includes(lowerInput));
