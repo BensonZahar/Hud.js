@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.111 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -836,9 +836,20 @@ const setupChatHandler = () => {
             // ==================== ОТСЛЕЖИВАНИЕ ШТРАФОВ ====================
             if (typeof message === 'string') {
                 if (message.includes('Вы получили премию к зарплате в размере')) {
+                    console.log('[FINE] 🎯 Триггер-сообщение найдено, запускаем таймер КД');
+
+                    // Шаг 1: пытаемся получить ZkmSN отдельным try — его сбой
+                    // НЕ должен мешать запуску InformationTimer ниже
+                    var _snFine = null;
                     try {
-                        var _snFine = window.interface('ScreenNotification');
-                        if (_snFine && typeof _snFine.addTimer === 'function') {
+                        _snFine = window.interface('ScreenNotification');
+                    } catch (err) {
+                        console.error('[FINE] Ошибка window.interface("ScreenNotification"):', err);
+                    }
+
+                    var _zkmStarted = false;
+                    if (_snFine && typeof _snFine.addTimer === 'function') {
+                        try {
                             // Перезапускаем если старый таймер ещё идёт
                             if (_fineTimerId !== null) {
                                 try { _snFine.hideTimer(_fineTimerId); } catch (_) {}
@@ -846,13 +857,25 @@ const setupChatHandler = () => {
                             _fineTimerId = _snFine.addTimer(
                                 '[2, "ШТРАФ КД", "К/Д Выдача штрафа", "f9b701", 300]'
                             );
-                            console.log('[FINE] ZkmSN.addTimer запущен на 5 минут, id=' + _fineTimerId);
-                        } else {
+                            _zkmStarted = !!_fineTimerId;
+                            console.log('[FINE] ZkmSN.addTimer вызван, id=' + _fineTimerId +
+                                (_zkmStarted ? ' (ok)' : ' (ВНИМАНИЕ: addTimer не вернул id — упал внутри себя, смотри [ZKM-SN] addTimer выше в консоли)'));
+                        } catch (err) {
+                            console.error('[FINE] Ошибка вызова ZkmSN.addTimer:', err);
+                        }
+                    } else {
+                        console.log('[FINE] ZkmSN недоступен (ScreenNotification не патчен или addTimer не функция) — идём в fallback');
+                    }
+
+                    // Шаг 2: гарантированный fallback — выполняется ВСЕГДА,
+                    // если шаг 1 не дал валидный id, независимо от причины сбоя
+                    if (!_zkmStarted) {
+                        try {
                             window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
                             console.log('[FINE] InformationTimer запущен на 5 минут (fallback)');
+                        } catch (err) {
+                            console.error('[FINE] Ошибка InformationTimer (fallback):', err);
                         }
-                    } catch (err) {
-                        console.error('[FINE] Ошибка таймера штрафа:', err);
                     }
                 }
              
