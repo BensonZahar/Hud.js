@@ -1,148 +1,197 @@
 /* ══════════════════════════════════════════════════════════════
-   ZKM Screen Notification — v3.0
-   Стиль: Laws Helper / Modal (zkm.css)
+   ZKM Screen Notification — v4.0 "Glass"
+   Glassmorphism · прямоугольные мигалки в верхней полосе
    ══════════════════════════════════════════════════════════════ */
 
-/* ── Позиции — translate(x,y) единый формат ─────────────────── */
-.zkm-sn--top    { top: 8.8vh;     left: 50%;   transform: translate(-50%, 0); }
-.zkm-sn--bottom { bottom: 5.93vh; left: 50%;   transform: translate(-50%, 0); }
-.zkm-sn--left   { left: 4.26vh;   top: 54vh;   transform: translate(0, 0);    }
+/* ── Позиции ─────────────────────────────────────────────────── */
+.zkm-sn--top    { top: 8.8vh;     left: 50%;  transform: translate(-50%, 0); }
+.zkm-sn--bottom { bottom: 5.93vh; left: 50%;  transform: translate(-50%, 0); }
+.zkm-sn--left   { left: 4.26vh;   top: 54vh;  transform: translate(0, 0);   }
 
-.zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2.22vh); }
-.zkm-sn--bottom.zkm-sn--enter { opacity: 0; transform: translate(-50%,  2.22vh); }
-.zkm-sn--left.zkm-sn--enter   { opacity: 0; transform: translate(-2.22vh, 0);    }
+/* Enter */
+.zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2.6vh); }
+.zkm-sn--bottom.zkm-sn--enter { opacity: 0; transform: translate(-50%,  2.6vh); }
+.zkm-sn--left.zkm-sn--enter   { opacity: 0; transform: translate(-2.6vh, 0);   }
 
-.zkm-sn--top.zkm-sn--leave    { opacity: 0; transform: translate(-50%, -1.11vh); }
-.zkm-sn--bottom.zkm-sn--leave { opacity: 0; transform: translate(-50%,  1.11vh); }
-.zkm-sn--left.zkm-sn--leave   { opacity: 0; transform: translate(-1.11vh, 0);    }
+/* Leave */
+.zkm-sn--top.zkm-sn--leave    { opacity: 0; transform: translate(-50%, -1.3vh); }
+.zkm-sn--bottom.zkm-sn--leave { opacity: 0; transform: translate(-50%,  1.3vh); }
+.zkm-sn--left.zkm-sn--leave   { opacity: 0; transform: translate(-1.3vh, 0);   }
 
-/* ── Внешняя обёртка (как .laws-helper) ─────────────────────── */
+/* ── Основная обёртка (glass) ────────────────────────────────── */
 .zkm-sn {
     position: fixed;
     z-index: 99999;
     pointer-events: none;
-    font-family: "Open Sans", Arial, sans-serif;
+    font-family: "Inter", "Open Sans", Arial, sans-serif;
 
-    background: #141419eb;
-    border: 0.19vh solid #ffffff0d;
-    border-radius: 0.74vh;
-    padding: 0.37vh;
+    /* Полупрозрачный стеклянный фон */
+    background: rgba(6, 8, 18, 0.52);
+    backdrop-filter: blur(24px) saturate(170%);
+    -webkit-backdrop-filter: blur(24px) saturate(170%);
+
+    /* Тонкая граница — только боковые и нижняя */
+    border: 0.1vh solid rgba(255, 255, 255, 0.07);
+    border-top: none;               /* скрыта — lightbar занимает её место */
+    border-radius: 1.3vh;
     min-width: 26vh;
     max-width: 46vh;
 
-    transition: opacity 0.35s ease, transform 0.35s ease;
+    box-shadow:
+        0 2.2vh 5vh   rgba(0, 0, 0, 0.55),
+        0 0.6vh 1.8vh rgba(0, 0, 0, 0.32),
+        inset 0 0 0 0.09vh rgba(255, 255, 255, 0.035);
+
+    transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-/* ── Внутренний контейнер (как .laws-helper__inner) ─────────── */
-/* border-top и box-shadow задаются инлайн из JS                 */
-.zkm-sn__inner {
-    border: 0.19vh solid #fff0;
-    border-radius: 0.7vh;
-    overflow: hidden;
-    position: relative;
-    padding: 0.93vh 1.11vh 1.11vh;
-}
-
-/* ── Shimmer-градиент (как modal__pattern-wrapper) ──────────── */
-.zkm-sn__shimmer {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    pointer-events: none;
-    border-radius: inherit;
-    background: linear-gradient(135deg, rgba(249,183,1,0.04) 0%, transparent 55%);
-}
-
-/* ── Шапка (как .laws-helper__header) ───────────────────────── */
-.zkm-sn__header {
+/* ══════════════════════════════════════════════════════════════
+   LIGHTBAR — верхняя световая полоса
+   Для обычных — статичный акцент; для сирены — анимированные блоки
+   ══════════════════════════════════════════════════════════════ */
+.zkm-sn__lightbar {
+    width: 100%;
+    height: 0.5vh;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.56vh;
-    border-bottom: 0.09vh solid #f4f1e11a;
-    padding-bottom: 0.56vh;
-    margin-bottom: 0.65vh;
+    border-radius: 1.3vh 1.3vh 0 0;
+    overflow: hidden;               /* закругляем верхние углы блоков */
     position: relative;
+}
+
+/* Тень-разделитель под полосой */
+.zkm-sn__lightbar::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 0.12vh;
+    background: rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+}
+
+/* Статичная заливка (не-сирена) */
+.zkm-sn__lb-fill {
+    flex: 1;
+    opacity: 0.88;
+}
+
+/* ── Сегменты сирены ─────────────────────────────────────────── */
+/* 6 прямоугольных блоков: s1–s3 красные, s4–s6 синие */
+.zkm-sn__lb-s1, .zkm-sn__lb-s2, .zkm-sn__lb-s3,
+.zkm-sn__lb-s4, .zkm-sn__lb-s5, .zkm-sn__lb-s6 {
+    flex: 1;
+    position: relative;
+}
+
+/* Разделители между сегментами */
+.zkm-sn__lb-s1::after, .zkm-sn__lb-s2::after,
+.zkm-sn__lb-s3::after, .zkm-sn__lb-s4::after, .zkm-sn__lb-s5::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 0.09vh;
+    background: rgba(0, 0, 0, 0.35);
     z-index: 1;
 }
 
-/* ── Заголовок (как .laws-helper__title-sub) ────────────────── */
+/* ── Тело уведомления ────────────────────────────────────────── */
+.zkm-sn__body {
+    padding: 0.78vh 1.1vh 0.92vh;
+}
+
+/* ── Шапка ───────────────────────────────────────────────────── */
+.zkm-sn__header {
+    display: flex;
+    align-items: center;
+    gap: 0.46vh;
+    margin-bottom: 0.4vh;
+    padding-bottom: 0.36vh;
+    border-bottom: 0.09vh solid rgba(255, 255, 255, 0.06);
+}
+
+/* Прямоугольный маркер-акцент */
+.zkm-sn__dot {
+    width: 0.2vh;
+    height: 1.05vh;
+    border-radius: 0.1vh;
+    flex-shrink: 0;
+    opacity: 0.92;
+}
+
+/* Заголовок — чистый, не курсив */
 .zkm-sn__title {
-    font-family: "Open Sans Condensed", "Open Sans", Arial, sans-serif;
-    font-size: 1.3vh;
-    font-style: italic;
+    font-size: 1.04vh;
     font-weight: 700;
-    letter-spacing: 0.09vh;
+    letter-spacing: 0.14vh;
     text-transform: uppercase;
     line-height: 1;
     flex: 1;
 }
 
-/* ── Текст уведомления ──────────────────────────────────────── */
+/* Текст уведомления */
 .zkm-sn__text {
-    color: #f4f1e1cc;
-    font-size: 1.2vh;
-    font-weight: 600;
-    line-height: 1.65;
-    position: relative;
-    z-index: 1;
+    color: rgba(225, 228, 238, 0.65);
+    font-size: 1.14vh;
+    font-weight: 400;
+    line-height: 1.67;
 }
 .zkm-sn__text-line { display: block; }
 
 
 /* ══════════════════════════════════════════════════════════════
-   МИГАЛКИ — только для .zkm-sn--siren (красные уведомления)
+   СИРЕНА — .zkm-sn--siren
+   Красные блоки гаснут → синие вспыхивают, со сдвигом (cascade)
    ══════════════════════════════════════════════════════════════ */
 
-/* Два кружка: красный + синий */
-.zkm-sn__siren-lights {
-    display: none;
-    align-items: center;
-    gap: 0.46vh;
-    flex-shrink: 0;
-    margin-left: 0.37vh;
-}
-.zkm-sn--siren .zkm-sn__siren-lights { display: flex; }
+/* RED trio: загораются справа налево (от центра к краю) */
+.zkm-sn--siren .zkm-sn__lb-s3 { animation: zkm4-r 0.55s steps(1) 0.00s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s2 { animation: zkm4-r 0.55s steps(1) 0.05s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s1 { animation: zkm4-r 0.55s steps(1) 0.10s infinite; }
 
-.zkm-sn__siren-r,
-.zkm-sn__siren-b {
-    width: 0.83vh;
-    height: 0.83vh;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
+/* BLUE trio: загораются слева направо (от центра к краю) */
+.zkm-sn--siren .zkm-sn__lb-s4 { animation: zkm4-b 0.55s steps(1) 0.00s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s5 { animation: zkm4-b 0.55s steps(1) 0.05s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s6 { animation: zkm4-b 0.55s steps(1) 0.10s infinite; }
 
-.zkm-sn__siren-r {
-    background: #e25544;
-    animation: zkm-siren-r 0.55s steps(1) infinite;
-}
-.zkm-sn__siren-b {
-    background: #2d7dd2;
-    animation: zkm-siren-b 0.55s steps(1) infinite;
+@keyframes zkm4-r {
+    0%,  49% {
+        background: #e25544;
+        filter: brightness(1.5) saturate(1.2);
+    }
+    50%, 100% {
+        background: rgba(226, 85, 68, 0.13);
+        filter: brightness(1);
+    }
 }
 
-@keyframes zkm-siren-r {
-    0%,  49% { box-shadow: 0 0 0.65vh 0.37vh rgba(226,85,68,0.95); }
-    50%, 100% { opacity: 0.2; box-shadow: none; }
-}
-@keyframes zkm-siren-b {
-    0%,  49% { opacity: 0.2; box-shadow: none; }
-    50%, 100% { box-shadow: 0 0 0.65vh 0.37vh rgba(45,125,210,0.95); }
-}
-
-/* Мигающий border-top (красный ↔ синий) */
-.zkm-sn--siren .zkm-sn__inner {
-    animation: zkm-siren-border 0.55s steps(1) infinite;
-}
-@keyframes zkm-siren-border {
-    0%,  49% { border-top-color: #e25544 !important; }
-    50%, 100% { border-top-color: #2d7dd2 !important; }
+@keyframes zkm4-b {
+    0%,  49% {
+        background: rgba(45, 125, 210, 0.13);
+        filter: brightness(1);
+    }
+    50%, 100% {
+        background: #2d7dd2;
+        filter: brightness(1.5) saturate(1.2);
+    }
 }
 
-/* Фоновый пульс всей обёртки */
+/* Внешний пульс обёртки (красный ↔ синий ореол) */
 .zkm-sn--siren {
-    animation: zkm-siren-outer 0.55s steps(1) infinite;
+    animation: zkm4-outer 0.55s steps(1) infinite;
 }
-@keyframes zkm-siren-outer {
-    0%,  49% { box-shadow: 0 0 1.2vh 0.19vh rgba(226,85,68,0.18); }
-    50%, 100% { box-shadow: 0 0 1.2vh 0.19vh rgba(45,125,210,0.18); }
+
+@keyframes zkm4-outer {
+    0%,  49% {
+        box-shadow:
+            0 2.2vh 5vh   rgba(0, 0, 0, 0.55),
+            0 0.6vh 1.8vh rgba(0, 0, 0, 0.32),
+            0 0    2.8vh 0.5vh rgba(226, 85,  68, 0.22),
+            inset 0 0 0 0.09vh rgba(255, 255, 255, 0.035);
+    }
+    50%, 100% {
+        box-shadow:
+            0 2.2vh 5vh   rgba(0, 0, 0, 0.55),
+            0 0.6vh 1.8vh rgba(0, 0, 0, 0.32),
+            0 0    2.8vh 0.5vh rgba( 45, 125, 210, 0.22),
+            inset 0 0 0 0.09vh rgba(255, 255, 255, 0.035);
+    }
 }
