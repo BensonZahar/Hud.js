@@ -1,0 +1,197 @@
+.mvd-notifications {
+    pointer-events: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+}
+
+/* ─── Позиции ─── */
+.mvd-notification-slot {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 0.74vh;
+    max-width: 38vh;
+    width: 38vh;
+}
+
+.mvd-notification-slot_top {
+    top: 8.8vh;
+    left: 50%;
+    transform: translateX(-50%);
+    align-items: center;
+}
+
+.mvd-notification-slot_left {
+    top: 50vh;
+    left: 4.26vh;
+    align-items: flex-start;
+}
+
+.mvd-notification-slot_bottom {
+    bottom: 5.93vh;
+    left: 50%;
+    transform: translateX(-50%);
+    align-items: center;
+}
+
+/* ─── Карточка уведомления ─── */
+.mvd-notification {
+    background: #111114f5;
+    border: 0.09vh solid rgba(255, 255, 255, 0.08);
+    border-radius: 0.56vh;
+    box-shadow:
+        0 1.5vh 5vh rgba(0, 0, 0, 0.7),
+        0 0 0 0.05vh rgba(255, 255, 255, 0.04);
+    display: flex;
+    flex-direction: column;
+    font-family: "Open Sans", var(--fallback-font, Arial, sans-serif);
+    font-style: normal;
+    min-width: 24vh;
+    max-width: 38vh;
+    overflow: hidden;
+    position: relative;
+    text-transform: none;
+    width: max-content;
+
+    /* анимация появления */
+    animation: mvd-notif-in 0.25s ease forwards;
+    transform-origin: top center;
+}
+
+.mvd-notification_leaving {
+    animation: mvd-notif-out 0.3s ease forwards;
+}
+
+.mvd-notification-slot_left .mvd-notification {
+    transform-origin: left center;
+}
+
+/* ─── Цветная полоска сверху (акцент) ─── */
+.mvd-notification::before {
+    content: '';
+    display: block;
+    height: 0.19vh;
+    background: var(--mvd-notif-accent, #4f6ef7);
+    width: 100%;
+    flex-shrink: 0;
+}
+
+/* ─── Прогресс-бар (снизу) ─── */
+.mvd-notification__progress {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 0.19vh;
+    background: var(--mvd-notif-accent, #4f6ef7);
+    width: 100%;
+    transform-origin: left;
+    animation: mvd-progress linear forwards;
+    opacity: 0.5;
+}
+
+/* ─── Шапка ─── */
+.mvd-notification__header {
+    align-items: center;
+    background: #0e0e11;
+    border-bottom: 0.09vh solid rgba(255, 255, 255, 0.07);
+    display: flex;
+    justify-content: space-between;
+    padding: 0.74vh 1.11vh;
+    gap: 0.56vh;
+}
+
+.mvd-notification__icon {
+    align-items: center;
+    color: var(--mvd-notif-accent, #4f6ef7);
+    display: flex;
+    flex-shrink: 0;
+    font-size: 1.48vh;
+    height: 1.48vh;
+    justify-content: center;
+    width: 1.48vh;
+}
+
+.mvd-notification__icon svg {
+    height: 100%;
+    width: 100%;
+}
+
+.mvd-notification__title {
+    color: #e8e6f0;
+    flex: 1 1 auto;
+    font-size: 1.3vh;
+    font-weight: 700;
+    letter-spacing: 0.07vh;
+    line-height: 1;
+    text-shadow: 0 0.09vh 0.19vh rgba(0, 0, 0, 0.7);
+    text-transform: uppercase;
+}
+
+.mvd-notification__badge {
+    align-items: center;
+    background: var(--mvd-notif-accent, #4f6ef7);
+    border-radius: 0.28vh;
+    color: #fff;
+    display: flex;
+    font-size: 0.93vh;
+    font-weight: 700;
+    height: 1.85vh;
+    justify-content: center;
+    min-width: 1.85vh;
+    padding: 0 0.37vh;
+    letter-spacing: 0.05vh;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+/* ─── Тело ─── */
+.mvd-notification__body {
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 1.3vh;
+    font-weight: 500;
+    line-height: 1.6;
+    padding: 0.74vh 1.11vh 1.11vh;
+    text-shadow: 0 0.09vh 0.19vh rgba(0, 0, 0, 0.7);
+    word-break: break-word;
+}
+
+.mvd-notification__body br {
+    display: block;
+    content: '';
+    margin-top: 0.19vh;
+}
+
+/* ─── Keyframes ─── */
+@keyframes mvd-notif-in {
+    from {
+        opacity: 0;
+        transform: translateY(-1.11vh) scale(0.97);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes mvd-notif-out {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-0.74vh) scale(0.96);
+    }
+}
+
+@keyframes mvd-progress {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
+}
+
+/* ─── Цвета акцентов по hex ─── */
+/* Цвет задаётся через CSS-переменную --mvd-notif-accent на самой карточке */
