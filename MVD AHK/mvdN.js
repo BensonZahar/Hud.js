@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.111 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -832,21 +832,23 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== ОТСЛЕЖИВАНИЕ ШТРАФОВ ====================
-            if (typeof message === 'string') {
-                if (message.includes('Вы получили премию к зарплате в размере')) {
-                    try {
-                        window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
-                        console.log('[FINE] InformationTimer запущен на 5 минут');
-                    } catch (err) {
-                        console.error('[FINE] Ошибка открытия InformationTimer:', err);
-                    }
-                }
-             
-                if (message.includes('Вы недавно выдавали штраф')) {
-                    snAdd('[1, "Выдача штрафа", "У вас еще к/д на выдачу штрафа", "FF0000", 5000]');
-                    console.log('[FINE] ScreenNotification: кулдаун штрафа');
-                }
-            }
+			if (typeof message === 'string') {
+				if (window._mvdFinePendingId && message.includes('выписал штраф') && message.includes(`[${window._mvdFinePendingId}]`)) {
+					window._mvdFinePendingId = null;
+					try {
+						window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
+						console.log('[FINE] InformationTimer запущен на 5 минут (по факту выдачи)');
+					} catch (err) {
+						console.error('[FINE] Ошибка открытия InformationTimer:', err);
+					}
+				}
+
+				if (message.includes('Вы недавно выдавали штраф')) {
+					window._mvdFinePendingId = null;
+					snAdd('[1, "Выдача штрафа", "У вас еще к/д на выдачу штрафа", "FF0000", 5000]');
+					console.log('[FINE] ScreenNotification: кулдаун штрафа');
+				}
+			}
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
      
             return originalAddFunction.apply(this, [message, ...args]);
@@ -1327,6 +1329,9 @@ const HandleKoapInput = (input) => {
     const parts = input.trim().split(/\s+/);
     if (parts.length === 3) {
         const [id, cost, code] = parts;
+		window._mvdFinePendingId = id;
+		clearTimeout(window._mvdFinePendingTimer);
+		window._mvdFinePendingTimer = setTimeout(() => { window._mvdFinePendingId = null; }, 8000);
         sendChatInput(`/ticket ${id} ${cost} ${code} КоАП`);
     } else if (lowerInput) {
         const originalLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
