@@ -16,9 +16,10 @@
     // ══════════════════════════════════════════════════════════════════
 
     window._duranCustomInterfaces = [
-        { name: "Zkm",                files: ["zkm.js", "zkm.css"],        hideHud: false, hideChat: false },
-        { name: "MvdMenu",            files: ["MvdMenu.js"],               hideHud: false, hideChat: false },
-        { name: "ScreenNotification", files: ["ZkmScreenNotification.js"], hideHud: false, hideChat: false },
+        { name: "Zkm",     files: ["zkm.js", "zkm.css"], hideHud: false, hideChat: false },
+        { name: "MvdMenu", files: ["MvdMenu.js"],         hideHud: false, hideChat: false },
+        // startup:true — mvdN грузит при старте, не через openInterface
+        { name: "ScreenNotification", files: ["ZkmScreenNotification.js", "ZkmScreenNotification.css"], hideHud: false, hideChat: false, startup: true },
     ];
 
     console.log('[IntLoad] Загружен');
