@@ -33,9 +33,16 @@
     var last  = 0;
     var queue = new Map();
 
-    function removeSN(id) {
+    function removeSN(id, instant) {
         var item = queue.get(id); if (!item) return;
         clearTimeout(item.t); queue.delete(id);
+        if (instant) {
+            // Мгновенно, без leave-анимации — используется из hideAll(),
+            // когда старое уведомление сразу заменяется новым (иначе
+            // они визуально наезжают друг на друга в одной точке экрана).
+            try { item.el.remove(); } catch (_) {}
+            return;
+        }
         item.el.classList.add('zkm-sn--leave');
         setTimeout(function () { try { item.el.remove(); } catch (_) {} }, 380);
     }
@@ -72,7 +79,15 @@
                     '</div>';
 
                 document.body.appendChild(el);
-                setTimeout(function () { el.classList.remove('zkm-sn--enter'); }, 20);
+                // Форсируем reflow: гарантирует, что браузер закоммитит
+                // "before"-состояние (--enter) до того, как мы снимем класс.
+                // Без этого снятие класса в setTimeout(20) иногда попадало
+                // в тот же кадр, что и вставка — переход не успевал
+                // зафиксировать стартовую точку и получался дёрганый прыжок.
+                void el.offsetHeight;
+                requestAnimationFrame(function () {
+                    el.classList.remove('zkm-sn--enter');
+                });
                 queue.set(id, {
                     el: el,
                     t:  setTimeout(function () { removeSN(id); }, dur)
@@ -80,7 +95,7 @@
             } catch (e) { console.error('[ZKM-SN] add:', e); }
         },
         hideAll: function () {
-            Array.from(queue.keys()).forEach(removeSN);
+            Array.from(queue.keys()).forEach(function (id) { removeSN(id, true); });
         }
     };
 
