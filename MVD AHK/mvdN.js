@@ -1,3 +1,28 @@
+// ── Загрузчик startup-интерфейсов ────────────────────────────────────
+// Вставить в НАЧАЛО mvdN.js.
+// Файлы берутся из assets (рядом с ScreenNotification.js / index.js).
+;(function loadStartupInterfaces() {
+    var ifaces = window._duranCustomInterfaces;
+    if (!ifaces || !ifaces.length) return;
+
+    ifaces.forEach(function (iface) {
+        if (!iface.startup) return;
+        (iface.files || []).forEach(function (filename) {
+            var ext = filename.split('.').pop().toLowerCase();
+            if (ext === 'css') {
+                var link  = document.createElement('link');
+                link.rel  = 'stylesheet';
+                link.href = './' + filename;
+                document.head.appendChild(link);
+            } else if (ext === 'js') {
+                var script = document.createElement('script');
+                script.src = './' + filename;
+                document.head.appendChild(script);
+            }
+        });
+    });
+})();
+// ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
 console.log("=== MVD AK v2.111 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
