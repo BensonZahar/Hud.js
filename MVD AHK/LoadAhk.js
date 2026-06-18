@@ -41,6 +41,42 @@ const username = 'BensonZahar';
 const repo = 'Hud.js';
 const folder = 'MVD AHK';
 const filename = 'mvdN.js';
+// ── Загрузчик ZkmScreenNotification (не зависит от mvdN.js) ──────────
+// Грузится один раз при инжекте LoadAhk.js, до eval mvdN.js — поэтому
+// хук на window.interface успевает встать раньше первого вызова
+// window.interface('ScreenNotification') из mvdN.js.
+(function loadZkmScreenNotification() {
+    var snFolder = 'Кастом Интерфейсы';
+    var base = 'https://raw.githubusercontent.com/' + username + '/' + repo + '/main/'
+        + encodeURIComponent(folder) + '/' + encodeURIComponent(snFolder) + '/';
+
+    // CSS
+    var link  = document.createElement('link');
+    link.rel  = 'stylesheet';
+    link.href = base + 'ZkmScreenNotification.css?_=' + Date.now();
+    document.head.appendChild(link);
+
+    // JS
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', base + 'ZkmScreenNotification.js?_=' + Date.now(), true);
+    xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+                eval(xhr.responseText);
+                console.log('[ZKM-SN] загружен через LoadAhk.js');
+            } catch (e) {
+                console.error('[ZKM-SN] ошибка eval:', e);
+            }
+        } else {
+            console.warn('[ZKM-SN] статус ответа: ' + xhr.status);
+        }
+    };
+    xhr.onerror = function () {
+        console.warn('[ZKM-SN] сетевая ошибка загрузки');
+    };
+    xhr.send();
+})();
+// ── END загрузчика ZkmScreenNotification ──────────────────────────────
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     const path = folder ? `${encodeURIComponent(folder)}/` : '';
