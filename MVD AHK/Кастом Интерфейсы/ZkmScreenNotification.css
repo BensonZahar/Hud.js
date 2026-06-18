@@ -195,3 +195,54 @@
             inset 0 0 0 0.09vh rgba(255, 255, 255, 0.035);
     }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   ТАЙМЕР-УВЕДОМЛЕНИЕ — .zkm-sn--timer-notif
+   Добавляет строку с обратным отсчётом под текстом.
+   Живёт независимо от hideAll() (в отдельной timerQueue).
+   ══════════════════════════════════════════════════════════════ */
+
+/* Разделитель + строка таймера */
+.zkm-sn__timer-row {
+    display: flex;
+    align-items: center;
+    gap: 0.55vh;
+    margin-top: 0.52vh;
+    padding-top: 0.42vh;
+    border-top: 0.09vh solid rgba(255, 255, 255, 0.07);
+}
+
+/* SVG-иконка часов (inline, без внешних зависимостей) */
+.zkm-sn__timer-icon {
+    width: 1.28vh;
+    height: 1.28vh;
+    color: rgba(255, 255, 255, 0.55);
+    flex-shrink: 0;
+}
+
+/* Цифры времени */
+.zkm-sn__timer-time {
+    font-size: 1.2vh;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.06vh;
+    font-variant-numeric: tabular-nums;
+    min-width: 3.6vh;
+    opacity: 0.92;
+}
+
+/* Полоска прогресса */
+.zkm-sn__timer-bar-wrap {
+    flex: 1;
+    height: 0.22vh;
+    background: rgba(255, 255, 255, 0.07);
+    border-radius: 0.11vh;
+    overflow: hidden;
+}
+
+.zkm-sn__timer-bar-fill {
+    height: 100%;
+    border-radius: 0.11vh;
+    opacity: 0.65;
+    transition: width 1s linear;
+}
