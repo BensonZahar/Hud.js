@@ -379,6 +379,8 @@ let autoCuffEnabled = false;
 let currentKoapType = null;
 let koapPage = 0;
 let currentKoapLines = [];
+// КД штрафа — ID таймер-уведомления ZkmSN (для перезапуска при повторном штрафе)
+let _fineTimerId = null;
 // Розыск (wanted) state
 let wantedStars = null;
 let ukPage = 0;
@@ -835,10 +837,22 @@ const setupChatHandler = () => {
             if (typeof message === 'string') {
                 if (message.includes('Вы получили премию к зарплате в размере')) {
                     try {
-                        window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
-                        console.log('[FINE] InformationTimer запущен на 5 минут');
+                        var _snFine = window.interface('ScreenNotification');
+                        if (_snFine && typeof _snFine.addTimer === 'function') {
+                            // Перезапускаем если старый таймер ещё идёт
+                            if (_fineTimerId !== null) {
+                                try { _snFine.hideTimer(_fineTimerId); } catch (_) {}
+                            }
+                            _fineTimerId = _snFine.addTimer(
+                                '[2, "ШТРАФ КД", "К/Д Выдача штрафа", "f9b701", 300]'
+                            );
+                            console.log('[FINE] ZkmSN.addTimer запущен на 5 минут, id=' + _fineTimerId);
+                        } else {
+                            window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
+                            console.log('[FINE] InformationTimer запущен на 5 минут (fallback)');
+                        }
                     } catch (err) {
-                        console.error('[FINE] Ошибка открытия InformationTimer:', err);
+                        console.error('[FINE] Ошибка таймера штрафа:', err);
                     }
                 }
              
