@@ -299,11 +299,11 @@ class InstallerAPI:
                 side_effects.append(
                     f'd(()=>import("./{js_file}"),{files_js},import.meta.url);'
                 )
-                print(f'[Installer] "{name}" → side-effect импорт (без регистрации в ld/ud)')
+                print(f'[Installer] "{name}" -> side-effect импорт (без регистрации в ld/ud)')
                 continue
 
             if name in native_names:
-                print(f'[Installer] ⚠️ Пропускаю "{name}" — совпадает с нативным интерфейсом игры '
+                print(f'[Installer] [!] Пропускаю "{name}" — совпадает с нативным интерфейсом игры '
                       f'и подменит его для всей игры. Если файлу нужно просто выполниться, '
                       f'поставь ему "type": "sideEffect" в IntLoad.js.')
                 continue
@@ -341,7 +341,7 @@ class InstallerAPI:
                 resp.raise_for_status()
                 dest = assets_dir / filename
                 dest.write_bytes(resp.content)
-                print(f'[Installer] Скопирован {filename} → assets/')
+                print(f'[Installer] Скопирован {filename} -> assets/')
             except Exception as e:
                 print(f'[Installer] Не удалось скачать {filename}: {e}')
 
