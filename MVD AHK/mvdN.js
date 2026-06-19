@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.100 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2176,6 +2176,31 @@ window.sendChatInputCustom = e => {
         window.openInterface('Zkm');
         console.log('[TEST /hp] Открываю интерфейс Zkm');
         // ==================== КОНЕЦ /hp ====================
+    } else if (args[0] == "/testfine") {
+        // ==================== ТЕСТ: /testfine — симулируем штраф без реальной выдачи ====================
+        // Прогоняем поддельное сообщение через тот же chat.add, который ловит реальные штрафы,
+        // чтобы протестировать всю цепочку целиком (ник-чек, InformationTimer, дедуп дублей).
+        try {
+            const ownNick = window.App?.$store?.getters?.['player/nickName'] || 'TestNick';
+            const chatRef = window.interface && window.interface('Hud')?.$refs?.chat;
+            if (chatRef && typeof chatRef.add === 'function') {
+                const fakeMsg1 = `Капитан ${ownNick}[1] выписал штраф TestTarget[999] на сумму 5000 руб. Причина: 20.1 КоАП`;
+                chatRef.add(fakeMsg1);
+                console.log('[TEST /testfine] 🚀 Отправлено тестовое сообщение о штрафе');
+                // Через ~1с шлём ещё и "радио-дубль" — как в реальной жизни — чтобы
+                // проверить, что повторный openInterface теперь корректно пропускается дедупом
+                setTimeout(() => {
+                    const fakeMsg2 = ` {v:${ownNick}}[1] выписал штраф TestTarget`;
+                    chatRef.add(fakeMsg2);
+                    console.log('[TEST /testfine] 🔁 Отправлен радио-дубль (должен быть пропущен дедупом)');
+                }, 1000);
+            } else {
+                console.warn('[TEST /testfine] ❌ chat.add не найден — Hud ещё не инициализирован?');
+            }
+        } catch (e) {
+            console.error('[TEST /testfine] Ошибка:', e);
+        }
+        // ==================== КОНЕЦ /testfine ====================
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
     }
