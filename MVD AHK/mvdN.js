@@ -374,6 +374,7 @@ let idPgInterval = null;
 let trackingNotificationOpen = false;
 let chaseNotificationOpen = false;
 let trackingNickname = null;
+let lastFineTimerOpenAt = 0; // защита от повторного открытия InformationTimer на радио-дубль сообщения
 let currentScanId = null;
 let autoCuffEnabled = false;
 let currentKoapType = null;
@@ -847,9 +848,18 @@ const setupChatHandler = () => {
                         console.log(`[FINE-LOG] message включает nick: ${ownNick ? message.includes(ownNick) : 'ownNick пустой'}`);
 
                         if (ownNick && message.includes(ownNick)) {
-                            console.log('[FINE-LOG] 🚀 Открываем InformationTimer...');
-                            window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
-                            console.log('[FINE] InformationTimer запущен ✅');
+                            const now = Date.now();
+                            if (now - lastFineTimerOpenAt < 3000) {
+                                // Это дубль того же события (например, радио-эхо "{v:...}"),
+                                // пришедший в течение 3с после первого срабатывания — пропускаем,
+                                // чтобы не дёргать openInterface повторно (toggle может закрыть только что открытый таймер)
+                                console.log('[FINE-LOG] ⏭ Пропускаем дубль сообщения о штрафе (повтор < 3с)');
+                            } else {
+                                lastFineTimerOpenAt = now;
+                                console.log('[FINE-LOG] 🚀 Открываем InformationTimer...');
+                                window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
+                                console.log('[FINE] InformationTimer запущен ✅');
+                            }
                         } else {
                             console.warn(`[FINE-LOG] ❌ Ник не совпал. ownNick="${ownNick}", message="${message.substring(0, 80)}"`);
                         }
