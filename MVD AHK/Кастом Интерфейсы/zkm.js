@@ -235,6 +235,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 									createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1),
 									art.note ? (openBlock(), createElementBlock("div", {key:"note", class:"laws-helper__article-note"}, toDisplayString(art.note), 1)) : createCommentVNode("", true)
 								]),
+								art.revoke ? (openBlock(), createElementBlock("div", {key:"revoke-badge", class:"laws-helper__article-revoke-badge"}, "ВУ")) : createCommentVNode("", true),
 								createBaseVNode("div", {class:"laws-helper__article-term"}, toDisplayString(art.fine.toLocaleString("ru-RU")) + " ₽", 1)
 							], 10, ["onClick"])
 						)), 128))
@@ -265,6 +266,22 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 							createBaseVNode("span", {class:"laws-helper__wanted-stars-label"}, "СУММА ШТРАФА:"),
 							createBaseVNode("span", {class:"laws-helper__fine-total"}, toDisplayString($options.totalFine.toLocaleString("ru-RU")) + " ₽", 1)
 						]),
+						createBaseVNode("div", {
+							class: normalizeClass(["laws-helper__fine-revoke", {
+								"laws-helper__fine-revoke_active": $options.fineCanRevoke && $data.fineWithRevoke,
+								"laws-helper__fine-revoke_disabled": !$options.fineCanRevoke
+							}]),
+							onClick: $options.toggleFineRevoke
+						}, [
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__checkbox", "laws-helper__fine-revoke-checkbox", {"laws-helper__checkbox_checked": $options.fineCanRevoke && $data.fineWithRevoke}])
+							}, [
+								($options.fineCanRevoke && $data.fineWithRevoke)
+									? (openBlock(), createElementBlock("span", {key:"chk", class:"laws-helper__checkbox-svg", innerHTML: SVG_CHECK}))
+									: createCommentVNode("", true)
+							], 2),
+							createBaseVNode("span", {class:"laws-helper__fine-revoke-label"}, "С ИЗЪЯТИЕМ ВОД. УДОСТ.")
+						], 10, ["onClick"]),
 						createBaseVNode("div", {class:"laws-helper__wanted-id-label"}, "ID НАРУШИТЕЛЯ"),
 						createBaseVNode("input", {
 							class: "laws-helper__wanted-id-input",
@@ -300,7 +317,7 @@ const KOAP_ARTICLES=[
 	// ── ДПС ──────────────────────────────────────────────────────
 	{id:"dps-1.1",    num:"1.1",    type:"ДПС", title:"Управление т/с без регистрационного знака",                        note:"Искл: разрешено без номеров если пробег не превысил 100 км",  fine:5000},
 	{id:"dps-2.1",    num:"2.1",    type:"ДПС", title:"Управление т/с с неисправным двигателем (дымление)",               note:"",                                                              fine:10000},
-	{id:"dps-3.1",    num:"3.1",    type:"ДПС", title:"Управление т/с в алкогольном/наркотическом опьянении",             note:"+ изъятие водительского удостоверения",                         fine:20000},
+	{id:"dps-3.1",    num:"3.1",    type:"ДПС", title:"Управление т/с в алкогольном/наркотическом опьянении",             note:"+ изъятие водительского удостоверения",                         fine:20000, revoke:true},
 	{id:"dps-3.2",    num:"3.2",    type:"ДПС", title:"Разговор по телефону во время движения",                            note:"",                                                              fine:5500},
 	{id:"dps-3.3",    num:"3.3",    type:"ДПС", title:"Нарушение правил пользования звуковыми сигналами",                 note:"использование не по назначению, троллинг",                      fine:6500},
 	{id:"dps-3.4",    num:"3.4",    type:"ДПС", title:"Движение с выключенными габаритными огнями (21:00–06:00)",         note:"",                                                              fine:5000},
@@ -308,34 +325,34 @@ const KOAP_ARTICLES=[
 	{id:"dps-3.6",    num:"3.6",    type:"ДПС", title:"Управление т/с с тонировкой стекол ниже 50%",                     note:"Искл: ФСБ при исполнении",                                     fine:15000},
 	{id:"dps-3.7",    num:"3.7",    type:"ДПС", title:"Движение без пристегнутого ремня или надетого шлема",              note:"",                                                              fine:5000},
 	{id:"dps-3.8",    num:"3.8",    type:"ДПС", title:"Намеренное создание дорожных заторов, помех",                      note:"",                                                              fine:10000},
-	{id:"dps-4.1",    num:"4.1",    type:"ДПС", title:"Пересечение ж/д пути вне переезда или при закрытом шлагбауме",    note:"+ лишение водительского удостоверения",                         fine:25000},
+	{id:"dps-4.1",    num:"4.1",    type:"ДПС", title:"Пересечение ж/д пути вне переезда или при закрытом шлагбауме",    note:"+ лишение водительского удостоверения",                         fine:25000, revoke:true},
 	{id:"dps-5.1",    num:"5.1",    type:"ДПС", title:"Разворот или движение задним ходом по автомагистрали",             note:"",                                                              fine:15000},
 	{id:"dps-6.1",    num:"6.1",    type:"ДПС", title:"Проезд на красный сигнал светофора",                               note:"",                                                              fine:10000},
 	{id:"dps-6.1.1",  num:"6.1.1",  type:"ДПС", title:"Проезд на жёлтый сигнал светофора",                               note:"",                                                              fine:5000},
-	{id:"dps-6.1.2",  num:"6.1.2",  type:"ДПС", title:"Проезд на запрещающий сигнал + ДТП",                              note:"+ лишение ВУ",                                                 fine:20000},
+	{id:"dps-6.1.2",  num:"6.1.2",  type:"ДПС", title:"Проезд на запрещающий сигнал + ДТП",                              note:"+ лишение ВУ",                                                 fine:20000, revoke:true},
 	{id:"dps-7.1",    num:"7.1",    type:"ДПС", title:"Разворот/движение задним ходом в запрещённых местах",              note:"пешеходный переход, мост, ж/д переезд",                        fine:15000},
-	{id:"dps-7.2",    num:"7.2",    type:"ДПС", title:"Агрессивное вождение (таран, подрезы, выезды на встречную)",       note:"+ изъятие лицензии на вождение",                               fine:20000},
+	{id:"dps-7.2",    num:"7.2",    type:"ДПС", title:"Агрессивное вождение (таран, подрезы, выезды на встречную)",       note:"+ изъятие лицензии на вождение",                               fine:20000, revoke:true},
 	{id:"dps-7.3",    num:"7.3",    type:"ДПС", title:"Невыполнение требования уступить дорогу с преимуществом",          note:"",                                                              fine:10000},
 	{id:"dps-8.1",    num:"8.1",    type:"ДПС", title:"Остановка/стоянка/парковка в неположенном месте",                  note:"+ эвакуация; с аварийкой можно стоять до 5 мин",               fine:8000},
 	{id:"dps-8.2",    num:"8.2",    type:"ДПС", title:"Движение т/с по велосипедным/пешеходным дорожкам, газонам",       note:"",                                                              fine:6500},
-	{id:"dps-8.3",    num:"8.3",    type:"ДПС", title:"Движение т/с по встречной полосе",                                 note:"+ изъятие лицензии на вождение",                               fine:10000},
-	{id:"dps-8.3.1",  num:"8.3.1",  type:"ДПС", title:"Движение по встречной полосе + ДТП",                              note:"+ изъятие лицензии",                                           fine:20000},
+	{id:"dps-8.3",    num:"8.3",    type:"ДПС", title:"Движение т/с по встречной полосе",                                 note:"+ изъятие лицензии на вождение",                               fine:10000, revoke:true},
+	{id:"dps-8.3.1",  num:"8.3.1",  type:"ДПС", title:"Движение по встречной полосе + ДТП",                              note:"+ изъятие лицензии",                                           fine:20000, revoke:true},
 	{id:"dps-9.1",    num:"9.1",    type:"ДПС", title:"Разворот/поворот через сплошную линию разметки",                   note:"",                                                              fine:12000},
 	{id:"dps-9.2",    num:"9.2",    type:"ДПС", title:"Разворот/поворот через двойную сплошную",                          note:"",                                                              fine:15000},
 	{id:"dps-9.3",    num:"9.3",    type:"ДПС", title:"Пересечение двойной сплошной линии",                               note:"",                                                              fine:13000},
-	{id:"dps-9.4",    num:"9.4",    type:"ДПС", title:"Пересечение сплошной линии разметки",                              note:"при ДТП — также изымается лицензия",                           fine:15000},
+	{id:"dps-9.4",    num:"9.4",    type:"ДПС", title:"Пересечение сплошной линии разметки",                              note:"при ДТП — также изымается лицензия",                           fine:15000, revoke:true},
 	{id:"dps-10.1",   num:"10.1",   type:"ДПС", title:"Непредоставление преимущества маршрутному транспорту",             note:"",                                                              fine:5000},
-	{id:"dps-10.2",   num:"10.2",   type:"ДПС", title:"Непредоставление преимущества спец. службам с маячком/сиреной",   note:"+ изъятие лицензии",                                           fine:15000},
-	{id:"dps-10.3",   num:"10.3",   type:"ДПС", title:"Непредоставление преимущества колонне гос. служб",                note:"+ изъятие лицензии",                                           fine:20000},
+	{id:"dps-10.2",   num:"10.2",   type:"ДПС", title:"Непредоставление преимущества спец. службам с маячком/сиреной",   note:"+ изъятие лицензии",                                           fine:15000, revoke:true},
+	{id:"dps-10.3",   num:"10.3",   type:"ДПС", title:"Непредоставление преимущества колонне гос. служб",                note:"+ изъятие лицензии",                                           fine:20000, revoke:true},
 	{id:"dps-10.4",   num:"10.4",   type:"ДПС", title:"Невыполнение требования уступить дорогу пешеходам/велосипедистам",note:"",                                                              fine:10000},
 	{id:"dps-11.1",   num:"11.1",   type:"ДПС", title:"Виновник ДТП без вреда здоровью",                                  note:"",                                                              fine:10000},
-	{id:"dps-11.1.1", num:"11.1.1", type:"ДПС", title:"Виновник ДТП с тяжким вредом здоровью/смертью",                  note:"+ изъятие лицензии на оружие",                                 fine:25000},
+	{id:"dps-11.1.1", num:"11.1.1", type:"ДПС", title:"Виновник ДТП с тяжким вредом здоровью/смертью",                  note:"+ изъятие лицензии на оружие",                                 fine:25000, revoke:true},
 	{id:"dps-11.2",   num:"11.2",   type:"ДПС", title:"Оставление места ДТП",                                             note:"",                                                              fine:15000},
-	{id:"dps-11.3",   num:"11.3",   type:"ДПС", title:"Создание аварийных ситуаций, провокация на ДТП, автоподставы",    note:"+ изъятие водительского удостоверения",                         fine:20000},
+	{id:"dps-11.3",   num:"11.3",   type:"ДПС", title:"Создание аварийных ситуаций, провокация на ДТП, автоподставы",    note:"+ изъятие водительского удостоверения",                         fine:20000, revoke:true},
 	{id:"dps-12.1",   num:"12.1",   type:"ДПС", title:"Превышение скорости более чем на 30 км/ч (80–90 км/ч)",           note:"",                                                              fine:5000},
 	{id:"dps-12.2",   num:"12.2",   type:"ДПС", title:"Превышение скорости более чем на 50 км/ч (90–120 км/ч)",          note:"",                                                              fine:7000},
-	{id:"dps-12.3",   num:"12.3",   type:"ДПС", title:"Превышение на 30+ км/ч + ДТП",                                    note:"также изымается лицензия",                                     fine:15000},
-	{id:"dps-12.4",   num:"12.4",   type:"ДПС", title:"Превышение на 50+ км/ч + ДТП",                                    note:"+ изъятие водительского удостоверения + лицензия",             fine:25000},
+	{id:"dps-12.3",   num:"12.3",   type:"ДПС", title:"Превышение на 30+ км/ч + ДТП",                                    note:"также изымается лицензия",                                     fine:15000, revoke:true},
+	{id:"dps-12.4",   num:"12.4",   type:"ДПС", title:"Превышение на 50+ км/ч + ДТП",                                    note:"+ изъятие водительского удостоверения + лицензия",             fine:25000, revoke:true},
 	{id:"dps-13.1",   num:"13.1",   type:"ДПС", title:"Оскорбление гражданского лица / сотрудника гос. структур",        note:"",                                                              fine:10000},
 	{id:"dps-13.1.1", num:"13.1.1", type:"ДПС", title:"Не грубое оскорбление сотрудника правоохранительных органов",     note:"",                                                              fine:10000},
 	{id:"dps-13.2",   num:"13.2",   type:"ДПС", title:"Мелкое хулиганство",                                               note:"нецензурная брань, громкие крики в общественных местах",       fine:8000},
@@ -517,6 +534,7 @@ const _sfc_main={
 			fineId:"",
 			fineKoapType:"all", // 'all' | 'ДПС' | 'ППС'
 			selectedFineArticles:[],
+			fineWithRevoke:false, // чекбокс "с изъятием вод. удостоверения"
 			// ── ЗАКОНЫ: дерево документов ─────────────────────────────
 			lawDocuments:LAW_DOCUMENTS,
 			expandedDocs:[LAW_DOCUMENTS[0]?.id].filter(Boolean), // первый документ раскрыт по умолчанию
@@ -573,6 +591,10 @@ const _sfc_main={
 		},
 		totalFine(){
 			return this.selectedFineArticleObjects.reduce((s,a)=>s+a.fine,0);
+		},
+		// Можно ли изъять вод. удостоверение — хотя бы одна выбранная статья это разрешает
+		fineCanRevoke(){
+			return this.selectedFineArticleObjects.some(a=>a.revoke===true);
 		},
 		// ── ЗАКОНЫ: дерево с фильтрацией по поиску ───────────────
 		filteredLawDocuments(){
@@ -664,6 +686,7 @@ const _sfc_main={
 .laws-helper__article-title{color:#f4f1e1cc;font-size:1.3vh;font-weight:600;line-height:1.4;}
 .laws-helper__article-note{color:#f4f1e199;font-size:1.2vh;line-height:1.4;margin-top:0.28vh;}
 .laws-helper__article-term{color:#f4f1e166;flex-shrink:0;font-size:1.2vh;font-weight:600;margin-top:0.09vh;white-space:nowrap;}
+.laws-helper__article-revoke-badge{background:rgba(226,85,68,.15);border-radius:0.22vh;color:#e25544;flex-shrink:0;font-size:1.02vh;font-weight:700;letter-spacing:0.02vh;margin-top:0.15vh;padding:0.19vh 0.46vh;white-space:nowrap;}
 .laws-helper__wanted-panel{background:#141419;border-left:0.19vh solid #f4f1e11a;display:flex;flex-direction:column;flex-shrink:0;padding:1.48vh 1.67vh;width:22vh;}
 .laws-helper__wanted-title{color:#f4f1e1cc;font-family:"Open Sans Condensed","Open Sans",var(--fallback-font);font-size:1.3vh;font-style:italic;font-weight:700;letter-spacing:0.09vh;margin-bottom:0.56vh;text-transform:uppercase;}
 .laws-helper__wanted-title-line{background:#e25544;border-radius:0.19vh;height:0.19vh;margin-bottom:1.11vh;width:100%;}
@@ -702,6 +725,13 @@ const _sfc_main={
 .laws-helper__fine-filter-btn_active{border-color:#f4f1e133;color:#f4f1e1;}
 .laws-helper__fine-filter-btn_dps.laws-helper__fine-filter-btn_active{background:rgba(10,153,71,.1);border-color:rgba(10,153,71,.4);color:#0a9947;}
 .laws-helper__fine-filter-btn_pps.laws-helper__fine-filter-btn_active{background:rgba(249,183,1,.1);border-color:rgba(249,183,1,.4);color:#f9b701;}
+.laws-helper__fine-revoke{align-items:center;border:0.15vh solid #f4f1e11a;border-radius:0.37vh;cursor:pointer;display:flex;gap:0.56vh;margin-top:0.93vh;padding:0.74vh 0.93vh;transition:all 0.12s ease;}
+@media (platform:pc){.laws-helper__fine-revoke:not(.laws-helper__fine-revoke_disabled):hover{border-color:#f4f1e133;}}
+.laws-helper__fine-revoke_active{background:rgba(226,85,68,.12);border-color:rgba(226,85,68,.5);}
+.laws-helper__fine-revoke_disabled{cursor:not-allowed;opacity:0.4;}
+.laws-helper__fine-revoke .laws-helper__checkbox_checked{background:#e25544;border-color:#e25544;}
+.laws-helper__fine-revoke-label{color:#f4f1e1cc;font-size:1.11vh;font-weight:700;letter-spacing:0.02vh;text-transform:uppercase;}
+.laws-helper__fine-revoke_active .laws-helper__fine-revoke-label{color:#e25544;}
 
 /* ══ ЗАКОНЫ: дерево + читалка ═══════════════════════════════════ */
 .laws-helper__laws-layout{display:flex;flex:1 1 auto;min-height:0;overflow:hidden;}
@@ -806,17 +836,26 @@ const _sfc_main={
 		toggleFineArticle(id){
 			const idx=this.selectedFineArticles.indexOf(id);
 			if(idx===-1)this.selectedFineArticles.push(id);
-			else this.selectedFineArticles.splice(idx,1)
+			else this.selectedFineArticles.splice(idx,1);
+			// Если среди оставшихся выбранных статей больше нет ни одной,
+			// разрешающей изъятие ВУ — снимаем галочку автоматически
+			if(!this.fineCanRevoke)this.fineWithRevoke=false;
+		},
+		toggleFineRevoke(){
+			if(!this.fineCanRevoke)return;
+			this.fineWithRevoke=!this.fineWithRevoke;
 		},
 		clearFine(){
 			this.selectedFineArticles=[];
 			this.fineId="";
+			this.fineWithRevoke=false;
 			window._duranFineTargetId=null
 		},
 		issueFine(){
 			const id=this.fineId.trim();
 			if(!id||this.selectedFineArticles.length===0)return;
 			const arts=this.selectedFineArticleObjects;
+			const withRevoke=this.fineCanRevoke&&this.fineWithRevoke;
 			// Отправляем отдельную команду /ticket на каждую выбранную статью
 			// с задержкой 500мс между ними чтобы сервер не потерял
 			arts.forEach((art,i)=>{
@@ -826,6 +865,12 @@ const _sfc_main={
 					else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
 				},i*500);
 			});
+			// Если отмечена галочка изъятия — после выдачи штрафов запускаем сценарий изъятия прав
+			if(withRevoke){
+				setTimeout(()=>{
+					if(typeof window._mvdExecuteAction==="function")window._mvdExecuteAction("takeLicense",id);
+				},arts.length*500);
+			}
 			this.close()
 		},
 		close(){window.closeInterface("Zkm")}

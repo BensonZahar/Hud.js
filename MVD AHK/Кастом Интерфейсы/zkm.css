@@ -462,6 +462,19 @@
 	white-space: nowrap;
 }
 
+.laws-helper__article-revoke-badge {
+	background: rgba(226, 85, 68, .15);
+	border-radius: 0.22vh;
+	color: #e25544;
+	flex-shrink: 0;
+	font-size: 1.02vh;
+	font-weight: 700;
+	letter-spacing: 0.02vh;
+	margin-top: 0.15vh;
+	padding: 0.19vh 0.46vh;
+	white-space: nowrap;
+}
+
 /* ══════════════════════════════════════════════════════════════════
    ПРАВАЯ ПАНЕЛЬ — Розыск / Штраф
    ══════════════════════════════════════════════════════════════════ */
@@ -789,3 +802,49 @@
 	border-color: rgba(249, 183, 1, 0.4);
 	color: #f9b701;
 }
+
+.laws-helper__fine-revoke {
+	align-items: center;
+	border: 0.15vh solid #f4f1e11a;
+	border-radius: 0.37vh;
+	cursor: pointer;
+	display: flex;
+	gap: 0.56vh;
+	margin-top: 0.93vh;
+	padding: 0.74vh 0.93vh;
+	transition: all 0.12s ease;
+}
+
+@media (platform: pc) {
+	.laws-helper__fine-revoke:not(.laws-helper__fine-revoke_disabled):hover {
+		border-color: #f4f1e133;
+	}
+}
+
+.laws-helper__fine-revoke_active {
+	background: rgba(226, 85, 68, .12);
+	border-color: rgba(226, 85, 68, .5);
+}
+
+.laws-helper__fine-revoke_disabled {
+	cursor: not-allowed;
+	opacity: 0.4;
+}
+
+.laws-helper__fine-revoke .laws-helper__checkbox_checked {
+	background: #e25544;
+	border-color: #e25544;
+}
+
+.laws-helper__fine-revoke-label {
+	color: #f4f1e1cc;
+	font-size: 1.11vh;
+	font-weight: 700;
+	letter-spacing: 0.02vh;
+	text-transform: uppercase;
+}
+
+.laws-helper__fine-revoke_active .laws-helper__fine-revoke-label {
+	color: #e25544;
+}
+
