@@ -242,30 +242,19 @@
         }
     };
 
-    /* ── Подключение к App.$refs или window.interface ─────────── */
-    function patch() {
-        if (window.App && window.App.$refs) {
-            try {
-                Object.defineProperty(window.App.$refs, 'ScreenNotification', {
-                    get: function () { return ZkmSN; },
-                    configurable: true,
-                    enumerable:   true
-                });
-                console.log('[ZKM-SN] v4.0 готов');
-                return;
-            } catch (_) {}
-        }
-        if (typeof window.interface === 'function') {
-            var _orig = window.interface;
-            window.interface = function (name) {
-                if (name === 'ScreenNotification') return ZkmSN;
-                return _orig.apply(this, arguments);
-            };
-            console.log('[ZKM-SN] v4.0 готов (hook)');
-            return;
-        }
-        setTimeout(patch, 100);
-    }
-    patch();
+    /* ── Регистрация как ОТДЕЛЬНЫЙ namespace ──────────────────────
+       ВАЖНО: раньше здесь подменялся ГЛОБАЛЬНЫЙ родной интерфейс
+       'ScreenNotification' (через App.$refs или window.interface),
+       из-за чего ВСЕ уведомления игры (не только МВД) уходили через
+       наш кастомный glass-стиль — родные уведомления пропадали или
+       рисовались неправильно.
+
+       Теперь ZKM-уведомление НЕ трогает родной 'ScreenNotification' —
+       он продолжает работать как обычно для всей остальной игры.
+       МВД-код обращается к кастомному UI явно, через отдельный
+       глобальный объект window.ZkmScreenNotification.
+    ─────────────────────────────────────────────────────────────── */
+    window.ZkmScreenNotification = ZkmSN;
+    console.log('[ZKM-SN] v4.1 готов (изолированный namespace, родной ScreenNotification не тронут)');
 
 })();
