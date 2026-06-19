@@ -758,7 +758,7 @@ const setupChatHandler = () => {
                     // Показываем серое уведомление синхронно — без setTimeout,
                     // чтобы никакой другой snAdd не успел сделать hideAll между hideAll и add
                     try {
-                        const sn = window.interface('ScreenNotification');
+                        const sn = getZkmSN();
                         if (sn) {
                             if (typeof sn.hideAll === 'function') sn.hideAll();
                             sn.add(`[1, "Отслеживание", "${reason}", "CECECE", 2500]`);
@@ -780,11 +780,11 @@ const setupChatHandler = () => {
                     console.log(`[TRACKING] ⏳ КД /setmark: ${waitSec} сек`);
                     // Показываем оранжевое уведомление со счётчиком
                     try {
-                        const sn = window.interface('ScreenNotification');
+                        const sn = getZkmSN();
                         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
                         setTimeout(() => {
                             try {
-                                window.interface('ScreenNotification').add(
+                                getZkmSN()?.add(
                                     `[1, "Отслеживание", "/setmark КД: ${waitSec} сек", "FFAA00", ${(waitSec + 1) * 1000}]`
                                 );
                             } catch(e) {}
@@ -858,7 +858,7 @@ const setupChatHandler = () => {
                                 lastFineTimerOpenAt = now;
                                 console.log('[FINE-LOG] 🚀 Показываем таймер-уведомление КД штрафа...');
                                 try {
-                                    const sn = window.interface && window.interface('ScreenNotification');
+                                    const sn = getZkmSN();
                                     if (sn && typeof sn.addTimer === 'function') {
                                         fineTimerSnId = sn.addTimer('[2, "ШТРАФ К/Д", "Повторная выдача будет доступна через", "f9b701", 300]');
                                         console.log(`[FINE] ZKM-таймер запущен ✅ (id=${fineTimerSnId})`);
@@ -943,17 +943,27 @@ const getPaginatedKoap = () => {
     return currentKoapLines.join("<n>");
 };
 // ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
+// ВАЖНО: используем ТОЛЬКО изолированный window.ZkmScreenNotification
+// (см. ZkmScreenNotification.js), а НЕ window.interface('ScreenNotification').
+// Раньше код шёл через window.interface('ScreenNotification'), а сам
+// ZkmScreenNotification.js подменял этот геттер ГЛОБАЛЬНО — из-за чего
+// родные игровые уведомления (не от МВД) тоже улетали в наш кастомный UI
+// и часть нативных интерфейсов пропадала/ломалась.
+// Теперь подмена убрана, и МВД явно берёт именно свой namespace —
+// родной ScreenNotification движка для всей остальной игры не трогается.
+const getZkmSN = () => window.ZkmScreenNotification || null;
+
 // Восстанавливает уведомление отслеживания/погони если оно активно
 const restoreTrackingNotification = () => {
     if (!currentScanId) return;
     const text = trackingNickname ? `${trackingNickname}<br>ID: ${currentScanId}` : `ID: ${currentScanId}`;
     if (chaseNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`); } catch(e) {}
+            try { getZkmSN()?.add(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`); } catch(e) {}
         }, 150);
     } else if (trackingNotificationOpen) {
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`); } catch(e) {}
+            try { getZkmSN()?.add(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`); } catch(e) {}
         }, 150);
     }
 };
@@ -961,10 +971,10 @@ const snAdd = (payload, skipRestore = false) => {
     try {
         // Если показывается финальное уведомление (серое) — не трогаем его через hideAll
         if (window._trackingStopPending) return;
-        const sn = window.interface('ScreenNotification');
+        const sn = getZkmSN();
         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
         setTimeout(() => {
-            try { window.interface('ScreenNotification').add(payload); } catch(e) {}
+            try { getZkmSN()?.add(payload); } catch(e) {}
         }, 100);
         // Если активно отслеживание/погоня — восстанавливаем уведомление после показа нового
         // skipRestore=true когда вызов идёт из самих openTracking/openChase (чтобы не затирать ник)
@@ -993,7 +1003,7 @@ const openChaseNotification = (id) => {
 };
 const closeTrackingNotifications = () => {
     try {
-        const screenNotif = window.interface('ScreenNotification');
+        const screenNotif = getZkmSN();
         if (screenNotif && typeof screenNotif.hideAll === 'function') {
             screenNotif.hideAll();
             trackingNotificationOpen = false;
