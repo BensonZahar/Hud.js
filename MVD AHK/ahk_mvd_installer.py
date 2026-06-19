@@ -20,6 +20,19 @@ NATIVE_INTERFACE_NAMES = {
 # Путь к иконке передаётся из launcher через exec namespace
 _ICON_PATH = globals().get("_ICON_PATH", "")
 
+def _log_to_file(msg: str):
+    """Пишет в %APPDATA%\\AHK_MVD\\install_log.txt — видно даже если установщик
+    собран без консоли (.exe) и print() никуда не выводится."""
+    try:
+        from datetime import datetime
+        appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
+        folder = Path(appdata) / 'AHK_MVD'
+        folder.mkdir(parents=True, exist_ok=True)
+        with open(folder / 'install_log.txt', 'a', encoding='utf-8') as f:
+            f.write(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] {msg}\n')
+    except Exception:
+        pass
+
 # Файл сохранённых настроек — в %APPDATA%\AHK_MVD\
 def _settings_path() -> Path:
     appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
@@ -211,7 +224,7 @@ class InstallerAPI:
         """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
         Единственный источник реестра — добавлять новые интерфейсы только в IntLoad.js.
         Возвращает [] если GitHub недоступен или реестр не найден."""
-        import re, json
+        import re, json, traceback
         try:
             print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
             resp = requests.get(INTLOAD_URL, timeout=15)
@@ -222,6 +235,7 @@ class InstallerAPI:
             m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
             if not m:
                 print('[Installer] _duranCustomInterfaces не найден в IntLoad.js')
+                _log_to_file('_fetch_custom_interfaces: _duranCustomInterfaces НЕ НАЙДЕН в тексте IntLoad.js')
                 return []
 
             start = m.start(1)
@@ -243,9 +257,11 @@ class InstallerAPI:
             result = json.loads(raw)
             print(f'[Installer] Распарсено интерфейсов: '
                   f'{[r["name"] + ":" + r.get("type", "interface") for r in result]}')
+            _log_to_file(f'_fetch_custom_interfaces OK: {[r["name"] + ":" + r.get("type", "interface") for r in result]}')
             return result
         except Exception as e:
             print(f'[Installer] Не удалось загрузить IntLoad.js: {e}')
+            _log_to_file(f'_fetch_custom_interfaces ИСКЛЮЧЕНИЕ: {e}\n{traceback.format_exc()}')
             return []
 
     @staticmethod
@@ -264,6 +280,13 @@ class InstallerAPI:
         """
         if not ifaces:
             return ""
+        # Литерал, а не модульный глобал NATIVE_INTERFACE_NAMES — exec() с раздельными
+        # globals/locals (как в launcher.py) не даёт функциям видеть top-level
+        # переменные модуля, из-за чего обращение к глобалу падало с NameError.
+        native_names = {
+            "ScreenNotification", "Menu", "Hud", "Dialog", "InventoryNew",
+            "Console", "BattlePassWelcome", "BlackMarket", "FullScreenPreloader",
+        }
         ld_parts, ud_parts, side_effects = [], [], []
         for iface in ifaces:
             name      = iface["name"]
@@ -279,7 +302,7 @@ class InstallerAPI:
                 print(f'[Installer] "{name}" → side-effect импорт (без регистрации в ld/ud)')
                 continue
 
-            if name in NATIVE_INTERFACE_NAMES:
+            if name in native_names:
                 print(f'[Installer] ⚠️ Пропускаю "{name}" — совпадает с нативным интерфейсом игры '
                       f'и подменит его для всей игры. Если файлу нужно просто выполниться, '
                       f'поставь ему "type": "sideEffect" в IntLoad.js.')
@@ -426,7 +449,9 @@ class InstallerAPI:
                 interfaces_block = self._build_interfaces_block(ifaces)
             except Exception:
                 traceback.print_exc(file=sys.stdout)
+                _log_to_file(f'_build_interfaces_block ИСКЛЮЧЕНИЕ (ifaces={ifaces}):\n{traceback.format_exc()}')
                 interfaces_block = ""  # не валим всю установку из-за интерфейсов
+            _log_to_file(f'interfaces_block длина={len(interfaces_block)}, ifaces было={len(ifaces)} шт.: {interfaces_block[:300]}')
             try:
                 obf = self._obfuscate(code)
                 idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
