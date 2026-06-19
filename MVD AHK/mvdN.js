@@ -1889,7 +1889,7 @@ window.showMinuteInputDialog = (e) => {
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`Событие: ${event}, Аргументы:`, args);
 
-    // Alt+Q — автотазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
+    // Alt+Q — авто-тазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
     if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 683)) {
         if (args[1] === 666) { // Главное меню
@@ -2180,62 +2180,6 @@ window.sendChatInputCustom = e => {
         _awaitingPartnerId = false;
         partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
         sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
-    } else if (args[0] == "/hp") {
-        // ==================== ТЕСТ: /hp — открыть интерфейс Zkm (ЗКМ) ====================
-        window._duranOpenMode = null; // null = показать все табы (ЗАКОНЫ/ШТРАФЫ/РОЗЫСК/БИНДЕР)
-        window.openInterface('Zkm');
-        console.log('[TEST /hp] Открываю интерфейс Zkm');
-        // ==================== КОНЕЦ /hp ====================
-    } else if (args[0] == "/testfine") {
-        // ==================== ТЕСТ: /testfine — симулируем штраф без реальной выдачи ====================
-        // Прогоняем поддельное сообщение через тот же chat.add, который ловит реальные штрафы,
-        // чтобы протестировать всю цепочку целиком (ник-чек, InformationTimer, дедуп дублей).
-        try {
-            const ownNick = window.App?.$store?.getters?.['player/nickName'] || 'TestNick';
-            const chatRef = window.interface && window.interface('Hud')?.$refs?.chat;
-            if (chatRef && typeof chatRef.add === 'function') {
-                const fakeMsg1 = `Капитан ${ownNick}[1] выписал штраф TestTarget[999] на сумму 5000 руб. Причина: 20.1 КоАП`;
-                chatRef.add(fakeMsg1);
-                console.log('[TEST /testfine] 🚀 Отправлено тестовое сообщение о штрафе');
-                // Через ~1с шлём ещё и "радио-дубль" — как в реальной жизни — чтобы
-                // проверить, что повторный openInterface теперь корректно пропускается дедупом
-                setTimeout(() => {
-                    const fakeMsg2 = ` {v:${ownNick}}[1] выписал штраф TestTarget`;
-                    chatRef.add(fakeMsg2);
-                    console.log('[TEST /testfine] 🔁 Отправлен радио-дубль (должен быть пропущен дедупом)');
-                }, 1000);
-            } else {
-                console.warn('[TEST /testfine] ❌ chat.add не найден — Hud ещё не инициализирован?');
-            }
-        } catch (e) {
-            console.error('[TEST /testfine] Ошибка:', e);
-        }
-        // ==================== КОНЕЦ /testfine ====================
-    } else if (args[0] == "/checkblock") {
-        // ==================== ДИАГНОСТИКА: /checkblock — что блокирует blockedByFullScreen-интерфейсы ====================
-        // InformationTimer (и другие интерфейсы с options.blockedByFullScreen) движок ПРИНУДИТЕЛЬНО
-        // прячет (класс interface_hidden), пока открыт хоть один интерфейс без options.hud
-        // и без options.allowAnyInterfaces. openInterface при этом отрабатывает "успешно" —
-        // компонент маунтится и тикает в фоне, просто визуально скрыт.
-        try {
-            const opened = (window.App && window.App.openedComponents) || {};
-            const openedNames = Object.keys(opened);
-            const blockers = openedNames.filter(k => {
-                const o = opened[k] || {};
-                return o.show && o.options && !o.options.hud && !o.options.allowAnyInterfaces;
-            });
-            console.log('[CHECKBLOCK] 📋 Сейчас открыты интерфейсы:', JSON.stringify(openedNames));
-            if (blockers.length) {
-                console.log('[CHECKBLOCK] 🚫 Блокируют blockedByFullScreen (нет hud/allowAnyInterfaces):', JSON.stringify(blockers));
-            } else {
-                console.log('[CHECKBLOCK] ✅ Блокирующих интерфейсов не найдено — InformationTimer не должен прятаться');
-            }
-            const it = window.App && window.App.components && window.App.components['InformationTimer'];
-            console.log('[CHECKBLOCK] InformationTimer.open.status =', it && it.open ? it.open.status : 'не найден в реестре');
-        } catch (e) {
-            console.error('[CHECKBLOCK] Ошибка:', e);
-        }
-        // ==================== КОНЕЦ /checkblock ====================
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
     }
@@ -2720,7 +2664,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
 
-// ==================== СВОП ТАЗЕР ↔ ДИГЛ (v15 — polling) ====================
+// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v15 — polling) ====================
 (function() {
     const ITEM_DEAGLE = 19;
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
@@ -2732,7 +2676,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     function clearBusy() {
         clearTimeout(_busyTimer);
         _busy = false;
-        console.log('[SWAP] готов');
+        console.log('[АВТО-ТАЗЕР] готов');
     }
 
     function findItem(items, itemId) {
@@ -2742,7 +2686,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             for (const [slot, item] of Object.entries(c)) {
                 if (item?.id === itemId) {
                     const loc = { cid, slot: parseInt(slot), count: item.count || 1 };
-                    console.log(`[SWAP] findItem(Дигл): ${CT_NAMES[cid]} slot${loc.slot} x${loc.count}`);
+                    console.log(`[АВТО-ТАЗЕР] findItem(Дигл): ${CT_NAMES[cid]} slot${loc.slot} x${loc.count}`);
                     return loc;
                 }
             }
@@ -2755,7 +2699,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         if (!container) return 0;
         for (let s = 0; s < 50; s++) {
             if (!container[s]) {
-                console.log(`[SWAP] freeSlot(${CT_NAMES[targetCid]}): ${s}`);
+                console.log(`[АВТО-ТАЗЕР] freeSlot(${CT_NAMES[targetCid]}): ${s}`);
                 return s;
             }
         }
@@ -2775,16 +2719,21 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     function swapTaserDeagle() {
+        // Проверка формы — авто-тазер работает только в МВД скине
+        if (!mvdSkins.includes(skinId)) {
+            console.log('[АВТО-ТАЗЕР] не МВД форма, пропуск');
+            return;
+        }
         if (_busy) {
-            console.log('[SWAP] занят, пропуск');
+            console.log('[АВТО-ТАЗЕР] занят, пропуск');
             return;
         }
         _busy = true;
         _busyTimer = setTimeout(() => {
-            if (_busy) { _busy = false; console.log('[SWAP] таймаут сброса'); }
+            if (_busy) { _busy = false; console.log('[АВТО-ТАЗЕР] таймаут сброса'); }
         }, 5000);
 
-        console.log('[SWAP] открываем инвентарь...');
+        console.log('[АВТО-ТАЗЕР] открываем инвентарь...');
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
 
         // Polling: ждём пока items появятся (инвентарь открылся)
@@ -2797,22 +2746,22 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (!items) {
                 if (attempts >= maxAttempts) {
                     clearInterval(poll);
-                    console.log('[SWAP] items не появились, отмена');
+                    console.log('[АВТО-ТАЗЕР] items не появились, отмена');
                     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    snAdd('[1, "СВОП", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
+                    snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
                     clearBusy();
                 }
                 return;
             }
 
             clearInterval(poll);
-            console.log(`[SWAP] items получены (попытка ${attempts})`);
+            console.log(`[АВТО-ТАЗЕР] items получены (попытка ${attempts})`);
 
             const deagleLoc = findItem(items, ITEM_DEAGLE);
             if (!deagleLoc) {
-                console.log('[SWAP] дигл не найден');
+                console.log('[АВТО-ТАЗЕР] дигл не найден');
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                snAdd('[1, "СВОП", "Дигл не найден в инвентаре", "FF4400", 3000]');
+                snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
                 clearBusy();
                 return;
             }
@@ -2823,7 +2772,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             } else if (deagleLoc.cid === CT.BACK) {
                 fromCid = CT.BACK; toCid = CT.INV;
             } else {
-                console.log('[SWAP] дигл не в INV/BACK');
+                console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 clearBusy();
                 return;
@@ -2831,22 +2780,22 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
             const toSlot = findFreeSlot(items, toCid);
             if (toSlot < 0) {
-                console.log('[SWAP] нет свободного слота');
+                console.log('[АВТО-ТАЗЕР] нет свободного слота');
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                snAdd('[1, "СВОП", "Нет свободного слота!", "FF4400", 3000]');
+                snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
                 clearBusy();
                 return;
             }
 
             const direction = (fromCid === CT.INV) ? 'Дигл -> Рюкзак' : 'Дигл -> Инвентарь';
-            console.log(`[SWAP] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] -> ${CT_NAMES[toCid]}[${toSlot}]`);
+            console.log(`[АВТО-ТАЗЕР] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] -> ${CT_NAMES[toCid]}[${toSlot}]`);
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
                 fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
 
             // Закрываем инвентарь через 150мс после хода
             setTimeout(() => {
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                snAdd(`[1, "СВОП", "${direction}", "00CC44", 2000]`);
+                snAdd(`[1, "АВТО-ТАЗЕР", "${direction}", "00CC44", 2000]`);
                 clearBusy();
             }, 150);
 
@@ -2854,6 +2803,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[SWAP] v15 готов');
+    console.log('[АВТО-ТАЗЕР] v15 готов');
 })();
-// ==================== END СВОП ТАЗЕР ↔ ДИГЛ ====================
+// ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
