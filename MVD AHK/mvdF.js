@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.199999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -845,10 +845,19 @@ const setupChatHandler = () => {
                     console.log('[FINE-LOG] ✅ Нашли "выписал штраф"!');
                     try {
                         const ownNick = window.App?.$store?.getters?.['player/nickName'];
-                        console.log(`[FINE-LOG] ownNick из store: "${ownNick}"`);
-                        console.log(`[FINE-LOG] message включает nick: ${ownNick ? message.includes(ownNick) : 'ownNick пустой'}`);
 
-                        if (ownNick && message.includes(ownNick)) {
+                        // Извлекаем НИК ИМЕННО ТОГО, КТО ВЫПИСАЛ штраф — он стоит
+                        // в формате {v:НИК}[ID] выписал штраф ПОЛУЧАТЕЛЬ.
+                        // Раньше проверялось message.includes(ownNick), из-за чего
+                        // таймер К/Д ложно срабатывал и когда штраф выписывали НАМ
+                        // (наш ник встречается в строке как получатель, а не как issuer).
+                        const issuerMatch = message.match(/\{v:([^}]+)\}\s*\[\d+\]\s*выписал штраф/);
+                        const issuerNick = issuerMatch ? issuerMatch[1] : null;
+
+                        console.log(`[FINE-LOG] ownNick из store: "${ownNick}"`);
+                        console.log(`[FINE-LOG] issuerNick из сообщения: "${issuerNick}"`);
+
+                        if (ownNick && issuerNick && issuerNick === ownNick) {
                             const now = Date.now();
                             if (now - lastFineTimerOpenAt < 3000) {
                                 // Это дубль того же события (например, радио-эхо "{v:...}"),
@@ -871,7 +880,7 @@ const setupChatHandler = () => {
                                 }
                             }
                         } else {
-                            console.warn(`[FINE-LOG] ❌ Ник не совпал. ownNick="${ownNick}", message="${message.substring(0, 80)}"`);
+                            console.log(`[FINE-LOG] ⏭ Штраф выписан не нами (issuer="${issuerNick}", ownNick="${ownNick}") — таймер не запускаем`);
                         }
                     } catch (err) {
                         console.error('[FINE] Ошибка InformationTimer:', err);
