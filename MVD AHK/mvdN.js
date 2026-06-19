@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1199 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -613,7 +613,7 @@ function getInlineColor(text) {
 // ==================== END CHAT LOGGING HELPERS ====================
 
 let _mainChatHandlerReady = false;
-let _pendingFineId = null; // ID игрока которому отправили /ticket — ждём подтверждения сервера
+
 
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
@@ -834,22 +834,33 @@ const setupChatHandler = () => {
             }
             // ==================== ОТСЛЕЖИВАНИЕ ШТРАФОВ ====================
             if (typeof message === 'string') {
-                // Ждём синее подтверждение сервера: "... выписал штраф Nick[ID] ..."
-                // Только если МЫ отправляли /ticket (_pendingFineId установлен)
-                if (_pendingFineId && message.includes('выписал штраф') && message.includes(`[${_pendingFineId}]`)) {
+                // Логируем ВСЕ входящие строки для отладки (временно)
+                if (message.length > 3) {
+                    console.log(`[FINE-LOG] chat.add: "${message.substring(0, 120)}"`);
+                }
+
+                if (message.includes('выписал штраф')) {
+                    console.log('[FINE-LOG] ✅ Нашли "выписал штраф"!');
                     try {
-                        window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
-                        console.log(`[FINE] InformationTimer запущен — штраф для ID ${_pendingFineId} подтверждён`);
-                    } catch(err) {
+                        const ownNick = window.App?.$store?.getters?.['player/nickName'];
+                        console.log(`[FINE-LOG] ownNick из store: "${ownNick}"`);
+                        console.log(`[FINE-LOG] message включает nick: ${ownNick ? message.includes(ownNick) : 'ownNick пустой'}`);
+
+                        if (ownNick && message.includes(ownNick)) {
+                            console.log('[FINE-LOG] 🚀 Открываем InformationTimer...');
+                            window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
+                            console.log('[FINE] InformationTimer запущен ✅');
+                        } else {
+                            console.warn(`[FINE-LOG] ❌ Ник не совпал. ownNick="${ownNick}", message="${message.substring(0, 80)}"`);
+                        }
+                    } catch (err) {
                         console.error('[FINE] Ошибка InformationTimer:', err);
                     }
-                    _pendingFineId = null;
                 }
 
                 if (message.includes('Вы недавно выдавали штраф')) {
                     snAdd('[1, "Выдача штрафа", "У вас еще к/д на выдачу штрафа", "FF0000", 5000]');
                     console.log('[FINE] ScreenNotification: кулдаун штрафа');
-                    _pendingFineId = null; // сбрасываем — штраф не прошёл
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
@@ -1333,8 +1344,6 @@ const HandleKoapInput = (input) => {
     if (parts.length === 3) {
         const [id, cost, code] = parts;
         sendChatInput(`/ticket ${id} ${cost} ${code} КоАП`);
-        _pendingFineId = id; // запоминаем — ждём подтверждения от сервера
-        console.log(`[FINE] /ticket отправлен, ждём подтверждения для ID: ${id}`);
     } else if (lowerInput) {
         const originalLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
         currentKoapLines = originalLines.filter(l => l.toLowerCase().includes(lowerInput));
