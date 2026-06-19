@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.100 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -374,7 +374,8 @@ let idPgInterval = null;
 let trackingNotificationOpen = false;
 let chaseNotificationOpen = false;
 let trackingNickname = null;
-let lastFineTimerOpenAt = 0; // защита от повторного открытия InformationTimer на радио-дубль сообщения
+let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
+let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
 let currentScanId = null;
 let autoCuffEnabled = false;
 let currentKoapType = null;
@@ -851,14 +852,23 @@ const setupChatHandler = () => {
                             const now = Date.now();
                             if (now - lastFineTimerOpenAt < 3000) {
                                 // Это дубль того же события (например, радио-эхо "{v:...}"),
-                                // пришедший в течение 3с после первого срабатывания — пропускаем,
-                                // чтобы не дёргать openInterface повторно (toggle может закрыть только что открытый таймер)
+                                // пришедший в течение 3с после первого срабатывания — пропускаем
                                 console.log('[FINE-LOG] ⏭ Пропускаем дубль сообщения о штрафе (повтор < 3с)');
                             } else {
                                 lastFineTimerOpenAt = now;
-                                console.log('[FINE-LOG] 🚀 Открываем InformationTimer...');
-                                window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
-                                console.log('[FINE] InformationTimer запущен ✅');
+                                console.log('[FINE-LOG] 🚀 Показываем таймер-уведомление КД штрафа...');
+                                try {
+                                    const sn = window.interface && window.interface('ScreenNotification');
+                                    if (sn && typeof sn.addTimer === 'function') {
+                                        fineTimerSnId = sn.addTimer('[2, "ШТРАФ К/Д", "Повторная выдача будет доступна через", "f9b701", 300]');
+                                        console.log(`[FINE] ZKM-таймер запущен ✅ (id=${fineTimerSnId})`);
+                                    } else {
+                                        console.warn('[FINE] ZKM ScreenNotification.addTimer ещё не загружен — fallback на InformationTimer');
+                                        window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
+                                    }
+                                } catch (snErr) {
+                                    console.error('[FINE] Ошибка ZKM addTimer:', snErr);
+                                }
                             }
                         } else {
                             console.warn(`[FINE-LOG] ❌ Ник не совпал. ownNick="${ownNick}", message="${message.substring(0, 80)}"`);
@@ -2201,6 +2211,31 @@ window.sendChatInputCustom = e => {
             console.error('[TEST /testfine] Ошибка:', e);
         }
         // ==================== КОНЕЦ /testfine ====================
+    } else if (args[0] == "/checkblock") {
+        // ==================== ДИАГНОСТИКА: /checkblock — что блокирует blockedByFullScreen-интерфейсы ====================
+        // InformationTimer (и другие интерфейсы с options.blockedByFullScreen) движок ПРИНУДИТЕЛЬНО
+        // прячет (класс interface_hidden), пока открыт хоть один интерфейс без options.hud
+        // и без options.allowAnyInterfaces. openInterface при этом отрабатывает "успешно" —
+        // компонент маунтится и тикает в фоне, просто визуально скрыт.
+        try {
+            const opened = (window.App && window.App.openedComponents) || {};
+            const openedNames = Object.keys(opened);
+            const blockers = openedNames.filter(k => {
+                const o = opened[k] || {};
+                return o.show && o.options && !o.options.hud && !o.options.allowAnyInterfaces;
+            });
+            console.log('[CHECKBLOCK] 📋 Сейчас открыты интерфейсы:', JSON.stringify(openedNames));
+            if (blockers.length) {
+                console.log('[CHECKBLOCK] 🚫 Блокируют blockedByFullScreen (нет hud/allowAnyInterfaces):', JSON.stringify(blockers));
+            } else {
+                console.log('[CHECKBLOCK] ✅ Блокирующих интерфейсов не найдено — InformationTimer не должен прятаться');
+            }
+            const it = window.App && window.App.components && window.App.components['InformationTimer'];
+            console.log('[CHECKBLOCK] InformationTimer.open.status =', it && it.open ? it.open.status : 'не найден в реестре');
+        } catch (e) {
+            console.error('[CHECKBLOCK] Ошибка:', e);
+        }
+        // ==================== КОНЕЦ /checkblock ====================
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
     }
