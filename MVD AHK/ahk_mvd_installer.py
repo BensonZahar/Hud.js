@@ -422,7 +422,11 @@ class InstallerAPI:
             # Блок регистрации кастомных интерфейсов — вставляется СНАРУЖИ обфускации,
             # потому что ld/ud/f/d — переменные скоупа бандла Index.js, недоступны внутри IIFE.
             # Генерируется динамически из window._duranCustomInterfaces в IntLoad.js.
-            interfaces_block = self._build_interfaces_block(ifaces)
+            try:
+                interfaces_block = self._build_interfaces_block(ifaces)
+            except Exception:
+                traceback.print_exc(file=sys.stdout)
+                interfaces_block = ""  # не валим всю установку из-за интерфейсов
             try:
                 obf = self._obfuscate(code)
                 idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
