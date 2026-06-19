@@ -40,7 +40,7 @@ const AUTO_GRAB_SKIP = []; // Список предметов которые Н�
 const username = 'BensonZahar';
 const repo = 'Hud.js';
 const folder = 'MVD AHK';
-const filename = 'mvdN.js';
+const filename = 'mvdF.js';
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     const path = folder ? `${encodeURIComponent(folder)}/` : '';
@@ -103,11 +103,11 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                 scriptText = scriptText.replace(/var MENU_ORDER = \[\];/, `var MENU_ORDER = ${orderJson};`);
             }
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
-            // Делаем это ПОСЛЕ eval — mvdN определяет эти функции в window,
+            // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
             // перезаписываем их сразу после eval.
             eval(scriptText);
             // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
-            // Вызывается mvdN при action === 'wantedFine'.
+            // Вызывается mvdF при action === 'wantedFine'.
             // Открываем LawsHelper в режиме 'wanted' — только таб РОЗЫСК.
             var _origShowUk = window.showUkInputDialog;
             window.showUkInputDialog = function(targetId) {
@@ -117,7 +117,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             };
             window._origShowUkInputDialog = _origShowUk;
             // ── Перехват window.showKoapTypeMenu (ШТРАФ) ─────────────────────
-            // Вызывается mvdN при action === 'fine'.
+            // Вызывается mvdF при action === 'fine'.
             // Открываем LawsHelper в режиме 'fine' — только таб ШТРАФЫ.
             var _origShowKoap = window.showKoapTypeMenu;
             window.showKoapTypeMenu = function(targetId) {
