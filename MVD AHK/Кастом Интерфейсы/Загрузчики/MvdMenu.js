@@ -1,118 +1,91 @@
-// Автогенерируется инсталлятором — реальный код MvdMenu.js правится на GitHub
-// (XHR + eval, без fetch/import — для окружений без fetch)
+// ══════════════════════════════════════════════════════════════════
+//  MvdMenu.js  —  ЗАГРУЗЧИК (устанавливается один раз, не трогается)
+//
+//  Принцип работы (как LoadAhk.js, но для ES-модуля):
+//
+//  1. Импортируем из ./index.js ровно те же имена, что использует
+//     реальный MvdMenu.js на GitHub (openBlock, createElementBlock …)
+//  2. Грузим реальный файл с GitHub через XMLHttpRequest
+//  3. Вырезаем строку import{…}from"./index.js" —
+//     эти имена уже есть в скоупе текущего модуля
+//  4. Заменяем export{MvdMenu as default} на window.__mvdComp = MvdMenu
+//  5. eval() — код выполняется в скоупе модуля, все имена доступны
+//  6. Экспортируем window.__mvdComp как default
+//
+//  IntLoad.js / установщик / index.js — не трогать.
+//  Тип остаётся "interface", имя "MvdMenu" — без изменений.
+// ══════════════════════════════════════════════════════════════════
 
-const GITHUB_USER = "BensonZahar";
-const GITHUB_REPO = "Hud.js";
-const FOLDER = "MVD AHK/Кастом Интерфейсы";
-const JS_FILE = "MvdMenu.js";
-const EXPORT_NAME = "MvdMenu";
-const CSS_FILE = null;
+// Импортируем точно те же имена, что использует GitHub-версия MvdMenu.js.
+// После strip'а import-строки они окажутся в скоупе eval().
+import{
+    r as resolveComponent,
+    o as openBlock,
+    c as createElementBlock,
+    a as createBaseVNode,
+    F as Fragment,
+    h as renderList,
+    n as normalizeClass,
+    t as toDisplayString,
+    f as createCommentVNode,
+    _ as _export_sfc
+}from"./index.js";
 
-function buildUrl(filename) {
-    const path = FOLDER ? `${encodeURIComponent(FOLDER).replace(/%2F/g, "/")}/` : "";
-    return `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/${path}${filename}?t=${Date.now()}`;
-}
+// ── XHR-загрузчик (без fetch, с ретраями как в LoadAhk.js) ──────
+// Оригинал лежит в MVD AHK/Кастом Интерфейсы/ (encodeURIComponent
+// сам корректно закодирует кириллицу и пробел в имени папки).
+const _GH_URL  = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
+                + encodeURIComponent('Кастом Интерфейсы') + '/MvdMenu.js';
+const _RETRIES = 5;
+const _DELAY   = 2000;
 
-function xhrGet(url, retries = 5) {
-    return new Promise((resolve, reject) => {
-        const attempt = (n) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("GET", url, true);
-            xhr.onload = () => {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    resolve(xhr.responseText);
-                } else {
-                    console.error(`HTTP error! status: ${xhr.status} для ${url}`);
-                    if (n > 0) setTimeout(() => attempt(n - 1), 2000);
-                    else reject(new Error(`Не удалось загрузить ${url} после всех попыток (status ${xhr.status})`));
-                }
-            };
-            xhr.onerror = () => {
-                console.error(`Ошибка сети при загрузке ${url}`);
-                if (n > 0) setTimeout(() => attempt(n - 1), 2000);
-                else reject(new Error(`Не удалось загрузить ${url} после всех попыток (сетевая ошибка)`));
-            };
-            xhr.send();
+function _xhrGet(url, attempt) {
+    return new Promise(function(resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', url + '?_=' + Date.now(), true);
+        xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve(xhr.responseText);
+            } else {
+                var err = new Error('HTTP ' + xhr.status);
+                if (attempt < _RETRIES) {
+                    console.warn('[MvdMenu loader] Ошибка, повтор ' + (attempt+1) + ':', err);
+                    setTimeout(function() { _xhrGet(url, attempt + 1).then(resolve, reject); }, _DELAY);
+                } else { reject(err); }
+            }
         };
-        attempt(retries);
+        xhr.onerror = function() {
+            var err = new Error('Network error');
+            if (attempt < _RETRIES) {
+                console.warn('[MvdMenu loader] Сеть, повтор ' + (attempt+1));
+                setTimeout(function() { _xhrGet(url, attempt + 1).then(resolve, reject); }, _DELAY);
+            } else { reject(err); }
+        };
+        xhr.send();
     });
 }
 
-function loadCss() {
-    if (!CSS_FILE) return Promise.resolve();
-    const styleId = EXPORT_NAME.toLowerCase() + "-remote-style";
-    return xhrGet(buildUrl(CSS_FILE)).then(cssText => {
-        const existing = document.getElementById(styleId);
-        if (existing) existing.remove();
-        const style = document.createElement("style");
-        style.id = styleId;
-        style.textContent = cssText;
-        document.head.appendChild(style);
-    }).catch(e => console.error(`Не удалось загрузить ${CSS_FILE} с GitHub:`, e));
-}
+// ── Загружаем, патчим, eval() ────────────────────────────────────
+// top-level await: игра ждёт пока модуль вычислится, т.е. пока
+// реальный компонент прилетит с GitHub. Никакой заглушки.
+let _text = await _xhrGet(_GH_URL, 0);
 
-let _helpersPromise = null;
-function getVueHelpers() {
-    // Достаём хелперы рендера прямо из текущего бандла через динамический import().
-    // Это языковая конструкция (не fetch), поэтому работает даже там, где fetch недоступен.
-    if (!_helpersPromise) {
-        _helpersPromise = import(/* @vite-ignore */ new URL("./index.js", import.meta.url).href);
-    }
-    return _helpersPromise;
-}
+// 1. Убираем import-строку — нужные имена уже в скоупе этого модуля
+_text = _text.replace(/^import\{[^}]+\}from["'][^"']+["'];?\n?/m, '');
 
-function loadJs(retries = 5) {
-    return xhrGet(buildUrl(JS_FILE), retries).then(code => {
-        // Исходный файл — ES-модуль:
-        //   import{r as resolveComponent, ...}from"./index.js";
-        //   ...
-        //   export{EXPORT_NAME as default};
-        // eval не умеет import/export, поэтому:
-        // 1) хелперы достаём через getVueHelpers() (динамический import() того же index.js)
-        // 2) убираем строку import(...) из текста кода
-        // 3) заменяем export{EXPORT_NAME as default} на window[globalKey] = EXPORT_NAME
+// 2. Заменяем export{MvdMenu as default} → window.__mvdComp = MvdMenu
+_text = _text.replace(/^export\{([^}]+)\}[;\s]*$/m, function(_, exp) {
+    var localName = exp.split(' as ')[0].trim(); // "MvdMenu"
+    return 'window.__mvdComp = ' + localName + ';';
+});
 
-        const importMatch = code.match(/^import\{([^}]+)\}from["'][^"']+["'];?/);
-        if (!importMatch) {
-            throw new Error("Не найден import-блок в начале файла " + JS_FILE + " — формат файла изменился");
-        }
+// 3. eval в скоупе модуля: openBlock, createElementBlock и т.д. — все
+//    видны из import-а выше, _export_sfc тоже, всё работает
+eval(_text);
 
-        const destructure = importMatch[1]
-            .split(",")
-            .map(pair => {
-                const [orig, , alias] = pair.trim().split(/\s+/);
-                return alias ? `${orig}:${alias}` : orig;
-            })
-            .join(",");
+// ── Экспортируем реальный компонент ─────────────────────────────
+const MvdMenu = window.__mvdComp;
+delete window.__mvdComp;
+console.log('[MvdMenu loader] Загружен с GitHub:', MvdMenu?.name);
 
-        code = code.slice(importMatch[0].length);
-
-        const exportRe = new RegExp("export\\{" + EXPORT_NAME + " as default\\};?\\s*$");
-        if (!exportRe.test(code)) {
-            throw new Error("Не найден export{" + EXPORT_NAME + " as default} в конце файла " + JS_FILE);
-        }
-        const globalKey = "__" + EXPORT_NAME + "_Module__";
-        const helpersKey = "__" + EXPORT_NAME + "_VueHelpers__";
-        code = code.replace(exportRe, `window.${globalKey} = ${EXPORT_NAME};`);
-
-        const wrapped =
-            `(function(helpers){ const {${destructure}} = helpers;\n${code}\n})(window.${helpersKey});`;
-
-        return getVueHelpers().then(helpers => {
-            window[helpersKey] = helpers;
-            eval(wrapped);
-
-            const mod = window[globalKey];
-            window[globalKey] = undefined;
-            window[helpersKey] = undefined;
-
-            if (!mod) throw new Error(EXPORT_NAME + " не определился после eval");
-
-            console.log(EXPORT_NAME + " загружен с GitHub успешно");
-            return mod;
-        });
-    });
-}
-
-const [__mod] = await Promise.all([loadJs(), loadCss()]);
-export default __mod;
+export { MvdMenu as default };
