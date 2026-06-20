@@ -1753,22 +1753,26 @@ window.showGiveLicenseDialog = (e) => {
 };
 window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
-    currentMenu = "povsednev";
-    currentPage = 0;
-    // Передаём targetId и стартовый экран компоненту через глобальные переменные
-    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
+    currentMenu   = 'povsednev';
+    currentPage   = 0;
+    window._mvdMenuTargetId    = (e !== undefined && e !== null) ? e : null;
     window._mvdMenuStartScreen = 'povsednev';
-    window.openInterface('MvdMenu');
+    if (typeof window._mvdShowMenu === 'function') {
+        window._mvdShowMenu(e, 'povsednev');
+    }
+    // Если MvdMenu_dom.js ещё грузится — LoadAhk перехватит вызов
 };
 
 // Открыть главное меню МВД (экран "main") — для общего хоткея MENU_KEY
 window.showMvdMainMenuPage = (e) => {
     giveLicenseTo = e;
-    currentMenu = "main";
-    currentPage = 0;
-    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
+    currentMenu   = 'main';
+    currentPage   = 0;
+    window._mvdMenuTargetId    = (e !== undefined && e !== null) ? e : null;
     window._mvdMenuStartScreen = 'main';
-    window.openInterface('MvdMenu');
+    if (typeof window._mvdShowMenu === 'function') {
+        window._mvdShowMenu(e, 'main');
+    }
 };
 
 // Публичный API для MvdMenu — выполнить действие Повседневной напрямую
