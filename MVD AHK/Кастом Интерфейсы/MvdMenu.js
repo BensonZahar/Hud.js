@@ -10,7 +10,7 @@ const GRAFFITI_SVG=`<svg width="400" height="400" viewBox="0 0 400 400" xmlns="h
 
 // ─── Пункты меню Повседневная ─────────────────────────────────────────────────
 const POVSEDNEV_OPTIONS=[
-    {action:"greeting",      label:"Приветствиее",              needsId:true},
+    {action:"greeting",      label:"Приветствие",              needsId:true},
     {action:"checkDocuments",label:"Проверка документов",      needsId:false},
     {action:"studyDocuments",label:"Изучение документов",      needsId:false},
     {action:"scanningTablet",label:"Сканирование",             needsId:false},
