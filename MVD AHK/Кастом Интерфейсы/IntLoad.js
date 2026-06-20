@@ -44,8 +44,6 @@
 
     window._duranCustomInterfaces = [
         { name: "Zkm",     files: ["zkm.js", "zkm.css"], hideHud: false, hideChat: false, type: "interface" },
-        // MvdMenu — vanilla DOM, грузится в LoadAhk.js как MvdMenu_dom.js (XHR + eval).
-        // Не регистрировать здесь — иначе движок захватит openInterface('MvdMenu') глобально.
         { name: "ZkmScreenNotification", files: ["ZkmScreenNotification.js", "ZkmScreenNotification.css"], type: "sideEffect" },
     ];
 
