@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.199 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2829,3 +2829,93 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     console.log('[АВТО-ТАЗЕР] v16 готов');
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
+// ==================== ПРОГРЕВ ИНВЕНТАРЯ (v1) ====================
+;(function() {
+    // --- Шаг 1: modulepreload ---
+    // Находим базовый URL по уже загруженным ссылкам (Hud добавил их при старте)
+    (function addModulePreloads() {
+        function getBase() {
+            for (const link of document.querySelectorAll('link[rel="modulepreload"]')) {
+                const h = link.href || '';
+                // dom.js точно есть у Hud.js в зависимостях
+                if (h.endsWith('/dom.js') || h.endsWith('/Hud.js')) {
+                    return h.substring(0, h.lastIndexOf('/') + 1);
+                }
+            }
+            return null;
+        }
+        const base = getBase();
+        if (!base) { console.log('[INV-WARM] base URL не найден, пропуск modulepreload'); return; }
+
+        // Файлы уникальные для Inventory (остальные уже загружены Hud'ом)
+        const unique = [
+            'Inventory.js', 'DragAndDropMixin.js', 'drag_and_drop.js',
+            'inventory2.js', 'mouse.js', 'DragAndDropMixin.css'
+        ];
+        unique.forEach(f => {
+            if (document.querySelector(`link[href$="${f}"]`)) return; // уже есть
+            const link = document.createElement('link');
+            link.rel  = 'modulepreload';
+            link.as   = 'script';
+            link.href = base + f;
+            document.head.appendChild(link);
+        });
+        console.log('[INV-WARM] modulepreload добавлен для', unique.length, 'файлов');
+    })();
+
+    // --- Шаг 2: тихий прогрев Vue-компонента ---
+    // Запускаем через 8с — к этому моменту игрок обычно уже заспаунен
+    setTimeout(function doWarmup() {
+        try {
+            if (!window.App?.components?.InventoryNew) {
+                console.log('[INV-WARM] App не готов, откладываем на 3с');
+                setTimeout(doWarmup, 3000);
+                return;
+            }
+            if (window.getInterfaceStatus('InventoryNew')) {
+                console.log('[INV-WARM] инвентарь уже открыт, пропуск');
+                return;
+            }
+
+            const comp = window.App.components.InventoryNew;
+
+            // Подавляем звуки инвентаря
+            const origPlay = window.playSound;
+            window.playSound = function(s) {
+                if (typeof s === 'string' && s.includes('inventory')) return;
+                origPlay?.apply(this, arguments);
+            };
+
+            // Скрываем визуально (display:none через класс interface_hidden)
+            comp.show = false;
+
+            // Монтируем — Vue запустит import('./Inventory.js')
+            comp.open.status = true;
+
+            console.log('[INV-WARM] монтирование запущено...');
+
+            let waited = 0;
+            const checkMounted = setInterval(function() {
+                waited += 100;
+                const inv = window.App?.$refs?.InventoryNew;
+                if (inv || waited >= 12000) {
+                    clearInterval(checkMounted);
+                    // Закрываем
+                    comp.open.status = false;
+                    setTimeout(function() {
+                        comp.show = true;
+                        window.playSound = origPlay;
+                        if (inv) console.log('[INV-WARM] ✅ Inventory.js прогрет, первое открытие будет быстрым');
+                        else      console.log('[INV-WARM] ⚠️ таймаут прогрева (файл не загрузился за 12с)');
+                    }, 300);
+                }
+            }, 100);
+
+        } catch(e) {
+            console.warn('[INV-WARM] ошибка:', e);
+        }
+    }, 8000);
+
+    console.log('[INV-WARM] прогрев запланирован через 8с');
+})();
+// ==================== END ПРОГРЕВ ИНВЕНТАРЯ ====================
