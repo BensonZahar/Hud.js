@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.199999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2616,19 +2616,14 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             } catch(e) {}
             console.log(`[GRAB] freeInvSlots (до взятия):`, freeInvSlots);
             console.log(`[GRAB] freeBACKSlots (до взятия):`, freeBACKSlots);
-
-            const nothingNeeded = !Object.values(need).some(Boolean);
             closeInventory();
+            await sleep(150);
 
-            if (nothingNeeded) {
-                // Ничего брать не нужно — уведомляем сразу, без лишней паузы
-                // (150мс ниже нужны только перед тем как реально жать пункты меню).
+            if (!Object.values(need).some(Boolean)) {
                 notify("МВД", "Всё снаряжение есть ✓", "00FF00");
                 isProcessing = false;
                 return;
             }
-
-            await sleep(150);
 
             // ── Шаг 4: диалог открыт, сразу берём — НЕ переоткрываем меню ──
 
@@ -2643,6 +2638,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
             if (need.radarGun)    toTake.push({ name: "Тауметр",                                 idx: MENU.RADAR_GUN });
             if (need.diagnostics) toTake.push({ name: "Диагностика",                             idx: MENU.DIAGNOSTICS });
+            if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
+            if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
             if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
             if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
             if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
@@ -2650,51 +2647,14 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
             if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
             if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
-            // Дигл и тазер — в КОНЕЦ списка. Перекладывание дигла в рюкзак (ниже)
-            // запускается сразу после цикла take() — если их брать в середине,
-            // перекладывание ждёт ещё все оставшиеся патроны/броню и т.д., что и
-            // ощущалось как "не сразу". В конце списка — задержка минимальна.
-            if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
-            if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
 
             console.log(`[GRAB] toTake:`, toTake.map(t => `${t.name}(idx=${t.idx})`).join(', '));
 
-            // ── Авто-тазер: если включён и тазер не исключён из автоснаряжения —
-            //    перекладываем дигл в рюкзак (направленно, без тоггла туда-обратно).
-            //    window._mvdSwapEnabled выставляется в LoadAhk.js из константы SWAP_ENABLED.
-            const taserConfigured = !skip('taser');
-            const swapReady = taserConfigured && window._mvdSwapEnabled !== false && typeof window._mvdMoveDeagleToBackpack === 'function';
-
-            const GRAB_ITEM_DELAY = 600; // фиксированная задержка между предметами (мс) — было рандом 500–1200
-            let deagleSwapTriggered = false;
             for (let i = 0; i < toTake.length; i++) {
-                console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${GRAB_ITEM_DELAY}мс]`);
+                const delay = Math.floor(Math.random() * 700) + 500; // рандом 500–1200мс
+                console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${delay}мс]`);
                 take(toTake[i].idx);
-
-                // v2 FIX: раньше переброс дигла запускался ПОСЛЕ всего цикла (т.е. после
-                // тазера и финальной задержки) — и весь "долгий" этап (тоггл инвентаря +
-                // ожидание серверных countSlots, обычно 1-3 сек) шёл строго ПОСЛЕ того,
-                // как визуально всё уже взялось. Отсюда и заметная пауза «всё взялось...
-                // и только потом открылся инвентарь». Теперь запускаем переброс сразу,
-                // как только дигл реально взят — он идёт ПАРАЛЛЕЛЬНО с оставшимися
-                // предметами (тазер и т.д.), и большая часть задержки прячется за них.
-                if (swapReady && toTake[i].name === "Desert Eagle") {
-                    console.log('[MVD-GRAB] Автотазер: запускаю перекладывание дигла параллельно (не дожидаясь конца автоснаряжения)');
-                    window._mvdMoveDeagleToBackpack();
-                    deagleSwapTriggered = true;
-                }
-
-                await sleep(GRAB_ITEM_DELAY);
-            }
-
-            // Подстраховка: если дигл не брался в этом цикле (например, уже был у игрока,
-            // но лежал в INV, а не в рюкзаке) — перекладываем его здесь, как раньше.
-            // Если же ранний переброс уже был запущен выше — НЕ вызываем повторно: если
-            // он ещё выполняется, performMove() сам отбросит вызов (_busy), но если он уже
-            // успел завершиться и закрыть инвентарь, повторный вызов снова открыл бы и
-            // тут же закрыл его — лишнее мигание на экране.
-            if (swapReady && !deagleSwapTriggered) {
-                window._mvdMoveDeagleToBackpack();
+                await sleep(delay); // случайная задержка между предметами
             }
 
             const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
@@ -2723,7 +2683,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
 
-// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v17 — instant + reliable) ====================
+// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v15 — polling) ====================
 (function() {
     const ITEM_DEAGLE = 19;
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
@@ -2768,21 +2728,17 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     function tryGetItems() {
         try {
             const inv = window.interface('InventoryNew');
-            if (!inv) return null;
-            // БАГ 2 FIX: ждём пока сервер вызовет setContainers() — появится countSlots.
-            // До этого items ещё пустой дефолтный объект, дигл в нём не найдётся.
-            if (inv.containers?.[CT.INV]?.countSlots === undefined) return null;
-            const items = inv.items;
+            // items доступны только когда инвентарь открыт и Vue компонент смонтирован
+            const items = inv?.items;
             if (!items) return null;
+            // проверяем что хотя бы один контейнер есть
             if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
         } catch(e) {}
         return null;
     }
 
-    // mode: 'toggle'    — хоткей: меняет местами туда-обратно, куда бы дигл ни был
-    //       'toBackOnly' — авто после автоснаряжения: переложит ТОЛЬКО если дигл в INV,
-    //                      если уже в рюкзаке — не трогает (без пинг-понга при повторном вызове)
-    function performMove(mode) {
+    function swapTaserDeagle() {
+        // Проверка формы — авто-тазер работает только в МВД скине
         if (!mvdSkins.includes(skinId)) {
             console.log('[АВТО-ТАЗЕР] не МВД форма, пропуск');
             return;
@@ -2794,25 +2750,14 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         _busy = true;
         _busyTimer = setTimeout(() => {
             if (_busy) { _busy = false; console.log('[АВТО-ТАЗЕР] таймаут сброса'); }
-        }, 10000);
+        }, 5000);
 
-        // v17 FIX: раньше OnInventoryDisplayChange слался безусловно, как «открыть».
-        // Но это ТОГГЛ — если инвентарь уже был открыт (например, открыт автоснаряжением
-        // или вручную), этот вызов его ЗАКРЫВАЛ вместо открытия, и свап проваливался
-        // («не срабатывает с первого раза»). Теперь сначала проверяем готовность:
-        // если items уже доступны — тоггл не шлём и работаем сразу, без задержек.
-        const alreadyOpen = tryGetItems() !== null;
-        if (!alreadyOpen) {
-            console.log('[АВТО-ТАЗЕР] открываем инвентарь...');
-            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-        } else {
-            console.log('[АВТО-ТАЗЕР] инвентарь уже готов — работаем мгновенно');
-        }
+        console.log('[АВТО-ТАЗЕР] открываем инвентарь...');
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
 
-        // Опрос начинается немедленно (без фикс. паузы 300мс) — первая проверка
-        // через 50мс, и так до 6 секунд, если серверу нужно больше времени.
+        // Polling: ждём пока items появятся (инвентарь открылся)
         let attempts = 0;
-        const maxAttempts = 120; // 120 * 50ms = 6 секунд
+        const maxAttempts = 40; // 40 * 50ms = 2 секунды
         const poll = setInterval(() => {
             attempts++;
             const items = tryGetItems();
@@ -2821,52 +2766,33 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 if (attempts >= maxAttempts) {
                     clearInterval(poll);
                     console.log('[АВТО-ТАЗЕР] items не появились, отмена');
-                    if (!alreadyOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                     snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
                     clearBusy();
                 }
                 return;
             }
 
-            // v2 FIX: автоснаряжение теперь может вызвать performMove('toBackOnly')
-            // сразу после отправки take() на дигл, не дожидаясь подтверждения от
-            // сервера — это и убирает заметную паузу. Но из-за этого дигл может
-            // на первых опросах ещё не появиться в items (сервер не успел его
-            // обработать). Поэтому, как и для items, дальше переопрашиваем, а не
-            // сдаёмся сразу — итоговый таймаут общий (maxAttempts ~6 сек).
+            clearInterval(poll);
+            console.log(`[АВТО-ТАЗЕР] items получены (попытка ${attempts})`);
+
             const deagleLoc = findItem(items, ITEM_DEAGLE);
             if (!deagleLoc) {
-                if (attempts >= maxAttempts) {
-                    clearInterval(poll);
-                    console.log('[АВТО-ТАЗЕР] дигл не найден (таймаут)');
-                    if (!alreadyOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    // В автоматическом режиме (toBackOnly) отсутствие дигла — не ошибка
-                    // (например, дигл не входит в автоснаряжение), молча выходим без тоста.
-                    if (mode === 'toggle') snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
-                    clearBusy();
-                }
+                console.log('[АВТО-ТАЗЕР] дигл не найден');
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
+                clearBusy();
                 return;
             }
 
-            clearInterval(poll);
-            console.log(`[АВТО-ТАЗЕР] items+дигл получены (попытка ${attempts})`);
-
             let fromCid, toCid;
-            if (mode === 'toBackOnly') {
-                if (deagleLoc.cid !== CT.INV) {
-                    console.log('[АВТО-ТАЗЕР] дигл уже не в инвентаре — перекладывать не нужно');
-                    if (!alreadyOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    clearBusy();
-                    return;
-                }
-                fromCid = CT.INV; toCid = CT.BACK;
-            } else if (deagleLoc.cid === CT.INV) {
+            if (deagleLoc.cid === CT.INV) {
                 fromCid = CT.INV; toCid = CT.BACK;
             } else if (deagleLoc.cid === CT.BACK) {
                 fromCid = CT.BACK; toCid = CT.INV;
             } else {
                 console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
-                if (!alreadyOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 clearBusy();
                 return;
             }
@@ -2874,7 +2800,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             const toSlot = findFreeSlot(items, toCid);
             if (toSlot < 0) {
                 console.log('[АВТО-ТАЗЕР] нет свободного слота');
-                if (!alreadyOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
                 clearBusy();
                 return;
@@ -2885,8 +2811,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
                 fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
 
+            // Закрываем инвентарь через 150мс после хода
             setTimeout(() => {
-                if (!alreadyOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 snAdd(`[1, "АВТО-ТАЗЕР", "${direction}", "00CC44", 2000]`);
                 clearBusy();
             }, 150);
@@ -2894,8 +2821,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         }, 50);
     }
 
-    window._mvdSwapTaserDeagle = function() { performMove('toggle'); };
-    window._mvdMoveDeagleToBackpack = function() { performMove('toBackOnly'); };
-    console.log('[АВТО-ТАЗЕР] v17 готов');
+    window._mvdSwapTaserDeagle = swapTaserDeagle;
+    console.log('[АВТО-ТАЗЕР] v15 готов');
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
