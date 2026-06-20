@@ -7,31 +7,8 @@ AHK_URL       = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%2
 INTLOAD_URL   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
 CUSTOM_UI_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
 
-# Имена нативных интерфейсов движка — НИКОГДА не регистрировать кастомный
-# компонент под этими именами в ld/ud (полностью подменяет родной интерфейс
-# для всей игры, а не только для МВД). Если файлу из реестра IntLoad.js
-# нужно просто выполниться при старте (а не быть интерфейсом) — в IntLoad.js
-# у него должно стоять "type": "sideEffect", тогда он сюда даже не попадёт.
-NATIVE_INTERFACE_NAMES = {
-    "ScreenNotification", "Menu", "Hud", "Dialog", "InventoryNew",
-    "Console", "BattlePassWelcome", "BlackMarket", "FullScreenPreloader",
-}
-
 # Путь к иконке передаётся из launcher через exec namespace
 _ICON_PATH = globals().get("_ICON_PATH", "")
-
-def _log_to_file(msg: str):
-    """Пишет в %APPDATA%\\AHK_MVD\\install_log.txt — видно даже если установщик
-    собран без консоли (.exe) и print() никуда не выводится."""
-    try:
-        from datetime import datetime
-        appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
-        folder = Path(appdata) / 'AHK_MVD'
-        folder.mkdir(parents=True, exist_ok=True)
-        with open(folder / 'install_log.txt', 'a', encoding='utf-8') as f:
-            f.write(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] {msg}\n')
-    except Exception:
-        pass
 
 # Файл сохранённых настроек — в %APPDATA%\AHK_MVD\
 def _settings_path() -> Path:
@@ -224,7 +201,7 @@ class InstallerAPI:
         """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
         Единственный источник реестра — добавлять новые интерфейсы только в IntLoad.js.
         Возвращает [] если GitHub недоступен или реестр не найден."""
-        import re, json, traceback
+        import re, json
         try:
             print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
             resp = requests.get(INTLOAD_URL, timeout=15)
@@ -235,7 +212,6 @@ class InstallerAPI:
             m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
             if not m:
                 print('[Installer] _duranCustomInterfaces не найден в IntLoad.js')
-                _log_to_file('_fetch_custom_interfaces: _duranCustomInterfaces НЕ НАЙДЕН в тексте IntLoad.js')
                 return []
 
             start = m.start(1)
@@ -255,101 +231,23 @@ class InstallerAPI:
             raw = re.sub(r'([{,]\s*)([a-zA-Z_\$][a-zA-Z0-9_\$]*)\s*:', r'\1"\2":', raw)
             # json.loads понимает true/false/null нативно — замены не нужны
             result = json.loads(raw)
-            print(f'[Installer] Распарсено интерфейсов: '
-                  f'{[r["name"] + ":" + r.get("type", "interface") for r in result]}')
-            _log_to_file(f'_fetch_custom_interfaces OK: {[r["name"] + ":" + r.get("type", "interface") for r in result]}')
+            print(f'[Installer] Распарсено интерфейсов: {[r["name"] for r in result]}')
             return result
         except Exception as e:
             print(f'[Installer] Не удалось загрузить IntLoad.js: {e}')
-            _log_to_file(f'_fetch_custom_interfaces ИСКЛЮЧЕНИЕ: {e}\n{traceback.format_exc()}')
             return []
 
     @staticmethod
     def _build_interfaces_block(ifaces: list) -> str:
-        """Генерирует код вставки из реестра IntLoad.js.
-
-        type == "interface" (по умолчанию) → Object.assign(ld,...) / Object.assign(ud,...),
-            регистрирует компонент как настоящий интерфейс движка под именем "name".
-            Имена, совпадающие с нативными интерфейсами игры (NATIVE_INTERFACE_NAMES),
-            ПРОПУСКАЮТСЯ с предупреждением — регистрация под таким именем подменяет
-            родной интерфейс для всей игры, а не только для МВД.
-
-        type == "sideEffect" → голый d(()=>import(...), [...], import.meta.url);
-            без f()-обёртки и без записи в ld/ud — файл просто выполняется один раз
-            при старте (вешает себя на window.*), интерфейсов движка не касается.
-        """
+        """Генерирует Object.assign(ld,...) / Object.assign(ud,...) из реестра."""
         if not ifaces:
             return ""
-        # Литерал, а не модульный глобал NATIVE_INTERFACE_NAMES — exec() с раздельными
-        # globals/locals (как в launcher.py) не даёт функциям видеть top-level
-        # переменные модуля, из-за чего обращение к глобалу падало с NameError.
-        native_names = {
-            "ScreenNotification", "Menu", "Hud", "Dialog", "InventoryNew",
-            "Console", "BattlePassWelcome", "BlackMarket", "FullScreenPreloader",
-        }
-        ld_parts, ud_parts, side_effects = [], [], []
+        ld_parts, ud_parts = [], []
         for iface in ifaces:
             name      = iface["name"]
-            files     = iface.get("files", [])
-            itype     = iface.get("type", "interface")
-            js_file   = next((f for f in files if f.endswith(".js")), files[0] if files else "")
+            files     = iface["files"]
+            js_file   = next((f for f in files if f.endswith(".js")), files[0])
             files_js  = "[" + ",".join(f'"{f}"' for f in files) + "]"
-
-            if itype == "sideEffect":
-                side_effects.append(
-                    f'd(()=>import("./{js_file}"),{files_js},import.meta.url);'
-                )
-                print(f'[Installer] "{name}" -> side-effect импорт (без регистрации в ld/ud)')
-                continue
-
-            if itype == "remote":
-                # ud — синхронно, как у обычных интерфейсов
-                github_url = iface.get("githubUrl", f"{CUSTOM_UI_URL}/{js_file}")
-                hide_hud   = "!0" if iface.get("hideHud")  else "!1"
-                hide_chat  = "!0" if iface.get("hideChat") else "!1"
-                ud_parts.append(
-                    f'{name}:{{open:{{status:!1}},show:!0,options:{{hideHud:{hide_hud},hideChat:{hide_chat}}}}}'
-                )
-                # ld — СИНХРОННО через Promise-обёртку (_load).
-                # Object.assign(ld,...) вызывается сразу при загрузке Index.js,
-                # до любого openInterface. XHR идёт один раз, результат кэшируется.
-                pvar = f'_rmtP_{name}'
-                side_effects.append(
-                    f'var {pvar}=null;'
-                    f'(function(){{'
-                    f'function _load(){{'
-                    f'if({pvar})return {pvar};'
-                    f'{pvar}=new Promise(function(res,rej){{'
-                    f'var _x=new XMLHttpRequest();'
-                    f'_x.open("GET","{github_url}?_="+Date.now(),!0);'
-                    f'_x.onload=function(){{'
-                    f'if(_x.status<200||_x.status>=300){{rej(new Error("HTTP "+_x.status));return;}}'
-                    f'var _iu=(function(){{'
-                    f'var ss=document.querySelectorAll("script[src]");'
-                    f'for(var i=0;i<ss.length;i++){{if(ss[i].src.indexOf("index")!==-1)return ss[i].src;}}'
-                    f'return location.href.replace(/[^\\/]*$/,"")+"index.js";'
-                    f'}})();'
-                    f'var _c=_x.responseText.replace(/from"\\.\\/index\\.js"/g,\'from"\'+_iu+\'"\');'
-                    f'import(URL.createObjectURL(new Blob([_c]))).then(res).catch(rej);'
-                    f'}};'
-                    f'_x.onerror=function(){{rej(new Error("net"));}};'
-                    f'_x.send();'
-                    f'}});'
-                    f'return {pvar};'
-                    f'}}'
-                    f'Object.assign(ld,{{{name}:f(_load)}});'
-                    f'_load();'
-                    f'}})();'
-                )
-                print(f'[Installer] "{name}" -> remote (синхр. ld + Promise pre-fetch с GitHub)')
-                continue
-
-            if name in native_names:
-                print(f'[Installer] [!] Пропускаю "{name}" — совпадает с нативным интерфейсом игры '
-                      f'и подменит его для всей игры. Если файлу нужно просто выполниться, '
-                      f'поставь ему "type": "sideEffect" в IntLoad.js.')
-                continue
-
             hide_hud  = "!0" if iface.get("hideHud")  else "!1"
             hide_chat = "!0" if iface.get("hideChat") else "!1"
             ld_parts.append(
@@ -358,14 +256,10 @@ class InstallerAPI:
             ud_parts.append(
                 f'{name}:{{open:{{status:!1}},show:!0,options:{{hideHud:{hide_hud},hideChat:{hide_chat}}}}}'
             )
-
-        parts = []
-        if ld_parts:
-            parts.append(f'Object.assign(ld,{{{",".join(ld_parts)}}});')
-        if ud_parts:
-            parts.append(f'Object.assign(ud,{{{",".join(ud_parts)}}});')
-        parts.extend(side_effects)
-        return "".join(parts)
+        return (
+            f'Object.assign(ld,{{{",".join(ld_parts)}}});'
+            f'Object.assign(ud,{{{",".join(ud_parts)}}});'
+        )
 
     def _deploy_custom_ui_files(self, ifaces: list):
         """Скачивает файлы кастомных интерфейсов из GitHub и кладёт в assets/.
@@ -375,9 +269,7 @@ class InstallerAPI:
         assets_dir = self.radmir_path / "uiresources" / "assets"
         if not assets_dir.exists():
             return
-        all_files = [f for iface in ifaces
-                     if iface.get("type", "interface") != "remote"
-                     for f in iface.get("files", [])]
+        all_files = [f for iface in ifaces for f in iface.get("files", [])]
         for filename in all_files:
             url = f"{CUSTOM_UI_URL}/{filename}"
             try:
@@ -385,7 +277,7 @@ class InstallerAPI:
                 resp.raise_for_status()
                 dest = assets_dir / filename
                 dest.write_bytes(resp.content)
-                print(f'[Installer] Скопирован {filename} -> assets/')
+                print(f'[Installer] Скопирован {filename} → assets/')
             except Exception as e:
                 print(f'[Installer] Не удалось скачать {filename}: {e}')
 
@@ -489,13 +381,7 @@ class InstallerAPI:
             # Блок регистрации кастомных интерфейсов — вставляется СНАРУЖИ обфускации,
             # потому что ld/ud/f/d — переменные скоупа бандла Index.js, недоступны внутри IIFE.
             # Генерируется динамически из window._duranCustomInterfaces в IntLoad.js.
-            try:
-                interfaces_block = self._build_interfaces_block(ifaces)
-            except Exception:
-                traceback.print_exc(file=sys.stdout)
-                _log_to_file(f'_build_interfaces_block ИСКЛЮЧЕНИЕ (ifaces={ifaces}):\n{traceback.format_exc()}')
-                interfaces_block = ""  # не валим всю установку из-за интерфейсов
-            _log_to_file(f'interfaces_block длина={len(interfaces_block)}, ifaces было={len(ifaces)} шт.: {interfaces_block[:300]}')
+            interfaces_block = self._build_interfaces_block(ifaces)
             try:
                 obf = self._obfuscate(code)
                 idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
