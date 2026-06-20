@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2659,19 +2659,41 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
             console.log(`[GRAB] toTake:`, toTake.map(t => `${t.name}(idx=${t.idx})`).join(', '));
 
+            // ── Авто-тазер: если включён и тазер не исключён из автоснаряжения —
+            //    перекладываем дигл в рюкзак (направленно, без тоггла туда-обратно).
+            //    window._mvdSwapEnabled выставляется в LoadAhk.js из константы SWAP_ENABLED.
+            const taserConfigured = !skip('taser');
+            const swapReady = taserConfigured && window._mvdSwapEnabled !== false && typeof window._mvdMoveDeagleToBackpack === 'function';
+
             const GRAB_ITEM_DELAY = 600; // фиксированная задержка между предметами (мс) — было рандом 500–1200
+            let deagleSwapTriggered = false;
             for (let i = 0; i < toTake.length; i++) {
                 console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${GRAB_ITEM_DELAY}мс]`);
                 take(toTake[i].idx);
+
+                // v2 FIX: раньше переброс дигла запускался ПОСЛЕ всего цикла (т.е. после
+                // тазера и финальной задержки) — и весь "долгий" этап (тоггл инвентаря +
+                // ожидание серверных countSlots, обычно 1-3 сек) шёл строго ПОСЛЕ того,
+                // как визуально всё уже взялось. Отсюда и заметная пауза «всё взялось...
+                // и только потом открылся инвентарь». Теперь запускаем переброс сразу,
+                // как только дигл реально взят — он идёт ПАРАЛЛЕЛЬНО с оставшимися
+                // предметами (тазер и т.д.), и большая часть задержки прячется за них.
+                if (swapReady && toTake[i].name === "Desert Eagle") {
+                    console.log('[MVD-GRAB] Автотазер: запускаю перекладывание дигла параллельно (не дожидаясь конца автоснаряжения)');
+                    window._mvdMoveDeagleToBackpack();
+                    deagleSwapTriggered = true;
+                }
+
                 await sleep(GRAB_ITEM_DELAY);
             }
 
-            // ── Авто-тазер: если включён и тазер не исключён из автоснаряжения —
-            //    сразу перекладываем дигл в рюкзак (направленно, без тоггла туда-обратно).
-            //    window._mvdSwapEnabled выставляется в LoadAhk.js из константы SWAP_ENABLED.
-            const taserConfigured = !skip('taser');
-            if (taserConfigured && window._mvdSwapEnabled !== false && typeof window._mvdMoveDeagleToBackpack === 'function') {
-                console.log('[MVD-GRAB] Автотазер включён, тазер в автоснаряжении — перекладываю дигл в рюкзак');
+            // Подстраховка: если дигл не брался в этом цикле (например, уже был у игрока,
+            // но лежал в INV, а не в рюкзаке) — перекладываем его здесь, как раньше.
+            // Если же ранний переброс уже был запущен выше — НЕ вызываем повторно: если
+            // он ещё выполняется, performMove() сам отбросит вызов (_busy), но если он уже
+            // успел завершиться и закрыть инвентарь, повторный вызов снова открыл бы и
+            // тут же закрыл его — лишнее мигание на экране.
+            if (swapReady && !deagleSwapTriggered) {
                 window._mvdMoveDeagleToBackpack();
             }
 
@@ -2806,19 +2828,28 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 return;
             }
 
-            clearInterval(poll);
-            console.log(`[АВТО-ТАЗЕР] items получены (попытка ${attempts})`);
-
+            // v2 FIX: автоснаряжение теперь может вызвать performMove('toBackOnly')
+            // сразу после отправки take() на дигл, не дожидаясь подтверждения от
+            // сервера — это и убирает заметную паузу. Но из-за этого дигл может
+            // на первых опросах ещё не появиться в items (сервер не успел его
+            // обработать). Поэтому, как и для items, дальше переопрашиваем, а не
+            // сдаёмся сразу — итоговый таймаут общий (maxAttempts ~6 сек).
             const deagleLoc = findItem(items, ITEM_DEAGLE);
             if (!deagleLoc) {
-                console.log('[АВТО-ТАЗЕР] дигл не найден');
-                if (!alreadyOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                // В автоматическом режиме (toBackOnly) отсутствие дигла — не ошибка
-                // (например, дигл не входит в автоснаряжение), молча выходим без тоста.
-                if (mode === 'toggle') snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
-                clearBusy();
+                if (attempts >= maxAttempts) {
+                    clearInterval(poll);
+                    console.log('[АВТО-ТАЗЕР] дигл не найден (таймаут)');
+                    if (!alreadyOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                    // В автоматическом режиме (toBackOnly) отсутствие дигла — не ошибка
+                    // (например, дигл не входит в автоснаряжение), молча выходим без тоста.
+                    if (mode === 'toggle') snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
+                    clearBusy();
+                }
                 return;
             }
+
+            clearInterval(poll);
+            console.log(`[АВТО-ТАЗЕР] items+дигл получены (попытка ${attempts})`);
 
             let fromCid, toCid;
             if (mode === 'toBackOnly') {
