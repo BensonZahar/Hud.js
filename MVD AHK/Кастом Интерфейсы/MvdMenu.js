@@ -712,6 +712,10 @@ const _sfc_main={
             }
             if(typeof this._prevOnKeyUp==="function") this._prevOnKeyUp(e);
         };
+
+        // showInterface → setCursorStatus(true) → setDrawLabelStatus(false) скрыл метки;
+        // восстанавливаем явно, чтобы ники над игроками оставались видны
+        if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
     },
     unmounted(){
         window.onKeyUp=this._prevOnKeyUp;
