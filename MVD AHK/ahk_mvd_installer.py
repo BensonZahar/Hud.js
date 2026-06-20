@@ -303,35 +303,45 @@ class InstallerAPI:
                 continue
 
             if itype == "remote":
-                # Загружается с GitHub в рантайме — локальный файл не нужен.
-                # Код вставляется на файловом уровне Index.js, где ld/ud/f доступны.
+                # ud — синхронно, как у обычных интерфейсов
                 github_url = iface.get("githubUrl", f"{CUSTOM_UI_URL}/{js_file}")
                 hide_hud   = "!0" if iface.get("hideHud")  else "!1"
                 hide_chat  = "!0" if iface.get("hideChat") else "!1"
                 ud_parts.append(
                     f'{name}:{{open:{{status:!1}},show:!0,options:{{hideHud:{hide_hud},hideChat:{hide_chat}}}}}'
                 )
-                # XHR → патч from"./index.js" → Blob(1 арг) → import() → Object.assign(ld)
+                # ld — СИНХРОННО через Promise-обёртку (_load).
+                # Object.assign(ld,...) вызывается сразу при загрузке Index.js,
+                # до любого openInterface. XHR идёт один раз, результат кэшируется.
+                pvar = f'_rmtP_{name}'
                 side_effects.append(
+                    f'var {pvar}=null;'
                     f'(function(){{'
+                    f'function _load(){{'
+                    f'if({pvar})return {pvar};'
+                    f'{pvar}=new Promise(function(res,rej){{'
                     f'var _x=new XMLHttpRequest();'
                     f'_x.open("GET","{github_url}?_="+Date.now(),!0);'
                     f'_x.onload=function(){{'
-                    f'if(_x.status<200||_x.status>=300)return;'
+                    f'if(_x.status<200||_x.status>=300){{rej(new Error("HTTP "+_x.status));return;}}'
                     f'var _iu=(function(){{'
                     f'var ss=document.querySelectorAll("script[src]");'
                     f'for(var i=0;i<ss.length;i++){{if(ss[i].src.indexOf("index")!==-1)return ss[i].src;}}'
                     f'return location.href.replace(/[^\\/]*$/,"")+"index.js";'
                     f'}})();'
                     f'var _c=_x.responseText.replace(/from"\\.\\/index\\.js"/g,\'from"\'+_iu+\'"\');'
-                    f'var _b=new Blob([_c]);'
-                    f'var _u=URL.createObjectURL(_b);'
-                    f'Object.assign(ld,{{{name}:f(()=>import(_u))}});'
+                    f'import(URL.createObjectURL(new Blob([_c]))).then(res).catch(rej);'
                     f'}};'
+                    f'_x.onerror=function(){{rej(new Error("net"));}};'
                     f'_x.send();'
+                    f'}});'
+                    f'return {pvar};'
+                    f'}}'
+                    f'Object.assign(ld,{{{name}:f(_load)}});'
+                    f'_load();'
                     f'}})();'
                 )
-                print(f'[Installer] "{name}" -> remote (GitHub XHR + Blob + import, без локального файла)')
+                print(f'[Installer] "{name}" -> remote (синхр. ld + Promise pre-fetch с GitHub)')
                 continue
 
             if name in native_names:
