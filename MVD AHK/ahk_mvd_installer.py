@@ -290,9 +290,9 @@ class InstallerAPI:
         ld_parts, ud_parts, side_effects = [], [], []
         for iface in ifaces:
             name      = iface["name"]
-            files     = iface["files"]
+            files     = iface.get("files", [])
             itype     = iface.get("type", "interface")
-            js_file   = next((f for f in files if f.endswith(".js")), files[0])
+            js_file   = next((f for f in files if f.endswith(".js")), files[0] if files else "")
             files_js  = "[" + ",".join(f'"{f}"' for f in files) + "]"
 
             if itype == "sideEffect":
@@ -300,6 +300,38 @@ class InstallerAPI:
                     f'd(()=>import("./{js_file}"),{files_js},import.meta.url);'
                 )
                 print(f'[Installer] "{name}" -> side-effect импорт (без регистрации в ld/ud)')
+                continue
+
+            if itype == "remote":
+                # Загружается с GitHub в рантайме — локальный файл не нужен.
+                # Код вставляется на файловом уровне Index.js, где ld/ud/f доступны.
+                github_url = iface.get("githubUrl", f"{CUSTOM_UI_URL}/{js_file}")
+                hide_hud   = "!0" if iface.get("hideHud")  else "!1"
+                hide_chat  = "!0" if iface.get("hideChat") else "!1"
+                ud_parts.append(
+                    f'{name}:{{open:{{status:!1}},show:!0,options:{{hideHud:{hide_hud},hideChat:{hide_chat}}}}}'
+                )
+                # XHR → патч from"./index.js" → Blob(1 арг) → import() → Object.assign(ld)
+                side_effects.append(
+                    f'(function(){{'
+                    f'var _x=new XMLHttpRequest();'
+                    f'_x.open("GET","{github_url}?_="+Date.now(),!0);'
+                    f'_x.onload=function(){{'
+                    f'if(_x.status<200||_x.status>=300)return;'
+                    f'var _iu=(function(){{'
+                    f'var ss=document.querySelectorAll("script[src]");'
+                    f'for(var i=0;i<ss.length;i++){{if(ss[i].src.indexOf("index")!==-1)return ss[i].src;}}'
+                    f'return location.href.replace(/[^\\/]*$/,"")+"index.js";'
+                    f'}})();'
+                    f'var _c=_x.responseText.replace(/from"\\.\\/index\\.js"/g,\'from"\'+_iu+\'"\');'
+                    f'var _b=new Blob([_c]);'
+                    f'var _u=URL.createObjectURL(_b);'
+                    f'Object.assign(ld,{{{name}:f(()=>import(_u))}});'
+                    f'}};'
+                    f'_x.send();'
+                    f'}})();'
+                )
+                print(f'[Installer] "{name}" -> remote (GitHub XHR + Blob + import, без локального файла)')
                 continue
 
             if name in native_names:
@@ -333,7 +365,9 @@ class InstallerAPI:
         assets_dir = self.radmir_path / "uiresources" / "assets"
         if not assets_dir.exists():
             return
-        all_files = [f for iface in ifaces for f in iface.get("files", [])]
+        all_files = [f for iface in ifaces
+                     if iface.get("type", "interface") != "remote"
+                     for f in iface.get("files", [])]
         for filename in all_files:
             url = f"{CUSTOM_UI_URL}/{filename}"
             try:
