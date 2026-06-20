@@ -8,7 +8,7 @@ INTLOAD_URL   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%2
 CUSTOM_UI_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
 
 # Имена нативных интерфейсов движка — НИКОГДА не регистрировать кастомный
-# компонент под этими именами в ld/ud (полностью подменяет родной интерфейс
+# компонент под этими именами в dd/fd (полностью подменяет родной интерфейс
 # для всей игры, а не только для МВД). Если файлу из реестра IntLoad.js
 # нужно просто выполниться при старте (а не быть интерфейсом) — в IntLoad.js
 # у него должно стоять "type": "sideEffect", тогда он сюда даже не попадёт.
@@ -268,14 +268,14 @@ class InstallerAPI:
     def _build_interfaces_block(ifaces: list) -> str:
         """Генерирует код вставки из реестра IntLoad.js.
 
-        type == "interface" (по умолчанию) → Object.assign(ld,...) / Object.assign(ud,...),
+        type == "interface" (по умолчанию) → Object.assign(dd,...) / Object.assign(fd,...),
             регистрирует компонент как настоящий интерфейс движка под именем "name".
             Имена, совпадающие с нативными интерфейсами игры (NATIVE_INTERFACE_NAMES),
             ПРОПУСКАЮТСЯ с предупреждением — регистрация под таким именем подменяет
             родной интерфейс для всей игры, а не только для МВД.
 
         type == "sideEffect" → голый d(()=>import(...), [...], import.meta.url);
-            без f()-обёртки и без записи в ld/ud — файл просто выполняется один раз
+            без f()-обёртки и без записи в dd/fd — файл просто выполняется один раз
             при старте (вешает себя на window.*), интерфейсов движка не касается.
         """
         if not ifaces:
@@ -287,7 +287,7 @@ class InstallerAPI:
             "ScreenNotification", "Menu", "Hud", "Dialog", "InventoryNew",
             "Console", "BattlePassWelcome", "BlackMarket", "FullScreenPreloader",
         }
-        ld_parts, ud_parts, side_effects = [], [], []
+        dd_parts, fd_parts, side_effects = [], [], []
         for iface in ifaces:
             name      = iface["name"]
             files     = iface["files"]
@@ -299,7 +299,7 @@ class InstallerAPI:
                 side_effects.append(
                     f'd(()=>import("./{js_file}"),{files_js},import.meta.url);'
                 )
-                print(f'[Installer] "{name}" -> side-effect импорт (без регистрации в ld/ud)')
+                print(f'[Installer] "{name}" -> side-effect импорт (без регистрации в dd/fd)')
                 continue
 
             if name in native_names:
@@ -310,18 +310,18 @@ class InstallerAPI:
 
             hide_hud  = "!0" if iface.get("hideHud")  else "!1"
             hide_chat = "!0" if iface.get("hideChat") else "!1"
-            ld_parts.append(
+            dd_parts.append(
                 f'{name}:f(()=>d(()=>import("./{js_file}"),{files_js},import.meta.url))'
             )
-            ud_parts.append(
+            fd_parts.append(
                 f'{name}:{{open:{{status:!1}},show:!0,options:{{hideHud:{hide_hud},hideChat:{hide_chat}}}}}'
             )
 
         parts = []
-        if ld_parts:
-            parts.append(f'Object.assign(ld,{{{",".join(ld_parts)}}});')
-        if ud_parts:
-            parts.append(f'Object.assign(ud,{{{",".join(ud_parts)}}});')
+        if dd_parts:
+            parts.append(f'Object.assign(dd,{{{",".join(dd_parts)}}});')
+        if fd_parts:
+            parts.append(f'Object.assign(fd,{{{",".join(fd_parts)}}});')
         parts.extend(side_effects)
         return "".join(parts)
 
@@ -443,7 +443,7 @@ class InstallerAPI:
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
             # Блок регистрации кастомных интерфейсов — вставляется СНАРУЖИ обфускации,
-            # потому что ld/ud/f/d — переменные скоупа бандла Index.js, недоступны внутри IIFE.
+            # потому что dd/fd/f/d — переменные скоупа бандла Index.js, недоступны внутри IIFE.
             # Генерируется динамически из window._duranCustomInterfaces в IntLoad.js.
             try:
                 interfaces_block = self._build_interfaces_block(ifaces)
