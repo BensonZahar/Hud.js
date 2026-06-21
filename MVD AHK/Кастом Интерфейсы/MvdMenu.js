@@ -1,8 +1,8 @@
-import{r as resolveComponent,o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,h as renderList,n as normalizeClass,t as toDisplayString,f as createCommentVNode,_ as _export_sfc}from"./index.js";
+import{r as resolveComponent,o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,h as renderList,n as normalizeClass,t as toDisplayString,f as createCommentVNode,g as createBlock,b as createVNode,_ as _export_sfc}from"./index.js";
+import{C as ControlsContaineredButton}from"./ContaineredButton.js";
 
 // ─── SVG иконки ───────────────────────────────────────────────────────────────
 const SVG_SEARCH=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5.5" cy="5.5" r="4" stroke="rgba(244,241,225,0.4)" stroke-width="1.5"/><line x1="8.5" y1="8.5" x2="13" y2="13" stroke="rgba(244,241,225,0.4)" stroke-width="1.5" stroke-linecap="round"/></svg>`;
-const SVG_BACK=`<svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M8 2L4 6L8 10" stroke="rgba(244,241,225,0.5)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const SVG_ARROW=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2L7 5L3 8" stroke="rgba(244,241,225,0.3)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 // GraffitiPattern
@@ -46,6 +46,7 @@ const ACTION_TAGS={
 
 // ─── render ───────────────────────────────────────────────────────────────────
 function render(_ctx,_cache,$props,$setup,$data,$options){
+    const _component_ControlsContaineredButton=resolveComponent("ControlsContaineredButton");
     return (openBlock(), createElementBlock("div",{class:"mvdmenu iface-container"},[
 
         // Overlay
@@ -60,12 +61,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             // ── Header ───────────────────────────────────────────────────────
             createBaseVNode("div",{class:"mvdmenu__header"},[
                 createBaseVNode("div",{class:"mvdmenu__header-left"},[
-                    // Кнопка назад (на главном экране закрывает меню)
-                    createBaseVNode("div",{
-                        class:"mvdmenu__back-btn",
-                        innerHTML:SVG_BACK,
-                        onClick:$options.goBack
-                    }),
                     createBaseVNode("div",{class:"mvdmenu__title"},[
                         createBaseVNode("span",{class:"mvdmenu__title-main"},"МВД"),
                         createBaseVNode("span",{class:"mvdmenu__title-sub"},
@@ -191,12 +186,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                 onKeydown:$options.onIdInputKeydown,
                             },null,40,["value","onInput","onKeydown"])
                         ]),
-                        createBaseVNode("div",{class:"mvdmenu__id-action-row"},[
-                            createBaseVNode("div",{
-                                class:"mvdmenu__id-confirm-btn",
-                                onClick:$options.confirmIdInput
-                            },"ПОДТВЕРДИТЬ"),
-                        ])
                     ])
                   ],64))
                 : createCommentVNode("",true),
@@ -236,6 +225,24 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                   ],64))
                 : createCommentVNode("",true),
 
+            // ── Footer: Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
+            createBaseVNode("div",{class:"mvdmenu__footer"},[
+                (openBlock(),createBlock(_component_ControlsContaineredButton,{
+                    key:0,
+                    containerText:$options.footerConfirmText,
+                    text:"Enter",
+                    keyCode:$data.KEY_CODE_ENTER,
+                    disabled:$options.footerConfirmDisabled,
+                    onPressed:$options.footerConfirm
+                },null,8,["containerText","keyCode","disabled","onPressed"])),
+                (openBlock(),createBlock(_component_ControlsContaineredButton,{
+                    key:1,
+                    containerText:$options.footerBackText,
+                    keyCode:$data.KEY_CODE_ESC,
+                    onPressed:$options.goBack
+                },null,8,["containerText","keyCode","onPressed"]))
+            ]),
+
         ])
     ]));
 }
@@ -243,12 +250,15 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 // ─── Компонент ────────────────────────────────────────────────────────────────
 const _sfc_main={
     name:"MvdMenu",
+    components:{ControlsContaineredButton},
     data(){
         return{
             // screen: "main" | "povsednev" | "partner" | "id-input"
             screen:"main",
             search:"",
             targetId:null,
+            KEY_CODE_ESC:window.KEY_CODE_ESC,
+            KEY_CODE_ENTER:window.KEY_CODE_ENTER,
             // ── Навигация по списку стрелочками/Enter ──
             selectedIndex:0,
             // ── Реактивные флаги тоглов главного меню (читаем из window сразу) ──
@@ -346,6 +356,19 @@ const _sfc_main={
             if(this.screen==="partner")   return this.partnerMenuItems;
             return [];
         },
+        // ── Футер (Enter/ESC), как в нижней панели Window.js ──────────────────
+        footerConfirmText(){
+            return this.screen==="id-input" ? "Подтвердить" : "Выбрать";
+        },
+        footerBackText(){
+            if(this.screen==="main")     return "Закрыть";
+            if(this.screen==="id-input") return "Отмена";
+            return "Назад";
+        },
+        footerConfirmDisabled(){
+            if(this.screen==="id-input") return false;
+            return this.currentListItems.length===0;
+        },
     },
     watch:{
         // Сбрасываем выделение при смене экрана или фильтрации поиском —
@@ -389,6 +412,12 @@ const _sfc_main={
             if(this.screen==="main") this.selectMain(item);
             else if(this.screen==="povsednev") this.selectOption(item);
             else if(this.screen==="partner" && typeof this[item.onClick]==="function") this[item.onClick]();
+        },
+        // ── Кнопка футера Enter: ведёт на confirmIdInput на экране ввода ID,
+        // на остальных экранах — на confirmSelected ──────────────────────────
+        footerConfirm(){
+            if(this.screen==="id-input") this.confirmIdInput();
+            else this.confirmSelected();
         },
         globalIndex(opt){
             return this.visibleOptions.indexOf(opt);
@@ -609,9 +638,6 @@ const _sfc_main={
 /* Header */
 .mvdmenu__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
 .mvdmenu__header-left{align-items:center;display:flex;gap:0.74vh;}
-.mvdmenu__back-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;height:2.59vh;justify-content:center;transition:all 0.15s ease;width:2.59vh;flex-shrink:0;}
-@media (platform:pc){.mvdmenu__back-btn:hover{background:#ffffff1a;}}
-.mvdmenu__back-btn svg{height:1.2vh;width:1.2vh;}
 .mvdmenu__title{align-items:baseline;display:flex;font-weight:700;gap:0.37vh;}
 .mvdmenu__title-main{color:#f4f1e1;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;letter-spacing:0.1vh;text-transform:uppercase;}
 .mvdmenu__title-sub{color:#f9b701;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;letter-spacing:0.1vh;text-transform:uppercase;}
@@ -664,9 +690,11 @@ const _sfc_main={
 .mvdmenu__id-input-field:focus{border-color:rgba(249,183,1,0.5);}
 .mvdmenu__id-input-field::placeholder{color:#f4f1e144;font-weight:400;}
 .mvdmenu__id-input-field::-webkit-inner-spin-button,.mvdmenu__id-input-field::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
-.mvdmenu__id-action-row{display:flex;gap:0.74vh;}
-.mvdmenu__id-confirm-btn{background:rgba(249,183,1,0.12);border:0.19vh solid rgba(249,183,1,0.25);border-radius:0.37vh;color:rgba(249,183,1,0.9);cursor:pointer;flex:1 1 auto;font-size:1.48vh;font-weight:700;letter-spacing:0.08vh;padding:1.3vh 0;text-align:center;transition:all 0.15s ease;}
-@media (platform:pc){.mvdmenu__id-confirm-btn:hover{background:rgba(249,183,1,0.22);border-color:rgba(249,183,1,0.55);color:#f9b701;}}
+
+/* Footer (Подтвердить/Назад — как window__buttons в Window.js) */
+.mvdmenu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.mvdmenu__footer .controls-button__container{margin-right:1.48vh;}
+.mvdmenu__footer .controls-button__container:last-child{margin-right:0;}
         `;
         document.head.appendChild(s);
 
@@ -687,41 +715,9 @@ const _sfc_main={
         this._syncToggleState();
         this._syncPartnerState();
 
-        // ESC handler
-        this._prevOnKeyUp=window.onKeyUp;
-        window.onKeyUp=(e)=>{
-            if(e===window.KEY_CODE_ESC){
-                if(this.screen==="id-input"){
-                    this.cancelIdInput();
-                } else if(this.screen==="povsednev"){
-                    this.goBack();
-                } else if(this.screen==="partner"){
-                    this.goBack();
-                } else {
-                    this.close();
-                }
-                return;
-            }
-            // Подтверждение выбора по Enter. Навигация стрелками вынесена в отдельный
-            // keydown-хендлер ниже (см. _onArrowKeyDown) — как в нативном window-list
-            // из Window.js, чтобы работал системный автоповтор при зажатой стрелке.
-            if(this.screen==="main"||this.screen==="povsednev"||this.screen==="partner"){
-                if(e===window.KEY_CODE_ENTER){
-                    this.confirmSelected();
-                    return;
-                }
-            }
-            // Подтверждение ввода ID по Enter
-            // (нативный keydown на самом инпуте в этом клиенте не всегда долетает,
-            // поэтому ловим Enter здесь же, как и для остальных экранов)
-            if(this.screen==="id-input"){
-                if(e===window.KEY_CODE_ENTER){
-                    this.confirmIdInput();
-                    return;
-                }
-            }
-            if(typeof this._prevOnKeyUp==="function") this._prevOnKeyUp(e);
-        };
+        // ESC/Enter теперь обрабатываются самими кнопками футера (ControlsContaineredButton
+        // слушает document keydown/keyup по своему keyCode так же, как в нативных Window/Modal),
+        // поэтому отдельный глобальный window.onKeyUp хук для этого больше не нужен.
 
         // Навигация по списку стрелками — на keydown (как window-list в Window.js:
         // document.addEventListener("keydown",this.keyEvent)), а не на keyup.
@@ -745,7 +741,6 @@ const _sfc_main={
         if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
     },
     unmounted(){
-        window.onKeyUp=this._prevOnKeyUp;
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
         const s=document.getElementById("mvdmenu-style");
         if(s)s.remove();
