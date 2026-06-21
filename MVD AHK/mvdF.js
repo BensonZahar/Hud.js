@@ -492,7 +492,11 @@ window.addEventListener('keydown', function(e) {
             var _isOmonSkin = skinId === 15340;
             var _needsIdForThis = _opt.needsId && !(_action === 'greeting' && _isOmonSkin);
             if (_needsIdForThis) {
-                setTimeout(function(){ showIdInputDialog(giveLicenseTo || -1); }, 50);
+                // FIX: открываем кастомный экран ввода ID внутри MvdMenu (а не нативный
+                // диалог 668), чтобы хоткей вёл себя так же, как обычный клик по пункту меню.
+                window._mvdMenuTargetId = (giveLicenseTo !== undefined && giveLicenseTo !== null && giveLicenseTo !== -1) ? giveLicenseTo : null;
+                window._mvdMenuDirectAction = _action;
+                setTimeout(function(){ window.openInterface('MvdMenu'); }, 50);
             } else if (_action === 'fine') {
                 setTimeout(function(){ showKoapTypeMenu(giveLicenseTo || -1); }, 50);
             } else if (_action === 'wantedFine') {
