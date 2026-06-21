@@ -360,10 +360,26 @@ const _sfc_main={
             if(!items.length) return;
             const len=items.length;
             this.selectedIndex=((this.selectedIndex+delta)%len+len)%len;
-            this.$nextTick(()=>{
-                const sel=this.$el.querySelector(".mvdmenu__item_selected");
-                if(sel) sel.scrollIntoView({block:"nearest"});
-            });
+            this.$nextTick(()=>this._scrollSelectedIntoView());
+        },
+        // Скроллим список к выделенному пункту так же, как нативный window-list в Window.js —
+        // считаем нужный scrollTop по индексу/высоте пункта и выставляем напрямую,
+        // а не полагаемся на scrollIntoView (он не всегда поспевает, когда стрелка зажата
+        // и пункты меняются быстро один за другим — список оставался прокрученным наверх,
+        // хотя выделение уже было внизу за пределами видимой области).
+        _scrollSelectedIntoView(){
+            const list=this.$el.querySelector(".mvdmenu__list");
+            if(!list) return;
+            const sel=list.querySelector(".mvdmenu__item_selected");
+            if(!sel) return;
+            const itemHeight=sel.offsetHeight;
+            if(!itemHeight) return;
+            const buffer=2; // сколько пунктов держим "запасом" перед выделенным, как в Window.js
+            const maxScroll=Math.max(list.scrollHeight-list.clientHeight,0);
+            let target=itemHeight*(this.selectedIndex-buffer);
+            if(target<0) target=0;
+            if(target>maxScroll) target=maxScroll;
+            list.scrollTop=target;
         },
         confirmSelected(){
             const items=this.currentListItems;
@@ -686,16 +702,10 @@ const _sfc_main={
                 }
                 return;
             }
-            // Навигация по списку стрелочками + подтверждение по Enter
+            // Подтверждение выбора по Enter. Навигация стрелками вынесена в отдельный
+            // keydown-хендлер ниже (см. _onArrowKeyDown) — как в нативном window-list
+            // из Window.js, чтобы работал системный автоповтор при зажатой стрелке.
             if(this.screen==="main"||this.screen==="povsednev"||this.screen==="partner"){
-                if(e===window.KEY_CODE_ARROW_TOP){
-                    this.moveSelection(-1);
-                    return;
-                }
-                if(e===window.KEY_CODE_ARROW_BOTTOM){
-                    this.moveSelection(1);
-                    return;
-                }
                 if(e===window.KEY_CODE_ENTER){
                     this.confirmSelected();
                     return;
@@ -713,12 +723,30 @@ const _sfc_main={
             if(typeof this._prevOnKeyUp==="function") this._prevOnKeyUp(e);
         };
 
+        // Навигация по списку стрелками — на keydown (как window-list в Window.js:
+        // document.addEventListener("keydown",this.keyEvent)), а не на keyup.
+        // keyup срабатывает только один раз в момент отпускания клавиши, поэтому
+        // зажатие стрелки никак не двигало список. keydown подхватывает системный
+        // автоповтор браузера — зажал стрелку и список листается сам, как в нативных окнах.
+        this._onArrowKeyDown=(e)=>{
+            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner") return;
+            if(e.keyCode===window.KEY_CODE_ARROW_TOP){
+                e.preventDefault();
+                this.moveSelection(-1);
+            } else if(e.keyCode===window.KEY_CODE_ARROW_BOTTOM){
+                e.preventDefault();
+                this.moveSelection(1);
+            }
+        };
+        document.addEventListener("keydown",this._onArrowKeyDown,false);
+
         // showInterface → setCursorStatus(true) → setDrawLabelStatus(false) скрыл метки;
         // восстанавливаем явно, чтобы ники над игроками оставались видны
         if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
     },
     unmounted(){
         window.onKeyUp=this._prevOnKeyUp;
+        document.removeEventListener("keydown",this._onArrowKeyDown,false);
         const s=document.getElementById("mvdmenu-style");
         if(s)s.remove();
     }
