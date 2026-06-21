@@ -516,6 +516,9 @@ class InstallerAPI:
     def close_app(self):
         if self._window: self._window.destroy()
 
+    def minimize_app(self):
+        if self._window: self._window.minimize()
+
     def open_url(self, url):
         import webbrowser
         webbrowser.open(url)
