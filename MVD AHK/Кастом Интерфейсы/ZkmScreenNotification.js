@@ -236,54 +236,6 @@
             removeTimer(id);
         },
 
-        /* Сбрасывает обратный отсчёт уже существующего таймер-уведомления на
-           новое количество секунд — БЕЗ пересоздания DOM-элемента, поэтому
-           нет анимации leave/enter ("мигания"), только обновляются цифры и
-           прогресс-бар. Удобно для периодических таймеров (например, КД
-           команды раз в N секунд), где элемент должен оставаться на месте.
-           Возвращает true при успехе, false если таймера с таким id нет. */
-        resetTimer: function (id, seconds) {
-            var item = timerQueue.get(id);
-            if (!item) return false;
-            try {
-                clearInterval(item.iv);
-                var secs = Math.max(1, Number(seconds) || 60);
-                var remaining = secs;
-
-                var timeEl = item.el.querySelector('.zkm-sn__timer-time');
-                var fillEl = item.el.querySelector('.zkm-sn__timer-bar-fill');
-
-                function fmt(s) {
-                    if (typeof window.getTimeFormatSeconds === 'function') {
-                        return window.getTimeFormatSeconds(s, true);
-                    }
-                    var m  = Math.floor(s / 60);
-                    var ss = s % 60;
-                    return (m > 0 ? String(m) + ':' : '') +
-                           (ss < 10 ? '0' : '') + ss;
-                }
-
-                if (timeEl) timeEl.textContent = fmt(remaining);
-                if (fillEl) fillEl.style.width = '100%';
-
-                item.iv = setInterval(function () {
-                    remaining--;
-                    if (timeEl) timeEl.textContent = fmt(remaining);
-                    if (fillEl) fillEl.style.width =
-                        Math.max(0, (remaining / secs) * 100) + '%';
-                    if (remaining <= 0) {
-                        clearInterval(item.iv);
-                        removeTimer(id);
-                    }
-                }, 1000);
-
-                return true;
-            } catch (e) {
-                console.error('[ZKM-SN] resetTimer:', e);
-                return false;
-            }
-        },
-
         /* Убрать все таймер-уведомления */
         hideAllTimers: function () {
             Array.from(timerQueue.keys()).forEach(removeTimer);
@@ -303,6 +255,6 @@
        глобальный объект window.ZkmScreenNotification.
     ─────────────────────────────────────────────────────────────── */
     window.ZkmScreenNotification = ZkmSN;
-    console.log('[ZKM-SN] v4.2 готов (изолированный namespace, + resetTimer без мигания)');
+    console.log('[ZKM-SN] v4.1 готов (изолированный namespace, родной ScreenNotification не тронут)');
 
 })();
