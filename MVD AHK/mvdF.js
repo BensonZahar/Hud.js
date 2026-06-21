@@ -746,8 +746,9 @@ const setupChatHandler = () => {
                     // Останавливаем всё сразу (интервалы, флаги) — но БЕЗ hideAll
                     // чтобы серое уведомление успело показаться и догореть само
                     if (scanInterval)    { clearInterval(scanInterval);    scanInterval    = null; }
-                    if (setmarkInterval) { clearInterval(setmarkInterval); setmarkInterval = null; }
+                    if (setmarkInterval) { clearTimeout(setmarkInterval);  setmarkInterval = null; } // setTimeout-цепочка
                     if (pgInterval)      { clearInterval(pgInterval);      pgInterval      = null; }
+                    _cdTimerActive = false;
                     trackingNotificationOpen = false;
                     chaseNotificationOpen    = false;
                     currentScanId            = null;
@@ -781,6 +782,8 @@ const setupChatHandler = () => {
                 if (cdMatch) {
                     const waitSec = parseInt(cdMatch[1]);
                     console.log(`[TRACKING] ⏳ КД /setmark: ${waitSec} сек`);
+                    // Блокируем восстановление красного таймера пока идёт жёлтый КД
+                    _cdTimerActive = true;
                     // Прячем таймер обычного отслеживания и показываем жёлтый
                     // таймер-уведомление с реальным обратным отсчётом КД
                     hideTrackingTimer();
@@ -798,22 +801,21 @@ const setupChatHandler = () => {
                     }, 100);
                     // Приостанавливаем setmarkInterval на время КД чтобы не спамить
                     if (setmarkInterval) {
-                        clearInterval(setmarkInterval);
+                        clearTimeout(setmarkInterval); // setTimeout-цепочка → clearTimeout
                         setmarkInterval = null;
                         console.log('[TRACKING] setmarkInterval приостановлен на время КД');
                     }
                     // Через waitSec секунд повторяем /setmark, прячем КД-таймер
                     // и возвращаем обычный таймер отслеживания (31с)
                     setTimeout(() => {
+                        _cdTimerActive = false; // разрешаем восстановление красного таймера
                         clearSetmarkCdTimer();
                         if (currentScanId) {
                             console.log(`[TRACKING] 🔄 Повтор /setmark после КД (${waitSec}с)`);
                             sendSetmarkCommand(currentScanId);
-                            // Возобновляем интервал /setmark каждые 31с
+                            // Возобновляем цепочку /setmark
                             if (!setmarkInterval) {
-                                setmarkInterval = setInterval(() => {
-                                    if (currentScanId) sendSetmarkCommand(currentScanId);
-                                }, 31000);
+                                scheduleSetmark();
                             }
                         }
                     }, waitSec * 1000);
@@ -988,6 +990,7 @@ const SETMARK_INTERVAL_SEC = 31;
 let trackingTimerId   = null;  // id addTimer() для "Идет отслеживание/Начата погоня"
 let setmarkCdTimerId  = null;  // id addTimer() для жёлтого КД /setmark
 let lastSetmarkSentAt = 0;     // Date.now() последней реальной отправки /setmark
+let _cdTimerActive    = false; // true пока активен жёлтый КД-таймер — блокирует восстановление красного таймера
 
 const getSetmarkRemainingSec = () => {
     if (!lastSetmarkSentAt) return SETMARK_INTERVAL_SEC;
@@ -1015,14 +1018,19 @@ const clearSetmarkCdTimer = () => {
 const showTrackingTimer = () => {
     if (!currentScanId) return;
     if (!(trackingNotificationOpen || chaseNotificationOpen)) return;
+    if (_cdTimerActive) return; // жёлтый КД-таймер активен — не перекрываем его
 
     hideTrackingTimer();
 
-    const label   = trackingNickname ? `${trackingNickname}<br>ID: ${currentScanId}` : `ID: ${currentScanId}`;
+    // Без <br>: одна строка с ником и ID + суффикс "через" чтобы
+    // ZkmScreenNotification выводил "Nickname [ID] — метка через MM:SS"
+    const label   = trackingNickname
+        ? `${trackingNickname} [${currentScanId}] — метка через`
+        : `[${currentScanId}] — метка через`;
     const isChase = chaseNotificationOpen;
     const title   = isChase ? 'Начата погоня' : 'Идет отслеживание';
     const accent  = isChase ? '0000FF' : 'FF0000';
-    const secs    = Math.max(1, getSetmarkRemainingSec());
+    const secs    = Math.max(2, getSetmarkRemainingSec());
 
     try {
         trackingTimerId = getZkmSN()?.addTimer(`[1, "${title}", "${label}", "${accent}", ${secs}]`);
@@ -1058,6 +1066,9 @@ const openTrackingNotification = (id) => {
     trackingNotificationOpen = true;
     chaseNotificationOpen = false;
     if (!lastSetmarkSentAt) lastSetmarkSentAt = Date.now();
+    // Скрываем любые временные уведомления (например "Напарник: отслеживает")
+    // чтобы они не перекрывали таймер-уведомление отслеживания
+    try { getZkmSN()?.hideAll(); } catch(e) {}
     showTrackingTimer();
     console.log('[TRACKING] Таймер-уведомление открыто (красное)');
 };
@@ -1066,6 +1077,7 @@ const openChaseNotification = (id) => {
     trackingNotificationOpen = false;
     chaseNotificationOpen = true;
     if (!lastSetmarkSentAt) lastSetmarkSentAt = Date.now();
+    try { getZkmSN()?.hideAll(); } catch(e) {}
     showTrackingTimer();
     console.log('[CHASE] Таймер-уведомление открыто (синее)');
 };
@@ -1096,20 +1108,33 @@ const sendSetmarkCommand = (id) => {
     }
 };
 
+// scheduleSetmark: цепочка setTimeout вместо setInterval.
+// Каждый следующий /setmark запускается ровно через SETMARK_INTERVAL_SEC секунд
+// ПОСЛЕ предыдущего — таймер-уведомление обновляется строго синхронно
+// с истечением его обратного отсчёта, визуального мигания нет.
+const scheduleSetmark = () => {
+    setmarkInterval = setTimeout(() => {
+        if (!currentScanId) return;
+        sendSetmarkCommand(currentScanId);
+        scheduleSetmark(); // следующий через 31с
+    }, SETMARK_INTERVAL_SEC * 1000);
+};
+
 const startTracking = (id) => {
-    // Очищаем старые интервалы
+    // Очищаем старые таймеры
     if (scanInterval) {
         clearInterval(scanInterval);
         scanInterval = null;
     }
     if (setmarkInterval) {
-        clearInterval(setmarkInterval);
+        clearTimeout(setmarkInterval); // setTimeout-цепочка → clearTimeout
         setmarkInterval = null;
     }
     if (pgInterval) {
         clearInterval(pgInterval);
         pgInterval = null;
     }
+    _cdTimerActive = false; // сброс флага КД при перезапуске отслеживания
  
     currentScanId = id;
     trackingName = `Отслеживание | {00FF00}ID: ${id}`;
@@ -1139,9 +1164,12 @@ const startTracking = (id) => {
     // ==================== КОНЕЦ СООБЩЕНИЯ НАПАРНИКУ ====================
  
     // Начальные команды (без /id — уже отправлен выше)
-    // /setmark идёт через sendSetmarkCommand, чтобы зафиксировать время отправки
+    // /setmark идёт через sendSetmarkCommand, чтобы зафиксировать время отправки.
+    // После отправки сразу запускаем цепочку scheduleSetmark — она сработает ровно
+    // через 31с, когда таймер-уведомление дойдёт до нуля → мигания не будет.
     setTimeout(() => {
         sendSetmarkCommand(currentScanId);
+        scheduleSetmark(); // следующий /setmark ровно через 31с (синхронно с таймером)
         setTimeout(() => {
             sendChatInput(`/pg ${currentScanId}`);
         }, 1000);
@@ -1154,29 +1182,22 @@ const startTracking = (id) => {
         }
     }, 2000);
  
-    // Интервал /setmark каждые 31 секунду — на каждый реальный тик таймер-уведомление
-    // пересоздаётся с полными 31с (см. sendSetmarkCommand)
-    setmarkInterval = setInterval(() => {
-        if (currentScanId) {
-            sendSetmarkCommand(currentScanId);
-        }
-    }, 31000);
- 
 };
 const stopTracking = () => {
-    // Очищаем все интервалы
+    // Очищаем все таймеры
     if (scanInterval) {
         clearInterval(scanInterval);
         scanInterval = null;
     }
     if (setmarkInterval) {
-        clearInterval(setmarkInterval);
+        clearTimeout(setmarkInterval); // setTimeout-цепочка → clearTimeout
         setmarkInterval = null;
     }
     if (pgInterval) {
         clearInterval(pgInterval);
         pgInterval = null;
     }
+    _cdTimerActive = false; // сброс флага КД
  
     // Закрываем все уведомления (включая таймер-уведомление и КД-таймер)
     closeTrackingNotifications();
