@@ -711,6 +711,34 @@ const _sfc_main={
         }
         window._mvdMenuStartScreen=null;
 
+        // Прямой вызов конкретного действия «Повседневной» (хоткей из MENU_BINDS) —
+        // сразу показываем свой экран ввода ID (или выполняем действие, если ID уже
+        // известен), минуя нативный диалог 668.
+        const _directAction=window._mvdMenuDirectAction;
+        window._mvdMenuDirectAction=null;
+        if(_directAction){
+            const _opt=POVSEDNEV_OPTIONS.find(o=>o.action===_directAction);
+            if(_opt){
+                if(this.targetId!==null&&this.targetId!==-1){
+                    const id=this.targetId;
+                    this.close();
+                    setTimeout(()=>{
+                        window._mvdMenuPendingAction=_opt.action;
+                        if(typeof window._mvdExecuteAction==="function")
+                            window._mvdExecuteAction(_opt.action,id);
+                    },80);
+                } else {
+                    this.idInputLabel="Введите ID игрока";
+                    this.idInputValue="";
+                    this.idInputContext="action";
+                    this._idPrevScreen="povsednev";
+                    this._pendingOpt=_opt;
+                    this.screen="id-input";
+                    this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
+                }
+            }
+        }
+
         // Синхронизируем состояние напарника при монтировании
         this._syncToggleState();
         this._syncPartnerState();
