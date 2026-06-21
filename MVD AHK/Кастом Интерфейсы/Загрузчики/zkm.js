@@ -6,10 +6,9 @@
 //  1. Импортируем из ./index.js ровно те же имена, что использует
 //     реальный zkm.js на GitHub (LawsHelper — Розыск/Штрафы/Законы)
 //  2. Параллельно грузим с GitHub реальный zkm.js И реальный zkm.css
+//     JS — обязателен (падение = throw). CSS — опционален (падение игнорируется).
 //  3. CSS — инжектим как <style id="zkm-style-remote"> в head
-//     (реальный zkm.js и сам инжектит свои стили в mounted(), но
-//     тянем css отдельно тоже — на случай если self-inject когда-то
-//     перестанет покрывать всё)
+//     (один раз за сессию, повторной вставки нет)
 //  4. JS  — вырезаем строку import{…}from"./index.js" (эти имена
 //     уже есть в скоупе текущего модуля), заменяем
 //     export{Zkm as default} на window.__zkmComp = Zkm, eval()
@@ -39,16 +38,14 @@ import{
 }from"./index.js";
 
 // ── Пути к оригиналам на GitHub ──────────────────────────────────
-// Оригиналы лежат в MVD AHK/Кастом Интерфейсы/ (encodeURIComponent
-// сам корректно закодирует кириллицу и пробел в имени папки).
 const _GH_BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
                 + encodeURIComponent('Кастом Интерфейсы') + '/';
 const _GH_JS   = _GH_BASE + 'zkm.js';
 const _GH_CSS  = _GH_BASE + 'zkm.css';
-const _RETRIES = 5;
-const _DELAY   = 2000;
+const _RETRIES = 8;
+const _BASE_DELAY = 1000; // экспоненциальный backoff: 1s, 2s, 4s, 8s...
 
-// ── XHR-загрузчик (без fetch, с ретраями как в LoadAhk.js) ──────
+// ── XHR-загрузчик с экспоненциальным backoff ─────────────────────
 function _xhrGet(url, attempt) {
     return new Promise(function(resolve, reject) {
         var xhr = new XMLHttpRequest();
@@ -59,38 +56,53 @@ function _xhrGet(url, attempt) {
             } else {
                 var err = new Error('HTTP ' + xhr.status);
                 if (attempt < _RETRIES) {
-                    console.warn('[Zkm loader] Ошибка ' + url + ', повтор ' + (attempt+1) + ':', err);
-                    setTimeout(function() { _xhrGet(url, attempt + 1).then(resolve, reject); }, _DELAY);
+                    var delay = Math.min(_BASE_DELAY * Math.pow(2, attempt), 16000);
+                    console.warn('[Zkm loader] HTTP ' + xhr.status + ' на ' + url + ', повтор ' + (attempt+1) + ' через ' + delay + 'мс');
+                    setTimeout(function() { _xhrGet(url, attempt + 1).then(resolve, reject); }, delay);
                 } else { reject(err); }
             }
         };
         xhr.onerror = function() {
             var err = new Error('Network error');
             if (attempt < _RETRIES) {
-                console.warn('[Zkm loader] Сеть ' + url + ', повтор ' + (attempt+1));
-                setTimeout(function() { _xhrGet(url, attempt + 1).then(resolve, reject); }, _DELAY);
+                var delay = Math.min(_BASE_DELAY * Math.pow(2, attempt), 16000);
+                console.warn('[Zkm loader] Сеть ' + url + ', повтор ' + (attempt+1) + ' через ' + delay + 'мс');
+                setTimeout(function() { _xhrGet(url, attempt + 1).then(resolve, reject); }, delay);
             } else { reject(err); }
         };
         xhr.send();
     });
 }
 
-// ── Грузим JS и CSS параллельно ──────────────────────────────────
-// top-level await: игра ждёт пока модуль вычислится, т.е. пока
-// реальный компонент прилетит с GitHub. Никакой заглушки.
-const [_jsText0, _cssText] = await Promise.all([
+// ── Грузим JS (критично) и CSS (опционально) параллельно ─────────
+// Promise.allSettled — падение CSS не убивает загрузку компонента.
+// top-level await: игра ждёт пока модуль вычислится.
+const [_jsResult, _cssResult] = await Promise.allSettled([
     _xhrGet(_GH_JS, 0),
     _xhrGet(_GH_CSS, 0)
 ]);
-let _text = _jsText0;
 
-// ── CSS: инжектим как <style> (один раз — модуль выполняется один
-//    раз за сессию, повторных вставок при переоткрытии интерфейса
-//    не будет) ──────────────────────────────────────────────────
-const _style = document.createElement('style');
-_style.id = 'zkm-style-remote';
-_style.textContent = _cssText;
-document.head.appendChild(_style);
+// JS обязателен — без него нечего eval'ить
+if (_jsResult.status === 'rejected') {
+    console.error('[Zkm loader] КРИТИЧНО: JS не загружен после ' + _RETRIES + ' попыток:', _jsResult.reason);
+    throw _jsResult.reason;
+}
+
+let _text = _jsResult.value;
+
+// CSS необязателен — без него просто не будет кастомных стилей
+if (_cssResult.status === 'rejected') {
+    console.warn('[Zkm loader] CSS не загружен (меню откроется без стилей):', _cssResult.reason);
+}
+const _cssText = _cssResult.status === 'fulfilled' ? _cssResult.value : null;
+
+// ── CSS: инжектим один раз за сессию ─────────────────────────────
+if (_cssText && !document.getElementById('zkm-style-remote')) {
+    var _style = document.createElement('style');
+    _style.id = 'zkm-style-remote';
+    _style.textContent = _cssText;
+    document.head.appendChild(_style);
+}
 
 // ── JS: патчим, eval() ───────────────────────────────────────────
 // 1. Убираем import-строку — нужные имена уже в скоупе этого модуля
