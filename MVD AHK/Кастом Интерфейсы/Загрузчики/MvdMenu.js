@@ -28,8 +28,13 @@ import{
     n as normalizeClass,
     t as toDisplayString,
     f as createCommentVNode,
+    g as createBlock,
+    b as createVNode,
     _ as _export_sfc
 }from"./index.js";
+// Нужен футеру (ESC/Enter снизу, как в Window.js) — реальный MvdMenu.js
+// теперь импортирует и использует этот компонент напрямую.
+import{C as ControlsContaineredButton}from"./ContaineredButton.js";
 
 // ── XHR-загрузчик (без fetch, с ретраями как в LoadAhk.js) ──────
 // Оригинал лежит в MVD AHK/Кастом Интерфейсы/ (encodeURIComponent
@@ -70,8 +75,10 @@ function _xhrGet(url, attempt) {
 // реальный компонент прилетит с GitHub. Никакой заглушки.
 let _text = await _xhrGet(_GH_URL, 0);
 
-// 1. Убираем import-строку — нужные имена уже в скоупе этого модуля
-_text = _text.replace(/^import\{[^}]+\}from["'][^"']+["'];?\n?/m, '');
+// 1. Убираем import-строки — нужные имена уже в скоупе этого модуля.
+//    Флаг g обязателен: реальный файл может импортировать из нескольких
+//    модулей (./index.js, ./ContaineredButton.js и т.д.), а не только из index.js.
+_text = _text.replace(/^import\{[^}]+\}from["'][^"']+["'];?\n?/gm, '');
 
 // 2. Заменяем export{MvdMenu as default} → window.__mvdComp = MvdMenu
 _text = _text.replace(/^export\{([^}]+)\}[;\s]*$/m, function(_, exp) {
