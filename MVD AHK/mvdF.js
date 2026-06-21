@@ -376,7 +376,6 @@ let chaseNotificationOpen = false;
 let trackingNickname = null;
 let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
 let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
-let setmarkTimerId = null;   // id ZKM-таймера обратного отсчёта до следующего /setmark (или до конца К/Д)
 let currentScanId = null;
 let autoCuffEnabled = false;
 let currentKoapType = null;
@@ -723,17 +722,10 @@ const setupChatHandler = () => {
                     if (stopMatch) {
                         const suspectId = stopMatch[1];
                         console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] закончил отслеживание ID: ${suspectId}`);
-                        // ВАЖНО: сначала останавливаем своё отслеживание (если оно было за тем же
-                        // ID), и только потом показываем тост. Раньше было наоборот — snAdd()
-                        // успевал запланировать restoreTrackingNotification() (т.к.
-                        // trackingNotificationOpen был ещё true в момент вызова), и его отложенный
-                        // повторный show красного "Идет отслеживание" срабатывал ПОСЛЕ
-                        // stopTracking(), из-за чего уже закрытое уведомление снова появлялось.
-                        const wasTrackingSameId = String(currentScanId) === String(suspectId);
-                        if (wasTrackingSameId) {
+                        snAdd(`[1, "Напарник", "${partnerNick}: закончил отслеживание ${suspectId}", "FF4444", 3000]`);
+                        if (currentScanId === suspectId || currentScanId === String(suspectId)) {
                             stopTracking();
                         }
-                        snAdd(`[1, "Напарник", "${partnerNick}: закончил отслеживание ${suspectId}", "FF4444", 3000]`, wasTrackingSameId);
                     }
                 }
             }
@@ -756,13 +748,13 @@ const setupChatHandler = () => {
                     if (scanInterval)    { clearInterval(scanInterval);    scanInterval    = null; }
                     if (setmarkInterval) { clearInterval(setmarkInterval); setmarkInterval = null; }
                     if (pgInterval)      { clearInterval(pgInterval);      pgInterval      = null; }
-                    clearSetmarkTimer();
                     trackingNotificationOpen = false;
                     chaseNotificationOpen    = false;
                     currentScanId            = null;
                     trackingNickname         = null;
                     trackingName             = `Отслеживание | {FF0000}Выкл`;
                     isInActiveChase          = false;
+                    lastSetmarkSentAt        = 0;
 
                     // Показываем серое уведомление синхронно — без setTimeout,
                     // чтобы никакой другой snAdd не успел сделать hideAll между hideAll и add
@@ -770,6 +762,8 @@ const setupChatHandler = () => {
                         const sn = getZkmSN();
                         if (sn) {
                             if (typeof sn.hideAll === 'function') sn.hideAll();
+                            hideTrackingTimer();   // гасим таймер-уведомление отслеживания (timerQueue)
+                            clearSetmarkCdTimer(); // и КД-таймер, если он был активен
                             sn.add(`[1, "Отслеживание", "${reason}", "CECECE", 2500]`);
                         }
                     } catch(e) {}
@@ -787,36 +781,38 @@ const setupChatHandler = () => {
                 if (cdMatch) {
                     const waitSec = parseInt(cdMatch[1]);
                     console.log(`[TRACKING] ⏳ КД /setmark: ${waitSec} сек`);
-                    // Живой счётчик К/Д — видно сколько именно осталось ждать
-                    setSetmarkTimer(waitSec, {
-                        title: 'Система загружает',
-                        label: 'Повтор /setmark через',
-                        accent: 'FFAA00'
-                    });
+                    // Прячем таймер обычного отслеживания и показываем жёлтый
+                    // таймер-уведомление с реальным обратным отсчётом КД
+                    hideTrackingTimer();
+                    try {
+                        const sn = getZkmSN();
+                        if (sn && typeof sn.hideAll === 'function') sn.hideAll();
+                    } catch(e) {}
+                    setTimeout(() => {
+                        try {
+                            clearSetmarkCdTimer();
+                            setmarkCdTimerId = getZkmSN()?.addTimer(
+                                `[1, "Система загружает", "Обновление /setmark через", "FFAA00", ${waitSec}]`
+                            );
+                        } catch(e) {}
+                    }, 100);
                     // Приостанавливаем setmarkInterval на время КД чтобы не спамить
                     if (setmarkInterval) {
                         clearInterval(setmarkInterval);
                         setmarkInterval = null;
                         console.log('[TRACKING] setmarkInterval приостановлен на время КД');
                     }
-                    // Через waitSec секунд повторяем /setmark и возобновляем интервал
+                    // Через waitSec секунд повторяем /setmark, прячем КД-таймер
+                    // и возвращаем обычный таймер отслеживания (31с)
                     setTimeout(() => {
+                        clearSetmarkCdTimer();
                         if (currentScanId) {
                             console.log(`[TRACKING] 🔄 Повтор /setmark после КД (${waitSec}с)`);
-                            sendChatInput(`/setmark ${currentScanId}`);
-                            // Возобновляем обычный таймер обновления на 31с
-                            setSetmarkTimer(31, {
-                                title: 'Обновление /setmark',
-                                label: `ID: ${currentScanId}`,
-                                accent: 'f9b701'
-                            });
+                            sendSetmarkCommand(currentScanId);
                             // Возобновляем интервал /setmark каждые 31с
                             if (!setmarkInterval) {
                                 setmarkInterval = setInterval(() => {
-                                    if (currentScanId) {
-                                        sendChatInput(`/setmark ${currentScanId}`);
-                                        resyncSetmarkTimer(31);
-                                    }
+                                    if (currentScanId) sendSetmarkCommand(currentScanId);
                                 }, 31000);
                             }
                         }
@@ -974,90 +970,84 @@ const getPaginatedKoap = () => {
 // родной ScreenNotification движка для всей остальной игры не трогается.
 const getZkmSN = () => window.ZkmScreenNotification || null;
 
-// ==================== ТАЙМЕР ОБНОВЛЕНИЯ /setmark ====================
-// Живой обратный отсчёт до следующей отправки /setmark (раз в 31с). На время
-// серверного К/Д ("Система отслеживания ещё загружает...") этим же таймером
-// показывается отсчёт до повтора. Живёт в timerQueue ZKM-уведомлений —
-// не гаснет от hideAll(), которым другие тосты чистят обычную очередь.
-// Позиция [0] = top, чтобы не пересекаться ни с основным уведомлением
-// отслеживания (слева), ни с таймером К/Д штрафа (снизу).
+// ==================== ТАЙМЕР-УВЕДОМЛЕНИЕ ОТСЛЕЖИВАНИЯ ====================
+// Основное уведомление "Идет отслеживание/Начата погоня" теперь живёт как
+// addTimer() (timerQueue), а не как обычное add() (queue). Это даёт видимый
+// обратный отсчёт до следующего /setmark (31с) и — важно — НЕ убивается
+// через hideAll(), который дёргается на каждое мелкое snAdd().
+//
+// Фикс бага "напарник закончил — уведомление не закрылось":
+// раньше восстановление шло через setTimeout(..., 150), который слепо
+// пересоздавал уведомление, даже если за эти 150мс отслеживание уже
+// остановили. Теперь showTrackingTimer() при каждом вызове (в т.ч. из
+// отложенного restoreTrackingTimer) заново проверяет currentScanId и
+// trackingNotificationOpen/chaseNotificationOpen НА МОМЕНТ СРАБАТЫВАНИЯ,
+// а не на момент постановки в очередь — если отслеживание уже остановлено,
+// уведомление просто не пересоздаётся.
+const SETMARK_INTERVAL_SEC = 31;
+let trackingTimerId   = null;  // id addTimer() для "Идет отслеживание/Начата погоня"
+let setmarkCdTimerId  = null;  // id addTimer() для жёлтого КД /setmark
+let lastSetmarkSentAt = 0;     // Date.now() последней реальной отправки /setmark
 
-// Полное пересоздание (нужно при смене заголовка/цвета: старт отслеживания, вход/выход из К/Д)
-function setSetmarkTimer(seconds, opts) {
-    try {
-        const sn = getZkmSN();
-        if (!sn) return;
-        if (setmarkTimerId !== null && typeof sn.hideTimer === 'function') {
-            sn.hideTimer(setmarkTimerId);
-        }
-        if (typeof sn.addTimer !== 'function') { setmarkTimerId = null; return; }
-        const title  = (opts && opts.title)  || 'Обновление /setmark';
-        const label  = (opts && opts.label)  || '';
-        const accent = (opts && opts.accent) || 'f9b701';
-        setmarkTimerId = sn.addTimer(`[0, "${title}", "${label}", "${accent}", ${seconds}]`);
-    } catch (e) {
-        console.error('[TRACKING] Ошибка создания таймера /setmark:', e);
-    }
-}
-// Сброс отсчёта на каждый обычный тик 31с — без пересоздания DOM (без мигания)
-function resyncSetmarkTimer(seconds) {
-    try {
-        const sn = getZkmSN();
-        if (!sn || setmarkTimerId === null) return;
-        if (typeof sn.resetTimer === 'function' && sn.resetTimer(setmarkTimerId, seconds)) {
-            return;
-        }
-        // Fallback на случай старой версии ZKM-скрипта без resetTimer
-        setSetmarkTimer(seconds, {
-            title: 'Обновление /setmark',
-            label: currentScanId ? `ID: ${currentScanId}` : ''
-        });
-    } catch (e) {
-        console.error('[TRACKING] Ошибка resync таймера /setmark:', e);
-    }
-}
-function clearSetmarkTimer() {
-    try {
-        const sn = getZkmSN();
-        if (sn && setmarkTimerId !== null && typeof sn.hideTimer === 'function') {
-            sn.hideTimer(setmarkTimerId);
-        }
-    } catch (e) {}
-    setmarkTimerId = null;
-}
-// ==================== КОНЕЦ ТАЙМЕРА /setmark ====================
+const getSetmarkRemainingSec = () => {
+    if (!lastSetmarkSentAt) return SETMARK_INTERVAL_SEC;
+    const elapsed   = Math.floor((Date.now() - lastSetmarkSentAt) / 1000);
+    const remaining = SETMARK_INTERVAL_SEC - elapsed;
+    return remaining > 0 ? remaining : SETMARK_INTERVAL_SEC;
+};
 
-// Восстанавливает уведомление отслеживания/погони если оно активно
-const restoreTrackingNotification = () => {
-    if (!currentScanId) return;
-    const text = trackingNickname ? `${trackingNickname}<br>ID: ${currentScanId}` : `ID: ${currentScanId}`;
-    if (chaseNotificationOpen) {
-        setTimeout(() => {
-            // Перепроверяем состояние на момент срабатывания — отслеживание могло быть
-            // остановлено за эти 150мс (stopTracking/авто-стоп), тогда не восстанавливаем
-            if (!currentScanId || !chaseNotificationOpen) return;
-            try { getZkmSN()?.add(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`); } catch(e) {}
-        }, 150);
-    } else if (trackingNotificationOpen) {
-        setTimeout(() => {
-            if (!currentScanId || !trackingNotificationOpen) return;
-            try { getZkmSN()?.add(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`); } catch(e) {}
-        }, 150);
+const hideTrackingTimer = () => {
+    if (trackingTimerId !== null) {
+        try { getZkmSN()?.hideTimer(trackingTimerId); } catch(e) {}
+        trackingTimerId = null;
     }
 };
+
+const clearSetmarkCdTimer = () => {
+    if (setmarkCdTimerId !== null) {
+        try { getZkmSN()?.hideTimer(setmarkCdTimerId); } catch(e) {}
+        setmarkCdTimerId = null;
+    }
+};
+
+// Показывает/обновляет таймер-уведомление, используя АКТУАЛЬНОЕ состояние
+// на момент вызова (а не закэшированное на момент постановки в setTimeout)
+const showTrackingTimer = () => {
+    if (!currentScanId) return;
+    if (!(trackingNotificationOpen || chaseNotificationOpen)) return;
+
+    hideTrackingTimer();
+
+    const label   = trackingNickname ? `${trackingNickname}<br>ID: ${currentScanId}` : `ID: ${currentScanId}`;
+    const isChase = chaseNotificationOpen;
+    const title   = isChase ? 'Начата погоня' : 'Идет отслеживание';
+    const accent  = isChase ? '0000FF' : 'FF0000';
+    const secs    = Math.max(1, getSetmarkRemainingSec());
+
+    try {
+        trackingTimerId = getZkmSN()?.addTimer(`[1, "${title}", "${label}", "${accent}", ${secs}]`);
+    } catch(e) {}
+};
+
+// Отложенное восстановление таймер-уведомления после показа мелкого snAdd
+const restoreTrackingTimer = (delay = 150) => {
+    setTimeout(showTrackingTimer, delay);
+};
+
 const snAdd = (payload, skipRestore = false) => {
     try {
         // Если показывается финальное уведомление (серое) — не трогаем его через hideAll
         if (window._trackingStopPending) return;
         const sn = getZkmSN();
         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
+        hideTrackingTimer(); // прячем таймер отслеживания, чтобы не наложился на мелкое уведомление
         setTimeout(() => {
             try { getZkmSN()?.add(payload); } catch(e) {}
         }, 100);
-        // Если активно отслеживание/погоня — восстанавливаем уведомление после показа нового
-        // skipRestore=true когда вызов идёт из самих openTracking/openChase (чтобы не затирать ник)
+        // Если активно отслеживание/погоня — восстанавливаем таймер-уведомление после показа нового
+        // skipRestore=true когда вызов идёт из самих openTracking/openChase
         if (!skipRestore && currentScanId && (trackingNotificationOpen || chaseNotificationOpen)) {
-            restoreTrackingNotification();
+            restoreTrackingTimer();
         }
     } catch(e) {}
 };
@@ -1065,33 +1055,47 @@ let currentNotificationId = 0;
 let isInActiveChase = false; // Флаг активной погони
 const openTrackingNotification = (id) => {
     currentNotificationId++;
-    const text = trackingNickname ? `${trackingNickname}<br>ID: ${id}` : `ID: ${id}`;
     trackingNotificationOpen = true;
     chaseNotificationOpen = false;
-    snAdd(`[1, "Идет отслеживание", "${text}", "FF0000", 36000000]`, true);
-    console.log('[TRACKING] ScreenNotification открыт (красный)');
+    if (!lastSetmarkSentAt) lastSetmarkSentAt = Date.now();
+    showTrackingTimer();
+    console.log('[TRACKING] Таймер-уведомление открыто (красное)');
 };
 const openChaseNotification = (id) => {
     currentNotificationId++;
-    const text = trackingNickname ? `${trackingNickname}<br>ID: ${id}` : `ID: ${id}`;
     trackingNotificationOpen = false;
     chaseNotificationOpen = true;
-    snAdd(`[1, "Начата погоня", "${text}", "0000FF", 36000000]`, true);
-    console.log('[CHASE] ScreenNotification открыт (синий)');
+    if (!lastSetmarkSentAt) lastSetmarkSentAt = Date.now();
+    showTrackingTimer();
+    console.log('[CHASE] Таймер-уведомление открыто (синее)');
 };
 const closeTrackingNotifications = () => {
     try {
         const screenNotif = getZkmSN();
         if (screenNotif && typeof screenNotif.hideAll === 'function') {
             screenNotif.hideAll();
-            trackingNotificationOpen = false;
-            chaseNotificationOpen = false;
-            console.log('[TRACKING] Все уведомления закрыты через hideAll');
         }
+        hideTrackingTimer();
+        clearSetmarkCdTimer();
+        trackingNotificationOpen = false;
+        chaseNotificationOpen = false;
+        console.log('[TRACKING] Все уведомления закрыты (включая таймер)');
     } catch (err) {
         console.error('[TRACKING] Ошибка закрытия ScreenNotification:', err);
     }
 };
+
+// Обёртка над отправкой /setmark: фиксирует момент отправки (для точного
+// обратного отсчёта в showTrackingTimer) и, если сейчас не идёт КД-таймер,
+// сразу обновляет таймер-уведомление на свежие 31с
+const sendSetmarkCommand = (id) => {
+    lastSetmarkSentAt = Date.now();
+    sendChatInput(`/setmark ${id}`);
+    if (setmarkCdTimerId === null) {
+        showTrackingTimer();
+    }
+};
+
 const startTracking = (id) => {
     // Очищаем старые интервалы
     if (scanInterval) {
@@ -1106,12 +1110,12 @@ const startTracking = (id) => {
         clearInterval(pgInterval);
         pgInterval = null;
     }
-    clearSetmarkTimer(); // убираем таймер от предыдущей сессии отслеживания, если был
  
     currentScanId = id;
     trackingName = `Отслеживание | {00FF00}ID: ${id}`;
     trackingNickname = null;
     isInActiveChase = false; // Сброс флага погони
+    lastSetmarkSentAt = 0;
  
     // Сначала отправляем /id — ждём 800мс ответа, потом открываем уведомление с ником
     sendChatInput(`/id ${currentScanId}`);
@@ -1135,10 +1139,13 @@ const startTracking = (id) => {
     // ==================== КОНЕЦ СООБЩЕНИЯ НАПАРНИКУ ====================
  
     // Начальные команды (без /id — уже отправлен выше)
-    sendMessagesWithDelay([
-        `/setmark ${currentScanId}`,
-        `/pg ${currentScanId}`
-    ], [500, 1000]);
+    // /setmark идёт через sendSetmarkCommand, чтобы зафиксировать время отправки
+    setTimeout(() => {
+        sendSetmarkCommand(currentScanId);
+        setTimeout(() => {
+            sendChatInput(`/pg ${currentScanId}`);
+        }, 1000);
+    }, 500);
  
     // Интервал /pg каждые 2 секунды (только если НЕ в активной погоне)
     pgInterval = setInterval(() => {
@@ -1147,12 +1154,11 @@ const startTracking = (id) => {
         }
     }, 2000);
  
-    // Интервал /setmark каждые 31 секунду + живой таймер обратного отсчёта до обновления
-    setSetmarkTimer(31, { title: 'Обновление /setmark', label: `ID: ${id}`, accent: 'f9b701' });
+    // Интервал /setmark каждые 31 секунду — на каждый реальный тик таймер-уведомление
+    // пересоздаётся с полными 31с (см. sendSetmarkCommand)
     setmarkInterval = setInterval(() => {
         if (currentScanId) {
-            sendChatInput(`/setmark ${currentScanId}`);
-            resyncSetmarkTimer(31);
+            sendSetmarkCommand(currentScanId);
         }
     }, 31000);
  
@@ -1171,9 +1177,8 @@ const stopTracking = () => {
         clearInterval(pgInterval);
         pgInterval = null;
     }
-    clearSetmarkTimer();
  
-    // Закрываем все уведомления
+    // Закрываем все уведомления (включая таймер-уведомление и КД-таймер)
     closeTrackingNotifications();
 
     // ==================== СООБЩЕНИЕ НАПАРНИКУ О КОНЦЕ ОТСЛЕЖИВАНИЯ ====================
@@ -1188,6 +1193,7 @@ const stopTracking = () => {
     trackingNickname = null;
     trackingName = `Отслеживание | {FF0000}Выкл`;
     isInActiveChase = false;
+    lastSetmarkSentAt = 0;
  
     console.log('[TRACKING] Отслеживание остановлено');
 };
@@ -1991,7 +1997,7 @@ window.sendClientEventCustom = (event, ...args) => {
             } else {
                 lastMenuType = null;
                 currentMenu = null;
-                restoreTrackingNotification();
+                restoreTrackingTimer();
             }
         }
         else if (args[1] === 667) { // Меню Повседневная
@@ -2006,7 +2012,7 @@ window.sendClientEventCustom = (event, ...args) => {
                 currentPage = 0;
                 lastMenuType = null; currentMenu = null;
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-                restoreTrackingNotification();
+                restoreTrackingTimer();
                 return;
             }
         }
@@ -2043,7 +2049,7 @@ window.sendClientEventCustom = (event, ...args) => {
                 currentPage = 0;
                 lastMenuType = null; currentMenu = null;
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-                restoreTrackingNotification();
+                restoreTrackingTimer();
                 return;
             }
         }
@@ -2115,7 +2121,7 @@ window.sendClientEventCustom = (event, ...args) => {
                 HandleMvdSubCommand(listitem);
             } else if (args[2] === 0) {
                 // Отмена / ESC — закрываем меню, восстанавливаем уведомление
-                restoreTrackingNotification();
+                restoreTrackingTimer();
             }
         }
         else if (args[1] === 678) { // Выбор типа КоАП
@@ -2219,7 +2225,7 @@ window.sendChatInputCustom = e => {
         if (mvdSkins.includes(skinId)) {
             // Успешное открытие меню МВД
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
-            restoreTrackingNotification();
+            restoreTrackingTimer();
             if (lastMenuType === "stroy") {
                 showStroyMenuPage(args[1]);
             } else {
