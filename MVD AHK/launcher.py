@@ -74,53 +74,71 @@ def run_auth_with_ui(hwid: str) -> dict:
     window_ref  = [None]
     ready_event = threading.Event()
 
-    LOADING_HTML = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
-<link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap' rel='stylesheet'>
+    LOADING_HTML = """<!DOCTYPE html><html lang="ru"><head><meta charset='UTF-8'>
+<link href='https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,700&family=Open+Sans+Condensed:ital,wght@0,700;1,700&display=swap' rel='stylesheet'>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{
-  background:#0a0a0b;color:#e8e6f0;
-  font-family:'Inter',sans-serif;font-size:13px;
-  display:flex;align-items:center;justify-content:center;
-  height:100vh;overflow:hidden;
-  -webkit-app-region:drag;user-select:none
+:root{
+  --bg:#010106;
+  --border:rgba(255,255,255,.06);
+  --text:#fff;--text3:rgba(255,255,255,.36);
+  --accent-grad:linear-gradient(168deg,#f9b701 -73.4%,#fda02f 58.52%,#ff9446 126.58%);
+  --danger:#e25544;
+  --font:'Open Sans',sans-serif;--font-head:'Open Sans Condensed','Open Sans',sans-serif;
 }
-.card{
-  background:#111114;border:.5px solid rgba(255,255,255,.10);
-  border-radius:14px;width:340px;padding:32px 26px;
-  box-shadow:0 32px 80px rgba(0,0,0,.75);
-  display:flex;flex-direction:column;align-items:center;gap:18px
+html,body{width:100%;height:100%;overflow:hidden}
+body{font-family:var(--font);color:var(--text);background:var(--bg);
+  display:flex;align-items:stretch;justify-content:stretch;
+  user-select:none;-webkit-app-region:drag}
+.window{
+  width:100%;height:100%;
+  background:
+    radial-gradient(60% 50% at 14% -6%,rgba(249,183,1,.10),transparent 60%),
+    radial-gradient(50% 40% at 100% 105%,rgba(10,153,71,.07),transparent 65%),
+    var(--bg);
+  border:1px solid #1a1a1e;border-radius:10px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:16px;padding:24px;
+  position:relative;overflow:hidden;-webkit-app-region:no-drag
 }
+.logo-row{display:flex;align-items:center;gap:10px}
+.logo-ico{
+  width:40px;height:40px;border-radius:9px;flex-shrink:0;
+  background:var(--accent-grad);
+  box-shadow:0 4px 14px rgba(253,160,47,.35),inset 0 1px 0 rgba(255,255,255,.3);
+  display:flex;align-items:center;justify-content:center
+}
+.logo-ico svg{width:20px;height:20px;fill:#1a1106}
+.logo-txt{font-family:var(--font-head);font-size:14px;font-weight:700;font-style:italic;
+  color:var(--text);text-transform:uppercase;letter-spacing:.02em;line-height:1.2}
+.logo-txt span{display:block;font-family:var(--font);font-size:9px;font-weight:400;font-style:normal;
+  color:var(--text3);letter-spacing:.14em;text-transform:uppercase;margin-top:2px}
 .spinner{
-  width:36px;height:36px;
-  border:2px solid rgba(255,255,255,.08);
-  border-top-color:#4f6ef7;
+  width:28px;height:28px;
+  border:2.5px solid rgba(249,183,1,.12);
+  border-top-color:#f9b701;
   border-radius:50%;
   animation:spin .8s linear infinite
 }
+.spinner.error{border-top-color:var(--danger);animation:spin 1.4s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.spinner.error{
-  border-top-color:#e05555;
-  animation:spin 1.4s linear infinite
-}
-h2{font-size:14px;font-weight:600;color:#e8e6f0;text-align:center}
-#status{
-  font-size:11px;color:rgba(232,230,240,.45);
-  text-align:center;line-height:1.6;min-height:32px
-}
-.dots{display:inline-block}
+#status{font-size:11px;color:var(--text3);text-align:center;line-height:1.6;min-height:30px}
 </style></head><body>
-<div class="card">
+<div class="window">
+  <div class="logo-row">
+    <div class="logo-ico">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13 1.5L3.8 13.6h6.1L8.4 22.5l11.8-13.6h-6.9L13 1.5z"/></svg>
+    </div>
+    <div class="logo-txt">AHK MVD Installer<span>Авторизация</span></div>
+  </div>
   <div class="spinner" id="spin"></div>
-  <h2>AHK MVD Installer</h2>
   <div id="status">Проверка лицензии...</div>
 </div>
 <script>
-function setStatus(txt, isError) {
-  document.getElementById('status').textContent = txt;
-  var s = document.getElementById('spin');
-  if (isError) s.classList.add('error');
-  else s.classList.remove('error');
+function setStatus(txt,isError){
+  document.getElementById('status').textContent=txt;
+  var s=document.getElementById('spin');
+  if(isError)s.classList.add('error');else s.classList.remove('error');
 }
 </script>
 </body></html>"""
@@ -180,7 +198,7 @@ function setStatus(txt, isError) {
         'AHK MVD Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
         width=380, height=220,
-        frameless=True, background_color='#0a0a0b'
+        frameless=True, background_color='#010106'
     )
     window_ref[0] = w
 
