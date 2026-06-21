@@ -6,11 +6,10 @@ GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%2
 AHK_URL       = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
 INTLOAD_URL   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
 CUSTOM_UI_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
-# Подпапка с лёгкими загрузчиками (вместо тяжёлых оригиналов) —
-# именно отсюда теперь реально качаются файлы кастомных интерфейсов
-# в _deploy_custom_ui_files(). CUSTOM_UI_URL/IntLoad.js по-прежнему
-# в родительской папке — это просто манифест, ему loader-обвязка не нужна.
-CUSTOM_UI_LOADERS_URL = CUSTOM_UI_URL + "/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
+# Все JS/CSS файлы кастомных интерфейсов качаются напрямую отсюда —
+# никаких лёгких "загрузчиков" больше нет, _deploy_custom_ui_files()
+# кладёт в assets/ реальные рабочие файлы. IntLoad.js по-прежнему
+# в этой же папке — это манифест-реестр (имена/файлы/опции).
 
 # Имена нативных интерфейсов движка — НИКОГДА не регистрировать кастомный
 # компонент под этими именами в dd/fd (полностью подменяет родной интерфейс
@@ -331,16 +330,14 @@ class InstallerAPI:
         return "".join(parts)
 
     def _deploy_custom_ui_files(self, ifaces: list):
-        """Скачивает файлы кастомных интерфейсов из GitHub и кладёт в assets/.
-        Список файлов берётся из реестра IntLoad.js — менять .py не нужно.
+        """Скачивает файлы кастомных интерфейсов (.js/.css) из GitHub и кладёт
+        в assets/. Список файлов берётся из реестра IntLoad.js — менять .py
+        не нужно при добавлении новых интерфейсов.
 
-        Качаем из CUSTOM_UI_LOADERS_URL (подпапка "Загрузчики"), а НЕ из
-        CUSTOM_UI_URL — там лежат тяжёлые оригиналы, которые сами тянут
-        актуальный код с GitHub в рантайме (см. zkm.js / MvdMenu.js /
-        ZkmScreenNotification.js — каждый из них при загрузке делает XHR
-        обратно в CUSTOM_UI_URL за реальным содержимым). В assets/ должны
-        попадать именно лёгкие загрузчики, иначе обновления интерфейсов
-        перестанут подхватываться без переустановки клиента."""
+        Качаем напрямую из CUSTOM_UI_URL ("MVD AHK/Кастом Интерфейсы") — это
+        реальные рабочие файлы, никакой промежуточной "загрузчик"-обвязки
+        больше нет. Обновления интерфейсов подхватываются простой
+        переустановкой/повторной вставкой кода."""
         if not self.radmir_path:
             return
         assets_dir = self.radmir_path / "uiresources" / "assets"
@@ -348,15 +345,15 @@ class InstallerAPI:
             return
         all_files = [f for iface in ifaces for f in iface.get("files", [])]
         for filename in all_files:
-            url = f"{CUSTOM_UI_LOADERS_URL}/{filename}"
+            url = f"{CUSTOM_UI_URL}/{filename}"
             try:
                 resp = requests.get(url, timeout=20)
                 resp.raise_for_status()
                 dest = assets_dir / filename
                 dest.write_bytes(resp.content)
-                print(f'[Installer] Скопирован загрузчик {filename} -> assets/')
+                print(f'[Installer] Скопирован {filename} -> assets/')
             except Exception as e:
-                print(f'[Installer] Не удалось скачать загрузчик {filename}: {e}')
+                print(f'[Installer] Не удалось скачать {filename}: {e}')
 
     def select_folder(self):
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
