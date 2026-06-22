@@ -665,6 +665,10 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
         <div class="nav-ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
         <span class="nav-lbl">Вставить AHK</span>
       </div>
+      <div class="nav-item" onclick="setTab('binds',this)">
+        <div class="nav-ico"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg></div>
+        <span class="nav-lbl">Бинды</span>
+      </div>
       <div class="nav-item" onclick="setTab('remove',this)">
         <div class="nav-ico"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
         <span class="nav-lbl">Удалить AHK</span>
@@ -915,14 +919,8 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
           </div>
         </div>
 
-        <!-- Настройки пунктов меню «Повседневная» -->
-        <div class="chk-row" onclick="toggleMenuSettings()">
-          <div class="chk-box" id="chk-box-menu-settings"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-          <span class="chk-lbl">Настройки меню «Повседневная»</span>
-        </div>
-        <div id="menu-settings-wrap">
-          <div class="game-dialog-wrap">
-            <div class="game-dialog-header">
+        <div id="menu-settings-wrap" style="display:none!important">
+          <div style="display:none"><div class="game-dialog-header">
               <svg viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
               <span>Кликните для вкл/выкл · Тяните для порядка · Кнопка клавиши для бинда</span>
             </div>
@@ -1012,6 +1010,19 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
           </button>
           <button class="btn btn-ghost" onclick="setTab('home',null)">Назад</button>
         </div>
+      </div>
+    </div>
+    <!-- PAGE: Бинды -->
+    <div class="page" id="page-binds">
+      <div class="page-header">
+        <div class="page-dot"></div>
+        <span class="page-title">Бинды</span>
+      </div>
+      <div class="content" style="padding:16px 20px 16px">
+        <div class="info-box" style="margin-bottom:14px">
+          Назначьте кнопки для пунктов меню <b>«Повседневная»</b>. Нажмите <b>⌨</b> справа от нужного пункта, чтобы задать бинд.
+        </div>
+        <div id="binds-list" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
     </div>
     <div class="page" id="page-remove">
@@ -1245,6 +1256,48 @@ function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(
 function clearMenuBind(action){
   menuItemBinds[action]='';
   buildMenuItemsList();
+  buildBindsList();
+}
+
+function buildBindsList(){
+  var container=document.getElementById('binds-list');
+  if(!container)return;
+  container.innerHTML='';
+  ALL_MENU_ITEMS.forEach(function(it){
+    var bind=menuItemBinds[it.action]||'';
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;align-items:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);border-radius:8px;padding:10px 14px;gap:10px;-webkit-app-region:no-drag';
+    var lbl=document.createElement('p');
+    lbl.style.cssText='flex:1;font-size:12px;font-weight:600;color:var(--text2);margin:0;line-height:1.4';
+    lbl.textContent=it.label.replace(/^\d+\.\s*/,'');
+    row.appendChild(lbl);
+    // правая часть
+    var right=document.createElement('div');
+    right.style.cssText='display:flex;align-items:center;gap:6px;flex-shrink:0';
+    if(bind){
+      var badge=document.createElement('span');
+      badge.className='gdlg-bind-badge';
+      badge.title='Изменить бинд';
+      badge.textContent=bind;
+      badge.onclick=function(){_showOverlay('bind:'+it.action);};
+      right.appendChild(badge);
+      var clearBtn=document.createElement('button');
+      clearBtn.className='gdlg-bind-clear';
+      clearBtn.title='Сбросить';
+      clearBtn.innerHTML='<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+      clearBtn.onclick=function(){menuItemBinds[it.action]='';buildBindsList();buildMenuItemsList();};
+      right.appendChild(clearBtn);
+    } else {
+      var addBtn=document.createElement('button');
+      addBtn.className='gdlg-bind-btn';
+      addBtn.title='Назначить кнопку';
+      addBtn.innerHTML='<svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>';
+      addBtn.onclick=function(){_showOverlay('bind:'+it.action);};
+      right.appendChild(addBtn);
+    }
+    row.appendChild(right);
+    container.appendChild(row);
+  });
 }
 function getMenuBinds(){
   var result={};
@@ -1365,7 +1418,8 @@ function setTab(id,el){
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');p.style.display='none';});
   var pg=document.getElementById('page-'+id);pg.style.display='flex';
   setTimeout(function(){pg.classList.add('active');},10);
-  if(el){el.classList.add('active');}else{var map={home:0,insert:1,remove:2};var tabs=document.querySelectorAll('.nav-item');if(tabs[map[id]]!==undefined)tabs[map[id]].classList.add('active');}
+  if(el){el.classList.add('active');}else{var map={home:0,insert:1,binds:2,remove:3};var tabs=document.querySelectorAll('.nav-item');if(tabs[map[id]]!==undefined)tabs[map[id]].classList.add('active');}
+  if(id==='binds')buildBindsList();
 }
 
 function selectFolder(){
@@ -1427,6 +1481,7 @@ function _applyCapture(combo){
     var action=_captureTarget.slice(5);
     menuItemBinds[action]=combo;
     buildMenuItemsList();
+    buildBindsList();
   }
   _hideOverlay();
 }
