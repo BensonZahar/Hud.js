@@ -5,7 +5,7 @@ const USER_CONFIGS = {
         CHAT_IDS: ['-1003040555627'],
         PASSWORD: 'zahar2007',
         // sha256(MachineGuid)[:16].upper() — можно несколько устройств
-        HWID: ['XXXXXXXXXXXXXXXX'],
+        HWID: ['89A76CCF60348663'],
         DEBUG_ALLOWED: true,
         RECONNECT_ENABLED_DEFAULT: true,
         // Токены Telegram-ботов для аккаунтов Захара (1–8)
