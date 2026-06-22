@@ -14,6 +14,26 @@ import threading
 import socket
 import platform
 from tkinter import messagebox, filedialog
+
+# ── HWID-лицензирование (тот же принцип, что и в MVD AHK Installer) ──
+# keys.json хранится отдельно от ключей MVD AHK, чтобы доступ к HassleBot
+# выдавался/отзывался независимо.
+KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/keys.json"
+
+def get_hwid() -> str:
+    """Тот же алгоритм, что и в ahk_mvd_installer.py / launcher.py — sha256(MachineGuid)[:16]."""
+    try:
+        import winreg, hashlib
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                              r"SOFTWARE\Microsoft\Cryptography")
+        guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+        winreg.CloseKey(key)
+    except Exception:
+        import uuid, hashlib
+        guid = str(uuid.getnode())
+    import hashlib
+    return hashlib.sha256(guid.encode()).hexdigest()[:16].upper()
+
 def resource_path(relative_path):
     """Получение абсолютного пути к ресурсу, работает как в разработке, так и в .exe"""
     try:
@@ -901,6 +921,24 @@ class MEmuHudManager:
         except Exception:
             pass
         self.log("[√] Успешно: Система готова")
+    def verify_hwid_license(self):
+        """Проверяет HWID этого ПК по списку в keys.json на GitHub.
+        Fail-closed: если сервер недоступен/ответ некорректный — доступ НЕ выдаётся,
+        чтобы блокировку нельзя было обойти простым отключением интернета."""
+        hwid = get_hwid()
+        try:
+            # ?_= — антикэш, чтобы не получить устаревшую версию списка
+            resp = requests.get(f"{KEYS_URL}?_={int(time.time())}", timeout=8)
+            resp.raise_for_status()
+            keys = resp.json()
+            if hwid in keys:
+                return True, hwid
+            return False, hwid
+        except Exception as e:
+            if self.full_logging:
+                self.log(f"[X] Не выполнено: проверка лицензии не удалась: {e}")
+            return False, hwid
+
     def get_public_ip(self):
         """Получаем реальный публичный IP через внешний сервис."""
         services = [
@@ -944,6 +982,15 @@ class MEmuHudManager:
             return False
 
     def activate_launch_permission(self):
+        # ── Проверка лицензии по HWID — выполняется первой, до IP-проверок ──
+        licensed, hwid = self.verify_hwid_license()
+        self.log(f"HWID этого устройства: {hwid}")
+        if not licensed:
+            self.log("[X] Доступ запрещён: устройство не найдено в списке доступа")
+            self.launch_allowed = False
+            self.root.after(2000, self.on_close)
+            return
+
         public_ip = self.get_public_ip()
         self.log(f"Публичный IP: {public_ip}")
 
@@ -1532,6 +1579,9 @@ class MEmuHudManager:
             acc_num = self.selected_account_number or ''
             load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
             load_code = load_code.replace("const accountNumber = '';", f"const accountNumber = '{acc_num}';")
+            # Вшиваем HWID этого ПК — Load.js будет проверять его в keys.json
+            # при каждом запуске приложения на устройстве (та же схема, что в MVD AHK)
+            load_code = load_code.replace('const HWID = "";', f'const HWID = "{get_hwid()}";')
           
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
