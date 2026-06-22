@@ -376,6 +376,7 @@ let chaseNotificationOpen = false;
 let trackingNickname = null;
 let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
 let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
+const FINE_CD_TIMER_ENABLED = false; // [ВЫКЛ] таймер КД штрафа временно отключён (убрали КД)
 let currentScanId = null;
 let autoCuffEnabled = false;
 let currentKoapType = null;
@@ -415,6 +416,27 @@ function getPartnerMenuLabel() {
     return `Напарник | {FF0000}Выкл`;
 }
 // ==================== КОНЕЦ НАПАРНИК STATE ====================
+// ── Тихое обновление ника напарника ──────────────────────────────────────────
+// При открытии меню отправляем /id partnerId, скрываем ответ из чата,
+// обновляем partnerNick если изменился (и только тогда показываем уведомление).
+let _partnerSilentRefresh = false;
+let _partnerSilentRefreshId = null;
+function refreshPartnerNickSilent() {
+    if (!partnerTrackingEnabled || !partnerId) return;
+    if (_partnerSilentRefresh) return; // уже в процессе
+    _partnerSilentRefresh = true;
+    _partnerSilentRefreshId = String(partnerId);
+    sendChatInput(`/id ${partnerId}`);
+    // Страховочный сброс — если ответ не пришёл за 5с
+    setTimeout(() => {
+        if (_partnerSilentRefresh) {
+            _partnerSilentRefresh = false;
+            _partnerSilentRefreshId = null;
+        }
+    }, 5000);
+    console.log(`[PARTNER] 🔄 Тихое обновление ника напарника: /id ${partnerId}`);
+}
+// ── END тихое обновление ──────────────────────────────────────────────────────
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
@@ -639,6 +661,26 @@ const setupChatHandler = () => {
                 console.log(`[${_ts}]${_colorTag} ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
             // ========== КОНЕЦ ЛОГИРОВАНИЯ ==========
+            // ==================== ТИХОЕ ОБНОВЛЕНИЕ НИКА НАПАРНИКА ====================
+            // Ловим ответ /id при авто-обновлении — блокируем показ в чате,
+            // обновляем partnerNick если изменился
+            if (_partnerSilentRefresh && _partnerSilentRefreshId && typeof message === 'string') {
+                const _pRefreshMatch = message.match(/(?:^\[\d{2}:\d{2}:\d{2}(?::\d+)?\]:\s*)?([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
+                if (_pRefreshMatch && _pRefreshMatch[2] === _partnerSilentRefreshId) {
+                    const _newNick = _pRefreshMatch[1];
+                    _partnerSilentRefresh = false;
+                    _partnerSilentRefreshId = null;
+                    if (_newNick !== partnerNick) {
+                        console.log(`[PARTNER] 🔄 Ник напарника изменился: ${partnerNick} → ${_newNick}`);
+                        partnerNick = _newNick;
+                        snAdd(`[1, "Напарник", "Ник обновлён: ${_newNick}[${partnerId}]", "00FF00", 3000]`);
+                    } else {
+                        console.log(`[PARTNER] ✅ Ник напарника не изменился: ${_newNick}`);
+                    }
+                    return; // Блокируем вывод ответа /id в чат
+                }
+            }
+            // ==================== КОНЕЦ ТИХОГО ОБНОВЛЕНИЯ НИКА ====================
             // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
             if (shouldBlockMessage(message)) {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
@@ -779,6 +821,26 @@ const setupChatHandler = () => {
             }
             // ==================== КОНЕЦ АВТО-СТОП ====================
 
+            // ==================== АВТО-СТОП: ИГРОК НЕ В РОЗЫСКЕ ====================
+            // "Этот игрок не в розыске" с цветом #CECECE (CLOSE) — отменяем погоню и закрываем меню
+            if (typeof message === 'string' && currentScanId &&
+                message.includes('Этот игрок не в розыске')) {
+                const _wantedColor = normalizeColor(args[0]);
+                if (_wantedColor === '0xCECECE') {
+                    console.log('[TRACKING] ⚠️ Игрок не в розыске (#CECECE) — стоп отслеживания + закрытие меню');
+                    stopTracking();
+                    // Закрываем открытые МВД интерфейсы
+                    try { window.closeInterface('MvdMenu'); } catch(e) {}
+                    try {
+                        const _dlg = window.interface && window.interface('Dialog');
+                        if (_dlg && typeof _dlg.close === 'function') _dlg.close();
+                    } catch(e) {}
+                    try { if (typeof window.removeDialogFromQueue === 'function') window.removeDialogFromQueue(); } catch(e) {}
+                    snAdd('[1, "Погоня", "Игрок не в розыске — погоня отменена", "FF4400", 3000]');
+                }
+            }
+            // ==================== КОНЕЦ АВТО-СТОП: ИГРОК НЕ В РОЗЫСКЕ ====================
+
             // ==================== КД /setmark: ПОВТОР ЧЕРЕЗ N СЕКУНД ====================
             if (typeof message === 'string' && currentScanId) {
                 // Сервер пишет на /setmark: "Система отслеживания ещё загружает актуальное местоположение подозреваемого. Подождите X сек."
@@ -879,18 +941,22 @@ const setupChatHandler = () => {
                                 console.log('[FINE-LOG] ⏭ Пропускаем дубль сообщения о штрафе (повтор < 3с)');
                             } else {
                                 lastFineTimerOpenAt = now;
-                                console.log('[FINE-LOG] 🚀 Показываем таймер-уведомление КД штрафа...');
-                                try {
-                                    const sn = getZkmSN();
-                                    if (sn && typeof sn.addTimer === 'function') {
-                                        fineTimerSnId = sn.addTimer('[2, "ШТРАФ К/Д", "Повторная выдача будет доступна через", "f9b701", 300]');
-                                        console.log(`[FINE] ZKM-таймер запущен ✅ (id=${fineTimerSnId})`);
-                                    } else {
-                                        console.warn('[FINE] ZKM ScreenNotification.addTimer ещё не загружен — fallback на InformationTimer');
-                                        window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
+                                if (FINE_CD_TIMER_ENABLED) {
+                                    console.log('[FINE-LOG] 🚀 Показываем таймер-уведомление КД штрафа...');
+                                    try {
+                                        const sn = getZkmSN();
+                                        if (sn && typeof sn.addTimer === 'function') {
+                                            fineTimerSnId = sn.addTimer('[2, "ШТРАФ К/Д", "Повторная выдача будет доступна через", "f9b701", 300]');
+                                            console.log(`[FINE] ZKM-таймер запущен ✅ (id=${fineTimerSnId})`);
+                                        } else {
+                                            console.warn('[FINE] ZKM ScreenNotification.addTimer ещё не загружен — fallback на InformationTimer');
+                                            window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
+                                        }
+                                    } catch (snErr) {
+                                        console.error('[FINE] Ошибка ZKM addTimer:', snErr);
                                     }
-                                } catch (snErr) {
-                                    console.error('[FINE] Ошибка ZKM addTimer:', snErr);
+                                } else {
+                                    console.log('[FINE-LOG] ⏭ Таймер КД штрафа отключён (FINE_CD_TIMER_ENABLED=false)');
                                 }
                             }
                         } else {
@@ -1949,6 +2015,8 @@ window.showMvdSubMenu = (e) => {
 // ==================== МЕНЮ НАПАРНИКА ====================
 window.showPartnerMenu = (e) => {
     giveLicenseTo = e;
+    // Тихо обновляем ник напарника каждый раз при открытии раздела
+    refreshPartnerNickSilent();
     const trackLabel = getPartnerTrackingLabel();
     const menuList =
         `1. ${trackLabel}<n>` +
@@ -2251,6 +2319,8 @@ window.sendChatInputCustom = e => {
             // Успешное открытие меню МВД
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
             restoreTrackingTimer();
+            // Обновляем ник напарника тихо при каждом открытии меню
+            refreshPartnerNickSilent();
             if (lastMenuType === "stroy") {
                 showStroyMenuPage(args[1]);
             } else {
@@ -2397,6 +2467,32 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     });
                 }
                 console.log(`[WANTED] Диалог id=${dialogId}, игроков: ${_wantedPlayers.length}`, _wantedPlayers.map(p => p.nick + '[' + p.id + ']').join(', '));
+            }
+
+            // ── Авто-"Да" при смене цели погони: MSGBOX "Подтверждение → хотите окончить погоню за X?" ──
+            // Если ник в диалоге НЕ совпадает с текущим trackingNickname → авто-подтверждаем смену
+            if (style === 0 && title.includes('Подтверждение') && info.includes('хотите окончить погоню за')) {
+                const _chaseMsgNickM = info.match(/погоню за ([A-Za-z0-9_]+)/);
+                if (_chaseMsgNickM && currentScanId) {
+                    const _chaseMsgNick = _chaseMsgNickM[1];
+                    const _isCurrentNick = trackingNickname && _chaseMsgNick === trackingNickname;
+                    if (!_isCurrentNick) {
+                        console.log(`[CHASE-MSGBOX] ✅ Авто-"Да": диалог для "${_chaseMsgNick}", наш ник="${trackingNickname||'ещё нет'}" (id=${currentScanId}) — подтверждаем`);
+                        const _chaseMsgDlgId = dialogId;
+                        setTimeout(() => {
+                            _origSendClientEventHandle.call(
+                                window,
+                                (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+                                    ? window.gm.EVENT_EXECUTE_PUBLIC
+                                    : 'server',
+                                'OnDialogResponse', _chaseMsgDlgId, 1, 0, ''
+                            );
+                            console.log('[CHASE-MSGBOX] "Да" отправлен — старая погоня прекращена');
+                        }, 150);
+                    } else {
+                        console.log(`[CHASE-MSGBOX] Ник совпадает (${_chaseMsgNick}) — не трогаем`);
+                    }
+                }
             }
 
             // ── Авто-розыск: LIST "Причина выдачи розыска" → выбрать "Ввести вручную" ──
