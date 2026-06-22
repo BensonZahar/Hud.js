@@ -480,6 +480,7 @@ class InstallerAPI:
                     'last_name': last_name,
                     'callsign': callsign if use_callsign else '',
                     'use_callsign': bool(use_callsign),
+                    'auto_password': auto_password,
                     'use_auto_password': bool(auto_password),
                     'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
                     'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {},
