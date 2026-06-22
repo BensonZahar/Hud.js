@@ -15,10 +15,8 @@ import socket
 import platform
 from tkinter import messagebox, filedialog
 
-# ── HWID-лицензирование (тот же принцип, что и в MVD AHK Installer) ──
-# keys.json хранится отдельно от ключей MVD AHK, чтобы доступ к HassleBot
-# выдавался/отзывался независимо.
-KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/keys.json"
+# ── HWID-лицензирование — HWID хранятся прямо в List.js у каждого пользователя ──
+LIST_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/List.js"
 
 def get_hwid() -> str:
     """Тот же алгоритм, что и в ahk_mvd_installer.py / launcher.py — sha256(MachineGuid)[:16]."""
@@ -921,25 +919,43 @@ class MEmuHudManager:
         except Exception:
             pass
         self.log("[√] Успешно: Система готова")
-    def verify_hwid_license(self):
-        """Проверяет HWID этого ПК по списку в keys.json на GitHub.
-        Fail-closed: если сервер недоступен/ответ некорректный — доступ НЕ выдаётся,
-        чтобы блокировку нельзя было обойти простым отключением интернета."""
-        hwid = get_hwid()
+    def _match_hwid_in_list(self, hwid: str):
+        """Скачивает List.js (антикэш) и ищет совпадение HWID среди всех пользователей.
+        Возвращает (user_name, debug_allowed) при совпадении, иначе (None, False).
+        Fail-closed: при любой ошибке сети/парсинга доступ НЕ выдаётся."""
+        import re
         try:
-            # ?_= — антикэш, чтобы не получить устаревшую версию списка
-            resp = requests.get(f"{KEYS_URL}?_={int(time.time())}", timeout=8)
+            resp = requests.get(f"{LIST_URL}?_={int(time.time())}", timeout=8)
             resp.raise_for_status()
-            keys = resp.json()
-            if hwid in keys:
-                return True, hwid
-            return False, hwid
+            content = resp.text
+
+            user_pattern = r"['\"](\w+)['\"]:\s*\{"
+            users = re.findall(user_pattern, content)
+
+            for user in users:
+                pos = content.find(f"'{user}'")
+                if pos == -1:
+                    pos = content.find(f'"{user}"')
+                chunk = content[pos: pos + 1500]
+
+                hwid_m = re.search(r"HWID\s*:\s*\[([^\]]*)\]", chunk, re.DOTALL)
+                if not hwid_m:
+                    continue
+                hwids = [h.upper() for h in re.findall(r"['\"]([A-Fa-f0-9]{16})['\"]", hwid_m.group(1))]
+                if hwid.upper() not in hwids:
+                    continue
+
+                debug_m = re.search(r"DEBUG_ALLOWED\s*:\s*(true|false)", chunk)
+                debug = debug_m.group(1) == "true" if debug_m else False
+                return user, debug
+
+            return None, False
         except Exception as e:
             if self.full_logging:
-                self.log(f"[X] Не выполнено: проверка лицензии не удалась: {e}")
-            return False, hwid
+                self.log(f"[X] Ошибка проверки HWID: {e}")
+            return None, False
 
-    def get_public_ip(self):
+
         """Получаем реальный публичный IP через внешний сервис."""
         services = [
             "https://api.ipify.org",
