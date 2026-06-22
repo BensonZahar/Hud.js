@@ -3,6 +3,7 @@ const username = 'BensonZahar';
 const repo = 'Hud.js';
 const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
 const accountNumber = ''; // НОМЕР АККАУНТА (1–8) — устанавливается установщиком автоматически
+const HWID = ""; // Вшивается hasslebot_exe.py — проверяется по HWID_LIST в List.js
 
 // ============================================================
 // Автоматический поиск чат-компонента — два метода:
@@ -256,19 +257,9 @@ function sendCodeLoadedNotification(filename, commitInfo) {
     });
 }
 
-// Последовательная загрузка скриптов
+// Загрузка основных скриптов (вызывается после проверки HWID)
 async function initializeScripts() {
     try {
-        console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
-
-        console.log('📋 Загрузка List.js...');
-        await loadScriptFromGitHub('List.js');
-
-        console.log(`⚙️ Применение конфигурации для ${currentUser}...`);
-        if (!applyUserConfig()) {
-            throw new Error('Не удалось применить конфигурацию пользователя');
-        }
-
         console.log('📦 Загрузка Code.js...');
         // Получаем инфо о коммите до загрузки (параллельно, не блокируем загрузку)
         const codeCommitInfoPromise = fetchLastCommitInfo('Code.js');
@@ -353,4 +344,38 @@ window.CURRENT_USER = currentUser;
 window.ACCOUNT_NUMBER = accountNumber;
 window.initializeScripts = initializeScripts;
 
-initializeScripts();
+// ── Загрузка List.js → проверка HWID по HWID_LIST → запуск скриптов ──
+async function verifyAndLoad() {
+    // 1. Грузим List.js (там хранятся конфиги и HWID_LIST)
+    try {
+        console.log('📋 Загрузка List.js...');
+        await loadScriptFromGitHub('List.js');
+    } catch (e) {
+        console.error('❌ [HassleBot] Не удалось загрузить List.js');
+        alert('Ошибка: не удалось загрузить конфигурацию');
+        return;
+    }
+
+    // 2. Применяем конфиг пользователя
+    console.log(`⚙️ Применение конфигурации для ${currentUser}...`);
+    if (!applyUserConfig()) {
+        alert(`Ошибка: конфигурация для "${currentUser}" не найдена`);
+        return;
+    }
+
+    // 3. Проверяем HWID (если вшит)
+    if (HWID) {
+        const userConfig = window.USER_CONFIGS[currentUser];
+        const allowed = userConfig?.HWID_LIST || [];
+        if (!allowed.includes(HWID)) {
+            console.warn('❌ [HassleBot] Доступ отозван — устройство не найдено в списке');
+            return;
+        }
+        console.log('✅ [HassleBot] HWID авторизован');
+    }
+
+    // 4. Запускаем основные скрипты
+    initializeScripts();
+}
+
+verifyAndLoad();
