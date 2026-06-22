@@ -4,6 +4,9 @@ const USER_CONFIGS = {
     'Zahar': {
         CHAT_IDS: ['-1003040555627'],
         PASSWORD: 'zahar2007',
+        // sha256(MachineGuid)[:16].upper() — можно несколько устройств
+        HWID: ['XXXXXXXXXXXXXXXX'],
+        DEBUG_ALLOWED: true,
         RECONNECT_ENABLED_DEFAULT: true,
         // Токены Telegram-ботов для аккаунтов Захара (1–8)
         BOT_TOKENS: {
@@ -20,6 +23,8 @@ const USER_CONFIGS = {
     'Kolya': {
         CHAT_IDS: ['-1003102212423'],
         PASSWORD: 'kol16052011',
+        HWID: ['YYYYYYYYYYYYYYYY'],
+        DEBUG_ALLOWED: false,
         RECONNECT_ENABLED_DEFAULT: true,
         // Токены Telegram-ботов для аккаунтов Коли (вставь свои)
         BOT_TOKENS: {
