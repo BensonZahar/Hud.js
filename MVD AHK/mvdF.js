@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.10 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3104,23 +3104,38 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
         // ── wasOpen fix: OnInventoryDisplayChange — тогл ──────────────────
         // Если инвентарь открыт — вызов закроет его. Проверяем заранее.
+        // ВАЖНО: различаем два случая:
+        //   1. interface смонтирован + items готовы  → пользователь открыл инвентарь сам
+        //   2. interface смонтирован + items=null    → гонка с авто-снаряжением:
+        //      сервер уже открывает инвентарь, items ещё не пришли.
+        //      В этом случае НЕ отправляем тогл — иначе мы закроем открывающийся инвентарь!
         const T_check = performance.now();
-        const wasOpen = tryGetItems() !== null;
-        log(`wasOpen=${wasOpen}  (проверка: ${(performance.now() - T_check).toFixed(2)}ms)`);
+        const itemsAlreadyReady  = tryGetItems() !== null;
+        const invAlreadyMounted  = (() => {
+            try { return window.interface('InventoryNew') != null; } catch (e) { return false; }
+        })();
+        // wasOpen = items были готовы ДО свопа (нужно для решения «закрывать ли после»)
+        const wasOpen = itemsAlreadyReady;
+        log(`wasOpen=${wasOpen}  invMounted=${invAlreadyMounted}  (проверка: ${(performance.now() - T_check).toFixed(2)}ms)`);
         logInvState('состояние ДО');
 
-        if (!wasOpen) {
-            log(`→ sendClientEvent OnInventoryDisplayChange  (+${(performance.now() - T0).toFixed(1)}ms)`);
+        if (!invAlreadyMounted) {
+            // Интерфейс точно не открыт → отправляем тогл чтобы открыть
+            log(`→ sendClientEvent OnInventoryDisplayChange (открываем)  (+${(performance.now() - T0).toFixed(1)}ms)`);
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+        } else if (itemsAlreadyReady) {
+            log('→ инвентарь уже открыт с items — тогл пропущен');
         } else {
-            log('→ инвентарь уже открыт — тогл пропущен');
+            // Interface смонтирован но items=null: гонка с авто-снаряжением.
+            // Сервер сам откроет инвентарь — просто ждём items без тогла.
+            log('→ interface смонтирован, items=null (гонка авто-снаряжения) — ждём без тогла');
         }
 
         // ── Polling ───────────────────────────────────────────────────────
         let attempts   = 0;
         let T_mount    = null; // когда interface() стал не null
         let T_items    = null; // когда tryGetItems() вернул данные
-        const maxAttempts = 40; // 40 × 50ms = 2000ms
+        const maxAttempts = 60; // 60 × 50ms = 3000ms (увеличено: авто-снаряжение может быть медленным)
 
         const poll = setInterval(() => {
             attempts++;
@@ -3224,6 +3239,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    log('v17 готов');
+    log('v18 готов (fix: гонка авто-снаряжения)');
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
