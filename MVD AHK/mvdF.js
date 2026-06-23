@@ -1788,6 +1788,7 @@ const executePovsednevAction = (action, targetId) => {
       
         case "takeLicense":
             sendMessagesWithDelay([
+                /* Отыгровка изъятия прав — временно отключена
                 "/me взял права, затем переложил их в левую руку",
                 "/me взял блокнот и ручку в правую руку",
                 "/do Блокнот и ручка в руке.",
@@ -1795,8 +1796,9 @@ const executePovsednevAction = (action, targetId) => {
                 "/do Данные заполнены.",
                 "/me забрал водительские права",
                 "/do Водительские права изъяты.",
+                */
                 `/takelic ${targetId}`
-            ], [0, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+            ], [0]);
             break;
         case "miranda":
             sendMessagesWithDelay([
