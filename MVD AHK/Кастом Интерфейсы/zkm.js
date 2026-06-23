@@ -904,9 +904,12 @@ const _sfc_main={
 			else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
 			// Если отмечена галочка изъятия — небольшая задержка после команды штрафа
 			if(withRevoke){
+				// В причину изъятия идут ТОЛЬКО статьи, которые реально дают основание для изъятия (revoke===true),
+				// а не все выбранные статьи штрафа
+				const revokeCodes=arts.filter(a=>a.revoke===true).map(a=>a.num).join(", ");
 				setTimeout(()=>{
 					// Передаём статьи КоАП как причину изъятия — авто-подстановка в серверный диалог /takelic
-					if(typeof window._mvdSetTakeLicReason==="function")window._mvdSetTakeLicReason(codes+" КоАП");
+					if(typeof window._mvdSetTakeLicReason==="function")window._mvdSetTakeLicReason(revokeCodes+" КоАП");
 					if(typeof window._mvdExecuteAction==="function")window._mvdExecuteAction("takeLicense",id);
 				},300);
 			}
