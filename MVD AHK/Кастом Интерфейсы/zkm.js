@@ -905,6 +905,8 @@ const _sfc_main={
 			// Если отмечена галочка изъятия — небольшая задержка после команды штрафа
 			if(withRevoke){
 				setTimeout(()=>{
+					// Передаём статьи КоАП как причину изъятия — авто-подстановка в серверный диалог /takelic
+					if(typeof window._mvdSetTakeLicReason==="function")window._mvdSetTakeLicReason(codes+" КоАП");
 					if(typeof window._mvdExecuteAction==="function")window._mvdExecuteAction("takeLicense",id);
 				},300);
 			}
