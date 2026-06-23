@@ -896,20 +896,17 @@ const _sfc_main={
 			if(!id||this.selectedFineArticles.length===0)return;
 			const arts=this.selectedFineArticleObjects;
 			const withRevoke=this.fineCanRevoke&&this.fineWithRevoke;
-			// Отправляем отдельную команду /ticket на каждую выбранную статью
-			// с задержкой 500мс между ними чтобы сервер не потерял
-			arts.forEach((art,i)=>{
-				setTimeout(()=>{
-					const cmd=`/ticket ${id} ${art.fine} ${art.num} КоАП`;
-					if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
-					else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
-				},i*500);
-			});
-			// Если отмечена галочка изъятия — после выдачи штрафов запускаем сценарий изъятия прав
+			// Суммируем штрафы и перечисляем статьи через запятую — одна команда как в розыске
+			const totalFine=this.totalFine;
+			const codes=arts.map(a=>a.num).join(", ");
+			const cmd=`/ticket ${id} ${totalFine} ${codes} КоАП`;
+			if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
+			else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
+			// Если отмечена галочка изъятия — небольшая задержка после команды штрафа
 			if(withRevoke){
 				setTimeout(()=>{
 					if(typeof window._mvdExecuteAction==="function")window._mvdExecuteAction("takeLicense",id);
-				},arts.length*500);
+				},300);
 			}
 			this.close()
 		},
