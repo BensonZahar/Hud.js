@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2973,19 +2973,81 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
 
-// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v15 — polling) ====================
+// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v17 — wasOpen + full logging) ====================
 (function() {
     const ITEM_DEAGLE = 19;
-    const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
+    const CT       = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
     const CT_NAMES = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
 
-    let _busy = false;
+    let _busy      = false;
     let _busyTimer = null;
 
+    // ── Логирование ──────────────────────────────────────────────────────
+    function ts() {
+        const n = new Date();
+        const hh  = String(n.getHours())        .padStart(2, '0');
+        const mm  = String(n.getMinutes())       .padStart(2, '0');
+        const ss  = String(n.getSeconds())       .padStart(2, '0');
+        const ms  = String(n.getMilliseconds())  .padStart(3, '0');
+        return `${hh}:${mm}:${ss}.${ms}`;
+    }
+    function log(msg) { console.log(`[АТ ${ts()}] ${msg}`); }
+
+    // Полный дамп состояния InventoryNew
+    function logInvState(label) {
+        try {
+            const inv = window.interface('InventoryNew');
+            if (!inv) {
+                log(`${label} → interface: null`);
+                return;
+            }
+            const items = inv.items;
+            if (!items) {
+                log(`${label} → interface: смонтирован, items: null`);
+                return;
+            }
+            log(`${label} → interface: OK`);
+            for (const [cid, cname] of [
+                [CT.ACC,   'ACC  '],
+                [CT.INV,   'INV  '],
+                [CT.BACK,  'BACK '],
+                [CT.EXTRA, 'EXTRA']
+            ]) {
+                const c = items[cid];
+                if (c === undefined) {
+                    log(`  ${cname}: контейнер отсутствует (undefined)`);
+                    continue;
+                }
+                const entries = Object.entries(c);
+                if (entries.length === 0) {
+                    log(`  ${cname}: пустой`);
+                    continue;
+                }
+                const detail = entries
+                    .map(([slot, it]) => `[${slot}]id=${it?.id} x${it?.count ?? 1} w=${it?.weight ?? '?'}`)
+                    .join('  ');
+                log(`  ${cname}: ${entries.length} предм.  ${detail}`);
+            }
+        } catch (e) {
+            log(`${label} → ОШИБКА: ${e.message}`);
+        }
+    }
+
+    // ── Вспомогательные ─────────────────────────────────────────────────
     function clearBusy() {
         clearTimeout(_busyTimer);
         _busy = false;
-        console.log('[АВТО-ТАЗЕР] готов');
+        log('готов');
+    }
+
+    function tryGetItems() {
+        try {
+            const inv   = window.interface('InventoryNew');
+            const items = inv?.items;
+            if (!items) return null;
+            if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
+        } catch (e) {}
+        return null;
     }
 
     function findItem(items, itemId) {
@@ -2995,68 +3057,104 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             for (const [slot, item] of Object.entries(c)) {
                 if (item?.id === itemId) {
                     const loc = { cid, slot: parseInt(slot), count: item.count || 1 };
-                    console.log(`[АВТО-ТАЗЕР] findItem(Дигл): ${CT_NAMES[cid]} slot${loc.slot} x${loc.count}`);
+                    log(`  findItem(id=${itemId}): ${CT_NAMES[cid]} slot${loc.slot} x${loc.count}`);
                     return loc;
                 }
             }
         }
+        log(`  findItem(id=${itemId}): не найден`);
         return null;
     }
 
     function findFreeSlot(items, targetCid) {
-        const container = items[targetCid];
-        if (!container) return 0;
+        const c = items[targetCid];
+        if (!c) {
+            log(`  findFreeSlot(${CT_NAMES[targetCid]}): контейнер undefined → возвращаю 0`);
+            return 0;
+        }
+        const occupied = Object.keys(c).map(Number);
+        log(`  findFreeSlot(${CT_NAMES[targetCid]}): занятые слоты [${occupied.join(',')}]`);
         for (let s = 0; s < 50; s++) {
-            if (!container[s]) {
-                console.log(`[АВТО-ТАЗЕР] freeSlot(${CT_NAMES[targetCid]}): ${s}`);
+            if (!c[s]) {
+                log(`  findFreeSlot(${CT_NAMES[targetCid]}): свободен slot ${s}`);
                 return s;
             }
         }
+        log(`  findFreeSlot(${CT_NAMES[targetCid]}): нет свободных слотов (0-49 заняты)`);
         return -1;
     }
 
-    function tryGetItems() {
-        try {
-            const inv = window.interface('InventoryNew');
-            // items доступны только когда инвентарь открыт и Vue компонент смонтирован
-            const items = inv?.items;
-            if (!items) return null;
-            // проверяем что хотя бы один контейнер есть
-            if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
-        } catch(e) {}
-        return null;
-    }
-
+    // ── Основная функция ─────────────────────────────────────────────────
     function swapTaserDeagle() {
-        // Проверка формы — авто-тазер работает только в МВД скине
         if (!mvdSkins.includes(skinId)) {
-            console.log('[АВТО-ТАЗЕР] не МВД форма, пропуск');
+            log(`не МВД форма (skinId=${skinId}), пропуск`);
             return;
         }
         if (_busy) {
-            console.log('[АВТО-ТАЗЕР] занят, пропуск');
+            log('занят, пропуск');
             return;
         }
         _busy = true;
         _busyTimer = setTimeout(() => {
-            if (_busy) { _busy = false; console.log('[АВТО-ТАЗЕР] таймаут сброса'); }
+            if (_busy) { _busy = false; log('таймаут сброса _busy (5s)'); }
         }, 5000);
 
-        console.log('[АВТО-ТАЗЕР] открываем инвентарь...');
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+        const T0 = performance.now();
+        log(`▶ ─────────── СТАРТ СВОПА ─────────── skinId=${skinId}`);
 
-        // Polling: ждём пока items появятся (инвентарь открылся)
-        let attempts = 0;
-        const maxAttempts = 40; // 40 * 50ms = 2 секунды
+        // ── wasOpen fix: OnInventoryDisplayChange — тогл ──────────────────
+        // Если инвентарь открыт — вызов закроет его. Проверяем заранее.
+        const T_check = performance.now();
+        const wasOpen = tryGetItems() !== null;
+        log(`wasOpen=${wasOpen}  (проверка: ${(performance.now() - T_check).toFixed(2)}ms)`);
+        logInvState('состояние ДО');
+
+        if (!wasOpen) {
+            log(`→ sendClientEvent OnInventoryDisplayChange  (+${(performance.now() - T0).toFixed(1)}ms)`);
+            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+        } else {
+            log('→ инвентарь уже открыт — тогл пропущен');
+        }
+
+        // ── Polling ───────────────────────────────────────────────────────
+        let attempts   = 0;
+        let T_mount    = null; // когда interface() стал не null
+        let T_items    = null; // когда tryGetItems() вернул данные
+        const maxAttempts = 40; // 40 × 50ms = 2000ms
+
         const poll = setInterval(() => {
             attempts++;
+            const Tnow = performance.now();
+
+            // Логируем момент монтирования компонента (первый раз)
+            if (T_mount === null) {
+                try {
+                    const inv = window.interface('InventoryNew');
+                    if (inv) {
+                        T_mount = Tnow;
+                        const hasItems = !!(inv.items);
+                        log(`interface смонтирован  +${(T_mount - T0).toFixed(1)}ms  попытка=${attempts}  items=${hasItems ? 'есть' : 'null'}`);
+                    }
+                } catch (e) {}
+            }
+
+            // Каждые 5 попыток — статус поллинга
+            if (attempts % 5 === 0 && T_items === null) {
+                log(`поллинг: ${attempts} попыток  прошло ${(Tnow - T0).toFixed(0)}ms  items=null`);
+            }
+
             const items = tryGetItems();
 
             if (!items) {
                 if (attempts >= maxAttempts) {
                     clearInterval(poll);
-                    console.log('[АВТО-ТАЗЕР] items не появились, отмена');
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                    const T_fail = performance.now();
+                    log(`✗ items не появились за ${(T_fail - T0).toFixed(0)}ms (${attempts} попыток)`);
+                    logInvState('состояние при таймауте');
+                    if (!wasOpen) {
+                        log('→ OnInventoryDisplayChange (откат — закрываем)');
+                        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                    }
                     snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
                     clearBusy();
                 }
@@ -3064,46 +3162,60 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
 
             clearInterval(poll);
-            console.log(`[АВТО-ТАЗЕР] items получены (попытка ${attempts})`);
+            T_items = performance.now();
+            log(`✓ items готовы  +${(T_items - T0).toFixed(1)}ms  попыток=${attempts}`);
+            if (T_mount !== null) log(`  (mount→items: ${(T_items - T_mount).toFixed(1)}ms)`);
+            logInvState('содержимое инвентаря');
 
+            // ── Поиск дигла ───────────────────────────────────────────────
+            const T_f0 = performance.now();
             const deagleLoc = findItem(items, ITEM_DEAGLE);
+            log(`findItem завершён за ${(performance.now() - T_f0).toFixed(2)}ms`);
+
             if (!deagleLoc) {
-                console.log('[АВТО-ТАЗЕР] дигл не найден');
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                log('✗ дигл не найден → отмена');
+                if (!wasOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
                 clearBusy();
                 return;
             }
 
+            // ── Направление свопа ─────────────────────────────────────────
             let fromCid, toCid;
-            if (deagleLoc.cid === CT.INV) {
-                fromCid = CT.INV; toCid = CT.BACK;
-            } else if (deagleLoc.cid === CT.BACK) {
-                fromCid = CT.BACK; toCid = CT.INV;
-            } else {
-                console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+            if      (deagleLoc.cid === CT.INV)  { fromCid = CT.INV;  toCid = CT.BACK; }
+            else if (deagleLoc.cid === CT.BACK)  { fromCid = CT.BACK; toCid = CT.INV;  }
+            else {
+                log(`✗ дигл в ${CT_NAMES[deagleLoc.cid]} — не INV/BACK, отмена`);
+                if (!wasOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 clearBusy();
                 return;
             }
 
             const toSlot = findFreeSlot(items, toCid);
             if (toSlot < 0) {
-                console.log('[АВТО-ТАЗЕР] нет свободного слота');
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                log(`✗ нет свободного слота в ${CT_NAMES[toCid]}`);
+                if (!wasOpen) sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
                 clearBusy();
                 return;
             }
 
-            const direction = (fromCid === CT.INV) ? 'Дигл -> Рюкзак' : 'Дигл -> Инвентарь';
-            console.log(`[АВТО-ТАЗЕР] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] -> ${CT_NAMES[toCid]}[${toSlot}]`);
+            // ── Move ──────────────────────────────────────────────────────
+            const direction = (fromCid === CT.INV) ? 'Дигл → Рюкзак' : 'Дигл → Инвентарь';
+            const T_move = performance.now();
+            log(`→ OnInventoryItemMove  ${CT_NAMES[fromCid]}[${deagleLoc.slot}] → ${CT_NAMES[toCid]}[${toSlot}] x${deagleLoc.count}  +${(T_move - T0).toFixed(1)}ms`);
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
                 fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
 
-            // Закрываем инвентарь через 150мс после хода
             setTimeout(() => {
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                if (!wasOpen) {
+                    log('→ OnInventoryDisplayChange (закрываем)');
+                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                } else {
+                    log('→ инвентарь был открыт до нас — не закрываем');
+                }
+                const T_done = performance.now();
+                log(`■ ─── ГОТОВО: ${direction}  итого ${(T_done - T0).toFixed(0)}ms ───`);
                 snAdd(`[1, "АВТО-ТАЗЕР", "${direction}", "00CC44", 2000]`);
                 clearBusy();
             }, 150);
@@ -3112,6 +3224,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[АВТО-ТАЗЕР] v15 готов');
+    log('v17 готов');
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
