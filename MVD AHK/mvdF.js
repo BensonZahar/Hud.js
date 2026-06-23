@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.199999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1171,6 +1171,7 @@ const closeTrackingNotifications = () => {
 // обратного отсчёта в showTrackingTimer) и, если сейчас не идёт КД-таймер,
 // сразу обновляет таймер-уведомление на свежие 31с
 const sendSetmarkCommand = (id) => {
+    if (!id) return; // защита от гонки: отслеживание уже остановлено к моменту вызова
     lastSetmarkSentAt = Date.now();
     sendChatInput(`/setmark ${id}`);
     if (setmarkCdTimerId === null) {
@@ -1238,10 +1239,13 @@ const startTracking = (id) => {
     // После отправки сразу запускаем цепочку scheduleSetmark — она сработает ровно
     // через 31с, когда таймер-уведомление дойдёт до нуля → мигания не будет.
     setTimeout(() => {
+        if (!currentScanId) return; // защита от гонки: отслеживание уже остановлено (например "невозможно определить местоположение")
         sendSetmarkCommand(currentScanId);
         scheduleSetmark(); // следующий /setmark ровно через 31с (синхронно с таймером)
         setTimeout(() => {
-            sendChatInput(`/pg ${currentScanId}`);
+            if (currentScanId) {                 // повторная проверка — стоп мог произойти за эту секунду
+                sendChatInput(`/pg ${currentScanId}`);
+            }
         }, 1000);
     }, 500);
  
