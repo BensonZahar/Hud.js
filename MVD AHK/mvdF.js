@@ -388,6 +388,9 @@ let ukPage = 0;
 let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
+let lastTakeLicCode = null;    // статья КоАП для авто-подстановки в серверный диалог изъятия прав
+let _autoTakeLicActive = false; // флаг: /takelic отправлен через наш диалог → авто-выбор "Водительские права"
+let _awaitingTakeLicInput = false; // флаг: ожидаем INPUT диалог "Укажите причину" после выбора лицензии
 // Публичный API для LawsHelper — устанавливает причину и активирует авто-розыск
 window._mvdSetLastWantedCode = function(code) {
     lastWantedCode = code;
@@ -1952,6 +1955,13 @@ window._mvdExecuteAction = function(action, id) {
     currentMenu = "povsednev";
     executePovsednevAction(action, giveLicenseTo);
 };
+// Публичный API для LawsHelper — передаёт статью КоАП и активирует авто-подстановку в серверный диалог /takelic
+window._mvdSetTakeLicReason = function(reason) {
+    lastTakeLicCode = reason;
+    _autoTakeLicActive = true;
+    setTimeout(() => { _autoTakeLicActive = false; }, 10000);
+    console.log(`[AUTO-TAKELIC] Причина установлена через LawsHelper: "${reason}"`);
+};
 window.showStroyMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "stroy";
@@ -2065,6 +2075,10 @@ window.showUkInputDialog = (e) => {
     window._duranWantedTargetId = (e !== undefined && e !== null) ? e : -1;
     window.openInterface('LawsHelper');
 };
+window.showTakeLicReasonDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[684,1,"Причина изъятия прав","Введите статью КоАП (пр.: 3.1):","Подтвердить","Отмена",0,0]`, "", 0);
+};
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
     window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
@@ -2086,7 +2100,7 @@ window.sendClientEventCustom = (event, ...args) => {
 
     // Alt+Q — авто-тазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
-    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 683)) {
+    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 684)) {
         if (args[1] === 666) { // Главное меню
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
@@ -2119,6 +2133,13 @@ window.sendClientEventCustom = (event, ...args) => {
             const resolvedAction = currentAction || window._mvdMenuPendingAction || null;
             if (args[2] === 1 && resolvedAction) {
                 giveLicenseTo = inputId;
+                if (resolvedAction === 'takeLicense') {
+                    // Перед выполнением изъятия — запросить статью КоАП (причина для серверного диалога)
+                    currentAction = null;
+                    window._mvdMenuPendingAction = null;
+                    setTimeout(() => showTakeLicReasonDialog(giveLicenseTo), 50);
+                    return;
+                }
                 executePovsednevAction(resolvedAction, inputId);
             }
             currentAction = null;
@@ -2290,6 +2311,19 @@ window.sendClientEventCustom = (event, ...args) => {
             }
         }
         // ==================== КОНЕЦ НАПАРНИК ДИАЛОГИ ====================
+        else if (args[1] === 684) { // Причина изъятия прав (статья КоАП)
+            const reason = args[4];
+            if (args[2] === 1 && reason && reason.trim()) {
+                const trimmed = reason.trim();
+                // Добавить " КоАП" если ещё не указан тип
+                lastTakeLicCode = /КоАП|УК/i.test(trimmed) ? trimmed : trimmed + ' КоАП';
+                _autoTakeLicActive = true;
+                setTimeout(() => { _autoTakeLicActive = false; }, 10000);
+                console.log(`[AUTO-TAKELIC] Причина установлена: "${lastTakeLicCode}" — запускаем изъятие`);
+                executePovsednevAction('takeLicense', giveLicenseTo);
+            }
+            // Отмена — ничего не делаем (закрываем без действия)
+        }
     } else if (args[0] === "OnDialogResponse" && _wantedDialogId !== null && args[1] === _wantedDialogId) {
         // ==================== /WANTED: ВЫБОР ИГРОКА → АВТО-ОТСЛЕЖИВАНИЕ ====================
         if (args[2] === 1) {
@@ -2515,6 +2549,56 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     );
                     console.log('[AUTO-РОЗЫСК] Отправлен выбор пункта 2 (ввести вручную)');
                 }, 200);
+            }
+
+            // ── Авто-изъятие: LIST "Выберите лицензию" → авто-выбор "Водительские права" (listitem=1) ──
+            if (style === 2 && title.includes('Выберите лицензию') && _autoTakeLicActive) {
+                _autoTakeLicActive = false;
+                _awaitingTakeLicInput = true;
+                const _takeLicListDlgId = dialogId;
+                console.log('[AUTO-TAKELIC] Обнаружен диалог выбора лицензии — авто-выбор "Водительские права"');
+                setTimeout(() => {
+                    sendClientEvent(
+                        (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+                            ? window.gm.EVENT_EXECUTE_PUBLIC
+                            : 'server',
+                        'OnDialogResponse', _takeLicListDlgId, 1, 1, ''
+                    );
+                    console.log('[AUTO-TAKELIC] Отправлен выбор "Водительские права" (listitem=1)');
+                }, 200);
+            }
+
+            // ── Авто-изъятие: INPUT "Укажите причину" → авто-ввод статьи КоАП ──
+            if (style === 1 && title.includes('Укажите причину') && _awaitingTakeLicInput) {
+                _awaitingTakeLicInput = false;
+                const reason = lastTakeLicCode || '3.1 КоАП';
+                const _takeLicInputDlgId = dialogId;
+                console.log(`[AUTO-TAKELIC] Обнаружен диалог ввода причины — авто-ввод "${reason}"`);
+                setTimeout(() => {
+                    _origSendClientEventHandle.call(
+                        window,
+                        (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+                            ? window.gm.EVENT_EXECUTE_PUBLIC
+                            : 'server',
+                        'OnDialogResponse', _takeLicInputDlgId, 1, 0, reason
+                    );
+                    console.log(`[AUTO-TAKELIC] Причина "${reason}" отправлена`);
+                    lastTakeLicCode = null;
+                    setTimeout(() => {
+                        try { if (typeof window.removeDialogFromQueue === 'function') window.removeDialogFromQueue(); } catch(e) {}
+                        try { if (typeof window.closeDialog === 'function') window.closeDialog(); } catch(e) {}
+                        try {
+                            const dlgInterface = window.interface && window.interface('Dialog');
+                            if (dlgInterface && typeof dlgInterface.close === 'function') dlgInterface.close();
+                            if (dlgInterface && typeof dlgInterface.hide === 'function') dlgInterface.hide();
+                        } catch(e) {}
+                        try {
+                            const escEvent = new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true });
+                            document.dispatchEvent(escEvent);
+                        } catch(e) {}
+                        console.log('[AUTO-TAKELIC] Диалог закрыт');
+                    }, 100);
+                }, 300);
             }
 
             // ── Авто-розыск: INPUT "Причина выдачи розыска" → вставить причину и закрыть диалог ──
