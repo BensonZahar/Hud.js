@@ -62,34 +62,51 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 			// ─── ТАБ: ЗАКОНЫ ──────────────────────────────────────────────
 			currentTabKey === "laws"
 				? (openBlock(), createElementBlock("div", {key:"laws", class:"laws-helper__laws-layout"}, [
-					createBaseVNode("div", {class:"laws-helper__tree"}, [
+					createBaseVNode("div", {class:"laws-helper__laws-list laws-helper__laws-flat"}, [
+						createBaseVNode("div", {class:"laws-helper__fine-filter laws-helper__law-filter"}, [
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "all"}]),
+								onClick: $event => { $data.lawDocType = "all"; }
+							}, "Все", 10, ["onClick"]),
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_koap", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "koap"}]),
+								onClick: $event => { $data.lawDocType = "koap"; }
+							}, "КоАП", 10, ["onClick"]),
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_uk", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "uk"}]),
+								onClick: $event => { $data.lawDocType = "uk"; }
+							}, "УК", 10, ["onClick"]),
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_proc", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "proc"}]),
+								onClick: $event => { $data.lawDocType = "proc"; }
+							}, "Проц.", 10, ["onClick"]),
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_kto", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "kto"}]),
+								onClick: $event => { $data.lawDocType = "kto"; }
+							}, "КТО", 10, ["onClick"]),
+							createBaseVNode("div", {
+								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_euss", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "euss"}]),
+								onClick: $event => { $data.lawDocType = "euss"; }
+							}, "ЕУСС", 10, ["onClick"])
+						]),
 						(openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredLawDocuments, (doc) => (
-							openBlock(), createElementBlock("div", {key:doc.id, class:"laws-helper__tree-doc"}, [
-								createBaseVNode("div", {
-									class: normalizeClass(["laws-helper__tree-doc-row", {"laws-helper__tree-doc-row_open": $data.expandedDocs.includes(doc.id)}]),
-									onClick: $event => $options.toggleDoc(doc.id)
-								}, [
-									createBaseVNode("span", {
-										class: normalizeClass(["laws-helper__tree-chevron", {"laws-helper__tree-chevron_open": $data.expandedDocs.includes(doc.id)}]),
-										innerHTML: SVG_CHEVRON
-									}, null, 2),
-									createBaseVNode("span", {class:"laws-helper__tree-doc-icon", innerHTML: SVG_DOC}),
-									createBaseVNode("span", {class:"laws-helper__tree-doc-title"}, toDisplayString(doc.title), 1)
-								], 10, ["onClick"]),
-								$data.expandedDocs.includes(doc.id)
-									? (openBlock(), createElementBlock("div", {key:"arts", class:"laws-helper__tree-articles"}, [
-										(openBlock(true), createElementBlock(Fragment, null, renderList(doc.articles, (art) => (
-											openBlock(), createElementBlock("div", {
-												key: art.id,
-												class: normalizeClass(["laws-helper__tree-article", {"laws-helper__tree-article_active": $data.selectedLawArticleId === art.id}]),
-												onClick: $event => $options.selectLawArticle(art.id)
-											}, [
-												createBaseVNode("span", {class:"laws-helper__tree-article-num"}, toDisplayString(art.num), 1),
-												createBaseVNode("span", {class:"laws-helper__tree-article-title"}, toDisplayString(art.title), 1)
-											], 10, ["onClick"])
-										)), 128))
-									]))
-									: createCommentVNode("", true)
+							openBlock(), createElementBlock("div", {key:doc.id, class:"laws-helper__laws-section"}, [
+								createBaseVNode("div", {class:"laws-helper__laws-section-hdr"}, [
+									createBaseVNode("span", {class:"laws-helper__laws-section-icon", innerHTML: SVG_DOC}),
+									createBaseVNode("span", {class:"laws-helper__laws-section-title"}, toDisplayString(doc.title), 1)
+								]),
+								(openBlock(true), createElementBlock(Fragment, null, renderList(doc.articles, (art) => (
+									openBlock(), createElementBlock("div", {
+										key: art.id,
+										class: normalizeClass(["laws-helper__article-row", {"laws-helper__article-row_checked": $data.selectedLawArticleId === art.id}]),
+										onClick: $event => $options.selectLawArticle(art.id)
+									}, [
+										createBaseVNode("div", {class:"laws-helper__article-num"}, toDisplayString(art.num), 1),
+										createBaseVNode("div", {class:"laws-helper__article-info"}, [
+											createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1)
+										])
+									], 10, ["onClick"])
+								)), 128))
 							])
 						)), 128))
 					]),
@@ -537,6 +554,7 @@ const _sfc_main={
 			fineWithRevoke:false, // чекбокс "с изъятием вод. удостоверения"
 			// ── ЗАКОНЫ: дерево документов ─────────────────────────────
 			lawDocuments:LAW_DOCUMENTS,
+			lawDocType:"all", // 'all' | doc.id (koap | uk | proc | kto | euss)
 			expandedDocs:[LAW_DOCUMENTS[0]?.id].filter(Boolean), // первый документ раскрыт по умолчанию
 			selectedLawArticleId:null,
 			tabs:[
@@ -599,13 +617,17 @@ const _sfc_main={
 		// ── ЗАКОНЫ: дерево с фильтрацией по поиску ───────────────
 		filteredLawDocuments(){
 			const q=this.search.trim().toLowerCase();
-			if(!q)return this.lawDocuments;
-			return this.lawDocuments
+			let docs=this.lawDocuments;
+			if(this.lawDocType!=="all")docs=docs.filter(d=>d.id===this.lawDocType);
+			if(!q)return docs;
+			return docs
 				.map(doc=>{
-					const matchedArticles=doc.articles.filter(a=>
-						a.num.toLowerCase().includes(q)||
-						a.title.toLowerCase().includes(q)
-					);
+					const matchedArticles=doc.articles.filter(a=>{
+						const plainText=a.text?a.text.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').toLowerCase():'';
+						return a.num.toLowerCase().includes(q)||
+						       a.title.toLowerCase().includes(q)||
+						       plainText.includes(q);
+					});
 					if(doc.title.toLowerCase().includes(q))return doc;
 					if(matchedArticles.length===0)return null;
 					return{...doc,articles:matchedArticles};
@@ -766,6 +788,20 @@ const _sfc_main={
 .laws-helper__reader-empty{align-items:center;display:flex;flex-direction:column;gap:1.11vh;height:100%;justify-content:center;opacity:0.6;}
 .laws-helper__reader-empty-icon{opacity:0.5;}
 .laws-helper__reader-empty-text-block{color:#f4f1e166;display:flex;flex-direction:column;font-family:"Open Sans",var(--fallback-font);font-size:1.11vh;line-height:1.5;text-align:center;}
+
+/* ══ ЗАКОНЫ flat list (hints style) ════════════════════════════ */
+.laws-helper__laws-flat{border-right:0.19vh solid #f4f1e11a;flex:0 0 40%!important;max-width:40%!important;}
+.laws-helper__laws-section-hdr{align-items:center;background:#141419;border-bottom:0.09vh solid #f4f1e11a;border-top:0.19vh solid #f4f1e10d;display:flex;gap:0.56vh;padding:0.65vh 1.11vh;position:sticky;top:0;z-index:1;}
+.laws-helper__laws-section:first-child .laws-helper__laws-section-hdr{border-top:none;}
+.laws-helper__laws-section-icon{align-items:center;display:flex;flex-shrink:0;}
+.laws-helper__laws-section-title{color:#f9b701cc;font-family:"Open Sans",var(--fallback-font);font-size:1.11vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;}
+/* ── Цвета кнопок фильтра документов ────────────────────────── */
+.laws-helper__law-filter{flex-wrap:wrap;gap:0.37vh;}
+.laws-helper__law-filter-btn_koap.laws-helper__fine-filter-btn_active{background:rgba(10,153,71,.1);border-color:rgba(10,153,71,.4);color:#0a9947;}
+.laws-helper__law-filter-btn_uk.laws-helper__fine-filter-btn_active{background:rgba(226,85,68,.1);border-color:rgba(226,85,68,.4);color:#e25544;}
+.laws-helper__law-filter-btn_proc.laws-helper__fine-filter-btn_active{background:rgba(100,149,237,.1);border-color:rgba(100,149,237,.4);color:#6495ed;}
+.laws-helper__law-filter-btn_kto.laws-helper__fine-filter-btn_active{background:rgba(255,140,0,.1);border-color:rgba(255,140,0,.4);color:#ff8c00;}
+.laws-helper__law-filter-btn_euss.laws-helper__fine-filter-btn_active{background:rgba(153,50,204,.1);border-color:rgba(153,50,204,.4);color:#9932cc;}
 `
 		document.head.appendChild(_style);
 		// ── Режим открытия: 'wanted' | 'fine' | null ────────────────
