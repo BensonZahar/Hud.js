@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.2 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -519,7 +519,7 @@ window.addEventListener('keydown', function(e) {
             if (_needsIdForThis) {
                 // FIX: открываем кастомный экран ввода ID внутри MvdMenu (а не нативный
                 // диалог 668), чтобы хоткей вёл себя так же, как обычный клик по пункту меню.
-                window._mvdMenuTargetId = null;
+                window._mvdMenuTargetId = (giveLicenseTo !== undefined && giveLicenseTo !== null && giveLicenseTo !== -1) ? giveLicenseTo : null;
                 window._mvdMenuDirectAction = _action;
                 setTimeout(function(){ window.openInterface('MvdMenu'); }, 50);
             } else if (_action === 'fine') {
@@ -1788,7 +1788,6 @@ const executePovsednevAction = (action, targetId) => {
       
         case "takeLicense":
             sendMessagesWithDelay([
-                /* Отыгровка изъятия прав — временно отключена
                 "/me взял права, затем переложил их в левую руку",
                 "/me взял блокнот и ручку в правую руку",
                 "/do Блокнот и ручка в руке.",
@@ -1796,9 +1795,8 @@ const executePovsednevAction = (action, targetId) => {
                 "/do Данные заполнены.",
                 "/me забрал водительские права",
                 "/do Водительские права изъяты.",
-                */
                 `/takelic ${targetId}`
-            ], [0]);
+            ], [0, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
             break;
         case "miranda":
             sendMessagesWithDelay([
