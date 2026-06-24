@@ -519,7 +519,7 @@ window.addEventListener('keydown', function(e) {
             if (_needsIdForThis) {
                 // FIX: открываем кастомный экран ввода ID внутри MvdMenu (а не нативный
                 // диалог 668), чтобы хоткей вёл себя так же, как обычный клик по пункту меню.
-                window._mvdMenuTargetId = (giveLicenseTo !== undefined && giveLicenseTo !== null && giveLicenseTo !== -1) ? giveLicenseTo : null;
+                window._mvdMenuTargetId = null;
                 window._mvdMenuDirectAction = _action;
                 setTimeout(function(){ window.openInterface('MvdMenu'); }, 50);
             } else if (_action === 'fine') {
@@ -961,6 +961,14 @@ const setupChatHandler = () => {
                                 } else {
                                     console.log('[FINE-LOG] ⏭ Таймер КД штрафа отключён (FINE_CD_TIMER_ENABLED=false)');
                                 }
+                            }
+                            // ── Авто-изъятие прав: если ZKM выставил pending ID — запускаем /takelic
+                            // сразу после подтверждения штрафа (диалог уже закрыт)
+                            if (window._mvdPendingTakeLicId) {
+                                const _pendingId = window._mvdPendingTakeLicId;
+                                window._mvdPendingTakeLicId = null;
+                                console.log(`[AUTO-TAKELIC] ✅ Штраф подтверждён — запускаем /takelic для ID ${_pendingId}`);
+                                setTimeout(() => { executePovsednevAction('takeLicense', _pendingId); }, 600);
                             }
                         } else {
                             console.log(`[FINE-LOG] ⏭ Штраф выписан не нами (issuer="${issuerNick}", ownNick="${ownNick}") — таймер не запускаем`);
@@ -1788,6 +1796,7 @@ const executePovsednevAction = (action, targetId) => {
       
         case "takeLicense":
             sendMessagesWithDelay([
+                /* Отыгровка изъятия прав — временно отключена
                 "/me взял права, затем переложил их в левую руку",
                 "/me взял блокнот и ручку в правую руку",
                 "/do Блокнот и ручка в руке.",
@@ -1795,8 +1804,9 @@ const executePovsednevAction = (action, targetId) => {
                 "/do Данные заполнены.",
                 "/me забрал водительские права",
                 "/do Водительские права изъяты.",
+                */
                 `/takelic ${targetId}`
-            ], [0, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+            ], [0]);
             break;
         case "miranda":
             sendMessagesWithDelay([
@@ -2905,7 +2915,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             console.log(`[GRAB] freeInvSlots (до взятия):`, freeInvSlots);
             console.log(`[GRAB] freeBACKSlots (до взятия):`, freeBACKSlots);
             closeInventory();
-            await sleep(150);
+            await sleep(50);
 
             if (!Object.values(need).some(Boolean)) {
                 notify("МВД", "Всё снаряжение есть ✓", "00FF00");
@@ -2939,7 +2949,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             console.log(`[GRAB] toTake:`, toTake.map(t => `${t.name}(idx=${t.idx})`).join(', '));
 
             for (let i = 0; i < toTake.length; i++) {
-                const delay = Math.floor(Math.random() * 700) + 500; // рандом 500–1200мс
+                const delay = Math.floor(Math.random() * 150) + 250; // рандом 250–400мс
                 console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${delay}мс]`);
                 take(toTake[i].idx);
                 await sleep(delay); // случайная задержка между предметами
