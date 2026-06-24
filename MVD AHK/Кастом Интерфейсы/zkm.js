@@ -910,8 +910,11 @@ const _sfc_main={
 				setTimeout(()=>{
 					// Передаём статьи КоАП как причину изъятия — авто-подстановка в серверный диалог /takelic
 					if(typeof window._mvdSetTakeLicReason==="function")window._mvdSetTakeLicReason(revokeCodes+" КоАП");
-					if(typeof window._mvdExecuteAction==="function")window._mvdExecuteAction("takeLicense",id);
-				},300);
+					// НЕ вызываем _mvdExecuteAction здесь — /takelic запустится из mvdF.js
+					// ПОСЛЕ подтверждения штрафа в чате (диалог закрыт)
+					window._mvdPendingTakeLicId = id;
+					console.log("[ZKM] _mvdPendingTakeLicId = "+id+" — ждём подтверждения штрафа");
+				},100);
 			}
 			this.close()
 		},
