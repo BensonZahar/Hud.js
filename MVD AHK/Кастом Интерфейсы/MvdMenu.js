@@ -308,6 +308,7 @@ const _sfc_main={
                 : "Напарник";
             items.push({id:"naparnick", label: partnerLabel, arrow:true});
             items.push({id:"laws", label:"Законы", arrow:true});
+            items.push({id:"advokat", label:"Вызов адвоката", arrow:true});
             return items;
         },
         visibleOptions(){
@@ -469,6 +470,11 @@ const _sfc_main={
                 this.close();
                 setTimeout(()=>{
                     window.openInterface("Zkm");
+                },80);
+            } else if(item.id==="advokat"){
+                this.close();
+                setTimeout(()=>{
+                    window.openInterface("AdvMenu");
                 },80);
             }
         },

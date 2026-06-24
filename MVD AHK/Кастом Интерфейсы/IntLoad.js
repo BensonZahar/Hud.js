@@ -45,6 +45,8 @@
     window._duranCustomInterfaces = [
         { name: "Zkm",     files: ["zkm.js", "zkm.css"], hideHud: false, hideChat: false, type: "interface" },
         { name: "MvdMenu", files: ["MvdMenu.js"],         hideHud: false, hideChat: false, type: "interface" },
+        // AdvMenu — интерфейс «Вызов адвоката» (открывается из MvdMenu → пункт «Вызов адвоката»)
+        { name: "AdvMenu", files: ["AdvMenu.js"],         hideHud: false, hideChat: false, type: "interface" },
         { name: "ZkmScreenNotification", files: ["ZkmScreenNotification.js", "ZkmScreenNotification.css"], type: "sideEffect" },
     ];
 
