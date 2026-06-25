@@ -1,4 +1,4 @@
-import os, sys, base64, hashlib, socket, threading, time
+import os, sys, base64, hashlib, threading, time
 import winreg, requests
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor
@@ -32,24 +32,12 @@ def get_hwid() -> str:
     return hashlib.sha256(guid.encode()).hexdigest()[:16].upper()
 
 
-def get_device_name() -> str:
-    return os.getenv("COMPUTERNAME", socket.gethostname())
-
-
 def is_authorized(hwid: str) -> bool:
     """Бросает исключение при сетевой ошибке. False = ключ не найден."""
     resp = requests.get(KEYS_URL, timeout=10)
     resp.raise_for_status()
     keys = resp.json()
-    if hwid not in keys:
-        return False
-    entry = keys[hwid]
-    if isinstance(entry, str):
-        return True
-    allowed_device = entry.get("device", "")
-    if allowed_device and allowed_device.strip():
-        return get_device_name().lower() == allowed_device.strip().lower()
-    return True
+    return hwid in keys
 
 
 def get_icon_b64() -> str:
@@ -219,8 +207,7 @@ function setStatus(txt,isError){
 # ── Окно "нет доступа" ────────────────────────────────
 def show_denied_window(hwid: str):
     import webview, tempfile
-    device    = get_device_name()
-    keys_line = f'"{hwid}": {{"device": "{device}", "note": ""}}'
+    keys_line = f'"{hwid}": ""'
 
     html = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
 <link href='https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap' rel='stylesheet'>
