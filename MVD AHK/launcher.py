@@ -34,7 +34,7 @@ def get_hwid() -> str:
 
 def is_authorized(hwid: str) -> bool:
     """Бросает исключение при сетевой ошибке. False = ключ не найден."""
-    resp = requests.get(KEYS_URL, params={"v": int(time.time())}, timeout=10)
+    resp = requests.get(KEYS_URL, timeout=10)
     resp.raise_for_status()
     keys = resp.json()
     return hwid in keys
