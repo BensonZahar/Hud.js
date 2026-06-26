@@ -29,7 +29,7 @@ def resource_path(relative_path):
 USER_CONFIGS = {
     'Zahar': {
         'CHAT_IDS': ['-1003040555627'],
-        'PASSWORD': 'zahar2007',
+        'PASSWORD': 'zahar200',
         'RECONNECT_ENABLED_DEFAULT': True,
         'BOT_TOKENS': {
             '1': '8512909288:AAFlMnAVAHTLBWWnhI2pM6sxzFkUuEqWzJs',  # @hasslep_bot
@@ -85,7 +85,7 @@ class MEmuHudManager:
         self.full_logging = False
         self.debug_allowed = False
         self.launch_allowed = False
-        self.bot_token = os.getenv("BOT_TOKEN", "8512909288:AAEoTnIgdkvmrZ6DIVEgVFnG97tOzQQK3KU")
+        self.bot_token = os.getenv("BOT_TOKEN", "8512909288:AAFlMnAVAHTLBWWnhI2pM6sxzFkUuEqWzJs")
         self.chat_id = os.getenv("CHAT_ID", "1046461621")
         self.telegram_message_id = None
         self.waiting_message_id = None
