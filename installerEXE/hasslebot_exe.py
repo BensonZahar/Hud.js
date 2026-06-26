@@ -21,34 +21,6 @@ def resource_path(relative_path):
     except AttributeError:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
-
-# ============================================================
-# Конфигурации пользователей (токены хранятся только здесь)
-# List.js на GitHub больше не нужен
-# ============================================================
-USER_CONFIGS = {
-    'Zahar': {
-        'CHAT_IDS': ['-1003040555627'],
-        'PASSWORD': 'zahar2007',
-        'RECONNECT_ENABLED_DEFAULT': True,
-        'BOT_TOKENS': {
-            '1': '8512909288:AAFlMnAVAHTLBWWnhI2pM6sxzFkUuEqWzJs',  # @hasslep_bot
-            '2': '8335162903:AAGa7TwdKg2BJQy4EocwUNV09lP78mv8hS4',  # @hacc01_bot
-            '3': '8549354393:AAGl3oXMVqbaChIkhbD-lQANeDpBx450-8Y',  # @hassleb9_bot
-            '4': '7314669193:AAEv8n9DBy5dt8sgIPT-PMwQc3VwtnBwcWw',  # @hassleb12_bot
-        }
-    },
-    'Kolya': {
-        'CHAT_IDS': ['-1003102212423'],
-        'PASSWORD': 'kol16052011',
-        'RECONNECT_ENABLED_DEFAULT': True,
-        'BOT_TOKENS': {
-            '1': '8496708572:AAHpNdpNEAQs9ecdosZn3sCsQqJhWdLRn7U',  # @kolya_bot1
-            '2': '7088892553:AAEQiujKWYXpH16m0L-KijpKXRT-i4UIoPE',  # @kolya_bot2
-        }
-    }
-}
-
 class MEmuHudManager:
     def __init__(self):
         ctk.set_appearance_mode("dark")
@@ -85,7 +57,7 @@ class MEmuHudManager:
         self.full_logging = False
         self.debug_allowed = False
         self.launch_allowed = False
-        self.bot_token = os.getenv("BOT_TOKEN", "8512909288:AAFlMnAVAHTLBWWnhI2pM6sxzFkUuEqWzJs")
+        self.bot_token = os.getenv("BOT_TOKEN", "8512909288:AAEoTnIgdkvmrZ6DIVEgVFnG97tOzQQK3KU")
         self.chat_id = os.getenv("CHAT_ID", "1046461621")
         self.telegram_message_id = None
         self.waiting_message_id = None
@@ -216,42 +188,62 @@ class MEmuHudManager:
             if not self.full_logging:
                 self.log("Загрузка конфигураций...")
             else:
-                self.log("Загрузка конфигураций пользователей (локально)...")
-
-            users = list(USER_CONFIGS.keys())
-
+                self.log("Загрузка списка пользователей из List.js...")
+          
+            list_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/List.js"
+            response = requests.get(list_url, timeout=10)
+            response.raise_for_status()
+          
+            list_content = response.text
+          
+            # Парсим имена пользователей из List.js
+            import re
+            # Ищем строки вида: 'Zahar': { или "Zahar": {
+            user_pattern = r"['\"](\w+)['\"]:\s*\{"
+            users = re.findall(user_pattern, list_content)
+          
             if not users:
-                self.log("[X] Ошибка: Пользователи не найдены в USER_CONFIGS")
+                self.log("[X] Ошибка: Пользователи не найдены в List.js")
                 return False
-
-            # Считаем кол-во BOT_TOKENS на каждого пользователя
+          
+            # Парсим кол-во BOT_TOKENS на каждого пользователя
             self.user_token_counts = {}
             for user in users:
-                tokens = USER_CONFIGS[user].get('BOT_TOKENS', {})
-                self.user_token_counts[user] = len(tokens)
+                user_pos = list_content.find(f"'{user}'")
+                if user_pos == -1:
+                    user_pos = list_content.find(f'"{user}"')
+                chunk = list_content[user_pos:user_pos + 1200]
+                import re as _re
+                m = _re.search(r"BOT_TOKENS\s*:\s*\{([^}]+)\}", chunk, _re.DOTALL)
+                if m:
+                    keys = _re.findall(r"['\"]\d+[\'\"]", m.group(1))
+                    self.user_token_counts[user] = len(keys)
+                else:
+                    self.user_token_counts[user] = 8  # fallback
                 if self.full_logging:
                     self.log(f"[DEBUG] {user}: токенов = {self.user_token_counts[user]}")
 
-            # Формируем список пользователей
+            # Формируем список "файлов" на основе пользователей
             self.code_files = []
             for idx, user in enumerate(users):
                 self.code_files.append({
                     'name': f'{user}.js',
                     'url': None,
                     'html_url': None,
-                    'user': user
+                    'user': user # Это ключевое поле!
                 })
+              
                 if self.full_logging:
                     self.log(f"[DEBUG] Добавлен пользователь #{idx}: {user}")
-
+          
             if not self.full_logging:
                 self.log("[√] Успешно: Конфигурации загружены")
             else:
                 self.log(f"[√] Найдено {len(self.code_files)} пользователей: {', '.join(users)}")
                 self.log(f"[DEBUG] code_files: {self.code_files}")
-
+          
             return True
-
+          
         except Exception as e:
             self.log(f"[X] Ошибка: Не удалось загрузить конфигурации")
             if self.full_logging:
@@ -1540,24 +1532,6 @@ class MEmuHudManager:
             acc_num = self.selected_account_number or ''
             load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
             load_code = load_code.replace("const accountNumber = '';", f"const accountNumber = '{acc_num}';")
-
-            # Инжектируем USER_CONFIGS прямо в Load.js — List.js с GitHub больше не нужен
-            import json as _json
-            configs_js = f"window.USER_CONFIGS = {_json.dumps(USER_CONFIGS, ensure_ascii=False)};\n"
-            # Убираем загрузку List.js с GitHub
-            load_code = load_code.replace(
-                "console.log('📋 Загрузка List.js...');\n        await loadScriptFromGitHub('List.js');",
-                ""
-            )
-            load_code = load_code.replace(
-                "await loadScriptFromGitHub('List.js');",
-                ""
-            )
-            # Вставляем конфиги перед вызовом initializeScripts()
-            load_code = load_code.replace(
-                "initializeScripts();",
-                configs_js + "initializeScripts();"
-            )
           
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
