@@ -29,7 +29,7 @@ def resource_path(relative_path):
 USER_CONFIGS = {
     'Zahar': {
         'CHAT_IDS': ['-1003040555627'],
-        'PASSWORD': 'zahar200',
+        'PASSWORD': 'zahar2007',
         'RECONNECT_ENABLED_DEFAULT': True,
         'BOT_TOKENS': {
             '1': '8512909288:AAFlMnAVAHTLBWWnhI2pM6sxzFkUuEqWzJs',  # @hasslep_bot
