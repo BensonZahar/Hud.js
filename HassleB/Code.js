@@ -1121,75 +1121,25 @@ function sendAdminSpamAlert(adminMsg) {
         sendPing();
     });
 }
-// ─── Discord: конвертация HTML-тегов → Discord Markdown ──────────
-function htmlToDiscordMarkdown(html) {
-    return html
-        .replace(/<b>([\s\S]*?)<\/b>/g, '**$1**')
-        .replace(/<strong>([\s\S]*?)<\/strong>/g, '**$1**')
-        .replace(/<i>([\s\S]*?)<\/i>/g, '*$1*')
-        .replace(/<em>([\s\S]*?)<\/em>/g, '*$1*')
-        .replace(/<code>([\s\S]*?)<\/code>/g, '`$1`')
-        .replace(/<pre>([\s\S]*?)<\/pre>/g, '```\n$1\n```')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&amp;/g, '&')
-        .replace(/<[^>]+>/g, '');
-}
-
-// ─── Discord: отправка через Webhook ─────────────────────────────
-function sendToDiscord(message) {
-    const webhookUrl = window.DISCORD_WEBHOOK;
-    if (!webhookUrl) {
-        debugLog('[Discord] Webhook URL не задан, пропуск');
-        return;
-    }
-    const content = htmlToDiscordMarkdown(message);
-    if (!content.trim()) return;
-
-    const xhr = new XMLHttpRequest();
-    xhr.open('POST', webhookUrl, true);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.onload = function () {
-        if (xhr.status >= 200 && xhr.status < 300) {
-            debugLog('[Discord] Сообщение отправлено');
-        } else {
-            debugLog(`[Discord] Ошибка: ${xhr.status} ${xhr.responseText}`);
-        }
-    };
-    xhr.onerror = function () {
-        debugLog('[Discord] Ошибка сети при отправке webhook');
-    };
-    xhr.send(JSON.stringify({ content }));
-}
-
-// ─── Диспатч по MESSENGER_MODE: telegram / discord / both ────────
 function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
-    const mode = window.MESSENGER_MODE || 'telegram';
-
-    if (mode === 'telegram' || mode === 'both') {
-        config.chatIds.forEach(chatId => {
-            tgApi('sendMessage', {
-                chat_id: chatId,
-                text: message,
-                parse_mode: 'HTML',
-                disable_notification: silent,
-                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-            }, data => {
-                debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
-                const messageId = data.result.message_id;
-                if (message.includes('Hassle | Bot') && message.includes('Текущие настройки')) {
-                    globalState.lastWelcomeMessageId = messageId;
-                }
-                if (message.includes('+ PayDay |')) {
-                    globalState.lastPaydayMessageIds.push({ chatId, messageId });
-                }
-            });
+    config.chatIds.forEach(chatId => {
+        tgApi('sendMessage', {
+            chat_id: chatId,
+            text: message,
+            parse_mode: 'HTML',
+            disable_notification: silent,
+            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+        }, data => {
+            debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
+            const messageId = data.result.message_id;
+            if (message.includes('Hassle | Bot') && message.includes('Текущие настройки')) {
+                globalState.lastWelcomeMessageId = messageId;
+            }
+            if (message.includes('+ PayDay |')) {
+                globalState.lastPaydayMessageIds.push({ chatId, messageId });
+            }
         });
-    }
-
-    if (mode === 'discord' || mode === 'both') {
-        sendToDiscord(message);
-    }
+    });
 }
 // END TELEGRAM API MODULE //
 
@@ -1232,38 +1182,28 @@ function sendWelcomeMessage() {
     // Хранилище ID приветственного сообщения отдельно по каждому чату
     if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = {};
 
-    const _welcomeMode = window.MESSENGER_MODE || 'telegram';
-
-    if (_welcomeMode === 'telegram' || _welcomeMode === 'both') {
-        config.chatIds.forEach(chatId => {
-            const existingId = globalState.welcomeMessageIds[chatId];
-            if (existingId) {
-                // Редактируем уже отправленное сообщение — не шлём новое
-                editMessageText(chatId, existingId, message, replyMarkup);
-            } else {
-                // Первый запуск: отправляем и запоминаем ID
-                tgApi('sendMessage', {
-                    chat_id: chatId,
-                    text: message,
-                    parse_mode: 'HTML',
-                    disable_notification: false,
-                    reply_markup: JSON.stringify(replyMarkup)
-                }, data => {
-                    if (data && data.result) {
-                        globalState.welcomeMessageIds[chatId] = data.result.message_id;
-                        globalState.lastWelcomeMessageId = data.result.message_id;
-                        debugLog(`[WELCOME] Сообщение отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
-                    }
-                });
-            }
-        });
-    }
-
-    // Discord: кнопка "⚙️ Управление" работает только через Telegram callback_query,
-    // у вебхука такой интерактивности нет — шлём то же сообщение обычным текстом.
-    if (_welcomeMode === 'discord' || _welcomeMode === 'both') {
-        sendToDiscord(message);
-    }
+    config.chatIds.forEach(chatId => {
+        const existingId = globalState.welcomeMessageIds[chatId];
+        if (existingId) {
+            // Редактируем уже отправленное сообщение — не шлём новое
+            editMessageText(chatId, existingId, message, replyMarkup);
+        } else {
+            // Первый запуск: отправляем и запоминаем ID
+            tgApi('sendMessage', {
+                chat_id: chatId,
+                text: message,
+                parse_mode: 'HTML',
+                disable_notification: false,
+                reply_markup: JSON.stringify(replyMarkup)
+            }, data => {
+                if (data && data.result) {
+                    globalState.welcomeMessageIds[chatId] = data.result.message_id;
+                    globalState.lastWelcomeMessageId = data.result.message_id;
+                    debugLog(`[WELCOME] Сообщение отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
+                }
+            });
+        }
+    });
 }
 // END WELCOME MESSAGE MODULE //
 
@@ -1307,44 +1247,34 @@ function updateAFKStatus(isNew = false) {
     if (!config.afkCycle.active) return;
     const statusText = getAFKStatusText().replace(/^\n\n/, '');
     const fullText = `🔄 <b>AFK цикл для ${displayName}</b>${statusText}`;
-    const _afkMode = window.MESSENGER_MODE || 'telegram';
-
-    if (_afkMode === 'telegram' || _afkMode === 'both') {
-        if (isNew) {
-            // Отправляем новое сообщение и сохраняем IDs
-            config.afkCycle.statusMessageIds = [];
-            config.chatIds.forEach(chatId => {
-                const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
-                const payload = {
-                    chat_id: chatId,
-                    text: fullText,
-                    parse_mode: 'HTML'
-                };
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', url, true);
-                xhr.setRequestHeader('Content-Type', 'application/json');
-                xhr.onload = function() {
-                    if (xhr.status === 200) {
-                        const data = JSON.parse(xhr.responseText);
-                        const messageId = data.result.message_id;
-                        config.afkCycle.statusMessageIds.push({ chatId, messageId });
-                        debugLog(`Новое AFK статус-сообщение отправлено в чат ${chatId}: ID ${messageId}`);
-                    }
-                };
-                xhr.send(JSON.stringify(payload));
-            });
-        } else {
-            // Редактируем существующие сообщения
-            config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
-                editMessageText(chatId, messageId, fullText);
-            });
-        }
-    }
-
-    // Discord: у вебхука нет простого редактирования уже отправленного сообщения —
-    // на каждое обновление статуса (и новое, и повторное) шлём свежее сообщение в канал.
-    if (_afkMode === 'discord' || _afkMode === 'both') {
-        sendToDiscord(fullText);
+    if (isNew) {
+        // Отправляем новое сообщение и сохраняем IDs
+        config.afkCycle.statusMessageIds = [];
+        config.chatIds.forEach(chatId => {
+            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+            const payload = {
+                chat_id: chatId,
+                text: fullText,
+                parse_mode: 'HTML'
+            };
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
+                    const messageId = data.result.message_id;
+                    config.afkCycle.statusMessageIds.push({ chatId, messageId });
+                    debugLog(`Новое AFK статус-сообщение отправлено в чат ${chatId}: ID ${messageId}`);
+                }
+            };
+            xhr.send(JSON.stringify(payload));
+        });
+    } else {
+        // Редактируем существующие сообщения
+        config.afkCycle.statusMessageIds.forEach(({ chatId, messageId }) => {
+            editMessageText(chatId, messageId, fullText);
+        });
     }
 }
 function activateAFKWithMode(mode, reconnect, restartAction, chatId, messageId) {
@@ -5281,15 +5211,6 @@ function dlgSendToTelegram() {
             reply_markup: JSON.stringify(keyboard)
         }));
     });
-
-    // ВАЖНО: диалог управляется кнопками, которые работают только через Telegram
-    // callback_query — Discord webhook не умеет принимать нажатия обратно в игру.
-    // Поэтому при messengerMode='discord' интерактив всё равно остаётся в Telegram
-    // (иначе диалог нечем будет закрывать/выбирать), а в Discord шлём read-only копию текста.
-    const _dlgMode = window.MESSENGER_MODE || 'telegram';
-    if (_dlgMode === 'discord' || _dlgMode === 'both') {
-        sendToDiscord(text + '\n\n_(кнопки доступны только в Telegram)_');
-    }
 }
 
 function dlgUpdateTelegram() {

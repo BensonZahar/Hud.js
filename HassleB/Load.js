@@ -3,7 +3,6 @@ const username = 'BensonZahar';
 const repo = 'Hud.js';
 const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
 const accountNumber = ''; // НОМЕР АККАУНТА (1–8) — устанавливается установщиком автоматически
-const messengerMode = ''; // МЕССЕНДЖЕР: 'telegram', 'discord', 'both' — устанавливается установщиком
 
 // ============================================================
 // Автоматический поиск чат-компонента — два метода:
@@ -184,27 +183,10 @@ function applyUserConfig() {
         console.warn(`⚠️ Токен для аккаунта #${accountNumber} у "${currentUser}" не найден`);
     }
 
-    // Discord webhook для выбранного аккаунта
-    const userDiscordWebhooks = userConfig.DISCORD_WEBHOOKS || {};
-    if (accountNumber && userDiscordWebhooks[accountNumber]) {
-        window.DISCORD_WEBHOOK = userDiscordWebhooks[accountNumber];
-        console.log(`✅ Discord webhook для аккаунта #${accountNumber} (${currentUser}) установлен`);
-    } else {
-        window.DISCORD_WEBHOOK = null;
-        if (messengerMode === 'discord' || messengerMode === 'both') {
-            console.warn(`⚠️ Discord webhook для аккаунта #${accountNumber} у "${currentUser}" не найден`);
-        }
-    }
-
-    // Режим мессенджера: 'telegram' | 'discord' | 'both'
-    window.MESSENGER_MODE = messengerMode || 'telegram';
-    console.log(`✅ Режим мессенджера: ${window.MESSENGER_MODE}`);
-
     console.log(`✅ Конфигурация для "${currentUser}" применена:`, {
         chatIds: userConfig.CHAT_IDS,
         password: '***' + userConfig.PASSWORD.slice(-4),
-        reconnect: userConfig.RECONNECT_ENABLED_DEFAULT,
-        messenger: window.MESSENGER_MODE
+        reconnect: userConfig.RECONNECT_ENABLED_DEFAULT
     });
 
     return true;
@@ -369,7 +351,6 @@ async function initializeScripts() {
 
 window.CURRENT_USER = currentUser;
 window.ACCOUNT_NUMBER = accountNumber;
-window.MESSENGER_MODE = messengerMode || 'telegram';
 window.initializeScripts = initializeScripts;
 
 initializeScripts();
