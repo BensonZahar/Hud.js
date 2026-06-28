@@ -327,8 +327,7 @@ const _sfc_main={
         },
         requestLawyer(){
             this.callTime=this._getTime();
-            // Замените /n на пустую строку когда готово к продакшену
-            const msg=`/n /d [МВД]-[Пра-во] Требуется адвокат в МВД. Время вызова ${this.callTime}`;
+            const msg=`/d [МВД]-[Пра-во] Требуется адвокат в МВД. Время вызова ${this.callTime}`;
             if(typeof window.sendChatInput==="function")window.sendChatInput(msg);
             else if(typeof window.sendChatMessage==="function")window.sendChatMessage(msg);
             this.startTimer(300,"accept");
