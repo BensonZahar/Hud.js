@@ -48,6 +48,7 @@ class MEmuHudManager:
         self.selected_code_url = None
         self.selected_code_name = None
         self.selected_account_number = None
+        self.selected_messenger = 'telegram'  # 'telegram' | 'discord' | 'both'
         self.user_token_counts = {}  # кол-во токенов по пользователям
         self.nox_active_devices = []   # [{"port": "62001", "label": "NOX 1"}, ...]
         self.nox_target = "1"          # "1", "2", "both"
@@ -1383,7 +1384,7 @@ class MEmuHudManager:
         dialog.configure(fg_color=C["bg"])
         dialog.update_idletasks()
 
-        DW, DH = 340, 230
+        DW, DH = 340, 270
         rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
         ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
         dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
@@ -1438,6 +1439,31 @@ class MEmuHudManager:
             btn.grid(row=0, column=i-1, padx=3)
             acc_buttons[n] = btn
 
+        # ── Выбор мессенджера ───────────────────────────────────────
+        msg_outer = ctk.CTkFrame(dialog, fg_color="transparent")
+        msg_outer.pack(pady=(10, 0), padx=16, fill="x")
+
+        ctk.CTkLabel(msg_outer,
+                     text="Отправлять в:",
+                     font=("Segoe UI", 11),
+                     text_color=C["subtext"]).pack(side="left", padx=(0, 10))
+
+        messenger_var = ctk.StringVar(value=self.selected_messenger)
+
+        ctk.CTkSegmentedButton(
+            msg_outer,
+            values=["telegram", "discord", "both"],
+            variable=messenger_var,
+            fg_color=C["card"],
+            selected_color=C["accent"],
+            selected_hover_color="#5a52e0",
+            unselected_color=C["card"],
+            unselected_hover_color=C["border"],
+            text_color=C["subtext"],
+            font=("Segoe UI", 11),
+            height=28,
+        ).pack(side="left", fill="x", expand=True)
+
         # Нижние кнопки
         bot = ctk.CTkFrame(dialog, fg_color="transparent")
         bot.pack(pady=(14, 0))
@@ -1448,6 +1474,7 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Номер аккаунта не выбран")
                 return
             self.selected_account_number = chosen
+            self.selected_messenger = messenger_var.get()
             dialog.destroy()
             threading.Thread(
                 target=lambda: self._run_on_targets(self.replace_with_code, app_folder),
@@ -1464,9 +1491,6 @@ class MEmuHudManager:
                       fg_color=C["accent"], hover_color="#5a52e0",
                       text_color="white", corner_radius=8,
                       command=on_start).grid(row=0, column=1, padx=6)
-
-        ctk.CTkButton(btn_frame, text="Назад", width=160, command=dialog.destroy).grid(row=0, column=0, padx=25)
-        ctk.CTkButton(btn_frame, text="Начать", width=160, command=on_start).grid(row=0, column=1, padx=25)
 
         dialog.update_idletasks()
         x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (580 // 2)
@@ -1532,9 +1556,10 @@ class MEmuHudManager:
             acc_num = self.selected_account_number or ''
             load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
             load_code = load_code.replace("const accountNumber = '';", f"const accountNumber = '{acc_num}';")
+            load_code = load_code.replace("const messengerMode = '';", f"const messengerMode = '{self.selected_messenger}';")
           
             if self.full_logging:
-                self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
+                self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}, мессенджер: {self.selected_messenger}")
                 self.log("Поиск и удаление старого кода по маркерам...")
           
             content = self.remove_old_code(content, load_code)
