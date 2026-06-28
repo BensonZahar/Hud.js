@@ -14,7 +14,7 @@ const USER_CONFIGS = {
         // Discord webhook URL для каждого аккаунта
         // Создать: Настройки сервера → Интеграции → Вебхуки
         DISCORD_WEBHOOKS: {
-            '1': '', // вставь URL вебхука для аккаунта #1
+            '1': 'https://discord.com/api/webhooks/1520785032091009164/BE6Z3IyPGNRay4ztnquUIc1qNMb35xjFUGcwqcXukZC90dbXW4ffC-7rWaKxVFGDpxAu', // вставь URL вебхука для аккаунта #1
             '2': '', // вставь URL вебхука для аккаунта #2
             '3': '', // вставь URL вебхука для аккаунта #3
             '4': ''  // вставь URL вебхука для аккаунта #4
