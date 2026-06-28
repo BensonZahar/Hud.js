@@ -1121,25 +1121,75 @@ function sendAdminSpamAlert(adminMsg) {
         sendPing();
     });
 }
+// ─── Discord: конвертация HTML-тегов → Discord Markdown ──────────
+function htmlToDiscordMarkdown(html) {
+    return html
+        .replace(/<b>([\s\S]*?)<\/b>/g, '**$1**')
+        .replace(/<strong>([\s\S]*?)<\/strong>/g, '**$1**')
+        .replace(/<i>([\s\S]*?)<\/i>/g, '*$1*')
+        .replace(/<em>([\s\S]*?)<\/em>/g, '*$1*')
+        .replace(/<code>([\s\S]*?)<\/code>/g, '`$1`')
+        .replace(/<pre>([\s\S]*?)<\/pre>/g, '```\n$1\n```')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
+        .replace(/<[^>]+>/g, '');
+}
+
+// ─── Discord: отправка через Webhook ─────────────────────────────
+function sendToDiscord(message) {
+    const webhookUrl = window.DISCORD_WEBHOOK;
+    if (!webhookUrl) {
+        debugLog('[Discord] Webhook URL не задан, пропуск');
+        return;
+    }
+    const content = htmlToDiscordMarkdown(message);
+    if (!content.trim()) return;
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', webhookUrl, true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.onload = function () {
+        if (xhr.status >= 200 && xhr.status < 300) {
+            debugLog('[Discord] Сообщение отправлено');
+        } else {
+            debugLog(`[Discord] Ошибка: ${xhr.status} ${xhr.responseText}`);
+        }
+    };
+    xhr.onerror = function () {
+        debugLog('[Discord] Ошибка сети при отправке webhook');
+    };
+    xhr.send(JSON.stringify({ content }));
+}
+
+// ─── Диспатч по MESSENGER_MODE: telegram / discord / both ────────
 function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
-    config.chatIds.forEach(chatId => {
-        tgApi('sendMessage', {
-            chat_id: chatId,
-            text: message,
-            parse_mode: 'HTML',
-            disable_notification: silent,
-            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-        }, data => {
-            debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
-            const messageId = data.result.message_id;
-            if (message.includes('Hassle | Bot') && message.includes('Текущие настройки')) {
-                globalState.lastWelcomeMessageId = messageId;
-            }
-            if (message.includes('+ PayDay |')) {
-                globalState.lastPaydayMessageIds.push({ chatId, messageId });
-            }
+    const mode = window.MESSENGER_MODE || 'telegram';
+
+    if (mode === 'telegram' || mode === 'both') {
+        config.chatIds.forEach(chatId => {
+            tgApi('sendMessage', {
+                chat_id: chatId,
+                text: message,
+                parse_mode: 'HTML',
+                disable_notification: silent,
+                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+            }, data => {
+                debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
+                const messageId = data.result.message_id;
+                if (message.includes('Hassle | Bot') && message.includes('Текущие настройки')) {
+                    globalState.lastWelcomeMessageId = messageId;
+                }
+                if (message.includes('+ PayDay |')) {
+                    globalState.lastPaydayMessageIds.push({ chatId, messageId });
+                }
+            });
         });
-    });
+    }
+
+    if (mode === 'discord' || mode === 'both') {
+        sendToDiscord(message);
+    }
 }
 // END TELEGRAM API MODULE //
 
