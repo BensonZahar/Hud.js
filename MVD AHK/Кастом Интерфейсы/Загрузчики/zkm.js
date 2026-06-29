@@ -9,9 +9,8 @@
 //     JS — обязателен (падение = throw). CSS — опционален (падение игнорируется).
 //  3. CSS — инжектим как <style id="zkm-style-remote"> в head
 //     (один раз за сессию, повторной вставки нет)
-//  4. JS  — вырезаем строку import{…}from"./index.js" (эти имена
-//     уже есть в скоупе текущего модуля), заменяем
-//     export{Zkm as default} на window.__zkmComp = Zkm, eval()
+//  4. JS  — вырезаем строки import{…}from"..." (все, не только первую),
+//     заменяем export{Zkm as default} на window.__zkmComp = Zkm, eval()
 //  5. Экспортируем window.__zkmComp как default
 //
 //  IntLoad.js / установщик / index.js — не трогать.
@@ -105,22 +104,42 @@ if (_cssText && !document.getElementById('zkm-style-remote')) {
 }
 
 // ── JS: патчим, eval() ───────────────────────────────────────────
-// 1. Убираем import-строку — нужные имена уже в скоупе этого модуля
-_text = _text.replace(/^import\{[^}]+\}from["'][^"']+["'];?\n?/m, '');
+// 1. Убираем ВСЕ import-строки — нужные имена уже в скоупе этого модуля.
+//    Флаг g обязателен: без него удаляется только первая строка import,
+//    остальные попадают в eval() и вызывают SyntaxError (import внутри eval).
+//    \s* — пробел между import и { тоже допускается (import { ... } from "...")
+_text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
 
 // 2. Заменяем export{Zkm as default} → window.__zkmComp = Zkm;
-_text = _text.replace(/^export\{([^}]+)\}[;\s]*$/m, function(_, exp) {
+//    \s* — пробелы внутри и снаружи скобок (export { ... } и export{...})
+_text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     var localName = exp.split(' as ')[0].trim(); // "Zkm"
     return 'window.__zkmComp = ' + localName + ';';
 });
 
 // 3. eval в скоупе модуля: openBlock, createElementBlock и т.д. — все
-//    видны из import-а выше, _export_sfc тоже, всё работает
-eval(_text);
+//    видны из import-а выше, _export_sfc тоже, всё работает.
+//    try/catch обязателен: без него ошибка в eval() не видна нигде,
+//    window.__zkmComp не устанавливается, и меню молча не открывается.
+try {
+    eval(_text);
+} catch (e) {
+    console.error('[Zkm loader] eval() упал — меню не откроется:', e);
+    throw e; // пробрасываем, чтобы модуль не завис в broken-состоянии
+}
 
 // ── Экспортируем реальный компонент ─────────────────────────────
 const Zkm = window.__zkmComp;
 delete window.__zkmComp;
+
+// Если компонент не установился — eval отработал, но export не нашёлся
+if (!Zkm) {
+    console.error('[Zkm loader] window.__zkmComp не установлен после eval().',
+        'Проверь: export regex не сматчил строку export в реальном zkm.js.',
+        'Первые 200 символов после патча:\n', _text.slice(0, 200));
+    throw new Error('[Zkm loader] компонент не загружен');
+}
+
 console.log('[Zkm loader] Загружен с GitHub:', Zkm?.name);
 
 export { Zkm as default };
