@@ -80,21 +80,39 @@ let _text = await _xhrGet(_GH_URL, 0);
 // 1. Убираем import-строки — нужные имена уже в скоупе этого модуля.
 //    Флаг g обязателен: реальный файл может импортировать из нескольких
 //    модулей (./index.js, ./ContaineredButton.js и т.д.), а не только из index.js.
-_text = _text.replace(/^import\{[^}]+\}from["'][^"']+["'];?\n?/gm, '');
+//    \s* — пробел между import и { тоже допускается (import { ... } from "...")
+_text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
 
 // 2. Заменяем export{MvdMenu as default} → window.__mvdComp = MvdMenu
-_text = _text.replace(/^export\{([^}]+)\}[;\s]*$/m, function(_, exp) {
+//    \s* — пробелы внутри и снаружи скобок (export { ... } и export{...})
+_text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     var localName = exp.split(' as ')[0].trim(); // "MvdMenu"
     return 'window.__mvdComp = ' + localName + ';';
 });
 
 // 3. eval в скоупе модуля: openBlock, createElementBlock и т.д. — все
-//    видны из import-а выше, _export_sfc тоже, всё работает
-eval(_text);
+//    видны из import-а выше, _export_sfc тоже, всё работает.
+//    try/catch обязателен: без него ошибка в eval() не видна нигде,
+//    window.__mvdComp не устанавливается, и меню молча не открывается.
+try {
+    eval(_text);
+} catch (e) {
+    console.error('[MvdMenu loader] eval() упал — меню не откроется:', e);
+    throw e; // пробрасываем, чтобы модуль не завис в broken-состоянии
+}
 
 // ── Экспортируем реальный компонент ─────────────────────────────
 const MvdMenu = window.__mvdComp;
 delete window.__mvdComp;
+
+// Если компонент не установился — eval отработал, но export не нашёлся
+if (!MvdMenu) {
+    console.error('[MvdMenu loader] window.__mvdComp не установлен после eval().',
+        'Проверь: export regex не сматчил строку export в реальном MvdMenu.js.',
+        'Первые 200 символов после патча:\n', _text.slice(0, 200));
+    throw new Error('[MvdMenu loader] компонент не загружен');
+}
+
 console.log('[MvdMenu loader] Загружен с GitHub:', MvdMenu?.name);
 
 export { MvdMenu as default };
