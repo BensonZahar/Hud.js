@@ -1,4 +1,4 @@
-// ── Загрузчик startup-интерфейсов ────────────────────────────────────
+\// ── Загрузчик startup-интерфейсов ────────────────────────────────────
 // Вставить в НАЧАЛО mvdF.js.
 // Файлы берутся из assets (рядом с ScreenNotification.js / index.js).
 ;(function loadStartupInterfaces() {
@@ -710,26 +710,6 @@ const setupChatHandler = () => {
                     // Возвращаем красное уведомление
                     openTrackingNotification(currentScanId);
                 }
-
-                // ── Игрок вышел из игры во время погони: показываем обратный отсчёт ──
-                // Сообщение сервера: "Игрок за которым Вы вели погоню вышел из игры.
-                //                    У него есть X секунд, чтобы вернуться в игру."
-                const exitChaseMatch = message.match(
-                    /Игрок за которым Вы вели погоню вышел из игры[^.]*\.\s*У него есть (\d+) секунд/
-                );
-                if (exitChaseMatch) {
-                    const returnSecs = parseInt(exitChaseMatch[1]);
-                    const exitLabel  = trackingNickname
-                        ? `${trackingNickname} — вернётся через`
-                        : `Подозреваемый — вернётся через`;
-                    console.log(`[CHASE] ⚠️ Игрок вышел из игры — ${returnSecs} сек на возвращение`);
-                    try {
-                        const _snExit = getZkmSN();
-                        if (_snExit && typeof _snExit.addTimer === 'function') {
-                            _snExit.addTimer(`[1, "Вышел из игры", "${exitLabel}", "FF6729", ${returnSecs}]`);
-                        }
-                    } catch(_e) {}
-                }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ПОГОНИ ====================
 
@@ -775,16 +755,10 @@ const setupChatHandler = () => {
             if (typeof message === 'string' && partnerTrackingEnabled && partnerNick && partnerId) {
                 const msgStr = String(message);
                 // Формат имени со скобками: ({v:NICK})[ID]
-                // Дополнительная проверка: напарник надел маску → ник сменился на Mask_XXXXX,
-                // но ID в [] остался прежним — такие сообщения тоже считаем напарниковыми
-                const hasMaskedPartner =
-                    (new RegExp(`\\{v:Mask_[^}]+\\}\\s*\\[${partnerId}\\]`)).test(msgStr) ||
-                    (new RegExp(`\\bMask_[A-Za-z0-9_]+\\s*\\[${partnerId}\\]`)).test(msgStr);
                 const hasPartnerTag =
                     msgStr.includes(`({v:${partnerNick}})[${partnerId}]`) || // основной формат
                     msgStr.includes(`{v:${partnerNick}}[${partnerId}]`) ||    // без скобок (запасной)
-                    msgStr.includes(`${partnerNick}[${partnerId}]`) ||         // радио/другие каналы
-                    hasMaskedPartner;                                           // маска: Mask_XXXXX[ID]
+                    msgStr.includes(`${partnerNick}[${partnerId}]`);           // радио/другие каналы
                 if (hasPartnerTag) {
                     const trackMatch = msgStr.match(/Отслеживаю жетон\s+(\d+)/);
                     if (trackMatch) {
@@ -1243,19 +1217,6 @@ const startTracking = (id) => {
         pgInterval = null;
     }
     _cdTimerActive = false; // сброс флага КД при перезапуске отслеживания
- 
-    // ── Немедленно гасим старое уведомление погони ─────────────────────────
-    // openTrackingNotification сбросит chaseNotificationOpen только через 800мс,
-    // из-за чего синий таймер старой погони мог зависать при смене цели.
-    // Сбрасываем флаги и прячем таймер здесь — сразу, без задержки.
-    if (chaseNotificationOpen || trackingNotificationOpen) {
-        chaseNotificationOpen    = false;
-        trackingNotificationOpen = false;
-        isInActiveChase          = false;
-        hideTrackingTimer();
-        clearSetmarkCdTimer();
-        console.log('[TRACKING] 🔄 Старое уведомление погони закрыто (смена цели)');
-    }
  
     currentScanId = id;
     trackingName = `Отслеживание | {00FF00}ID: ${id}`;
