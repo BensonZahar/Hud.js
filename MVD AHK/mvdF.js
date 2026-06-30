@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.19 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -419,27 +419,28 @@ function getPartnerMenuLabel() {
     return `Напарник | {FF0000}Выкл`;
 }
 // ==================== КОНЕЦ НАПАРНИК STATE ====================
-// ── Тихое обновление ника напарника ──────────────────────────────────────────
-// При открытии меню отправляем /id partnerId, скрываем ответ из чата,
-// обновляем partnerNick если изменился (и только тогда показываем уведомление).
-let _partnerSilentRefresh = false;
-let _partnerSilentRefreshId = null;
+// ── Обновление ID напарника по нику (/id ник) ────────────────────────────────
+// При открытии меню отправляем /id partnerNick вместо /id partnerId.
+// Так корректно находим нового ID напарника если он перезашёл и сменил слот.
+// Если "Совпадений не найдено" — напарник не в игре, показываем уведомление.
+let _partnerNickSearch = false;       // идёт поиск напарника по нику
+let _partnerNickSearchTarget = null;  // ник, который ищём сейчас
 function refreshPartnerNickSilent() {
-    if (!partnerTrackingEnabled || !partnerId) return;
-    if (_partnerSilentRefresh) return; // уже в процессе
-    _partnerSilentRefresh = true;
-    _partnerSilentRefreshId = String(partnerId);
-    sendChatInput(`/id ${partnerId}`);
+    if (!partnerTrackingEnabled || !partnerNick) return; // нужен ник для поиска
+    if (_partnerNickSearch) return; // уже ищем
+    _partnerNickSearch = true;
+    _partnerNickSearchTarget = partnerNick;
+    sendChatInput(`/id ${partnerNick}`);
     // Страховочный сброс — если ответ не пришёл за 5с
     setTimeout(() => {
-        if (_partnerSilentRefresh) {
-            _partnerSilentRefresh = false;
-            _partnerSilentRefreshId = null;
+        if (_partnerNickSearch && _partnerNickSearchTarget === partnerNick) {
+            _partnerNickSearch = false;
+            _partnerNickSearchTarget = null;
         }
     }, 5000);
-    console.log(`[PARTNER] 🔄 Тихое обновление ника напарника: /id ${partnerId}`);
+    console.log(`[PARTNER] 🔍 Поиск напарника по нику: /id ${partnerNick}`);
 }
-// ── END тихое обновление ──────────────────────────────────────────────────────
+// ── END обновление по нику ────────────────────────────────────────────────────
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
@@ -664,26 +665,46 @@ const setupChatHandler = () => {
                 console.log(`[${_ts}]${_colorTag} ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
             // ========== КОНЕЦ ЛОГИРОВАНИЯ ==========
-            // ==================== ТИХОЕ ОБНОВЛЕНИЕ НИКА НАПАРНИКА ====================
-            // Ловим ответ /id при авто-обновлении — блокируем показ в чате,
-            // обновляем partnerNick если изменился
-            if (_partnerSilentRefresh && _partnerSilentRefreshId && typeof message === 'string') {
-                const _pRefreshMatch = message.match(/(?:^\[\d{2}:\d{2}:\d{2}(?::\d+)?\]:\s*)?([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
-                if (_pRefreshMatch && _pRefreshMatch[2] === _partnerSilentRefreshId) {
-                    const _newNick = _pRefreshMatch[1];
-                    _partnerSilentRefresh = false;
-                    _partnerSilentRefreshId = null;
-                    if (_newNick !== partnerNick) {
-                        console.log(`[PARTNER] 🔄 Ник напарника изменился: ${partnerNick} → ${_newNick}`);
-                        partnerNick = _newNick;
-                        snAdd(`[1, "Напарник", "Ник обновлён: ${_newNick}[${partnerId}]", "00FF00", 3000]`);
+            // ==================== ОБНОВЛЕНИЕ ID НАПАРНИКА ПО НИКУ (/id ник) ====================
+            // Ловим ответ /id partnerNick при авто-обновлении, скрываем из чата.
+            // Если ник совпал — обновляем partnerId (после рекоша мог смениться).
+            // Если "Совпадений не найдено" — напарник не в игре, показываем предупреждение.
+            if (_partnerNickSearch && _partnerNickSearchTarget && typeof message === 'string') {
+                // Формат: "1. {COLOR}Nick{COLOR}, ID: X, ..." или "1. Nick, ID: X, ..."
+                const _pNickMatch = message.match(
+                    /^\d+\.\s*(?:\{[A-Fa-f0-9]{6,8}\})*([A-Za-z0-9_]+)(?:\{[A-Fa-f0-9]{6,8}\})?,\s*ID:\s*(\d+),/
+                );
+                if (_pNickMatch) {
+                    const _foundNick = _pNickMatch[1];
+                    const _foundId   = _pNickMatch[2];
+                    if (_foundNick === _partnerNickSearchTarget) {
+                        // Это наш напарник — обновляем ID если изменился после рекоша
+                        _partnerNickSearch = false;
+                        _partnerNickSearchTarget = null;
+                        if (String(_foundId) !== String(partnerId)) {
+                            const _oldId = partnerId;
+                            partnerId = _foundId;
+                            console.log(`[PARTNER] 🔄 ID напарника обновлён: ${_oldId} → ${_foundId} (${partnerNick})`);
+                            snAdd(`[1, "Напарник", "${partnerNick}: ID ${_oldId}→${_foundId}", "00FF00", 3000]`);
+                        } else {
+                            console.log(`[PARTNER] ✅ Напарник в сети: ${partnerNick}[${partnerId}]`);
+                        }
                     } else {
-                        console.log(`[PARTNER] ✅ Ник напарника не изменился: ${_newNick}`);
+                        // Другой игрок с похожим ником — ждём дальше (может прийти несколько строк)
+                        console.log(`[PARTNER] /id ник — пропуск: ${_foundNick} ≠ ${_partnerNickSearchTarget}`);
                     }
-                    return; // Блокируем вывод ответа /id в чат
+                    return; // Блокируем строку numbered-list из чата (любую, пока ищем)
+                }
+                // "Совпадений не найдено" — напарник вышел из игры
+                if (message.includes('Совпадений не найдено')) {
+                    _partnerNickSearch = false;
+                    _partnerNickSearchTarget = null;
+                    console.log(`[PARTNER] ⚠️ Не удалось определить напарника: "${partnerNick}" не найден`);
+                    snAdd('[1, "Напарник", "Не удалось определить напарника", "FF4400", 3000]');
+                    return; // Блокируем "Совпадений не найдено" из чата
                 }
             }
-            // ==================== КОНЕЦ ТИХОГО ОБНОВЛЕНИЯ НИКА ====================
+            // ==================== КОНЕЦ ОБНОВЛЕНИЯ ID ПО НИКУ ====================
             // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
             if (shouldBlockMessage(message)) {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
