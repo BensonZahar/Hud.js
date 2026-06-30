@@ -5,9 +5,6 @@ import{C as ControlsContaineredButton}from"./ContaineredButton.js";
 const SVG_SEARCH=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5.5" cy="5.5" r="4" stroke="rgba(244,241,225,0.4)" stroke-width="1.5"/><line x1="8.5" y1="8.5" x2="13" y2="13" stroke="rgba(244,241,225,0.4)" stroke-width="1.5" stroke-linecap="round"/></svg>`;
 const SVG_ARROW=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2L7 5L3 8" stroke="rgba(244,241,225,0.3)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-// SVG-какашка (эмодзи не рендерятся в CEF — нет цветного emoji-шрифта)
-const SVG_POOP=`<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M32 5c3 0 5 2.6 5 5.6 0 1.2-0.4 2.3-1 3.2 4.3 0.2 7.7 3 7.7 6.6 0 1.9-0.9 3.6-2.4 4.8 5.6 0.8 9.7 4.8 9.7 9.6 0 0.7-0.1 1.3-0.2 2 2.9 1.6 4.7 4.3 4.7 7.3 0 5.6-6.5 10.1-19.5 10.1S16.5 50.4 16.5 44.8c0-3 1.8-5.7 4.7-7.3-0.1-0.7-0.2-1.3-0.2-2 0-4.8 4.1-8.8 9.7-9.6-1.5-1.2-2.4-2.9-2.4-4.8 0-3.6 3.4-6.4 7.7-6.6-0.6-0.9-1-2-1-3.2C30.0 7.6 29 5 32 5z" fill="#8a5a32" stroke="#5e3a1f" stroke-width="1.6" stroke-linejoin="round"/><ellipse cx="24.5" cy="40" rx="3.2" ry="4" fill="#fff"/><ellipse cx="39.5" cy="40" rx="3.2" ry="4" fill="#fff"/><circle cx="25" cy="41.3" r="1.7"/><circle cx="40" cy="41.3" r="1.7"/><path d="M27 47c2.2 2 7.8 2 10 0" stroke="#3a2412" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`;
-
 // GraffitiPattern
 const GRAFFITI_SVG=`<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:-60px;left:-40px;width:48.52vh;height:23.61vh;opacity:0.05;pointer-events:none;transform:rotate(148deg)"><line x1="0" y1="20" x2="400" y2="20" stroke="white" stroke-width="1.2"/><line x1="0" y1="40" x2="400" y2="40" stroke="white" stroke-width="1.2"/><line x1="0" y1="60" x2="400" y2="60" stroke="white" stroke-width="1.2"/><line x1="0" y1="80" x2="400" y2="80" stroke="white" stroke-width="1.2"/><line x1="0" y1="100" x2="400" y2="100" stroke="white" stroke-width="1.2"/><line x1="0" y1="120" x2="400" y2="120" stroke="white" stroke-width="1.2"/><line x1="0" y1="140" x2="400" y2="140" stroke="white" stroke-width="1.2"/><line x1="0" y1="160" x2="400" y2="160" stroke="white" stroke-width="1.2"/><line x1="0" y1="180" x2="400" y2="180" stroke="white" stroke-width="1.2"/><line x1="0" y1="200" x2="400" y2="200" stroke="white" stroke-width="1.2"/><line x1="20" y1="0" x2="20" y2="400" stroke="white" stroke-width="1.2"/><line x1="40" y1="0" x2="40" y2="400" stroke="white" stroke-width="1.2"/><line x1="60" y1="0" x2="60" y2="400" stroke="white" stroke-width="1.2"/><line x1="80" y1="0" x2="80" y2="400" stroke="white" stroke-width="1.2"/><line x1="100" y1="0" x2="100" y2="400" stroke="white" stroke-width="1.2"/></svg>`;
 
@@ -50,7 +47,7 @@ const ACTION_TAGS={
 // ─── render ───────────────────────────────────────────────────────────────────
 function render(_ctx,_cache,$props,$setup,$data,$options){
     const _component_ControlsContaineredButton=resolveComponent("ControlsContaineredButton");
-    return (openBlock(), createElementBlock("div",{class:normalizeClass(["mvdmenu iface-container",{"mvdmenu_pink":$options.isPinkNick}])},[
+    return (openBlock(), createElementBlock("div",{class:"mvdmenu iface-container"},[
 
         // Overlay
         createBaseVNode("div",{class:"mvdmenu__overlay",onClick:$options.close}),
@@ -66,19 +63,13 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 createBaseVNode("div",{class:"mvdmenu__header-left"},[
                     createBaseVNode("div",{class:"mvdmenu__title"},[
                         createBaseVNode("span",{class:"mvdmenu__title-main"},"МВД"),
-                        createBaseVNode("span",{class:normalizeClass(["mvdmenu__title-sub",{"mvdmenu__title-sub_long":$options.isPinkNick&&$data.screen==="main"}])},
+                        createBaseVNode("span",{class:"mvdmenu__title-sub"},
                             toDisplayString($options.headerSubtitle)
                         )
                     ])
                 ]),
                 createBaseVNode("div",{class:"mvdmenu__close-btn",onClick:$options.close},"X")
             ]),
-
-            // ── Подпись с ником, сразу под надписью «ДЛЯ НАСТОЯЩЕЙ ГЁРЛ» ──
-            $options.isPinkNick
-                ? createBaseVNode("div",{class:"mvdmenu__pink-nick"}, toDisplayString($options.pinkNickName))
-                : createCommentVNode("",true),
-
 
             // ══════════════════════════════════════════════════════════════════
             // ЭКРАН: main — МВД меню
@@ -293,20 +284,8 @@ const _sfc_main={
         }
     },
     computed:{
-        // ── Кастомная розовая тема для конкретного ника ──
-        isPinkNick(){
-            try{
-                const ownNick=window.App?.$store?.getters?.['player/nickName'];
-                return ownNick==="Aleksandr_Alekseevih";
-            }catch(e){ return false; }
-        },
-        pinkNickName(){
-            try{
-                return window.App?.$store?.getters?.['player/nickName']||"";
-            }catch(e){ return ""; }
-        },
         headerSubtitle(){
-            if(this.screen==="main")            return this.isPinkNick ? " АХК ДЛЯ НАСТОЯЩЕЙ ГЁРЛ" : " АХК";
+            if(this.screen==="main")            return " АХК";
             if(this.screen==="povsednev")       return " ПОВСЕДНЕВНАЯ";
             if(this.screen==="partner")         return " НАПАРНИК";
             if(this.screen==="id-input")        return this.idInputContext==="tracking"?" ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?" НАПАРНИК":" ВВОД ID";
@@ -722,34 +701,6 @@ const _sfc_main={
 .mvdmenu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
 .mvdmenu__footer .controls-button__container{margin-right:1.48vh;}
 .mvdmenu__footer .controls-button__container:last-child{margin-right:0;}
-
-/* ── Розовая тема (персональная, по нику) ─────────────────────────────── */
-.mvdmenu_pink .mvdmenu__wrapper{background:#2a0f1cec;border-color:rgba(255,90,170,0.15);box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(255,90,170,0.25),0 1.5vh 5vh rgba(0,0,0,.7);}
-.mvdmenu_pink .mvdmenu__top-accent{background:#ff5aaa;}
-.mvdmenu_pink .mvdmenu__header{border-bottom-color:rgba(255,90,170,0.15);}
-.mvdmenu_pink .mvdmenu__title-sub{color:#ff5aaa;}
-.mvdmenu_pink .mvdmenu__close-btn{background:rgba(255,90,170,0.08);border-color:rgba(255,90,170,0.15);}
-.mvdmenu_pink .mvdmenu__search{background:rgba(255,90,170,0.05);border-bottom-color:rgba(255,90,170,0.15);}
-.mvdmenu_pink .mvdmenu__list::-webkit-scrollbar-track{background:rgba(255,90,170,0.1);}
-.mvdmenu_pink .mvdmenu__item{border-bottom-color:rgba(255,90,170,0.08);}
-.mvdmenu_pink .mvdmenu__item_selected{background:rgba(255,90,170,.16);border-left:0.19vh solid #ff5aaa;}
-.mvdmenu_pink .mvdmenu__item-id-badge{background:rgba(255,90,170,.14);color:rgba(255,90,170,.85);}
-.mvdmenu_pink .mvdmenu__id-input-field{background:rgba(255,90,170,0.07);border-color:rgba(255,90,170,0.15);}
-.mvdmenu_pink .mvdmenu__id-input-field:focus{border-color:rgba(255,90,170,0.6);}
-.mvdmenu_pink .mvdmenu__footer{border-top-color:rgba(255,90,170,0.15);}
-@media (platform:pc){
-    .mvdmenu_pink .mvdmenu__item:hover{background:rgba(255,90,170,.08);}
-    .mvdmenu_pink .mvdmenu__close-btn:hover{background:#ff5aaa;border-color:#ff5aaa;color:#fff;}
-}
-.mvdmenu__title-sub_long{font-size:1.35vh;letter-spacing:0.02vh;white-space:nowrap;}
-.mvdmenu__header{overflow:hidden;}
-.mvdmenu__header-left{min-width:0;overflow:hidden;}
-.mvdmenu__close-btn{flex-shrink:0;}
-.mvdmenu__pink-nick{border-bottom:0.19vh solid rgba(255,90,170,0.15);color:rgba(255,90,170,0.6);font-size:1.05vh;font-weight:700;letter-spacing:0.15vh;padding:0 1.67vh 0.7vh;position:relative;text-align:left;text-transform:uppercase;z-index:1;}
-
-/* ── Летающие какашки — позиционирование, анимация задаётся через JS (см. mounted) ── */
-.mvdmenu-poop-fx{height:2.6vh;left:50%;pointer-events:none;position:fixed;top:50%;width:2.6vh;z-index:99999;}
-.mvdmenu-poop-fx svg{display:block;height:100%;width:100%;}
         `;
         document.head.appendChild(s);
 
@@ -822,58 +773,11 @@ const _sfc_main={
         // showInterface → setCursorStatus(true) → setDrawLabelStatus(false) скрыл метки;
         // восстанавливаем явно, чтобы ники над игроками оставались видны
         if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
-
-        // ── Летающие какашки (розовая тема) ──────────────────────────────────
-        // CSS @keyframes/CSS-переменные в этом CEF ненадёжны (см. баг: все 8
-        // элементов стояли неподвижно друг на друге внутри меню — анимация и
-        // position:fixed относительно вьюпорта явно не отрабатывали как в обычном
-        // браузере). Поэтому двигаем вручную через requestAnimationFrame и
-        // создаём элементы напрямую в document.body (минуя overflow:hidden
-        // враппера меню и Vue-дерево), как уже сделано со style-тегом выше.
-        if(this.isPinkNick){
-            const DIRS=[[0,-30],[21,-21],[29,0],[21,21],[0,29],[-21,21],[-29,0],[-21,-21]];
-            const DURS=[3000,3400,2800,3600,3100,3300,2900,3500];
-            const DELAYS=[0,400,800,1200,1600,2000,2400,2800];
-            this._poopEls=DIRS.map(()=>{
-                const el=document.createElement("div");
-                el.className="mvdmenu-poop-fx";
-                el.innerHTML=SVG_POOP;
-                el.style.opacity="0";
-                document.body.appendChild(el);
-                return el;
-            });
-            let start=null;
-            this._poopFrame=(ts)=>{
-                if(start===null) start=ts;
-                for(let i=0;i<this._poopEls.length;i++){
-                    const el=this._poopEls[i];
-                    const dur=DURS[i];
-                    const t=((ts-start-DELAYS[i])%dur+dur)%dur;
-                    const p=t/dur;
-                    const eo=1-Math.pow(1-p,2); // ease-out
-                    const [dx,dy]=DIRS[i];
-                    const x=(dx*eo).toFixed(2);
-                    const y=(dy*eo).toFixed(2);
-                    const rot=(380*p).toFixed(0);
-                    const scale=(0.5+0.65*p).toFixed(2);
-                    let op;
-                    if(p<0.12) op=p/0.12;
-                    else if(p>0.8) op=Math.max(0,(1-p)/0.2);
-                    else op=1;
-                    el.style.transform=`translate(-50%,-50%) translate(${x}vh,${y}vh) rotate(${rot}deg) scale(${scale})`;
-                    el.style.opacity=op.toFixed(2);
-                }
-                this._poopRAF=requestAnimationFrame(this._poopFrame);
-            };
-            this._poopRAF=requestAnimationFrame(this._poopFrame);
-        }
     },
     unmounted(){
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
         const s=document.getElementById("mvdmenu-style");
         if(s)s.remove();
-        if(this._poopRAF) cancelAnimationFrame(this._poopRAF);
-        if(this._poopEls){ this._poopEls.forEach(el=>el.remove()); this._poopEls=null; }
     }
 };
 
