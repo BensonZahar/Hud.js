@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -647,6 +647,10 @@ function getInlineColor(text) {
     const m = String(text).match(/\{([0-9A-Fa-f]{6})\}/);
     return m ? m[1].toUpperCase() : null;
 }
+// Экранирует спецсимволы regex (на случай нестандартных ников)
+function escapeRegex(str) {
+    return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 // ==================== END CHAT LOGGING HELPERS ====================
 
 let _mainChatHandlerReady = false;
@@ -795,21 +799,51 @@ const setupChatHandler = () => {
             // ==================== ОБНАРУЖЕНИЕ СООБЩЕНИЯ НАПАРНИКА ====================
             // Реальный формат в консоли:
             // [CLOSE|#CECECE] - Отслеживаю 395 {0000FF}({v:Calvin_Miller})[294]
-            // Сервер сам добавляет {COLOR}({v:NICK})[ID] в конец любого локального сообщения
-            if (typeof message === 'string' && partnerTrackingEnabled && partnerNick && partnerId) {
+            // Сервер сам добавляет {COLOR}({v:NICK})[ID] (или NICK[ID] в радио) в конец
+            // любого локального сообщения игрока.
+            //
+            // ВАЖНО: матчим ТОЛЬКО по нику напарника (ID — любой), а не по нику+ID
+            // одновременно. Если напарник перезашёл на сервер и получил новый игровой
+            // ID (слот), его ник в сообщениях не меняется — меняется только число в [].
+            // Поэтому каждое такое сообщение само несёт актуальный ID напарника:
+            //   1) ищем нужный ник в сообщении (с любым ID рядом);
+            //   2) если найден — считаем сообщение напарниковым;
+            //   3) если ID в сообщении отличается от сохранённого partnerId — тихо
+            //      синхронизируем partnerId на актуальный. Никакого /id и открытия
+            //      меню МВД для этого больше не нужно.
+            if (typeof message === 'string' && partnerTrackingEnabled && partnerNick) {
                 const msgStr = String(message);
-                // Формат имени со скобками: ({v:NICK})[ID]
-                // Дополнительная проверка: напарник надел маску → ник сменился на Mask_XXXXX,
-                // но ID в [] остался прежним — такие сообщения тоже считаем напарниковыми
-                const hasMaskedPartner =
+                const _escNick = escapeRegex(partnerNick);
+
+                // Ник напарника + любой ID рядом: ({v:NICK})[ID] / {v:NICK}[ID] / NICK[ID]
+                const partnerTagRe = new RegExp(
+                    `(?:\\(\\{v:${_escNick}\\}\\)|\\{v:${_escNick}\\}|\\b${_escNick})\\[(\\d+)\\]`
+                );
+                const partnerTagMatch = msgStr.match(partnerTagRe);
+
+                // Маска: ник скрыт (Mask_XXXXX), но ID в [] совпадает с последним
+                // известным partnerId — такие сообщения тоже считаем напарниковыми
+                // (по нику в этом случае сматчить нельзя, т.к. ника не видно).
+                const hasMaskedPartner = !!partnerId && (
                     (new RegExp(`\\{v:Mask_[^}]+\\}\\s*\\[${partnerId}\\]`)).test(msgStr) ||
-                    (new RegExp(`\\bMask_[A-Za-z0-9_]+\\s*\\[${partnerId}\\]`)).test(msgStr);
-                const hasPartnerTag =
-                    msgStr.includes(`({v:${partnerNick}})[${partnerId}]`) || // основной формат
-                    msgStr.includes(`{v:${partnerNick}}[${partnerId}]`) ||    // без скобок (запасной)
-                    msgStr.includes(`${partnerNick}[${partnerId}]`) ||         // радио/другие каналы
-                    hasMaskedPartner;                                           // маска: Mask_XXXXX[ID]
+                    (new RegExp(`\\bMask_[A-Za-z0-9_]+\\s*\\[${partnerId}\\]`)).test(msgStr)
+                );
+
+                const hasPartnerTag = !!partnerTagMatch || hasMaskedPartner;
+
                 if (hasPartnerTag) {
+                    // ── Тихая синхронизация ID напарника прямо из сообщения чата ──
+                    // (без /id-запроса и без открытия меню МВД)
+                    if (partnerTagMatch) {
+                        const seenId = partnerTagMatch[1];
+                        if (String(seenId) !== String(partnerId)) {
+                            const _oldId = partnerId;
+                            partnerId = seenId;
+                            console.log(`[PARTNER] 🔄 ID напарника обновлён из чата: ${_oldId} → ${seenId} (${partnerNick})`);
+                            snAdd(`[1, "Напарник", "${partnerNick}: ID ${_oldId == null ? '?' : _oldId}→${seenId}", "00FF00", 3000]`);
+                        }
+                    }
+
                     const trackMatch = msgStr.match(/Отслеживаю жетон\s+(\d+)/);
                     if (trackMatch) {
                         const suspectId = trackMatch[1];
