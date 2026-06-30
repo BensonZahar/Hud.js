@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -242,44 +242,49 @@ function getSkinIdFromStore() {
         }
         return null;
     } catch (e) {
-        console.log(`Ошибка при получении Skin ID: ${e.message}`);
+        console.log(`[SKIN] Ошибка при получении Skin ID: ${e.message}`);
         return null;
     }
 }
 // 4. Функция отслеживания скина (ИСПРАВЛЕНА)
 function trackSkinId() {
     const currentSkin = getSkinIdFromStore();
-    if (currentSkin !== null && currentSkin !== skinId) {
-        // ВАЖНО: Приводим к числу сразу!
-        skinId = Number(currentSkin);
-    
-        console.log(`🔍 Новый Skin ID обнаружен: ${skinId}`);
-    
-        // Проверяем, является ли скин МВД
-        if (mvdSkins.includes(skinId)) {
-            console.log(`✅ Скин ${skinId} - это МВД скин!`);
-        } else {
-            console.log(`❌ Скин ${skinId} НЕ входит в список МВД`);
+    if (currentSkin !== null) {
+        const numericSkin = Number(currentSkin);
+        // ВАЖНО: сравниваем уже приведённые к числу значения,
+        // иначе store иногда отдаёт строку и проверка ложно
+        // считает это "изменением" скина каждый цикл опроса
+        if (numericSkin !== skinId) {
+            skinId = numericSkin;
+
+            console.log(`[SKIN] 🔍 Новый Skin ID обнаружен: ${skinId}`);
+
+            // Проверяем, является ли скин МВД
+            if (mvdSkins.includes(skinId)) {
+                console.log(`[SKIN] ✅ Скин ${skinId} - это МВД скин!`);
+            } else {
+                console.log(`[SKIN] ❌ Скин ${skinId} НЕ входит в список МВД`);
+            }
         }
     }
     setTimeout(trackSkinId, 5000);
 }
 // 5. ЗАПУСК после загрузки
 setTimeout(() => {
-    console.log('🚀 Запуск отслеживания скина МВД...');
+    console.log('[SKIN] 🚀 Запуск отслеживания скина МВД...');
     const initialSkin = getSkinIdFromStore();
     if (initialSkin !== null) {
         // Приводим к числу сразу
         skinId = Number(initialSkin);
-        console.log(`📌 Начальный Skin ID: ${skinId}`);
+        console.log(`[SKIN] 📌 Начальный Skin ID: ${skinId}`);
     
         if (mvdSkins.includes(skinId)) {
-            console.log(`✅ Скин ${skinId} в списке МВД - меню /dahk доступно`);
+            console.log(`[SKIN] ✅ Скин ${skinId} в списке МВД - меню /dahk доступно`);
         } else {
-            console.log(`⚠️ Скин ${skinId} не является МВД скином`);
+            console.log(`[SKIN] ⚠️ Скин ${skinId} не является МВД скином`);
         }
     } else {
-        console.log('❌ Не удалось получить начальный Skin ID');
+        console.log('[SKIN] ❌ Не удалось получить начальный Skin ID');
     }
     trackSkinId();
 }, 500);
@@ -2185,7 +2190,7 @@ window.showMinuteInputDialog = (e) => {
     window.addDialogInQueue(`[676,1,"Ввод минуты","Введите когда начнется строй (Мин. по МСК):","Подтвердить","Отмена",0,0]`, "", 0);
 };
 window.sendClientEventCustom = (event, ...args) => {
-    console.log(`Событие: ${event}, Аргументы:`, args);
+    console.log(`[EVENT] Событие: ${event}, Аргументы:`, args);
 
     // Alt+Q — авто-тазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
@@ -2583,7 +2588,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
             if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
                 if (!window._mvdGrabProcessing) {
-                    console.log('=== [MVD-GRAB v2.1] 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
+                    console.log('[MVD-GRAB] === v2.1 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
                 }
             }
@@ -2756,7 +2761,7 @@ window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
 // Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
 if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
-    console.log('=== [MVD-GRAB v2.1] 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН ===');
+    console.log('[MVD-GRAB] === v2.1 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН ===');
     window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
 
     // ==================== ID ПРЕДМЕТОВ ====================
@@ -3064,7 +3069,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         get: () => isProcessing,
         configurable: true
     });
-    console.log('=== [MVD-GRAB v2.1] ✅ ГОТОВ — жду диалог Полицейская служба ===');
+    console.log('[MVD-GRAB] === v2.1 ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
