@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -661,12 +661,10 @@ const setupChatHandler = () => {
             try {
                 const _msg    = String(message);
                 const _color  = args[0];          // первый arg — цвет (если есть)
-                const _radius = getChatRadius(_color);
-                const _rl     = RADIUS_LABELS[_radius] || RADIUS_LABELS[CHAT_RADIUS.UNKNOWN];
                 const _now    = new Date();
                 const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
                 const _actualColor = normalizeColor(_color).replace('0x', '');
-                const _colorTag = `[${_rl.label}|#${_actualColor}]`;
+                const _colorTag = `[#${_actualColor}]`;
                 console.log(`[${_ts}]${_colorTag} ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
             // ========== КОНЕЦ ЛОГИРОВАНИЯ ==========
@@ -978,11 +976,6 @@ const setupChatHandler = () => {
             }
             // ==================== ОТСЛЕЖИВАНИЕ ШТРАФОВ ====================
             if (typeof message === 'string') {
-                // Логируем ВСЕ входящие строки для отладки (временно)
-                if (message.length > 3) {
-                    console.log(`[FINE-LOG] chat.add: "${message.substring(0, 120)}"`);
-                }
-
                 if (message.includes('выписал штраф')) {
                     console.log('[FINE-LOG] ✅ Нашли "выписал штраф"!');
                     try {
@@ -1076,12 +1069,10 @@ setupChatHandler();
                 const _msg    = String(message);
                 // args приходит как массив, args[2] (после .slice(2) внутри оригинала) — цвет
                 const _color  = Array.isArray(args) ? args[2] : undefined;
-                const _radius = getChatRadius(_color);
-                const _rl     = RADIUS_LABELS[_radius] || RADIUS_LABELS[CHAT_RADIUS.UNKNOWN];
                 const _now    = new Date();
                 const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
                 const _actualColor = normalizeColor(_color).replace('0x', '');
-                const _colorTag = `[${_rl.label}|#${_actualColor}]`;
+                const _colorTag = `[#${_actualColor}]`;
                 console.log(`[${_ts}]${_colorTag} ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
         }
