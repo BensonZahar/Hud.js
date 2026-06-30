@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.19999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -380,6 +380,7 @@ let trackingNotificationOpen = false;
 let chaseNotificationOpen = false;
 let trackingNickname = null;
 let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
+let _lastFasPrankAt = 0; // защита от повторного срабатывания пранка "фас" на дубль-эхо сообщения
 let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
 const FINE_CD_TIMER_ENABLED = false; // [ВЫКЛ] таймер КД штрафа временно отключён (убрали КД)
 let currentScanId = null;
@@ -1039,6 +1040,42 @@ const setupChatHandler = () => {
                     console.log('[FINE] ScreenNotification: кулдаун штрафа');
                 }
             }
+            // ==================== ПРАНК: ФАС (Zahar_Loidov → Fura_Loidov) ====================
+            // Локальное действие "фас" приходит в формате (сервер сам добавляет подпись
+            // в конец сообщения, см. комментарий у обновления ID напарника выше):
+            //   "- фас {COLOR}({v:НИК})[ID]"
+            // Если действие применил именно Zahar_Loidov, и НАШ ник (тот, под кем сейчас
+            // залогинен этот клиент) — Fura_Loidov, запускаем пранк-ответ.
+            if (typeof message === 'string' && message.includes('фас')) {
+                const fasIssuerMatch = message.match(/-\s*фас\s*\{[0-9A-Fa-f]{6}\}\s*\(\{v:([^}]+)\}\)\s*\[\d+\]/i);
+                if (fasIssuerMatch) {
+                    const fasIssuerNick = fasIssuerMatch[1];
+                    if (fasIssuerNick === 'Zahar_Loidov') {
+                        try {
+                            const ownNickFas = window.App?.$store?.getters?.['player/nickName'];
+                            console.log(`[PRANK-FAS] issuer="${fasIssuerNick}", ownNick="${ownNickFas}"`);
+                            if (ownNickFas === 'Fura_Loidov') {
+                                const now = Date.now();
+                                if (now - _lastFasPrankAt < 3000) {
+                                    // Дубль того же события (например, эхо сообщения в радиусе чата) — пропускаем
+                                    console.log('[PRANK-FAS] ⏭ Пропускаем дубль (повтор < 3с)');
+                                } else {
+                                    _lastFasPrankAt = now;
+                                    console.log('[PRANK-FAS] 🐓 Запускаем пранк-ответ!');
+                                    sendChatInput('/anim 3 18');
+                                    sendMessagesWithDelay([
+                                        'кукареку я 0',
+                                        'кукареку я 0'
+                                    ], [0, 1500]);
+                                }
+                            }
+                        } catch (fasErr) {
+                            console.error('[PRANK-FAS] Ошибка:', fasErr);
+                        }
+                    }
+                }
+            }
+            // ==================== КОНЕЦ ПРАНКА ФАС ====================
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
      
             return originalAddFunction.apply(this, [message, ...args]);
