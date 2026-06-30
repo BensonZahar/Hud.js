@@ -497,6 +497,11 @@ const _sfc_main={
                 this.partnerMessage  = !!s.message;
                 this.partnerNick     = s.nick || null;
                 this.partnerId       = s.id   || null;
+                // Без этого пункт "Напарник: ..." в списке не перерисовывается,
+                // когда _syncPartnerState() вызывается извне (через
+                // window._mvdMenuRefreshPartner, пока меню уже открыто) — данные
+                // меняются, а DOM не обновляется до переоткрытия меню.
+                if(typeof this.$forceUpdate==="function") this.$forceUpdate();
             }
         },
         // ── Напарник — переключить слежку ────────────────────────────────────
