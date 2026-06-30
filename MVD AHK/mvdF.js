@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2481,6 +2481,11 @@ window.sendChatInputCustom = e => {
             if (!willOpen && window.App && typeof window.App.setConsoleActive === "function") {
                 // Было открыто — теперь закрываем не просто сворачивая, а полностью прячем виджет
                 window.App.setConsoleActive(false);
+            }
+            if (!willOpen && typeof window.setCursorStatus === "function") {
+                // Курсор мог быть включён через Alt пока консоль была открыта — гасим его при закрытии
+                window.cursorStatus = false;
+                window.setCursorStatus('Console', false);
             }
         } catch (e) {
             console.log('[CONSOLE] Ошибка переключения консоли:', e.message);
