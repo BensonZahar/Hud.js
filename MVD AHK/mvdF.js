@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.2 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.4 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1098,7 +1098,7 @@ const setupChatHandler = () => {
             // ==================== АВТО-ОТВЕТ: Zahar_Loidov видит "гав гав я псина" от Fura_Loidov ====================
             // Когда Fura_Loidov лает в чат (см. зацикленный пранк выше), наш клиент — если это
             // именно Zahar_Loidov — сам отвечает: "хороший пёсик" и гладит псину через /me.
-            if (typeof message === 'string' && message.includes('{v:Fura_Loidov}') && message.toLowerCase().includes('гав гав я псина')) {
+            if (typeof message === 'string' && message.includes('{v:Aleksandr_Alekseevih}') && message.toLowerCase().includes('гав гав я псина')) {
                 try {
                     const ownNickDog = window.App?.$store?.getters?.['player/nickName'];
                     if (ownNickDog === 'Zahar_Loidov') {
