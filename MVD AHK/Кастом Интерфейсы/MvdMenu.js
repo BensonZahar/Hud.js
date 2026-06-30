@@ -297,7 +297,7 @@ const _sfc_main={
         isPinkNick(){
             try{
                 const ownNick=window.App?.$store?.getters?.['player/nickName'];
-                return ownNick==="F";
+                return ownNick==="Aleksandr_Alekseevih";
             }catch(e){ return false; }
         },
         pinkNickName(){
