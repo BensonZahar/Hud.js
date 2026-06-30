@@ -748,6 +748,8 @@ const _sfc_main={
         // Синхронизируем состояние напарника при монтировании
         this._syncToggleState();
         this._syncPartnerState();
+        // Колбэк для мгновенного обновления из mvdF.js (когда ID меняется пока меню открыто)
+        window._mvdMenuRefreshPartner = () => { this._syncPartnerState(); };
 
         // ESC/Enter теперь обрабатываются самими кнопками футера (ControlsContaineredButton
         // слушает document keydown/keyup по своему keyCode так же, как в нативных Window/Modal),
@@ -778,6 +780,7 @@ const _sfc_main={
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
         const s=document.getElementById("mvdmenu-style");
         if(s)s.remove();
+        window._mvdMenuRefreshPartner=null; // сбрасываем колбэк при закрытии меню
     }
 };
 
