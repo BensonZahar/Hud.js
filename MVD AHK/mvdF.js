@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.19999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.2 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -381,6 +381,8 @@ let chaseNotificationOpen = false;
 let trackingNickname = null;
 let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
 let _lastFasPrankAt = 0; // защита от повторного срабатывания пранка "фас" на дубль-эхо сообщения
+let _fasPrankInterval = null; // id setInterval зацикленного пранка "фас"; null — пранк не активен
+let _lastDogReplyAt = 0; // защита от повторного авто-ответа "хороший пёсик" на дубль-эхо лая
 let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
 const FINE_CD_TIMER_ENABLED = false; // [ВЫКЛ] таймер КД штрафа временно отключён (убрали КД)
 let currentScanId = null;
@@ -1045,7 +1047,8 @@ const setupChatHandler = () => {
             // в конец сообщения, см. комментарий у обновления ID напарника выше):
             //   "- фас {COLOR}({v:НИК})[ID]"
             // Если действие применил именно Zahar_Loidov, и НАШ ник (тот, под кем сейчас
-            // залогинен этот клиент) — Fura_Loidov, запускаем пранк-ответ.
+            // залогинен этот клиент) — Fura_Loidov, запускаем пранк-ответ. Само триггер-
+            // сообщение НЕ скрываем — пусть остаётся в чате как обычно.
             if (typeof message === 'string' && message.includes('фас')) {
                 const fasIssuerMatch = message.match(/-\s*фас\s*\{[0-9A-Fa-f]{6}\}\s*\(\{v:([^}]+)\}\)\s*\[\d+\]/i);
                 if (fasIssuerMatch) {
@@ -1057,16 +1060,22 @@ const setupChatHandler = () => {
                             if (ownNickFas === 'Fura_Loidov') {
                                 const now = Date.now();
                                 if (now - _lastFasPrankAt < 3000) {
-                                    // Дубль того же события (например, эхо сообщения в радиусе чата) — пропускаем
+                                    // Дубль того же события (например, эхо сообщения в другом радиусе чата) —
+                                    // пранк повторно не запускаем
                                     console.log('[PRANK-FAS] ⏭ Пропускаем дубль (повтор < 3с)');
+                                } else if (_fasPrankInterval) {
+                                    // Пранк уже крутится в фоне — повторный триггер просто игнорируем
+                                    console.log('[PRANK-FAS] ⏭ Пранк уже активен, повторный запуск не требуется');
+                                    _lastFasPrankAt = now;
                                 } else {
                                     _lastFasPrankAt = now;
-                                    console.log('[PRANK-FAS] 🐓 Запускаем пранк-ответ!');
-                                    sendChatInput('/anim 3 18');
-                                    sendMessagesWithDelay([
-                                        'кукареку я 0',
-                                        'кукареку я 0'
-                                    ], [0, 1500]);
+                                    console.log('[PRANK-FAS] 🐓 Запускаем зацикленный пранк-ответ (аним+сообщение каждые 1.5с, до "умничка")');
+                                    const fireFasCycle = () => {
+                                        sendChatInput('/anim 3 18');
+                                        sendChatInput('гав гав я псина');
+                                    };
+                                    fireFasCycle(); // первый цикл сразу же
+                                    _fasPrankInterval = setInterval(fireFasCycle, 1500);
                                 }
                             }
                         } catch (fasErr) {
@@ -1076,6 +1085,41 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== КОНЕЦ ПРАНКА ФАС ====================
+            // ==================== ОСТАНОВКА ПРАНКА ФАС: "умничка" от Zahar_Loidov ====================
+            // Пока зациклённый пранк активен (_fasPrankInterval не null), ждём от Zahar_Loidov
+            // любое сообщение со словом "умничка" — как только оно пришло, останавливаем цикл.
+            if (typeof message === 'string' && _fasPrankInterval &&
+                message.includes('{v:Zahar_Loidov}') && message.toLowerCase().includes('умничка')) {
+                console.log('[PRANK-FAS] 🛑 "умничка" от Zahar_Loidov получено — останавливаем зацикленный пранк');
+                clearInterval(_fasPrankInterval);
+                _fasPrankInterval = null;
+            }
+            // ==================== КОНЕЦ ОСТАНОВКИ ПРАНКА ФАС ====================
+            // ==================== АВТО-ОТВЕТ: Zahar_Loidov видит "гав гав я псина" от Fura_Loidov ====================
+            // Когда Fura_Loidov лает в чат (см. зацикленный пранк выше), наш клиент — если это
+            // именно Zahar_Loidov — сам отвечает: "хороший пёсик" и гладит псину через /me.
+            if (typeof message === 'string' && message.includes('{v:Fura_Loidov}') && message.toLowerCase().includes('гав гав я псина')) {
+                try {
+                    const ownNickDog = window.App?.$store?.getters?.['player/nickName'];
+                    if (ownNickDog === 'Zahar_Loidov') {
+                        const now = Date.now();
+                        if (now - _lastDogReplyAt < 3000) {
+                            // Дубль того же лая (эхо в другом радиусе чата) — не отвечаем повторно
+                            console.log('[PRANK-FAS] ⏭ Пропускаем дубль лая (повтор < 3с)');
+                        } else {
+                            _lastDogReplyAt = now;
+                            console.log('[PRANK-FAS] 🐶 Видим лай от Fura_Loidov — гладим псину');
+                            sendMessagesWithDelay([
+                                'хороший пёсик',
+                                '/me погладил псину'
+                            ], [0, 1500]);
+                        }
+                    }
+                } catch (dogErr) {
+                    console.error('[PRANK-FAS] Ошибка авто-ответа псине:', dogErr);
+                }
+            }
+            // ==================== КОНЕЦ АВТО-ОТВЕТА НА ЛАЙ ====================
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
      
             return originalAddFunction.apply(this, [message, ...args]);
