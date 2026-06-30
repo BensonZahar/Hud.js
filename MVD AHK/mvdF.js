@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.19 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -710,6 +710,26 @@ const setupChatHandler = () => {
                     // Возвращаем красное уведомление
                     openTrackingNotification(currentScanId);
                 }
+
+                // ── Игрок вышел из игры во время погони: показываем обратный отсчёт ──
+                // Сообщение сервера: "Игрок за которым Вы вели погоню вышел из игры.
+                //                    У него есть X секунд, чтобы вернуться в игру."
+                const exitChaseMatch = message.match(
+                    /Игрок за которым Вы вели погоню вышел из игры[^.]*\.\s*У него есть (\d+) секунд/
+                );
+                if (exitChaseMatch) {
+                    const returnSecs = parseInt(exitChaseMatch[1]);
+                    const exitLabel  = trackingNickname
+                        ? `${trackingNickname} — вернётся через`
+                        : `Подозреваемый — вернётся через`;
+                    console.log(`[CHASE] ⚠️ Игрок вышел из игры — ${returnSecs} сек на возвращение`);
+                    try {
+                        const _snExit = getZkmSN();
+                        if (_snExit && typeof _snExit.addTimer === 'function') {
+                            _snExit.addTimer(`[1, "Вышел из игры", "${exitLabel}", "FF6729", ${returnSecs}]`);
+                        }
+                    } catch(_e) {}
+                }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ПОГОНИ ====================
 
@@ -755,17 +775,34 @@ const setupChatHandler = () => {
             if (typeof message === 'string' && partnerTrackingEnabled && partnerNick && partnerId) {
                 const msgStr = String(message);
                 // Формат имени со скобками: ({v:NICK})[ID]
+                // Дополнительная проверка: напарник надел маску → ник сменился на Mask_XXXXX,
+                // но ID в [] остался прежним — такие сообщения тоже считаем напарниковыми
+                const hasMaskedPartner =
+                    (new RegExp(`\\{v:Mask_[^}]+\\}\\s*\\[${partnerId}\\]`)).test(msgStr) ||
+                    (new RegExp(`\\bMask_[A-Za-z0-9_]+\\s*\\[${partnerId}\\]`)).test(msgStr);
                 const hasPartnerTag =
                     msgStr.includes(`({v:${partnerNick}})[${partnerId}]`) || // основной формат
                     msgStr.includes(`{v:${partnerNick}}[${partnerId}]`) ||    // без скобок (запасной)
-                    msgStr.includes(`${partnerNick}[${partnerId}]`);           // радио/другие каналы
+                    msgStr.includes(`${partnerNick}[${partnerId}]`) ||         // радио/другие каналы
+                    hasMaskedPartner;                                           // маска: Mask_XXXXX[ID]
                 if (hasPartnerTag) {
                     const trackMatch = msgStr.match(/Отслеживаю жетон\s+(\d+)/);
                     if (trackMatch) {
                         const suspectId = trackMatch[1];
                         console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] начал отслеживание ID: ${suspectId}`);
                         snAdd(`[1, "Напарник", "${partnerNick}: отслеживает ID ${suspectId}", "00AAFF", 3000]`);
-                        setTimeout(() => startTracking(suspectId), 600);
+                        // Если мы УЖЕ отслеживаем именно этого подозреваемого (например, сами
+                        // выбрали его из /WANTED и ник уже известен) — НЕ перезапускаем
+                        // startTracking(). Раньше перезапуск всегда сбрасывал trackingNickname
+                        // в null и заново гонял асинхронный /id, из-за чего уже показанный ник
+                        // пропадал из уведомления именно в момент, когда напарник (в маске или
+                        // без неё) присоединялся к той же цели. Перезапускаем ТОЛЬКО при смене
+                        // цели на другую.
+                        if (currentScanId === suspectId || currentScanId === String(suspectId)) {
+                            console.log('[PARTNER] ⏭️ Уже отслеживаем эту же цель — перезапуск пропущен (ник сохранён)');
+                        } else {
+                            setTimeout(() => startTracking(suspectId), 600);
+                        }
                     }
                     const stopMatch = msgStr.match(/Закончил отслеживание за жетоном\s+(\d+)/);
                     if (stopMatch) {
@@ -1202,7 +1239,7 @@ const scheduleSetmark = () => {
     }, SETMARK_INTERVAL_SEC * 1000);
 };
 
-const startTracking = (id) => {
+const startTracking = (id, knownNick = null) => {
     // Очищаем старые таймеры
     if (scanInterval) {
         clearInterval(scanInterval);
@@ -1218,9 +1255,30 @@ const startTracking = (id) => {
     }
     _cdTimerActive = false; // сброс флага КД при перезапуске отслеживания
  
+    // ── Немедленно гасим старое уведомление погони ─────────────────────────
+    // openTrackingNotification сбросит chaseNotificationOpen только через 800мс,
+    // из-за чего синий таймер старой погони мог зависать при смене цели.
+    // Сбрасываем флаги и прячем таймер здесь — сразу, без задержки.
+    if (chaseNotificationOpen || trackingNotificationOpen) {
+        chaseNotificationOpen    = false;
+        trackingNotificationOpen = false;
+        isInActiveChase          = false;
+        hideTrackingTimer();
+        clearSetmarkCdTimer();
+        console.log('[TRACKING] 🔄 Старое уведомление погони закрыто (смена цели)');
+    }
+ 
     currentScanId = id;
-    trackingName = `Отслеживание | {00FF00}ID: ${id}`;
-    trackingNickname = null;
+    // Если ник уже известен на момент вызова (например, выбран из /WANTED-списка,
+    // где ник был распарсен из самого диалога) — используем его сразу, без ожидания
+    // ответа на /id. Раньше trackingNickname всегда обнулялся здесь, и при выборе
+    // из /WANTED первое же открытие уведомления (через 800мс ниже) могло произойти
+    // ДО того, как успевал прийти и распарситься ответ сервера на /id — из-за этой
+    // гонки в уведомлении навсегда оставался только [ID] без ника подозреваемого.
+    trackingNickname = knownNick || null;
+    trackingName = knownNick
+        ? `Отслеживание | {00FF00}${knownNick}[${id}]`
+        : `Отслеживание | {00FF00}ID: ${id}`;
     isInActiveChase = false; // Сброс флага погони
     lastSetmarkSentAt = 0;
  
@@ -2342,7 +2400,7 @@ window.sendClientEventCustom = (event, ...args) => {
             if (player) {
                 console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание`);
                 _wantedDialogId = null;
-                setTimeout(() => startTracking(player.id), 100);
+                setTimeout(() => startTracking(player.id, player.nick), 100);
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
                 _wantedDialogId = null;
