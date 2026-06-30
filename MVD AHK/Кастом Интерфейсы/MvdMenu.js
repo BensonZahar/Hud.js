@@ -64,7 +64,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                     createBaseVNode("div",{class:"mvdmenu__title"},[
                         createBaseVNode("span",{class:"mvdmenu__title-main"},"МВД"),
                         createBaseVNode("span",{class:"mvdmenu__title-sub"},
-                            toDisplayString($options.headerSubtitle)
+                            toDisplayString($options.headerSubtitle), 1 /* TEXT */
                         )
                     ])
                 ]),
@@ -89,10 +89,10 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                     onClick:$event=>{$data.selectedIndex=i;$options.selectMain(item);}
                                 },[
                                     createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                        toDisplayString(String(i+1).padStart(2,"0"))
+                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
                                     ),
                                     createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                        toDisplayString(item.label)
+                                        toDisplayString(item.label), 1 /* TEXT */
                                     ),
                                     // Стрелка → для пунктов-переходов
                                     item.arrow
@@ -141,16 +141,16 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                     onClick:$event=>{$data.selectedIndex=i;$options.selectOption(opt);}
                                 },[
                                     createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                        toDisplayString(String($options.globalIndex(opt)+1).padStart(2,"0"))
+                                        toDisplayString(String($options.globalIndex(opt)+1).padStart(2,"0")), 1 /* TEXT */
                                     ),
                                     createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                        toDisplayString(opt.label)
+                                        toDisplayString(opt.label), 1 /* TEXT */
                                     ),
                                     ACTION_TAGS[opt.action]
                                         ? createBaseVNode("div",{
                                             class:"mvdmenu__item-tag",
                                             style:`background:${ACTION_TAGS[opt.action].color}0.13);color:${ACTION_TAGS[opt.action].color}1)`
-                                          },toDisplayString(ACTION_TAGS[opt.action].label))
+                                          },toDisplayString(ACTION_TAGS[opt.action].label), 1 /* TEXT */)
                                         : createCommentVNode("",true),
                                     opt.needsId
                                         ? createBaseVNode("div",{class:"mvdmenu__item-id-badge"},"ID")
@@ -172,7 +172,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 ? (openBlock(),createElementBlock(Fragment,{key:"id-input"},[
                     createBaseVNode("div",{class:"mvdmenu__id-input-wrap"},[
                         createBaseVNode("div",{class:"mvdmenu__id-input-label"},
-                            toDisplayString($data.idInputLabel||"Введите ID игрока")
+                            toDisplayString($data.idInputLabel||"Введите ID игрока"), 1 /* TEXT */
                         ),
                         createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
                             createBaseVNode("input",{
@@ -208,10 +208,10 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                     onClick:$event=>{$data.selectedIndex=i;$options[item.onClick]();}
                                 },[
                                     createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                        toDisplayString(String(i+1).padStart(2,"0"))
+                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
                                     ),
                                     createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                        toDisplayString(item.label)
+                                        toDisplayString(item.label), 1 /* TEXT */
                                     ),
                                     createBaseVNode("div",{
                                         class:normalizeClass(["mvdmenu__item-status",
@@ -281,6 +281,8 @@ const _sfc_main={
             // "action" | "tracking" | "partner"
             idInputContext:null,
             _idPrevScreen:null,
+            // ── DEBUG: уникальный id инстанса для отладки napaарника ──
+            _debugInstanceId: Math.random().toString(36).slice(2,8),
         }
     },
     computed:{
@@ -493,10 +495,26 @@ const _sfc_main={
         _syncPartnerState(){
             if(typeof window._mvdPartnerGetState==="function"){
                 const s=window._mvdPartnerGetState();
+                const _prevId=this.partnerId;
                 this.partnerTracking = !!s.tracking;
                 this.partnerMessage  = !!s.message;
                 this.partnerNick     = s.nick || null;
                 this.partnerId       = s.id   || null;
+                console.log(`[MvdMenu][${this._debugInstanceId}] _syncPartnerState(): window.id=${s.id}, было this.partnerId=${_prevId} → стало ${this.partnerId}, typeof this.$forceUpdate=${typeof this.$forceUpdate}, typeof this.$nextTick=${typeof this.$nextTick}, typeof this.$el=${typeof this.$el}`);
+                // Без этого пункт "Напарник: ..." в списке не перерисовывается,
+                // когда _syncPartnerState() вызывается извне (через
+                // window._mvdMenuRefreshPartner, пока меню уже открыто) — данные
+                // меняются, а DOM не обновляется до переоткрытия меню.
+                try{
+                    if(typeof this.$forceUpdate==="function"){
+                        this.$forceUpdate();
+                        console.log(`[MvdMenu][${this._debugInstanceId}] $forceUpdate() вызван без ошибок`);
+                    } else {
+                        console.log(`[MvdMenu][${this._debugInstanceId}] $forceUpdate ОТСУТСТВУЕТ как функция!`);
+                    }
+                }catch(_fuErr){
+                    console.log(`[MvdMenu][${this._debugInstanceId}] $forceUpdate() БРОСИЛ ОШИБКУ: ${_fuErr && _fuErr.message}`);
+                }
             }
         },
         // ── Напарник — переключить слежку ────────────────────────────────────
@@ -745,9 +763,26 @@ const _sfc_main={
             }
         }
 
+        console.log(`[MvdMenu][${this._debugInstanceId}] mounted(), window._mvdMenuRefreshPartner ДО регистрации = ${typeof window._mvdMenuRefreshPartner}`);
+
         // Синхронизируем состояние напарника при монтировании
         this._syncToggleState();
         this._syncPartnerState();
+        // Колбэк для мгновенного обновления из mvdF.js (когда ID меняется пока меню открыто)
+        window._mvdMenuRefreshPartner = () => {
+            console.log(`[MvdMenu][${this._debugInstanceId}] window._mvdMenuRefreshPartner() ВЫЗВАН извне`);
+            this._syncPartnerState();
+        };
+        // Подстраховка: колбэк выше может не успеть сработать, если ответ "/id"
+        // от сервера придёт чуть раньше монтирования компонента или позже того,
+        // как _partnerNickSearch уже сброшен по таймауту в mvdF.js. Поэтому пока
+        // меню открыто — дополнительно сами раз в 700мс подтягиваем актуальное
+        // состояние напарника напрямую из window, без ожидания внешнего вызова.
+        this._partnerPollId = setInterval(() => {
+            console.log(`[MvdMenu][${this._debugInstanceId}] poll-тик, this.partnerId сейчас=${this.partnerId}`);
+            this._syncPartnerState();
+        }, 700);
+        console.log(`[MvdMenu][${this._debugInstanceId}] mounted() завершён, _partnerPollId=${this._partnerPollId}`);
 
         // ESC/Enter теперь обрабатываются самими кнопками футера (ControlsContaineredButton
         // слушает document keydown/keyup по своему keyCode так же, как в нативных Window/Modal),
@@ -775,9 +810,12 @@ const _sfc_main={
         if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
     },
     unmounted(){
+        console.log(`[MvdMenu][${this._debugInstanceId}] unmounted() — этот инстанс уничтожается`);
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
         const s=document.getElementById("mvdmenu-style");
         if(s)s.remove();
+        window._mvdMenuRefreshPartner=null; // сбрасываем колбэк при закрытии меню
+        if(this._partnerPollId){ clearInterval(this._partnerPollId); this._partnerPollId=null; }
     }
 };
 
