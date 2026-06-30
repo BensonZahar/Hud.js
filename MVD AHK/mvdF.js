@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("=== MVD AK v2.1999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("=== MVD AK v2.1912 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -686,6 +686,8 @@ const setupChatHandler = () => {
                             partnerId = _foundId;
                             console.log(`[PARTNER] 🔄 ID напарника обновлён: ${_oldId} → ${_foundId} (${partnerNick})`);
                             snAdd(`[1, "Напарник", "${partnerNick}: ID ${_oldId}→${_foundId}", "00FF00", 3000]`);
+                            // Обновляем Vue-компонент MvdMenu немедленно (без переоткрытия меню)
+                            if (typeof window._mvdMenuRefreshPartner === "function") window._mvdMenuRefreshPartner();
                         } else {
                             console.log(`[PARTNER] ✅ Напарник в сети: ${partnerNick}[${partnerId}]`);
                         }
