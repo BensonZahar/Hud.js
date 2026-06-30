@@ -6,11 +6,19 @@ GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%2
 AHK_URL       = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
 INTLOAD_URL   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
 CUSTOM_UI_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
-# JS/CSS файлы кастомных интерфейсов качаются из папки Загрузчики —
-# там лежат тонкие загрузчики, которые при старте игры сами тянут
-# реальный код с GitHub (XHR + eval). IntLoad.js по-прежнему
-# в Кастом Интерфейсы/ — это манифест-реестр (имена/файлы/опции).
+# IntLoad.js всегда в Кастом Интерфейсы/ — это манифест-реестр (имена/файлы/опции).
 LOADERS_URL   = CUSTOM_UI_URL + "/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
+
+# ── Источник JS/CSS файлов кастомных интерфейсов ───────────────────────
+# False (по умолчанию) — качаем ГОТОВЫЕ файлы прямо из Кастом Интерфейсы/
+#   (CUSTOM_UI_URL). Это сразу рабочий код без обёртки; чтобы интерфейсы
+#   обновились на клиентах — нужно переустановить .py заново.
+# True  — качаем ТОНКИЕ ЗАГРУЗЧИКИ из Кастом Интерфейсы/Загрузчики/
+#   (LOADERS_URL): они сами тянут актуальный код с GitHub через XHR+eval
+#   при каждом старте игры, переустановка .py для обновления не нужна.
+# Чтобы вернуться на загрузчики — просто поставь True.
+USE_LOADERS   = False
+DEPLOY_UI_URL = LOADERS_URL if USE_LOADERS else CUSTOM_UI_URL
 
 # Имена нативных интерфейсов движка — НИКОГДА не регистрировать кастомный
 # компонент под этими именами в dd/fd (полностью подменяет родной интерфейс
@@ -331,29 +339,33 @@ class InstallerAPI:
         return "".join(parts)
 
     def _deploy_custom_ui_files(self, ifaces: list):
-        """Скачивает файлы загрузчиков (.js/.css) из папки Загрузчики на GitHub
-        и кладёт в assets/. Список файлов берётся из реестра IntLoad.js.
+        """Скачивает файлы кастомных интерфейсов (.js/.css) и кладёт в assets/.
+        Список файлов берётся из реестра IntLoad.js.
 
-        Загрузчики — тонкие обёртки, которые при старте игры сами тянут
-        реальный код с GitHub через XHR + eval. Сами обновления интерфейсов
-        (реальный MvdMenu.js и т.п.) происходят автоматически при запуске игры —
-        переустановка .py для этого не нужна."""
+        Источник управляется флагом USE_LOADERS вверху файла:
+          • USE_LOADERS = False (по умолчанию) — качаются ГОТОВЫЕ файлы из
+            Кастом Интерфейсы/ (CUSTOM_UI_URL) — сразу рабочий код.
+          • USE_LOADERS = True — качаются тонкие загрузчики из
+            Кастом Интерфейсы/Загрузчики/ (LOADERS_URL), которые сами тянут
+            актуальный код с GitHub при каждом старте игры — переустановка
+            .py для обновления интерфейсов не нужна."""
         if not self.radmir_path:
             return
         assets_dir = self.radmir_path / "uiresources" / "assets"
         if not assets_dir.exists():
             return
         all_files = [f for iface in ifaces for f in iface.get("files", [])]
+        kind = "загрузчик" if USE_LOADERS else "файл"
         for filename in all_files:
-            url = f"{LOADERS_URL}/{filename}"
+            url = f"{DEPLOY_UI_URL}/{filename}"
             try:
                 resp = requests.get(url, timeout=20)
                 resp.raise_for_status()
                 dest = assets_dir / filename
                 dest.write_bytes(resp.content)
-                print(f'[Installer] Скопирован загрузчик {filename} -> assets/')
+                print(f'[Installer] Скопирован {kind} {filename} -> assets/')
             except Exception as e:
-                print(f'[Installer] Не удалось скачать загрузчик {filename}: {e}')
+                print(f'[Installer] Не удалось скачать {kind} {filename}: {e}')
 
     def select_folder(self):
         r = self._window.create_file_dialog(webview.FOLDER_DIALOG, directory='/', allow_multiple=False)
