@@ -442,6 +442,12 @@
   })();
 })();
 // ==================== END /has, /has_s: Hassle HUD ====================
+// Сохраняем ссылку на обёртку /has, /has_s ДО того, как её ниже по файлу
+// (см. "sendChatInput = sendChatInputCustom;") затрёт sendChatInputCustom —
+// иначе /has и /has_s перестают работать, хотя /dahk и /console продолжают,
+// т.к. sendChatInputCustom обрабатывает только их, а всё остальное шлёт
+// напрямую в engine.trigger("SendChatInput", e), в обход /has-обработчика.
+var __hasWrapperBeforeOverride = window.sendChatInput;
 // ── Загрузчик startup-интерфейсов ────────────────────────────────────
 // Вставить в НАЧАЛО mvdF.js.
 // Файлы берутся из assets (рядом с ScreenNotification.js / index.js).
@@ -468,7 +474,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2983,6 +2989,11 @@ window.sendChatInputCustom = e => {
         _awaitingPartnerId = false;
         partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
         sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
+    } else if (typeof __hasWrapperBeforeOverride === "function") {
+        // Отдаём необработанные здесь команды (в т.ч. /has, /has_s) в
+        // сохранённую обёртку HUD-панели — она сама решит, обработать их
+        // или передать дальше в оригинальный sendChatInput/engine.trigger.
+        __hasWrapperBeforeOverride(e);
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
     }
@@ -3685,4 +3696,3 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     console.log('[АВТО-ТАЗЕР] v15 готов');
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
-
