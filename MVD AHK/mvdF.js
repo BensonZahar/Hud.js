@@ -27,6 +27,7 @@
     chatFontSize:6,
     radarLeft:6.67, radarTop:6.57, radarSize:35.8,
     infoRight:-1.82, infoTop:-4.35, infoScale:100,
+    voiceExtra:2,
     border:"default"
   };
   // Подобранные вручную значения для ПК (см. скриншоты) — используются по
@@ -36,6 +37,7 @@
     chatFontSize:1,
     radarLeft:6.67, radarTop:6.57, radarSize:30.8,
     infoRight:-0, infoTop:-0, infoScale:60,
+    voiceExtra:2,
     border:"default"
   };
   // Настройки хранятся ОТДЕЛЬНО для каждого ника (свой ключ в localStorage),
@@ -148,7 +150,10 @@
     // на их собственную высоту (~3vh при масштабе 1) плюс небольшой отступ,
     // чтобы ник никогда не залезал на "T ЧАТ" / "F1 УПРАВЛЕНИЕ".
     var HINT_ROW_HEIGHT_VH=3;
-    var voiceTop=controlsTop+HINT_ROW_HEIGHT_VH*controlsScale+1;
+    // settings.voiceExtra — ручная докрутка (vh) поверх авто-расчёта, на случай
+    // если авторасчёта не хватает и "T ЧАТ"/"F1 УПРАВЛЕНИЕ" всё ещё слегка
+    // задеваются именем/бейджем говорящего в ГС. Регулируется ползунком в панели.
+    var voiceTop=controlsTop+HINT_ROW_HEIGHT_VH*controlsScale+1+(settings.voiceExtra||0);
     r.setProperty("--has-voicechat-left",settings.chatLeft+"vw");
     r.setProperty("--has-voicechat-top",voiceTop+"vh");
   }
@@ -234,6 +239,7 @@
     p.appendChild(__hasSlider("Ширина (vw)","chatWidth",20,70,0.1));
     p.appendChild(__hasSlider("Высота списка (vh)","chatHeight",10,50,0.1));
     p.appendChild(__hasSlider("Размер шрифта","chatFontSize",-5,20,1));
+    p.appendChild(__hasSlider("Отступ ГС ниже подсказок (vh)","voiceExtra",-5,15,0.1));
 
     var radarLabel=document.createElement("div");
     radarLabel.textContent="Радар";
@@ -468,7 +474,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.900 Размер ===");
+console.log("[INIT] === MVD AK v2.0 Размер ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
