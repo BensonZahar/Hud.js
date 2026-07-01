@@ -3241,3 +3241,341 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     console.log('[АВТО-ТАЗЕР] v15 готов');
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
+/* ===== /has, /has_s команды + Hassle HUD customization panel ===== */
+(function(){
+  var STORAGE_KEY="__has_hud_settings";
+  // Родные ("мобильные") значения Hassle HUD — доступны через кнопку "Hassle размер".
+  var DEFAULTS={
+    chatLeft:21.53, chatTop:5.92, chatWidth:45.89, chatHeight:26.2,
+    chatFontSize:6,
+    radarLeft:6.67, radarTop:6.57, radarSize:35.8,
+    infoRight:-1.82, infoTop:-4.35, infoScale:100,
+    border:"default"
+  };
+  // Подобранные вручную значения для ПК (см. скриншоты) — теперь используются
+  // по умолчанию сразу при заходе, без необходимости жать /has каждый раз.
+  var PC_DEFAULTS={
+    chatLeft:21.53, chatTop:5.92, chatWidth:45.89, chatHeight:23.0,
+    chatFontSize:1,
+    radarLeft:6.67, radarTop:6.57, radarSize:30.8,
+    infoRight:-1.82, infoTop:-4.35, infoScale:60,
+    border:"default"
+  };
+  var settings=__hasLoadSettings();
+  var __hasOriginalSendChatInput=window.sendChatInput;
+  var panelEl=null;
+
+  function __hasLoadSettings(){
+    try{
+      var raw=localStorage.getItem(STORAGE_KEY);
+      if(!raw)return Object.assign({},PC_DEFAULTS,{hassleForced:!0});
+      var parsed=JSON.parse(raw);
+      return Object.assign({},PC_DEFAULTS,parsed);
+    }catch(e){return Object.assign({},PC_DEFAULTS,{hassleForced:!0});}
+  }
+  function __hasSaveSettings(){
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(settings));}catch(e){}
+  }
+
+  function __hasToast(text){
+    var el=document.createElement("div");
+    el.textContent=text;
+    el.style.cssText="position:fixed;top:12vh;left:50%;transform:translateX(-50%) translateY(-6px);background:rgba(17,21,29,0.92);color:#d2a65e;border:1px solid #1f242e;border-radius:8px;padding:10px 18px;font:600 14px/1.3 Open Sans,var(--fallback-font),sans-serif;z-index:999999;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.4);opacity:0;transition:opacity .2s,transform .2s;";
+    document.body.appendChild(el);
+    requestAnimationFrame(function(){el.style.opacity="1";el.style.transform="translateX(-50%) translateY(0)";});
+    setTimeout(function(){
+      el.style.opacity="0";
+      el.style.transform="translateX(-50%) translateY(-6px)";
+      setTimeout(function(){el.remove();},250);
+    },1800);
+  }
+
+  function __hasInjectChatStyle(){
+    if(document.getElementById("__has-chat-style"))return;
+    var style=document.createElement("style");
+    style.id="__has-chat-style";
+    style.textContent=
+      ".__has-chat-hassle-pos .radmir-chat{left:var(--has-chat-left)!important;top:var(--has-chat-top)!important;width:var(--has-chat-width)!important;}"+
+      ".__has-chat-hassle-pos .radmir-chat__messages{width:var(--has-chat-width)!important;height:var(--has-chat-height)!important;}"+
+      ".__has-chat-hassle-pos .radmir-chat-input{width:var(--has-chat-width)!important;}"+
+      ".__has-chat-hassle-pos .radmir-chat-input__input{border-top:0!important;}"+
+      ".__has-chat-hassle-pos .radmir-chat__before{background:linear-gradient(180deg,#1414149e 33.5%,#14141400)!important;height:71.85vh!important;}"+
+      ".__has-chat-hassle-pos .radmir-chat_opened .radmir-chat__before{opacity:1!important;}"+
+      ".__has-chat-hassle-pos .hud-hassle-radar{left:var(--has-radar-left)!important;top:var(--has-radar-top)!important;}"+
+      ".__has-chat-hassle-pos .hud-hassle-radar__map{transform:scale(var(--has-radar-scale))!important;}"+
+      ".__has-chat-hassle-pos .hud-hassle-info{right:var(--has-info-right)!important;top:var(--has-info-top)!important;transform:scale(var(--has-info-scale))!important;}"+
+      ".__has-chat-hassle-pos .radmir-chat__controls{top:var(--has-chat-controls-top)!important;transform:scale(var(--has-chat-controls-scale))!important;transform-origin:left top!important;}"+
+      // Ник + бейдж того, кто говорит в ГС, раньше вставали прямо поверх подсказок
+      // "T ЧАТ" / "F1 УПРАВЛЕНИЕ" — сдвигаем voice-chat ниже подсказок с запасом,
+      // который растёт вместе с масштабом шрифта чата (--has-chat-controls-scale).
+      ".__has-chat-hassle-pos .voice-chat{left:var(--has-voicechat-left)!important;top:var(--has-voicechat-top)!important;margin-top:0!important;}";
+    document.head.appendChild(style);
+  }
+
+  function __hasApplyCSSVars(){
+    var r=document.documentElement.style;
+    r.setProperty("--has-chat-left",settings.chatLeft+"vw");
+    r.setProperty("--has-chat-top",settings.chatTop+"vh");
+    r.setProperty("--has-chat-width",settings.chatWidth+"vw");
+    r.setProperty("--has-chat-height",settings.chatHeight+"vh");
+    r.setProperty("--has-radar-left",settings.radarLeft+"vh");
+    r.setProperty("--has-radar-top",settings.radarTop+"vh");
+    r.setProperty("--has-radar-scale",(settings.radarSize/DEFAULTS.radarSize).toFixed(4));
+    r.setProperty("--has-info-right",settings.infoRight+"vw");
+    r.setProperty("--has-info-top",settings.infoTop+"vh");
+    r.setProperty("--has-info-scale",(settings.infoScale/100).toFixed(4));
+    // Подсказки "Т ЧАТ" / "F1 УПРАВЛЕНИЕ" — ставим их сразу под блок сообщений
+    // и масштабируем вместе с размером шрифта чата.
+    var controlsScale=1+settings.chatFontSize*0.045;
+    var controlsTop=settings.chatTop+settings.chatHeight+1.2;
+    r.setProperty("--has-chat-controls-top",controlsTop+"vh");
+    r.setProperty("--has-chat-controls-scale",controlsScale.toFixed(3));
+    // Голосовой чат (ник + бейдж говорящего) — ставим НИЖЕ подсказок с запасом
+    // на их собственную высоту (~3vh при масштабе 1) плюс небольшой отступ,
+    // чтобы ник никогда не залезал на "T ЧАТ" / "F1 УПРАВЛЕНИЕ".
+    var HINT_ROW_HEIGHT_VH=3;
+    var voiceTop=controlsTop+HINT_ROW_HEIGHT_VH*controlsScale+1;
+    r.setProperty("--has-voicechat-left",settings.chatLeft+"vw");
+    r.setProperty("--has-voicechat-top",voiceTop+"vh");
+  }
+
+  function __hasApplyToHud(){
+    var hud=window.interface&&window.interface("Hud");
+    if(!hud)return;
+    window.App.chatFontSize=settings.chatFontSize;
+    hud.isHelloween=settings.border==="helloween";
+    hud.isNewYear=settings.border==="newyear";
+  }
+
+  function __hasApplyAll(){
+    __hasApplyCSSVars();
+    __hasApplyToHud();
+  }
+
+  // Включает/выключает позиционирование Hassle HUD. silent=true — не пишет
+  // тост и не трогает панель (используется при автозагрузке настроек).
+  function __hasSetForced(hud,val,silent){
+    hud.__hassleForced=val;
+    settings.hassleForced=val;
+    document.body.classList.toggle("__has-chat-hassle-pos",val);
+    if(val){
+      __hasApplyAll();
+    }else{
+      window.App.chatFontSize=0;
+      hud.isHelloween=!1;
+      hud.isNewYear=!1;
+      if(!silent)__hasHidePanel();
+    }
+    __hasSaveSettings();
+  }
+
+  function __hasSlider(label,key,min,max,step){
+    var row=document.createElement("div");
+    row.style.cssText="margin-bottom:10px;";
+    var top=document.createElement("div");
+    top.style.cssText="display:flex;justify-content:space-between;color:#f4f1e1;font-size:12px;margin-bottom:4px;font-family:Open Sans,var(--fallback-font),sans-serif;";
+    var lbl=document.createElement("span"); lbl.textContent=label;
+    var val=document.createElement("span"); val.textContent=settings[key]; val.style.color="#d2a65e";
+    top.appendChild(lbl); top.appendChild(val);
+    var input=document.createElement("input");
+    input.type="range"; input.min=min; input.max=max; input.step=step; input.value=settings[key];
+    input.style.cssText="width:100%;accent-color:#d2a65e;";
+    input.addEventListener("input",function(){
+      settings[key]=parseFloat(input.value);
+      val.textContent=settings[key];
+      __hasApplyAll();
+      __hasSaveSettings();
+    });
+    row.appendChild(top); row.appendChild(input);
+    return row;
+  }
+
+  function __hasBuildPanel(){
+    if(panelEl)return panelEl;
+    var p=document.createElement("div");
+    p.style.cssText="position:fixed;top:12vh;right:1.5vw;width:280px;background:rgba(17,21,29,0.95);border:1px solid #1f242e;border-radius:10px;padding:14px;z-index:999998;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-family:Open Sans,var(--fallback-font),sans-serif;display:none;";
+
+    var header=document.createElement("div");
+    header.style.cssText="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;";
+    var title=document.createElement("div");
+    title.textContent="HASSLE HUD";
+    title.style.cssText="color:#d2a65e;font-weight:700;font-size:13px;letter-spacing:0.5px;";
+    var closeBtn=document.createElement("div");
+    closeBtn.textContent="✕";
+    closeBtn.style.cssText="color:#f4f1e199;cursor:pointer;font-size:14px;padding:2px 6px;";
+    closeBtn.addEventListener("click",function(){__hasHidePanel();});
+    header.appendChild(title); header.appendChild(closeBtn);
+    p.appendChild(header);
+
+    var chatLabel=document.createElement("div");
+    chatLabel.textContent="Чат";
+    chatLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:8px 0 6px;";
+    p.appendChild(chatLabel);
+    p.appendChild(__hasSlider("Слева (vw)","chatLeft",0,60,0.1));
+    p.appendChild(__hasSlider("Сверху (vh)","chatTop",0,40,0.1));
+    p.appendChild(__hasSlider("Ширина (vw)","chatWidth",20,70,0.1));
+    p.appendChild(__hasSlider("Высота списка (vh)","chatHeight",10,50,0.1));
+    p.appendChild(__hasSlider("Размер шрифта","chatFontSize",-5,20,1));
+
+    var radarLabel=document.createElement("div");
+    radarLabel.textContent="Радар";
+    radarLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;";
+    p.appendChild(radarLabel);
+    p.appendChild(__hasSlider("Слева (vh)","radarLeft",0,40,0.1));
+    p.appendChild(__hasSlider("Сверху (vh)","radarTop",0,40,0.1));
+    p.appendChild(__hasSlider("Размер (vh)","radarSize",15,60,0.1));
+
+    var borderLabel=document.createElement("div");
+    borderLabel.textContent="Бордер радара";
+    borderLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;";
+    p.appendChild(borderLabel);
+
+    var borderRow=document.createElement("div");
+    borderRow.style.cssText="display:flex;gap:6px;margin-bottom:12px;";
+    var borderOptions=[["default","Обычный"],["helloween","Хэллоуин"],["newyear","Новый год"]];
+    var borderButtons=[];
+    borderOptions.forEach(function(opt){
+      var btn=document.createElement("div");
+      btn.textContent=opt[1];
+      btn.dataset.value=opt[0];
+      btn.style.cssText="flex:1;text-align:center;padding:6px 4px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e1;";
+      btn.style.background=settings.border===opt[0]?"#d2a65e":"transparent";
+      btn.style.color=settings.border===opt[0]?"#11151d":"#f4f1e1";
+      btn.addEventListener("click",function(){
+        settings.border=opt[0];
+        borderButtons.forEach(function(b){
+          var active=b.dataset.value===settings.border;
+          b.style.background=active?"#d2a65e":"transparent";
+          b.style.color=active?"#11151d":"#f4f1e1";
+        });
+        __hasApplyAll();
+        __hasSaveSettings();
+      });
+      borderButtons.push(btn);
+      borderRow.appendChild(btn);
+    });
+    p.appendChild(borderRow);
+
+    var infoLabel=document.createElement("div");
+    infoLabel.textContent="Правый HUD (здоровье/деньги)";
+    infoLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;";
+    p.appendChild(infoLabel);
+    p.appendChild(__hasSlider("Справа (vw)","infoRight",-10,20,0.1));
+    p.appendChild(__hasSlider("Сверху (vh)","infoTop",-10,20,0.1));
+    p.appendChild(__hasSlider("Масштаб (%)","infoScale",50,200,1));
+
+    function __hasRebuildPanel(){
+      panelEl.remove();
+      panelEl=null;
+      __hasBuildPanel();
+      __hasShowPanel();
+    }
+
+    var pcBtn=document.createElement("div");
+    pcBtn.textContent="ПК размер (по умолчанию)";
+    pcBtn.style.cssText="text-align:center;padding:8px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e199;margin-top:4px;";
+    pcBtn.addEventListener("click",function(){
+      settings=Object.assign({},PC_DEFAULTS,{hassleForced:!0});
+      __hasSaveSettings();
+      __hasApplyAll();
+      __hasRebuildPanel();
+    });
+    p.appendChild(pcBtn);
+
+    var hassleBtn=document.createElement("div");
+    hassleBtn.textContent="Hassle размер";
+    hassleBtn.style.cssText="text-align:center;padding:8px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#d2a65e;margin-top:6px;";
+    hassleBtn.addEventListener("click",function(){
+      settings=Object.assign({},DEFAULTS,{hassleForced:!0});
+      __hasSaveSettings();
+      __hasApplyAll();
+      __hasRebuildPanel();
+    });
+    p.appendChild(hassleBtn);
+
+    document.body.appendChild(p);
+    panelEl=p;
+    return p;
+  }
+
+  function __hasShowPanel(){
+    __hasBuildPanel();
+    panelEl.style.display="block";
+    window.setCursorStatus&&window.setCursorStatus("HasPanel",!0);
+  }
+  function __hasHidePanel(){
+    if(panelEl)panelEl.style.display="none";
+    window.setCursorStatus&&window.setCursorStatus("HasPanel",!1);
+  }
+  function __hasIsPanelOpen(){
+    return !!panelEl&&panelEl.style.display!=="none";
+  }
+
+  window.sendChatInput=function(e){
+    var text=(e||"").trim().toLowerCase();
+    if(text==="/has"){
+      var hud=window.interface&&window.interface("Hud");
+      if(!hud){__hasToast("HASSLE: HUD ещё не инициализирован");return;}
+      __hasInjectChatStyle();
+      __hasSetForced(hud,!hud.__hassleForced);
+      __hasToast(hud.__hassleForced?"HASSLE HUD: включен":"HASSLE HUD: выключен");
+      return;
+    }
+    if(text==="/has_s"){
+      var hud=window.interface&&window.interface("Hud");
+      if(!hud){__hasToast("HASSLE: HUD ещё не инициализирован");return;}
+      __hasInjectChatStyle();
+      if(!hud.__hassleForced)__hasSetForced(hud,!0,!0);
+      if(__hasIsPanelOpen()){__hasHidePanel();}
+      else{__hasShowPanel();}
+      return;
+    }
+    return __hasOriginalSendChatInput(e);
+  };
+
+  /* ---- "N в сети  ID X" fix ----
+     info.online / info.id are read straight out of the Hud component's data by
+     the Hassle template, but nothing in Hud.js or index.js ever assigns them —
+     they're stuck at their defaults (online:1, id:0), which is exactly what you
+     see on screen. There's no setPlayerId/setPlayerOnline anywhere (unlike
+     setPlayerMoney, setPlayerLevel, etc.), so we wire the online counter to the
+     same players-list update the game already pushes for MainMenu's tablist,
+     and expose a manual hook for the ID since nothing in these files carries it. */
+  var __hasOriginalOnUpdatePlayersList=window.onUpdatePlayersList;
+  window.onUpdatePlayersList=function(e){
+    try{
+      var hud=window.interface&&window.interface("Hud");
+      if(hud&&e&&typeof e.count==="number"){hud.info.online=e.count+1;}
+    }catch(err){}
+    if(__hasOriginalOnUpdatePlayersList)return __hasOriginalOnUpdatePlayersList(e);
+  };
+  setInterval(function(){
+    var hud=window.interface&&window.interface("Hud");
+    if(hud&&hud.__hassleForced&&window.updatePlayerList)window.updatePlayerList();
+  },15000);
+
+  // Call this with your real ID from wherever you already resolve it (e.g. your
+  // /id parsing) — window.setPlayerId(1234) — and it'll show up immediately.
+  window.setPlayerId=function(id){
+    var hud=window.interface&&window.interface("Hud");
+    if(hud)hud.info.id=parseInt(id)||0;
+  };
+
+  // Автозагрузка: ждём, пока Hud проинициализируется, и молча применяем
+  // сохранённые настройки (по умолчанию — ПК размер, hassleForced:true), чтобы
+  // не нужно было каждый раз вручную включать /has.
+  (function __hasAutoInit(){
+    var tries=0,maxTries=200;
+    var timer=setInterval(function(){
+      tries++;
+      var hud=window.interface&&window.interface("Hud");
+      if(hud){
+        clearInterval(timer);
+        __hasInjectChatStyle();
+        if(settings.hassleForced!==!1){__hasSetForced(hud,!0,!0);}
+      }else if(tries>=maxTries){
+        clearInterval(timer);
+      }
+    },150);
+  })();
+})();
