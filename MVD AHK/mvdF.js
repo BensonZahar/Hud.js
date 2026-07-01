@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3259,6 +3259,23 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     return !!nick&&ALLOWED_NICKS.indexOf(nick)!==-1;
   }
 
+  // Настройки по умолчанию для КАЖДОГО ника отдельно (применяются только
+  // один раз, при самом первом заходе этим ником — дальше всё, что человек
+  // сам поменяет в /has или /has_s, сохраняется и имеет приоритет над этим).
+  //   autoEnable — включать ли HUD автоматически при заходе (true/false).
+  //   border     — с каким дизайном включать: "default" (обычный),
+  //                "helloween" (хэллоуин) или "newyear" (новогодний).
+  var NICK_PROFILES={
+    "Zahar_Loidov": { autoEnable:!0, border:"default" },
+    "Fura_Loidov":  { autoEnable:!1, border:"default" }
+  };
+  // Профиль "по умолчанию" — на случай если в ALLOWED_NICKS добавят новый
+  // ник и забудут прописать для него профиль выше.
+  var DEFAULT_PROFILE={ autoEnable:!0, border:"default" };
+  function __hasGetNickProfile(nick){
+    return NICK_PROFILES[nick]||DEFAULT_PROFILE;
+  }
+
   // Родные ("мобильные") значения Hassle HUD — доступны через кнопку "Hassle размер".
   var DEFAULTS={
     chatLeft:21.53, chatTop:5.92, chatWidth:45.89, chatHeight:26.2,
@@ -3276,20 +3293,58 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     infoRight:-1.82, infoTop:-4.35, infoScale:60,
     border:"default"
   };
-  var settings=__hasLoadSettings();
+  // Настройки теперь хранятся ОТДЕЛЬНО для каждого ника (свой ключ в
+  // localStorage), т.к. Zahar_Loidov и Fura_Loidov — это разные персонажи
+  // на одном и том же клиенте/браузере, и им нужны разные значения
+  // (автовключение, дизайн и т.д.), а не одна общая настройка на двоих.
+  var settings=Object.assign({},PC_DEFAULTS,{hassleForced:!0});
+  var __hasSettingsNick=null;
   var __hasOriginalSendChatInput=window.sendChatInput;
   var panelEl=null;
 
-  function __hasLoadSettings(){
-    try{
-      var raw=localStorage.getItem(STORAGE_KEY);
-      if(!raw)return Object.assign({},PC_DEFAULTS,{hassleForced:!0});
-      var parsed=JSON.parse(raw);
-      return Object.assign({},PC_DEFAULTS,parsed);
-    }catch(e){return Object.assign({},PC_DEFAULTS,{hassleForced:!0});}
+  function __hasStorageKeyFor(nick){
+    return STORAGE_KEY+"::"+nick;
   }
+
+  function __hasLoadSettingsForNick(nick){
+    var profile=__hasGetNickProfile(nick);
+    var nickDefaults=Object.assign({},PC_DEFAULTS,{
+      hassleForced:profile.autoEnable,
+      border:profile.border
+    });
+    try{
+      var raw=localStorage.getItem(__hasStorageKeyFor(nick));
+      if(!raw){
+        // Разовая миграция со старого общего ключа настроек (если человек
+        // уже пользовался /has до разделения по никам) — переносим его
+        // сохранённые значения на первый ник, который зайдёт после апдейта.
+        var legacy=localStorage.getItem(STORAGE_KEY);
+        if(legacy){
+          try{return Object.assign({},nickDefaults,JSON.parse(legacy));}catch(e){}
+        }
+        return nickDefaults;
+      }
+      var parsed=JSON.parse(raw);
+      return Object.assign({},nickDefaults,parsed);
+    }catch(e){return nickDefaults;}
+  }
+
+  // Подгружает настройки для текущего залогиненного ника (один раз на ник —
+  // повторный вызов для того же ника ничего не перечитывает).
+  function __hasEnsureSettings(){
+    var nick=__hasGetOwnNick();
+    if(nick&&nick!==__hasSettingsNick){
+      __hasSettingsNick=nick;
+      settings=__hasLoadSettingsForNick(nick);
+    }
+    return settings;
+  }
+
   function __hasSaveSettings(){
-    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(settings));}catch(e){}
+    try{
+      var key=__hasSettingsNick?__hasStorageKeyFor(__hasSettingsNick):STORAGE_KEY;
+      localStorage.setItem(key,JSON.stringify(settings));
+    }catch(e){}
   }
 
   function __hasToast(text){
@@ -3533,6 +3588,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     if((text==="/has"||text==="/has_s")&&!__hasIsAllowedNick()){
       return __hasOriginalSendChatInput(e);
     }
+    if(text==="/has"||text==="/has_s"){
+      __hasEnsureSettings();
+    }
     if(text==="/has"){
       var hud=window.interface&&window.interface("Hud");
       if(!hud){__hasToast("HASSLE: HUD ещё не инициализирован");return;}
@@ -3581,19 +3639,26 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     if(hud)hud.info.id=parseInt(id)||0;
   };
 
-  // Автовключения больше нет: при заходе Hassle HUD НЕ включается сам —
-  // только когда игрок с разрешённым ником вручную наберёт /has или /has_s.
-  // Стиль (__has-chat-style) подключаем заранее, чтобы первое /has сработало
-  // без задержки, но класс позиционирования на body не вешаем, пока не
-  // попросят явно.
-  (function __hasPrepStyleOnly(){
+  // Автозагрузка: ждём, пока Hud проинициализируется И станет известен ник
+  // аккаунта (window.App.$store.getters['player/nickName']), подгружаем
+  // настройки ИМЕННО для этого ника (см. NICK_PROFILES выше) и молча их
+  // применяем — но только для Zahar_Loidov / Fura_Loidov.
+  // У каждого ника своё автовключение: если для ника autoEnable=false
+  // (сейчас так у Fura_Loidov), HUD сам не включится — его нужно включить
+  // вручную командой /has, дизайн (обычный/хэллоуин/новогодний) при этом
+  // берётся из border в NICK_PROFILES или из того, что было выбрано раньше.
+  // Для остальных ников цикл просто останавливается по таймауту, ничего
+  // не включая — HUD-панель для них недоступна вообще.
+  (function __hasAutoInit(){
     var tries=0,maxTries=200;
     var timer=setInterval(function(){
       tries++;
       var hud=window.interface&&window.interface("Hud");
       if(hud&&__hasIsAllowedNick()){
         clearInterval(timer);
+        __hasEnsureSettings();
         __hasInjectChatStyle();
+        if(settings.hassleForced!==!1){__hasSetForced(hud,!0,!0);}
       }else if(tries>=maxTries){
         clearInterval(timer);
       }
