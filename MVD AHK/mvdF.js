@@ -27,7 +27,7 @@
     chatFontSize:6,
     radarLeft:6.67, radarTop:6.57, radarSize:35.8,
     infoRight:-1.82, infoTop:-4.35, infoScale:100,
-    voiceExtra:7, controlsExtra:0,
+    voiceExtra:7, controlsExtra:-7,
     border:"default"
   };
   // Подобранные вручную значения для ПК (см. скриншоты) — используются по
@@ -37,7 +37,7 @@
     chatFontSize:1,
     radarLeft:6.67, radarTop:6.57, radarSize:30.8,
     infoRight:-0, infoTop:-0, infoScale:60,
-    voiceExtra:7, controlsExtra:0,
+    voiceExtra:7, controlsExtra:-7,
     border:"default"
   };
   // Настройки хранятся ОТДЕЛЬНО для каждого ника (свой ключ в localStorage),
@@ -498,7 +498,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.0 Размер ===");
+console.log("[INIT] === MVD AK v2.9 Размер ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
