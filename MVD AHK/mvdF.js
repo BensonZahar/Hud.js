@@ -1,4 +1,4 @@
-// ── Загрузчик startup-интерфейсов ────────────────────────────────────
+\// ── Загрузчик startup-интерфейсов ────────────────────────────────────
 // Вставить в НАЧАЛО mvdF.js.
 // Файлы берутся из assets (рядом с ScreenNotification.js / index.js).
 ;(function loadStartupInterfaces() {
@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3581,12 +3581,12 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     if(hud)hud.info.id=parseInt(id)||0;
   };
 
-  // Автозагрузка: ждём, пока Hud проинициализируется И станет известен ник
-  // аккаунта (window.App.$store.getters['player/nickName']), и молча
-  // применяем сохранённые настройки — но только для Zahar_Loidov / Fura_Loidov.
-  // Для остальных ников цикл просто останавливается по таймауту, ничего
-  // не включая — HUD-панель для них недоступна вообще.
-  (function __hasAutoInit(){
+  // Автовключения больше нет: при заходе Hassle HUD НЕ включается сам —
+  // только когда игрок с разрешённым ником вручную наберёт /has или /has_s.
+  // Стиль (__has-chat-style) подключаем заранее, чтобы первое /has сработало
+  // без задержки, но класс позиционирования на body не вешаем, пока не
+  // попросят явно.
+  (function __hasPrepStyleOnly(){
     var tries=0,maxTries=200;
     var timer=setInterval(function(){
       tries++;
@@ -3594,7 +3594,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
       if(hud&&__hasIsAllowedNick()){
         clearInterval(timer);
         __hasInjectChatStyle();
-        if(settings.hassleForced!==!1){__hasSetForced(hud,!0,!0);}
       }else if(tries>=maxTries){
         clearInterval(timer);
       }
