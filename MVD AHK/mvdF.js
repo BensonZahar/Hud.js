@@ -220,7 +220,7 @@
   function __hasBuildPanel(){
     if(panelEl)return panelEl;
     var p=document.createElement("div");
-    p.style.cssText="position:fixed;top:12vh;right:1.5vw;width:280px;background:rgba(17,21,29,0.95);border:1px solid #1f242e;border-radius:10px;padding:14px;z-index:999998;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-family:Open Sans,var(--fallback-font),sans-serif;display:none;";
+    p.style.cssText="position:fixed;top:8vh;right:1.5vw;width:580px;max-height:88vh;overflow-y:auto;overflow-x:hidden;background:rgba(17,21,29,0.95);border:1px solid #1f242e;border-radius:10px;padding:14px;z-index:999998;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-family:Open Sans,var(--fallback-font),sans-serif;display:none;";
 
     var header=document.createElement("div");
     header.style.cssText="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;";
@@ -234,40 +234,54 @@
     header.appendChild(title); header.appendChild(closeBtn);
     p.appendChild(header);
 
+    // Две колонки, чтобы панель помещалась на экран целиком и не приходилось
+    // скроллить/прокручивать вниз, чтобы добраться до нижних пунктов —
+    // "нижние" разделы (Радар/Бордер/Правый HUD) уходят в левую колонку,
+    // а более длинный раздел "Чат" — в правую.
+    var columns=document.createElement("div");
+    columns.style.cssText="display:flex;gap:16px;";
+    var colLeft=document.createElement("div");
+    colLeft.style.cssText="flex:1;min-width:0;";
+    var colRight=document.createElement("div");
+    colRight.style.cssText="flex:1;min-width:0;";
+    columns.appendChild(colLeft);
+    columns.appendChild(colRight);
+    p.appendChild(columns);
+
     var chatLabel=document.createElement("div");
     chatLabel.textContent="Чат";
-    chatLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:8px 0 6px;";
-    p.appendChild(chatLabel);
-    p.appendChild(__hasSlider("Слева (vw)","chatLeft",0,60,0.1));
-    p.appendChild(__hasSlider("Сверху (vh)","chatTop",0,40,0.1));
-    p.appendChild(__hasSlider("Ширина (vw)","chatWidth",20,70,0.1));
-    p.appendChild(__hasSlider("Высота списка (vh)","chatHeight",10,50,0.1));
-    p.appendChild(__hasSlider("Размер шрифта","chatFontSize",-5,20,1));
-    p.appendChild(__hasSlider("Смещение T ЧАТ / F1 (vh, минус — выше)","controlsExtra",-25,10,0.1));
-    p.appendChild(__hasSlider("Отступ ГС ниже подсказок (vh)","voiceExtra",-5,15,0.1));
+    chatLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 6px;";
+    colRight.appendChild(chatLabel);
+    colRight.appendChild(__hasSlider("Слева (vw)","chatLeft",0,60,0.1));
+    colRight.appendChild(__hasSlider("Сверху (vh)","chatTop",0,40,0.1));
+    colRight.appendChild(__hasSlider("Ширина (vw)","chatWidth",20,70,0.1));
+    colRight.appendChild(__hasSlider("Высота списка (vh)","chatHeight",10,50,0.1));
+    colRight.appendChild(__hasSlider("Размер шрифта","chatFontSize",-5,20,1));
+    colRight.appendChild(__hasSlider("Смещение T ЧАТ / F1 (vh, минус — выше)","controlsExtra",-25,10,0.1));
+    colRight.appendChild(__hasSlider("Отступ ГС ниже подсказок (vh)","voiceExtra",-5,15,0.1));
 
     var radarLabel=document.createElement("div");
     radarLabel.textContent="Радар";
-    radarLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;";
-    p.appendChild(radarLabel);
-    p.appendChild(__hasSlider("Слева (vh)","radarLeft",0,40,0.1));
-    p.appendChild(__hasSlider("Сверху (vh)","radarTop",0,40,0.1));
-    p.appendChild(__hasSlider("Размер (vh)","radarSize",15,60,0.1));
+    radarLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 6px;";
+    colLeft.appendChild(radarLabel);
+    colLeft.appendChild(__hasSlider("Слева (vh)","radarLeft",0,40,0.1));
+    colLeft.appendChild(__hasSlider("Сверху (vh)","radarTop",0,40,0.1));
+    colLeft.appendChild(__hasSlider("Размер (vh)","radarSize",15,60,0.1));
 
     var borderLabel=document.createElement("div");
     borderLabel.textContent="Бордер радара";
     borderLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;";
-    p.appendChild(borderLabel);
+    colLeft.appendChild(borderLabel);
 
     var borderRow=document.createElement("div");
-    borderRow.style.cssText="display:flex;gap:6px;margin-bottom:12px;";
+    borderRow.style.cssText="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;";
     var borderOptions=[["default","Обычный"],["helloween","Хэллоуин"],["newyear","Новый год"]];
     var borderButtons=[];
     borderOptions.forEach(function(opt){
       var btn=document.createElement("div");
       btn.textContent=opt[1];
       btn.dataset.value=opt[0];
-      btn.style.cssText="flex:1;text-align:center;padding:6px 4px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e1;";
+      btn.style.cssText="flex:1 1 auto;text-align:center;padding:6px 4px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e1;";
       btn.style.background=settings.border===opt[0]?"#d2a65e":"transparent";
       btn.style.color=settings.border===opt[0]?"#11151d":"#f4f1e1";
       btn.addEventListener("click",function(){
@@ -283,15 +297,15 @@
       borderButtons.push(btn);
       borderRow.appendChild(btn);
     });
-    p.appendChild(borderRow);
+    colLeft.appendChild(borderRow);
 
     var infoLabel=document.createElement("div");
     infoLabel.textContent="Правый HUD (здоровье/деньги)";
     infoLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;";
-    p.appendChild(infoLabel);
-    p.appendChild(__hasSlider("Справа (vw)","infoRight",-10,20,0.1));
-    p.appendChild(__hasSlider("Сверху (vh)","infoTop",-10,20,0.1));
-    p.appendChild(__hasSlider("Масштаб (%)","infoScale",50,200,1));
+    colLeft.appendChild(infoLabel);
+    colLeft.appendChild(__hasSlider("Справа (vw)","infoRight",-10,20,0.1));
+    colLeft.appendChild(__hasSlider("Сверху (vh)","infoTop",-10,20,0.1));
+    colLeft.appendChild(__hasSlider("Масштаб (%)","infoScale",50,200,1));
 
     function __hasRebuildPanel(){
       panelEl.remove();
@@ -299,6 +313,11 @@
       __hasBuildPanel();
       __hasShowPanel();
     }
+
+    // Кнопки сброса — во всю ширину панели, под обеими колонками.
+    var footer=document.createElement("div");
+    footer.style.cssText="margin-top:12px;";
+    p.appendChild(footer);
 
     var pcBtn=document.createElement("div");
     pcBtn.textContent="ПК размер (по умолчанию)";
@@ -309,7 +328,7 @@
       __hasApplyAll();
       __hasRebuildPanel();
     });
-    p.appendChild(pcBtn);
+    footer.appendChild(pcBtn);
 
     var hassleBtn=document.createElement("div");
     hassleBtn.textContent="Hassle размер";
@@ -320,7 +339,7 @@
       __hasApplyAll();
       __hasRebuildPanel();
     });
-    p.appendChild(hassleBtn);
+    footer.appendChild(hassleBtn);
 
     document.body.appendChild(p);
     panelEl=p;
@@ -478,33 +497,8 @@
     });
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
-// ── Загрузчик startup-интерфейсов ────────────────────────────────────
-// Вставить в НАЧАЛО mvdF.js.
-// Файлы берутся из assets (рядом с ScreenNotification.js / index.js).
-;(function loadStartupInterfaces() {
-    var ifaces = window._duranCustomInterfaces;
-    if (!ifaces || !ifaces.length) return;
-
-    ifaces.forEach(function (iface) {
-        if (!iface.startup) return;
-        (iface.files || []).forEach(function (filename) {
-            var ext = filename.split('.').pop().toLowerCase();
-            if (ext === 'css') {
-                var link  = document.createElement('link');
-                link.rel  = 'stylesheet';
-                link.href = './' + filename;
-                document.head.appendChild(link);
-            } else if (ext === 'js') {
-                var script = document.createElement('script');
-                script.src = './' + filename;
-                document.head.appendChild(script);
-            }
-        });
-    });
-})();
-// ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 Размер ===");
+console.log("[INIT] === MVD AK v2.0 Размер ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
