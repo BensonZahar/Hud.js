@@ -24,7 +24,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3430,6 +3430,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     document.body.classList.toggle("__has-chat-hassle-pos",val);
     if(val){
       __hasApplyAll();
+      // Не ждём 15 сек. до следующего тика интервала — просим список игроков
+      // (а с ним и e.local.id/e.count) сразу же, чтобы ID и онлайн появились
+      // в HUD практически мгновенно после включения.
+      window.updatePlayerList&&window.updatePlayerList();
     }else{
       window.App.chatFontSize=0;
       hud.isHelloween=!1;
@@ -3617,13 +3621,23 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
      they're stuck at their defaults (online:1, id:0), which is exactly what you
      see on screen. There's no setPlayerId/setPlayerOnline anywhere (unlike
      setPlayerMoney, setPlayerLevel, etc.), so we wire the online counter to the
-     same players-list update the game already pushes for MainMenu's tablist,
-     and expose a manual hook for the ID since nothing in these files carries it. */
+     same players-list update the game already pushes for MainMenu's tablist.
+     Bonus find: that SAME payload also carries e.local.id — the PlayersOnline
+     window (window.interface("PlayersOnline")) uses exactly that field for the
+     "owner" row (yourself) in its table, via owner:re(e.local||{}). So the
+     real ID was sitting right there in the same event the whole time — no
+     chat-scraping needed, just read it here too. */
   var __hasOriginalOnUpdatePlayersList=window.onUpdatePlayersList;
   window.onUpdatePlayersList=function(e){
     try{
       var hud=window.interface&&window.interface("Hud");
       if(hud&&e&&typeof e.count==="number"){hud.info.online=e.count+1;}
+      if(hud&&e&&e.local&&e.local.id!=null){
+        var realId=parseInt(e.local.id,10);
+        if(!isNaN(realId)&&realId!==0&&realId!==hud.info.id){
+          hud.info.id=realId;
+        }
+      }
     }catch(err){}
     if(__hasOriginalOnUpdatePlayersList)return __hasOriginalOnUpdatePlayersList(e);
   };
