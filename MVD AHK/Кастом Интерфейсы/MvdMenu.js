@@ -363,7 +363,7 @@ const _sfc_main={
             items.push({id:"naparnick", label: partnerLabel, arrow:true});
             // Hassle HUD — статус показываем прямо в главном меню, сама
             // настройка (вкл/выкл, дизайн, тонкая позиция) — в подменю.
-            const hassleLabel = "Hassle HUD"+(this.hassleOn?" ("+(HASSLE_BORDER_LABELS[this.hassleBorder]||"Обычный")+")":"");
+            const hassleLabel = "Hassle HUD (Тест)"+(this.hassleOn?" — "+(HASSLE_BORDER_LABELS[this.hassleBorder]||"Обычный"):"");
             items.push({id:"hassle", label: hassleLabel, arrow:true});
             items.push({id:"laws", label:"Законы", arrow:true});
             items.push({id:"advokat", label:"Вызов адвоката", arrow:true});
@@ -891,7 +891,7 @@ const _sfc_main={
         // зажатие стрелки никак не двигало список. keydown подхватывает системный
         // автоповтор браузера — зажал стрелку и список листается сам, как в нативных окнах.
         this._onArrowKeyDown=(e)=>{
-            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner") return;
+            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner"&&this.screen!=="hassle") return;
             if(e.keyCode===window.KEY_CODE_ARROW_TOP){
                 e.preventDefault();
                 this.moveSelection(-1);
