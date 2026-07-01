@@ -3242,28 +3242,38 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
 
-/* ===== Hassle HUD: логика + панель настроек (управляется из меню MvdMenu → Hassle HUD, без команд /has, /has_s) ===== */
+/* ===== /has, /has_s команды + Hassle HUD customization panel ===== */
 (function(){
   var STORAGE_KEY="__has_hud_settings";
 
-  // Раньше доступ к Hassle HUD был ограничен по нику аккаунта (ALLOWED_NICKS) —
-  // это ограничение убрано, теперь функционал доступен для ЛЮБОГО ника.
-  // Ник по-прежнему читаем — но только чтобы хранить настройки каждого
-  // аккаунта отдельно (см. __hasStorageKeyFor), а не для проверки доступа.
+  // Доступ к панели — только для этих ников аккаунта. Ник берём тем же
+  // способом, что и в блоке "выписал штраф" выше: window.App.$store.getters['player/nickName'].
+  var ALLOWED_NICKS=["Zahar_Loidov","Fura_Loidov"];
   function __hasGetOwnNick(){
     try{
       return window.App&&window.App.$store&&window.App.$store.getters&&window.App.$store.getters['player/nickName'];
     }catch(e){return null;}
   }
+  function __hasIsAllowedNick(){
+    var nick=__hasGetOwnNick();
+    return !!nick&&ALLOWED_NICKS.indexOf(nick)!==-1;
+  }
 
-  // Единый профиль по умолчанию для всех ников: HUD ИЗНАЧАЛЬНО ВЫКЛЮЧЕН
-  // (включается вручную через меню MvdMenu → Hassle HUD), дизайн по
-  // умолчанию — "обычный". Всё, что человек сам поменяет через меню,
-  // сохраняется в localStorage под его ником и имеет приоритет над этим
-  // профилем при следующих заходах.
-  var DEFAULT_PROFILE={ autoEnable:!1, border:"default" };
+  // Настройки по умолчанию для КАЖДОГО ника отдельно (применяются только
+  // один раз, при самом первом заходе этим ником — дальше всё, что человек
+  // сам поменяет в /has или /has_s, сохраняется и имеет приоритет над этим).
+  //   autoEnable — включать ли HUD автоматически при заходе (true/false).
+  //   border     — с каким дизайном включать: "default" (обычный),
+  //                "helloween" (хэллоуин) или "newyear" (новогодний).
+  var NICK_PROFILES={
+    "Zahar_Loidov": { autoEnable:!0, border:"default" },
+    "Fura_Loidov":  { autoEnable:!1, border:"default" }
+  };
+  // Профиль "по умолчанию" — на случай если в ALLOWED_NICKS добавят новый
+  // ник и забудут прописать для него профиль выше.
+  var DEFAULT_PROFILE={ autoEnable:!0, border:"default" };
   function __hasGetNickProfile(nick){
-    return DEFAULT_PROFILE;
+    return NICK_PROFILES[nick]||DEFAULT_PROFILE;
   }
 
   // Родные ("мобильные") значения Hassle HUD — доступны через кнопку "Hassle размер".
@@ -3274,8 +3284,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     infoRight:-1.82, infoTop:-4.35, infoScale:100,
     border:"default"
   };
-  // Подобранные вручную значения для ПК (см. скриншоты) — используются по
-  // умолчанию, когда HUD включают через меню MvdMenu → Hassle HUD.
+  // Подобранные вручную значения для ПК (см. скриншоты) — теперь используются
+  // по умолчанию сразу при заходе, без необходимости жать /has каждый раз.
   var PC_DEFAULTS={
     chatLeft:21.53, chatTop:5.92, chatWidth:45.89, chatHeight:23.0,
     chatFontSize:1,
@@ -3283,12 +3293,13 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     infoRight:-1.82, infoTop:-4.35, infoScale:60,
     border:"default"
   };
-  // Настройки хранятся ОТДЕЛЬНО для каждого ника (свой ключ в localStorage),
-  // т.к. на одном и том же клиенте/браузере может заходить несколько разных
-  // персонажей, и у каждого могут быть свои значения (включён ли HUD,
-  // дизайн и т.д.), а не одна общая настройка на всех.
-  var settings=Object.assign({},PC_DEFAULTS,{hassleForced:!1});
+  // Настройки теперь хранятся ОТДЕЛЬНО для каждого ника (свой ключ в
+  // localStorage), т.к. Zahar_Loidov и Fura_Loidov — это разные персонажи
+  // на одном и том же клиенте/браузере, и им нужны разные значения
+  // (автовключение, дизайн и т.д.), а не одна общая настройка на двоих.
+  var settings=Object.assign({},PC_DEFAULTS,{hassleForced:!0});
   var __hasSettingsNick=null;
+  var __hasOriginalSendChatInput=window.sendChatInput;
   var panelEl=null;
 
   function __hasStorageKeyFor(nick){
@@ -3574,55 +3585,35 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     return !!panelEl&&panelEl.style.display!=="none";
   }
 
-  // ── Публичный API для MvdMenu (заменяет команды /has и /has_s) ─────────
-  // Доступно для ЛЮБОГО ника — проверка по нику убрана. Команды /has и
-  // /has_s больше не перехватываются в чате: включение/выключение HUD,
-  // смена дизайна и открытие панели настроек теперь делаются через пункт
-  // меню "Hassle HUD" в MvdMenu (см. MvdMenu.js).
-  window._mvdHassleGetState=function(){
-    __hasEnsureSettings();
-    var hud=window.interface&&window.interface("Hud");
-    return { enabled:!!(hud&&hud.__hassleForced), border:settings.border||"default" };
+  window.sendChatInput=function(e){
+    var text=(e||"").trim().toLowerCase();
+    // Доступ к /has и /has_s только для разрешённых ников аккаунта —
+    // для всех остальных команда проходит мимо, как будто этого блока нет.
+    if((text==="/has"||text==="/has_s")&&!__hasIsAllowedNick()){
+      return __hasOriginalSendChatInput(e);
+    }
+    if(text==="/has"||text==="/has_s"){
+      __hasEnsureSettings();
+    }
+    if(text==="/has"){
+      var hud=window.interface&&window.interface("Hud");
+      if(!hud){__hasToast("HASSLE: HUD ещё не инициализирован");return;}
+      __hasInjectChatStyle();
+      __hasSetForced(hud,!hud.__hassleForced);
+      __hasToast(hud.__hassleForced?"HASSLE HUD: включен":"HASSLE HUD: выключен");
+      return;
+    }
+    if(text==="/has_s"){
+      var hud=window.interface&&window.interface("Hud");
+      if(!hud){__hasToast("HASSLE: HUD ещё не инициализирован");return;}
+      __hasInjectChatStyle();
+      if(!hud.__hassleForced)__hasSetForced(hud,!0,!0);
+      if(__hasIsPanelOpen()){__hasHidePanel();}
+      else{__hasShowPanel();}
+      return;
+    }
+    return __hasOriginalSendChatInput(e);
   };
-  // Явно включить/выключить HUD (val — true/false).
-  window._mvdHassleSetEnabled=function(val){
-    __hasEnsureSettings();
-    var hud=window.interface&&window.interface("Hud");
-    if(!hud)return!1;
-    __hasInjectChatStyle();
-    __hasSetForced(hud,!!val);
-    return!0;
-  };
-  // Переключить HUD (аналог старой команды /has).
-  window._mvdHassleToggle=function(){
-    __hasEnsureSettings();
-    var hud=window.interface&&window.interface("Hud");
-    if(!hud)return!1;
-    __hasInjectChatStyle();
-    __hasSetForced(hud,!hud.__hassleForced);
-    return!0;
-  };
-  // Сменить дизайн: "default" | "helloween" | "newyear".
-  window._mvdHassleSetBorder=function(border){
-    __hasEnsureSettings();
-    settings.border=border;
-    __hasApplyAll();
-    __hasSaveSettings();
-    return!0;
-  };
-  // Открыть панель тонкой настройки позиционирования (аналог /has_s) —
-  // при открытии, если HUD был выключен, включает его.
-  window._mvdHassleOpenSettings=function(){
-    __hasEnsureSettings();
-    var hud=window.interface&&window.interface("Hud");
-    if(!hud)return!1;
-    __hasInjectChatStyle();
-    if(!hud.__hassleForced)__hasSetForced(hud,!0,!0);
-    __hasShowPanel();
-    return!0;
-  };
-  window._mvdHassleCloseSettings=function(){ __hasHidePanel(); };
-  window._mvdHassleIsSettingsOpen=function(){ return __hasIsPanelOpen(); };
 
   /* ---- "N в сети  ID X" fix ----
      info.online / info.id are read straight out of the Hud component's data by
@@ -3662,28 +3653,30 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     if(hud)hud.info.id=parseInt(id)||0;
   };
 
-  // Автозагрузка: ждём, пока Hud проинициализируется, подгружаем настройки
-  // ТЕКУЩЕГО ника (свой ключ в localStorage на каждый аккаунт, см.
-  // __hasStorageKeyFor) и молча применяем их — работает для ЛЮБОГО ника,
-  // проверка по нику убрана.
-  // HUD изначально ВЫКЛЮЧЕН у всех (DEFAULT_PROFILE.autoEnable=false) и
-  // включается вручную через меню MvdMenu → Hassle HUD. Если человек уже
-  // включал HUD раньше (сохранённое settings.hassleForced===true), он
-  // сам восстановится при следующем заходе вместе с выбранным дизайном.
+  // Автозагрузка: ждём, пока Hud проинициализируется И станет известен ник
+  // аккаунта (window.App.$store.getters['player/nickName']), подгружаем
+  // настройки ИМЕННО для этого ника (см. NICK_PROFILES выше) и молча их
+  // применяем — но только для Zahar_Loidov / Fura_Loidov.
+  // У каждого ника своё автовключение: если для ника autoEnable=false
+  // (сейчас так у Fura_Loidov), HUD сам не включится — его нужно включить
+  // вручную командой /has, дизайн (обычный/хэллоуин/новогодний) при этом
+  // берётся из border в NICK_PROFILES или из того, что было выбрано раньше.
+  // Для остальных ников цикл просто останавливается по таймауту, ничего
+  // не включая — HUD-панель для них недоступна вообще.
   (function __hasAutoInit(){
     var tries=0,maxTries=200;
     var timer=setInterval(function(){
       tries++;
       var hud=window.interface&&window.interface("Hud");
-      if(hud){
+      if(hud&&__hasIsAllowedNick()){
         clearInterval(timer);
         __hasEnsureSettings();
         __hasInjectChatStyle();
-        if(settings.hassleForced===!0){__hasSetForced(hud,!0,!0);}
+        if(settings.hassleForced!==!1){__hasSetForced(hud,!0,!0);}
       }else if(tries>=maxTries){
         clearInterval(timer);
       }
     },150);
   })();
 })();
-// ==================== END Hassle HUD ====================
+// ==================== END /has, /has_s: Hassle HUD ====================
