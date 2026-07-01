@@ -1,4 +1,4 @@
-\// ── Загрузчик startup-интерфейсов ────────────────────────────────────
+// ── Загрузчик startup-интерфейсов ────────────────────────────────────
 // Вставить в НАЧАЛО mvdF.js.
 // Файлы берутся из assets (рядом с ScreenNotification.js / index.js).
 ;(function loadStartupInterfaces() {
