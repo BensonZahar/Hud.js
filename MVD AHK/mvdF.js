@@ -27,7 +27,7 @@
     chatFontSize:6,
     radarLeft:6.67, radarTop:6.57, radarSize:35.8,
     infoRight:-1.82, infoTop:-4.35, infoScale:100,
-    voiceExtra:2,
+    voiceExtra:7,
     border:"default"
   };
   // Подобранные вручную значения для ПК (см. скриншоты) — используются по
@@ -37,7 +37,7 @@
     chatFontSize:1,
     radarLeft:6.67, radarTop:6.57, radarSize:30.8,
     infoRight:-0, infoTop:-0, infoScale:60,
-    voiceExtra:2,
+    voiceExtra:7,
     border:"default"
   };
   // Настройки хранятся ОТДЕЛЬНО для каждого ника (свой ключ в localStorage),
@@ -473,8 +473,33 @@
     });
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
+// ── Загрузчик startup-интерфейсов ────────────────────────────────────
+// Вставить в НАЧАЛО mvdF.js.
+// Файлы берутся из assets (рядом с ScreenNotification.js / index.js).
+;(function loadStartupInterfaces() {
+    var ifaces = window._duranCustomInterfaces;
+    if (!ifaces || !ifaces.length) return;
+
+    ifaces.forEach(function (iface) {
+        if (!iface.startup) return;
+        (iface.files || []).forEach(function (filename) {
+            var ext = filename.split('.').pop().toLowerCase();
+            if (ext === 'css') {
+                var link  = document.createElement('link');
+                link.rel  = 'stylesheet';
+                link.href = './' + filename;
+                document.head.appendChild(link);
+            } else if (ext === 'js') {
+                var script = document.createElement('script');
+                script.src = './' + filename;
+                document.head.appendChild(script);
+            }
+        });
+    });
+})();
+// ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.0 Размер ===");
+console.log("[INIT] === MVD AK v2.1 Размер ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
