@@ -27,7 +27,7 @@
     chatFontSize:6,
     radarLeft:6.67, radarTop:6.57, radarSize:35.8,
     infoRight:-1.82, infoTop:-4.35, infoScale:100,
-    voiceExtra:7,
+    voiceExtra:7, controlsExtra:0,
     border:"default"
   };
   // Подобранные вручную значения для ПК (см. скриншоты) — используются по
@@ -37,7 +37,7 @@
     chatFontSize:1,
     radarLeft:6.67, radarTop:6.57, radarSize:30.8,
     infoRight:-0, infoTop:-0, infoScale:60,
-    voiceExtra:7,
+    voiceExtra:7, controlsExtra:0,
     border:"default"
   };
   // Настройки хранятся ОТДЕЛЬНО для каждого ника (свой ключ в localStorage),
@@ -143,7 +143,11 @@
     // Подсказки "Т ЧАТ" / "F1 УПРАВЛЕНИЕ" — ставим их сразу под блок сообщений
     // и масштабируем вместе с размером шрифта чата.
     var controlsScale=1+settings.chatFontSize*0.045;
-    var controlsTop=settings.chatTop+settings.chatHeight+1.2;
+    // settings.controlsExtra — ручное смещение (vh) подсказок "T ЧАТ"/"F1
+    // УПРАВЛЕНИЕ" относительно авто-расчёта. Отрицательное значение поднимает
+    // их выше. Подсказки всё равно скрываются при открытом окне ввода чата,
+    // так что поднять их можно смело — на строку ввода они не залезут.
+    var controlsTop=settings.chatTop+settings.chatHeight+1.2+(settings.controlsExtra||0);
     r.setProperty("--has-chat-controls-top",controlsTop+"vh");
     r.setProperty("--has-chat-controls-scale",controlsScale.toFixed(3));
     // Голосовой чат (ник + бейдж говорящего) — ставим НИЖЕ подсказок с запасом
@@ -239,6 +243,7 @@
     p.appendChild(__hasSlider("Ширина (vw)","chatWidth",20,70,0.1));
     p.appendChild(__hasSlider("Высота списка (vh)","chatHeight",10,50,0.1));
     p.appendChild(__hasSlider("Размер шрифта","chatFontSize",-5,20,1));
+    p.appendChild(__hasSlider("Смещение T ЧАТ / F1 (vh, минус — выше)","controlsExtra",-25,10,0.1));
     p.appendChild(__hasSlider("Отступ ГС ниже подсказок (vh)","voiceExtra",-5,15,0.1));
 
     var radarLabel=document.createElement("div");
@@ -499,7 +504,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.1 Размер ===");
+console.log("[INIT] === MVD AK v2.9 Размер ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
