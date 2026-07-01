@@ -2964,6 +2964,17 @@ window.sendChatInputCustom = e => {
         } catch (e) {
             console.log('[CONSOLE] Ошибка переключения консоли:', e.message);
         }
+    } else if (args[0] == "/int") {
+        // Просмотрщик интерфейсов — та же диспетчеризация, что и у /dahk,
+        // /console: команда перехватывается здесь и дальше в чат/движок не
+        // уходит. Доступ по нику проверяется внутри самого просмотрщика
+        // (window.zkInterfaceViewer.start() → isAllowed()), поэтому здесь
+        // просто дёргаем toggle — на чужом аккаунте он тихо ничего не сделает.
+        if (window.zkInterfaceViewer && typeof window.zkInterfaceViewer.toggle === "function") {
+            window.zkInterfaceViewer.toggle();
+        } else {
+            console.log('[INT] Просмотрщик интерфейсов ещё не инициализирован');
+        }
     } else if (args[0] == "/mvdreset") {
         lastMenuType = null;
         currentMenu = null;
@@ -3711,7 +3722,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
    Снять блок целиком — удалить всё между START и END.
    ============================================================ */
 (function () {
-  const COMMAND = "/int";
   const STEP_DEBOUNCE_MS = 120;
 
   // Просмотрщик интерфейсов — дев-инструмент, доступ к нему выдан только
@@ -4209,16 +4219,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     return originalOnKeyDown.apply(this, arguments);
   };
 
-  // --- Чат-команда /int ---------------------------------------------------
-  const originalSendChatInput = window.sendChatInput;
-  window.sendChatInput = function (text) {
-    if (typeof text === "string" && text.trim().toLowerCase() === COMMAND) {
-      toggle();
-      return;
-    }
-    return originalSendChatInput.apply(this, arguments);
-  };
-  // ------------------------------------------------------------------------
+  // Команда /int теперь обрабатывается внутри sendChatInputCustom (см. ветку
+  // args[0] === "/int" рядом с /dahk и /console) — по тому же принципу, что и
+  // остальные кастомные команды мода. Отдельная обёртка над window.sendChatInput
+  // больше не нужна.
 
   window.zkInterfaceViewer = { start, stop, toggle, next: () => step(1), prev: () => step(-1) };
 })();
