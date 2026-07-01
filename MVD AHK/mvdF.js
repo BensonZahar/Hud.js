@@ -3686,3 +3686,543 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
 
+
+// ==================== ПРОСМОТРЩИК ИНТЕРФЕЙСОВ (/int, доступ: Zahar_Loidov) ====================
+
+/* ============================================================
+   [ZK-INTERFACE-VIEWER START]
+   Дев-команда: список всех зарегистрированных интерфейсов с
+   возможностью пролистывать стрелками ↑ / ↓ или кликать прямо
+   по списку. Чат при этом не перекрывается.
+
+   Запуск/выход: команда в чате  /int
+   Навигация:    ↑  /  ↓  — переключить на предыдущий/следующий
+                 клик по строке в списке — открыть конкретный
+                 поле поиска вверху панели — фильтрует список по
+                 имени, Enter — открыть первый найденный
+   Выход:        Esc  /  /int ещё раз  /  window.zkInterfaceViewer.stop()
+
+   Доступ:       /int работает ТОЛЬКО на аккаунте с ником Zahar_Loidov —
+                 ник читаем тем же способом, что и при определении
+                 выписавшего штраф (window.App.$store.getters['player/nickName']),
+                 см. ALLOWED_NICK / getOwnNick() ниже. На любом другом
+                 аккаунте команда молча ничего не делает.
+
+   Снять блок целиком — удалить всё между START и END.
+   ============================================================ */
+(function () {
+  const COMMAND = "/int";
+  const STEP_DEBOUNCE_MS = 120;
+
+  // Просмотрщик интерфейсов — дев-инструмент, доступ к нему выдан только
+  // одному конкретному аккаунту. Ник читаем так же, как это уже сделано в
+  // mvdF при отслеживании штрафов (issuer === ownNick через
+  // window.App.$store.getters['player/nickName']) — единый способ во всём
+  // моде определить, под каким аккаунтом сейчас зашли.
+  const ALLOWED_NICK = "Zahar_Loidov";
+
+  function getOwnNick() {
+    try {
+      return window.App && window.App.$store && window.App.$store.getters && window.App.$store.getters['player/nickName'];
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function isAllowed() {
+    return getOwnNick() === ALLOWED_NICK;
+  }
+
+  let active = false;
+  let names = [];
+  let idx = -1;
+  let openedByUs = null;
+  let panelEl = null;
+  let listEl = null;
+  let counterEl = null;
+  let searchInputEl = null;
+  let query = "";
+  let lastStepAt = 0;
+
+  function getAllInterfaceNames() {
+    try {
+      return Object.keys((window.App && window.App.components) || {}).sort();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function getHudChatEl() {
+    try {
+      const hud = window.interface("Hud");
+      return hud && hud.$refs && hud.$refs.chat ? hud.$refs.chat.$el : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Раньше тут была попытка "перебить" скрытие чата через CSS
+  // (z-index/position у $refs.chat.$el). Это косметика: реальное
+  // скрытие чата происходит внутри window.openInterface(), которое
+  // дергает window.interface("Hud").setChatStatus(false) для любого
+  // интерфейса с options.hideChat. От CSS-трюка чат лишь "наверху",
+  // но остаётся в состоянии isOpen=false — отсюда и поломки/пропадание.
+  // Правильный фикс — не дать самому состоянию переключиться:
+  // патчим window.shouldHideChat(), который как раз и решает, прятать
+  // чат для конкретного интерфейса или нет (см. определение функции
+  // в основном бандле, чуть выше по файлу).
+  function neutralizeHideChat() {
+    if (typeof window.shouldHideChat !== "function" || window.shouldHideChat.__zkPatched) return;
+    const original = window.shouldHideChat;
+    const patched = function () {
+      return false;
+    };
+    patched.__zkPatched = true;
+    patched.__zkOriginal = original;
+    window.shouldHideChat = patched;
+  }
+
+  function restoreHideChat() {
+    if (typeof window.shouldHideChat === "function" && window.shouldHideChat.__zkPatched) {
+      window.shouldHideChat = window.shouldHideChat.__zkOriginal;
+    }
+  }
+
+  // Курсор и блокировка движения персонажа управляются через
+  // window.setCursorStatus(name, isOn, allowMovement). Это стек по
+  // именам (массив uo внутри основного бандла): каждый интерфейс
+  // добавляет/убирает свою запись, и пока хоть одна запись там есть —
+  // курсор остаётся видимым. Но интерфейсы с options.hud=true (Hud,
+  // FootballScoreboard, Drift, Watch, MusicPlayer, ProgressBar,
+  // BusTimer, GangTimer и т.д.) вообще не трогают этот стек — отсюда
+  // и пропадающая мышка при пролистывании на такие интерфейсы.
+  // Решение то же, что и с чатом: не подстраиваться под каждый
+  // интерфейс отдельно, а держать свою собственную запись в стеке
+  // весь сеанс просмотра — тогда курсор гарантированно виден, а
+  // allowMovement=false держит движение персонажа заблокированным
+  // независимо от того, что говорит options.cursorAllowMovement
+  // конкретного интерфейса (см. например PlayersOnline:
+  // cursorAllowMovement:!0).
+  const CURSOR_LOCK_NAME = "zkInterfaceViewer";
+
+  function lockCursorAndMovement() {
+    try {
+      window.setCursorStatus(CURSOR_LOCK_NAME, true, false);
+    } catch (e) {
+      console.warn("[ZK-VIEW] setCursorStatus error:", e);
+    }
+  }
+
+  function unlockCursorAndMovement() {
+    try {
+      window.setCursorStatus(CURSOR_LOCK_NAME, false);
+    } catch (e) {
+      console.warn("[ZK-VIEW] setCursorStatus error:", e);
+    }
+  }
+
+  // Панель живёт вне дерева Vue-приложения (просто appendChild к body),
+  // поэтому жёстко заданный системный шрифт ("Segoe UI") иногда рисует
+  // кириллицу квадратиками: в зависимости от системы у пользователя этот
+  // шрифт может не содержать кириллических глифов, и текст молча
+  // заменяется на fallback без них. Остальной интерфейс игры кириллицу
+  // рисует нормально — значит у него уже подключён шрифт с нужными
+  // глифами через CSS. Берём этот же шрифт с #app, а не гадаем со своим.
+  function getGameFontFamily() {
+    try {
+      const appEl = document.getElementById("app");
+      if (appEl) {
+        const f = getComputedStyle(appEl).fontFamily;
+        if (f && f.trim()) return f;
+      }
+    } catch (e) {}
+    return '"Segoe UI", Arial, sans-serif';
+  }
+
+  function buildPanel() {
+    if (panelEl) return panelEl;
+
+    panelEl = document.createElement("div");
+    panelEl.id = "zk-interface-viewer-panel";
+    Object.assign(panelEl.style, {
+      position: "fixed",
+      zIndex: "2147483647",
+      fontFamily: getGameFontFamily(),
+      color: "#f5e9d3",
+      background: "#0d1117",
+      border: "1px solid #d2a65e",
+      borderRadius: "6px",
+      boxShadow: "0 4px 16px rgba(0,0,0,0.6)",
+      width: "260px",
+      maxHeight: "70vh",
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden",
+    });
+
+    const header = document.createElement("div");
+    Object.assign(header.style, {
+      padding: "8px 10px",
+      borderBottom: "1px solid #30363d",
+      fontSize: "13px",
+      fontWeight: "600",
+      color: "#d2a65e",
+      flex: "0 0 auto",
+    });
+    header.textContent = "Просмотр интерфейсов";
+    panelEl.appendChild(header);
+
+    // Поиск по имени интерфейса. Поле живёт вне дерева Vue-приложения,
+    // поэтому глобальный миксин (addInputListeners), который обычно сам
+    // дёргает window.setInputFocus() на focus/blur всех <input>/<textarea>
+    // внутри смонтированных компонентов, нас не видит — делаем то же самое
+    // руками, иначе игра продолжит разбирать буквы как горячие клавиши
+    // (I — инвентарь, M — карта и т.д.) прямо во время набора текста.
+    const searchWrap = document.createElement("div");
+    Object.assign(searchWrap.style, {
+      padding: "6px 10px",
+      borderBottom: "1px solid #30363d",
+      flex: "0 0 auto",
+    });
+    searchInputEl = document.createElement("input");
+    searchInputEl.type = "text";
+    searchInputEl.placeholder = "Поиск интерфейса...";
+    Object.assign(searchInputEl.style, {
+      width: "100%",
+      boxSizing: "border-box",
+      background: "#0000004d",
+      border: "1px solid #30363d",
+      borderRadius: "4px",
+      color: "#f5e9d3",
+      font: "inherit",
+      fontSize: "12px",
+      padding: "5px 7px",
+      outline: "none",
+    });
+    searchInputEl.addEventListener("focus", () => {
+      try {
+        window.setInputFocus(true);
+      } catch (e) {}
+    });
+    searchInputEl.addEventListener("blur", () => {
+      try {
+        window.setInputFocus(false);
+      } catch (e) {}
+    });
+    searchInputEl.addEventListener("input", () => {
+      query = searchInputEl.value;
+      renderList();
+    });
+    // Стрелки/Enter/Esc внутри поля не должны улетать дальше в
+    // document-обработчик движка (см. window.onKeyDown ниже) — иначе,
+    // например, Esc закроет весь просмотрщик прямо во время набора текста,
+    // а стрелки дёрнут логику открытого сейчас интерфейса вместо того,
+    // чтобы просто подвинуть курсор в тексте.
+    searchInputEl.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const visible = getVisibleNames();
+        if (visible.length) openByIndex(names.indexOf(visible[0]));
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        if (query) {
+          query = "";
+          searchInputEl.value = "";
+          renderList();
+        } else {
+          stop();
+        }
+      }
+    });
+    // keyup тоже глушим — у движка отдельный document-листенер на keyup
+    // (window.onKeyUp) с горячими клавишами (M — карта, E/Q — циклический
+    // выбор и т.д.), который иначе сработает на каждую отпущенную букву.
+    searchInputEl.addEventListener("keyup", (e) => {
+      e.stopPropagation();
+    });
+    searchWrap.appendChild(searchInputEl);
+    panelEl.appendChild(searchWrap);
+
+    counterEl = document.createElement("div");
+    Object.assign(counterEl.style, {
+      padding: "4px 10px",
+      borderBottom: "1px solid #30363d",
+      fontSize: "11px",
+      color: "#7a7f87",
+      flex: "0 0 auto",
+    });
+    panelEl.appendChild(counterEl);
+
+    listEl = document.createElement("div");
+    // КЛЮЧЕВОЙ фикс прокрутки: у flex-элемента по умолчанию
+    // min-height:auto, то есть он не может сжаться меньше высоты своего
+    // содержимого. Без min-height:0 listEl физически растягивался на
+    // всю высоту всех 239 строк (clientHeight ≈ scrollHeight), а видимую
+    // обрезку делал overflow:hidden у panelEl снаружи — то есть скроллить
+    // внутри listEl было физически нечего, и scrollTop ни на что не влиял,
+    // как бы он ни считался. Это и есть настоящая причина того, что
+    // список "не опускался" при пролистывании.
+    Object.assign(listEl.style, {
+      overflowY: "auto",
+      flex: "1 1 auto",
+      minHeight: "0",
+      padding: "4px",
+    });
+    panelEl.appendChild(listEl);
+
+    const footer = document.createElement("div");
+    Object.assign(footer.style, {
+      padding: "6px 10px",
+      borderTop: "1px solid #30363d",
+      fontSize: "11px",
+      color: "#7a7f87",
+      flex: "0 0 auto",
+    });
+    footer.innerHTML = "&uarr; / &darr; — листать &middot; клик — открыть &middot; поиск + Enter &middot; /int — выход";
+    panelEl.appendChild(footer);
+
+    document.body.appendChild(panelEl);
+    return panelEl;
+  }
+
+  function positionPanel() {
+    const panel = buildPanel();
+    const chatEl = getHudChatEl();
+    if (chatEl) {
+      const r = chatEl.getBoundingClientRect();
+      let left = r.right + 12;
+      if (left + 260 > window.innerWidth) left = Math.max(8, r.left - 272);
+      panel.style.left = left + "px";
+      panel.style.top = Math.max(8, r.top) + "px";
+      panel.style.right = "";
+      panel.style.bottom = "";
+    } else {
+      panel.style.right = "20px";
+      panel.style.bottom = "20px";
+      panel.style.left = "";
+      panel.style.top = "";
+    }
+  }
+
+  function getVisibleNames() {
+    if (!query) return names;
+    const q = query.toLowerCase();
+    return names.filter((n) => n.toLowerCase().includes(q));
+  }
+
+  // Скроллим список к выделенному пункту так же, как это сделано в
+  // нативных окнах игры (см. MvdMenu._scrollSelectedIntoView): считаем
+  // нужный scrollTop напрямую, без requestAnimationFrame/scrollIntoView.
+  //
+  // Было две причины, по которым список "не опускался":
+  // 1) listEl (overflow:auto внутри flex-колонки) не имел min-height:0,
+  //    из-за чего flex-элемент не сжимался меньше высоты своего
+  //    содержимого и реально растягивался на всю высоту списка — внутри
+  //    скроллить было физически нечего, обрезку делал overflow:hidden
+  //    у panelEl снаружи. Без этого фикса scrollTop ни на что не влиял.
+  // 2) scrollTop считался как itemHeight * (позиция - буфер), а
+  //    itemHeight не учитывает marginBottom:2px у строк — на длинном
+  //    списке (~250 пунктов) эти "лишние" 2px на каждую строку
+  //    накапливались в сотни пикселей расхождения. Берём позицию строки
+  //    через getBoundingClientRect относительно listEl (а не offsetTop,
+  //    который из-за position:fixed у panelEl отсчитывался бы от верха
+  //    всей панели, а не от верха списка) — точно и без накопления ошибки.
+  function scrollSelectedIntoView(rowEl) {
+    if (!listEl || !rowEl) return;
+    const itemHeight = rowEl.offsetHeight;
+    if (!itemHeight) return;
+    const bufferPx = itemHeight * 2;
+    const maxScroll = Math.max(listEl.scrollHeight - listEl.clientHeight, 0);
+    const rowTopWithinList = rowEl.getBoundingClientRect().top - listEl.getBoundingClientRect().top + listEl.scrollTop;
+    let target = rowTopWithinList - bufferPx;
+    if (target < 0) target = 0;
+    if (target > maxScroll) target = maxScroll;
+    listEl.scrollTop = target;
+  }
+
+  function renderList() {
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    const visible = getVisibleNames();
+
+    if (counterEl) {
+      const total = names.length;
+      const currentNum = idx >= 0 ? idx + 1 : 0;
+      let text = `Интерфейс ${currentNum} из ${total}`;
+      if (query) text += ` (найдено: ${visible.length})`;
+      counterEl.textContent = text;
+    }
+
+    if (!visible.length) {
+      const empty = document.createElement("div");
+      empty.textContent = "Ничего не найдено";
+      Object.assign(empty.style, {
+        padding: "16px 8px",
+        fontSize: "12px",
+        fontStyle: "italic",
+        color: "#7a7f87",
+        textAlign: "center",
+      });
+      listEl.appendChild(empty);
+      return;
+    }
+
+    // Поиск только фильтрует, что показано в панели и куда ведёт клик —
+    // индекс для каждой строки берём из общего списка names, поэтому
+    // стрелки ←/→ при активном поиске продолжают листать все интерфейсы
+    // подряд, как и раньше, а не только отфильтрованные.
+    let currentRow = null;
+    visible.forEach((name) => {
+      const globalIndex = names.indexOf(name);
+      const row = document.createElement("div");
+      row.textContent = name;
+      row.dataset.index = String(globalIndex);
+      const isCurrent = globalIndex === idx;
+      Object.assign(row.style, {
+        padding: "5px 8px",
+        marginBottom: "2px",
+        borderRadius: "4px",
+        fontSize: "12px",
+        cursor: "pointer",
+        background: isCurrent ? "#1f6feb33" : "transparent",
+        border: isCurrent ? "1px solid #d2a65e" : "1px solid transparent",
+        color: isCurrent ? "#f5e9d3" : "#c9ced6",
+      });
+      row.addEventListener("mouseenter", () => {
+        if (globalIndex !== idx) row.style.background = "#30363d66";
+      });
+      row.addEventListener("mouseleave", () => {
+        if (globalIndex !== idx) row.style.background = "transparent";
+      });
+      row.addEventListener("click", () => openByIndex(globalIndex));
+      listEl.appendChild(row);
+      if (isCurrent) currentRow = row;
+    });
+
+    if (currentRow) scrollSelectedIntoView(currentRow);
+  }
+
+  function removePanel() {
+    if (panelEl && panelEl.parentNode) panelEl.parentNode.removeChild(panelEl);
+    panelEl = null;
+    listEl = null;
+    counterEl = null;
+    searchInputEl = null;
+  }
+
+  function closeOpenedByUs() {
+    if (openedByUs && window.getInterfaceStatus && window.getInterfaceStatus(openedByUs)) {
+      try {
+        window.closeInterface(openedByUs);
+      } catch (e) {
+        console.warn("[ZK-VIEW] closeInterface error:", openedByUs, e);
+      }
+    }
+    openedByUs = null;
+  }
+
+  function openByIndex(i) {
+    if (!names.length) return;
+    closeOpenedByUs();
+    idx = ((i % names.length) + names.length) % names.length;
+    const name = names[idx];
+    openedByUs = name;
+    try {
+      window.openInterface(name);
+    } catch (e) {
+      console.warn("[ZK-VIEW] openInterface error:", name, e);
+    }
+    lockCursorAndMovement();
+    positionPanel();
+    renderList();
+  }
+
+  function step(delta) {
+    const now = Date.now();
+    if (now - lastStepAt < STEP_DEBOUNCE_MS) return;
+    lastStepAt = now;
+    openByIndex(idx + delta);
+  }
+
+  function start() {
+    if (active) return;
+    // Единая точка входа: проверка ника здесь закрывает разом и команду
+    // /int, и toggle(), и прямой вызов window.zkInterfaceViewer.start()
+    // из консоли — на чужом аккаунте просмотрщик просто не запустится.
+    if (!isAllowed()) {
+      console.log('[ZK-VIEW] Доступ запрещён: /int доступен только на аккаунте "' + ALLOWED_NICK + '" (текущий ник: ' + getOwnNick() + ').');
+      return;
+    }
+    names = getAllInterfaceNames();
+    if (!names.length) {
+      console.warn("[ZK-VIEW] Интерфейсы не найдены (window.App.components пуст).");
+      return;
+    }
+    active = true;
+    query = "";
+    neutralizeHideChat();
+    lockCursorAndMovement();
+    buildPanel();
+    openByIndex(0);
+    console.log("[ZK-VIEW] Запущено. Всего интерфейсов:", names.length);
+  }
+
+  function stop() {
+    if (!active) return;
+    active = false;
+    closeOpenedByUs();
+    restoreHideChat();
+    unlockCursorAndMovement();
+    try {
+      window.setInputFocus(false);
+    } catch (e) {}
+    removePanel();
+    console.log("[ZK-VIEW] Остановлено.");
+  }
+
+  function toggle() {
+    active ? stop() : start();
+  }
+
+  // --- Перехват стрелок через тот же канал, что использует движок --------
+  // document уже слушает keydown и зовёт window.onKeyDown(keyCode) — вместо
+  // отдельного DOM-листенера встраиваемся прямо в эту функцию, чтобы не
+  // конкурировать с родной обработкой ARROW_TOP/BOTTOM (там есть своя
+  // логика на эти коды, которая иначе срабатывала бы параллельно).
+  const originalOnKeyDown = window.onKeyDown;
+  window.onKeyDown = function (e) {
+    if (active) {
+      if (e === window.KEY_CODE_ARROW_TOP) {
+        step(-1);
+        return;
+      }
+      if (e === window.KEY_CODE_ARROW_BOTTOM) {
+        step(1);
+        return;
+      }
+      if (e === window.KEY_CODE_ESC) {
+        stop();
+        return;
+      }
+    }
+    return originalOnKeyDown.apply(this, arguments);
+  };
+
+  // --- Чат-команда /int ---------------------------------------------------
+  const originalSendChatInput = window.sendChatInput;
+  window.sendChatInput = function (text) {
+    if (typeof text === "string" && text.trim().toLowerCase() === COMMAND) {
+      toggle();
+      return;
+    }
+    return originalSendChatInput.apply(this, arguments);
+  };
+  // ------------------------------------------------------------------------
+
+  window.zkInterfaceViewer = { start, stop, toggle, next: () => step(1), prev: () => step(-1) };
+})();
+/* ============================================================
+   [ZK-INTERFACE-VIEWER END]
+   ============================================================ */
+// ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
