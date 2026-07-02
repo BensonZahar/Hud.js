@@ -1,3 +1,60 @@
+// ── ПРЕФЕТЧ MvdMenu с GitHub ────────────────────────────────────
+// Запускается сразу при загрузке mvdF.js, чтобы к моменту открытия
+// меню GitHub-код уже лежал в памяти (window.__mvdMenuPrefetched).
+// Если пользователь откроет меню до завершения префетча — локальный
+// MvdMenu.js сам сделает XHR (fallback не ломается).
+//
+// ВАЖНО: мы сохраняем ТОЛЬКО ТЕКСТ, не делаем eval() здесь!
+// eval() должен выполниться внутри локального MvdMenu.js, потому что
+// только там в скоупе есть openBlock/createElementBlock из ./index.js
+// (через static import). Глобальный eval() эти имена не увидит.
+(function prefetchMvdMenu() {
+    const GH_URL = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
+                 + encodeURIComponent('Кастом Интерфейсы') + '/MvdMenu.js';
+    const RETRIES = 5;
+    const BASE_DELAY = 1000;
+
+    function xhrGet(url, attempt) {
+        return new Promise(function(resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url + '?_=' + Date.now(), true);
+            xhr.onload = function() {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(xhr.responseText);
+                } else if (attempt < RETRIES) {
+                    var delay = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
+                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, delay);
+                } else {
+                    reject(new Error('HTTP ' + xhr.status));
+                }
+            };
+            xhr.onerror = function() {
+                if (attempt < RETRIES) {
+                    var delay = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
+                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, delay);
+                } else {
+                    reject(new Error('Network'));
+                }
+            };
+            xhr.send();
+        });
+    }
+
+    window.__mvdMenuPrefetchPromise = xhrGet(GH_URL, 0)
+        .then(function(text) {
+            window.__mvdMenuPrefetched = text;
+            console.log('[mvdF] ✅ MvdMenu префетч готов (' + text.length + ' байт)');
+            return text;
+        })
+        .catch(function(e) {
+            console.warn('[mvdF] ⚠️ MvdMenu префетч не удался (локальный загрузчик сделает XHR сам):', e.message);
+            window.__mvdMenuPrefetchFailed = true;
+        });
+})();
+// ── END ПРЕФЕТЧ ──────────────────────────────────────────────────
+
+// ── Загрузчик startup-интерфейсов ────────────────────────────────────
+// (остальной код mvdF.js без изменений)
 // ── Загрузчик startup-интерфейсов ────────────────────────────────────
 // Вставить в НАЧАЛО mvdF.js.
 // Файлы берутся из assets (рядом с ScreenNotification.js / index.js).
@@ -24,7 +81,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
