@@ -17,7 +17,7 @@ LOADERS_URL   = CUSTOM_UI_URL + "/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%
 #   (LOADERS_URL): они сами тянут актуальный код с GitHub через XHR+eval
 #   при каждом старте игры, переустановка .py для обновления не нужна.
 # Чтобы вернуться на загрузчики — просто поставь True.
-USE_LOADERS   = False
+USE_LOADERS   = True
 DEPLOY_UI_URL = LOADERS_URL if USE_LOADERS else CUSTOM_UI_URL
 
 # Имена нативных интерфейсов движка — НИКОГДА не регистрировать кастомный
