@@ -146,7 +146,19 @@
       // Ник + бейдж того, кто говорит в ГС, раньше вставали прямо поверх подсказок
       // "T ЧАТ" / "F1 УПРАВЛЕНИЕ" — сдвигаем voice-chat ниже подсказок с запасом,
       // который растёт вместе с масштабом шрифта чата (--has-chat-controls-scale).
-      ".__has-chat-hassle-pos .voice-chat{left:var(--has-voicechat-left)!important;top:var(--has-voicechat-top)!important;margin-top:0!important;}";
+      ".__has-chat-hassle-pos .voice-chat{left:var(--has-voicechat-left)!important;top:var(--has-voicechat-top)!important;margin-top:0!important;}"+
+      // ВАЖНО: правила выше (.radmir-chat*/.voice-chat) двигают чат
+      // RadmirChat/HudRadmir — это ветка, которая рендерится, только пока
+      // isHassleHud===false. Но __hasForceHassleTemplate() (см. выше)
+      // переключает isHassleHud в true, а значит в DOM вместо .radmir-chat
+      // оказывается СОВСЕМ ДРУГАЯ разметка мобильного чата: .chat-container
+      // > .chat > .messages-list (у неё даже свой инлайновый left:calc(47*
+      // ratioScale)vh, никак не связанный с нашими vw-переменными). Без
+      // этих правил ползунки позиции чата в панели тихо ничего не делают,
+      // пока Hassle включён по-настоящему. !important перебивает инлайн-стиль.
+      ".__has-chat-hassle-pos .chat-container .chat{left:var(--has-chat-left)!important;top:var(--has-chat-top)!important;width:var(--has-chat-width)!important;}"+
+      ".__has-chat-hassle-pos .chat-container .chat .messages-list{width:var(--has-chat-width)!important;height:var(--has-chat-height)!important;}"+
+      ".__has-chat-hassle-pos .chat-container:before{height:71.85vh!important;}";
     document.head.appendChild(style);
   }
 
@@ -271,6 +283,25 @@
     }
   }
 
+  // См. вызов из __hasSetForced() — форсирует/возвращает isShowRadar на
+  // инстансе Hud. Как и с isHassleHud, храним оригинал НА инстансе, чтобы
+  // корректно работать и после переподключения (новый инстанс — свой
+  // сохранённый оригинал).
+  function __hasApplyRadarVisibility(hud,val){
+    try{
+      if(val){
+        if(hud.__hasOrigIsShowRadar===undefined){
+          hud.__hasOrigIsShowRadar=hud.isShowRadar;
+        }
+        hud.isShowRadar=!0;
+        __hasLog("__hasApplyRadarVisibility: isShowRadar принудительно = true (было",hud.__hasOrigIsShowRadar,")");
+      }else if(hud.__hasOrigIsShowRadar!==undefined){
+        hud.isShowRadar=hud.__hasOrigIsShowRadar;
+        __hasLog("__hasApplyRadarVisibility: isShowRadar возвращён к",hud.isShowRadar);
+      }
+    }catch(e){__hasWarn("__hasApplyRadarVisibility: ошибка —",e);}
+  }
+
   // Включает/выключает позиционирование Hassle HUD. silent=true — не пишет
   // тост и не трогает панель (используется при автозагрузке настроек).
   function __hasSetForced(hud,val,silent){
@@ -295,6 +326,21 @@
     // __hasForceHassleTemplate() выше. Класс "hassle" на body сам по себе
     // ни на что в Hud.css/Hud.js не влияет — это отдельный, второй фикс.
     __hasForceHassleTemplate(hud,val);
+    // ── Карта радара внутри Hassle-варианта скрыта по умолчанию ────────
+    // У компонента HudRadar (hassle-ветка) есть свой собственный, ВТОРОЙ
+    // переключатель — computed radarIsVisible(){ return this.radar.show
+    // && (this.isShowControllers || this.isShowRadar) }. isShowControllers
+    // и isShowRadar — это поля data() САМОГО Hud (не наши), и их дефолт —
+    // false: родной клиент включает их методами showControllers()/
+    // hideControllers() ТОЛЬКО на мобильной платформе (когда реально
+    // рисуются тач-контролы). На ПК их никто в true не переводит, поэтому
+    // даже при isHassleHud=true карта весь рендерится, но остаётся
+    // невидимой (opacity:0 через класс hud-hassle-radar__map_hidden).
+    // Форсируем isShowRadar сами — этого достаточно, чтобы карта
+    // появилась, но НЕ включает isShowControllers, так что тач-кнопки
+    // (FAQ/меню/инвентарь/etc, которые всё равно не нужны с клавиатурой)
+    // остаются скрытыми (hud-hassle-radar__controls_hidden).
+    __hasApplyRadarVisibility(hud,val);
     __hasLog("body.classList после toggle:","__has-chat-hassle-pos=",document.body.classList.contains("__has-chat-hassle-pos"),
       "hassle=",document.body.classList.contains("hassle"),
       "hud.isHassleHud(после)=",hud.isHassleHud);
@@ -569,6 +615,116 @@
     if(hud&&hud.__hassleForced&&window.updatePlayerList)window.updatePlayerList();
   },15000);
 
+  /* ---- "Т ЧАТ" / "F1 УПРАВЛЕНИЕ" + голосовой чат для Hassle-варианта ----
+     Когда __hasForceHassleTemplate() переключает isHassleHud в true, Hud.js
+     рендерит СОВСЕМ ДРУГОЕ поддерево компонентов для чата — не RadmirChat
+     (ref="radmir"-ветка), а компонент "chat" (мобильный, класс .chat-container
+     /.chat/.messages-list). У него другой шаблон, и в нём попросту НЕТ:
+       — блока подсказок клавиш (в RadmirChat это <HudControls class=
+         "radmir-chat__controls"> с двумя ControlsButtonContainer: T→"Чат",
+         F1→"Управление" — см. Hud.js, компонент с data:{KEY_CODE_T,
+         KEY_CODE_F1});
+       — голосового чата: компонент VoiceChat зарегистрирован ТОЛЬКО внутри
+         HudRadmir (components:{...VoiceChat}) и рендерится в его template
+         условием `data.useChat && data.voiceChat.show` — в HudHassle такого
+         узла нет вообще, хотя сами данные (hud.voiceChat.entries/.show)
+         обновляются нативным кодом одинаково для обеих веток (методы
+         addVoiceChatEntry/removeVoiceChatEntry на самом Hud, не на дочерних
+         компонентах).
+     Раз этих узлов нет в дереве Hassle-варианта, никакой CSS их не вернёт —
+     их просто неоткуда взять. Поэтому рисуем свои лёгкие DOM-оверлеи поверх
+     игры (как и панель настроек — document.body.appendChild, вне Vue-дерева,
+     значит перерисовки Hud их не тронут), а данные читаем из того же самого
+     hud (chatStatus/$refs.chat.isOpen/voiceChat.entries) — никакого дублирования
+     логики, только отображение. */
+
+  var __hasHintsEl=null;
+  function __hasBuildHints(){
+    if(__hasHintsEl)return __hasHintsEl;
+    var wrap=document.createElement("div");
+    wrap.id="__has-chat-hints";
+    wrap.style.cssText="position:fixed;left:var(--has-chat-left);top:var(--has-chat-controls-top);transform:scale(var(--has-chat-controls-scale));transform-origin:left top;display:none;gap:10px;pointer-events:none;z-index:9000;font-family:Open Sans,var(--fallback-font),sans-serif;";
+    function hint(key,label){
+      var item=document.createElement("div");
+      item.style.cssText="display:flex;align-items:center;gap:6px;";
+      var k=document.createElement("span");
+      k.textContent=key;
+      k.style.cssText="min-width:1.7vh;height:1.7vh;padding:0 0.5vh;border:0.09vh solid #f4f1e199;border-radius:0.3vh;display:flex;align-items:center;justify-content:center;font-size:1.3vh;color:#f4f1e1;text-shadow:0 0.06vh 0.19vh #000000b3;box-sizing:content-box;";
+      var l=document.createElement("span");
+      l.textContent=label;
+      l.style.cssText="font-size:1.3vh;color:#f4f1e199;text-shadow:0 0.06vh 0.19vh #000000b3;";
+      item.appendChild(k);item.appendChild(l);
+      return item;
+    }
+    wrap.appendChild(hint("T","Чат"));
+    wrap.appendChild(hint("F1","Управление"));
+    document.body.appendChild(wrap);
+    __hasHintsEl=wrap;
+    return wrap;
+  }
+
+  var __hasVoiceEl=null;
+  var __hasVoiceLastKey="";
+  var __HAS_VOICE_ICON={0:"🎤",1:"📞",2:"📢"}; // ENTRY_TYPE.VOICE/CALL/MEGAPHONE — см. Hud.js
+  function __hasBuildVoiceWrap(){
+    if(__hasVoiceEl)return __hasVoiceEl;
+    var wrap=document.createElement("div");
+    wrap.id="__has-voice-chat";
+    wrap.style.cssText="position:fixed;left:var(--has-voicechat-left);top:var(--has-voicechat-top);display:none;flex-direction:column;gap:0.5vh;pointer-events:none;z-index:9000;font-family:Open Sans,var(--fallback-font),sans-serif;";
+    document.body.appendChild(wrap);
+    __hasVoiceEl=wrap;
+    return wrap;
+  }
+  function __hasRenderVoiceEntries(entries){
+    var wrap=__hasBuildVoiceWrap();
+    var key=JSON.stringify((entries||[]).map(function(e){return[e.id,e.name,e.type,e.channel];}));
+    if(key===__hasVoiceLastKey)return;
+    __hasVoiceLastKey=key;
+    wrap.innerHTML="";
+    (entries||[]).forEach(function(e){
+      var row=document.createElement("div");
+      row.style.cssText="display:flex;align-items:center;gap:0.6vh;background:#14141480;border-radius:0.5vh;padding:0.3vh 0.7vh;width:fit-content;";
+      var icon=document.createElement("span");
+      icon.textContent=__HAS_VOICE_ICON[e.type]||"🎤";
+      icon.style.cssText="font-size:1.4vh;line-height:1;";
+      var name=document.createElement("span");
+      name.textContent=e.name+(e.channel?(" · "+e.channel):"");
+      name.style.cssText="font-size:1.3vh;color:#f4f1e1;text-shadow:0 0.06vh 0.19vh #000000b3;white-space:nowrap;";
+      row.appendChild(icon);row.appendChild(name);
+      wrap.appendChild(row);
+    });
+  }
+
+  // Один общий тик на оба оверлея — раз в 200мс, лёгкая проверка, ничего
+  // тяжёлого. Работают ТОЛЬКО пока hud.__hassleForced===true — на родном
+  // radmir-варианте свои подсказки/голосовой чат есть и так, наши только
+  // мешали бы.
+  setInterval(function(){
+    var hud=window.interface&&window.interface("Hud");
+    var active=!!(hud&&hud.__hassleForced&&!hud.hudIsManuallyHidden&&!window.getInterfaceStatus("Connect"));
+    if(!active){
+      if(__hasHintsEl)__hasHintsEl.style.display="none";
+      if(__hasVoiceEl)__hasVoiceEl.style.display="none";
+      return;
+    }
+    // Подсказки T/F1 — как в оригинале: скрыты, пока открыто окно ввода
+    // чата, или пока сам чат выключен (F5, chatStatus===false).
+    var hints=__hasBuildHints();
+    var chatRef=hud.$refs&&hud.$refs.chat;
+    var chatIsOpen=!!(chatRef&&chatRef.isOpen);
+    var chatVisible=hud.chatStatus!==!1&&!hud.chatIsManuallyHidden;
+    hints.style.display=(!chatIsOpen&&chatVisible)?"flex":"none";
+
+    // Голосовой чат — как в оригинале: пока useChat и voiceChat.show.
+    if(hud.useChat!==!1&&hud.voiceChat&&hud.voiceChat.show){
+      var voice=__hasBuildVoiceWrap();
+      voice.style.display="flex";
+      __hasRenderVoiceEntries(hud.voiceChat.entries);
+    }else if(__hasVoiceEl){
+      __hasVoiceEl.style.display="none";
+    }
+  },200);
+
   // Call this with your real ID from wherever you already resolve it (e.g. your
   // /id parsing) — window.setPlayerId(1234) — and it'll show up immediately.
   window.setPlayerId=function(id){
@@ -635,7 +791,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 Размер ===");
+console.log("[INIT] === MVD AK v2.900 Размер ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
