@@ -8,22 +8,14 @@ INTLOAD_URL   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%2
 CUSTOM_UI_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
 
 # ── Имена нативных интерфейсов движка ───────────────────────────────
-# НИКОГДА не регистрировать кастомный компонент под этими именами в dd/fd
-# (полностью подменяет родной интерфейс для всей игры, а не только для МВД).
-# Если файлу из реестра IntLoad.js нужно просто выполниться при старте
-# (а не быть интерфейсом) — в IntLoad.js у него должно стоять
-# "type": "sideEffect", тогда он сюда даже не попадёт.
 NATIVE_INTERFACE_NAMES = {
     "ScreenNotification", "Menu", "Hud", "Dialog", "InventoryNew",
     "Console", "BattlePassWelcome", "BlackMarket", "FullScreenPreloader",
 }
 
-# Путь к иконке передаётся из launcher через exec namespace
 _ICON_PATH = globals().get("_ICON_PATH", "")
 
 def _log_to_file(msg: str):
-    """Пишет в %APPDATA%\AHK_MVD\install_log.txt — видно даже если установщик
-    собран без консоли (.exe) и print() никуда не выводится."""
     try:
         from datetime import datetime
         appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
@@ -34,7 +26,6 @@ def _log_to_file(msg: str):
     except Exception:
         pass
 
-# ── Файл сохранённых настроек ──────────────────────────────────────
 def _settings_path() -> Path:
     appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
     folder = Path(appdata) / 'AHK_MVD'
@@ -51,7 +42,6 @@ def load_settings() -> dict:
     return {}
 
 def save_settings(data: dict):
-    """Merge-сохранение — не затирает ключи которые не переданы."""
     try:
         p = _settings_path()
         current = {}
@@ -66,7 +56,6 @@ def save_settings(data: dict):
         pass
 
 def get_hwid() -> str:
-    """Тот же алгоритм что и в launcher.py — sha256(MachineGuid)[:16]."""
     try:
         import winreg, hashlib
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
@@ -89,9 +78,7 @@ def fetch_html() -> str:
 
 class InstallerAPI:
     def __init__(self):
-        self._saved = load_settings()  # сохранённые настройки
-
-        # Восстанавливаем путь если он был сохранён и валиден
+        self._saved = load_settings()
         saved_path = self._saved.get('radmir_path', '')
         if saved_path and Path(saved_path).exists():
             p = Path(saved_path)
@@ -101,7 +88,6 @@ class InstallerAPI:
                 self.radmir_path = None
         else:
             self.radmir_path = None
-
         self._window = None
 
     def _set_status(self, eid, text, cls):
@@ -122,17 +108,13 @@ class InstallerAPI:
 
     @staticmethod
     def _obfuscate(code):
-        # Оборачиваем в IIFE чтобы const/let не конфликтовали
-        # с переменными игрового бандла Index.js при eval()
         nl = chr(10)
         code = '(function(){' + nl + code + nl + '})();'
         codes = [ord(c) for c in code]
         n = len(codes)
         p1, p2, p3 = codes[:n//3], codes[n//3:(n*2)//3], codes[(n*2)//3:]
-
         def rnd(): return '_0x'+''.join(random.choices(string.ascii_letters+string.digits, k=6))
         v1,v2,v3,v4,v5,v6 = rnd(),rnd(),rnd(),rnd(),rnd(),rnd()
-
         return (f"(function(){{const {v1}=[{','.join(map(str,p1))}];"
                 f"const {v2}=[{','.join(map(str,p2))}];"
                 f"const {v3}=[{','.join(map(str,p3))}];"
@@ -141,41 +123,33 @@ class InstallerAPI:
                 f"return {v5}[String.fromCharCode(101,118,97,108)]("
                 f"{v4}.map(function({v6}){{return String.fromCharCode({v6})}}).join(''))}})();")
 
-    # Невидимые маркеры: zero-width space (U+200B) + zero-width non-joiner (U+200C)
-    # В редакторе выглядят как пустой JS-комментарий "//"
-    _MARK_S = "//‌​"   # start
-    _MARK_E = "//‌​‌"   # end
-
-    # Старые читаемые маркеры (для миграции пользователей со старой версией)
+    _MARK_S = "//\u200b\u200c\u200b"
+    _MARK_E = "//\u200c\u200b\u200c"
     _LEGACY_S = "// === HASSLE LOAD BOT CODE START ==="
     _LEGACY_E = "// === HASSLE LOAD BOT CODE END ==="
 
     @classmethod
     def _has_code(cls, content: str) -> bool:
-        """Есть ли вставленный блок — новые или старые маркеры."""
         return (cls._MARK_S in content) or (cls._LEGACY_S in content)
 
     @classmethod
     def _remove_markers(cls, content: str) -> str:
-        """Удаляет блок кода — сначала пробует новые маркеры, затем старые."""
         for S, E in [(cls._MARK_S, cls._MARK_E), (cls._LEGACY_S, cls._LEGACY_E)]:
             si = content.find(S)
             if si != -1:
                 ei = content.find(E, si + len(S))
                 if ei != -1:
                     content = content[:si] + content[ei + len(E):]
-                    break   # один блок за раз достаточно
+                    break
         return content.rstrip() + '\n'
 
     def _index_js(self):
-        """Путь к Index.js или None."""
         if not self.radmir_path:
             return None
         p = self.radmir_path / "uiresources" / "assets" / "Index.js"
         return p if p.exists() else None
 
     def _migrate_legacy(self):
-        """Если в Index.js старые маркеры — тихо переписываем на новые."""
         idx = self._index_js()
         if not idx:
             return
@@ -202,13 +176,10 @@ class InstallerAPI:
             pass
 
     def get_saved_settings(self) -> dict:
-        """Возвращает сохранённые настройки в JS при старте."""
         self._migrate_legacy()
         result = dict(self._saved)
         result['path_valid'] = self.radmir_path is not None
         result['radmir_path'] = str(self.radmir_path) if self.radmir_path else ''
-
-        # Реальная проверка наличия кода в Index.js
         idx = self._index_js()
         if idx:
             try:
@@ -221,23 +192,18 @@ class InstallerAPI:
 
     @staticmethod
     def _fetch_custom_interfaces() -> list:
-        """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
-        Единственный источник реестра — добавлять новые интерфейсы только в IntLoad.js.
-        Возвращает [] если GitHub недоступен или реестр не найден."""
         import re, json, traceback
         try:
             print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
             resp = requests.get(INTLOAD_URL, timeout=15)
             resp.raise_for_status()
             print(f'[Installer] HTTP {resp.status_code}, длина {len(resp.text)} байт')
-
             text = resp.text
             m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
             if not m:
                 print('[Installer] _duranCustomInterfaces не найден в IntLoad.js')
-                _log_to_file('_fetch_custom_interfaces: _duranCustomInterfaces НЕ НАЙДЕН в тексте IntLoad.js')
+                _log_to_file('_fetch_custom_interfaces: _duranCustomInterfaces НЕ НАЙДЕН')
                 return []
-
             start = m.start(1)
             depth, i = 0, start
             while i < len(text):
@@ -248,19 +214,13 @@ class InstallerAPI:
                 i += 1
             raw = text[start:i + 1]
             print(f'[Installer] Найден массив: {raw[:120]}')
-
-            # Убираем trailing-запятые (невалидны в JSON)
             raw = re.sub(r',\s*([}\]])', r'\1', raw)
-            # Кавычим unquoted JS-ключи объектов (name:, files:, hideHud:...) → валидный JSON
             raw = re.sub(r'([{,]\s*)([a-zA-Z_\$][a-zA-Z0-9_\$]*)\s*:', r'\1"\2":', raw)
-            # json.loads понимает true/false/null нативно — замены не нужны
             result = json.loads(raw)
-
             print(f'[Installer] Распарсено интерфейсов: '
                   f'{[r["name"] + ":" + r.get("type", "interface") for r in result]}')
             _log_to_file(f'_fetch_custom_interfaces OK: {[r["name"] + ":" + r.get("type", "interface") for r in result]}')
             return result
-
         except Exception as e:
             print(f'[Installer] Не удалось загрузить IntLoad.js: {e}')
             _log_to_file(f'_fetch_custom_interfaces ИСКЛЮЧЕНИЕ: {e}\n{traceback.format_exc()}')
@@ -271,20 +231,15 @@ class InstallerAPI:
         """Генерирует код вставки из реестра IntLoad.js.
 
         type == "interface":
-            files: ["X.js"] → Object.assign(dd,...) через import("./X.js")
-            files: []       → Object.assign(dd,...) через Promise.resolve(window.__customUIComponents?.Name)
-                              компонент предоставляется CustomUI.js через dynamic import + eval
-
+            files: ["X.js"]    → import("./X.js") из assets/
+            files: []          → Promise.resolve(window.__customUIComponents?.Name)
         type == "sideEffect":
-            files: ["X.js"] → голый d(()=>import(...), [...], import.meta.url);
-            files: []       → пропускается (обрабатывается внутри другого sideEffect)
+            files: ["X.js"]    → голый d(()=>import(...), [...], import.meta.url);
+            files: []          → пропускается
         """
         if not ifaces:
             return ""
 
-        # Литерал, а не модульный глобал NATIVE_INTERFACE_NAMES — exec() с раздельными
-        # globals/locals (как в launcher.py) не даёт функциям видеть top-level
-        # переменные модуля, из-за чего обращение к глобалу падало с NameError.
         native_names = {
             "ScreenNotification", "Menu", "Hud", "Dialog", "InventoryNew",
             "Console", "BattlePassWelcome", "BlackMarket", "FullScreenPreloader",
@@ -304,14 +259,11 @@ class InstallerAPI:
                     side_effects.append(
                         f'd(()=>import("./{js_file}"),{files_js},import.meta.url);'
                     )
-                    print(f'[Installer] "{name}" -> side-effect импорт (без регистрации в dd/fd)')
-                # Если files: [] — sideEffect не нужен (обрабатывается внутри CustomUI.js)
+                    print(f'[Installer] "{name}" -> side-effect импорт')
                 continue
 
             if name in native_names:
-                print(f'[Installer] [!] Пропускаю "{name}" — совпадает с нативным интерфейсом игры '
-                      f'и подменит его для всей игры. Если файлу нужно просто выполниться, '
-                      f'поставь ему "type": "sideEffect" в IntLoad.js.')
+                print(f'[Installer] [!] Пропускаю "{name}" — нативный интерфейс')
                 continue
 
             hide_hud  = "!0" if iface.get("hideHud")  else "!1"
@@ -326,7 +278,6 @@ class InstallerAPI:
                 )
             else:
                 # НОВЫЙ способ: компонент из window.__customUIComponents
-                # Ждём CustomUI.js (через __customUIPromise), берём готовый модуль
                 dd_parts.append(
                     f'{name}:f(()=>(window.__customUIPromise||Promise.resolve())'
                     f'.then(()=>window.__customUIComponents?.{name}))'
@@ -346,22 +297,14 @@ class InstallerAPI:
         return "".join(parts)
 
     def _deploy_custom_ui_files(self, ifaces: list):
-        """Скачивает файлы кастомных интерфейсов (.js/.css) и кладёт в assets/.
-
-        Скачиваются ТОЛЬКО файлы из записей с непустым files: [...].
-        Интерфейсы с files: [] не требуют физического файла — они
-        предоставляются CustomUI.js через window.__customUIComponents.
-
-        В новой архитектуре здесь скачиваются только CustomUI.js и CustomUI.css
-        (они указаны в files: ["CustomUI.js", "CustomUI.css"] для sideEffect "CustomUI").
-        """
+        """Скачивает только файлы с непустым files: [...].
+        Интерфейсы с files: [] не требуют физического файла."""
         if not self.radmir_path:
             return
         assets_dir = self.radmir_path / "uiresources" / "assets"
         if not assets_dir.exists():
             return
 
-        # Собираем только файлы из записей с непустым files
         all_files = [f for iface in ifaces for f in iface.get("files", []) if iface.get("files")]
 
         for filename in all_files:
@@ -380,11 +323,8 @@ class InstallerAPI:
         if not r or not len(r):
             return None
         chosen = Path(r[0])
-
-        # Папка обязана называться RADMIR CRMP (регистр не важен)
         if chosen.name.upper() != "RADMIR CRMP":
             return {"error": "not_radmir"}
-
         self.radmir_path = chosen
         current = load_settings()
         current['radmir_path'] = str(self.radmir_path)
@@ -398,13 +338,8 @@ class InstallerAPI:
             import traceback, sys
             try:
                 if not self._check_dirs(): self._notify(False); return
-
-                # Читаем реестр интерфейсов из IntLoad.js на GitHub
                 ifaces = self._fetch_custom_interfaces()
-
-                # Скачиваем/обновляем физические файлы (только CustomUI.js/.css в новой архитектуре)
                 self._deploy_custom_ui_files(ifaces)
-
                 resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
                 code = resp.text.strip()
                 if not code: self._notify(False); return
@@ -416,11 +351,8 @@ class InstallerAPI:
             code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
             code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
             code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
-
-            # Вшиваем HWID текущей машины — скрипт будет проверять его в keys.json при каждом запуске игры
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
 
-            # ── Свап хоткей ─────────────────────────────────────────────
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
             if not swap_enabled or not safe_swap_key:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = false;')
@@ -429,21 +361,17 @@ class InstallerAPI:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = true;')
                 code = code.replace('const SWAP_KEY = "Alt+Q";', f'const SWAP_KEY = "{safe_swap_key}";')
 
-            # ── Хоткей открытия меню ────────────────────────────────────
             safe_menu_key = str(menu_key).replace('"', '').replace("'", '')[:30] if menu_key else ''
             code = code.replace('const MENU_KEY = "Alt+0";', f'const MENU_KEY = "{safe_menu_key}";')
 
-            # ── Скрытые пункты меню ─────────────────────────────────────
             hidden_list = menu_hidden if isinstance(menu_hidden, list) else []
             hidden_json = json.dumps(hidden_list)
             code = code.replace('const MENU_HIDDEN_ITEMS = [];', f'const MENU_HIDDEN_ITEMS = {hidden_json};')
 
-            # ── Биндинги пунктов меню ────────────────────────────────────
             binds_dict = {k: v for k, v in (menu_binds or {}).items() if v}
             binds_json = json.dumps(binds_dict, ensure_ascii=False)
             code = code.replace('const MENU_BINDS = {};', f'const MENU_BINDS = {binds_json};')
 
-            # ── Порядок пунктов меню ─────────────────────────────────────
             order_list = menu_order if isinstance(menu_order, list) and menu_order else []
             order_json = json.dumps(order_list)
             code = code.replace('const MENU_ORDER = [];', f'const MENU_ORDER = {order_json};')
@@ -453,7 +381,6 @@ class InstallerAPI:
             if auto_password:
                 code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
 
-            # ── Авто-снаряжение ─────────────────────────────────────────
             items_dict = auto_grab.get('items', {}) if auto_grab else {}
             any_item = any(v for v in items_dict.values()) if items_dict else False
 
@@ -487,21 +414,17 @@ class InstallerAPI:
                     if val is not None:
                         code = code.replace(f'const AUTO_GRAB_MENU_{mkey} = -1;', f'const AUTO_GRAB_MENU_{mkey} = {int(val)};')
 
-                # Предметы которые НЕ нужно брать
                 skip = [k for k,v in items.items() if not v]
                 skip_js = json.dumps(skip)
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
 
-            # Блок регистрации кастомных интерфейсов — вставляется СНАРУЖИ обфускации,
-            # потому что dd/fd/f/d — переменные скоупа бандла Index.js, недоступны внутри IIFE.
-            # Генерируется динамически из window._duranCustomInterfaces в IntLoad.js.
             try:
                 interfaces_block = self._build_interfaces_block(ifaces)
             except Exception:
                 traceback.print_exc(file=sys.stdout)
                 _log_to_file(f'_build_interfaces_block ИСКЛЮЧЕНИЕ (ifaces={ifaces}):\n{traceback.format_exc()}')
-                interfaces_block = ""  # не валим всю установку из-за интерфейсов
+                interfaces_block = ""
 
             _log_to_file(f'interfaces_block длина={len(interfaces_block)}, ifaces было={len(ifaces)} шт.: {interfaces_block[:300]}')
 
