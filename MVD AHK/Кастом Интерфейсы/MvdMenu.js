@@ -32,14 +32,6 @@ const POVSEDNEV_OPTIONS=[
     {action:"miranda",       label:"Права Миранды",            needsId:false},
 ];
 
-// ─── Hassle HUD: подписи дизайнов ───────────────────────────────────────────
-const HASSLE_BORDER_ORDER=["default","helloween","newyear"];
-const HASSLE_BORDER_LABELS={
-    default:  "Обычный",
-    helloween:"Хэллоуин",
-    newyear:  "Новый год",
-};
-
 const ACTION_TAGS={
     fine:       {label:"/ticket", color:"rgba(61,186,122,"},
     wantedFine: {label:"/su",     color:"rgba(224,85,85,"},
@@ -107,46 +99,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                         ? createBaseVNode("div",{class:"mvdmenu__item-arrow",innerHTML:SVG_ARROW})
                                         : createCommentVNode("",true),
                                     // Статус toggle
-                                    item.toggleOn!==undefined
-                                        ? createBaseVNode("div",{
-                                            class:normalizeClass(["mvdmenu__item-status",
-                                                item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                            ])
-                                          }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
-                                        : createCommentVNode("",true),
-                                ],10,["onClick"])
-                            ))
-                        ,128))
-                    ])
-                  ],64))
-                : createCommentVNode("",true),
-
-            // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: hassle — Hassle HUD (вкл/выкл, дизайн, настройки)
-            // ══════════════════════════════════════════════════════════════════
-            $data.screen==="hassle"
-                ? (openBlock(),createElementBlock(Fragment,{key:"hassle"},[
-                    createBaseVNode("div",{class:"mvdmenu__list"},[
-                        (openBlock(true),createElementBlock(Fragment,null,
-                            renderList($options.hassleMenuItems,(item,i)=>(
-                                openBlock(),createElementBlock("div",{
-                                    key:item.id,
-                                    class:normalizeClass(["mvdmenu__item",{
-                                        "mvdmenu__item_toggle_on": item.toggleOn===true,
-                                        "mvdmenu__item_toggle_off": item.toggleOn===false,
-                                        "mvdmenu__item_selected": $data.selectedIndex===i,
-                                    }]),
-                                    onClick:$event=>{$data.selectedIndex=i;$options.selectHassle(item);}
-                                },[
-                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
-                                    ),
-                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                        toDisplayString(item.label), 1 /* TEXT */
-                                    ),
-                                    item.arrow
-                                        ? createBaseVNode("div",{class:"mvdmenu__item-arrow",innerHTML:SVG_ARROW})
-                                        : createCommentVNode("",true),
                                     item.toggleOn!==undefined
                                         ? createBaseVNode("div",{
                                             class:normalizeClass(["mvdmenu__item-status",
@@ -318,9 +270,6 @@ const _sfc_main={
                 ? window._mvdAutoCuffEnabled : false),
             autograbOn: !!(typeof window._mvdAutoGrabEnabled!=="undefined"
                 ? window._mvdAutoGrabEnabled : true),
-            // ── Hassle HUD (читаем из window сразу, как trackingOn/autocuffOn) ──
-            hassleOn:     (()=>{ try{ const s=window._mvdHassleGetState&&window._mvdHassleGetState(); return !!(s&&s.enabled); }catch(e){ return false; } })(),
-            hassleBorder: (()=>{ try{ const s=window._mvdHassleGetState&&window._mvdHassleGetState(); return (s&&s.border)||"default"; }catch(e){ return "default"; } })(),
             // ── Напарник (читаем из window сразу, как trackingOn/autocuffOn) ──
             partnerTracking: (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return !!(s&&s.tracking); }catch(e){ return false; } })(),
             partnerMessage:  (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return !!(s&&s.message);  }catch(e){ return false; } })(),
@@ -341,7 +290,6 @@ const _sfc_main={
             if(this.screen==="main")            return " АХК";
             if(this.screen==="povsednev")       return " ПОВСЕДНЕВНАЯ";
             if(this.screen==="partner")         return " НАПАРНИК";
-            if(this.screen==="hassle")          return " HASSLE HUD";
             if(this.screen==="id-input")        return this.idInputContext==="tracking"?" ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?" НАПАРНИК":" ВВОД ID";
             return " АХК";
         },
@@ -361,10 +309,6 @@ const _sfc_main={
                 ? "Напарник: "+this.partnerNick+"["+this.partnerId+"]"
                 : "Напарник";
             items.push({id:"naparnick", label: partnerLabel, arrow:true});
-            // Hassle HUD — статус показываем прямо в главном меню, сама
-            // настройка (вкл/выкл, дизайн, тонкая позиция) — в подменю.
-            const hassleLabel = "Hassle HUD (Тест)"+(this.hassleOn?" — "+(HASSLE_BORDER_LABELS[this.hassleBorder]||"Обычный"):"");
-            items.push({id:"hassle", label: hassleLabel, arrow:true});
             items.push({id:"laws", label:"Законы", arrow:true});
             items.push({id:"advokat", label:"Вызов адвоката", arrow:true});
             return items;
@@ -408,21 +352,11 @@ const _sfc_main={
                 }
             ];
         },
-        // ── Список пунктов подменю Hassle HUD ─────────────────────────────────
-        hassleMenuItems(){
-            const borderLabel=HASSLE_BORDER_LABELS[this.hassleBorder]||"Обычный";
-            return [
-                { id:"toggle",   label:"Hassle HUD",              toggleOn:this.hassleOn },
-                { id:"design",   label:"Дизайн: "+borderLabel },
-                { id:"settings", label:"Настройки позиционирования", arrow:true },
-            ];
-        },
         // ── Текущий список пунктов для клавиатурной навигации (зависит от экрана) ──
         currentListItems(){
             if(this.screen==="main")      return this.mainMenuItems;
             if(this.screen==="povsednev") return this.filteredOptions;
             if(this.screen==="partner")   return this.partnerMenuItems;
-            if(this.screen==="hassle")    return this.hassleMenuItems;
             return [];
         },
         // ── Футер (Enter/ESC), как в нижней панели Window.js ──────────────────
@@ -480,7 +414,6 @@ const _sfc_main={
             const item=items[idx];
             if(this.screen==="main") this.selectMain(item);
             else if(this.screen==="povsednev") this.selectOption(item);
-            else if(this.screen==="hassle") this.selectHassle(item);
             else if(this.screen==="partner" && typeof this[item.onClick]==="function") this[item.onClick]();
         },
         // ── Кнопка футера Enter: ведёт на confirmIdInput на экране ввода ID,
@@ -500,8 +433,6 @@ const _sfc_main={
                 this.screen="main";
                 this.search="";
             } else if(this.screen==="partner"){
-                this.screen="main";
-            } else if(this.screen==="hassle"){
                 this.screen="main";
             } else if(this.screen==="main"){
                 this.close();
@@ -536,9 +467,6 @@ const _sfc_main={
             } else if(item.id==="naparnick"){
                 this._syncPartnerState();
                 this.screen="partner";
-            } else if(item.id==="hassle"){
-                this._syncHassleState();
-                this.screen="hassle";
             } else if(item.id==="laws"){
                 window._duranOpenMode="laws";
                 this.close();
@@ -587,30 +515,6 @@ const _sfc_main={
                 }catch(_fuErr){
                     console.log(`[MvdMenu][${this._debugInstanceId}] $forceUpdate() БРОСИЛ ОШИБКУ: ${_fuErr && _fuErr.message}`);
                 }
-            }
-        },
-        // ── Синхронизация состояния Hassle HUD из window ──────────────────────
-        _syncHassleState(){
-            try{
-                const s=window._mvdHassleGetState&&window._mvdHassleGetState();
-                this.hassleOn=!!(s&&s.enabled);
-                this.hassleBorder=(s&&s.border)||"default";
-            }catch(e){}
-        },
-        // ── Hassle HUD — выбор пункта подменю ─────────────────────────────────
-        selectHassle(item){
-            if(item.id==="toggle"){
-                this.hassleOn=!this.hassleOn;
-                if(typeof window._mvdHassleSetEnabled==="function") window._mvdHassleSetEnabled(this.hassleOn);
-            } else if(item.id==="design"){
-                const idx=HASSLE_BORDER_ORDER.indexOf(this.hassleBorder);
-                this.hassleBorder=HASSLE_BORDER_ORDER[(idx+1)%HASSLE_BORDER_ORDER.length];
-                if(typeof window._mvdHassleSetBorder==="function") window._mvdHassleSetBorder(this.hassleBorder);
-            } else if(item.id==="settings"){
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window._mvdHassleOpenSettings==="function") window._mvdHassleOpenSettings();
-                },80);
             }
         },
         // ── Напарник — переключить слежку ────────────────────────────────────
@@ -861,10 +765,9 @@ const _sfc_main={
 
         console.log(`[MvdMenu][${this._debugInstanceId}] mounted(), window._mvdMenuRefreshPartner ДО регистрации = ${typeof window._mvdMenuRefreshPartner}`);
 
-        // Синхронизируем состояние напарника и Hassle HUD при монтировании
+        // Синхронизируем состояние напарника при монтировании
         this._syncToggleState();
         this._syncPartnerState();
-        this._syncHassleState();
         // Колбэк для мгновенного обновления из mvdF.js (когда ID меняется пока меню открыто)
         window._mvdMenuRefreshPartner = () => {
             console.log(`[MvdMenu][${this._debugInstanceId}] window._mvdMenuRefreshPartner() ВЫЗВАН извне`);
@@ -891,7 +794,7 @@ const _sfc_main={
         // зажатие стрелки никак не двигало список. keydown подхватывает системный
         // автоповтор браузера — зажал стрелку и список листается сам, как в нативных окнах.
         this._onArrowKeyDown=(e)=>{
-            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner"&&this.screen!=="hassle") return;
+            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner") return;
             if(e.keyCode===window.KEY_CODE_ARROW_TOP){
                 e.preventDefault();
                 this.moveSelection(-1);
