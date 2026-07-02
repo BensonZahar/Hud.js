@@ -1,24 +1,36 @@
 // ══════════════════════════════════════════════════════════════════
 //  CustomUI.js  —  ЕДИНЫЙ загрузчик всех кастомных интерфейсов
+//
+//  Загружается как sideEffect при старте игры.
+//  1. import('./index.js') — получает все Webpack-имена Vue
+//  2. Загружает компоненты с GitHub как текст
+//  3. Парсит import-строки, маппит минифицированные имена
+//  4. Eval'ит через new Function (правильно!)
+//  5. Сохраняет готовые Vue-компоненты в window.__customUIComponents
 // ══════════════════════════════════════════════════════════════════
 window.__customUIComponents = {};
 
 window.__customUIPromise = (async function loadAllCustomUI() {
     const GH_BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
-                  + encodeURIComponent('Кастом Интерфейсы') + '/';
+        + encodeURIComponent('Кастом Интерфейсы') + '/';
 
-    // 1. Получаем Webpack-модули
+    // ── 1. Получаем Webpack-модули ──────────────────────────────
     let indexModule, containeredModule;
     try {
         indexModule = await import('./index.js');
-        containeredModule = await import('./ContaineredButton.js');
+        try {
+            containeredModule = await import('./ContaineredButton.js');
+        } catch (e) {
+            console.warn('[CustomUI] ContaineredButton.js не найден, пропускаю');
+            containeredModule = null;
+        }
         console.log('[CustomUI] ✅ Webpack-модули получены');
     } catch (e) {
-        console.error('[CustomUI] ❌ Не удалось импортировать:', e);
+        console.error('[CustomUI] ❌ Не удалось импортировать index.js:', e);
         return;
     }
 
-    // 2. Загружаем все файлы с GitHub
+    // ── 2. Загружаем все файлы с GitHub ─────────────────────────
     const FILES = {
         mvdmenu_js:  GH_BASE + 'MvdMenu.js',
         advmenu_js:  GH_BASE + 'AdvMenu.js',
@@ -29,40 +41,46 @@ window.__customUIPromise = (async function loadAllCustomUI() {
     };
 
     const results = {};
-    await Promise.all(Object.entries(FILES).map(async ([key, url]) => {
-        try {
-            const resp = await fetch(url + '?_=' + Date.now());
-            if (resp.ok) {
-                results[key] = await resp.text();
-                console.log(`[CustomUI] ✅ ${key} загружен (${results[key].length} байт)`);
-            }
-        } catch (e) {
-            console.warn(`[CustomUI] ⚠️ ${key} не загружен:`, e.message);
-        }
+    await Promise.all(Object.keys(FILES).map(function(key) {
+        var url = FILES[key] + '?_=' + Date.now();
+        return fetch(url)
+            .then(function(resp) {
+                if (resp.ok) return resp.text();
+                throw new Error('HTTP ' + resp.status);
+            })
+            .then(function(text) {
+                results[key] = text;
+                console.log('[CustomUI] ✅ ' + key + ' загружен (' + text.length + ' байт)');
+            })
+            .catch(function(err) {
+                console.warn('[CustomUI] ⚠️ ' + key + ' не загружен:', err.message);
+            });
     }));
 
-    // 3. Инжектим CSS
-    const cssTexts = [];
+    // ── 3. Инжектим CSS ─────────────────────────────────────────
+    var cssTexts = [];
     if (results.zkm_css) cssTexts.push(results.zkm_css);
     if (results.zkmsn_css) cssTexts.push(results.zkmsn_css);
     if (cssTexts.length > 0 && !document.getElementById('custom-ui-styles')) {
-        const style = document.createElement('style');
+        var style = document.createElement('style');
         style.id = 'custom-ui-styles';
         style.textContent = cssTexts.join('\n\n');
         document.head.appendChild(style);
+        console.log('[CustomUI] CSS инжектён (' + cssTexts.length + ' файлов)');
     }
 
-    // 4. Eval компонентов
+    // ── 4. Функция eval компонента (ИСПРАВЛЕНА!) ────────────────
     function evalComponent(text, componentName) {
-        const scope = {};
-        
-        const indexMatch = text.match(/import\s*\{([^}]+)\}\s*from\s*["']\.\/index\.js["']/);
+        var scope = {};
+
+        // Парсим import{...}from"./index.js"
+        var indexMatch = text.match(/import\s*\{([^}]+)\}\s*from\s*["']\.\/index\.js["']/);
         if (indexMatch) {
-            indexMatch[1].split(',').forEach(m => {
-                const parts = m.trim().split(/\s+as\s+/);
+            indexMatch[1].split(',').forEach(function(m) {
+                var parts = m.trim().split(/\s+as\s+/);
                 if (parts.length === 2) {
-                    const minified = parts[0].trim();
-                    const realName = parts[1].trim();
+                    var minified = parts[0].trim();
+                    var realName = parts[1].trim();
                     if (indexModule[minified] !== undefined) {
                         scope[realName] = indexModule[minified];
                     }
@@ -70,13 +88,14 @@ window.__customUIPromise = (async function loadAllCustomUI() {
             });
         }
 
-        const cbMatch = text.match(/import\s*\{([^}]+)\}\s*from\s*["']\.\/ContaineredButton\.js["']/);
+        // Парсим import{...}from"./ContaineredButton.js"
+        var cbMatch = text.match(/import\s*\{([^}]+)\}\s*from\s*["']\.\/ContaineredButton\.js["']/);
         if (cbMatch && containeredModule) {
-            cbMatch[1].split(',').forEach(m => {
-                const parts = m.trim().split(/\s+as\s+/);
+            cbMatch[1].split(',').forEach(function(m) {
+                var parts = m.trim().split(/\s+as\s+/);
                 if (parts.length === 2) {
-                    const minified = parts[0].trim();
-                    const realName = parts[1].trim();
+                    var minified = parts[0].trim();
+                    var realName = parts[1].trim();
                     if (containeredModule[minified] !== undefined) {
                         scope[realName] = containeredModule[minified];
                     }
@@ -84,29 +103,43 @@ window.__customUIPromise = (async function loadAllCustomUI() {
             });
         }
 
-        let code = text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
+        // Удаляем ВСЕ import-строки
+        var code = text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\s*\n?/gm, '');
+
+        // Заменяем export{X as default} на присваивание
         code = code.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
-            const localName = exp.split(' as ')[0].trim();
+            var localName = exp.split(' as ')[0].trim();
             return '__componentResult = ' + localName + ';';
         });
 
-        const wrappedCode = 'let __componentResult;\n' + code + '\nreturn __componentResult;';
-        const scopeKeys = Object.keys(scope);
-        const scopeValues = Object.values(scope);
+        // Оборачиваем в Function
+        var wrappedCode = 'var __componentResult;\n' + code + '\nreturn __componentResult;';
+        var scopeKeys = Object.keys(scope);
+        var scopeValues = [];
+        for (var i = 0; i < scopeKeys.length; i++) {
+            scopeValues.push(scope[scopeKeys[i]]);
+        }
 
         try {
-            const fn = new Function(...scopeKeys, wrappedCode);
-            const result = fn(...scopeValues);
-            if (!result) throw new Error('export не найден');
-            console.log(`[CustomUI] ✅ ${componentName} eval'нут (${scopeKeys.length} имён в scope)`);
+            // ═══════════════════════════════════════════════════════
+            // ИСПРАВЛЕНО: было new (Function.prototype.bind.apply(...))
+            // Теперь правильно: new Function(...scopeKeys, wrappedCode)
+            // ═══════════════════════════════════════════════════════
+            var fn = new Function(scopeKeys, wrappedCode);
+            var result = fn.apply(null, scopeValues);
+            if (!result) {
+                throw new Error('export не найден в тексте компонента');
+            }
+            console.log('[CustomUI] ✅ ' + componentName + ' eval\'нут (' + scopeKeys.length + ' имён в scope)');
             return result;
         } catch (e) {
-            console.error(`[CustomUI] ❌ eval ${componentName} упал:`, e);
+            console.error('[CustomUI] ❌ eval ' + componentName + ' упал:', e);
+            console.error('[CustomUI] Первые 500 символов кода:', code.slice(0, 500));
             throw e;
         }
     }
 
-    // Eval интерфейсов
+    // ── 5. Eval интерфейсов ─────────────────────────────────────
     if (results.mvdmenu_js) {
         try {
             window.__customUIComponents.MvdMenu = {
@@ -131,60 +164,25 @@ window.__customUIPromise = (async function loadAllCustomUI() {
         } catch (e) { console.error('[CustomUI] Zkm не собран:', e); }
     }
 
-    // ZkmScreenNotification
+    // ── 6. ZkmScreenNotification — sideEffect ───────────────────
     if (results.zkmsn_js) {
         try {
-            eval(results.zkmsn_js);
+            // ZkmScreenNotification не имеет import/export — eval как есть
+            // Но на случай если там есть import — удаляем их
+            var snCode = results.zkmsn_js.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\s*\n?/gm, '');
+            eval(snCode);
             if (typeof window.ZkmScreenNotification !== 'undefined') {
                 console.log('[CustomUI] ✅ ZkmScreenNotification готов');
+            } else {
+                console.warn('[CustomUI] ⚠️ ZkmScreenNotification не установился на window');
             }
         } catch (e) {
             console.error('[CustomUI] ❌ ZkmScreenNotification eval упал:', e);
         }
     }
 
-    // ══════════════════════════════════════════════════════════════
-    //  РЕГИСТРАЦИЯ КОМПОНЕНТОВ В VUE-ПРИЛОЖЕНИИ
-    //  Object.assign(dd, {...}) не работает т.к. Vue уже создан.
-    //  Регистрируем через window.App.component() глобально.
-    // ══════════════════════════════════════════════════════════════
-    function registerInApp() {
-        if (!window.App) return false;
-        const comps = window.__customUIComponents;
-        
-        // f() из index.js создаёт AsyncComponentWrapper
-        // Используем f() из window.App._context или напрямую
-        const f = window.App._context?.app?.component ? null : null; // f доступна через dd
-        
-        if (comps.MvdMenu?.default) {
-            // Регистрируем компонент глобально
-            window.App.$.appContext.app.component('MvdMenu', comps.MvdMenu.default);
-            console.log('[CustomUI] ✅ MvdMenu зарегистрирован в Vue');
-        }
-        if (comps.AdvMenu?.default) {
-            window.App.$.appContext.app.component('AdvMenu', comps.AdvMenu.default);
-            console.log('[CustomUI] ✅ AdvMenu зарегистрирован в Vue');
-        }
-        if (comps.Zkm?.default) {
-            window.App.$.appContext.app.component('Zkm', comps.Zkm.default);
-            console.log('[CustomUI] ✅ Zkm зарегистрирован в Vue');
-        }
-        return true;
-    }
-
-    // Ждём window.App если ещё не создан
-    if (window.App) {
-        registerInApp();
-    } else {
-        const checkApp = setInterval(() => {
-            if (window.App) {
-                clearInterval(checkApp);
-                registerInApp();
-            }
-        }, 100);
-    }
-
     console.log('[CustomUI] 🎯 Все компоненты готовы');
-})().catch(e => {
+    console.log('[CustomUI] window.__customUIComponents:', Object.keys(window.__customUIComponents));
+})().catch(function(e) {
     console.error('[CustomUI] Критическая ошибка:', e);
 });
