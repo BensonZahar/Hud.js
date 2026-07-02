@@ -1,145 +1,53 @@
-// ══════════════════════════════════════════════════════════════════
-//  zkm.js  —  ЗАГРУЗЧИК (устанавливается один раз, не трогается)
-//
-//  Тот же принцип, что и в MvdMenu.js-загрузчике:
-//
-//  1. Импортируем из ./index.js ровно те же имена, что использует
-//     реальный zkm.js на GitHub (LawsHelper — Розыск/Штрафы/Законы)
-//  2. Параллельно грузим с GitHub реальный zkm.js И реальный zkm.css
-//     JS — обязателен (падение = throw). CSS — опционален (падение игнорируется).
-//  3. CSS — инжектим как <style id="zkm-style-remote"> в head
-//     (один раз за сессию, повторной вставки нет)
-//  4. JS  — вырезаем строки import{…}from"..." (все, не только первую),
-//     заменяем export{Zkm as default} на window.__zkmComp = Zkm, eval()
-//  5. Экспортируем window.__zkmComp как default
-//
-//  IntLoad.js / установщик / index.js — не трогать.
-//  Тип остаётся "interface", имя "Zkm" — без изменений.
-// ══════════════════════════════════════════════════════════════════
+// zkm.js — загрузчик LawsHelper. Префетч JS и CSS из window.__prefetch_zkm_*
+import{r as resolveComponent,o as openBlock,c as createElementBlock,b as createVNode,a as createBaseVNode,F as Fragment,h as renderList,n as normalizeClass,e as createTextVNode,t as toDisplayString,f as createCommentVNode,w as withCtx,T as Transition,_ as _export_sfc}from"./index.js";
 
-// Импортируем точно те же имена, что использует GitHub-версия zkm.js.
-// После strip'а import-строки они окажутся в скоупе eval().
-import{
-    r as resolveComponent,
-    o as openBlock,
-    c as createElementBlock,
-    b as createVNode,
-    a as createBaseVNode,
-    F as Fragment,
-    h as renderList,
-    n as normalizeClass,
-    e as createTextVNode,
-    t as toDisplayString,
-    f as createCommentVNode,
-    w as withCtx,
-    T as Transition,
-    _ as _export_sfc
-}from"./index.js";
+const _GH_BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/' + encodeURIComponent('Кастом Интерфейсы') + '/';
 
-// ── Пути к оригиналам на GitHub ──────────────────────────────────
-const _GH_BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
-                + encodeURIComponent('Кастом Интерфейсы') + '/';
-const _GH_JS   = _GH_BASE + 'zkm.js';
-const _GH_CSS  = _GH_BASE + 'zkm.css';
-const _RETRIES = 8;
-const _BASE_DELAY = 1000; // экспоненциальный backoff: 1s, 2s, 4s, 8s...
-
-// ── XHR-загрузчик с экспоненциальным backoff ─────────────────────
 function _xhrGet(url, attempt) {
     return new Promise(function(resolve, reject) {
         var xhr = new XMLHttpRequest();
         xhr.open('GET', url + '?_=' + Date.now(), true);
         xhr.onload = function() {
-            if (xhr.status >= 200 && xhr.status < 300) {
-                resolve(xhr.responseText);
-            } else {
-                var err = new Error('HTTP ' + xhr.status);
-                if (attempt < _RETRIES) {
-                    var delay = Math.min(_BASE_DELAY * Math.pow(2, attempt), 16000);
-                    console.warn('[Zkm loader] HTTP ' + xhr.status + ' на ' + url + ', повтор ' + (attempt+1) + ' через ' + delay + 'мс');
-                    setTimeout(function() { _xhrGet(url, attempt + 1).then(resolve, reject); }, delay);
-                } else { reject(err); }
-            }
+            if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.responseText);
+            else if (attempt < 8) setTimeout(function() { _xhrGet(url, attempt+1).then(resolve, reject); }, Math.min(1000*Math.pow(2, attempt), 16000));
+            else reject(new Error('HTTP ' + xhr.status));
         };
         xhr.onerror = function() {
-            var err = new Error('Network error');
-            if (attempt < _RETRIES) {
-                var delay = Math.min(_BASE_DELAY * Math.pow(2, attempt), 16000);
-                console.warn('[Zkm loader] Сеть ' + url + ', повтор ' + (attempt+1) + ' через ' + delay + 'мс');
-                setTimeout(function() { _xhrGet(url, attempt + 1).then(resolve, reject); }, delay);
-            } else { reject(err); }
+            if (attempt < 8) setTimeout(function() { _xhrGet(url, attempt+1).then(resolve, reject); }, Math.min(1000*Math.pow(2, attempt), 16000));
+            else reject(new Error('Network'));
         };
         xhr.send();
     });
 }
 
-// ── Грузим JS (критично) и CSS (опционально) параллельно ─────────
-// Promise.allSettled — падение CSS не убивает загрузку компонента.
-// top-level await: игра ждёт пока модуль вычислится.
-const [_jsResult, _cssResult] = await Promise.allSettled([
-    _xhrGet(_GH_JS, 0),
-    _xhrGet(_GH_CSS, 0)
-]);
+// JS — критичен
+let _text = window.__prefetch_zkm_js;
+if (!_text) {
+    if (window.__prefetch_promise) { await window.__prefetch_promise; _text = window.__prefetch_zkm_js; }
+    if (!_text) { console.warn('[zkm] XHR JS самому'); _text = await _xhrGet(_GH_BASE + 'zkm.js', 0); }
+} else { console.log('[zkm] ✅ JS из префетча'); }
 
-// JS обязателен — без него нечего eval'ить
-if (_jsResult.status === 'rejected') {
-    console.error('[Zkm loader] КРИТИЧНО: JS не загружен после ' + _RETRIES + ' попыток:', _jsResult.reason);
-    throw _jsResult.reason;
+// CSS — опционален
+let _cssText = window.__prefetch_zkm_css;
+if (!_cssText && !window.__prefetch_zkm_css_failed) {
+    if (window.__prefetch_promise) { await window.__prefetch_promise; _cssText = window.__prefetch_zkm_css; }
+    if (!_cssText) {
+        try { _cssText = await _xhrGet(_GH_BASE + 'zkm.css', 0); }
+        catch (e) { console.warn('[zkm] CSS не загрузился:', e.message); }
+    }
 }
 
-let _text = _jsResult.value;
-
-// CSS необязателен — без него просто не будет кастомных стилей
-if (_cssResult.status === 'rejected') {
-    console.warn('[Zkm loader] CSS не загружен (меню откроется без стилей):', _cssResult.reason);
-}
-const _cssText = _cssResult.status === 'fulfilled' ? _cssResult.value : null;
-
-// ── CSS: инжектим один раз за сессию ─────────────────────────────
 if (_cssText && !document.getElementById('zkm-style-remote')) {
-    var _style = document.createElement('style');
-    _style.id = 'zkm-style-remote';
-    _style.textContent = _cssText;
-    document.head.appendChild(_style);
+    var s = document.createElement('style'); s.id = 'zkm-style-remote'; s.textContent = _cssText;
+    document.head.appendChild(s);
 }
 
-// ── JS: патчим, eval() ───────────────────────────────────────────
-// 1. Убираем ВСЕ import-строки — нужные имена уже в скоупе этого модуля.
-//    Флаг g обязателен: без него удаляется только первая строка import,
-//    остальные попадают в eval() и вызывают SyntaxError (import внутри eval).
-//    \s* — пробел между import и { тоже допускается (import { ... } from "...")
 _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
-
-// 2. Заменяем export{Zkm as default} → window.__zkmComp = Zkm;
-//    \s* — пробелы внутри и снаружи скобок (export { ... } и export{...})
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
-    var localName = exp.split(' as ')[0].trim(); // "Zkm"
-    return 'window.__zkmComp = ' + localName + ';';
+    return 'window.__zkmComp = ' + exp.split(' as ')[0].trim() + ';';
 });
-
-// 3. eval в скоупе модуля: openBlock, createElementBlock и т.д. — все
-//    видны из import-а выше, _export_sfc тоже, всё работает.
-//    try/catch обязателен: без него ошибка в eval() не видна нигде,
-//    window.__zkmComp не устанавливается, и меню молча не открывается.
-try {
-    eval(_text);
-} catch (e) {
-    console.error('[Zkm loader] eval() упал — меню не откроется:', e);
-    throw e; // пробрасываем, чтобы модуль не завис в broken-состоянии
-}
-
-// ── Экспортируем реальный компонент ─────────────────────────────
-const Zkm = window.__zkmComp;
-delete window.__zkmComp;
-
-// Если компонент не установился — eval отработал, но export не нашёлся
-if (!Zkm) {
-    console.error('[Zkm loader] window.__zkmComp не установлен после eval().',
-        'Проверь: export regex не сматчил строку export в реальном zkm.js.',
-        'Первые 200 символов после патча:\n', _text.slice(0, 200));
-    throw new Error('[Zkm loader] компонент не загружен');
-}
-
-console.log('[Zkm loader] Загружен с GitHub:', Zkm?.name);
-
+try { eval(_text); } catch (e) { console.error('[zkm] eval упал:', e); throw e; }
+const Zkm = window.__zkmComp; delete window.__zkmComp;
+if (!Zkm) throw new Error('[zkm] компонент не загружен');
+console.log('[zkm] готов:', Zkm?.name);
 export { Zkm as default };
