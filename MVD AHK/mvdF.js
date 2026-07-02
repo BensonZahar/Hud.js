@@ -202,13 +202,83 @@
     __hasApplyToHud();
   }
 
+  // ── РЕАЛЬНЫЙ переключатель скина Radmir vs Hassle ───────────────────
+  // Настоящий переключатель — computed-свойство isHassleHud ВНУТРИ самого
+  // Hud.js (родной компонент клиента), а НЕ document.body.classList и НЕ
+  // hud.__hassleForced (это наше служебное поле, оно ни на что в самом
+  // Hud.js не влияет):
+  //
+  //   isHassleHud(){ return this.engine!=="legacy" && this.isMobile }
+  //
+  // От этого одного булева значения зависит, какая из двух ПОЛНОСТЬЮ
+  // разных Vue-подкомпонент рендерится в шаблоне (v-if/v-else):
+  //   true  -> ref="hassle" (разметка .hud-hassle-*, карта/инфо в стиле Hassle)
+  //   false -> ref="radmir" (разметка .hud-radmir-*, обычный радмировский HUD)
+  // Элементов .hud-hassle-radar/.hud-hassle-info в DOM попросту НЕТ, пока
+  // isHassleHud===false — поэтому CSS-позиционирование в __hasApplyCSSVars
+  // никогда не попадало по карте/инфо-панели: селекторы не с чем было
+  // совпадать, хотя сам чат (общий для обеих веток) уже двигался.
+  //
+  // this.engine и this.isMobile читаются как this.$root.engine /
+  // this.$root.isMobile (с window.App), причём isMobile там ещё и сам
+  // вычисляемый (platform=="Android"||platform=="iOS") и используется по
+  // всему клиенту — менять его глобально рискованно (масштаб всего UI,
+  // тач-контролы и т.д.). Поэтому переопределяем isHassleHud ТОЧЕЧНО,
+  // прямо на инстансе компонента Hud, через Object.defineProperty — Vue
+  // компилирует computed-свойства с configurable:true (см. index.js:
+  // Object.defineProperty(n,se,{enumerable:!0,configurable:!0,...})), так
+  // что это безопасно переопределить и потом вернуть как было.
+  function __hasForceHassleTemplate(hud,val){
+    try{
+      if(val){
+        // Дескриптор храним прямо НА самом инстансе hud (а не в общей
+        // переменной модуля) — если игра переподключится и Hud.js создаст
+        // новый инстанс компонента, у нового объекта своего сохранённого
+        // дескриптора ещё не будет, и мы корректно возьмём именно ЕГО
+        // оригинальный isHassleHud, а не оставшийся от старого инстанса.
+        if(!hud.__hasOrigIsHassleHudDesc){
+          hud.__hasOrigIsHassleHudDesc=Object.getOwnPropertyDescriptor(hud,"isHassleHud");
+          __hasLog("__hasForceHassleTemplate: сохранён оригинальный дескриптор isHassleHud для текущего инстанса Hud=",hud.__hasOrigIsHassleHudDesc);
+        }
+        Object.defineProperty(hud,"isHassleHud",{
+          configurable:!0,
+          enumerable:!0,
+          get:function(){return!0;},
+          set:function(){}
+        });
+        // Object.defineProperty меняет значение В ОБХОД реактивности Vue —
+        // сам по себе рендер-эффект компонента об этом не узнает и не
+        // перерисуется, пока его не дёрнет какая-то ДРУГАЯ реактивная
+        // зависимость (например, обновление здоровья/денег). Поэтому просим
+        // компонент перерисоваться явно (тот же приём уже используется в
+        // MvdMenu.js — см. _syncPartnerState()/$forceUpdate() в логах).
+        if(typeof hud.$forceUpdate==="function"){
+          hud.$forceUpdate();
+          __hasLog("__hasForceHassleTemplate: hud.$forceUpdate() вызван");
+        }else{
+          __hasWarn("__hasForceHassleTemplate: hud.$forceUpdate недоступен, перерисовка может задержаться до следующего реактивного изменения");
+        }
+        __hasLog("__hasForceHassleTemplate: isHassleHud принудительно = true, текущее значение=",hud.isHassleHud);
+      }else if(hud.__hasOrigIsHassleHudDesc){
+        Object.defineProperty(hud,"isHassleHud",hud.__hasOrigIsHassleHudDesc);
+        if(typeof hud.$forceUpdate==="function")hud.$forceUpdate();
+        __hasLog("__hasForceHassleTemplate: isHassleHud возвращён к оригинальной логике (engine!=='legacy' && isMobile), текущее значение=",hud.isHassleHud);
+      }else{
+        __hasWarn("__hasForceHassleTemplate: выключение запрошено, но оригинальный дескриптор не сохранён (переопределение ещё не включалось для этого инстанса)");
+      }
+    }catch(e){
+      __hasWarn("__hasForceHassleTemplate: не удалось переопределить isHassleHud —",e);
+    }
+  }
+
   // Включает/выключает позиционирование Hassle HUD. silent=true — не пишет
   // тост и не трогает панель (используется при автозагрузке настроек).
   function __hasSetForced(hud,val,silent){
     __hasLog("__hasSetForced() вызван: val=",val,"silent=",!!silent,
       "было hud.__hassleForced=",hud&&hud.__hassleForced,
       "body.hassle(до)=",document.body.classList.contains("hassle"),
-      "App.engine=",window.App&&window.App.engine);
+      "App.engine=",window.App&&window.App.engine,
+      "hud.isHassleHud(до)=",hud&&hud.isHassleHud);
     hud.__hassleForced=val;
     settings.hassleForced=val;
     document.body.classList.toggle("__has-chat-hassle-pos",val);
@@ -221,8 +291,13 @@
     // проставляется — раньше карта/бордеры HUD оставались радмировскими,
     // даже когда чат уже был передвинут. Проставляем/убираем его сами.
     document.body.classList.toggle("hassle",val);
+    // Настоящий переключатель ветки шаблона (radmir vs hassle) — см.
+    // __hasForceHassleTemplate() выше. Класс "hassle" на body сам по себе
+    // ни на что в Hud.css/Hud.js не влияет — это отдельный, второй фикс.
+    __hasForceHassleTemplate(hud,val);
     __hasLog("body.classList после toggle:","__has-chat-hassle-pos=",document.body.classList.contains("__has-chat-hassle-pos"),
-      "hassle=",document.body.classList.contains("hassle"));
+      "hassle=",document.body.classList.contains("hassle"),
+      "hud.isHassleHud(после)=",hud.isHassleHud);
     if(val){
       __hasApplyAll();
       // Не ждём 15 сек. до следующего тика интервала — просим список игроков
@@ -241,7 +316,7 @@
       if(!silent)__hasHidePanel();
     }
     __hasSaveSettings();
-    __hasLog("__hasSetForced() завершён: hud.__hassleForced=",hud.__hassleForced,"settings.hassleForced=",settings.hassleForced);
+    __hasLog("__hasSetForced() завершён: hud.__hassleForced=",hud.__hassleForced,"settings.hassleForced=",settings.hassleForced,"hud.isHassleHud=",hud.isHassleHud);
   }
 
   function __hasSlider(label,key,min,max,step){
@@ -560,7 +635,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.333 Размер ===");
+console.log("[INIT] === MVD AK v2.9 Размер ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
