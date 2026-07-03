@@ -1,6 +1,9 @@
 /* ══════════════════════════════════════════════════════════════
-   ZKM Screen Notification — v4.0 "Glass"
-   Glassmorphism · прямоугольные мигалки в верхней полосе
+   ZKM Screen Notification — v5.0 "App Match"
+   Палитра и приёмы взяты из zkm.js / laws-helper.css:
+   #141419 фон · #f4f1e1 текст · #f9b701 золото · тонкие 0.19vh
+   рамки rgba(244,241,225,.1) · border-top акцентного цвета +
+   inset-свечение, как у .laws-helper__inner.
    ══════════════════════════════════════════════════════════════ */
 
 /* ── Позиции ─────────────────────────────────────────────────── */
@@ -9,56 +12,60 @@
 .zkm-sn--left   { left: 4.26vh;   top: 54vh;  transform: translate(0, 0);   }
 
 /* Enter */
-.zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2.6vh); }
-.zkm-sn--bottom.zkm-sn--enter { opacity: 0; transform: translate(-50%,  2.6vh); }
-.zkm-sn--left.zkm-sn--enter   { opacity: 0; transform: translate(-2.6vh, 0);   }
+.zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2.2vh); }
+.zkm-sn--bottom.zkm-sn--enter { opacity: 0; transform: translate(-50%,  2.2vh); }
+.zkm-sn--left.zkm-sn--enter   { opacity: 0; transform: translate(-2.2vh, 0);   }
 
 /* Leave */
-.zkm-sn--top.zkm-sn--leave    { opacity: 0; transform: translate(-50%, -1.3vh); }
-.zkm-sn--bottom.zkm-sn--leave { opacity: 0; transform: translate(-50%,  1.3vh); }
-.zkm-sn--left.zkm-sn--leave   { opacity: 0; transform: translate(-1.3vh, 0);   }
+.zkm-sn--top.zkm-sn--leave    { opacity: 0; transform: translate(-50%, -1.1vh); }
+.zkm-sn--bottom.zkm-sn--leave { opacity: 0; transform: translate(-50%,  1.1vh); }
+.zkm-sn--left.zkm-sn--leave   { opacity: 0; transform: translate(-1.1vh, 0);   }
 
-/* ── Основная обёртка (glass) ────────────────────────────────── */
+/* ── Основная обёртка ────────────────────────────────────────── */
 .zkm-sn {
     position: fixed;
     z-index: 99999;
     pointer-events: none;
-    font-family: "Inter", "Open Sans", Arial, sans-serif;
+    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-style: normal;
 
-    /* Полупрозрачный стеклянный фон */
-    background: rgba(6, 8, 18, 0.74);
-    backdrop-filter: blur(24px) saturate(170%);
-    -webkit-backdrop-filter: blur(24px) saturate(170%);
+    background: rgba(20, 20, 25, 0.93);
+    backdrop-filter: blur(14px) saturate(150%);
+    -webkit-backdrop-filter: blur(14px) saturate(150%);
 
-    /* Тонкая граница — только боковые и нижняя */
-    border: 0.1vh solid rgba(255, 255, 255, 0.07);
-    border-top: none;               /* скрыта — lightbar занимает её место */
-    border-radius: 1.3vh;
+    border: 0.19vh solid rgba(244, 241, 225, 0.1);
+    /* Акцентная полоса сверху — как border-top у .laws-helper__inner —
+       вместо отдельного декоративного lightbar-блока */
+    border-top: 0.19vh solid var(--zkm-accent, #f9b701);
+    border-radius: 0.56vh;
     min-width: 26vh;
     max-width: 46vh;
 
     box-shadow:
-        0 2.2vh 5vh   rgba(0, 0, 0, 0.55),
-        0 0.6vh 1.8vh rgba(0, 0, 0, 0.32),
-        inset 0 0 0 0.09vh rgba(255, 255, 255, 0.035);
+        0 1.5vh 3.7vh   rgba(0, 0, 0, 0.5),
+        0 0.5vh 1.3vh   rgba(0, 0, 0, 0.3),
+        inset 0 2.96vh 3.7vh -2.6vh rgba(var(--zkm-accent-rgb, 249, 183, 1), 0.22);
 
-    transition: opacity 0.3s ease, transform 0.3s ease;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    overflow: hidden;
 }
 
+/* Сирена рисует акцент через каскадный lightbar — обычный border-top
+   в этом случае убираем, чтобы не дублировать линию */
+.zkm-sn--siren { border-top-color: transparent; }
+
 /* ══════════════════════════════════════════════════════════════
-   LIGHTBAR — верхняя световая полоса
-   Для обычных — статичный акцент; для сирены — анимированные блоки
+   LIGHTBAR — только для сирены (6 сегментов, каскадная анимация)
    ══════════════════════════════════════════════════════════════ */
 .zkm-sn__lightbar {
     width: 100%;
-    height: 0.5vh;
+    height: 0.46vh;
     display: flex;
-    border-radius: 1.3vh 1.3vh 0 0;
-    overflow: hidden;               /* закругляем верхние углы блоков */
+    border-radius: 0.42vh 0.42vh 0 0;
+    overflow: hidden;
     position: relative;
 }
 
-/* Тень-разделитель под полосой */
 .zkm-sn__lightbar::after {
     content: '';
     position: absolute;
@@ -68,21 +75,12 @@
     pointer-events: none;
 }
 
-/* Статичная заливка (не-сирена) */
-.zkm-sn__lb-fill {
-    flex: 1;
-    opacity: 0.88;
-}
-
-/* ── Сегменты сирены ─────────────────────────────────────────── */
-/* 6 прямоугольных блоков: s1–s3 красные, s4–s6 синие */
 .zkm-sn__lb-s1, .zkm-sn__lb-s2, .zkm-sn__lb-s3,
 .zkm-sn__lb-s4, .zkm-sn__lb-s5, .zkm-sn__lb-s6 {
     flex: 1;
     position: relative;
 }
 
-/* Разделители между сегментами */
 .zkm-sn__lb-s1::after, .zkm-sn__lb-s2::after,
 .zkm-sn__lb-s3::after, .zkm-sn__lb-s4::after, .zkm-sn__lb-s5::after {
     content: '';
@@ -95,44 +93,53 @@
 
 /* ── Тело уведомления ────────────────────────────────────────── */
 .zkm-sn__body {
-    padding: 0.78vh 1.1vh 0.92vh;
+    position: relative;
+    z-index: 1;
+    padding: 1vh 1.3vh 1.1vh;
 }
 
 /* ── Шапка ───────────────────────────────────────────────────── */
 .zkm-sn__header {
     display: flex;
     align-items: center;
-    gap: 0.46vh;
-    margin-bottom: 0.4vh;
-    padding-bottom: 0.36vh;
-    border-bottom: 0.09vh solid rgba(255, 255, 255, 0.06);
+    gap: 0.6vh;
+    margin-bottom: 0.5vh;
+    padding-bottom: 0.42vh;
+    border-bottom: 0.19vh solid rgba(244, 241, 225, 0.08);
 }
 
-/* Прямоугольный маркер-акцент */
+/* Маркер-акцент — маленькая светящаяся точка вместо прямоугольного
+   бруска, перекликается с цветными разделителями в laws-helper
+   (.laws-helper__wanted-title-line), но компактнее */
 .zkm-sn__dot {
-    width: 0.2vh;
-    height: 1.05vh;
-    border-radius: 0.1vh;
+    width: 0.5vh;
+    height: 0.5vh;
+    border-radius: 50%;
+    background: var(--zkm-accent, #f9b701);
+    box-shadow: 0 0 0.8vh rgba(var(--zkm-accent-rgb, 249, 183, 1), 0.75);
     flex-shrink: 0;
-    opacity: 0.92;
 }
 
-/* Заголовок — чистый, не курсив */
+/* Заголовок — Open Sans Condensed italic bold uppercase, как
+   .laws-helper__title / .laws-helper__wanted-title в приложении */
 .zkm-sn__title {
-    font-size: 1.04vh;
+    font-family: "Open Sans Condensed", "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-style: italic;
     font-weight: 700;
-    letter-spacing: 0.14vh;
+    font-size: 1.28vh;
+    letter-spacing: 0.09vh;
     text-transform: uppercase;
     line-height: 1;
+    color: var(--zkm-accent, #f9b701);
     flex: 1;
 }
 
 /* Текст уведомления */
 .zkm-sn__text {
-    color: rgba(255, 255, 255, 0.92);
-    font-size: 1.14vh;
-    font-weight: 400;
-    line-height: 1.67;
+    color: rgba(244, 241, 225, 0.85);
+    font-size: 1.2vh;
+    font-weight: 500;
+    line-height: 1.62;
 }
 .zkm-sn__text-line { display: block; }
 
@@ -142,114 +149,90 @@
    Красные блоки гаснут → синие вспыхивают, со сдвигом (cascade)
    ══════════════════════════════════════════════════════════════ */
 
-/* RED trio: загораются справа налево (от центра к краю) */
-.zkm-sn--siren .zkm-sn__lb-s3 { animation: zkm4-r 0.55s steps(1) 0.00s infinite; }
-.zkm-sn--siren .zkm-sn__lb-s2 { animation: zkm4-r 0.55s steps(1) 0.05s infinite; }
-.zkm-sn--siren .zkm-sn__lb-s1 { animation: zkm4-r 0.55s steps(1) 0.10s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s3 { animation: zkm5-r 0.55s steps(1) 0.00s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s2 { animation: zkm5-r 0.55s steps(1) 0.05s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s1 { animation: zkm5-r 0.55s steps(1) 0.10s infinite; }
 
-/* BLUE trio: загораются слева направо (от центра к краю) */
-.zkm-sn--siren .zkm-sn__lb-s4 { animation: zkm4-b 0.55s steps(1) 0.00s infinite; }
-.zkm-sn--siren .zkm-sn__lb-s5 { animation: zkm4-b 0.55s steps(1) 0.05s infinite; }
-.zkm-sn--siren .zkm-sn__lb-s6 { animation: zkm4-b 0.55s steps(1) 0.10s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s4 { animation: zkm5-b 0.55s steps(1) 0.00s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s5 { animation: zkm5-b 0.55s steps(1) 0.05s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s6 { animation: zkm5-b 0.55s steps(1) 0.10s infinite; }
 
-@keyframes zkm4-r {
-    0%,  49% {
-        background: #e25544;
-        filter: brightness(1.5) saturate(1.2);
-    }
-    50%, 100% {
-        background: rgba(226, 85, 68, 0.13);
-        filter: brightness(1);
-    }
+@keyframes zkm5-r {
+    0%,  49% { background: #e25544; filter: brightness(1.5) saturate(1.2); }
+    50%, 100% { background: rgba(226, 85, 68, 0.13); filter: brightness(1); }
 }
 
-@keyframes zkm4-b {
-    0%,  49% {
-        background: rgba(45, 125, 210, 0.13);
-        filter: brightness(1);
-    }
-    50%, 100% {
-        background: #2d7dd2;
-        filter: brightness(1.5) saturate(1.2);
-    }
+@keyframes zkm5-b {
+    0%,  49% { background: rgba(45, 125, 210, 0.13); filter: brightness(1); }
+    50%, 100% { background: #2d7dd2; filter: brightness(1.5) saturate(1.2); }
 }
 
-/* Внешний пульс обёртки (красный ↔ синий ореол) */
 .zkm-sn--siren {
-    animation: zkm4-outer 0.55s steps(1) infinite;
+    animation: zkm5-outer 0.55s steps(1) infinite;
 }
 
-@keyframes zkm4-outer {
+@keyframes zkm5-outer {
     0%,  49% {
         box-shadow:
-            0 2.2vh 5vh   rgba(0, 0, 0, 0.55),
-            0 0.6vh 1.8vh rgba(0, 0, 0, 0.32),
-            0 0    2.8vh 0.5vh rgba(226, 85,  68, 0.22),
-            inset 0 0 0 0.09vh rgba(255, 255, 255, 0.035);
+            0 1.5vh 3.7vh rgba(0, 0, 0, 0.5),
+            0 0.5vh 1.3vh rgba(0, 0, 0, 0.3),
+            0 0    2.4vh 0.42vh rgba(226, 85,  68, 0.24);
     }
     50%, 100% {
         box-shadow:
-            0 2.2vh 5vh   rgba(0, 0, 0, 0.55),
-            0 0.6vh 1.8vh rgba(0, 0, 0, 0.32),
-            0 0    2.8vh 0.5vh rgba( 45, 125, 210, 0.22),
-            inset 0 0 0 0.09vh rgba(255, 255, 255, 0.035);
+            0 1.5vh 3.7vh rgba(0, 0, 0, 0.5),
+            0 0.5vh 1.3vh rgba(0, 0, 0, 0.3),
+            0 0    2.4vh 0.42vh rgba( 45, 125, 210, 0.24);
     }
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ТАЙМЕР-УВЕДОМЛЕНИЕ — .zkm-sn--timer-notif
-   Добавляет строку с обратным отсчётом под текстом.
-   Живёт независимо от hideAll() (в отдельной timerQueue).
+   ТАЙМЕР-СТРОКА — общая для addTimer() и addChoice()
    ══════════════════════════════════════════════════════════════ */
 
-/* Разделитель + строка таймера */
 .zkm-sn__timer-row {
     display: flex;
     align-items: center;
-    gap: 0.55vh;
-    margin-top: 0.52vh;
-    padding-top: 0.42vh;
-    border-top: 0.09vh solid rgba(255, 255, 255, 0.07);
+    gap: 0.56vh;
+    margin-top: 0.56vh;
+    padding-top: 0.46vh;
+    border-top: 0.19vh solid rgba(244, 241, 225, 0.08);
 }
 
-/* SVG-иконка часов (inline, без внешних зависимостей) */
 .zkm-sn__timer-icon {
-    width: 1.28vh;
-    height: 1.28vh;
-    color: rgba(255, 255, 255, 0.55);
+    width: 1.2vh;
+    height: 1.2vh;
+    color: rgba(244, 241, 225, 0.5);
     flex-shrink: 0;
 }
 
-/* Цифры времени */
 .zkm-sn__timer-time {
+    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
     font-size: 1.2vh;
     font-weight: 700;
-    color: #fff;
-    letter-spacing: 0.06vh;
+    color: #f4f1e1;
+    letter-spacing: 0.04vh;
     font-variant-numeric: tabular-nums;
     min-width: 3.6vh;
-    opacity: 0.92;
 }
 
-/* Полоска прогресса */
 .zkm-sn__timer-bar-wrap {
     flex: 1;
-    height: 0.22vh;
-    background: rgba(255, 255, 255, 0.07);
-    border-radius: 0.11vh;
+    height: 0.28vh;
+    background: rgba(244, 241, 225, 0.08);
+    border-radius: 0.14vh;
     overflow: hidden;
 }
 
 .zkm-sn__timer-bar-fill {
     height: 100%;
-    border-radius: 0.11vh;
-    opacity: 0.65;
+    border-radius: 0.14vh;
+    background: var(--zkm-accent, #f9b701);
     transition: width 1s linear, background 0.25s ease;
 }
 
-/* Тревожное состояние — последние секунды обратного отсчёта */
 @keyframes zkm-urgent-pulse {
-    0%, 100% { opacity: 0.6;  }
+    0%, 100% { opacity: 0.6; }
     50%      { opacity: 1;   }
 }
 .zkm-sn__timer-bar-fill--urgent {
@@ -265,9 +248,8 @@
 
 /* ══════════════════════════════════════════════════════════════
    УВЕДОМЛЕНИЕ-ВЫБОР — .zkm-sn--choice  (addChoice)
-   Две карточки-«клавиши» (Alt ×1 / Alt ×2) + таймер обратного
-   отсчёта под ними. Живёт в timerQueue (как и addTimer) —
-   не гасится общим hideAll().
+   Две кнопки-карточки в стиле .laws-helper__wanted-btn (плоские,
+   с цветной рамкой и полупрозрачной заливкой по смыслу «нет/да»).
    ══════════════════════════════════════════════════════════════ */
 
 .zkm-sn--choice {
@@ -277,17 +259,8 @@
 .zkm-sn__choice-row {
     display: flex;
     align-items: stretch;
-    gap: 0.65vh;
-    margin: 0.35vh 0 0.62vh;
-}
-
-.zkm-sn__choice-divider {
-    width: 0.09vh;
-    flex-shrink: 0;
-    background: linear-gradient(to bottom,
-        rgba(255,255,255,0)    0%,
-        rgba(255,255,255,0.12) 50%,
-        rgba(255,255,255,0)    100%);
+    gap: 0.56vh;
+    margin: 0.5vh 0 0.6vh;
 }
 
 .zkm-sn__choice-opt {
@@ -296,76 +269,65 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.4vh;
-    padding: 0.62vh 0.4vh 0.5vh;
-    border-radius: 0.85vh;
-    background: rgba(255, 255, 255, 0.028);
-    border: 0.09vh solid rgba(255, 255, 255, 0.06);
-    transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+    gap: 0.34vh;
+    padding: 0.7vh 0.4vh 0.56vh;
+    border-radius: 0.37vh;
+    background: rgba(255, 255, 255, 0.03);
+    border: 0.19vh solid rgba(244, 241, 225, 0.1);
+    transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-/* Клавиша-«кейкап» ALT ×N — имитация физической кнопки */
+/* Клавиша ALT×N — компактный бейдж, без глянцевой имитации кнопки */
 .zkm-sn__choice-key {
     display: inline-flex;
     align-items: baseline;
-    gap: 0.19vh;
-    font-size: 1.0vh;
+    gap: 0.16vh;
+    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-size: 0.96vh;
     font-weight: 800;
-    letter-spacing: 0.09vh;
-    padding: 0.28vh 0.72vh 0.24vh;
-    border-radius: 0.55vh;
-    color: #fff;
-    background: rgba(255, 255, 255, 0.08);
-    border: 0.1vh solid rgba(255, 255, 255, 0.16);
-    border-bottom-width: 0.19vh;
-    box-shadow:
-        0 0.09vh 0 rgba(255, 255, 255, 0.06) inset,
-        0 0.2vh 0.35vh rgba(0, 0, 0, 0.4);
+    letter-spacing: 0.06vh;
+    padding: 0.22vh 0.6vh 0.18vh;
+    border-radius: 0.28vh;
+    color: #f4f1e1;
+    background: rgba(255, 255, 255, 0.06);
+    border: 0.15vh solid rgba(255, 255, 255, 0.12);
 }
 
 .zkm-sn__choice-mult {
-    font-size: 0.84vh;
+    font-size: 0.78vh;
     font-weight: 700;
-    opacity: 0.82;
+    opacity: 0.75;
 }
 
 .zkm-sn__choice-label {
-    font-size: 0.96vh;
+    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-size: 0.92vh;
     font-weight: 700;
-    letter-spacing: 0.05vh;
+    letter-spacing: 0.03vh;
     text-transform: uppercase;
     opacity: 0.85;
 }
 
-/* Вариант «Нет» — красный акцент */
-.zkm-sn__choice-opt--no .zkm-sn__choice-key {
-    color: #ff8a7a;
-    background: rgba(226, 85, 68, 0.14);
-    border-color: rgba(226, 85, 68, 0.32);
+/* «Нет» — красный акцент приложения (#e25544, как modal_red) */
+.zkm-sn__choice-opt--no {
+    background: rgba(226, 85, 68, 0.08);
+    border-color: rgba(226, 85, 68, 0.35);
 }
+.zkm-sn__choice-opt--no .zkm-sn__choice-key   { color: #ff8a7a; }
 .zkm-sn__choice-opt--no .zkm-sn__choice-label { color: rgba(226, 85, 68, 0.92); }
-.zkm-sn__choice-opt--no:hover {
-    background: rgba(226, 85, 68, 0.06);
-    border-color: rgba(226, 85, 68, 0.22);
-}
 
-/* Вариант «Да» — зелёный акцент */
-.zkm-sn__choice-opt--yes .zkm-sn__choice-key {
-    color: #6fe0a0;
-    background: rgba(61, 186, 122, 0.14);
-    border-color: rgba(61, 186, 122, 0.32);
+/* «Да» — зелёный акцент приложения (#0a9947, как modal_green) */
+.zkm-sn__choice-opt--yes {
+    background: rgba(10, 153, 71, 0.1);
+    border-color: rgba(10, 153, 71, 0.4);
 }
-.zkm-sn__choice-opt--yes .zkm-sn__choice-label { color: rgba(61, 186, 122, 0.92); }
-.zkm-sn__choice-opt--yes:hover {
-    background: rgba(61, 186, 122, 0.06);
-    border-color: rgba(61, 186, 122, 0.22);
-}
+.zkm-sn__choice-opt--yes .zkm-sn__choice-key   { color: #6fe0a0; }
+.zkm-sn__choice-opt--yes .zkm-sn__choice-label { color: rgba(10, 153, 71, 0.92); }
 
-/* Лёгкая пульсация карточек, пока идёт отсчёт — привлекает внимание,
-   не отвлекая (только тень, без сдвига макета) */
+/* Лёгкая пульсация карточек, пока идёт отсчёт — только тень, без сдвига макета */
 @keyframes zkm-choice-breathe {
-    0%, 100% { box-shadow: 0 0 0 rgba(255,255,255,0); }
-    50%      { box-shadow: 0 0 1.4vh rgba(255,255,255,0.05); }
+    0%, 100% { box-shadow: 0 0 0 rgba(255, 255, 255, 0); }
+    50%      { box-shadow: 0 0 1.2vh rgba(255, 255, 255, 0.05); }
 }
 .zkm-sn--choice .zkm-sn__choice-opt {
     animation: zkm-choice-breathe 2.4s ease-in-out infinite;

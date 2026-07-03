@@ -1,5 +1,8 @@
-// ZKM Screen Notification — v4.0 "Glass"
-// Glassmorphism · 6-сегментный lightbar сверху · каскадная мигалка
+// ZKM Screen Notification — v5.0 "App Match"
+// Редизайн под визуальный язык zkm.js / laws-helper: #141419 фон,
+// #f4f1e1 текст, тонкие 0.19vh рамки, золотой акцент, border-top
+// вместо полноценного lightbar (кроме сирены — там он остаётся,
+// это единственный случай, где нужна каскадная анимация).
 ;(function () {
     'use strict';
 
@@ -11,7 +14,7 @@
         return String(s || '').replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim();
     }
 
-    /* Нормализует hex-акцент к набору цветов (как в v3) */
+    /* Нормализует hex-акцент к палитре приложения (см. zkm.css) */
     function resolveAccent(hex) {
         if (!hex) return '#f9b701';
         var h = String(hex).replace(/^#/, '').padStart(6, '0');
@@ -19,11 +22,28 @@
             g = parseInt(h.slice(2, 4), 16),
             b = parseInt(h.slice(4, 6), 16);
         if (r > 160 && r >= g * 1.5 && r >= b * 1.5) return '#e25544'; // красный → сирена
-        if (g > 160 && g >= r * 1.5 && g >= b * 1.5) return '#0a9947'; // зелёный
-        if (b > 160 && b >= r * 2   && b >= g * 1.5) return '#2d7dd2'; // синий
-        if (r > 180 && g > 120      && b < 60)        return '#f9b701'; // золото
-        if (r > 170 && g > 170      && b > 170)       return '#c8cad4'; // серый
+        if (g > 160 && g >= r * 1.5 && g >= b * 1.5) return '#0a9947'; // зелёный (как fine/yes в приложении)
+        if (b > 160 && b >= r * 2   && b >= g * 1.5) return '#6495ed'; // синий (как "Проц." таб в zkm.js)
+        if (r > 180 && g > 120      && b < 60)        return '#f9b701'; // золото (основной акцент приложения)
+        if (r > 170 && g > 170      && b > 170)       return '#c8cad4'; // серый/нейтральный
         return '#' + h;
+    }
+
+    /* hex → "r, g, b" строка для rgba(var(--zkm-accent-rgb), a) в CSS */
+    function hexToRgbStr(hex) {
+        var h = String(hex).replace('#', '');
+        var r = parseInt(h.substr(0, 2), 16) || 0,
+            g = parseInt(h.substr(2, 2), 16) || 0,
+            b = parseInt(h.substr(4, 2), 16) || 0;
+        return r + ', ' + g + ', ' + b;
+    }
+
+    /* Прописывает акцент через CSS-переменные на самом элементе —
+       вся остальная раскраска (dot/title/border-top/glow/fill) берёт
+       цвет из CSS, инлайн-стилей на дочерних узлах больше нет */
+    function applyAccentVars(el, accent) {
+        el.style.setProperty('--zkm-accent', accent);
+        el.style.setProperty('--zkm-accent-rgb', hexToRgbStr(accent));
     }
 
     var POS        = { 0: 'top', 1: 'left', 2: 'bottom' };
@@ -40,7 +60,7 @@
         item.el.classList.add('zkm-sn--leave');
         setTimeout(function () {
             try { item.el.remove(); } catch (_) {}
-        }, 340);
+        }, 260);
     }
 
     /* Убирает таймер-уведомление с анимацией leave */
@@ -52,7 +72,27 @@
         item.el.classList.add('zkm-sn--leave');
         setTimeout(function () {
             try { item.el.remove(); } catch (_) {}
-        }, 340);
+        }, 260);
+    }
+
+    /* Inline SVG часы — тонкий stroke как в zkm.js (SVG_DOC/SVG_CHEVRON и т.д.) */
+    var CLOCK_SVG =
+        '<svg class="zkm-sn__timer-icon" viewBox="0 0 16 16" fill="none" ' +
+            'xmlns="http://www.w3.org/2000/svg">' +
+            '<circle cx="8" cy="8.5" r="5.4" stroke="currentColor" stroke-width="1.2"/>' +
+            '<path d="M8 5.6V8.5l2 1.4" stroke="currentColor" ' +
+                'stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>' +
+            '<path d="M8 2.1v1" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/>' +
+        '</svg>';
+
+    function fmt(s) {
+        if (typeof window.getTimeFormatSeconds === 'function') {
+            return window.getTimeFormatSeconds(s, true);
+        }
+        var m  = Math.floor(s / 60);
+        var ss = s % 60;
+        return (m > 0 ? String(m) + ':' : '') +
+               (ss < 10 ? '0' : '') + ss;
     }
 
     var ZkmSN = {
@@ -68,19 +108,23 @@
 
                 var isSiren = (accent === '#e25544');
 
-                /* ── Lightbar ──────────────────────────────────────
-                   Сирена → 6 прямоугольных сегментов (s1–s3 красные,
-                   s4–s6 синие), каскадная анимация из CSS.
-                   Обычное → один залитый блок с акцентным цветом.
+                /* ── Верхний акцент ────────────────────────────────────
+                   Обычное уведомление: просто border-top цвета акцента
+                   (как border-top у .laws-helper__inner в самом приложении) —
+                   без лишней разметки.
+                   Сирена: единственный случай, где нужен полноценный
+                   каскадный lightbar с 6 сегментами.
                 ─────────────────────────────────────────────────── */
                 var barHtml = isSiren
-                    ? '<div class="zkm-sn__lb-s1"></div>' +
-                      '<div class="zkm-sn__lb-s2"></div>' +
-                      '<div class="zkm-sn__lb-s3"></div>' +
-                      '<div class="zkm-sn__lb-s4"></div>' +
-                      '<div class="zkm-sn__lb-s5"></div>' +
-                      '<div class="zkm-sn__lb-s6"></div>'
-                    : '<div class="zkm-sn__lb-fill" style="background:' + accent + '"></div>';
+                    ? '<div class="zkm-sn__lightbar">' +
+                          '<div class="zkm-sn__lb-s1"></div>' +
+                          '<div class="zkm-sn__lb-s2"></div>' +
+                          '<div class="zkm-sn__lb-s3"></div>' +
+                          '<div class="zkm-sn__lb-s4"></div>' +
+                          '<div class="zkm-sn__lb-s5"></div>' +
+                          '<div class="zkm-sn__lb-s6"></div>' +
+                      '</div>'
+                    : '';
 
                 /* ── Строки текста (поддержка <br>) ─────────────── */
                 var lineHtml = text.split(/<br\s*\/?>/i).map(function (l) {
@@ -91,17 +135,14 @@
                 var el = document.createElement('div');
                 el.className = 'zkm-sn zkm-sn--' + pos + ' zkm-sn--enter'
                              + (isSiren ? ' zkm-sn--siren' : '');
+                applyAccentVars(el, accent);
 
                 el.innerHTML =
-                    '<div class="zkm-sn__lightbar">' +
-                        barHtml +
-                    '</div>' +
+                    barHtml +
                     '<div class="zkm-sn__body">' +
                         '<div class="zkm-sn__header">' +
-                            '<div class="zkm-sn__dot" style="background:' + accent + '"></div>' +
-                            '<div class="zkm-sn__title" style="color:' + accent + '">' +
-                                title +
-                            '</div>' +
+                            '<div class="zkm-sn__dot"></div>' +
+                            '<div class="zkm-sn__title">' + title + '</div>' +
                         '</div>' +
                         '<div class="zkm-sn__text">' + lineHtml + '</div>' +
                     '</div>';
@@ -148,41 +189,16 @@
 
                 var remaining = secs;
 
-                var barHtml = '<div class="zkm-sn__lb-fill" style="background:' + accent + '"></div>';
-
-                /* Inline SVG часы — не зависит от внешних шрифтов / иконок */
-                var clockSvg =
-                    '<svg class="zkm-sn__timer-icon" viewBox="0 0 16 16" fill="none" ' +
-                        'xmlns="http://www.w3.org/2000/svg">' +
-                        '<circle cx="8" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.3"/>' +
-                        '<path d="M8 5.5V8.5l2 1.5" stroke="currentColor" ' +
-                            'stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>' +
-                        '<path d="M8 2v1" stroke="currentColor" ' +
-                            'stroke-width="1.2" stroke-linecap="round"/>' +
-                    '</svg>';
-
-                function fmt(s) {
-                    if (typeof window.getTimeFormatSeconds === 'function') {
-                        return window.getTimeFormatSeconds(s, true);
-                    }
-                    var m  = Math.floor(s / 60);
-                    var ss = s % 60;
-                    return (m > 0 ? String(m) + ':' : '') +
-                           (ss < 10 ? '0' : '') + ss;
-                }
-
                 var el = document.createElement('div');
                 el.className = 'zkm-sn zkm-sn--' + pos +
                                ' zkm-sn--enter zkm-sn--timer-notif';
+                applyAccentVars(el, accent);
 
                 el.innerHTML =
-                    '<div class="zkm-sn__lightbar">' + barHtml + '</div>' +
                     '<div class="zkm-sn__body">' +
                         '<div class="zkm-sn__header">' +
-                            '<div class="zkm-sn__dot" style="background:' + accent + '"></div>' +
-                            '<div class="zkm-sn__title" style="color:' + accent + '">' +
-                                title +
-                            '</div>' +
+                            '<div class="zkm-sn__dot"></div>' +
+                            '<div class="zkm-sn__title">' + title + '</div>' +
                         '</div>' +
                         (label
                             ? '<div class="zkm-sn__text">' +
@@ -190,11 +206,10 @@
                               '</div>'
                             : '') +
                         '<div class="zkm-sn__timer-row">' +
-                            clockSvg +
+                            CLOCK_SVG +
                             '<div class="zkm-sn__timer-time"></div>' +
                             '<div class="zkm-sn__timer-bar-wrap">' +
-                                '<div class="zkm-sn__timer-bar-fill" ' +
-                                     'style="width:100%;background:' + accent + '"></div>' +
+                                '<div class="zkm-sn__timer-bar-fill" style="width:100%"></div>' +
                             '</div>' +
                         '</div>' +
                     '</div>';
@@ -234,8 +249,9 @@
         /* ── Уведомление-выбор ──────────────────────────────────────────
            Payload: [position, title, noLabel, yesLabel, accent, seconds]
            Пример: '[2, "Проверка документов", "Нет", "Да", "f9b701", 7]'
-           Две карточки-«клавиши» ALT×1 / ALT×2 + таймер обратного отсчёта
-           с прогресс-баром (в последние 2с — тревожная подсветка).
+           Две карточки-кнопки ALT×1 / ALT×2 (стиль как у кнопок панели
+           laws-helper__wanted-btn) + таймер обратного отсчёта с
+           прогресс-баром (в последние 2с — тревожная подсветка).
            Живёт в timerQueue (как addTimer) — не гасится через hideAll().
 
            onFinish(id) вызывается ОДИН раз, когда время естественно
@@ -259,40 +275,16 @@
 
                 var remaining = secs;
 
-                var barHtml = '<div class="zkm-sn__lb-fill" style="background:' + accent + '"></div>';
-
-                var clockSvg =
-                    '<svg class="zkm-sn__timer-icon" viewBox="0 0 16 16" fill="none" ' +
-                        'xmlns="http://www.w3.org/2000/svg">' +
-                        '<circle cx="8" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.3"/>' +
-                        '<path d="M8 5.5V8.5l2 1.5" stroke="currentColor" ' +
-                            'stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>' +
-                        '<path d="M8 2v1" stroke="currentColor" ' +
-                            'stroke-width="1.2" stroke-linecap="round"/>' +
-                    '</svg>';
-
-                function fmt(s) {
-                    if (typeof window.getTimeFormatSeconds === 'function') {
-                        return window.getTimeFormatSeconds(s, true);
-                    }
-                    var m  = Math.floor(s / 60);
-                    var ss = s % 60;
-                    return (m > 0 ? String(m) + ':' : '') +
-                           (ss < 10 ? '0' : '') + ss;
-                }
-
                 var el = document.createElement('div');
                 el.className = 'zkm-sn zkm-sn--' + pos +
                                ' zkm-sn--enter zkm-sn--choice';
+                applyAccentVars(el, accent);
 
                 el.innerHTML =
-                    '<div class="zkm-sn__lightbar">' + barHtml + '</div>' +
                     '<div class="zkm-sn__body">' +
                         '<div class="zkm-sn__header">' +
-                            '<div class="zkm-sn__dot" style="background:' + accent + '"></div>' +
-                            '<div class="zkm-sn__title" style="color:' + accent + '">' +
-                                title +
-                            '</div>' +
+                            '<div class="zkm-sn__dot"></div>' +
+                            '<div class="zkm-sn__title">' + title + '</div>' +
                         '</div>' +
                         '<div class="zkm-sn__choice-row">' +
                             '<div class="zkm-sn__choice-opt zkm-sn__choice-opt--no">' +
@@ -301,7 +293,6 @@
                                 '</span>' +
                                 '<span class="zkm-sn__choice-label">' + noLabel + '</span>' +
                             '</div>' +
-                            '<div class="zkm-sn__choice-divider"></div>' +
                             '<div class="zkm-sn__choice-opt zkm-sn__choice-opt--yes">' +
                                 '<span class="zkm-sn__choice-key">ALT' +
                                     '<span class="zkm-sn__choice-mult">×2</span>' +
@@ -310,11 +301,10 @@
                             '</div>' +
                         '</div>' +
                         '<div class="zkm-sn__timer-row">' +
-                            clockSvg +
+                            CLOCK_SVG +
                             '<div class="zkm-sn__timer-time"></div>' +
                             '<div class="zkm-sn__timer-bar-wrap">' +
-                                '<div class="zkm-sn__timer-bar-fill" ' +
-                                     'style="width:100%;background:' + accent + '"></div>' +
+                                '<div class="zkm-sn__timer-bar-fill" style="width:100%"></div>' +
                             '</div>' +
                         '</div>' +
                     '</div>';
@@ -375,7 +365,7 @@
        ВАЖНО: раньше здесь подменялся ГЛОБАЛЬНЫЙ родной интерфейс
        'ScreenNotification' (через App.$refs или window.interface),
        из-за чего ВСЕ уведомления игры (не только МВД) уходили через
-       наш кастомный glass-стиль — родные уведомления пропадали или
+       наш кастомный стиль — родные уведомления пропадали или
        рисовались неправильно.
 
        Теперь ZKM-уведомление НЕ трогает родной 'ScreenNotification' —
@@ -384,6 +374,6 @@
        глобальный объект window.ZkmScreenNotification.
     ─────────────────────────────────────────────────────────────── */
     window.ZkmScreenNotification = ZkmSN;
-    console.log('[ZKM-SN] v4.2 готов (изолированный namespace, родной ScreenNotification не тронут, +addChoice)');
+    console.log('[ZKM-SN] v5.0 готов (стиль приведён в соответствие с zkm.js/laws-helper, изолированный namespace)');
 
 })();
