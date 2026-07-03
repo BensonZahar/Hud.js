@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -745,12 +745,29 @@ const setupChatHandler = () => {
             // далеко") — сразу прячем уведомление-выбор Alt×1/Alt×2, не дожидаясь
             // истечения таймера. Проверяем ДО shouldBlockMessage(), т.к. "слишком
             // далеко" в любом случае блокируется и до неё код иначе бы не дошёл.
-            if (typeof message === 'string' && _docCheckActive) {
+            if (typeof message === 'string') {
                 if (message.includes('отказался от Вашего предложения') ||
-                    message.includes('Игрок слишком далеко')) {
-                    console.log('[MVD] 🚫 Проверка документов отменена (отказ/слишком далеко)');
-                    _docCheckCleanup();
-                    _docCheckHideNotif();
+                    message.includes('Игрок слишком далеко') ||
+                    message.includes('Такого игрока нет')) {
+
+                    if (_docCheckActive) {
+                        console.log('[MVD] 🚫 Проверка документов отменена (отказ/далеко/нет игрока)');
+                        _docCheckCleanup();
+                        _docCheckHideNotif();
+                    }
+
+                    // Гонка: сервер может ответить "слишком далеко" / "такого игрока
+                    // нет" РАНЬШЕ, чем showDocCheckPrompt() успеет выставить
+                    // _docCheckActive = true (он вызывается с задержкой 1300мс после
+                    // отправки /doc). В этом случае проверка выше не сработает, и
+                    // уведомление всё равно откроется следом — уже без сообщения,
+                    // которое могло бы его закрыть. Поэтому запоминаем сам факт
+                    // отмены с меткой времени/целью — showDocCheckPrompt() сверится
+                    // с ней перед показом и просто не откроет уведомление.
+                    _docCheckAbortedTargetId = (_docCheckTargetId !== -1)
+                        ? _docCheckTargetId
+                        : (giveLicenseTo || -1);
+                    _docCheckAbortedAt = Date.now();
                 }
             }
             // ==================== КОНЕЦ ОТМЕНЫ ПОДТВЕРЖДЕНИЯ ====================
@@ -1810,6 +1827,9 @@ let _docCheckSingleTimer  = null;
 let _docCheckExpireTimer  = null; // fallback-таймер, см. ниже
 let _docCheckTargetId     = -1;
 let _docCheckSnId         = null; // id уведомления addChoice() в ZKM (timerQueue)
+let _docCheckAbortedTargetId = null; // цель, по которой недавно пришла отмена
+let _docCheckAbortedAt       = 0;    // Date.now() момента отмены
+const DOC_CHECK_ABORT_WINDOW_MS = 3000; // окно, в течение которого отмена ещё "свежая"
 
 function _docCheckCleanup() {
     _docCheckActive = false;
@@ -1829,8 +1849,22 @@ function _docCheckHideNotif() {
 function showDocCheckPrompt(targetId) {
     _docCheckCleanup();
     _docCheckHideNotif();
+
+    const _resolvedTarget = (targetId != null && targetId !== -1) ? targetId : (giveLicenseTo || -1);
+
+    // Если по этой же цели только что (в пределах окна) уже пришло "слишком
+    // далеко" / "такого игрока нет" / отказ — это гонка: ответ сервера обогнал
+    // открытие уведомления. Не показываем уведомление вовсе.
+    if (_docCheckAbortedTargetId !== null &&
+        String(_docCheckAbortedTargetId) === String(_resolvedTarget) &&
+        (Date.now() - _docCheckAbortedAt) < DOC_CHECK_ABORT_WINDOW_MS) {
+        console.log('[MVD] 🚫 Проверка документов пропущена (недавняя отмена по этой цели)');
+        _docCheckAbortedTargetId = null;
+        return;
+    }
+
     _docCheckActive   = true;
-    _docCheckTargetId = (targetId != null && targetId !== -1) ? targetId : (giveLicenseTo || -1);
+    _docCheckTargetId = _resolvedTarget;
 
     const sn = getZkmSN();
     if (sn && typeof sn.addChoice === 'function') {
