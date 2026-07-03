@@ -1,5 +1,5 @@
 import os, random, string, threading, tempfile, requests, json
-import sys, base64, hashlib, time, io
+import sys, base64, hashlib, time, io, winreg
 from pathlib import Path
 import webview
 from PIL import Image
@@ -29,7 +29,7 @@ _ICON_PATH = globals().get("_ICON_PATH", "")
 
 
 # ═══════════════════════════════════════════════════════
-#  АВТОРИЗАЦИЯ (оригинальный дизайн из launcher.py)
+#  АВТОРИЗАЦИЯ (перенесено из launcher.py)
 # ═══════════════════════════════════════════════════════
 
 def resource_path(rel):
@@ -39,7 +39,6 @@ def resource_path(rel):
 
 def get_hwid() -> str:
     try:
-        import winreg
         key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
                              r"SOFTWARE\Microsoft\Cryptography")
         guid, _ = winreg.QueryValueEx(key, "MachineGuid")
@@ -807,10 +806,11 @@ class InstallerAPI:
 
 
 # ═══════════════════════════════════════════════════════
-#  MAIN
+#  MAIN — сначала авторизация, потом установщик
 # ═══════════════════════════════════════════════════════
 
 def main():
+    # 1. АВТОРИЗАЦИЯ
     splash_close = _run_splash()
     hwid = get_hwid()
     result = run_auth_with_ui(hwid, splash_close=splash_close)
@@ -823,6 +823,7 @@ def main():
         show_denied_window(hwid)
         return
 
+    # 2. ОСНОВНОЙ ИНТЕРФЕЙС УСТАНОВЩИКА
     html_tmp = fetch_html()
     url = f"file:///{html_tmp.replace(os.sep, '/')}"
     api = InstallerAPI()
