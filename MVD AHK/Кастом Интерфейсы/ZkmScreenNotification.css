@@ -1,25 +1,26 @@
 /* ══════════════════════════════════════════════════════════════
-   ZKM Screen Notification — v5.0 "App Match"
-   Палитра и приёмы взяты из zkm.js / laws-helper.css:
-   #141419 фон · #f4f1e1 текст · #f9b701 золото · тонкие 0.19vh
-   рамки rgba(244,241,225,.1) · border-top акцентного цвета +
-   inset-свечение, как у .laws-helper__inner.
+   ZKM Screen Notification — v5.1 "App Match"
+   Палитра и приёмы — из zkm.js / laws-helper.css:
+   #141419 фон · #f4f1e1 текст · золото #f9b701 · тонкие рамки
+   rgba(244,241,225,.1). Цвет акцента приходит инлайн-стилями из
+   JS (см. комментарий в ZkmScreenNotification.js) — здесь только
+   структурные правила, которые от акцента не зависят.
    ══════════════════════════════════════════════════════════════ */
 
 /* ── Позиции ─────────────────────────────────────────────────── */
-.zkm-sn--top    { top: 8.8vh;     left: 50%;  transform: translate(-50%, 0); }
-.zkm-sn--bottom { bottom: 5.93vh; left: 50%;  transform: translate(-50%, 0); }
-.zkm-sn--left   { left: 4.26vh;   top: 54vh;  transform: translate(0, 0);   }
+.zkm-sn--top    { top: 8.8vh;     left: 50%;  transform: translate(-50%, 0)      scale(1); }
+.zkm-sn--bottom { bottom: 5.93vh; left: 50%;  transform: translate(-50%, 0)      scale(1); }
+.zkm-sn--left   { left: 4.26vh;   top: 54vh;  transform: translate(0, 0)         scale(1); }
 
-/* Enter */
-.zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2.2vh); }
-.zkm-sn--bottom.zkm-sn--enter { opacity: 0; transform: translate(-50%,  2.2vh); }
-.zkm-sn--left.zkm-sn--enter   { opacity: 0; transform: translate(-2.2vh, 0);   }
+/* Enter — лёгкий "pop": едет + слегка увеличивается из 0.94 */
+.zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2vh)  scale(0.94); }
+.zkm-sn--bottom.zkm-sn--enter { opacity: 0; transform: translate(-50%,  2vh)  scale(0.94); }
+.zkm-sn--left.zkm-sn--enter   { opacity: 0; transform: translate(-2vh, 0)     scale(0.94); }
 
 /* Leave */
-.zkm-sn--top.zkm-sn--leave    { opacity: 0; transform: translate(-50%, -1.1vh); }
-.zkm-sn--bottom.zkm-sn--leave { opacity: 0; transform: translate(-50%,  1.1vh); }
-.zkm-sn--left.zkm-sn--leave   { opacity: 0; transform: translate(-1.1vh, 0);   }
+.zkm-sn--top.zkm-sn--leave    { opacity: 0; transform: translate(-50%, -1vh)  scale(0.97); }
+.zkm-sn--bottom.zkm-sn--leave { opacity: 0; transform: translate(-50%,  1vh)  scale(0.97); }
+.zkm-sn--left.zkm-sn--leave   { opacity: 0; transform: translate(-1vh, 0)     scale(0.97); }
 
 /* ── Основная обёртка ────────────────────────────────────────── */
 .zkm-sn {
@@ -29,30 +30,31 @@
     font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
     font-style: normal;
 
-    background: rgba(20, 20, 25, 0.93);
-    backdrop-filter: blur(14px) saturate(150%);
-    -webkit-backdrop-filter: blur(14px) saturate(150%);
+    /* Лёгкий градиент вместо плоской заливки — больше глубины */
+    background: linear-gradient(165deg, rgba(26, 26, 32, 0.94), rgba(15, 15, 19, 0.96));
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
 
     border: 0.19vh solid rgba(244, 241, 225, 0.1);
-    /* Акцентная полоса сверху — как border-top у .laws-helper__inner —
-       вместо отдельного декоративного lightbar-блока */
-    border-top: 0.19vh solid var(--zkm-accent, #f9b701);
-    border-radius: 0.56vh;
-    min-width: 26vh;
+    border-radius: 0.65vh;
+    min-width: 27vh;
     max-width: 46vh;
 
-    box-shadow:
-        0 1.5vh 3.7vh   rgba(0, 0, 0, 0.5),
-        0 0.5vh 1.3vh   rgba(0, 0, 0, 0.3),
-        inset 0 2.96vh 3.7vh -2.6vh rgba(var(--zkm-accent-rgb, 249, 183, 1), 0.22);
-
-    transition: opacity 0.25s ease, transform 0.25s ease;
+    /* box-shadow (включая цветное свечение) подставляется инлайн из JS —
+       здесь только transition/overflow, чтобы не перезаписывать его */
+    transition: opacity 0.28s cubic-bezier(.22,1,.36,1), transform 0.28s cubic-bezier(.22,1,.36,1);
     overflow: hidden;
 }
 
-/* Сирена рисует акцент через каскадный lightbar — обычный border-top
-   в этом случае убираем, чтобы не дублировать линию */
-.zkm-sn--siren { border-top-color: transparent; }
+/* ══════════════════════════════════════════════════════════════
+   ГРАДИЕНТНАЯ ПОЛОСА-АКЦЕНТ — современная замена плоскому border-top
+   ══════════════════════════════════════════════════════════════ */
+.zkm-sn__accent-line {
+    width: 100%;
+    height: 0.22vh;
+    position: relative;
+    z-index: 2;
+}
 
 /* ══════════════════════════════════════════════════════════════
    LIGHTBAR — только для сирены (6 сегментов, каскадная анимация)
@@ -61,9 +63,10 @@
     width: 100%;
     height: 0.46vh;
     display: flex;
-    border-radius: 0.42vh 0.42vh 0 0;
+    border-radius: 0.5vh 0.5vh 0 0;
     overflow: hidden;
     position: relative;
+    z-index: 2;
 }
 
 .zkm-sn__lightbar::after {
@@ -95,28 +98,24 @@
 .zkm-sn__body {
     position: relative;
     z-index: 1;
-    padding: 1vh 1.3vh 1.1vh;
+    padding: 1.05vh 1.35vh 1.15vh;
 }
 
 /* ── Шапка ───────────────────────────────────────────────────── */
 .zkm-sn__header {
     display: flex;
     align-items: center;
-    gap: 0.6vh;
-    margin-bottom: 0.5vh;
-    padding-bottom: 0.42vh;
+    gap: 0.62vh;
+    margin-bottom: 0.52vh;
+    padding-bottom: 0.44vh;
     border-bottom: 0.19vh solid rgba(244, 241, 225, 0.08);
 }
 
-/* Маркер-акцент — маленькая светящаяся точка вместо прямоугольного
-   бруска, перекликается с цветными разделителями в laws-helper
-   (.laws-helper__wanted-title-line), но компактнее */
+/* Маркер-акцент — маленькая светящаяся точка */
 .zkm-sn__dot {
-    width: 0.5vh;
-    height: 0.5vh;
+    width: 0.56vh;
+    height: 0.56vh;
     border-radius: 50%;
-    background: var(--zkm-accent, #f9b701);
-    box-shadow: 0 0 0.8vh rgba(var(--zkm-accent-rgb, 249, 183, 1), 0.75);
     flex-shrink: 0;
 }
 
@@ -126,11 +125,10 @@
     font-family: "Open Sans Condensed", "Open Sans", var(--fallback-font), Arial, sans-serif;
     font-style: italic;
     font-weight: 700;
-    font-size: 1.28vh;
+    font-size: 1.3vh;
     letter-spacing: 0.09vh;
     text-transform: uppercase;
     line-height: 1;
-    color: var(--zkm-accent, #f9b701);
     flex: 1;
 }
 
@@ -174,15 +172,15 @@
 @keyframes zkm5-outer {
     0%,  49% {
         box-shadow:
-            0 1.5vh 3.7vh rgba(0, 0, 0, 0.5),
+            0 1.6vh 3.9vh rgba(0, 0, 0, 0.52),
             0 0.5vh 1.3vh rgba(0, 0, 0, 0.3),
-            0 0    2.4vh 0.42vh rgba(226, 85,  68, 0.24);
+            0 0    2.4vh 0.42vh rgba(226, 85,  68, 0.28);
     }
     50%, 100% {
         box-shadow:
-            0 1.5vh 3.7vh rgba(0, 0, 0, 0.5),
+            0 1.6vh 3.9vh rgba(0, 0, 0, 0.52),
             0 0.5vh 1.3vh rgba(0, 0, 0, 0.3),
-            0 0    2.4vh 0.42vh rgba( 45, 125, 210, 0.24);
+            0 0    2.4vh 0.42vh rgba( 45, 125, 210, 0.28);
     }
 }
 
@@ -227,7 +225,6 @@
 .zkm-sn__timer-bar-fill {
     height: 100%;
     border-radius: 0.14vh;
-    background: var(--zkm-accent, #f9b701);
     transition: width 1s linear, background 0.25s ease;
 }
 
@@ -248,8 +245,7 @@
 
 /* ══════════════════════════════════════════════════════════════
    УВЕДОМЛЕНИЕ-ВЫБОР — .zkm-sn--choice  (addChoice)
-   Две кнопки-карточки в стиле .laws-helper__wanted-btn (плоские,
-   с цветной рамкой и полупрозрачной заливкой по смыслу «нет/да»).
+   Две кнопки-карточки в стиле .laws-helper__wanted-btn
    ══════════════════════════════════════════════════════════════ */
 
 .zkm-sn--choice {
@@ -271,13 +267,12 @@
     justify-content: center;
     gap: 0.34vh;
     padding: 0.7vh 0.4vh 0.56vh;
-    border-radius: 0.37vh;
+    border-radius: 0.42vh;
     background: rgba(255, 255, 255, 0.03);
     border: 0.19vh solid rgba(244, 241, 225, 0.1);
     transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-/* Клавиша ALT×N — компактный бейдж, без глянцевой имитации кнопки */
 .zkm-sn__choice-key {
     display: inline-flex;
     align-items: baseline;
@@ -287,7 +282,7 @@
     font-weight: 800;
     letter-spacing: 0.06vh;
     padding: 0.22vh 0.6vh 0.18vh;
-    border-radius: 0.28vh;
+    border-radius: 0.3vh;
     color: #f4f1e1;
     background: rgba(255, 255, 255, 0.06);
     border: 0.15vh solid rgba(255, 255, 255, 0.12);
@@ -308,7 +303,7 @@
     opacity: 0.85;
 }
 
-/* «Нет» — красный акцент приложения (#e25544, как modal_red) */
+/* «Нет» — красный акцент приложения */
 .zkm-sn__choice-opt--no {
     background: rgba(226, 85, 68, 0.08);
     border-color: rgba(226, 85, 68, 0.35);
@@ -316,7 +311,7 @@
 .zkm-sn__choice-opt--no .zkm-sn__choice-key   { color: #ff8a7a; }
 .zkm-sn__choice-opt--no .zkm-sn__choice-label { color: rgba(226, 85, 68, 0.92); }
 
-/* «Да» — зелёный акцент приложения (#0a9947, как modal_green) */
+/* «Да» — зелёный акцент приложения */
 .zkm-sn__choice-opt--yes {
     background: rgba(10, 153, 71, 0.1);
     border-color: rgba(10, 153, 71, 0.4);
@@ -324,7 +319,6 @@
 .zkm-sn__choice-opt--yes .zkm-sn__choice-key   { color: #6fe0a0; }
 .zkm-sn__choice-opt--yes .zkm-sn__choice-label { color: rgba(10, 153, 71, 0.92); }
 
-/* Лёгкая пульсация карточек, пока идёт отсчёт — только тень, без сдвига макета */
 @keyframes zkm-choice-breathe {
     0%, 100% { box-shadow: 0 0 0 rgba(255, 255, 255, 0); }
     50%      { box-shadow: 0 0 1.2vh rgba(255, 255, 255, 0.05); }

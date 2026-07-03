@@ -1,8 +1,15 @@
-// ZKM Screen Notification — v5.0 "App Match"
+// ZKM Screen Notification — v5.1 "App Match"
 // Редизайн под визуальный язык zkm.js / laws-helper: #141419 фон,
-// #f4f1e1 текст, тонкие 0.19vh рамки, золотой акцент, border-top
-// вместо полноценного lightbar (кроме сирены — там он остаётся,
-// это единственный случай, где нужна каскадная анимация).
+// #f4f1e1 текст, золотой акцент, светящаяся градиентная полоса
+// сверху вместо плоской рамки.
+//
+// ВАЖНО: цвет акцента задаётся ТОЛЬКО через инлайн-стили (не через
+// CSS custom properties/var()) — в этом CEF-движке кастомные CSS-
+// переменные, выставленные из JS через style.setProperty, ведут себя
+// ненадёжно (title проваливался в чёрный, border-top не рисовался
+// вовсе). Сам zkm.css тоже нигде не использует var(--свой-токен) —
+// только один системный var(--fallback-font), который прокидывает
+// сам движок. Поэтому весь акцент — обычные инлайн style="".
 ;(function () {
     'use strict';
 
@@ -29,7 +36,7 @@
         return '#' + h;
     }
 
-    /* hex → "r, g, b" строка для rgba(var(--zkm-accent-rgb), a) в CSS */
+    /* hex → "r, g, b" строка для сборки rgba(...) на лету */
     function hexToRgbStr(hex) {
         var h = String(hex).replace('#', '');
         var r = parseInt(h.substr(0, 2), 16) || 0,
@@ -38,20 +45,34 @@
         return r + ', ' + g + ', ' + b;
     }
 
-    /* Прописывает акцент через CSS-переменные на самом элементе —
-       вся остальная раскраска (dot/title/border-top/glow/fill) берёт
-       цвет из CSS, инлайн-стилей на дочерних узлах больше нет */
-    function applyAccentVars(el, accent) {
-        el.style.setProperty('--zkm-accent', accent);
-        el.style.setProperty('--zkm-accent-rgb', hexToRgbStr(accent));
+    /* Готовый набор инлайн-стилей под конкретный акцент — считаем один
+       раз на уведомление и подставляем во все нужные узлы */
+    function accentKit(accent) {
+        var rgb = hexToRgbStr(accent);
+        return {
+            accent: accent,
+            rgb: rgb,
+            /* Светящаяся градиентная полоса сверху (замена плоскому border-top) */
+            lineStyle:
+                'background:linear-gradient(90deg, transparent, ' + accent + ' 18%, ' + accent + ' 82%, transparent);' +
+                'box-shadow:0 0 1.3vh 0.06vh rgba(' + rgb + ', 0.85);',
+            /* Мягкое цветное свечение внутри карточки под полосой */
+            panelGlow: 'inset 0 3.2vh 4vh -2.7vh rgba(' + rgb + ', 0.28)',
+            dotStyle: 'background:' + accent + ';box-shadow:0 0 0.85vh rgba(' + rgb + ', 0.8);',
+            titleStyle: 'color:' + accent + ';',
+            fillStyle: 'background:' + accent + ';'
+        };
     }
+
+    var BASE_SHADOW =
+        '0 1.6vh 3.9vh rgba(0, 0, 0, 0.52), ' +
+        '0 0.5vh 1.3vh rgba(0, 0, 0, 0.3), ';
 
     var POS        = { 0: 'top', 1: 'left', 2: 'bottom' };
     var last       = 0;
     var queue      = new Map();   // обычные уведомления
     var timerQueue = new Map();   // таймер-уведомления (не убиваются hideAll)
 
-    /* Убирает обычное уведомление с анимацией leave */
     function removeSN(id) {
         var item = queue.get(id);
         if (!item) return;
@@ -63,7 +84,6 @@
         }, 260);
     }
 
-    /* Убирает таймер-уведомление с анимацией leave */
     function removeTimer(id) {
         var item = timerQueue.get(id);
         if (!item) return;
@@ -75,7 +95,6 @@
         }, 260);
     }
 
-    /* Inline SVG часы — тонкий stroke как в zkm.js (SVG_DOC/SVG_CHEVRON и т.д.) */
     var CLOCK_SVG =
         '<svg class="zkm-sn__timer-icon" viewBox="0 0 16 16" fill="none" ' +
             'xmlns="http://www.w3.org/2000/svg">' +
@@ -105,15 +124,15 @@
                 var accent = resolveAccent(d[3]);
                 var dur    = Number(d[4]) || 3000;
                 var id     = ++last;
+                var kit    = accentKit(accent);
 
                 var isSiren = (accent === '#e25544');
 
                 /* ── Верхний акцент ────────────────────────────────────
-                   Обычное уведомление: просто border-top цвета акцента
-                   (как border-top у .laws-helper__inner в самом приложении) —
-                   без лишней разметки.
-                   Сирена: единственный случай, где нужен полноценный
-                   каскадный lightbar с 6 сегментами.
+                   Обычное уведомление: тонкая светящаяся градиентная
+                   полоса (совр. "glow line" приём).
+                   Сирена: полноценный каскадный lightbar 6 сегментов —
+                   единственный случай, где это оправдано.
                 ─────────────────────────────────────────────────── */
                 var barHtml = isSiren
                     ? '<div class="zkm-sn__lightbar">' +
@@ -124,32 +143,29 @@
                           '<div class="zkm-sn__lb-s5"></div>' +
                           '<div class="zkm-sn__lb-s6"></div>' +
                       '</div>'
-                    : '';
+                    : '<div class="zkm-sn__accent-line" style="' + kit.lineStyle + '"></div>';
 
-                /* ── Строки текста (поддержка <br>) ─────────────── */
                 var lineHtml = text.split(/<br\s*\/?>/i).map(function (l) {
                     return '<span class="zkm-sn__text-line">' + (l || '&zwj;') + '</span>';
                 }).join('');
 
-                /* ── Элемент ─────────────────────────────────────── */
                 var el = document.createElement('div');
                 el.className = 'zkm-sn zkm-sn--' + pos + ' zkm-sn--enter'
                              + (isSiren ? ' zkm-sn--siren' : '');
-                applyAccentVars(el, accent);
+                el.style.boxShadow = isSiren ? '' : (BASE_SHADOW + kit.panelGlow);
 
                 el.innerHTML =
                     barHtml +
                     '<div class="zkm-sn__body">' +
                         '<div class="zkm-sn__header">' +
-                            '<div class="zkm-sn__dot"></div>' +
-                            '<div class="zkm-sn__title">' + title + '</div>' +
+                            '<div class="zkm-sn__dot" style="' + kit.dotStyle + '"></div>' +
+                            '<div class="zkm-sn__title" style="' + kit.titleStyle + '">' + title + '</div>' +
                         '</div>' +
                         '<div class="zkm-sn__text">' + lineHtml + '</div>' +
                     '</div>';
 
                 document.body.appendChild(el);
 
-                /* Двойной rAF: гарантирует enter-кадр до transition */
                 requestAnimationFrame(function () {
                     requestAnimationFrame(function () {
                         el.classList.remove('zkm-sn--enter');
@@ -167,15 +183,11 @@
         },
 
         hideAll: function () {
-            /* Убивает только обычные уведомления; таймеры (timerQueue) не трогаем */
             Array.from(queue.keys()).forEach(removeSN);
         },
 
         /* ── Таймер-уведомление ────────────────────────────────────────
-           Payload: JSON-массив [position, title, label, accent, seconds]
-           Пример: '[2, "ШТРАФ КД", "К/Д Выдача штрафа", "f9b701", 300]'
-           Отличие от add(): не убивается hideAll(), живёт до конца таймера.
-           Возвращает id (число) для ручной отмены через hideTimer(id).
+           Payload: [position, title, label, accent, seconds]
         ─────────────────────────────────────────────────────────────── */
         addTimer: function (payload) {
             try {
@@ -186,19 +198,21 @@
                 var accent = resolveAccent(d[3]);
                 var secs   = Number(d[4]) || 60;
                 var id     = ++last;
+                var kit    = accentKit(accent);
 
                 var remaining = secs;
 
                 var el = document.createElement('div');
                 el.className = 'zkm-sn zkm-sn--' + pos +
                                ' zkm-sn--enter zkm-sn--timer-notif';
-                applyAccentVars(el, accent);
+                el.style.boxShadow = BASE_SHADOW + kit.panelGlow;
 
                 el.innerHTML =
+                    '<div class="zkm-sn__accent-line" style="' + kit.lineStyle + '"></div>' +
                     '<div class="zkm-sn__body">' +
                         '<div class="zkm-sn__header">' +
-                            '<div class="zkm-sn__dot"></div>' +
-                            '<div class="zkm-sn__title">' + title + '</div>' +
+                            '<div class="zkm-sn__dot" style="' + kit.dotStyle + '"></div>' +
+                            '<div class="zkm-sn__title" style="' + kit.titleStyle + '">' + title + '</div>' +
                         '</div>' +
                         (label
                             ? '<div class="zkm-sn__text">' +
@@ -209,14 +223,13 @@
                             CLOCK_SVG +
                             '<div class="zkm-sn__timer-time"></div>' +
                             '<div class="zkm-sn__timer-bar-wrap">' +
-                                '<div class="zkm-sn__timer-bar-fill" style="width:100%"></div>' +
+                                '<div class="zkm-sn__timer-bar-fill" style="width:100%;' + kit.fillStyle + '"></div>' +
                             '</div>' +
                         '</div>' +
                     '</div>';
 
                 document.body.appendChild(el);
 
-                /* Ссылки на DOM-элементы (живут пока el в DOM) */
                 var timeEl = el.querySelector('.zkm-sn__timer-time');
                 var fillEl = el.querySelector('.zkm-sn__timer-bar-fill');
                 if (timeEl) timeEl.textContent = fmt(remaining);
@@ -248,19 +261,6 @@
 
         /* ── Уведомление-выбор ──────────────────────────────────────────
            Payload: [position, title, noLabel, yesLabel, accent, seconds]
-           Пример: '[2, "Проверка документов", "Нет", "Да", "f9b701", 7]'
-           Две карточки-кнопки ALT×1 / ALT×2 (стиль как у кнопок панели
-           laws-helper__wanted-btn) + таймер обратного отсчёта с
-           прогресс-баром (в последние 2с — тревожная подсветка).
-           Живёт в timerQueue (как addTimer) — не гасится через hideAll().
-
-           onFinish(id) вызывается ОДИН раз, когда время естественно
-           истекло само по себе. НЕ вызывается, если уведомление было
-           закрыто вручную через hideTimer(id) (например, решение уже
-           принято раньше срока) — так вызывающий код может отличить
-           "время вышло" от "мы сами его убрали".
-
-           Возвращает id для ручной отмены через hideTimer(id).
         ─────────────────────────────────────────────────────────────── */
         addChoice: function (payload, onFinish) {
             try {
@@ -272,19 +272,21 @@
                 var accent  = resolveAccent(d[4]);
                 var secs    = Number(d[5]) || 7;
                 var id      = ++last;
+                var kit     = accentKit(accent);
 
                 var remaining = secs;
 
                 var el = document.createElement('div');
                 el.className = 'zkm-sn zkm-sn--' + pos +
                                ' zkm-sn--enter zkm-sn--choice';
-                applyAccentVars(el, accent);
+                el.style.boxShadow = BASE_SHADOW + kit.panelGlow;
 
                 el.innerHTML =
+                    '<div class="zkm-sn__accent-line" style="' + kit.lineStyle + '"></div>' +
                     '<div class="zkm-sn__body">' +
                         '<div class="zkm-sn__header">' +
-                            '<div class="zkm-sn__dot"></div>' +
-                            '<div class="zkm-sn__title">' + title + '</div>' +
+                            '<div class="zkm-sn__dot" style="' + kit.dotStyle + '"></div>' +
+                            '<div class="zkm-sn__title" style="' + kit.titleStyle + '">' + title + '</div>' +
                         '</div>' +
                         '<div class="zkm-sn__choice-row">' +
                             '<div class="zkm-sn__choice-opt zkm-sn__choice-opt--no">' +
@@ -304,7 +306,7 @@
                             CLOCK_SVG +
                             '<div class="zkm-sn__timer-time"></div>' +
                             '<div class="zkm-sn__timer-bar-wrap">' +
-                                '<div class="zkm-sn__timer-bar-fill" style="width:100%"></div>' +
+                                '<div class="zkm-sn__timer-bar-fill" style="width:100%;' + kit.fillStyle + '"></div>' +
                             '</div>' +
                         '</div>' +
                     '</div>';
@@ -327,7 +329,6 @@
                     if (fillEl) fillEl.style.width =
                         Math.max(0, (remaining / secs) * 100) + '%';
 
-                    /* Тревожная подсветка на последних 2 секундах */
                     if (remaining <= 2 && remaining > 0) {
                         if (fillEl) fillEl.classList.add('zkm-sn__timer-bar-fill--urgent');
                         if (timeEl) timeEl.classList.add('zkm-sn__timer-time--urgent');
@@ -350,30 +351,21 @@
             }
         },
 
-        /* Принудительно убрать таймер-уведомление по id */
         hideTimer: function (id) {
             removeTimer(id);
         },
 
-        /* Убрать все таймер-уведомления */
         hideAllTimers: function () {
             Array.from(timerQueue.keys()).forEach(removeTimer);
         }
     };
 
     /* ── Регистрация как ОТДЕЛЬНЫЙ namespace ──────────────────────
-       ВАЖНО: раньше здесь подменялся ГЛОБАЛЬНЫЙ родной интерфейс
-       'ScreenNotification' (через App.$refs или window.interface),
-       из-за чего ВСЕ уведомления игры (не только МВД) уходили через
-       наш кастомный стиль — родные уведомления пропадали или
-       рисовались неправильно.
-
-       Теперь ZKM-уведомление НЕ трогает родной 'ScreenNotification' —
-       он продолжает работать как обычно для всей остальной игры.
-       МВД-код обращается к кастомному UI явно, через отдельный
-       глобальный объект window.ZkmScreenNotification.
+       ВАЖНО: не подменяет глобальный родной 'ScreenNotification' —
+       родные уведомления игры продолжают работать как обычно.
+       МВД-код обращается явно через window.ZkmScreenNotification.
     ─────────────────────────────────────────────────────────────── */
     window.ZkmScreenNotification = ZkmSN;
-    console.log('[ZKM-SN] v5.0 готов (стиль приведён в соответствие с zkm.js/laws-helper, изолированный namespace)');
+    console.log('[ZKM-SN] v5.1 готов (акцент через инлайн-стили — надёжно в этом CEF, без CSS var())');
 
 })();
