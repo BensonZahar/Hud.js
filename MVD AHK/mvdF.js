@@ -1288,8 +1288,6 @@ const showTrackingTimer = () => {
     if (!(trackingNotificationOpen || chaseNotificationOpen)) return;
     if (_cdTimerActive) return; // жёлтый КД-таймер активен — не перекрываем его
 
-    hideTrackingTimer();
-
     // Без <br>: одна строка с ником и ID + суффикс "через" чтобы
     // ZkmScreenNotification выводил "Nickname [ID] — метка через MM:SS"
     const label   = trackingNickname
@@ -1299,9 +1297,21 @@ const showTrackingTimer = () => {
     const title   = isChase ? 'Начата погоня' : 'Идет отслеживание';
     const accent  = isChase ? '0000FF' : 'FF0000';
     const secs    = Math.max(2, getSetmarkRemainingSec());
+    const payload = `[1, "${title}", "${label}", "${accent}", ${secs}]`;
 
     try {
-        trackingTimerId = getZkmSN()?.addTimer(`[1, "${title}", "${label}", "${accent}", ${secs}]`);
+        const sn = getZkmSN();
+
+        // Если уведомление уже висит на экране — просто обновляем текст/
+        // таймер в существующем DOM-узле, БЕЗ leave+enter анимации.
+        if (trackingTimerId !== null && sn?.updateTimer(trackingTimerId, payload) !== null) {
+            return;
+        }
+
+        // Узла ещё нет (или он уже был закрыт) — создаём заново, тут
+        // анимация появления оправдана.
+        hideTrackingTimer();
+        trackingTimerId = sn?.addTimer(payload);
     } catch(e) {}
 };
 
