@@ -42,7 +42,8 @@
 
     /* box-shadow (включая цветное свечение) подставляется инлайн из JS —
        здесь только transition/overflow, чтобы не перезаписывать его */
-    transition: opacity 0.28s cubic-bezier(.22,1,.36,1), transform 0.28s cubic-bezier(.22,1,.36,1);
+    transition: opacity 0.28s cubic-bezier(.22,1,.36,1), transform 0.28s cubic-bezier(.22,1,.36,1),
+                box-shadow 0.3s ease;
     overflow: hidden;
 }
 
@@ -54,6 +55,7 @@
     height: 0.22vh;
     position: relative;
     z-index: 2;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -117,6 +119,7 @@
     height: 0.56vh;
     border-radius: 50%;
     flex-shrink: 0;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
 /* Заголовок — Open Sans Condensed italic bold uppercase, как
@@ -130,6 +133,7 @@
     text-transform: uppercase;
     line-height: 1;
     flex: 1;
+    transition: color 0.3s ease, opacity 0.12s ease;
 }
 
 /* Текст уведомления */
@@ -139,7 +143,7 @@
     font-weight: 500;
     line-height: 1.62;
 }
-.zkm-sn__text-line { display: block; }
+.zkm-sn__text-line { display: block; transition: opacity 0.12s ease; }
 
 
 /* ══════════════════════════════════════════════════════════════

@@ -21,6 +21,23 @@
         return String(s || '').replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim();
     }
 
+    /* Мягкая замена текста в узле: если текст реально другой — короткий
+       opacity-кроссфейд (120мс из/120мс в), а не мгновенная жёсткая
+       подмена. Если текст совпадает — вообще не трогаем узел (не будет
+       ни мигания, ни лишнего reflow). Используется в updateTimer(), где
+       узел уже на экране и его "дёрганое" обновление особенно заметно. */
+    function swapText(el, newText) {
+        if (!el) return;
+        newText = newText || '';
+        if (el.textContent === newText) return;
+        el.style.transition = 'opacity .12s ease';
+        el.style.opacity = '0';
+        setTimeout(function () {
+            el.textContent = newText;
+            el.style.opacity = '1';
+        }, 120);
+    }
+
     /* Нормализует hex-акцент к палитре приложения (см. zkm.css) */
     function resolveAccent(hex) {
         if (!hex) return '#f9b701';
@@ -200,7 +217,15 @@
         },
 
         /* ── Таймер-уведомление ────────────────────────────────────────
-           Payload: [position, title, label, accent, seconds]
+           Payload: [position, title, label, accent, seconds, totalSeconds?]
+           totalSeconds — необязательный 6-й элемент: полная длительность
+           цикла (напр. интервал /setmark = 31с), по которой считается
+           заполнение прогресс-бара. Если не передан — используется сам
+           seconds (старое поведение, полностью обратно совместимо).
+           Нужен для updateTimer(): когда снаружи периодически освежают
+           один и тот же таймер новым "остатком" от общего цикла, бар
+           должен ПРОДОЛЖАТЬ движение от текущей точки, а не прыгать на
+           100% и снова считать вниз.
         ─────────────────────────────────────────────────────────────── */
         addTimer: function (payload) {
             try {
@@ -210,10 +235,12 @@
                 var label  = strip(d[2]);
                 var accent = resolveAccent(d[3]);
                 var secs   = Number(d[4]) || 60;
+                var total  = Number(d[5]) || secs;
                 var id     = ++last;
                 var kit    = accentKit(accent);
 
-                var remaining = secs;
+                var remaining  = secs;
+                var startWidth = Math.max(0, Math.min(100, (remaining / total) * 100));
 
                 var el = document.createElement('div');
                 el.className = 'zkm-sn zkm-sn--' + pos +
@@ -236,7 +263,7 @@
                             CLOCK_SVG +
                             '<div class="zkm-sn__timer-time"></div>' +
                             '<div class="zkm-sn__timer-bar-wrap">' +
-                                '<div class="zkm-sn__timer-bar-fill" style="width:100%;' + kit.fillStyle + '"></div>' +
+                                '<div class="zkm-sn__timer-bar-fill" style="width:' + startWidth + '%;' + kit.fillStyle + '"></div>' +
                             '</div>' +
                         '</div>' +
                     '</div>';
@@ -257,14 +284,14 @@
                     remaining--;
                     if (timeEl) timeEl.textContent = fmt(remaining);
                     if (fillEl) fillEl.style.width =
-                        Math.max(0, (remaining / secs) * 100) + '%';
+                        Math.max(0, (remaining / total) * 100) + '%';
                     if (remaining <= 0) {
                         clearInterval(iv);
                         removeTimer(id);
                     }
                 }, 1000);
 
-                timerQueue.set(id, { el: el, iv: iv });
+                timerQueue.set(id, { el: el, iv: iv, total: total });
                 return id;
 
             } catch (e) {
@@ -370,6 +397,18 @@
            DOM-узла (а значит без leave/enter анимации). Используется,
            когда снаружи (mvdF.js) нужно просто освежить текст/оставшееся
            время у уведомления, которое и так висит на экране.
+
+           Прогресс-бар считается от total (см. addTimer) — если total
+           не передан явно, используется предыдущий total этого таймера
+           (а не текущий secs), иначе бар при каждом обновлении прыгал
+           бы на 100% вместо того чтобы продолжать плавно идти вниз.
+
+           Текст (заголовок/подпись) меняется мгновенно, ЕСЛИ реально
+           изменился — короткий opacity-кроссфейд, а не жёсткая замена,
+           чтобы обновление не выглядело "дёргано". Если текст не
+           поменялся — вообще не трогаем узел, чтобы не было лишнего
+           reflow/мигания.
+
            Возвращает id при успехе, null — если такого таймера нет
            (тогда вызывающий код должен создать новый через addTimer). ── */
         updateTimer: function (id, payload) {
@@ -382,6 +421,7 @@
                 var label  = strip(d[2]);
                 var accent = resolveAccent(d[3]);
                 var secs   = Number(d[4]) || 60;
+                var total  = Number(d[5]) || item.total || secs;
                 var kit    = accentKit(accent);
 
                 var el      = item.el;
@@ -392,11 +432,14 @@
                 var fillEl  = el.querySelector('.zkm-sn__timer-bar-fill');
                 var timeEl  = el.querySelector('.zkm-sn__timer-time');
 
-                if (titleEl) { titleEl.textContent = title; titleEl.setAttribute('style', kit.titleStyle); }
-                if (textEl)  textEl.textContent = label;
+                /* Мягкая смена текста — только если реально другой текст */
+                swapText(titleEl, title);
+                swapText(textEl, label);
+
+                if (titleEl) titleEl.style.color = accent;
                 if (lineEl)  lineEl.setAttribute('style', kit.lineStyle);
                 if (dotEl)   dotEl.setAttribute('style', kit.dotStyle);
-                if (fillEl)  fillEl.setAttribute('style', 'width:100%;' + kit.fillStyle);
+                if (fillEl)  fillEl.style.background = accent;
                 el.style.boxShadow = BASE_SHADOW + kit.panelGlow;
 
                 /* сбрасываем urgent-состояние — оно относилось к старому отсчёту */
@@ -404,14 +447,20 @@
                 if (timeEl) timeEl.classList.remove('zkm-sn__timer-time--urgent');
 
                 clearInterval(item.iv);
+                item.total = total;
+
                 var remaining = secs;
                 if (timeEl) timeEl.textContent = fmt(remaining);
+                /* Ставим долю от ПОЛНОГО цикла, а не от текущего secs —
+                   бар продолжает движение с той же точки, без прыжка на 100% */
+                if (fillEl) fillEl.style.width =
+                    Math.max(0, Math.min(100, (remaining / total) * 100)) + '%';
 
                 item.iv = setInterval(function () {
                     remaining--;
                     if (timeEl) timeEl.textContent = fmt(remaining);
                     if (fillEl) fillEl.style.width =
-                        Math.max(0, (remaining / secs) * 100) + '%';
+                        Math.max(0, (remaining / total) * 100) + '%';
                     if (remaining <= 0) {
                         clearInterval(item.iv);
                         removeTimer(id);
