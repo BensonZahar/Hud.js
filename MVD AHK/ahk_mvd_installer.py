@@ -813,7 +813,7 @@ def main():
     # 1. АВТОРИЗАЦИЯ
     splash_close = _run_splash()
     hwid = get_hwid()
-    result = run_auth_with_ui(hwid, splash_close=splash_close)
+    result = run_auth_with_ui(hwid)
 
     if result["failed"]:
         show_no_internet_window()
