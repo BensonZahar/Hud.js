@@ -1777,6 +1777,91 @@ const HandleUkInput = (input) => {
         setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
     }
 };
+// ==================== ПОДТВЕРЖДЕНИЕ ПРОВЕРКИ ДОКУМЕНТОВ (Alt x1 / Alt x2) ====================
+// После "Приветствия" снизу экрана показывается фирменное ZKM-уведомление
+// с двумя карточками "ALT×1 — Нет" / "ALT×2 — Да" и живым таймером
+// обратного отсчёта (7 секунд, с прогресс-баром и тревожной подсветкой
+// на последних секундах) — см. ZkmScreenNotification.addChoice().
+//
+// Если второй Alt прилетает не позже DOC_CHECK_DBLTAP_MS после первого —
+// это "Да", и сразу запускается "checkDocuments". Если второй Alt не
+// пришёл вовремя (либо истёк весь таймер) — это "Нет", ничего не делаем.
+const DOC_CHECK_PROMPT_SEC = 7;   // длительность таймера уведомления, сек
+const DOC_CHECK_DBLTAP_MS  = 400; // макс. интервал между двумя Alt для "Да"
+
+let _docCheckActive       = false;
+let _docCheckAltPressedAt = 0;
+let _docCheckSingleTimer  = null;
+let _docCheckExpireTimer  = null; // fallback-таймер, см. ниже
+let _docCheckTargetId     = -1;
+let _docCheckSnId         = null; // id уведомления addChoice() в ZKM (timerQueue)
+
+function _docCheckCleanup() {
+    _docCheckActive = false;
+    if (_docCheckSingleTimer) { clearTimeout(_docCheckSingleTimer); _docCheckSingleTimer = null; }
+    if (_docCheckExpireTimer) { clearTimeout(_docCheckExpireTimer); _docCheckExpireTimer = null; }
+    _docCheckAltPressedAt = 0;
+}
+
+// Убирает ZKM-уведомление вручную (решение принято раньше, чем истёк таймер)
+function _docCheckHideNotif() {
+    if (_docCheckSnId !== null) {
+        try { getZkmSN()?.hideTimer(_docCheckSnId); } catch (err) {}
+        _docCheckSnId = null;
+    }
+}
+
+function showDocCheckPrompt(targetId) {
+    _docCheckCleanup();
+    _docCheckHideNotif();
+    _docCheckActive   = true;
+    _docCheckTargetId = (targetId != null && targetId !== -1) ? targetId : (giveLicenseTo || -1);
+
+    const sn = getZkmSN();
+    if (sn && typeof sn.addChoice === 'function') {
+        _docCheckSnId = sn.addChoice(
+            `[2, "Проверка документов", "Нет", "Да", "f9b701", ${DOC_CHECK_PROMPT_SEC}]`,
+            function () {
+                // Таймер естественно истёк, второго Alt не было — трактуем как "Нет"
+                _docCheckSnId = null;
+                _docCheckCleanup();
+            }
+        );
+    } else {
+        // Fallback на случай, если ZKM ещё не подгружен или это старая версия без addChoice
+        console.warn('[MVD] ZkmScreenNotification.addChoice недоступен — fallback на обычное уведомление');
+        snAdd(`[2, "Проверка документов", "Alt (1 раз) — Нет<br>Alt (2 раза) — Да", "f9b701", ${DOC_CHECK_PROMPT_SEC * 1000}]`);
+        _docCheckExpireTimer = setTimeout(_docCheckCleanup, DOC_CHECK_PROMPT_SEC * 1000);
+    }
+}
+
+// Отдельный слушатель Alt — реагирует ТОЛЬКО пока активно окно решения
+// (_docCheckActive), поэтому не пересекается с существующей логикой
+// курсора в консоли (см. KEY_CODE_ALT выше) и с MENU_BINDS.
+window.addEventListener('keydown', function (e) {
+    if (!_docCheckActive) return;
+    if (e.keyCode !== window.KEY_CODE_ALT) return;
+
+    const now = Date.now();
+    if (_docCheckAltPressedAt && (now - _docCheckAltPressedAt) <= DOC_CHECK_DBLTAP_MS) {
+        // Двойное нажатие Alt — "Да": запускаем проверку документов
+        const tId = _docCheckTargetId;
+        _docCheckCleanup();
+        _docCheckHideNotif();
+        executePovsednevAction('checkDocuments', tId);
+        return;
+    }
+
+    _docCheckAltPressedAt = now;
+    if (_docCheckSingleTimer) clearTimeout(_docCheckSingleTimer);
+    _docCheckSingleTimer = setTimeout(function () {
+        // Второй Alt не пришёл вовремя — одиночное нажатие = "Нет"
+        _docCheckCleanup();
+        _docCheckHideNotif();
+    }, DOC_CHECK_DBLTAP_MS);
+});
+// ==================== КОНЕЦ ПОДТВЕРЖДЕНИЯ ПРОВЕРКИ ДОКУМЕНТОВ ====================
+
 const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
     const isOmonSkin = skinId === 15340;
@@ -1789,11 +1874,13 @@ const executePovsednevAction = (action, targetId) => {
                     "Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
                     "Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
                 ], [0, 500, 500, 500]);
+                setTimeout(() => showDocCheckPrompt(targetId), 1800);
             } else {
                 sendMessagesWithDelay([
                     `Здравия желаю, Вас беспокоит ${RANK} - ${FIRST_NAME} ${LAST_NAME}.`,
                     `/doc ${targetId}`
                 ], [0, 1000]);
+                setTimeout(() => showDocCheckPrompt(targetId), 1300);
             }
             break;
       
