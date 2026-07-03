@@ -56,43 +56,6 @@ def is_authorized(hwid: str) -> bool:
     return hwid in keys
 
 
-def _run_splash() -> threading.Event:
-    close_event = threading.Event()
-
-    def _worker():
-        try:
-            import tkinter as tk
-            root = tk.Tk()
-            root.overrideredirect(True)
-            root.configure(bg='#010106')
-            root.attributes('-topmost', True)
-            W, H = 380, 220
-            sw = root.winfo_screenwidth()
-            sh = root.winfo_screenheight()
-            root.geometry(f"{W}x{H}+{(sw - W) // 2}+{(sh - H) // 2}")
-            tk.Label(root, text='AHK MVD Installer',
-                     bg='#010106', fg='#f9b701',
-                     font=('Arial', 13, 'bold')).pack(expand=True)
-            tk.Label(root, text='Запуск...',
-                     bg='#010106', fg='#555555',
-                     font=('Arial', 9)).pack(pady=(0, 50))
-
-            def _poll():
-                if close_event.is_set():
-                    root.destroy()
-                else:
-                    root.after(40, _poll)
-
-            root.after(40, _poll)
-            root.mainloop()
-        except Exception:
-            pass
-
-    threading.Thread(target=_worker, daemon=True).start()
-    time.sleep(0.12)
-    return close_event
-
-
 def get_icon_b64() -> str:
     try:
         img = Image.open(resource_path("icon.ico")).convert("RGBA")
@@ -103,7 +66,7 @@ def get_icon_b64() -> str:
         return ""
 
 
-def run_auth_with_ui(hwid: str, splash_close=None) -> dict:
+def run_auth_with_ui(hwid: str) -> dict:
     result      = {"authorized": None, "failed": False}
     window_ref  = [None]
     ready_event = threading.Event()
@@ -228,8 +191,6 @@ function setStatus(txt,isError){
 
     def _on_loaded():
         ready_event.set()
-        if splash_close is not None:
-            splash_close.set()
 
     w.events.loaded += _on_loaded
 
@@ -388,7 +349,7 @@ border-radius:4px;cursor:pointer;font-size:11px;-webkit-app-region:no-drag}
 
 
 # ═══════════════════════════════════════════════════════
-#  ЛОГИКА УСТАНОВЩИКА (оригинальный код)
+#  ЛОГИКА УСТАНОВЩИКА
 # ═══════════════════════════════════════════════════════
 
 def _log_to_file(msg: str):
@@ -810,8 +771,6 @@ class InstallerAPI:
 # ═══════════════════════════════════════════════════════
 
 def main():
-    # 1. АВТОРИЗАЦИЯ
-    splash_close = _run_splash()
     hwid = get_hwid()
     result = run_auth_with_ui(hwid)
 
@@ -823,7 +782,6 @@ def main():
         show_denied_window(hwid)
         return
 
-    # 2. ОСНОВНОЙ ИНТЕРФЕЙС УСТАНОВЩИКА
     html_tmp = fetch_html()
     url = f"file:///{html_tmp.replace(os.sep, '/')}"
     api = InstallerAPI()
