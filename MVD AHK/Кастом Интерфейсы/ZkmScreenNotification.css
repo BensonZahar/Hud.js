@@ -8,9 +8,15 @@
    ══════════════════════════════════════════════════════════════ */
 
 /* ── Позиции ─────────────────────────────────────────────────── */
-.zkm-sn--top    { top: 8.8vh;     left: 50%;  transform: translate(-50%, 0)      scale(1); }
-.zkm-sn--bottom { bottom: 5.93vh; left: 50%;  transform: translate(-50%, 0)      scale(1); }
-.zkm-sn--left   { left: 4.26vh;   top: 54vh;  transform: translate(0, 0)         scale(1); }
+/* --stack-offset проставляется из JS (см. restack() в
+   ZkmScreenNotification.js) — когда в одной точке экрана оказывается
+   несколько уведомлений (напр. таймер отслеживания + мелкий тост),
+   они не перекрывают друг друга, а выстраиваются в стопку: новое
+   уведомление занимает "точку привязки" (offset 0), а более старые
+   плавно отодвигаются от неё на суммарную высоту предыдущих карточек. */
+.zkm-sn--top    { top: calc(8.8vh + var(--stack-offset, 0px));     left: 50%;  transform: translate(-50%, 0)      scale(1); }
+.zkm-sn--bottom { bottom: calc(5.93vh + var(--stack-offset, 0px)); left: 50%;  transform: translate(-50%, 0)      scale(1); }
+.zkm-sn--left   { left: 4.26vh;   top: calc(54vh + var(--stack-offset, 0px));  transform: translate(0, 0)         scale(1); }
 
 /* Enter — лёгкий "pop": едет + слегка увеличивается из 0.94 */
 .zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2vh)  scale(0.94); }
