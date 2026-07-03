@@ -1,7 +1,97 @@
+// ── ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB ──────────────────
+// Грузим 5 файлов параллельно при старте игры. Локальные загрузчики
+// (assets/MvdMenu.js, zkm.js, AdvMenu.js, ZkmScreenNotification.js)
+// возьмут готовый текст из window.__prefetch_* и не будут делать XHR.
+//
+// Критично для ZkmScreenNotification (sideEffect): он должен
+// выполниться ДО первого snAdd(), иначе уведомления молча теряются.
+//
+// Promise.allSettled — падение одного файла не убивает остальные.
+(function prefetchAllCustomUI() {
+    var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
+             + encodeURIComponent('Кастом Интерфейсы') + '/';
+    var FILES = {
+        mvdmenu_js:  BASE + 'MvdMenu.js',
+        advmenu_js:  BASE + 'AdvMenu.js',
+        zkm_js:      BASE + 'zkm.js',
+        zkm_css:     BASE + 'zkm.css',
+        zkmsn_js:    BASE + 'ZkmScreenNotification.js',
+        zkmsn_css:   BASE + 'ZkmScreenNotification.css'
+    };
+    var RETRIES = 5, BASE_DELAY = 1000;
 
+    function xhrGet(url, attempt) {
+        return new Promise(function(resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url + '?_=' + Date.now(), true);
+            xhr.onload = function() {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(xhr.responseText);
+                } else if (attempt < RETRIES) {
+                    var d = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
+                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, d);
+                } else reject(new Error('HTTP ' + xhr.status));
+            };
+            xhr.onerror = function() {
+                if (attempt < RETRIES) {
+                    var d = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
+                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, d);
+                } else reject(new Error('Network'));
+            };
+            xhr.send();
+        });
+    }
 
+    var promises = {};
+    for (var key in FILES) {
+        (function(k) {
+            promises[k] = xhrGet(FILES[k], 0)
+                .then(function(text) {
+                    window['__prefetch_' + k] = text;
+                    console.log('[mvdF] ✅ префетч ' + k + ' (' + text.length + ' байт)');
+                    return text;
+                })
+                .catch(function(e) {
+                    console.warn('[mvdF] ⚠️ префетч ' + k + ' не удался:', e.message);
+                    window['__prefetch_' + k + '_failed'] = true;
+                });
+        })(key);
+    }
+
+    // Сохраняем общий Promise чтобы локальные загрузчики могли await-нуть
+    window.__prefetch_promise = Promise.allSettled(Object.values(promises))
+        .then(function() {
+            console.log('[mvdF] 🎯 все префетчи завершены');
+        });
+})();
+// ── END ПРЕФЕТЧ ──────────────────────────────────────────────────
+// ── Загрузчик startup-интерфейсов ────────────────────────────────────
+// Вставить в НАЧАЛО mvdF.js.
+// Файлы берутся из assets (рядом с ScreenNotification.js / index.js).
+;(function loadStartupInterfaces() {
+    var ifaces = window._duranCustomInterfaces;
+    if (!ifaces || !ifaces.length) return;
+
+    ifaces.forEach(function (iface) {
+        if (!iface.startup) return;
+        (iface.files || []).forEach(function (filename) {
+            var ext = filename.split('.').pop().toLowerCase();
+            if (ext === 'css') {
+                var link  = document.createElement('link');
+                link.rel  = 'stylesheet';
+                link.href = './' + filename;
+                document.head.appendChild(link);
+            } else if (ext === 'js') {
+                var script = document.createElement('script');
+                script.src = './' + filename;
+                document.head.appendChild(script);
+            }
+        });
+    });
+})();
+// ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.0222 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.90000 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
