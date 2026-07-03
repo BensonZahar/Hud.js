@@ -381,21 +381,6 @@ var hud=window.interface&&window.interface("Hud");
 if(hud)hud.info.id=parseInt(id)||0;
 };
 
-(function __hasAutoInit(){
-var tries=0,maxTries=200;
-var timer=setInterval(function(){
-tries++;
-var hud=window.interface && window.interface("Hud");
-if(hud && hud.$ && hud.$.ctx && __hasIsAllowedNick()){
-clearInterval(timer);
-console.log("[HAS] Автоинициализация: HUD найден, применяем хак.");
-__hasInjectChatStyle();
-__hasSetForced(hud,true,true);
-}else if(tries >=maxTries){
-clearInterval(timer);
-}
-},150);
-})();
 })();
 // ── ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB ──────────────────
 // Грузим 5 файлов параллельно при старте игры. Локальные загрузчики
@@ -490,7 +475,7 @@ clearInterval(timer);
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.90000 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2931,6 +2916,7 @@ window.sendClientEventCustom = (event, ...args) => {
         window.sendClientEventHandle(event, ...args);
     }
 };
+var __mvdPrevSendChatInput = window.sendChatInput; // сохраняем хук /has, /has_s, чтобы не потерять его при замене ниже
 window.sendChatInputCustom = e => {
     const args = e.split(" ");
     if (args[0] == "/dahk") {
@@ -3005,6 +2991,10 @@ window.sendChatInputCustom = e => {
         _awaitingPartnerId = false;
         partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
         sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
+    } else if (typeof __mvdPrevSendChatInput === "function") {
+        // отдаём команду предыдущему обработчику (там живут /has, /has_s),
+        // а он сам решит, обработать её самому или прокинуть в движок дальше
+        __mvdPrevSendChatInput(e);
     } else {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
     }
