@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1297,7 +1297,13 @@ const showTrackingTimer = () => {
     const title   = isChase ? 'Начата погоня' : 'Идет отслеживание';
     const accent  = isChase ? '0000FF' : 'FF0000';
     const secs    = Math.max(2, getSetmarkRemainingSec());
-    const payload = `[1, "${title}", "${label}", "${accent}", ${secs}]`;
+    // 6-й параметр — полная длительность цикла /setmark (31с). Именно от
+    // неё считается заполнение прогресс-бара в ZkmScreenNotification, а
+    // не от secs (текущего остатка на этот конкретный вызов) — иначе при
+    // каждом обновлении (после snAdd, восстановления и т.п.) бар прыгал
+    // бы на 100% и заново отсчитывал вниз, хотя реальное время не
+    // сбрасывалось. С total бар просто продолжает идти с той же точки.
+    const payload = `[1, "${title}", "${label}", "${accent}", ${secs}, ${SETMARK_INTERVAL_SEC}]`;
 
     try {
         const sn = getZkmSN();
