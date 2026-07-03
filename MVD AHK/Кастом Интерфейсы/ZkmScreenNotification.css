@@ -249,80 +249,95 @@
    ══════════════════════════════════════════════════════════════ */
 
 .zkm-sn--choice {
-    min-width: 34vh;
+    min-width: 36vh;
 }
 
 .zkm-sn__choice-row {
     display: flex;
     align-items: stretch;
-    gap: 0.56vh;
-    margin: 0.5vh 0 0.6vh;
+    gap: 0.5vh;
+    margin: 0.55vh 0 0.6vh;
 }
 
+/* Карточка-строка: иконка слева, подпись + keycap-хинт справа —
+   горизонтальный "list row", а не квадратная кнопка со штампом сверху */
 .zkm-sn__choice-opt {
     flex: 1;
+    min-width: 0;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 0.34vh;
-    padding: 0.7vh 0.4vh 0.56vh;
-    border-radius: 0.42vh;
-    background: rgba(255, 255, 255, 0.03);
-    border: 0.19vh solid rgba(244, 241, 225, 0.1);
-    transition: background 0.15s ease, border-color 0.15s ease;
+    gap: 0.56vh;
+    padding: 0.5vh 0.62vh;
+    border-radius: 0.46vh;
+    background: rgba(255, 255, 255, 0.025);
+    border: 0.15vh solid rgba(244, 241, 225, 0.08);
 }
 
+/* Круглая иконка-бейдж вместо цветного текстового штампа */
+.zkm-sn__choice-icon {
+    flex-shrink: 0;
+    width: 2.05vh;
+    height: 2.05vh;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.zkm-sn__choice-icon svg {
+    width: 1.05vh;
+    height: 1.05vh;
+}
+
+.zkm-sn__choice-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2vh;
+}
+
+/* Подпись — как в остальном приложении: спокойный вес, без "крика" капсом */
+.zkm-sn__choice-label {
+    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-size: 0.98vh;
+    font-weight: 600;
+    letter-spacing: 0.01vh;
+    color: #f4f1e1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Keycap-хинт клавиши — компактная подпись под лейблом, не отдельная кнопка */
 .zkm-sn__choice-key {
     display: inline-flex;
     align-items: baseline;
     gap: 0.16vh;
     font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
-    font-size: 0.96vh;
-    font-weight: 800;
-    letter-spacing: 0.06vh;
-    padding: 0.22vh 0.6vh 0.18vh;
-    border-radius: 0.3vh;
-    color: #f4f1e1;
-    background: rgba(255, 255, 255, 0.06);
-    border: 0.15vh solid rgba(255, 255, 255, 0.12);
-}
-
-.zkm-sn__choice-mult {
-    font-size: 0.78vh;
+    font-size: 0.68vh;
     font-weight: 700;
-    opacity: 0.75;
-}
-
-.zkm-sn__choice-label {
-    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
-    font-size: 0.92vh;
-    font-weight: 700;
-    letter-spacing: 0.03vh;
+    letter-spacing: 0.04vh;
     text-transform: uppercase;
-    opacity: 0.85;
+    color: rgba(244, 241, 225, 0.4);
+}
+.zkm-sn__choice-key b {
+    font-weight: 800;
+    color: rgba(244, 241, 225, 0.65);
 }
 
-/* «Нет» — красный акцент приложения */
+/* «Нет» — красный акцент приложения, только в иконке и тонкой рамке */
 .zkm-sn__choice-opt--no {
-    background: rgba(226, 85, 68, 0.08);
-    border-color: rgba(226, 85, 68, 0.35);
+    border-color: rgba(226, 85, 68, 0.22);
 }
-.zkm-sn__choice-opt--no .zkm-sn__choice-key   { color: #ff8a7a; }
-.zkm-sn__choice-opt--no .zkm-sn__choice-label { color: rgba(226, 85, 68, 0.92); }
+.zkm-sn__choice-opt--no .zkm-sn__choice-icon {
+    background: rgba(226, 85, 68, 0.14);
+    color: #ff8a7a;
+}
 
-/* «Да» — зелёный акцент приложения */
+/* «Да» — зелёный акцент приложения, только в иконке и тонкой рамке */
 .zkm-sn__choice-opt--yes {
-    background: rgba(10, 153, 71, 0.1);
-    border-color: rgba(10, 153, 71, 0.4);
+    border-color: rgba(10, 153, 71, 0.28);
 }
-.zkm-sn__choice-opt--yes .zkm-sn__choice-key   { color: #6fe0a0; }
-.zkm-sn__choice-opt--yes .zkm-sn__choice-label { color: rgba(10, 153, 71, 0.92); }
-
-@keyframes zkm-choice-breathe {
-    0%, 100% { box-shadow: 0 0 0 rgba(255, 255, 255, 0); }
-    50%      { box-shadow: 0 0 1.2vh rgba(255, 255, 255, 0.05); }
-}
-.zkm-sn--choice .zkm-sn__choice-opt {
-    animation: zkm-choice-breathe 2.4s ease-in-out infinite;
+.zkm-sn__choice-opt--yes .zkm-sn__choice-icon {
+    background: rgba(10, 153, 71, 0.16);
+    color: #6fe0a0;
 }

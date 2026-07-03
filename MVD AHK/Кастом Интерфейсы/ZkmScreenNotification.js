@@ -104,6 +104,19 @@
             '<path d="M8 2.1v1" stroke="currentColor" stroke-width="1.15" stroke-linecap="round"/>' +
         '</svg>';
 
+    /* Иконки да/нет для addChoice — вместо текстовых плашек "ALT ×1/×2" */
+    var CROSS_SVG =
+        '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+            '<path d="M4.2 4.2L11.8 11.8M11.8 4.2L4.2 11.8" stroke="currentColor" ' +
+                'stroke-width="1.6" stroke-linecap="round"/>' +
+        '</svg>';
+
+    var CHECK_SVG =
+        '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">' +
+            '<path d="M3.6 8.6L6.6 11.6L12.4 4.8" stroke="currentColor" ' +
+                'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>' +
+        '</svg>';
+
     function fmt(s) {
         if (typeof window.getTimeFormatSeconds === 'function') {
             return window.getTimeFormatSeconds(s, true);
@@ -290,16 +303,18 @@
                         '</div>' +
                         '<div class="zkm-sn__choice-row">' +
                             '<div class="zkm-sn__choice-opt zkm-sn__choice-opt--no">' +
-                                '<span class="zkm-sn__choice-key">ALT' +
-                                    '<span class="zkm-sn__choice-mult">×1</span>' +
-                                '</span>' +
-                                '<span class="zkm-sn__choice-label">' + noLabel + '</span>' +
+                                '<div class="zkm-sn__choice-icon">' + CROSS_SVG + '</div>' +
+                                '<div class="zkm-sn__choice-info">' +
+                                    '<span class="zkm-sn__choice-label">' + noLabel + '</span>' +
+                                    '<span class="zkm-sn__choice-key">Alt<b>×1</b></span>' +
+                                '</div>' +
                             '</div>' +
                             '<div class="zkm-sn__choice-opt zkm-sn__choice-opt--yes">' +
-                                '<span class="zkm-sn__choice-key">ALT' +
-                                    '<span class="zkm-sn__choice-mult">×2</span>' +
-                                '</span>' +
-                                '<span class="zkm-sn__choice-label">' + yesLabel + '</span>' +
+                                '<div class="zkm-sn__choice-icon">' + CHECK_SVG + '</div>' +
+                                '<div class="zkm-sn__choice-info">' +
+                                    '<span class="zkm-sn__choice-label">' + yesLabel + '</span>' +
+                                    '<span class="zkm-sn__choice-key">Alt<b>×2</b></span>' +
+                                '</div>' +
                             '</div>' +
                         '</div>' +
                         '<div class="zkm-sn__timer-row">' +
