@@ -1,41 +1,346 @@
 import os, random, string, threading, tempfile, requests, json
+import sys, base64, hashlib, time, io
 from pathlib import Path
 import webview
 
+# ═══════════════════════════════════════════════════════
+#  НАСТРОЙКИ
+# ═══════════════════════════════════════════════════════
 GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
-AHK_URL       = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/LoadAhk.js"
-INTLOAD_URL   = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
-CUSTOM_UI_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
-# IntLoad.js всегда в Кастом Интерфейсы/ — это манифест-реестр (имена/файлы/опции).
-LOADERS_URL   = CUSTOM_UI_URL + "/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
+KEYS_URL      = f"{GITHUB_RAW}/keys.json"
+AHK_URL       = f"{GITHUB_RAW}/LoadAhk.js"
+INTLOAD_URL   = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
+CUSTOM_UI_URL = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
+LOADERS_URL   = f"{CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
 
-# ── Источник JS/CSS файлов кастомных интерфейсов ───────────────────────
+RETRY_COUNT = 5   # сколько раз пробовать подключиться при авторизации
+RETRY_DELAY = 4   # секунд между попытками
+
+# IntLoad.js всегда в Кастом Интерфейсы/ — это манифест-реестр (имена/файлы/опции).
 # False (по умолчанию) — качаем ГОТОВЫЕ файлы прямо из Кастом Интерфейсы/
-#   (CUSTOM_UI_URL). Это сразу рабочий код без обёртки; чтобы интерфейсы
-#   обновились на клиентах — нужно переустановить .py заново.
 # True  — качаем ТОНКИЕ ЗАГРУЗЧИКИ из Кастом Интерфейсы/Загрузчики/
-#   (LOADERS_URL): они сами тянут актуальный код с GitHub через XHR+eval
-#   при каждом старте игры, переустановка .py для обновления не нужна.
-# Чтобы вернуться на загрузчики — просто поставь True.
 USE_LOADERS   = True
 DEPLOY_UI_URL = LOADERS_URL if USE_LOADERS else CUSTOM_UI_URL
 
 # Имена нативных интерфейсов движка — НИКОГДА не регистрировать кастомный
-# компонент под этими именами в dd/fd (полностью подменяет родной интерфейс
-# для всей игры, а не только для МВД). Если файлу из реестра IntLoad.js
-# нужно просто выполниться при старте (а не быть интерфейсом) — в IntLoad.js
-# у него должно стоять "type": "sideEffect", тогда он сюда даже не попадёт.
+# компонент под этими именами
 NATIVE_INTERFACE_NAMES = {
     "ScreenNotification", "Menu", "Hud", "Dialog", "InventoryNew",
     "Console", "BattlePassWelcome", "BlackMarket", "FullScreenPreloader",
 }
 
-# Путь к иконке передаётся из launcher через exec namespace
+# Путь к иконке передаётся из stub.py через exec namespace
 _ICON_PATH = globals().get("_ICON_PATH", "")
 
+
+# ═══════════════════════════════════════════════════════
+#  АВТОРИЗАЦИЯ (перенесено из launcher.py)
+# ═══════════════════════════════════════════════════════
+
+def resource_path(rel):
+    base = getattr(sys, '_MEIPASS', os.path.abspath('.'))
+    return os.path.join(base, rel)
+
+
+def get_hwid() -> str:
+    """Тот же алгоритм что и раньше — sha256(MachineGuid)[:16]."""
+    try:
+        import winreg
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                             r"SOFTWARE\Microsoft\Cryptography")
+        guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+        winreg.CloseKey(key)
+    except Exception:
+        import uuid
+        guid = str(uuid.getnode())
+    return hashlib.sha256(guid.encode()).hexdigest()[:16].upper()
+
+
+def is_authorized(hwid: str) -> bool:
+    """Бросает исключение при сетевой ошибке. False = ключ не найден."""
+    resp = requests.get(KEYS_URL, timeout=10)
+    resp.raise_for_status()
+    keys = resp.json()
+    return hwid in keys
+
+
+def _run_splash() -> threading.Event:
+    """Мгновенный splash на tkinter в daemon-потоке.
+    Возвращает Event — установи его чтобы закрыть окно."""
+    close_event = threading.Event()
+
+    def _worker():
+        try:
+            import tkinter as tk
+            root = tk.Tk()
+            root.overrideredirect(True)
+            root.configure(bg='#010106')
+            root.attributes('-topmost', True)
+            W, H = 380, 220
+            sw = root.winfo_screenwidth()
+            sh = root.winfo_screenheight()
+            root.geometry(f"{W}x{H}+{(sw - W) // 2}+{(sh - H) // 2}")
+            tk.Label(root, text='AHK MVD Installer',
+                     bg='#010106', fg='#f9b701',
+                     font=('Arial', 13, 'bold')).pack(expand=True)
+            tk.Label(root, text='Запуск...',
+                     bg='#010106', fg='#555555',
+                     font=('Arial', 9)).pack(pady=(0, 50))
+
+            def _poll():
+                if close_event.is_set():
+                    root.destroy()
+                else:
+                    root.after(40, _poll)
+
+            root.after(40, _poll)
+            root.mainloop()
+        except Exception:
+            pass
+
+    threading.Thread(target=_worker, daemon=True).start()
+    time.sleep(0.12)   # дать tkinter время отрисоваться
+    return close_event
+
+
+def get_icon_b64() -> str:
+    try:
+        from PIL import Image
+        img = Image.open(resource_path("icon.ico")).convert("RGBA")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        return ""
+
+
+def run_auth_with_ui(hwid: str, splash_close=None) -> dict:
+    """
+    Показывает окно загрузки, делает до RETRY_COUNT попыток авторизации.
+    Возвращает {"authorized": bool|None, "code": str|None, "failed": bool}
+    """
+    result      = {"authorized": None, "code": None, "failed": False}
+    window_ref  = [None]
+    ready_event = threading.Event()
+
+    LOADING_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body { margin: 0; padding: 20px; background: #010106; color: #fff; font-family: Arial, sans-serif; text-align: center; }
+h2 { color: #f9b701; margin: 30px 0 10px; }
+#status { color: #555; font-size: 12px; }
+.err { color: #ff4444 !important; }
+</style>
+</head>
+<body>
+<h2>AHK MVD Installer</h2>
+<div>Авторизация</div>
+<div id="status">Проверка лицензии...</div>
+<script>
+function setStatus(txt, isErr) {
+    var el = document.getElementById('status');
+    el.textContent = txt;
+    el.className = isErr ? 'err' : '';
+}
+</script>
+</body>
+</html>
+"""
+
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html',
+                                      delete=False, encoding='utf-8')
+    tmp.write(LOADING_HTML); tmp.close()
+
+    def _auth_loop():
+        ready_event.wait(timeout=6)   # ждём пока окно загрузится
+        w = window_ref[0]
+
+        def js(txt, err=False):
+            try:
+                flag = "true" if err else "false"
+                if w:
+                    w.evaluate_js(f"setStatus({repr(txt)}, {flag})")
+            except Exception:
+                pass
+
+        for attempt in range(1, RETRY_COUNT + 1):
+            js(f"Проверка лицензии... (попытка {attempt} из {RETRY_COUNT})")
+            try:
+                authorized = is_authorized(hwid)
+                result["authorized"] = authorized
+                result["code"]       = "already_loaded"  # код уже в памяти
+                break   # успех — выходим из цикла
+
+            except Exception:
+                if attempt < RETRY_COUNT:
+                    # Обратный отсчёт до следующей попытки
+                    for sec in range(RETRY_DELAY, 0, -1):
+                        js(f"Нет подключения. Повтор через {sec} сек... ({attempt}/{RETRY_COUNT})", err=True)
+                        time.sleep(1)
+                else:
+                    result["failed"] = True
+
+        # Закрываем окно загрузки
+        try:
+            if w: w.destroy()
+        except Exception:
+            pass
+        try: os.unlink(tmp.name)
+        except: pass
+
+    auth_thread = threading.Thread(target=_auth_loop, daemon=True)
+    auth_thread.start()
+
+    w = webview.create_window(
+        'AHK MVD Installer',
+        f"file:///{tmp.name.replace(os.sep, '/')}",
+        width=380, height=220,
+        frameless=True, background_color='#010106'
+    )
+    window_ref[0] = w
+
+    def _on_loaded():
+        ready_event.set()
+        if splash_close is not None:
+            splash_close.set()
+
+    w.events.loaded += _on_loaded
+
+    ico = resource_path("icon.ico")
+    try:
+        webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
+    except TypeError:
+        webview.start(debug=False)
+
+    return result
+
+
+def show_denied_window(hwid: str):
+    keys_line = f'"{hwid}": ""'
+
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body {{ margin: 0; padding: 30px; background: #0a0a0b; color: #fff; font-family: Arial, sans-serif; }}
+h2 {{ color: #ff4444; text-align: center; margin-top: 0; }}
+.hw-box {{ background: #1a1a1d; border: 1px solid #333; padding: 12px; border-radius: 6px; 
+           font-family: monospace; word-break: break-all; margin: 20px 0; cursor: pointer; }}
+.hw-box:hover {{ background: #222; }}
+.btn {{ display: block; width: 100%; padding: 12px; background: #f9b701; color: #000; 
+        border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin: 10px 0; }}
+.btn:hover {{ background: #ffb800; }}
+.btn-sec {{ background: #333; color: #fff; }}
+.btn-sec:hover {{ background: #444; }}
+.copy-hint {{ font-size: 11px; color: #666; text-align: center; }}
+a {{ color: #f9b701; }}
+</style>
+</head>
+<body>
+<h2>⛔ Нет доступа</h2>
+<p style="text-align:center;">Ваш ПК не авторизован.<br>Отправьте строку ниже создателю для получения доступа.</p>
+
+<div class="hw-box" onclick="window.pywebview.api.copy_hwid('{hwid}')">{keys_line},</div>
+<div class="copy-hint">нажмите чтобы скопировать</div>
+
+<p style="text-align:center; margin-top:20px;">Написать создателю:<br>
+<a href="#" onclick="window.pywebview.api.open_url('https://t.me/ZaharKonst')">@ZaharKonst</a></p>
+
+<button class="btn btn-sec" onclick="window.pywebview.api.close_app()">Закрыть</button>
+
+<script>
+function copyText(text) {{
+    navigator.clipboard.writeText(text).then(function() {{
+        document.querySelector('.copy-hint').textContent = '✓ Скопировано!';
+    }});
+}}
+</script>
+</body>
+</html>
+"""
+
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
+    tmp.write(html); tmp.close()
+
+    class _Q:
+        def __init__(self): self._window = None
+        def close_app(self):
+            if self._window: self._window.destroy()
+        def open_url(self, url):
+            import webbrowser; webbrowser.open(url)
+        def copy_hwid(self, hwid):
+            try:
+                import subprocess
+                subprocess.run(['clip'], input=f'"{hwid}": "",'.encode('utf-8'), check=True)
+            except Exception:
+                pass
+
+    api = _Q()
+    w = webview.create_window('AHK MVD Installer',
+        f"file:///{tmp.name.replace(os.sep, '/')}",
+        js_api=api, width=460, height=430,
+        frameless=True, background_color='#0a0a0b')
+    api._window = w
+    ico = resource_path("icon.ico")
+    try: webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
+    except TypeError: webview.start(debug=False)
+    try: os.unlink(tmp.name)
+    except: pass
+
+
+def show_no_internet_window():
+    html = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body { margin: 0; padding: 30px; background: #141414; color: #fff; font-family: Arial, sans-serif; text-align: center; }
+h2 { color: #ff8800; margin-top: 20px; }
+.btn { padding: 10px 30px; background: #333; color: #fff; border: none; 
+       border-radius: 4px; cursor: pointer; margin-top: 20px; }
+.btn:hover { background: #444; }
+</style>
+</head>
+<body>
+<h2>⚠ Нет подключения</h2>
+<p>Не удалось подключиться после нескольких попыток</p>
+<button class="btn" onclick="window.pywebview.api.close_app()">Закрыть</button>
+</body>
+</html>
+"""
+    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
+    tmp.write(html); tmp.close()
+    
+    class _Q:
+        def __init__(self): self._window = None
+        def close_app(self):
+            if self._window: self._window.destroy()
+    
+    api = _Q()
+    w = webview.create_window('AHK MVD Installer',
+        f"file:///{tmp.name.replace(os.sep,'/')}",
+        js_api=api, width=380, height=200,
+        frameless=True, background_color='#141414')
+    api._window = w
+    ico = resource_path("icon.ico")
+    try: webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
+    except TypeError: webview.start(debug=False)
+    try: os.unlink(tmp.name)
+    except: pass
+
+
+# ═══════════════════════════════════════════════════════
+#  ЛОГИКА УСТАНОВЩИКА (оригинальный код)
+# ═══════════════════════════════════════════════════════
+
 def _log_to_file(msg: str):
-    """Пишет в %APPDATA%\\AHK_MVD\\install_log.txt — видно даже если установщик
-    собран без консоли (.exe) и print() никуда не выводится."""
+    """Пишет в %APPDATA%\AHK_MVD\install_log.txt"""
     try:
         from datetime import datetime
         appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
@@ -46,12 +351,13 @@ def _log_to_file(msg: str):
     except Exception:
         pass
 
-# Файл сохранённых настроек — в %APPDATA%\AHK_MVD\
+
 def _settings_path() -> Path:
     appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
     folder = Path(appdata) / 'AHK_MVD'
     folder.mkdir(parents=True, exist_ok=True)
     return folder / 'settings.json'
+
 
 def load_settings() -> dict:
     try:
@@ -61,6 +367,7 @@ def load_settings() -> dict:
     except Exception:
         pass
     return {}
+
 
 def save_settings(data: dict):
     """Merge-сохранение — не затирает ключи которые не переданы."""
@@ -78,21 +385,6 @@ def save_settings(data: dict):
         pass
 
 
-
-def get_hwid() -> str:
-    """Тот же алгоритм что и в launcher.py — sha256(MachineGuid)[:16]."""
-    try:
-        import winreg, hashlib
-        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
-                             r"SOFTWARE\Microsoft\Cryptography")
-        guid, _ = winreg.QueryValueEx(key, "MachineGuid")
-        winreg.CloseKey(key)
-    except Exception:
-        import uuid, hashlib
-        guid = str(uuid.getnode())
-    return hashlib.sha256(guid.encode()).hexdigest()[:16].upper()
-
-
 def fetch_html() -> str:
     resp = requests.get(f"{GITHUB_RAW}/index.html", timeout=15)
     resp.raise_for_status()
@@ -104,8 +396,7 @@ def fetch_html() -> str:
 
 class InstallerAPI:
     def __init__(self):
-        self._saved = load_settings()  # сохранённые настройки
-        # Восстанавливаем путь если он был сохранён и валиден
+        self._saved = load_settings()
         saved_path = self._saved.get('radmir_path', '')
         if saved_path and Path(saved_path).exists():
             p = Path(saved_path)
@@ -135,8 +426,6 @@ class InstallerAPI:
 
     @staticmethod
     def _obfuscate(code):
-        # Оборачиваем в IIFE чтобы const/let не конфликтовали
-        # с переменными игрового бандла Index.js при eval()
         nl = chr(10)
         code = '(function(){' + nl + code + nl + '})();'
         codes = [ord(c) for c in code]
@@ -152,41 +441,33 @@ class InstallerAPI:
                 f"return {v5}[String.fromCharCode(101,118,97,108)]("
                 f"{v4}.map(function({v6}){{return String.fromCharCode({v6})}}).join(''))}})();")
 
-    # Невидимые маркеры: zero-width space (U+200B) + zero-width non-joiner (U+200C)
-    # В редакторе выглядят как пустой JS-комментарий "//"
-    _MARK_S = "//​‌​"   # start
-    _MARK_E = "//‌​‌"   # end
-
-    # Старые читаемые маркеры (для миграции пользователей со старой версией)
+    _MARK_S = "//\u200b\u200c\u200b"
+    _MARK_E = "//\u200c\u200b\u200c"
     _LEGACY_S = "// === HASSLE LOAD BOT CODE START ==="
     _LEGACY_E = "// === HASSLE LOAD BOT CODE END ==="
 
     @classmethod
     def _has_code(cls, content: str) -> bool:
-        """Есть ли вставленный блок — новые или старые маркеры."""
         return (cls._MARK_S in content) or (cls._LEGACY_S in content)
 
     @classmethod
     def _remove_markers(cls, content: str) -> str:
-        """Удаляет блок кода — сначала пробует новые маркеры, затем старые."""
         for S, E in [(cls._MARK_S, cls._MARK_E), (cls._LEGACY_S, cls._LEGACY_E)]:
             si = content.find(S)
             if si != -1:
                 ei = content.find(E, si + len(S))
                 if ei != -1:
                     content = content[:si] + content[ei + len(E):]
-                    break   # один блок за раз достаточно
+                    break
         return content.rstrip() + '\n'
 
     def _index_js(self):
-        """Путь к Index.js или None."""
         if not self.radmir_path:
             return None
         p = self.radmir_path / "uiresources" / "assets" / "Index.js"
         return p if p.exists() else None
 
     def _migrate_legacy(self):
-        """Если в Index.js старые маркеры — тихо переписываем на новые."""
         idx = self._index_js()
         if not idx:
             return
@@ -213,14 +494,10 @@ class InstallerAPI:
             pass
 
     def get_saved_settings(self) -> dict:
-        """Возвращает сохранённые настройки в JS при старте."""
         self._migrate_legacy()
-
         result = dict(self._saved)
         result['path_valid'] = self.radmir_path is not None
         result['radmir_path'] = str(self.radmir_path) if self.radmir_path else ''
-
-        # Реальная проверка наличия кода в Index.js
         idx = self._index_js()
         if idx:
             try:
@@ -229,14 +506,10 @@ class InstallerAPI:
                 result['code_installed'] = False
         else:
             result['code_installed'] = False
-
         return result
 
     @staticmethod
     def _fetch_custom_interfaces() -> list:
-        """Скачивает IntLoad.js с GitHub и парсит window._duranCustomInterfaces.
-        Единственный источник реестра — добавлять новые интерфейсы только в IntLoad.js.
-        Возвращает [] если GitHub недоступен или реестр не найден."""
         import re, json, traceback
         try:
             print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
@@ -244,13 +517,11 @@ class InstallerAPI:
             resp.raise_for_status()
             print(f'[Installer] HTTP {resp.status_code}, длина {len(resp.text)} байт')
             text = resp.text
-
             m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
             if not m:
                 print('[Installer] _duranCustomInterfaces не найден в IntLoad.js')
-                _log_to_file('_fetch_custom_interfaces: _duranCustomInterfaces НЕ НАЙДЕН в тексте IntLoad.js')
+                _log_to_file('_fetch_custom_interfaces: _duranCustomInterfaces НЕ НАЙДЕН')
                 return []
-
             start = m.start(1)
             depth, i = 0, start
             while i < len(text):
@@ -261,12 +532,8 @@ class InstallerAPI:
                 i += 1
             raw = text[start:i + 1]
             print(f'[Installer] Найден массив: {raw[:120]}')
-
-            # Убираем trailing-запятые (невалидны в JSON)
             raw = re.sub(r',\s*([}\]])', r'\1', raw)
-            # Кавычим unquoted JS-ключи объектов (name:, files:, hideHud:...) → валидный JSON
             raw = re.sub(r'([{,]\s*)([a-zA-Z_\$][a-zA-Z0-9_\$]*)\s*:', r'\1"\2":', raw)
-            # json.loads понимает true/false/null нативно — замены не нужны
             result = json.loads(raw)
             print(f'[Installer] Распарсено интерфейсов: '
                   f'{[r["name"] + ":" + r.get("type", "interface") for r in result]}')
@@ -279,23 +546,8 @@ class InstallerAPI:
 
     @staticmethod
     def _build_interfaces_block(ifaces: list) -> str:
-        """Генерирует код вставки из реестра IntLoad.js.
-
-        type == "interface" (по умолчанию) → Object.assign(dd,...) / Object.assign(fd,...),
-            регистрирует компонент как настоящий интерфейс движка под именем "name".
-            Имена, совпадающие с нативными интерфейсами игры (NATIVE_INTERFACE_NAMES),
-            ПРОПУСКАЮТСЯ с предупреждением — регистрация под таким именем подменяет
-            родной интерфейс для всей игры, а не только для МВД.
-
-        type == "sideEffect" → голый d(()=>import(...), [...], import.meta.url);
-            без f()-обёртки и без записи в dd/fd — файл просто выполняется один раз
-            при старте (вешает себя на window.*), интерфейсов движка не касается.
-        """
         if not ifaces:
             return ""
-        # Литерал, а не модульный глобал NATIVE_INTERFACE_NAMES — exec() с раздельными
-        # globals/locals (как в launcher.py) не даёт функциям видеть top-level
-        # переменные модуля, из-за чего обращение к глобалу падало с NameError.
         native_names = {
             "ScreenNotification", "Menu", "Hud", "Dialog", "InventoryNew",
             "Console", "BattlePassWelcome", "BlackMarket", "FullScreenPreloader",
@@ -307,20 +559,15 @@ class InstallerAPI:
             itype     = iface.get("type", "interface")
             js_file   = next((f for f in files if f.endswith(".js")), files[0])
             files_js  = "[" + ",".join(f'"{f}"' for f in files) + "]"
-
             if itype == "sideEffect":
                 side_effects.append(
                     f'd(()=>import("./{js_file}"),{files_js},import.meta.url);'
                 )
-                print(f'[Installer] "{name}" -> side-effect импорт (без регистрации в dd/fd)')
+                print(f'[Installer] "{name}" -> side-effect импорт')
                 continue
-
             if name in native_names:
-                print(f'[Installer] [!] Пропускаю "{name}" — совпадает с нативным интерфейсом игры '
-                      f'и подменит его для всей игры. Если файлу нужно просто выполниться, '
-                      f'поставь ему "type": "sideEffect" в IntLoad.js.')
+                print(f'[Installer] [!] Пропускаю "{name}" — совпадает с нативным интерфейсом игры')
                 continue
-
             hide_hud  = "!0" if iface.get("hideHud")  else "!1"
             hide_chat = "!0" if iface.get("hideChat") else "!1"
             dd_parts.append(
@@ -329,7 +576,6 @@ class InstallerAPI:
             fd_parts.append(
                 f'{name}:{{open:{{status:!1}},show:!0,options:{{hideHud:{hide_hud},hideChat:{hide_chat}}}}}'
             )
-
         parts = []
         if dd_parts:
             parts.append(f'Object.assign(dd,{{{",".join(dd_parts)}}});')
@@ -339,16 +585,6 @@ class InstallerAPI:
         return "".join(parts)
 
     def _deploy_custom_ui_files(self, ifaces: list):
-        """Скачивает файлы кастомных интерфейсов (.js/.css) и кладёт в assets/.
-        Список файлов берётся из реестра IntLoad.js.
-
-        Источник управляется флагом USE_LOADERS вверху файла:
-          • USE_LOADERS = False (по умолчанию) — качаются ГОТОВЫЕ файлы из
-            Кастом Интерфейсы/ (CUSTOM_UI_URL) — сразу рабочий код.
-          • USE_LOADERS = True — качаются тонкие загрузчики из
-            Кастом Интерфейсы/Загрузчики/ (LOADERS_URL), которые сами тянут
-            актуальный код с GitHub при каждом старте игры — переустановка
-            .py для обновления интерфейсов не нужна."""
         if not self.radmir_path:
             return
         assets_dir = self.radmir_path / "uiresources" / "assets"
@@ -372,7 +608,6 @@ class InstallerAPI:
         if not r or not len(r):
             return None
         chosen = Path(r[0])
-        # Папка обязана называться RADMIR CRMP (регистр не важен)
         if chosen.name.upper() != "RADMIR CRMP":
             return {"error": "not_radmir"}
         self.radmir_path = chosen
@@ -386,9 +621,7 @@ class InstallerAPI:
             import traceback, sys
             try:
                 if not self._check_dirs(): self._notify(False); return
-                # Читаем реестр интерфейсов из IntLoad.js на GitHub
                 ifaces = self._fetch_custom_interfaces()
-                # Скачиваем/обновляем файлы кастомных интерфейсов в assets/
                 self._deploy_custom_ui_files(ifaces)
                 resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
                 code = resp.text.strip()
@@ -400,9 +633,7 @@ class InstallerAPI:
             code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
             code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
             code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
-            # Вшиваем HWID текущей машины — скрипт будет проверять его в keys.json при каждом запуске игры
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
-            # ── Свап хоткей ─────────────────────────────────────────────
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
             if not swap_enabled or not safe_swap_key:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = false;')
@@ -410,18 +641,14 @@ class InstallerAPI:
             else:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = true;')
                 code = code.replace('const SWAP_KEY = "Alt+Q";', f'const SWAP_KEY = "{safe_swap_key}";')
-            # ── Хоткей открытия меню ────────────────────────────────────
             safe_menu_key = str(menu_key).replace('"', '').replace("'", '')[:30] if menu_key else ''
             code = code.replace('const MENU_KEY = "Alt+0";', f'const MENU_KEY = "{safe_menu_key}";')
-            # ── Скрытые пункты меню ─────────────────────────────────────
             hidden_list = menu_hidden if isinstance(menu_hidden, list) else []
             hidden_json = json.dumps(hidden_list)
             code = code.replace('const MENU_HIDDEN_ITEMS = [];', f'const MENU_HIDDEN_ITEMS = {hidden_json};')
-            # ── Биндинги пунктов меню ────────────────────────────────────
             binds_dict = {k: v for k, v in (menu_binds or {}).items() if v}
             binds_json = json.dumps(binds_dict, ensure_ascii=False)
             code = code.replace('const MENU_BINDS = {};', f'const MENU_BINDS = {binds_json};')
-            # ── Порядок пунктов меню ─────────────────────────────────────
             order_list = menu_order if isinstance(menu_order, list) and menu_order else []
             order_json = json.dumps(order_list)
             code = code.replace('const MENU_ORDER = [];', f'const MENU_ORDER = {order_json};')
@@ -429,7 +656,6 @@ class InstallerAPI:
                 code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
             if auto_password:
                 code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
-            # ── Авто-снаряжение ─────────────────────────────────────────
             items_dict = auto_grab.get('items', {}) if auto_grab else {}
             any_item = any(v for v in items_dict.values()) if items_dict else False
             if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled') and any_item:
@@ -437,7 +663,6 @@ class InstallerAPI:
                 menu = auto_grab.get('menu', {})
                 items = auto_grab.get('items', {})
                 code = code.replace('const AUTO_GRAB = false;', 'const AUTO_GRAB = true;')
-                # Также патчим var-объявления в mvd.js (они идут в той же eval-цепочке через LoadAhk)
                 code = code.replace('var AUTO_GRAB = false;', 'var AUTO_GRAB = true;')
                 if thr.get('magnum')  is not None:
                     code = code.replace('const AUTO_GRAB_THR_MAGNUM = 30;', f'const AUTO_GRAB_THR_MAGNUM = {int(thr["magnum"])};')
@@ -459,21 +684,17 @@ class InstallerAPI:
                     val = menu.get(key)
                     if val is not None:
                         code = code.replace(f'const AUTO_GRAB_MENU_{mkey} = -1;', f'const AUTO_GRAB_MENU_{mkey} = {int(val)};')
-                # Предметы которые НЕ нужно брать
                 skip = [k for k,v in items.items() if not v]
                 skip_js = json.dumps(skip)
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
-            # Блок регистрации кастомных интерфейсов — вставляется СНАРУЖИ обфускации,
-            # потому что dd/fd/f/d — переменные скоупа бандла Index.js, недоступны внутри IIFE.
-            # Генерируется динамически из window._duranCustomInterfaces в IntLoad.js.
             try:
                 interfaces_block = self._build_interfaces_block(ifaces)
             except Exception:
                 traceback.print_exc(file=sys.stdout)
-                _log_to_file(f'_build_interfaces_block ИСКЛЮЧЕНИЕ (ifaces={ifaces}):\n{traceback.format_exc()}')
-                interfaces_block = ""  # не валим всю установку из-за интерфейсов
-            _log_to_file(f'interfaces_block длина={len(interfaces_block)}, ifaces было={len(ifaces)} шт.: {interfaces_block[:300]}')
+                _log_to_file(f'_build_interfaces_block ИСКЛЮЧЕНИЕ:\n{traceback.format_exc()}')
+                interfaces_block = ""
+            _log_to_file(f'interfaces_block длина={len(interfaces_block)}, ifaces было={len(ifaces)}')
             try:
                 obf = self._obfuscate(code)
                 idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
@@ -534,7 +755,25 @@ class InstallerAPI:
         webbrowser.open(url)
 
 
+# ═══════════════════════════════════════════════════════
+#  MAIN — запускает авторизацию, потом установщик
+# ═══════════════════════════════════════════════════════
+
 def main():
+    # 1. АВТОРИЗАЦИЯ
+    splash_close = _run_splash()
+    hwid = get_hwid()
+    result = run_auth_with_ui(hwid, splash_close=splash_close)
+
+    if result["failed"]:
+        show_no_internet_window()
+        return
+
+    if not result["authorized"]:
+        show_denied_window(hwid)
+        return
+
+    # 2. ОСНОВНОЙ ИНТЕРФЕЙС УСТАНОВЩИКА
     html_tmp = fetch_html()
     url = f"file:///{html_tmp.replace(os.sep, '/')}"
     api = InstallerAPI()
@@ -545,9 +784,15 @@ def main():
         background_color="#111114", confirm_close=False,
     )
     api._window = w
+    
+    ico = resource_path("icon.ico")
     try:
-        webview.start(icon=_ICON_PATH if os.path.exists(_ICON_PATH) else None, debug=False)
+        webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
     except TypeError:
         webview.start(debug=False)
     try: os.unlink(html_tmp)
     except: pass
+
+
+if __name__ == '__main__':
+    main()
