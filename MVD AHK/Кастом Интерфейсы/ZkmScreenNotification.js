@@ -351,6 +351,65 @@
             }
         },
 
+        /* ── Обновление уже открытого таймер-уведомления БЕЗ пересоздания
+           DOM-узла (а значит без leave/enter анимации). Используется,
+           когда снаружи (mvdF.js) нужно просто освежить текст/оставшееся
+           время у уведомления, которое и так висит на экране.
+           Возвращает id при успехе, null — если такого таймера нет
+           (тогда вызывающий код должен создать новый через addTimer). ── */
+        updateTimer: function (id, payload) {
+            var item = timerQueue.get(id);
+            if (!item) return null;
+
+            try {
+                var d      = JSON.parse(payload);
+                var title  = strip(d[1]);
+                var label  = strip(d[2]);
+                var accent = resolveAccent(d[3]);
+                var secs   = Number(d[4]) || 60;
+                var kit    = accentKit(accent);
+
+                var el      = item.el;
+                var titleEl = el.querySelector('.zkm-sn__title');
+                var textEl  = el.querySelector('.zkm-sn__text-line');
+                var lineEl  = el.querySelector('.zkm-sn__accent-line');
+                var dotEl   = el.querySelector('.zkm-sn__dot');
+                var fillEl  = el.querySelector('.zkm-sn__timer-bar-fill');
+                var timeEl  = el.querySelector('.zkm-sn__timer-time');
+
+                if (titleEl) { titleEl.textContent = title; titleEl.setAttribute('style', kit.titleStyle); }
+                if (textEl)  textEl.textContent = label;
+                if (lineEl)  lineEl.setAttribute('style', kit.lineStyle);
+                if (dotEl)   dotEl.setAttribute('style', kit.dotStyle);
+                if (fillEl)  fillEl.setAttribute('style', 'width:100%;' + kit.fillStyle);
+                el.style.boxShadow = BASE_SHADOW + kit.panelGlow;
+
+                /* сбрасываем urgent-состояние — оно относилось к старому отсчёту */
+                if (fillEl) fillEl.classList.remove('zkm-sn__timer-bar-fill--urgent');
+                if (timeEl) timeEl.classList.remove('zkm-sn__timer-time--urgent');
+
+                clearInterval(item.iv);
+                var remaining = secs;
+                if (timeEl) timeEl.textContent = fmt(remaining);
+
+                item.iv = setInterval(function () {
+                    remaining--;
+                    if (timeEl) timeEl.textContent = fmt(remaining);
+                    if (fillEl) fillEl.style.width =
+                        Math.max(0, (remaining / secs) * 100) + '%';
+                    if (remaining <= 0) {
+                        clearInterval(item.iv);
+                        removeTimer(id);
+                    }
+                }, 1000);
+
+                return id;
+            } catch (e) {
+                console.error('[ZKM-SN] updateTimer:', e);
+                return null;
+            }
+        },
+
         hideTimer: function (id) {
             removeTimer(id);
         },
