@@ -244,5 +244,129 @@
     height: 100%;
     border-radius: 0.11vh;
     opacity: 0.65;
-    transition: width 1s linear;
+    transition: width 1s linear, background 0.25s ease;
+}
+
+/* Тревожное состояние — последние секунды обратного отсчёта */
+@keyframes zkm-urgent-pulse {
+    0%, 100% { opacity: 0.6;  }
+    50%      { opacity: 1;   }
+}
+.zkm-sn__timer-bar-fill--urgent {
+    background: #e25544 !important;
+    opacity: 1;
+    animation: zkm-urgent-pulse 0.5s ease-in-out infinite;
+}
+.zkm-sn__timer-time--urgent {
+    color: #ff8a7a;
+    animation: zkm-urgent-pulse 0.5s ease-in-out infinite;
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   УВЕДОМЛЕНИЕ-ВЫБОР — .zkm-sn--choice  (addChoice)
+   Две карточки-«клавиши» (Alt ×1 / Alt ×2) + таймер обратного
+   отсчёта под ними. Живёт в timerQueue (как и addTimer) —
+   не гасится общим hideAll().
+   ══════════════════════════════════════════════════════════════ */
+
+.zkm-sn--choice {
+    min-width: 34vh;
+}
+
+.zkm-sn__choice-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.65vh;
+    margin: 0.35vh 0 0.62vh;
+}
+
+.zkm-sn__choice-divider {
+    width: 0.09vh;
+    flex-shrink: 0;
+    background: linear-gradient(to bottom,
+        rgba(255,255,255,0)    0%,
+        rgba(255,255,255,0.12) 50%,
+        rgba(255,255,255,0)    100%);
+}
+
+.zkm-sn__choice-opt {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4vh;
+    padding: 0.62vh 0.4vh 0.5vh;
+    border-radius: 0.85vh;
+    background: rgba(255, 255, 255, 0.028);
+    border: 0.09vh solid rgba(255, 255, 255, 0.06);
+    transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+/* Клавиша-«кейкап» ALT ×N — имитация физической кнопки */
+.zkm-sn__choice-key {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.19vh;
+    font-size: 1.0vh;
+    font-weight: 800;
+    letter-spacing: 0.09vh;
+    padding: 0.28vh 0.72vh 0.24vh;
+    border-radius: 0.55vh;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border: 0.1vh solid rgba(255, 255, 255, 0.16);
+    border-bottom-width: 0.19vh;
+    box-shadow:
+        0 0.09vh 0 rgba(255, 255, 255, 0.06) inset,
+        0 0.2vh 0.35vh rgba(0, 0, 0, 0.4);
+}
+
+.zkm-sn__choice-mult {
+    font-size: 0.84vh;
+    font-weight: 700;
+    opacity: 0.82;
+}
+
+.zkm-sn__choice-label {
+    font-size: 0.96vh;
+    font-weight: 700;
+    letter-spacing: 0.05vh;
+    text-transform: uppercase;
+    opacity: 0.85;
+}
+
+/* Вариант «Нет» — красный акцент */
+.zkm-sn__choice-opt--no .zkm-sn__choice-key {
+    color: #ff8a7a;
+    background: rgba(226, 85, 68, 0.14);
+    border-color: rgba(226, 85, 68, 0.32);
+}
+.zkm-sn__choice-opt--no .zkm-sn__choice-label { color: rgba(226, 85, 68, 0.92); }
+.zkm-sn__choice-opt--no:hover {
+    background: rgba(226, 85, 68, 0.06);
+    border-color: rgba(226, 85, 68, 0.22);
+}
+
+/* Вариант «Да» — зелёный акцент */
+.zkm-sn__choice-opt--yes .zkm-sn__choice-key {
+    color: #6fe0a0;
+    background: rgba(61, 186, 122, 0.14);
+    border-color: rgba(61, 186, 122, 0.32);
+}
+.zkm-sn__choice-opt--yes .zkm-sn__choice-label { color: rgba(61, 186, 122, 0.92); }
+.zkm-sn__choice-opt--yes:hover {
+    background: rgba(61, 186, 122, 0.06);
+    border-color: rgba(61, 186, 122, 0.22);
+}
+
+/* Лёгкая пульсация карточек, пока идёт отсчёт — привлекает внимание,
+   не отвлекая (только тень, без сдвига макета) */
+@keyframes zkm-choice-breathe {
+    0%, 100% { box-shadow: 0 0 0 rgba(255,255,255,0); }
+    50%      { box-shadow: 0 0 1.4vh rgba(255,255,255,0.05); }
+}
+.zkm-sn--choice .zkm-sn__choice-opt {
+    animation: zkm-choice-breathe 2.4s ease-in-out infinite;
 }

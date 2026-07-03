@@ -231,6 +231,135 @@
             }
         },
 
+        /* ── Уведомление-выбор ──────────────────────────────────────────
+           Payload: [position, title, noLabel, yesLabel, accent, seconds]
+           Пример: '[2, "Проверка документов", "Нет", "Да", "f9b701", 7]'
+           Две карточки-«клавиши» ALT×1 / ALT×2 + таймер обратного отсчёта
+           с прогресс-баром (в последние 2с — тревожная подсветка).
+           Живёт в timerQueue (как addTimer) — не гасится через hideAll().
+
+           onFinish(id) вызывается ОДИН раз, когда время естественно
+           истекло само по себе. НЕ вызывается, если уведомление было
+           закрыто вручную через hideTimer(id) (например, решение уже
+           принято раньше срока) — так вызывающий код может отличить
+           "время вышло" от "мы сами его убрали".
+
+           Возвращает id для ручной отмены через hideTimer(id).
+        ─────────────────────────────────────────────────────────────── */
+        addChoice: function (payload, onFinish) {
+            try {
+                var d       = JSON.parse(payload);
+                var pos     = POS[d[0]] || 'bottom';
+                var title   = strip(d[1]);
+                var noLabel = strip(d[2]) || 'Нет';
+                var yesLabel= strip(d[3]) || 'Да';
+                var accent  = resolveAccent(d[4]);
+                var secs    = Number(d[5]) || 7;
+                var id      = ++last;
+
+                var remaining = secs;
+
+                var barHtml = '<div class="zkm-sn__lb-fill" style="background:' + accent + '"></div>';
+
+                var clockSvg =
+                    '<svg class="zkm-sn__timer-icon" viewBox="0 0 16 16" fill="none" ' +
+                        'xmlns="http://www.w3.org/2000/svg">' +
+                        '<circle cx="8" cy="8.5" r="5.5" stroke="currentColor" stroke-width="1.3"/>' +
+                        '<path d="M8 5.5V8.5l2 1.5" stroke="currentColor" ' +
+                            'stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>' +
+                        '<path d="M8 2v1" stroke="currentColor" ' +
+                            'stroke-width="1.2" stroke-linecap="round"/>' +
+                    '</svg>';
+
+                function fmt(s) {
+                    if (typeof window.getTimeFormatSeconds === 'function') {
+                        return window.getTimeFormatSeconds(s, true);
+                    }
+                    var m  = Math.floor(s / 60);
+                    var ss = s % 60;
+                    return (m > 0 ? String(m) + ':' : '') +
+                           (ss < 10 ? '0' : '') + ss;
+                }
+
+                var el = document.createElement('div');
+                el.className = 'zkm-sn zkm-sn--' + pos +
+                               ' zkm-sn--enter zkm-sn--choice';
+
+                el.innerHTML =
+                    '<div class="zkm-sn__lightbar">' + barHtml + '</div>' +
+                    '<div class="zkm-sn__body">' +
+                        '<div class="zkm-sn__header">' +
+                            '<div class="zkm-sn__dot" style="background:' + accent + '"></div>' +
+                            '<div class="zkm-sn__title" style="color:' + accent + '">' +
+                                title +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="zkm-sn__choice-row">' +
+                            '<div class="zkm-sn__choice-opt zkm-sn__choice-opt--no">' +
+                                '<span class="zkm-sn__choice-key">ALT' +
+                                    '<span class="zkm-sn__choice-mult">×1</span>' +
+                                '</span>' +
+                                '<span class="zkm-sn__choice-label">' + noLabel + '</span>' +
+                            '</div>' +
+                            '<div class="zkm-sn__choice-divider"></div>' +
+                            '<div class="zkm-sn__choice-opt zkm-sn__choice-opt--yes">' +
+                                '<span class="zkm-sn__choice-key">ALT' +
+                                    '<span class="zkm-sn__choice-mult">×2</span>' +
+                                '</span>' +
+                                '<span class="zkm-sn__choice-label">' + yesLabel + '</span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="zkm-sn__timer-row">' +
+                            clockSvg +
+                            '<div class="zkm-sn__timer-time"></div>' +
+                            '<div class="zkm-sn__timer-bar-wrap">' +
+                                '<div class="zkm-sn__timer-bar-fill" ' +
+                                     'style="width:100%;background:' + accent + '"></div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+
+                document.body.appendChild(el);
+
+                var timeEl = el.querySelector('.zkm-sn__timer-time');
+                var fillEl = el.querySelector('.zkm-sn__timer-bar-fill');
+                if (timeEl) timeEl.textContent = fmt(remaining);
+
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () {
+                        el.classList.remove('zkm-sn--enter');
+                    });
+                });
+
+                var iv = setInterval(function () {
+                    remaining--;
+                    if (timeEl) timeEl.textContent = fmt(remaining);
+                    if (fillEl) fillEl.style.width =
+                        Math.max(0, (remaining / secs) * 100) + '%';
+
+                    /* Тревожная подсветка на последних 2 секундах */
+                    if (remaining <= 2 && remaining > 0) {
+                        if (fillEl) fillEl.classList.add('zkm-sn__timer-bar-fill--urgent');
+                        if (timeEl) timeEl.classList.add('zkm-sn__timer-time--urgent');
+                    }
+
+                    if (remaining <= 0) {
+                        clearInterval(iv);
+                        removeTimer(id);
+                        if (typeof onFinish === 'function') {
+                            try { onFinish(id); } catch (e) {}
+                        }
+                    }
+                }, 1000);
+
+                timerQueue.set(id, { el: el, iv: iv });
+                return id;
+
+            } catch (e) {
+                console.error('[ZKM-SN] addChoice:', e);
+            }
+        },
+
         /* Принудительно убрать таймер-уведомление по id */
         hideTimer: function (id) {
             removeTimer(id);
@@ -255,6 +384,6 @@
        глобальный объект window.ZkmScreenNotification.
     ─────────────────────────────────────────────────────────────── */
     window.ZkmScreenNotification = ZkmSN;
-    console.log('[ZKM-SN] v4.1 готов (изолированный namespace, родной ScreenNotification не тронут)');
+    console.log('[ZKM-SN] v4.2 готов (изолированный namespace, родной ScreenNotification не тронут, +addChoice)');
 
 })();
