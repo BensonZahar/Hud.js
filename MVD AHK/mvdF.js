@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1326,13 +1326,31 @@ const snAdd = (payload, skipRestore = false) => {
         if (window._trackingStopPending) return;
         const sn = getZkmSN();
         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
-        hideTrackingTimer(); // прячем таймер отслеживания, чтобы не наложился на мелкое уведомление
+
+        // Таймер-уведомление отслеживания живёт в позиции "left" (POS[1] в
+        // ZkmScreenNotification.js). Прячем/пересоздаём его ТОЛЬКО если новое
+        // мелкое уведомление претендует на ту же позицию экрана — иначе они
+        // физически не пересекаются (напр. AHK-баннер сверху при открытии
+        // меню), и лишний раз дёргать таймер не нужно. Раньше это делалось
+        // безусловно для ЛЮБОГО snAdd(), из-за чего уже открытое уведомление
+        // "Идет отслеживание" каждый раз пере-анимировалось (leave+enter)
+        // одновременно с не связанным с ним уведомлением.
+        let samePosition = false;
+        try {
+            const posIdx = JSON.parse(payload)[0];
+            samePosition = (posIdx === 1); // 1 === 'left', та же позиция, что у таймера отслеживания
+        } catch (e) {}
+
+        if (samePosition) hideTrackingTimer(); // прячем таймер отслеживания, чтобы не наложился на мелкое уведомление
+
         setTimeout(() => {
             try { getZkmSN()?.add(payload); } catch(e) {}
         }, 100);
-        // Если активно отслеживание/погоня — восстанавливаем таймер-уведомление после показа нового
+
+        // Если активно отслеживание/погоня и позиции совпали — восстанавливаем
+        // таймер-уведомление после показа нового.
         // skipRestore=true когда вызов идёт из самих openTracking/openChase
-        if (!skipRestore && currentScanId && (trackingNotificationOpen || chaseNotificationOpen)) {
+        if (samePosition && !skipRestore && currentScanId && (trackingNotificationOpen || chaseNotificationOpen)) {
             restoreTrackingTimer();
         }
     } catch(e) {}
