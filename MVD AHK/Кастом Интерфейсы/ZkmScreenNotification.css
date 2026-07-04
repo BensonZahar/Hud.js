@@ -8,15 +8,19 @@
    ══════════════════════════════════════════════════════════════ */
 
 /* ── Позиции ─────────────────────────────────────────────────── */
-/* --stack-offset проставляется из JS (см. restack() в
-   ZkmScreenNotification.js) — когда в одной точке экрана оказывается
-   несколько уведомлений (напр. таймер отслеживания + мелкий тост),
-   они не перекрывают друг друга, а выстраиваются в стопку: новое
-   уведомление занимает "точку привязки" (offset 0), а более старые
-   плавно отодвигаются от неё на суммарную высоту предыдущих карточек. */
-.zkm-sn--top    { top: calc(8.8vh + var(--stack-offset, 0px));     left: 50%;  transform: translate(-50%, 0)      scale(1); }
-.zkm-sn--bottom { bottom: calc(5.93vh + var(--stack-offset, 0px)); left: 50%;  transform: translate(-50%, 0)      scale(1); }
-.zkm-sn--left   { left: 4.26vh;   top: calc(54vh + var(--stack-offset, 0px));  transform: translate(0, 0)         scale(1); }
+/* Базовые "точки привязки". Когда в одной точке оказывается несколько
+   уведомлений (напр. таймер отслеживания + мелкий тост), их взаимный
+   сдвиг ("стекинг") считает и подставляет JS напрямую в el.style.top /
+   el.style.bottom (см. restack() в ZkmScreenNotification.js) — ОБЫЧНЫМ
+   инлайн-стилем, а НЕ через CSS custom property/var(). В этом CEF-
+   движке var(), выставленный из JS через style.setProperty, ведёт себя
+   ненадёжно (см. комментарий в начале .js-файла) — ровно поэтому весь
+   акцент в этом проекте тоже идёт через инлайн style="", а не var().
+   Здесь — только исходные (немодифицированные) значения на случай,
+   когда JS ещё не успел проставить инлайн-оффсет. */
+.zkm-sn--top    { top: 8.8vh;     left: 50%;  transform: translate(-50%, 0)      scale(1); }
+.zkm-sn--bottom { bottom: 5.93vh; left: 50%;  transform: translate(-50%, 0)      scale(1); }
+.zkm-sn--left   { left: 4.26vh;   top: 54vh;  transform: translate(0, 0)         scale(1); }
 
 /* Enter — лёгкий "pop": едет + слегка увеличивается из 0.94 */
 .zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2vh)  scale(0.94); }

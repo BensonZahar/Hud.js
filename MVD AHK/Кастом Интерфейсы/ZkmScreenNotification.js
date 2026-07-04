@@ -99,10 +99,23 @@
        (offset 0), а более старые плавно отъезжают от неё на суммарную
        высоту предыдущих карточек + зазор — т.е. новое появляется НАД
        предыдущим, а не вместо него.
+
+       ВАЖНО: оффсет пишется ОБЫЧНЫМ инлайн-стилем (el.style.top /
+       el.style.bottom с готовым calc()-значением), а НЕ через CSS
+       custom property/var() — в этом CEF-движке var(), выставленный
+       из JS через style.setProperty, ведёт себя ненадёжно (см. шапку
+       файла). Ровно та же причина, по которой акцентные цвета везде
+       идут через инлайн style="", а не через var().
+
        posStacks[pos] — массив {id, el}, индекс 0 = самое новое.
     ─────────────────────────────────────────────────────────────── */
     var posStacks    = { top: [], left: [], bottom: [] };
     var STACK_GAP_VH = 0.7;
+
+    /* Базовые "точки привязки" — должны совпадать со значениями
+       top/bottom из .zkm-sn--top/left/bottom в CSS */
+    var POS_BASE_VH  = { top: 8.8, left: 54, bottom: 5.93 };
+    var POS_PROP     = { top: 'top', left: 'top', bottom: 'bottom' };
 
     function vhToPx(v) {
         return (document.documentElement.clientHeight || window.innerHeight || 800) * v / 100;
@@ -111,11 +124,13 @@
     function restack(pos) {
         var arr = posStacks[pos];
         if (!arr) return;
+        var prop   = POS_PROP[pos] || 'top';
+        var baseVh = POS_BASE_VH[pos] || 0;
         var offset = 0;
         var gap    = vhToPx(STACK_GAP_VH);
         for (var i = 0; i < arr.length; i++) {
             var el = arr[i].el;
-            el.style.setProperty('--stack-offset', Math.round(offset) + 'px');
+            el.style[prop] = 'calc(' + baseVh + 'vh + ' + Math.round(offset) + 'px)';
             offset += el.offsetHeight + gap;
         }
     }
