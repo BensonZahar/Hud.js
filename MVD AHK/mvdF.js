@@ -1326,39 +1326,23 @@ const restoreTrackingTimer = (delay = 150) => {
     setTimeout(showTrackingTimer, delay);
 };
 
-const snAdd = (payload, skipRestore = false) => {
+const snAdd = (payload) => {
     try {
         // Если показывается финальное уведомление (серое) — не трогаем его через hideAll
         if (window._trackingStopPending) return;
         const sn = getZkmSN();
         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
 
-        // Таймер-уведомление отслеживания живёт в позиции "left" (POS[1] в
-        // ZkmScreenNotification.js). Прячем/пересоздаём его ТОЛЬКО если новое
-        // мелкое уведомление претендует на ту же позицию экрана — иначе они
-        // физически не пересекаются (напр. AHK-баннер сверху при открытии
-        // меню), и лишний раз дёргать таймер не нужно. Раньше это делалось
-        // безусловно для ЛЮБОГО snAdd(), из-за чего уже открытое уведомление
-        // "Идет отслеживание" каждый раз пере-анимировалось (leave+enter)
-        // одновременно с не связанным с ним уведомлением.
-        let samePosition = false;
-        try {
-            const posIdx = JSON.parse(payload)[0];
-            samePosition = (posIdx === 1); // 1 === 'left', та же позиция, что у таймера отслеживания
-        } catch (e) {}
-
-        if (samePosition) hideTrackingTimer(); // прячем таймер отслеживания, чтобы не наложился на мелкое уведомление
-
+        // ZkmScreenNotification.js теперь сам стекует уведомления в одной
+        // точке экрана (см. restack() там) — новое уведомление занимает
+        // "точку привязки" и появляется НАД уже открытым таймером
+        // отслеживания, а тот плавно отъезжает вниз, освобождая место.
+        // Поэтому прятать/пересоздавать таймер отслеживания здесь больше
+        // не нужно ни для каких позиций — раньше это вызывало его лишнюю
+        // пере-анимацию при каждом мелком тосте (даже не связанном с ним).
         setTimeout(() => {
             try { getZkmSN()?.add(payload); } catch(e) {}
         }, 100);
-
-        // Если активно отслеживание/погоня и позиции совпали — восстанавливаем
-        // таймер-уведомление после показа нового.
-        // skipRestore=true когда вызов идёт из самих openTracking/openChase
-        if (samePosition && !skipRestore && currentScanId && (trackingNotificationOpen || chaseNotificationOpen)) {
-            restoreTrackingTimer();
-        }
     } catch(e) {}
 };
 let currentNotificationId = 0;
