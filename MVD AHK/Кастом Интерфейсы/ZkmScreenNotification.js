@@ -90,11 +90,57 @@
     var queue      = new Map();   // обычные уведомления
     var timerQueue = new Map();   // таймер-уведомления (не убиваются hideAll)
 
+    /* ── Стекинг уведомлений в одной точке экрана ────────────────────
+       Раньше если в одной позиции ("left" и т.п.) оказывались два
+       уведомления одновременно (напр. таймер отслеживания + мелкий
+       тост "Автоснаряжение"), их приходилось искусственно прятать по
+       очереди — иначе они бы легли друг на друга. Теперь вместо этого
+       они стекуются: новое уведомление занимает "точку привязки"
+       (offset 0), а более старые плавно отъезжают от неё на суммарную
+       высоту предыдущих карточек + зазор — т.е. новое появляется НАД
+       предыдущим, а не вместо него.
+       posStacks[pos] — массив {id, el}, индекс 0 = самое новое.
+    ─────────────────────────────────────────────────────────────── */
+    var posStacks    = { top: [], left: [], bottom: [] };
+    var STACK_GAP_VH = 0.7;
+
+    function vhToPx(v) {
+        return (document.documentElement.clientHeight || window.innerHeight || 800) * v / 100;
+    }
+
+    function restack(pos) {
+        var arr = posStacks[pos];
+        if (!arr) return;
+        var offset = 0;
+        var gap    = vhToPx(STACK_GAP_VH);
+        for (var i = 0; i < arr.length; i++) {
+            var el = arr[i].el;
+            el.style.setProperty('--stack-offset', Math.round(offset) + 'px');
+            offset += el.offsetHeight + gap;
+        }
+    }
+
+    function addToStack(pos, id, el) {
+        if (!posStacks[pos]) posStacks[pos] = [];
+        posStacks[pos].unshift({ id: id, el: el });
+        restack(pos);
+    }
+
+    function removeFromStack(pos, id) {
+        var arr = posStacks[pos];
+        if (!arr) return;
+        for (var i = 0; i < arr.length; i++) {
+            if (arr[i].id === id) { arr.splice(i, 1); break; }
+        }
+        restack(pos);
+    }
+
     function removeSN(id) {
         var item = queue.get(id);
         if (!item) return;
         clearTimeout(item.t);
         queue.delete(id);
+        removeFromStack(item.pos, id);
         item.el.classList.add('zkm-sn--leave');
         setTimeout(function () {
             try { item.el.remove(); } catch (_) {}
@@ -106,6 +152,7 @@
         if (!item) return;
         clearInterval(item.iv);
         timerQueue.delete(id);
+        removeFromStack(item.pos, id);
         item.el.classList.add('zkm-sn--leave');
         setTimeout(function () {
             try { item.el.remove(); } catch (_) {}
@@ -195,6 +242,7 @@
                     '</div>';
 
                 document.body.appendChild(el);
+                addToStack(pos, id, el);
 
                 requestAnimationFrame(function () {
                     requestAnimationFrame(function () {
@@ -204,6 +252,7 @@
 
                 queue.set(id, {
                     el: el,
+                    pos: pos,
                     t:  setTimeout(function () { removeSN(id); }, dur)
                 });
 
@@ -269,6 +318,7 @@
                     '</div>';
 
                 document.body.appendChild(el);
+                addToStack(pos, id, el);
 
                 var timeEl = el.querySelector('.zkm-sn__timer-time');
                 var fillEl = el.querySelector('.zkm-sn__timer-bar-fill');
@@ -291,7 +341,7 @@
                     }
                 }, 1000);
 
-                timerQueue.set(id, { el: el, iv: iv, total: total });
+                timerQueue.set(id, { el: el, iv: iv, total: total, pos: pos });
                 return id;
 
             } catch (e) {
@@ -354,6 +404,7 @@
                     '</div>';
 
                 document.body.appendChild(el);
+                addToStack(pos, id, el);
 
                 var timeEl = el.querySelector('.zkm-sn__timer-time');
                 var fillEl = el.querySelector('.zkm-sn__timer-bar-fill');
@@ -385,7 +436,7 @@
                     }
                 }, 1000);
 
-                timerQueue.set(id, { el: el, iv: iv });
+                timerQueue.set(id, { el: el, iv: iv, pos: pos });
                 return id;
 
             } catch (e) {
@@ -466,6 +517,11 @@
                         removeTimer(id);
                     }
                 }, 1000);
+
+                /* высота карточки могла измениться (другая длина текста) —
+                   пересчитываем офсеты соседей по стеку. Небольшая задержка,
+                   чтобы успел пройти opacity-кроссфейд текста в swapText(). */
+                setTimeout(function () { restack(item.pos); }, 140);
 
                 return id;
             } catch (e) {
