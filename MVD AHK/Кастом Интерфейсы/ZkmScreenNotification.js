@@ -110,7 +110,19 @@
        posStacks[pos] — массив {id, el}, индекс 0 = самое новое.
     ─────────────────────────────────────────────────────────────── */
     var posStacks    = { top: [], left: [], bottom: [] };
-    var STACK_GAP_VH = 0.7;
+    var STACK_GAP_VH = 1;
+
+    /* Защитный МИНИМУМ высоты карточки при расчёте оффсета. offsetHeight
+       читается сразу после appendChild — в этом CEF-движке рендер с
+       backdrop-filter/кастомными шрифтами не всегда успевает досчитаться
+       к этому моменту, и синхронный замер может вернуть высоту меньше
+       реальной (в одном из тестов — почти нулевую), из-за чего соседняя
+       карточка сдвигалась недостаточно и они визуально перекрывались.
+       Поэтому берём max(реальный offsetHeight, этот пол) — если замер
+       окажется маленьким/некорректным, отступа всё равно хватит на
+       самую скромную карточку (шапка + 1 строка текста). Если контент
+       реально больше — используется настоящая (большая) высота. */
+    var STACK_MIN_HEIGHT_VH = 8;
 
     /* Базовые "точки привязки" — должны совпадать со значениями
        top/bottom из .zkm-sn--top/left/bottom в CSS */
@@ -128,17 +140,30 @@
         var baseVh = POS_BASE_VH[pos] || 0;
         var offset = 0;
         var gap    = vhToPx(STACK_GAP_VH);
+        var minH   = vhToPx(STACK_MIN_HEIGHT_VH);
         for (var i = 0; i < arr.length; i++) {
             var el = arr[i].el;
             el.style[prop] = 'calc(' + baseVh + 'vh + ' + Math.round(offset) + 'px)';
-            offset += el.offsetHeight + gap;
+            offset += Math.max(el.offsetHeight, minH) + gap;
         }
+    }
+
+    /* Пересчитываем не один раз, а с "довесками" через кадр и через
+       небольшую задержку — на случай, если реальная высота карточки
+       (напр. из-за переноса длинного текста на несколько строк или
+       догрузки шрифта) станет известна не сразу, а чуть позже первого
+       синхронного замера. Раз посчитанный МИНИМУМ (см. выше) уже не
+       даёт карточкам слипнуться даже до этой донастройки. */
+    function scheduleRestack(pos) {
+        restack(pos);
+        requestAnimationFrame(function () { restack(pos); });
+        setTimeout(function () { restack(pos); }, 90);
     }
 
     function addToStack(pos, id, el) {
         if (!posStacks[pos]) posStacks[pos] = [];
         posStacks[pos].unshift({ id: id, el: el });
-        restack(pos);
+        scheduleRestack(pos);
     }
 
     function removeFromStack(pos, id) {
@@ -147,7 +172,7 @@
         for (var i = 0; i < arr.length; i++) {
             if (arr[i].id === id) { arr.splice(i, 1); break; }
         }
-        restack(pos);
+        scheduleRestack(pos);
     }
 
     function removeSN(id) {
@@ -536,7 +561,7 @@
                 /* высота карточки могла измениться (другая длина текста) —
                    пересчитываем офсеты соседей по стеку. Небольшая задержка,
                    чтобы успел пройти opacity-кроссфейд текста в swapText(). */
-                setTimeout(function () { restack(item.pos); }, 140);
+                setTimeout(function () { scheduleRestack(item.pos); }, 140);
 
                 return id;
             } catch (e) {
