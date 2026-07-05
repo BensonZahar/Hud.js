@@ -62,11 +62,14 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             createBaseVNode("div",{class:"mvdmenu__header"},[
                 createBaseVNode("div",{class:"mvdmenu__header-left"},[
                     createBaseVNode("div",{class:"mvdmenu__title"},[
-                        createBaseVNode("span",{class:"mvdmenu__title-main"},"МВД"),
-                        createBaseVNode("span",{class:"mvdmenu__title-sub"},
-                            toDisplayString($options.headerSubtitle), 1 /* TEXT */
-                        )
-                    ])
+                        createBaseVNode("span",{class:"mvdmenu__title-main"},"МВДАХК"),
+                        $options.headerSubtitle
+                            ? createBaseVNode("span",{class:"mvdmenu__title-sub"},
+                                toDisplayString($options.headerSubtitle), 1 /* TEXT */
+                              )
+                            : createCommentVNode("",true)
+                    ]),
+                    createBaseVNode("div",{class:"mvdmenu__byline"},"by konstt")
                 ]),
                 createBaseVNode("div",{class:"mvdmenu__close-btn",onClick:$options.close},"X")
             ]),
@@ -287,11 +290,11 @@ const _sfc_main={
     },
     computed:{
         headerSubtitle(){
-            if(this.screen==="main")            return " АХК";
-            if(this.screen==="povsednev")       return " ПОВСЕДНЕВНАЯ";
-            if(this.screen==="partner")         return " НАПАРНИК";
-            if(this.screen==="id-input")        return this.idInputContext==="tracking"?" ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?" НАПАРНИК":" ВВОД ID";
-            return " АХК";
+            if(this.screen==="main")            return "";
+            if(this.screen==="povsednev")       return "ПОВСЕДНЕВНАЯ";
+            if(this.screen==="partner")         return "НАПАРНИК";
+            if(this.screen==="id-input")        return this.idInputContext==="tracking"?"ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?"НАПАРНИК":"ВВОД ID";
+            return "";
         },
         mainMenuItems(){
             const items=[];
@@ -652,11 +655,12 @@ const _sfc_main={
 
 /* Header */
 .mvdmenu__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
-.mvdmenu__header-left{align-items:center;display:flex;gap:0.74vh;}
+.mvdmenu__header-left{align-items:flex-start;display:flex;flex-direction:column;gap:0.19vh;}
 .mvdmenu__title{align-items:baseline;display:flex;font-weight:700;gap:0.37vh;}
-.mvdmenu__title-main{color:#f4f1e1;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;letter-spacing:0.1vh;text-transform:uppercase;}
-.mvdmenu__title-sub{color:#f9b701;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;letter-spacing:0.1vh;text-transform:uppercase;}
+.mvdmenu__title-main{color:#f4f1e1;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.04vh;font-style:italic;font-weight:700;letter-spacing:0.1vh;text-transform:uppercase;}
+.mvdmenu__title-sub{color:#f9b701;font-family:"Open Sans Condensed",var(--fallback-font);font-size:1.11vh;font-style:normal;font-weight:700;letter-spacing:0.06vh;text-transform:uppercase;}
 .mvdmenu__title-version{color:#f4f1e166;font-family:"Open Sans",var(--fallback-font);font-size:1.11vh;font-style:normal;font-weight:400;margin-left:0.74vh;}
+.mvdmenu__byline{color:#f4f1e166;font-family:"Open Sans",var(--fallback-font);font-size:0.93vh;font-style:italic;font-weight:400;letter-spacing:0.04vh;}
 .mvdmenu__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.48vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s ease;width:2.96vh;}
 @media (platform:pc){.mvdmenu__close-btn:hover{background:#e25544;border-color:#e25544;color:#fff;}}
 
