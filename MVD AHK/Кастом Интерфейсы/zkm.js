@@ -186,7 +186,9 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 							])),
 						createBaseVNode("div", {class:"laws-helper__wanted-stars-row"}, [
 							createBaseVNode("span", {class:"laws-helper__wanted-stars-label"}, "ЗВЕЗДЫ РОЗЫСКА:"),
-							createBaseVNode("span", {class:"laws-helper__wanted-stars-value"}, toDisplayString($options.totalTerm) + " лет", 1)
+							createBaseVNode("span", {
+								class: normalizeClass(["laws-helper__wanted-stars-value", {"laws-helper__wanted-stars-value_capped": $options.isTermOverCap}])
+							}, toDisplayString($options.cappedTerm) + " лет", 3)
 						]),
 						createBaseVNode("div", {class:"laws-helper__wanted-id-label"}, "ID НАРУШИТЕЛЯ"),
 						createBaseVNode("input", {
@@ -592,6 +594,14 @@ const _sfc_main={
 		totalTerm(){
 			return this.selectedArticleObjects.reduce((s,a)=>s+a.term,0);
 		},
+		// ── РОЗЫСК: реальный срок ограничен максимум 6 годами розыска ──
+		// (статьи-причины продолжают выбираться без ограничений, срок лишь капается)
+		cappedTerm(){
+			return Math.min(this.totalTerm, 6);
+		},
+		isTermOverCap(){
+			return this.totalTerm > 6;
+		},
 		// ── ШТРАФЫ: фильтрация КоАП статей ───────────────────────
 		filteredKoapArticles(){
 			let arts=KOAP_ARTICLES;
@@ -729,6 +739,7 @@ const _sfc_main={
 .laws-helper__wanted-stars-row{align-items:baseline;display:flex;gap:0.56vh;justify-content:space-between;margin-top:auto;padding-top:1.11vh;}
 .laws-helper__wanted-stars-label{color:#f4f1e166;font-size:1.11vh;font-weight:600;letter-spacing:0.04vh;}
 .laws-helper__wanted-stars-value{color:#f9b701;font-size:1.67vh;font-weight:700;}
+.laws-helper__wanted-stars-value_capped{color:#e25544;}
 .laws-helper__fine-total{color:#0a9947;font-size:1.48vh;font-weight:700;}
 .laws-helper__wanted-id-label{color:#f4f1e166;font-size:1.11vh;font-weight:700;letter-spacing:0.07vh;margin-bottom:0.56vh;margin-top:1.11vh;text-transform:uppercase;}
 .laws-helper__wanted-id-input{-webkit-appearance:none;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d;box-sizing:border-box;color:#f4f1e1;font-family:"Open Sans",Arial,sans-serif;font-size:1.3vh;font-weight:600;outline:none;padding:0.74vh 0.93vh;transition:border-color 0.15s ease;width:100%;}
@@ -864,7 +875,9 @@ const _sfc_main={
 		issueWanted(){
 			const id=this.wantedId.trim();
 			if(!id||this.selectedArticles.length===0)return;
-			const totalStars=this.totalTerm;
+			// Срок розыска ограничен максимум 6 годами, но причина (статьи)
+			// в /su всегда указывает ВСЕ выбранные статьи целиком
+			const totalStars=this.cappedTerm;
 			const lastCode=this.selectedArticleObjects.map(a=>a.num+" УК").join(", ");
 			if(window._mvdSetLastWantedCode)window._mvdSetLastWantedCode(lastCode);
 			const cmd=`/su ${id} ${totalStars}`;
