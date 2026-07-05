@@ -107,7 +107,6 @@ var DEFAULTS={chatLeft:21.53,chatTop:5.92,chatWidth:45.89,chatHeight:26.2,chatFo
 var PC_DEFAULTS={chatLeft:21.53,chatTop:5.92,chatWidth:45.89,chatHeight:23.0,chatFontSize:1,radarLeft:6.67,radarTop:6.57,radarSize:30.8,infoRight:-1.82,infoTop:-1,infoScale:60,voiceExtra:7,controlsExtra:-7,border:"default"};
 var settings=Object.assign({},PC_DEFAULTS,{hassleForced:!0});
 var __hasSettingsNick=null;
-var __hasOriginalSendChatInput=window.sendChatInput;
 var panelEl=null;
 function __hasStorageKeyFor(nick){return STORAGE_KEY+"::"+nick;}
 function __hasLoadSettingsForNick(nick){
@@ -315,19 +314,40 @@ document.body.appendChild(p);panelEl=p;return p;
 function __hasShowPanel(){__hasBuildPanel();panelEl.style.display="block";window.setCursorStatus&&window.setCursorStatus("HasPanel",!0);}
 function __hasHidePanel(){if(panelEl)panelEl.style.display="none";window.setCursorStatus&&window.setCursorStatus("HasPanel",!1);}
 function __hasIsPanelOpen(){return !!panelEl&&panelEl.style.display!=="none";}
-window.sendChatInput=function(e){
-var args=(e||"").trim().split(" ");var cmd=(args[0]||"").toLowerCase();
-if((cmd==="/has"||cmd==="/has_s")&&!__hasIsAllowedNick()){return __hasOriginalSendChatInput(e);}
-if(cmd==="/has"||cmd==="/has_s"){__hasEnsureSettings();}
+// Раньше здесь стояла собственная переопределённая window.sendChatInput,
+// которая замыкала на себя ВЕСЬ чат-ввод и вручную пробрасывала всё,
+// кроме /has и /has_s, дальше — в оригинальный обработчик. Это работало,
+// только пока HAS-патч гарантированно подключался ДО основного скрипта
+// mvdF (тогда sendChatInputCustom подхватывал именно эту обёртку как
+// __mvdPrevSendChatInput и звал её как fallback). Если порядок подключения
+// меняется (например, HAS-патч теперь идёт выше mvdF в том же файле), то
+// цепочка обработчиков рвётся и разбирать чат-команды становится некому —
+// от этого и переставали работать все команды разом.
+// Теперь /has и /has_s регистрируются точно так же, как /dahk, /console
+// и остальные кастомные команды — единой веткой внутри общего диспетчера
+// sendChatInputCustom (см. дальше по файлу). Здесь мы только объявляем
+// сам обработчик и вешаем его на window, чтобы диспетчер мог его вызвать,
+// сохранив доступ к приватным __has*-замыканиям этого патча.
+// Возвращает true, если команда была нашей и обработана (в т.ч. если HUD
+// ещё не готов — тогда просто покажется предупреждение, но команда не
+// должна улетать дальше как обычное чат-сообщение). Возвращает false,
+// если это не /has-команда или текущий ник не входит в ALLOWED_NICKS —
+// тогда диспетчер сам передаст ввод дальше по цепочке, как для любой
+// нераспознанной команды.
+window.__hasHandleCommand=function(rawCmd){
+var cmd=(rawCmd||"").toLowerCase();
+if(cmd!=="/has"&&cmd!=="/has_s")return!1;
+if(!__hasIsAllowedNick())return!1;
+__hasEnsureSettings();
 if(cmd==="/has"){
-var hud=window.interface&&window.interface("Hud");if(!hud){console.warn("[HAS] /has: hud не инициализирован");__hasToast("HASSLE: HUD \u043d\u0435 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d");return;}
+var hud=window.interface&&window.interface("Hud");if(!hud){console.warn("[HAS] /has: hud не инициализирован");__hasToast("HASSLE: HUD \u043d\u0435 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d");return!0;}
 __hasInjectChatStyle();__hasSetForced(hud,!hud.__hassleForced);
-__hasToast(hud.__hassleForced?"HASSLE HUD: \u0432\u043a\u043b\u044e\u0447\u0435\u043d":"HASSLE HUD: \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d");return;
-}else if(cmd==="/has_s"){
-var hud=window.interface&&window.interface("Hud");if(!hud){console.warn("[HAS] /has_s: hud не инициализирован");__hasToast("HASSLE: HUD \u043d\u0435 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d");return;}
+__hasToast(hud.__hassleForced?"HASSLE HUD: \u0432\u043a\u043b\u044e\u0447\u0435\u043d":"HASSLE HUD: \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d");return!0;
+}else{
+var hud=window.interface&&window.interface("Hud");if(!hud){console.warn("[HAS] /has_s: hud не инициализирован");__hasToast("HASSLE: HUD \u043d\u0435 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d");return!0;}
 __hasInjectChatStyle();if(!hud.__hassleForced)__hasSetForced(hud,!0,!0);
-if(__hasIsPanelOpen()){__hasHidePanel();}else{__hasShowPanel();}return;
-}else{return __hasOriginalSendChatInput(e);}
+if(__hasIsPanelOpen()){__hasHidePanel();}else{__hasShowPanel();}return!0;
+}
 };
 var __hasOriginalOnUpdatePlayersList=window.onUpdatePlayersList;
 window.onUpdatePlayersList=function(e){
@@ -3039,7 +3059,7 @@ window.sendClientEventCustom = (event, ...args) => {
         window.sendClientEventHandle(event, ...args);
     }
 };
-var __mvdPrevSendChatInput = window.sendChatInput; // сохраняем хук /has, /has_s, чтобы не потерять его при замене ниже
+var __mvdPrevSendChatInput = window.sendChatInput; // fallback для команд, которые не распознал ни один из веток ниже (в т.ч. /has при неразрешённом нике) — прокидываем как обычное сообщение/движку
 window.sendChatInputCustom = e => {
     const args = e.split(" ");
     if (args[0] == "/dahk") {
@@ -3129,6 +3149,21 @@ window.sendChatInputCustom = e => {
             }
         } catch (err) {
             console.warn('[ZK-VIEW] /int toggle error:', err);
+        }
+    } else if (args[0] && (args[0].toLowerCase() === "/has" || args[0].toLowerCase() === "/has_s")) {
+        // Регистрация /has и /has_s теперь единообразна с /dahk, /console и /int —
+        // ветка в общем диспетчере. Сама логика живёт в HAS-патче (см. начало
+        // файла), тут только вызов через window.__hasHandleCommand, вынесенный
+        // туда, чтобы сохранить доступ к приватным __has*-замыканиям патча.
+        var __hasHandled = window.__hasHandleCommand && window.__hasHandleCommand(args[0]);
+        if (!__hasHandled) {
+            // Команда не наша (ник не в ALLOWED_NICKS) или патч ещё не подключился —
+            // передаём дальше по цепочке, как и любую нераспознанную команду.
+            if (typeof __mvdPrevSendChatInput === "function") {
+                __mvdPrevSendChatInput(e);
+            } else {
+                window.App.developmentMode || engine.trigger("SendChatInput", e);
+            }
         }
     } else if (typeof __mvdPrevSendChatInput === "function") {
         // отдаём команду предыдущему обработчику (там живут /has, /has_s),
