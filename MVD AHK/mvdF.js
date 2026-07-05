@@ -1,3 +1,356 @@
+// === HASSLE HUD PATCH (DEBUG BUILD) ===
+(function(){
+console.log("[HAS] патч запускается");
+
+var __hasComp=Mu;
+if(__hasComp&&typeof __hasComp.data==="function"){
+var __hasOrigData=__hasComp.data;
+__hasComp.data=function(){
+var s=__hasOrigData.apply(this,arguments);
+if(s&&typeof s.__hassleForced==="undefined")s.__hassleForced=!1;
+return s;
+};
+console.log("[HAS] data() обёрнут, __hassleForced будет добавлен");
+}else{
+console.warn("[HAS] Mu.data не функция — обёртка data() НЕ применена", __hasComp);
+}
+if(__hasComp&&__hasComp.computed){
+__hasComp.computed.isHassleHud=function(){return this.__hassleForced;};
+console.log("[HAS] computed.isHassleHud переопределён");
+}else{
+console.warn("[HAS] Mu.computed отсутствует — computed НЕ переопределён", __hasComp);
+}
+// В шаблоне Hud есть resolveComponent("chat") — используется ТОЛЬКО когда isHassleHud=true.
+// Локально в Hud.components это ключ "Chat", который по умолчанию указывает на мобильный
+// hassle-чат (без T/F1-хинтов). Подменяем этот ключ на тот же компонент, что и обычный
+// "RadmirChat" — тогда при __hassleForced=true рендерится ровно тот же родной чат
+// с рабочими хинтами, только внешний вид (радар/инфо) остаётся hassle-стилем.
+if(__hasComp&&__hasComp.components&&__hasComp.components.RadmirChat){
+var __hasRadmirChatComp=__hasComp.components.RadmirChat;
+if(__hasRadmirChatComp.props){
+if(__hasRadmirChatComp.props.isHudControls)__hasRadmirChatComp.props.isHudControls.default=!0;
+if(__hasRadmirChatComp.props.canChatFadeout)__hasRadmirChatComp.props.canChatFadeout.default=!0;
+if(__hasRadmirChatComp.props.useChatAnimation)__hasRadmirChatComp.props.useChatAnimation.default=!0;
+}
+__hasComp.components.Chat=__hasRadmirChatComp;
+console.log("[HAS] components.Chat подменён на RadmirChat, дефолты isHudControls/canChatFadeout/useChatAnimation форсированы");
+}else{
+console.warn("[HAS] Mu.components.RadmirChat не найден — подмена чат-компонента НЕ выполнена", __hasComp);
+}
+// HudHassle (инфо-панель в Hassle-стиле, рендер Uc) резолвит только 5 дочерних компонентов —
+// HudRadar/HudControls/HudInfo/HudMeta/HudSpeedometer — VoiceChat среди них нет вообще.
+// В HudRadmir (родная ПК-версия той же панели, рендер rd) VoiceChat есть и получает те же
+// данные через тот же проп data:e.$data, что и HudHassle (оба — один и тот же объект).
+// Значит hud.voiceChat.show долетает куда нужно, но рендерить его в Hassle-варианте некому.
+// Не трогая сам render-текст, оборачиваем render HudHassle и дорисовываем VoiceChat как ещё
+// один child в возвращаемое дерево — теми же Vue-хелперами (createVNode=d), что уже
+// импортированы в этом файле и доступны в этой же module-scope.
+if(__hasComp&&__hasComp.components&&__hasComp.components.HudHassle&&__hasComp.components.HudRadmir){
+var __hasHudHassleComp=__hasComp.components.HudHassle;
+var __hasVoiceChatComp=__hasComp.components.HudRadmir.components&&__hasComp.components.HudRadmir.components.VoiceChat;
+if(__hasVoiceChatComp&&typeof __hasHudHassleComp.render==="function"){
+var __hasOrigHassleRender=__hasHudHassleComp.render;
+__hasHudHassleComp.render=function(){
+var vnode=__hasOrigHassleRender.apply(this,arguments);
+try{
+var props=arguments[2]||{};
+var dataObj=props.data;
+if(dataObj&&dataObj.useChat&&dataObj.voiceChat&&dataObj.voiceChat.show&&vnode&&Array.isArray(vnode.children)){
+var chatFontSize=(window.App&&window.App.chatFontSize)||0;
+var chatPageSize=(window.App&&window.App.chatPageSize)||1;
+var chatHeightPx=(window.App&&typeof window.App.vhToPx==="function")?window.App.vhToPx(2.22+0.15*chatFontSize)*chatPageSize:0;
+var vcNode=d(__hasVoiceChatComp,{
+entries:dataObj.voiceChat.entries,
+chatHeightPx:chatHeightPx,
+isHudControls:dataObj.isHudControls,
+isShowButtons:dataObj.voiceChat.showButtons,
+isTransparent:window.isOpenedChat?window.isOpenedChat():!1
+// ФИКС: без patchFlag=8 (PROPS) и dynamicProps Vue при быстром патче блока
+// (patchBlockChildren вызывается с optimized=true) считает узел статичным и
+// НЕ сравнивает пропсы вообще (shouldUpdateComponent молча возвращает false,
+// а не делает полное сравнение — тот fallback работает только при optimized=false).
+// Именно поэтому одного dynamicChildren.push оказалось мало: узел теперь патчится,
+// но Vue решает, что обновлять нечего, и entries остаются от первого маунта.
+// Значения ниже — те же 5 ключей, что и в родном HudRadmir (см. вызов VoiceChat там).
+},null,8,["entries","chatHeightPx","isHudControls","isShowButtons","isTransparent"]);
+vnode.children.push(vcNode);
+// ФИКС: HudHassle.render — это Vue-блок (openBlock+createElementBlock), и при
+// обновлениях Vue патчит только vnode.dynamicChildren, а не полный vnode.children.
+// Без этой строки VoiceChat маунтится один раз с исходными entries и больше НИКОГДА
+// не получает новые пропы — отсюда "говорит -> перестал, а бейдж всё равно висит":
+// removeVoiceChatEntry делает entries=entries.filter(...) (новый массив), а наш
+// вставленный узел патчится только в fast-path блока, куда мы его тоже добавляем.
+if(Array.isArray(vnode.dynamicChildren)){vnode.dynamicChildren.push(vcNode);}
+}
+}catch(err){console.warn("[HAS] не удалось добавить VoiceChat внутрь HudHassle",err);}
+return vnode;
+};
+console.log("[HAS] HudHassle.render обёрнут — VoiceChat дорисовывается вручную внутрь Hassle-инфопанели");
+}else{
+console.warn("[HAS] не нашёл HudRadmir.components.VoiceChat или HudHassle.render — VoiceChat в Hassle НЕ добавлен",__hasComp.components);
+}
+}
+
+var ALLOWED_NICKS=["Zahar_Loidov","Fura_Loidov"];
+function __hasGetOwnNick(){
+try{var n=window.App&&window.App.$store&&window.App.$store.getters&&window.App.$store.getters['player/nickName'];return n;}catch(e){console.warn("[HAS] ошибка получения ника",e);return null;}
+}
+function __hasIsAllowedNick(){
+var nick=__hasGetOwnNick();
+var ok=!!nick&&ALLOWED_NICKS.indexOf(nick)!==-1;
+return ok;
+}
+var NICK_PROFILES={"Zahar_Loidov":{autoEnable:!0,border:"default"},"Fura_Loidov":{autoEnable:!1,border:"default"}};
+var DEFAULT_PROFILE={autoEnable:!0,border:"default"};
+function __hasGetNickProfile(nick){return NICK_PROFILES[nick]||DEFAULT_PROFILE;}
+var DEFAULTS={chatLeft:21.53,chatTop:5.92,chatWidth:45.89,chatHeight:26.2,chatFontSize:6,radarLeft:6.67,radarTop:6.57,radarSize:35.8,infoRight:-1.82,infoTop:-4.35,infoScale:100,voiceExtra:7,controlsExtra:-7,border:"default"};
+var PC_DEFAULTS={chatLeft:21.53,chatTop:5.92,chatWidth:45.89,chatHeight:23.0,chatFontSize:1,radarLeft:6.67,radarTop:6.57,radarSize:30.8,infoRight:-1.82,infoTop:-1,infoScale:60,voiceExtra:7,controlsExtra:-7,border:"default"};
+var settings=Object.assign({},PC_DEFAULTS,{hassleForced:!0});
+var __hasSettingsNick=null;
+var __hasOriginalSendChatInput=window.sendChatInput;
+var panelEl=null;
+function __hasStorageKeyFor(nick){return STORAGE_KEY+"::"+nick;}
+function __hasLoadSettingsForNick(nick){
+var profile=__hasGetNickProfile(nick);
+var nickDefaults=Object.assign({},PC_DEFAULTS,{hassleForced:profile.autoEnable,border:profile.border});
+try{var raw=localStorage.getItem(__hasStorageKeyFor(nick));
+if(!raw){var legacy=localStorage.getItem(STORAGE_KEY);if(legacy){try{return Object.assign({},nickDefaults,JSON.parse(legacy));}catch(e){}}return nickDefaults;}
+var parsed=JSON.parse(raw);return Object.assign({},nickDefaults,parsed);
+}catch(e){return nickDefaults;}
+}
+function __hasEnsureSettings(){
+var nick=__hasGetOwnNick();if(nick&&nick!==__hasSettingsNick){__hasSettingsNick=nick;settings=__hasLoadSettingsForNick(nick);console.log("[HAS] настройки загружены для ника",nick,settings);}return settings;
+}
+function __hasSaveSettings(){
+try{var key=__hasSettingsNick?__hasStorageKeyFor(__hasSettingsNick):STORAGE_KEY;localStorage.setItem(key,JSON.stringify(settings));}catch(e){console.warn("[HAS] ошибка сохранения настроек",e);}
+}
+function __hasToast(text){
+var el=document.createElement("div");el.textContent=text;
+el.style.cssText="position:fixed;top:12vh;left:50%;transform:translateX(-50%) translateY(-6px);background:rgba(17,21,29,0.92);color:#d2a65e;border:1px solid #1f242e;border-radius:8px;padding:10px 18px;font:600 14px/1.3 Open Sans,var(--fallback-font),sans-serif;z-index:999999;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.4);opacity:0;transition:opacity .2s,transform .2s;";
+document.body.appendChild(el);
+requestAnimationFrame(function(){el.style.opacity="1";el.style.transform="translateX(-50%) translateY(0)";});
+setTimeout(function(){el.style.opacity="0";el.style.transform="translateX(-50%) translateY(-6px)";setTimeout(function(){el.remove();},250);},1800);
+}
+function __hasInjectChatStyle(){
+if(document.getElementById("__has-chat-style")){console.log("[HAS] стиль уже вставлен");return;}
+var style=document.createElement("style");style.id="__has-chat-style";
+style.textContent=
+"body.__has-chat-hassle-pos .radmir-chat{left:var(--has-chat-left)!important;top:var(--has-chat-top)!important;width:var(--has-chat-width)!important;} "+
+"body.__has-chat-hassle-pos .radmir-chat__messages{width:var(--has-chat-width)!important;height:var(--has-chat-height)!important;} "+
+"body.__has-chat-hassle-pos .radmir-chat-input{width:var(--has-chat-width)!important;} "+
+"body.__has-chat-hassle-pos .radmir-chat-input__input{border-top:0!important;} "+
+"body.__has-chat-hassle-pos .radmir-chat__before{background:linear-gradient(180deg,#1414149e 33.5%,#14141400)!important;height:71.85vh!important;} "+
+"body.__has-chat-hassle-pos .radmir-chat_opened .radmir-chat__before{opacity:1!important;} "+
+// ЧИНИМ z-index:-2 у хинтов "T ЧАТ / F1 УПРАВЛЕНИЕ" — в родном CSS они провалены под фон
+"body.__has-chat-hassle-pos .radmir-chat__controls{top:var(--has-chat-controls-top)!important;transform:scale(var(--has-chat-controls-scale))!important;transform-origin:left top!important;z-index:50!important;} "+
+"body.__has-chat-hassle-pos .hud-hassle-radar{left:var(--has-radar-left)!important;top:var(--has-radar-top)!important;} "+
+"body.__has-chat-hassle-pos .hud-hassle-radar__map{transform:scale(var(--has-radar-scale))!important;opacity:1!important;visibility:visible!important;} "+
+"body.__has-chat-hassle-pos .hud-radmir-radar{left:var(--has-radar-left)!important;top:var(--has-radar-top)!important;bottom:auto!important;} "+
+"body.__has-chat-hassle-pos .hud-radmir-radar__map{transform:scale(var(--has-radar-scale))!important;opacity:1!important;visibility:visible!important;} "+
+"body.__has-chat-hassle-pos .hud-hassle-info{right:var(--has-info-right)!important;top:var(--has-info-top)!important;transform:scale(var(--has-info-scale))!important;} "+
+"body.__has-chat-hassle-pos .hud-radmir-info{right:var(--has-info-right)!important;top:var(--has-info-top)!important;transform:scale(var(--has-info-scale))!important;} "+
+// ЧИНИМ voice-chat — в родном CSS позиция без !important, а z-index/видимость не задана вовсе
+"body.__has-chat-hassle-pos .voice-chat{left:var(--has-voicechat-left)!important;top:var(--has-voicechat-top)!important;margin-top:0!important;z-index:50!important;visibility:visible!important;opacity:1!important;} "+
+"body.__has-chat-hassle-pos .hud-hassle-controls__joystick,"+
+"body.__has-chat-hassle-pos .hud-hassle-controls__pedals,"+
+"body.__has-chat-hassle-pos .hud-hassle-controls__buttons,"+
+"body.__has-chat-hassle-pos .hud-hassle-controls__threangel,"+
+"body.__has-chat-hassle-pos .hud-hassle-controls-right_top,"+
+"body.__has-chat-hassle-pos .hud-hassle-controls-right_bottom,"+
+"body.__has-chat-hassle-pos .hud-hassle-controls__close,"+
+"body.__has-chat-hassle-pos .hud-hassle-speedometer__controls,"+
+"body.__has-chat-hassle-pos .hud-hassle-radar .mobile-button,"+
+"body.__has-chat-hassle-pos .mobile-button{display:none!important;pointer-events:none!important;} ";
+document.head.appendChild(style);
+console.log("[HAS] стиль вставлен в head");
+}
+function __hasApplyCSSVars(){
+var r=document.documentElement.style;
+r.setProperty("--has-chat-left",settings.chatLeft+"vw");
+r.setProperty("--has-chat-top",settings.chatTop+"vh");
+r.setProperty("--has-chat-width",settings.chatWidth+"vw");
+r.setProperty("--has-chat-height",settings.chatHeight+"vh");
+r.setProperty("--has-radar-left",settings.radarLeft+"vh");
+r.setProperty("--has-radar-top",settings.radarTop+"vh");
+r.setProperty("--has-radar-scale",(settings.radarSize/DEFAULTS.radarSize).toFixed(4));
+r.setProperty("--has-info-right",settings.infoRight+"vw");
+r.setProperty("--has-info-top",settings.infoTop+"vh");
+r.setProperty("--has-info-scale",(settings.infoScale/100).toFixed(4));
+var controlsScale=1+settings.chatFontSize*0.045;
+// settings.controlsExtra — ручное смещение (vh) подсказок "T ЧАТ"/"F1 УПРАВЛЕНИЕ"
+// относительно авто-расчёта. Отрицательное значение поднимает их выше. Подсказки
+// всё равно скрываются при открытом окне ввода чата, так что поднять их можно
+// смело — на строку ввода они не залезут.
+var controlsTop=settings.chatTop+settings.chatHeight+1.2+(settings.controlsExtra||0);
+r.setProperty("--has-chat-controls-top",controlsTop+"vh");
+r.setProperty("--has-chat-controls-scale",controlsScale.toFixed(3));
+// Голосовой чат (ник + бейдж говорящего) — ставим НИЖЕ подсказок с запасом на их
+// собственную высоту (~3vh при масштабе 1) плюс небольшой отступ, чтобы ник
+// никогда не залезал на "T ЧАТ" / "F1 УПРАВЛЕНИЕ".
+var HINT_ROW_HEIGHT_VH=3;
+// settings.voiceExtra — ручная докрутка (vh) поверх авто-расчёта, на случай если
+// авторасчёта не хватает и подсказки всё ещё слегка задеваются именем/бейджем
+// говорящего в ГС. Регулируется ползунком в панели.
+var voiceTop=controlsTop+HINT_ROW_HEIGHT_VH*controlsScale+1+(settings.voiceExtra||0);
+r.setProperty("--has-voicechat-left",settings.chatLeft+"vw");
+r.setProperty("--has-voicechat-top",voiceTop+"vh");
+console.log("[HAS] CSS-переменные применены:",{
+chatWidth:getComputedStyle(document.documentElement).getPropertyValue("--has-chat-width"),
+chatHeight:getComputedStyle(document.documentElement).getPropertyValue("--has-chat-height"),
+voiceTop:getComputedStyle(document.documentElement).getPropertyValue("--has-voicechat-top")
+});
+}
+function __hasApplyToHud(){
+var hud=window.interface&&window.interface("Hud");if(!hud){console.warn("[HAS] __hasApplyToHud: hud не найден");return;}
+window.App.chatFontSize=settings.chatFontSize;
+hud.isHelloween=settings.border==="helloween";
+hud.isNewYear=settings.border==="newyear";
+// ФИКС: voiceChat.show по умолчанию false и никогда не включается движком на ПК —
+// форсируем видимость самого блока голосового чата, когда Hassle HUD включён.
+if(hud.voiceChat){
+hud.voiceChat.show=!0;
+hud.voiceChat.showButtons=!0;
+console.log("[HAS] voiceChat.show/showButtons принудительно включены");
+}else{
+console.warn("[HAS] hud.voiceChat не найден на инстансе — не могу включить голосовой чат");
+}
+}
+function __hasApplyAll(){__hasApplyCSSVars();__hasApplyToHud();}
+function __hasSetForced(hud,val,silent){
+hud.__hassleForced=val;settings.hassleForced=val;
+document.body.classList.toggle("__has-chat-hassle-pos",val);
+console.log("[HAS] __hassleForced =",val,"| body class:",document.body.classList.contains("__has-chat-hassle-pos"));
+if(val){__hasApplyAll();window.updatePlayerList&&window.updatePlayerList();}
+else{window.App.chatFontSize=0;hud.isHelloween=!1;hud.isNewYear=!1;
+// ФИКС: раньше тут форсили hud.voiceChat.show=!1. Движок на ПК сам ставит show=true
+// только один раз через openInfo() (коннект/спавн) и больше к этому не возвращается,
+// поэтому принудительный сброс в false навсегда гасил нативный ГС у обычного Radmir HUD
+// после выключения /has. HudRadmir и так рендерит VoiceChat штатно — просто не трогаем show.
+if(!silent)__hasHidePanel();}
+__hasSaveSettings();
+// диагностика DOM через 300мс, чтобы Vue успел перерендерить
+setTimeout(function(){
+console.log("[HAS] DOM-проверка:",{
+".radmir-chat":!!document.querySelector(".radmir-chat"),
+".radmir-chat__controls":!!document.querySelector(".radmir-chat__controls"),
+".voice-chat":!!document.querySelector(".voice-chat"),
+".chat (Hassle-вариант)":!!document.querySelector(".chat-container"),
+"isHassleHud (computed)":hud.isHassleHud
+});
+},300);
+}
+function __hasSlider(label,key,min,max,step){
+var row=document.createElement("div");row.style.cssText="margin-bottom:10px;";
+var top=document.createElement("div");top.style.cssText="display:flex;justify-content:space-between;color:#f4f1e1;font-size:12px;margin-bottom:4px;font-family:Open Sans,var(--fallback-font),sans-serif;";
+var lbl=document.createElement("span");lbl.textContent=label;
+var val=document.createElement("span");val.textContent=settings[key];val.style.color="#d2a65e";
+top.appendChild(lbl);top.appendChild(val);
+var input=document.createElement("input");input.type="range";input.min=min;input.max=max;input.step=step;input.value=settings[key];
+input.style.cssText="width:100%;accent-color:#d2a65e;";
+input.addEventListener("input",function(){settings[key]=parseFloat(input.value);val.textContent=settings[key];__hasApplyAll();__hasSaveSettings();});
+row.appendChild(top);row.appendChild(input);return row;
+}
+function __hasBuildPanel(){
+if(panelEl)return panelEl;
+var p=document.createElement("div");
+p.style.cssText="position:fixed;top:8vh;right:1.5vw;width:580px;max-height:88vh;overflow-y:auto;overflow-x:hidden;background:rgba(17,21,29,0.95);border:1px solid #1f242e;border-radius:10px;padding:14px;z-index:999998;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-family:Open Sans,var(--fallback-font),sans-serif;display:none;";
+var header=document.createElement("div");header.style.cssText="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;";
+var title=document.createElement("div");title.textContent="HASSLE HUD";title.style.cssText="color:#d2a65e;font-weight:700;font-size:13px;letter-spacing:0.5px;";
+var closeBtn=document.createElement("div");closeBtn.textContent="\u2715";closeBtn.style.cssText="color:#f4f1e199;cursor:pointer;font-size:14px;padding:2px 6px;";
+closeBtn.addEventListener("click",function(){__hasHidePanel();});
+header.appendChild(title);header.appendChild(closeBtn);p.appendChild(header);
+// Две колонки, чтобы панель помещалась на экран целиком и не приходилось
+// скроллить/прокручивать вниз, чтобы добраться до нижних пунктов —
+// "нижние" разделы (Радар/Бордер/Правый HUD) уходят в левую колонку,
+// а более длинный раздел "Чат" — в правую. max-height+overflow-y выше —
+// подстраховка на случай мелких экранов, где даже двух колонок не хватит.
+var columns=document.createElement("div");columns.style.cssText="display:flex;gap:16px;";
+var colLeft=document.createElement("div");colLeft.style.cssText="flex:1;min-width:0;";
+var colRight=document.createElement("div");colRight.style.cssText="flex:1;min-width:0;";
+columns.appendChild(colLeft);columns.appendChild(colRight);p.appendChild(columns);
+var chatLabel=document.createElement("div");chatLabel.textContent="\u0427\u0430\u0442";chatLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 6px;";colRight.appendChild(chatLabel);
+colRight.appendChild(__hasSlider("\u0421\u043b\u0435\u0432\u0430 (vw)","chatLeft",0,60,0.1));
+colRight.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)","chatTop",0,40,0.1));
+colRight.appendChild(__hasSlider("\u0428\u0438\u0440\u0438\u043d\u0430 (vw)","chatWidth",20,70,0.1));
+colRight.appendChild(__hasSlider("\u0412\u044b\u0441\u043e\u0442\u0430 (vh)","chatHeight",10,50,0.1));
+colRight.appendChild(__hasSlider("\u0420\u0430\u0437\u043c\u0435\u0440 \u0448\u0440\u0438\u0444\u0442\u0430","chatFontSize",-5,20,1));
+colRight.appendChild(__hasSlider("\u0421\u043c\u0435\u0449\u0435\u043d\u0438\u0435 T \u0427\u0410\u0422 / F1 (vh, \u043c\u0438\u043d\u0443\u0441 \u2014 \u0432\u044b\u0448\u0435)","controlsExtra",-25,10,0.1));
+colRight.appendChild(__hasSlider("\u041e\u0442\u0441\u0442\u0443\u043f \u0413\u0421 \u043d\u0438\u0436\u0435 \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043e\u043a (vh)","voiceExtra",-5,15,0.1));
+var radarLabel=document.createElement("div");radarLabel.textContent="\u0420\u0430\u0434\u0430\u0440";radarLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 6px;";colLeft.appendChild(radarLabel);
+colLeft.appendChild(__hasSlider("\u0421\u043b\u0435\u0432\u0430 (vh)","radarLeft",0,40,0.1));
+colLeft.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)","radarTop",0,40,0.1));
+colLeft.appendChild(__hasSlider("\u0420\u0430\u0437\u043c\u0435\u0440 (vh)","radarSize",15,60,0.1));
+var borderLabel=document.createElement("div");borderLabel.textContent="\u0411\u043e\u0440\u0434\u0435\u0440 \u0440\u0430\u0434\u0430\u0440\u0430";borderLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;";colLeft.appendChild(borderLabel);
+var borderRow=document.createElement("div");borderRow.style.cssText="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;";
+var borderOptions=[["default","\u041e\u0431\u044b\u0447\u043d\u044b\u0439"],["helloween","\u0425\u044d\u043b\u043b\u043e\u0443\u0438\u043d"],["newyear","\u041d\u043e\u0432\u044b\u0439 \u0433\u043e\u0434"]];
+var borderButtons=[];
+borderOptions.forEach(function(opt){
+var btn=document.createElement("div");btn.textContent=opt[1];btn.dataset.value=opt[0];
+btn.style.cssText="flex:1 1 auto;text-align:center;padding:6px 4px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e1;";
+btn.style.background=settings.border===opt[0]?"#d2a65e":"transparent";
+btn.style.color=settings.border===opt[0]?"#11151d":"#f4f1e1";
+btn.addEventListener("click",function(){
+settings.border=opt[0];
+borderButtons.forEach(function(b){var active=b.dataset.value===settings.border;b.style.background=active?"#d2a65e":"transparent";b.style.color=active?"#11151d":"#f4f1e1";});
+__hasApplyAll();__hasSaveSettings();
+});
+borderButtons.push(btn);borderRow.appendChild(btn);
+});
+colLeft.appendChild(borderRow);
+var infoLabel=document.createElement("div");infoLabel.textContent="\u041f\u0440\u0430\u0432\u044b\u0439 HUD";infoLabel.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;";colLeft.appendChild(infoLabel);
+colLeft.appendChild(__hasSlider("\u0421\u043f\u0440\u0430\u0432\u0430 (vw)","infoRight",-10,20,0.1));
+colLeft.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)","infoTop",-10,20,0.1));
+colLeft.appendChild(__hasSlider("\u041c\u0430\u0441\u0448\u0442\u0430\u0431 (%)","infoScale",50,200,1));
+function __hasRebuildPanel(){panelEl.remove();panelEl=null;__hasBuildPanel();__hasShowPanel();}
+// Кнопки сброса — во всю ширину панели, под обеими колонками.
+var footer=document.createElement("div");footer.style.cssText="margin-top:12px;";p.appendChild(footer);
+var pcBtn=document.createElement("div");pcBtn.textContent="\u041f\u041a \u0440\u0430\u0437\u043c\u0435\u0440";pcBtn.style.cssText="text-align:center;padding:8px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e199;margin-top:4px;";
+pcBtn.addEventListener("click",function(){settings=Object.assign({},PC_DEFAULTS,{hassleForced:!0});__hasSaveSettings();__hasApplyAll();__hasRebuildPanel();});
+footer.appendChild(pcBtn);
+var hassleBtn=document.createElement("div");hassleBtn.textContent="Hassle \u0440\u0430\u0437\u043c\u0435\u0440";hassleBtn.style.cssText="text-align:center;padding:8px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#d2a65e;margin-top:6px;";
+hassleBtn.addEventListener("click",function(){settings=Object.assign({},DEFAULTS,{hassleForced:!0});__hasSaveSettings();__hasApplyAll();__hasRebuildPanel();});
+footer.appendChild(hassleBtn);
+document.body.appendChild(p);panelEl=p;return p;
+}
+function __hasShowPanel(){__hasBuildPanel();panelEl.style.display="block";window.setCursorStatus&&window.setCursorStatus("HasPanel",!0);}
+function __hasHidePanel(){if(panelEl)panelEl.style.display="none";window.setCursorStatus&&window.setCursorStatus("HasPanel",!1);}
+function __hasIsPanelOpen(){return !!panelEl&&panelEl.style.display!=="none";}
+window.sendChatInput=function(e){
+var args=(e||"").trim().split(" ");var cmd=(args[0]||"").toLowerCase();
+if((cmd==="/has"||cmd==="/has_s")&&!__hasIsAllowedNick()){return __hasOriginalSendChatInput(e);}
+if(cmd==="/has"||cmd==="/has_s"){__hasEnsureSettings();}
+if(cmd==="/has"){
+var hud=window.interface&&window.interface("Hud");if(!hud){console.warn("[HAS] /has: hud не инициализирован");__hasToast("HASSLE: HUD \u043d\u0435 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d");return;}
+__hasInjectChatStyle();__hasSetForced(hud,!hud.__hassleForced);
+__hasToast(hud.__hassleForced?"HASSLE HUD: \u0432\u043a\u043b\u044e\u0447\u0435\u043d":"HASSLE HUD: \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d");return;
+}else if(cmd==="/has_s"){
+var hud=window.interface&&window.interface("Hud");if(!hud){console.warn("[HAS] /has_s: hud не инициализирован");__hasToast("HASSLE: HUD \u043d\u0435 \u0438\u043d\u0438\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d");return;}
+__hasInjectChatStyle();if(!hud.__hassleForced)__hasSetForced(hud,!0,!0);
+if(__hasIsPanelOpen()){__hasHidePanel();}else{__hasShowPanel();}return;
+}else{return __hasOriginalSendChatInput(e);}
+};
+var __hasOriginalOnUpdatePlayersList=window.onUpdatePlayersList;
+window.onUpdatePlayersList=function(e){
+try{var hud=window.interface&&window.interface("Hud");
+if(hud&&e&&typeof e.count==="number"){hud.info.online=e.count+1;}
+if(hud&&e&&e.local&&e.local.id!=null){var realId=parseInt(e.local.id,10);if(!isNaN(realId)&&realId!==0&&realId!==hud.info.id){hud.info.id=realId;}}
+}catch(err){console.warn("[HAS] onUpdatePlayersList ошибка",err);}
+if(__hasOriginalOnUpdatePlayersList)return __hasOriginalOnUpdatePlayersList(e);
+};
+setInterval(function(){var hud=window.interface&&window.interface("Hud");if(hud&&hud.__hassleForced&&window.updatePlayerList)window.updatePlayerList();},15000);
+window.setPlayerId=function(id){var hud=window.interface&&window.interface("Hud");if(hud)hud.info.id=parseInt(id)||0;};
+(function __hasAutoInit(){
+var tries=0,maxTries=200;
+var timer=setInterval(function(){
+tries++;var hud=window.interface&&window.interface("Hud");
+if(hud&&__hasIsAllowedNick()){
+clearInterval(timer);console.log("[HAS] автозапуск: HUD найден, ник разрешён");__hasEnsureSettings();__hasInjectChatStyle();
+if(settings.hassleForced!==!1){__hasSetForced(hud,!0,!0);}
+}else if(tries>=maxTries){console.warn("[HAS] автозапуск: не дождались HUD/разрешённого ника");clearInterval(timer);}
+},150);
+})();
+})();
+// === END HASSLE HUD PATCH ===
 // ── ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB ──────────────────
 // Грузим 5 файлов параллельно при старте игры. Локальные загрузчики
 // (assets/MvdMenu.js, zkm.js, AdvMenu.js, ZkmScreenNotification.js)
@@ -91,7 +444,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
