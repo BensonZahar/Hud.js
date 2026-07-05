@@ -225,52 +225,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                   ],64))
                 : createCommentVNode("",true),
 
-            // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: hasslehud — HassleHud (вкл/выкл, дизайн бордера, настройки)
-            // ══════════════════════════════════════════════════════════════════
-            $data.screen==="hasslehud"
-                ? (openBlock(),createElementBlock(Fragment,{key:"hasslehud"},[
-                    createBaseVNode("div",{class:"mvdmenu__list"},[
-                        (openBlock(true),createElementBlock(Fragment,null,
-                            renderList($options.hassleHudMenuItems,(item,i)=>(
-                                openBlock(),createElementBlock("div",{
-                                    key:item.id,
-                                    class:normalizeClass(["mvdmenu__item",{
-                                        "mvdmenu__item_toggle_on": item.toggleOn===true || item.selected===true,
-                                        "mvdmenu__item_toggle_off": item.toggleOn===false,
-                                        "mvdmenu__item_selected": $data.selectedIndex===i,
-                                    }]),
-                                    onClick:$event=>{$data.selectedIndex=i;$options.selectHassleHud(item);}
-                                },[
-                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
-                                    ),
-                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                        toDisplayString(item.label), 1 /* TEXT */
-                                    ),
-                                    item.arrow
-                                        ? createBaseVNode("div",{class:"mvdmenu__item-arrow",innerHTML:SVG_ARROW})
-                                        : createCommentVNode("",true),
-                                    item.toggleOn!==undefined
-                                        ? createBaseVNode("div",{
-                                            class:normalizeClass(["mvdmenu__item-status",
-                                                item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                            ])
-                                          }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
-                                        : item.selected!==undefined
-                                            ? createBaseVNode("div",{
-                                                class:normalizeClass(["mvdmenu__item-status",
-                                                    item.selected?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                                ])
-                                              }, toDisplayString(item.selected?"Выбран":""), 3)
-                                            : createCommentVNode("",true),
-                                ],10,["onClick"])
-                            ))
-                        ,128))
-                    ])
-                  ],64))
-                : createCommentVNode("",true),
-
             // ── Footer: Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
             createBaseVNode("div",{class:"mvdmenu__footer"},[
                 (openBlock(),createBlock(_component_ControlsContaineredButton,{
@@ -321,9 +275,6 @@ const _sfc_main={
             partnerMessage:  (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return !!(s&&s.message);  }catch(e){ return false; } })(),
             partnerNick:     (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return (s&&s.nick)||null;  }catch(e){ return null;  } })(),
             partnerId:       (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return (s&&s.id)||null;    }catch(e){ return null;  } })(),
-            // ── HassleHud (читаем из window сразу, как trackingOn/autocuffOn) ──
-            hassleHudOn:     (typeof window._mvdIsHassleHudOn==="function") ? !!window._mvdIsHassleHudOn() : false,
-            hassleHudBorder: (typeof window._mvdGetHassleHudBorder==="function") ? (window._mvdGetHassleHudBorder()||"default") : "default",
             // ── ID-input ──
             idInputValue:"",
             idInputLabel:"Введите ID игрока",
@@ -339,7 +290,6 @@ const _sfc_main={
             if(this.screen==="main")            return " АХК";
             if(this.screen==="povsednev")       return " ПОВСЕДНЕВНАЯ";
             if(this.screen==="partner")         return " НАПАРНИК";
-            if(this.screen==="hasslehud")       return " HASSLE HUD";
             if(this.screen==="id-input")        return this.idInputContext==="tracking"?" ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?" НАПАРНИК":" ВВОД ID";
             return " АХК";
         },
@@ -359,7 +309,6 @@ const _sfc_main={
                 ? "Напарник: "+this.partnerNick+"["+this.partnerId+"]"
                 : "Напарник";
             items.push({id:"naparnick", label: partnerLabel, arrow:true});
-            items.push({id:"hasslehud", label:"HassleHud", arrow:true});
             items.push({id:"laws", label:"Законы", arrow:true});
             items.push({id:"advokat", label:"Вызов адвоката", arrow:true});
             return items;
@@ -403,23 +352,11 @@ const _sfc_main={
                 }
             ];
         },
-        // ── Список пунктов экрана HassleHud (вкл/выкл, дизайн бордера, настройки) ──
-        hassleHudMenuItems(){
-            const b=this.hassleHudBorder;
-            return [
-                {id:"toggle", label:"HassleHud", toggleOn:this.hassleHudOn},
-                {id:"border_default",   label:"Дизайн: Обычный",   selected:b==="default"},
-                {id:"border_helloween", label:"Дизайн: Хэллоуин",  selected:b==="helloween"},
-                {id:"border_newyear",   label:"Дизайн: Новый год", selected:b==="newyear"},
-                {id:"settings", label:"Настройки", arrow:true},
-            ];
-        },
         // ── Текущий список пунктов для клавиатурной навигации (зависит от экрана) ──
         currentListItems(){
             if(this.screen==="main")      return this.mainMenuItems;
             if(this.screen==="povsednev") return this.filteredOptions;
             if(this.screen==="partner")   return this.partnerMenuItems;
-            if(this.screen==="hasslehud") return this.hassleHudMenuItems;
             return [];
         },
         // ── Футер (Enter/ESC), как в нижней панели Window.js ──────────────────
@@ -478,7 +415,6 @@ const _sfc_main={
             if(this.screen==="main") this.selectMain(item);
             else if(this.screen==="povsednev") this.selectOption(item);
             else if(this.screen==="partner" && typeof this[item.onClick]==="function") this[item.onClick]();
-            else if(this.screen==="hasslehud") this.selectHassleHud(item);
         },
         // ── Кнопка футера Enter: ведёт на confirmIdInput на экране ввода ID,
         // на остальных экранах — на confirmSelected ──────────────────────────
@@ -497,8 +433,6 @@ const _sfc_main={
                 this.screen="main";
                 this.search="";
             } else if(this.screen==="partner"){
-                this.screen="main";
-            } else if(this.screen==="hasslehud"){
                 this.screen="main";
             } else if(this.screen==="main"){
                 this.close();
@@ -533,9 +467,6 @@ const _sfc_main={
             } else if(item.id==="naparnick"){
                 this._syncPartnerState();
                 this.screen="partner";
-            } else if(item.id==="hasslehud"){
-                this._syncHassleHudState();
-                this.screen="hasslehud";
             } else if(item.id==="laws"){
                 window._duranOpenMode="laws";
                 this.close();
@@ -575,26 +506,6 @@ const _sfc_main={
                 try{
                     if(typeof this.$forceUpdate==="function") this.$forceUpdate();
                 }catch(_fuErr){}
-            }
-        },
-        // ── Синхронизация состояния HassleHud из window ───────────────────────
-        _syncHassleHudState(){
-            this.hassleHudOn = (typeof window._mvdIsHassleHudOn==="function") ? !!window._mvdIsHassleHudOn() : false;
-            this.hassleHudBorder = (typeof window._mvdGetHassleHudBorder==="function") ? (window._mvdGetHassleHudBorder()||"default") : "default";
-        },
-        // ── HassleHud — вкл/выкл, дизайн бордера, открыть панель настроек ─────
-        selectHassleHud(item){
-            if(item.id==="toggle"){
-                if(typeof window._mvdToggleHassleHud==="function") this.hassleHudOn=!!window._mvdToggleHassleHud();
-            } else if(item.id==="border_default" || item.id==="border_helloween" || item.id==="border_newyear"){
-                const value=item.id.replace("border_","");
-                this.hassleHudBorder=value;
-                if(typeof window._mvdSetHassleHudBorder==="function") window._mvdSetHassleHudBorder(value);
-            } else if(item.id==="settings"){
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window._mvdOpenHassleHudSettings==="function") window._mvdOpenHassleHudSettings();
-                },80);
             }
         },
         // ── Напарник — переключить слежку ────────────────────────────────────
