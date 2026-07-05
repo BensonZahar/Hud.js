@@ -637,6 +637,10 @@
 	font-weight: 700;
 }
 
+.laws-helper__wanted-stars-value_capped {
+	color: #e25544;
+}
+
 .laws-helper__fine-total {
 	color: #0a9947;
 	font-size: 1.48vh;
@@ -847,4 +851,3 @@
 .laws-helper__fine-revoke_active .laws-helper__fine-revoke-label {
 	color: #e25544;
 }
-
