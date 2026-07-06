@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -2879,8 +2879,8 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 
             // ── Авто-"Да" при смене цели погони: MSGBOX "Подтверждение → хотите окончить погоню за X?" ──
             // Если ник в диалоге НЕ совпадает с текущим trackingNickname → авто-подтверждаем смену
-            if (style === 0 && title.includes('Подтверждение') && info.includes('хотите окончить погоню за')) {
-                const _chaseMsgNickM = info.match(/погоню за ([A-Za-z0-9_]+)/);
+            if (style === 0 && title.includes('Подтверждение') && contentText.includes('хотите окончить погоню за')) {
+                const _chaseMsgNickM = contentText.match(/погоню за ([A-Za-z0-9_]+)/);
                 if (_chaseMsgNickM && currentScanId) {
                     const _chaseMsgNick = _chaseMsgNickM[1];
                     const _isCurrentNick = trackingNickname && _chaseMsgNick === trackingNickname;
@@ -2888,12 +2888,9 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                         console.log(`[CHASE-MSGBOX] ✅ Авто-"Да": диалог для "${_chaseMsgNick}", наш ник="${trackingNickname||'ещё нет'}" (id=${currentScanId}) — подтверждаем`);
                         const _chaseMsgDlgId = dialogId;
                         setTimeout(() => {
-                            _origSendClientEventHandle.call(
-                                window,
-                                (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
-                                    ? window.gm.EVENT_EXECUTE_PUBLIC
-                                    : 'server',
-                                'OnDialogResponse', _chaseMsgDlgId, 1, 0, ''
+                            sendClientEvent(
+                                (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined) ? window.gm.EVENT_EXECUTE_PUBLIC : 0,
+                                'OnDialogResponse', _chaseMsgDlgId, 1, -1, ''
                             );
                             console.log('[CHASE-MSGBOX] "Да" отправлен — старая погоня прекращена');
                         }, 150);
