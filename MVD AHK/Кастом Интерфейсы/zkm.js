@@ -19,6 +19,23 @@ const SVG_CHEVRON=`<svg width="8" height="8" viewBox="0 0 8 8" fill="none" xmlns
 const SVG_DOC=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 1.5h5.5L11 4v8.5a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5z" stroke="rgba(249,183,1,0.6)" stroke-width="1.1" fill="rgba(249,183,1,0.06)"/><path d="M8.5 1.5V4H11" stroke="rgba(249,183,1,0.6)" stroke-width="1.1"/></svg>`;
 const SVG_BOOK_EMPTY=`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 6a2 2 0 0 1 2-2h7v24H7a2 2 0 0 1-2-2V6z" fill="rgba(244,241,225,0.06)" stroke="rgba(244,241,225,0.15)" stroke-width="1.1"/><path d="M27 6a2 2 0 0 0-2-2h-7v24h7a2 2 0 0 0 2-2V6z" fill="rgba(244,241,225,0.06)" stroke="rgba(244,241,225,0.15)" stroke-width="1.1"/><line x1="16" y1="4" x2="16" y2="30" stroke="rgba(244,241,225,0.15)" stroke-width="1.1"/></svg>`;
 
+// ══════════════════════════════════════════════════════════════════
+//  Автоисправление раскладки клавиатуры для поиска (EN → RU)
+//  Если раскладка оказалась английской, а искали на русском — символы,
+//  введённые латиницей, соответствуют русским буквам по позиции на
+//  клавиатуре (ЙЦУКЕН). Конвертируем и ищем совпадение по обоим вариантам.
+// ══════════════════════════════════════════════════════════════════
+const EN_TO_RU_LAYOUT={
+	"`":"ё","q":"й","w":"ц","e":"у","r":"к","t":"е","y":"н","u":"г","i":"ш","o":"щ","p":"з","[":"х","]":"ъ",
+	"a":"ф","s":"ы","d":"в","f":"а","g":"п","h":"р","j":"о","k":"л","l":"д",";":"ж","'":"э",
+	"z":"я","x":"ч","c":"с","v":"м","b":"и","n":"т","m":"ь",",":"б",".":"ю","/":"."
+};
+function fixLayout(str){
+	let out="";
+	for(const ch of str)out+=EN_TO_RU_LAYOUT[ch]!==undefined?EN_TO_RU_LAYOUT[ch]:ch;
+	return out;
+}
+
 function render(_ctx,_cache,$props,$setup,$data,$options){
 	const currentTabKey=$options.visibleTabs[$data.currentTab]?.key;
 	// Граффити-паттерн — вставляется один раз в верхнюю часть окна
@@ -582,10 +599,12 @@ const _sfc_main={
 		filteredArticles(){
 			const q=this.search.trim().toLowerCase();
 			if(!q)return UK_ARTICLES;
+			const qAlt=fixLayout(q);
 			return UK_ARTICLES.filter(a=>
 				a.num.includes(q)||
 				a.title.toLowerCase().includes(q)||
-				(a.note&&a.note.toLowerCase().includes(q))
+				(a.note&&a.note.toLowerCase().includes(q))||
+				(qAlt!==q&&(a.title.toLowerCase().includes(qAlt)||(a.note&&a.note.toLowerCase().includes(qAlt))))
 			);
 		},
 		selectedArticleObjects(){
@@ -608,10 +627,12 @@ const _sfc_main={
 			if(this.fineKoapType!=="all")arts=arts.filter(a=>a.type===this.fineKoapType);
 			const q=this.search.trim().toLowerCase();
 			if(!q)return arts;
+			const qAlt=fixLayout(q);
 			return arts.filter(a=>
 				a.num.includes(q)||
 				a.title.toLowerCase().includes(q)||
-				(a.note&&a.note.toLowerCase().includes(q))
+				(a.note&&a.note.toLowerCase().includes(q))||
+				(qAlt!==q&&(a.title.toLowerCase().includes(qAlt)||(a.note&&a.note.toLowerCase().includes(qAlt))))
 			);
 		},
 		selectedFineArticleObjects(){
@@ -630,15 +651,17 @@ const _sfc_main={
 			let docs=this.lawDocuments;
 			if(this.lawDocType!=="all")docs=docs.filter(d=>d.id===this.lawDocType);
 			if(!q)return docs;
+			const qAlt=fixLayout(q);
+			const matchQ=(text)=>text.includes(q)||(qAlt!==q&&text.includes(qAlt));
 			return docs
 				.map(doc=>{
 					const matchedArticles=doc.articles.filter(a=>{
 						const plainText=a.text?a.text.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').toLowerCase():'';
 						return a.num.toLowerCase().includes(q)||
-						       a.title.toLowerCase().includes(q)||
-						       plainText.includes(q);
+						       matchQ(a.title.toLowerCase())||
+						       matchQ(plainText);
 					});
-					if(doc.title.toLowerCase().includes(q))return doc;
+					if(matchQ(doc.title.toLowerCase()))return doc;
 					if(matchedArticles.length===0)return null;
 					return{...doc,articles:matchedArticles};
 				})
@@ -850,6 +873,9 @@ const _sfc_main={
 		// showInterface → setCursorStatus(true) → setDrawLabelStatus(false) скрыл метки;
 		// восстанавливаем явно, чтобы ники над игроками оставались видны
 		if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
+
+		// Автофокус на поле поиска — можно сразу печатать при открытии окна
+		this.$nextTick(()=>this.focusSearchInput());
 	},
 	unmounted(){
 		window.onKeyUp=this._prevOnKeyUp;
@@ -857,7 +883,16 @@ const _sfc_main={
 		if(s)s.remove()
 	},
 	methods:{
-		selectTab(i){this.currentTab=i;this.search=""},
+		selectTab(i){
+			this.currentTab=i;
+			this.search="";
+			this.$nextTick(()=>this.focusSearchInput());
+		},
+		// Ищем инпут поиска внутри корня компонента и ставим фокус
+		focusSearchInput(){
+			const inp=this.$el?.querySelector?.(".laws-helper__search input");
+			if(inp)inp.focus();
+		},
 		// ── ЗАКОНЫ ──────────────────────────────────────────────────
 		toggleDoc(id){
 			const idx=this.expandedDocs.indexOf(id);
