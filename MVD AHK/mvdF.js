@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1028,11 +1028,7 @@ const setupChatHandler = () => {
                     stopTracking();
                     // Закрываем открытые МВД интерфейсы
                     try { window.closeInterface('MvdMenu'); } catch(e) {}
-                    try {
-                        const _dlg = window.interface && window.interface('Dialog');
-                        if (_dlg && typeof _dlg.close === 'function') _dlg.close();
-                    } catch(e) {}
-                    try { if (typeof window.removeDialogFromQueue === 'function') window.removeDialogFromQueue(); } catch(e) {}
+                    try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                     snAdd('[1, "Погоня", "Игрок не в розыске — погоня отменена", "FF4400", 3000]');
                 }
             }
@@ -2893,6 +2889,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                                 'OnDialogResponse', _chaseMsgDlgId, 1, -1, ''
                             );
                             console.log('[CHASE-MSGBOX] "Да" отправлен — старая погоня прекращена');
+                            try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                         }, 150);
                     } else {
                         console.log(`[CHASE-MSGBOX] Ник совпадает (${_chaseMsgNick}) — не трогаем`);
@@ -2952,17 +2949,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     console.log(`[AUTO-TAKELIC] Причина "${reason}" отправлена`);
                     lastTakeLicCode = null;
                     setTimeout(() => {
-                        try { if (typeof window.removeDialogFromQueue === 'function') window.removeDialogFromQueue(); } catch(e) {}
-                        try { if (typeof window.closeDialog === 'function') window.closeDialog(); } catch(e) {}
-                        try {
-                            const dlgInterface = window.interface && window.interface('Dialog');
-                            if (dlgInterface && typeof dlgInterface.close === 'function') dlgInterface.close();
-                            if (dlgInterface && typeof dlgInterface.hide === 'function') dlgInterface.hide();
-                        } catch(e) {}
-                        try {
-                            const escEvent = new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true });
-                            document.dispatchEvent(escEvent);
-                        } catch(e) {}
+                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                         console.log('[AUTO-TAKELIC] Диалог закрыт');
                     }, 100);
                 }, 300);
@@ -2985,20 +2972,9 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     );
                     console.log(`[AUTO-РОЗЫСК] Причина "${reason}" отправлена`);
                     lastWantedCode = null;
-                    // Закрываем UI диалога несколькими способами
+                    // Закрываем UI диалога
                     setTimeout(() => {
-                        try { if (typeof window.removeDialogFromQueue === 'function') window.removeDialogFromQueue(); } catch(e) {}
-                        try { if (typeof window.closeDialog === 'function') window.closeDialog(); } catch(e) {}
-                        try {
-                            const dlgInterface = window.interface && window.interface('Dialog');
-                            if (dlgInterface && typeof dlgInterface.close === 'function') dlgInterface.close();
-                            if (dlgInterface && typeof dlgInterface.hide === 'function') dlgInterface.hide();
-                        } catch(e) {}
-                        // Эмулируем нажатие ESC для закрытия диалога
-                        try {
-                            const escEvent = new KeyboardEvent('keydown', { key: 'Escape', keyCode: 27, bubbles: true });
-                            document.dispatchEvent(escEvent);
-                        } catch(e) {}
+                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                         console.log('[AUTO-РОЗЫСК] Диалог закрыт');
                     }, 100);
                 }, 300);
