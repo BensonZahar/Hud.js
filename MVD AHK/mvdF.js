@@ -3487,7 +3487,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
   // mvdF при отслеживании штрафов (issuer === ownNick через
   // window.App.$store.getters['player/nickName']) — единый способ во всём
   // моде определить, под каким аккаунтом сейчас зашли.
-  const ALLOWED_NICK = "Zahar_Loidov";
+  const ALLOWED_NICK = "Zahar_Konstov";
 
   function getOwnNick() {
     try {
