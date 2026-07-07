@@ -851,3 +851,25 @@
 .laws-helper__fine-revoke_active .laws-helper__fine-revoke-label {
 	color: #e25544;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+ПОДСВЕТКА СОВПАДЕНИЙ ПОИСКА (highlight)
+Золотой маркер под стиль палитры окна
+══════════════════════════════════════════════════════════════════ */
+.search-hl {
+    background: rgba(249, 183, 1, 0.45);
+    color: #fff;
+    padding: 0.05vh 0.22vh;
+    border-radius: 0.19vh;
+    box-shadow: 0 0 0 0.05vh rgba(249, 183, 1, 0.7);
+    font-weight: 700;
+}
+/* В reader-text — текст и так светлый, делаем фон поярче */
+.laws-helper__reader-text .search-hl {
+    background: rgba(249, 183, 1, 0.55);
+    color: #fff;
+}
+/* В примечаниях (note) — чуть приглушённее */
+.laws-helper__article-note .search-hl {
+    background: rgba(249, 183, 1, 0.35);
+}\
