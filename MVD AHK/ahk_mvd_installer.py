@@ -29,6 +29,39 @@ _ICON_PATH = globals().get("_ICON_PATH", "")
 
 
 # ═══════════════════════════════════════════════════════
+#  SMART GET — умный GET с автоматическим fallback на jsDelivr
+# ═══════════════════════════════════════════════════════
+def smart_get(url, timeout=15):
+    """
+    Делает GET-запрос с автоматическим переключением на jsDelivr,
+    если raw.githubusercontent.com недоступен (TLS-хендшейк, блокировки и т.д.).
+    """
+    fallback_url = url.replace(
+        "https://raw.githubusercontent.com/BensonZahar/Hud.js/main",
+        "https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main"
+    )
+    
+    attempts = [
+        (url, timeout),            # 1-я попытка: основной источник
+        (url, timeout + 10),       # 2-я попытка: даем больше времени на хендшейк
+    ]
+    if fallback_url != url:
+        attempts.append((fallback_url, timeout))  # 3-я попытка: резервный CDN
+        
+    last_exc = None
+    for u, t in attempts:
+        try:
+            resp = requests.get(u, timeout=t)
+            resp.raise_for_status()
+            return resp
+        except Exception as e:
+            last_exc = e
+            time.sleep(1.5)
+            
+    raise last_exc
+
+
+# ═══════════════════════════════════════════════════════
 #  АВТОРИЗАЦИЯ (перенесено из launcher.py)
 # ═══════════════════════════════════════════════════════
 
@@ -50,8 +83,7 @@ def get_hwid() -> str:
 
 
 def is_authorized(hwid: str) -> bool:
-    resp = requests.get(KEYS_URL, timeout=10)
-    resp.raise_for_status()
+    resp = smart_get(KEYS_URL, timeout=10)
     keys = resp.json()
     return hwid in keys
 
@@ -397,8 +429,7 @@ def save_settings(data: dict):
 
 
 def fetch_html() -> str:
-    resp = requests.get(f"{GITHUB_RAW}/index.html", timeout=15)
-    resp.raise_for_status()
+    resp = smart_get(f"{GITHUB_RAW}/index.html", timeout=15)
     html = resp.text
     tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
     tmp.write(html); tmp.close()
@@ -524,8 +555,7 @@ class InstallerAPI:
         import re, json, traceback
         try:
             print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
-            resp = requests.get(INTLOAD_URL, timeout=15)
-            resp.raise_for_status()
+            resp = smart_get(INTLOAD_URL, timeout=15)
             print(f'[Installer] HTTP {resp.status_code}, длина {len(resp.text)} байт')
             text = resp.text
             m = re.search(r'window\._duranCustomInterfaces\s*=\s*(\[)', text)
@@ -606,8 +636,7 @@ class InstallerAPI:
         for filename in all_files:
             url = f"{DEPLOY_UI_URL}/{filename}"
             try:
-                resp = requests.get(url, timeout=20)
-                resp.raise_for_status()
+                resp = smart_get(url, timeout=20)
                 dest = assets_dir / filename
                 dest.write_bytes(resp.content)
                 print(f'[Installer] Скопирован {kind} {filename} -> assets/')
@@ -634,7 +663,7 @@ class InstallerAPI:
                 if not self._check_dirs(): self._notify(False); return
                 ifaces = self._fetch_custom_interfaces()
                 self._deploy_custom_ui_files(ifaces)
-                resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
+                resp = smart_get(AHK_URL, timeout=30)
                 code = resp.text.strip()
                 if not code: self._notify(False); return
                 code = code.replace('\r\n','\n').replace('\r','\n').strip()+'\n'
