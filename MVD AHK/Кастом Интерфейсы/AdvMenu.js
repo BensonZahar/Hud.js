@@ -184,6 +184,7 @@ const _sfc_main={
             timerTotal:300,
             timerInterval:null,
             timerPhase:null,
+            timerEndAt:0,
         };
     },
     computed:{
@@ -248,15 +249,27 @@ const _sfc_main={
             this.timerSeconds=seconds;
             this.timerTotal=seconds;
             this.timerPhase=phase;
+            // Точка отсчёта в реальном времени. Раньше таймер просто вычитал
+            // по 1 каждый "тик" setInterval — если CEF отдавал тики чаще/реже
+            // 1000мс (а он это делает), таймер шёл быстрее/медленнее реального
+            // времени и расходился за 5-10 минут. Теперь остаток всегда
+            // пересчитывается от Date.now(), поэтому дрейф setInterval ни на
+            // что не влияет — так же, как уже сделано в toast'е при close().
+            this.timerEndAt=Date.now()+seconds*1000;
             this._createToast();
             // Ждём следующего тика чтобы Vue успел отрендерить элемент с id
             setTimeout(()=>this._updateTimerDOM(),30);
             this.timerInterval=setInterval(()=>{
-                if(this.timerSeconds>0){
-                    this.timerSeconds--;
-                    this._updateTimerDOM();  // DOM напрямую
-                    this._updateToast();
+                const rem=Math.max(0,Math.ceil((this.timerEndAt-Date.now())/1000));
+                if(rem>0){
+                    if(rem!==this.timerSeconds){
+                        this.timerSeconds=rem;
+                        this._updateTimerDOM();  // DOM напрямую
+                        this._updateToast();
+                    }
                 }else{
+                    this.timerSeconds=0;
+                    this._updateTimerDOM();
                     this._clearTimer();
                     this.timerPhase=null;
                     this._removeToast();
@@ -264,7 +277,7 @@ const _sfc_main={
                     else if(phase==="arrival")   this.screen="done_not_arrived";
                     else if(phase==="consultation")this.screen="done_complete";
                 }
-            },1000);
+            },250);
         },
         _clearTimer(){
             if(this.timerInterval){clearInterval(this.timerInterval);this.timerInterval=null;}
