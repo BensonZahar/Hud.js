@@ -3107,6 +3107,26 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return null;
     }
 
+    // Проверка только пояса (INV) — рюкзак (BACK) и разгрузка (ACC) не учитываются.
+    // Нужна для аптечки: даже если она уже лежит в рюкзаке про запас, авто-снаряжение
+    // всё равно должно донести ещё одну на пояс.
+    function findItemInInv(itemId) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) return null;
+            const c = inv.items[CT.INV];
+            if (!c) return null;
+            for (const [slot, item] of Object.entries(c)) {
+                if (item?.id === itemId) {
+                    console.log(`[GRAB] findItemInInv(id=${itemId}): найден в INV slot${slot} x${item.count||1}`);
+                    return { cid: CT.INV, slot: parseInt(slot), count: item.count || 1 };
+                }
+            }
+        } catch(e) {}
+        console.log(`[GRAB] findItemInInv(id=${itemId}): НЕ НАЙДЕН (в поясе)`);
+        return null;
+    }
+
     function countItem(itemId) {
         try {
             const inv = window.interface("InventoryNew");
@@ -3192,7 +3212,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             console.log(`[GRAB] skipList:`, skipList);
 
             const has = {
-                medkit:      skip('medkit')      ? 999 : (findItem(ITEM.MEDKIT)      ? 1 : 0),
+                medkit:      skip('medkit')      ? 999 : (findItemInInv(ITEM.MEDKIT)  ? 1 : 0),
                 baton:       skip('baton')       ? 1   : (findItem(ITEM.BATON)       ? 1 : 0),
                 vest:        skip('vest') ? 100 : armourVal,
                 deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
