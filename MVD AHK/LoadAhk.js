@@ -105,7 +105,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
             // перезаписываем их сразу после eval.
-            eval(scriptText);
+            (0, eval)(scriptText); // Или window.eval(scriptText);
             // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
             // Вызывается mvdF при action === 'wantedFine'.
             // Открываем LawsHelper в режиме 'wanted' — только таб РОЗЫСК.
