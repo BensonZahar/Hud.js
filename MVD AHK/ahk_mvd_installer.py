@@ -285,7 +285,7 @@ function copyKeys(){{
   if(navigator.clipboard){{
     navigator.clipboard.writeText(_txt);
     var b=document.getElementById('badge');
-    b.textContent='скопировано \u2713';b.style.color='#3dba7a';
+    b.textContent='скопировано \\u2713';b.style.color='#3dba7a';
     setTimeout(function(){{b.textContent='нажмите чтобы скопировать';b.style.color='';}},2000);
   }}
 }}
@@ -628,19 +628,41 @@ class InstallerAPI:
         return {"ok": True, "path": str(self.radmir_path)}
 
     def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None):
+        result_event = threading.Event()
+        result_data = {"ok": False, "message": "Неизвестная ошибка"}
+
         def run():
             import traceback, sys
             try:
-                if not self._check_dirs(): self._notify(False); return
+                if not self._check_dirs():
+                    result_data["message"] = "Папка RADMIR CRMP не выбрана или некорректна."
+                    return
                 ifaces = self._fetch_custom_interfaces()
                 self._deploy_custom_ui_files(ifaces)
-                resp = requests.get(AHK_URL, timeout=30); resp.raise_for_status()
-                code = resp.text.strip()
-                if not code: self._notify(False); return
+                
+                code = None
+                for attempt in range(3):
+                    try:
+                        resp = requests.get(AHK_URL, timeout=15)
+                        resp.raise_for_status()
+                        code = resp.text.strip()
+                        break
+                    except Exception as e:
+                        if attempt == 2:
+                            raise Exception("Не удалось загрузить данные. Проверьте интернет-соединение.")
+                        time.sleep(2)
+                        
+                if not code:
+                    result_data["message"] = "Загруженные данные пусты."
+                    return
                 code = code.replace('\r\n','\n').replace('\r','\n').strip()+'\n'
-            except Exception:
+            except Exception as e:
+                result_data["message"] = str(e)
                 traceback.print_exc(file=sys.stdout)
-                self._notify(False); return
+                result_event.set()
+                self._notify(False)
+                return
+
             code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
             code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
             code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
@@ -710,12 +732,23 @@ class InstallerAPI:
                 obf = self._obfuscate(code)
                 idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
                 if not idx.exists():
-                    self._notify(False); return
-                with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
-                idx_content = self._remove_markers(idx_content)
-                new_text = (idx_content + InstallerAPI._MARK_S + "\n" + interfaces_block + "\n" + obf + "\n" + InstallerAPI._MARK_E + "\n")
-                new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
-                with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
+                    result_data["message"] = "Файл Index.js не найден в папке игры."
+                    result_event.set()
+                    self._notify(False)
+                    return
+                
+                try:
+                    with open(idx,'r',encoding='utf-8') as f: idx_content = f.read()
+                    idx_content = self._remove_markers(idx_content)
+                    new_text = (idx_content + InstallerAPI._MARK_S + "\n" + interfaces_block + "\n" + obf + "\n" + InstallerAPI._MARK_E + "\n")
+                    new_text = new_text.replace('\r\n','\n').replace('\r','\n').rstrip()+'\n'
+                    with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(new_text)
+                except PermissionError:
+                    result_data["message"] = "Файл Index.js заблокирован! Закройте игру (RADMIR CRMP) и повторите попытку."
+                    result_event.set()
+                    self._notify(False)
+                    return
+
                 self._set_status("st-code","Установлен","cr-val ok")
                 current = load_settings()
                 save_settings({
@@ -735,25 +768,67 @@ class InstallerAPI:
                     'menu_binds': binds_dict,
                     'menu_order': order_list,
                 })
+                result_data["ok"] = True
+                result_data["message"] = "Код успешно установлен!"
                 self._notify(True)
-            except Exception:
+            except Exception as e:
+                result_data["message"] = f"Ошибка записи: {e}"
                 traceback.print_exc(file=sys.stdout)
-                self._notify(False)
+            finally:
+                result_event.set()
+
         threading.Thread(target=run, daemon=True).start()
-        return {"ok": True}
+        result_event.wait(timeout=60)
+        
+        if not result_data["ok"]:
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(0, result_data["message"], "AHK MVD Installer - Ошибка", 0x10 | 0x40000)
+            except Exception:
+                pass
+                
+        return result_data
 
     def remove_code(self):
+        result_event = threading.Event()
+        result_data = {"ok": False, "message": "Ошибка удаления"}
+
         def run():
-            if not self._check_dirs(): self._notify(False); return
-            idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
-            if not idx.exists(): self._notify(False); return
-            with open(idx,'r',encoding='utf-8') as f: content = f.read()
-            content = self._remove_markers(content)
-            with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(content)
-            self._set_status("st-code","Не установлен","cr-val muted")
-            self._notify(True)
+            try:
+                if not self._check_dirs():
+                    result_data["message"] = "Папка не выбрана"
+                    return
+                idx = self.radmir_path/"uiresources"/"assets"/"Index.js"
+                if not idx.exists():
+                    result_data["message"] = "Файл не найден"
+                    return
+                try:
+                    with open(idx,'r',encoding='utf-8') as f: content = f.read()
+                    content = self._remove_markers(content)
+                    with open(idx,'w',encoding='utf-8',newline='\n') as f: f.write(content)
+                except PermissionError:
+                    result_data["message"] = "Файл заблокирован игрой! Закройте игру."
+                    return
+                self._set_status("st-code","Не установлен","cr-val muted")
+                result_data["ok"] = True
+                result_data["message"] = "Код успешно удален"
+                self._notify(True)
+            except Exception as e:
+                result_data["message"] = str(e)
+            finally:
+                result_event.set()
+
         threading.Thread(target=run, daemon=True).start()
-        return {"ok": True}
+        result_event.wait(timeout=30)
+        
+        if not result_data["ok"]:
+            try:
+                import ctypes
+                ctypes.windll.user32.MessageBoxW(0, result_data["message"], "AHK MVD Installer - Ошибка", 0x10 | 0x40000)
+            except Exception:
+                pass
+                
+        return result_data
 
     def close_app(self):
         if self._window: self._window.destroy()
