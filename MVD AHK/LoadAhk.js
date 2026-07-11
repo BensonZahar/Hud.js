@@ -340,4 +340,3 @@ verifyAndLoad();
 
     console.log('[SWAP-KEY] Хоткей зарегистрирован: ' + SWAP_KEY);
 })();
-})();
