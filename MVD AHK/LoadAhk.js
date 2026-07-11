@@ -1,4 +1,3 @@
-(function() {
 const RANK = "";
 const FIRST_NAME = "";
 const LAST_NAME = "";
