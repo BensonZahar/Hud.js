@@ -36,6 +36,49 @@ function fixLayout(str){
 	return out;
 }
 
+// ══════════════════════════════════════════════════════════════════
+//  Точный поиск по номеру статьи ("1.5" не должно находить "11.5")
+//  Если запрос выглядит как номер статьи (цифры и точки) — ищем
+//  либо точное совпадение, либо "родственные" номера (1 → 1.1, 1.2…),
+//  но не подстроку где попало.
+// ══════════════════════════════════════════════════════════════════
+function isNumericQuery(q){
+	return /^[0-9]+(\.[0-9]+)*$/.test(q);
+}
+function numMatch(num,q){
+	return num===q||num.startsWith(q+".");
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  Разбор текста главы на отдельные статьи/пункты — чтобы при точном
+//  поиске номера ("1.5") показывать только её, а не всю главу целиком.
+//  Поддерживает 2 формата нумерации, встречающиеся в LAW_DOCUMENTS:
+//   1) "<span...><b>Статья X.Y</b></span> - ..." (КоАП, УК)
+//   2) "<b>X.Y</b> ..." без слова "Статья" (ЕУСС, пункты устава)
+//  Если в тексте главы нет ни одного из форматов — возвращает [].
+// ══════════════════════════════════════════════════════════════════
+const STATYA_START_RE=/<span style="color:#00b300"><b>Статья ([0-9]+(?:\.[0-9]+)*)<\/b><\/span>/g;
+const PUNKT_START_RE=/<b>([0-9]+(?:\.[0-9]+)+)<\/b>/g;
+function parseSubArticles(text){
+	if(!text)return[];
+	let matches=[...text.matchAll(STATYA_START_RE)];
+	if(matches.length===0)matches=[...text.matchAll(PUNKT_START_RE)];
+	if(matches.length===0)return[];
+	const result=[];
+	for(let i=0;i<matches.length;i++){
+		const num=matches[i][1];
+		const start=matches[i].index;
+		const end=i+1<matches.length?matches[i+1].index:text.length;
+		const html=text.slice(start,end).trim().replace(/\n+$/,"");
+		let plain=html.replace(/<[^>]+>/g,"").trim();
+		plain=plain.replace(/^Статья\s*[0-9.]+\s*-\s*/,"").replace(/^[0-9.]+\s*/,"");
+		let title=plain.split(/\n|\|/)[0].trim();
+		if(title.length>90)title=title.slice(0,87)+"…";
+		result.push({num,title,html});
+	}
+	return result;
+}
+
 function render(_ctx,_cache,$props,$setup,$data,$options){
 	const currentTabKey=$options.visibleTabs[$data.currentTab]?.key;
 	// Граффити-паттерн — вставляется один раз в верхнюю часть окна
@@ -600,8 +643,9 @@ const _sfc_main={
 			const q=this.search.trim().toLowerCase();
 			if(!q)return UK_ARTICLES;
 			const qAlt=fixLayout(q);
+			const isNum=isNumericQuery(q);
 			return UK_ARTICLES.filter(a=>
-				a.num.includes(q)||
+				(isNum?numMatch(a.num,q):a.num.includes(q))||
 				a.title.toLowerCase().includes(q)||
 				(a.note&&a.note.toLowerCase().includes(q))||
 				(qAlt!==q&&(a.title.toLowerCase().includes(qAlt)||(a.note&&a.note.toLowerCase().includes(qAlt))))
@@ -628,8 +672,9 @@ const _sfc_main={
 			const q=this.search.trim().toLowerCase();
 			if(!q)return arts;
 			const qAlt=fixLayout(q);
+			const isNum=isNumericQuery(q);
 			return arts.filter(a=>
-				a.num.includes(q)||
+				(isNum?numMatch(a.num,q):a.num.includes(q))||
 				a.title.toLowerCase().includes(q)||
 				(a.note&&a.note.toLowerCase().includes(q))||
 				(qAlt!==q&&(a.title.toLowerCase().includes(qAlt)||(a.note&&a.note.toLowerCase().includes(qAlt))))
@@ -653,22 +698,59 @@ const _sfc_main={
 			if(!q)return docs;
 			const qAlt=fixLayout(q);
 			const matchQ=(text)=>text.includes(q)||(qAlt!==q&&text.includes(qAlt));
+			const isNum=isNumericQuery(q);
 			return docs
 				.map(doc=>{
-					const matchedArticles=doc.articles.filter(a=>{
+					const resultArticles=[];
+					for(const a of doc.articles){
+						const subArts=parseSubArticles(a.text);
+						if(isNum){
+							// ── Точный поиск номера статьи внутри главы (1.5 → только 1.5, не вся глава) ──
+							const exact=subArts.filter(s=>s.num===q);
+							if(exact.length){
+								for(const s of exact)resultArticles.push({id:a.id+"__"+s.num,num:s.num,title:s.title,text:s.html});
+								continue;
+							}
+						} else if(subArts.length){
+							// ── Текстовый поиск: показываем только те статьи главы, где реально
+							//    встретилось совпадение — а не всю главу целиком ──
+							const found=subArts.filter(s=>{
+								const subPlain=s.html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').toLowerCase();
+								return matchQ(s.title.toLowerCase())||matchQ(subPlain);
+							});
+							if(found.length){
+								for(const s of found)resultArticles.push({id:a.id+"__"+s.num,num:s.num,title:s.title,text:s.html});
+								continue;
+							}
+						}
+						// ── Запасной вариант: глава без разбивки на статьи, либо совпадение
+						//    только в общей части главы (номер/заголовок/примечания) ──
 						const plainText=a.text?a.text.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').toLowerCase():'';
-						return a.num.toLowerCase().includes(q)||
-						       matchQ(a.title.toLowerCase())||
-						       matchQ(plainText);
-					});
-					if(matchQ(doc.title.toLowerCase()))return doc;
-					if(matchedArticles.length===0)return null;
-					return{...doc,articles:matchedArticles};
+						const numMatched=isNum?numMatch(a.num.toLowerCase(),q):a.num.toLowerCase().includes(q);
+						if(numMatched||matchQ(a.title.toLowerCase())||matchQ(plainText))resultArticles.push(a);
+					}
+					if(resultArticles.length===0&&matchQ(doc.title.toLowerCase()))return doc;
+					if(resultArticles.length===0)return null;
+					return{...doc,articles:resultArticles};
 				})
 				.filter(Boolean);
 		},
 		selectedLawArticle(){
 			if(!this.selectedLawArticleId)return null;
+			const sepIdx=this.selectedLawArticleId.indexOf("__");
+			if(sepIdx!==-1){
+				// Синтетический id отдельной статьи, извлечённой из главы (см. parseSubArticles)
+				const baseId=this.selectedLawArticleId.slice(0,sepIdx);
+				const subNum=this.selectedLawArticleId.slice(sepIdx+2);
+				for(const doc of this.lawDocuments){
+					const found=doc.articles.find(a=>a.id===baseId);
+					if(found){
+						const sub=parseSubArticles(found.text).find(s=>s.num===subNum);
+						if(sub)return{id:this.selectedLawArticleId,num:sub.num,title:sub.title,text:sub.html,docTitle:doc.title};
+					}
+				}
+				return null;
+			}
 			for(const doc of this.lawDocuments){
 				const found=doc.articles.find(a=>a.id===this.selectedLawArticleId);
 				if(found)return{...found,docTitle:doc.title};
