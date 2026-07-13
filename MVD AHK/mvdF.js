@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.111 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4007,91 +4007,119 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 /* ============================================================
    [ZK-INTERFACE-VIEWER END]
    ============================================================ */
-// ==================== MVD-MONITOR: МОНИТОРИНГ ЗВАНИЯ И ОРГАНИЗАЦИИ ====================
-// Перехватывает updateMainStats и логирует изменения в консоль (F12 и внутриигровую)
-// Работает даже когда меню MainMenu не открыто
-(function hookMainMenuStats() {
-    let hooked = false;
-    let lastLoggedOrg = "";
-    let lastLoggedJobs = "";
-
-    function logStats(payload) {
+// ==================== MVD-MONITOR: ЗВАНИЕ И ОРГАНИЗАЦИЯ ====================
+(function() {
+    // Глобальные переменные для хранения данных
+    window._mvdPlayerRank = null;
+    window._mvdPlayerRankId = null;
+    window._mvdPlayerOrg = null;
+    window._mvdPlayerJobs = [];
+    
+    // Функция для логирования в консоль
+    function logPlayerStats() {
+        console.log(`%c[MVD-MONITOR] 📊 Статистика игрока:`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
+        console.log(`%c🏢 Организация: %c${window._mvdPlayerOrg || 'Не состоит'}`, 'color: #AAAAAA; font-weight: bold;', 'color: #00AAFF; font-weight: bold;');
+        console.log(`%c⭐ Звание: %c${window._mvdPlayerRank || 'Нет'} %c(ID: ${window._mvdPlayerRankId || 'N/A'})`, 'color: #AAAAAA; font-weight: bold;', 'color: #FFD700; font-weight: bold;', 'color: #888888;');
+        
+        if (window._mvdPlayerJobs && window._mvdPlayerJobs.length > 0) {
+            console.log(`%c💼 Должности:`, 'color: #AAAAAA; font-weight: bold;');
+            window._mvdPlayerJobs.forEach(job => {
+                console.log(`  %c- ${job.title} %c(Уровень: ${job.lvl})`, 'color: #FFA500; font-weight: bold;', 'color: #888888;');
+            });
+        } else {
+            console.log(`%c💼 Должности: %cНет`, 'color: #AAAAAA; font-weight: bold;', 'color: #FF4444;');
+        }
+        console.log(`%c─────────────────────────────────────────────────`, 'color: #333333;');
+    }
+    
+    // Функция для обработки данных статистики
+    function processStatsData(payload) {
         if (!Array.isArray(payload) || payload.length < 11) return;
         
-        // Индексы из деструктуризации в updateMainStats: let [t,s,r,a,i,l,_,E,u,p,m,T,k]=e;
-        const orgData = payload[9];  // p: [rangId, rangName, orgTitle]
-        const jobsData = payload[10]; // m: [[id, title, icon, lvl, withoutGeo], ...]
+        const orgData = payload[9];  // [rangId, rangName, orgTitle]
+        const jobsData = payload[10]; // [[id, title, icon, lvl, withoutGeo], ...]
         
         if (Array.isArray(orgData) && orgData.length >= 3) {
             const [rangId, rangName, orgTitle] = orgData;
-            const currentOrgStr = `${orgTitle}|${rangName}|${rangId}`;
-            
-            let currentJobsStr = "";
-            if (Array.isArray(jobsData)) {
-                currentJobsStr = jobsData.map(j => `${j[1]}:${j[3]}`).join(",");
-            }
-            
-            // Логируем только если данные изменились
-            if (currentOrgStr !== lastLoggedOrg || currentJobsStr !== lastLoggedJobs) {
-                // Форматируем для корректного отображения в Console.js
-                const jobsFormatted = Array.isArray(jobsData) && jobsData.length > 0
-                    ? jobsData.map(j => `${j[1]} (Ур. ${j[3]})`).join(", ")
-                    : "Нет";
-                
-                console.log(`[MVD-MONITOR] 📡 Сервер обновил статистику игрока!`);
-                console.log(`[MVD-MONITOR] 🏢 Организация: ${orgTitle}`);
-                console.log(`[MVD-MONITOR] ⭐ Звание: ${rangName} (ID: ${rangId})`);
-                console.log(`[MVD-MONITOR] 💼 Должности: ${jobsFormatted}`);
-                console.log(`[MVD-MONITOR] ─────────────────────────────────────────`);
-                
-                lastLoggedOrg = currentOrgStr;
-                lastLoggedJobs = currentJobsStr;
-            }
+            window._mvdPlayerRankId = rangId;
+            window._mvdPlayerRank = rangName;
+            window._mvdPlayerOrg = orgTitle;
+        }
+        
+        if (Array.isArray(jobsData)) {
+            window._mvdPlayerJobs = jobsData.map(j => ({
+                id: j[0],
+                title: j[1],
+                icon: j[2],
+                lvl: j[3],
+                withoutGeo: j[4]
+            }));
         }
     }
-
-    function tryHook() {
+    
+    // 1. Перехват window.updateParams
+    if (typeof window.updateParams === 'function') {
+        const origUpdateParams = window.updateParams;
+        window.updateParams = function(interfaceName, paramsJson) {
+            if (interfaceName === "MainMenu" && paramsJson) {
+                try {
+                    const parsed = JSON.parse(paramsJson);
+                    // parsed[0] = eventType (0 = UPDATE_MAIN_STATS)
+                    // parsed[1] = payload
+                    if (Array.isArray(parsed) && parsed[0] === 0 && Array.isArray(parsed[1])) {
+                        processStatsData(parsed[1]);
+                    }
+                } catch(e) {}
+            }
+            return origUpdateParams.apply(this, arguments);
+        };
+        console.log('[MVD-MONITOR] ✅ Перехват updateParams установлен');
+    }
+    
+    // 2. Перехват updateMainStats на уровне миксина
+    let hooked = false;
+    function hookMainMenu() {
         if (hooked) return;
         
-        // Ищем компонент MainMenu
         const MainMenuComponent = window.component && window.component("MainMenu");
         if (!MainMenuComponent || !MainMenuComponent.mixins) return;
-
-        // Находим миксин с методом updateMainStats
+        
         for (const mixin of MainMenuComponent.mixins) {
             if (mixin.methods && typeof mixin.methods.updateMainStats === 'function') {
                 const originalUpdate = mixin.methods.updateMainStats;
-                
-                // Перехватываем метод
                 mixin.methods.updateMainStats = function(payload) {
-                    // Сначала вызываем оригинальный метод
                     const result = originalUpdate.apply(this, arguments);
-                    
-                    // Затем логируем данные
-                    logStats(payload);
-                    
+                    processStatsData(payload);
                     return result;
                 };
                 
                 hooked = true;
-                console.log('[MVD-MONITOR] ✅ Мониторинг активирован! Изменения звания/организации будут логироваться в консоль.');
+                console.log('[MVD-MONITOR] ✅ Перехват updateMainStats установлен');
                 break;
             }
         }
     }
-
-    // Пытаемся перехватить сразу
-    tryHook();
     
-    // Если не удалось - повторяем попытки (компонент может загрузиться позже)
+    hookMainMenu();
     if (!hooked) {
         const interval = setInterval(() => {
-            tryHook();
+            hookMainMenu();
             if (hooked) clearInterval(interval);
         }, 1000);
-        
-        // Останавливаем попытки через 15 секунд
         setTimeout(() => clearInterval(interval), 15000);
     }
+    
+    // 3. Команда /raa
+    const origSendChatInput = window.sendChatInput;
+    window.sendChatInput = function(command) {
+        if (command && command.trim().toLowerCase() === '/raa') {
+            logPlayerStats();
+            return; // Не отправляем команду на сервер
+        }
+        return origSendChatInput.apply(this, arguments);
+    };
+    
+    console.log('[MVD-MONITOR] ✅ Команда /raa зарегистрирована');
+    console.log('[MVD-MONITOR] Используйте /raa для вывода статистики в консоль');
 })();
 // ==================== END MVD-MONITOR ====================
