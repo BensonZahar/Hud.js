@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4008,3 +4008,90 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
    [ZK-INTERFACE-VIEWER END]
    ============================================================ */
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
+// ==================== МОНИТОРИНГ ЗВАНИЯ, ОРГАНИЗАЦИИ И ДОЛЖНОСТЕЙ ====================
+// Перехватываем метод updateMainStats компонента MainMenu, чтобы логировать 
+// любые изменения профиля (повышение, смена организации, новые работы) прямо в консоль.
+(function hookMainMenuStats() {
+    let hooked = false;
+    let lastLoggedOrg = "";
+    let lastLoggedJobs = "";
+
+    // Функция поиска экземпляра MainMenu
+    function getMainMenuInstance() {
+        try {
+            // В движке RadMir/аналогах интерфейс главного меню обычно называется "MainMenu"
+            let menu = window.interface("MainMenu");
+            if (!menu || typeof menu.updateMainStats !== 'function') {
+                // На случай, если интерфейс зарегистрирован как "Menu" (хотя это чаще экран паузы)
+                menu = window.interface("Menu"); 
+            }
+            return menu;
+        } catch(e) {
+            return null;
+        }
+    }
+
+    // Пытаемся перехватить метод, как только MainMenu инициализируется
+    const tryHookInterval = setInterval(() => {
+        if (hooked) {
+            clearInterval(tryHookInterval);
+            return;
+        }
+
+        const menu = getMainMenuInstance();
+        if (menu && typeof menu.updateMainStats === 'function') {
+            const originalUpdate = menu.updateMainStats;
+
+            // Перезаписываем метод своим "оберткой"
+            menu.updateMainStats = function(payload) {
+                // 1. Вызываем оригинальный метод, чтобы игра корректно обновила данные
+                const result = originalUpdate.apply(this, arguments);
+                
+                // 2. Забираем актуальные данные из this.statistics
+                const stats = this.statistics;
+                if (!stats || !stats.organization) return result;
+
+                const org = stats.organization;
+                const jobs = stats.jobs || [];
+                
+                // 3. Формируем строки для проверки (чтобы не спамить в консоль, если данные не изменились)
+                const currentOrgStr = `${org.title}|${org.rangName}|${org.rang}`;
+                const currentJobsStr = jobs.map(j => `${j.title}:${j.lvl}`).join(",");
+
+                // 4. Если данные изменились - выводим красивый лог
+                if (currentOrgStr !== lastLoggedOrg || currentJobsStr !== lastLoggedJobs) {
+                    console.log(`%c[MVD-MONITOR] 📡 Сервер обновил статистику игрока!`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                    console.log(`%c🏢 Организация: %c${org.title}`, 'color: #AAAAAA; font-weight: bold;', 'color: #00AAFF; font-weight: bold;');
+                    console.log(`%c⭐ Звание: %c${org.rangName} %c(ID: ${org.rang})`, 'color: #AAAAAA; font-weight: bold;', 'color: #FFD700; font-weight: bold;', 'color: #888888;');
+                    
+                    if (jobs.length > 0) {
+                        const jobsFormatted = jobs.map(j => `%c${j.title} (Ур. ${j.lvl})`).join('%c, ');
+                        const colors = jobs.flatMap(() => ['color: #FFA500; font-weight: bold;', 'color: #AAAAAA;']);
+                        console.log(`%c💼 Должности:`, 'color: #AAAAAA; font-weight: bold;', jobsFormatted, ...colors);
+                    } else {
+                        console.log(`%c💼 Должности: %cНет`, 'color: #AAAAAA; font-weight: bold;', 'color: #FF4444;');
+                    }
+                    
+                    console.log(`%c─────────────────────────────────────────────────`, 'color: #333333;');
+
+                    // Сохраняем состояние
+                    lastLoggedOrg = currentOrgStr;
+                    lastLoggedJobs = currentJobsStr;
+                }
+                
+                return result;
+            };
+
+            hooked = true;
+            clearInterval(tryHookInterval);
+            console.log('%c[MVD-MONITOR] ✅ Успешно перехвачен метод updateMainStats. Мониторинг звания и организации активирован!', 'color: #00FF00; font-weight: bold;');
+            
+            // Сразу логируем текущее состояние, если оно уже есть
+            if (menu.statistics && menu.statistics.organization) {
+                 const org = menu.statistics.organization;
+                 console.log(`%c[MVD-MONITOR] 📌 Текущее состояние при старте: ${org.title} | ${org.rangName}`, 'color: #00AAFF;');
+            }
+        }
+    }, 1000); // Проверяем наличие MainMenu каждую секунду
+})();
+// ==================== END МОНИТОРИНГ ====================
