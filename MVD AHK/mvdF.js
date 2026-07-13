@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4007,10 +4007,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 /* ============================================================
    [ZK-INTERFACE-VIEWER END]
    ============================================================ */
-// ==================== MVD-MONITOR: GLOBAL HOOK (FIXED) ====================
-// Перехватываем window.updateParams до того, как движок отбросит данные 
-// из-за закрытого меню. Исправлена ошибка индекса (parsed[1] вместо parsed[2]).
-(function hookMainMenuStatsGlobally() {
+// ==================== MVD-MONITOR: МОНИТОРИНГ ЗВАНИЯ И ОРГАНИЗАЦИИ ====================
+// Перехватывает updateMainStats и логирует изменения в консоль (F12 и внутриигровую)
+// Работает даже когда меню MainMenu не открыто
+(function hookMainMenuStats() {
     let hooked = false;
     let lastLoggedOrg = "";
     let lastLoggedJobs = "";
@@ -4018,7 +4018,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     function logStats(payload) {
         if (!Array.isArray(payload) || payload.length < 11) return;
         
-        // Индексы взяты из деструктуризации в updateMainStats: let [t,s,r,a,i,l,_,E,u,p,m,T,k]=e;
+        // Индексы из деструктуризации в updateMainStats: let [t,s,r,a,i,l,_,E,u,p,m,T,k]=e;
         const orgData = payload[9];  // p: [rangId, rangName, orgTitle]
         const jobsData = payload[10]; // m: [[id, title, icon, lvl, withoutGeo], ...]
         
@@ -4031,20 +4031,18 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 currentJobsStr = jobsData.map(j => `${j[1]}:${j[3]}`).join(",");
             }
             
-            // Логируем только если данные реально изменились
+            // Логируем только если данные изменились
             if (currentOrgStr !== lastLoggedOrg || currentJobsStr !== lastLoggedJobs) {
-                console.log(`%c[MVD-MONITOR] 📡 Сервер обновил статистику игрока!`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
-                console.log(`%c🏢 Организация: %c${orgTitle}`, 'color: #AAAAAA; font-weight: bold;', 'color: #00AAFF; font-weight: bold;');
-                console.log(`%c⭐ Звание: %c${rangName} %c(ID: ${rangId})`, 'color: #AAAAAA; font-weight: bold;', 'color: #FFD700; font-weight: bold;', 'color: #888888;');
+                // Форматируем для корректного отображения в Console.js
+                const jobsFormatted = Array.isArray(jobsData) && jobsData.length > 0
+                    ? jobsData.map(j => `${j[1]} (Ур. ${j[3]})`).join(", ")
+                    : "Нет";
                 
-                if (Array.isArray(jobsData) && jobsData.length > 0) {
-                    const jobsFormatted = jobsData.map(j => `%c${j[1]} (Ур. ${j[3]})`).join('%c, ');
-                    const colors = jobsData.flatMap(() => ['color: #FFA500; font-weight: bold;', 'color: #AAAAAA;']);
-                    console.log(`%c💼 Должности:`, 'color: #AAAAAA; font-weight: bold;', jobsFormatted, ...colors);
-                } else {
-                    console.log(`%c💼 Должности: %cНет`, 'color: #AAAAAA; font-weight: bold;', 'color: #FF4444;');
-                }
-                console.log(`%c─────────────────────────────────────────────────`, 'color: #333333;');
+                console.log(`[MVD-MONITOR] 📡 Сервер обновил статистику игрока!`);
+                console.log(`[MVD-MONITOR] 🏢 Организация: ${orgTitle}`);
+                console.log(`[MVD-MONITOR] ⭐ Звание: ${rangName} (ID: ${rangId})`);
+                console.log(`[MVD-MONITOR] 💼 Должности: ${jobsFormatted}`);
+                console.log(`[MVD-MONITOR] ─────────────────────────────────────────`);
                 
                 lastLoggedOrg = currentOrgStr;
                 lastLoggedJobs = currentJobsStr;
@@ -4054,35 +4052,45 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
     function tryHook() {
         if (hooked) return;
-        if (typeof window.updateParams !== 'function') return;
-
-        const origUpdateParams = window.updateParams;
-        window.updateParams = function(interfaceName, paramsJson) {
-            if (interfaceName === "MainMenu" && paramsJson) {
-                try {
-                    const parsed = JSON.parse(paramsJson);
-                    // parsed[0] = eventType (0 = UPDATE_MAIN_STATS)
-                    // parsed[1] = payload (массив данных для updateMainStats)
-                    if (Array.isArray(parsed) && parsed[0] === 0 && Array.isArray(parsed[1])) {
-                        logStats(parsed[1]); // ИСПРАВЛЕНО: раньше было parsed[2]
-                    }
-                } catch(e) {}
-            }
-            // Передаем дальше в оригинальную функцию (она сама решит, отображать меню или отбросить)
-            return origUpdateParams.apply(this, arguments);
-        };
         
-        hooked = true;
-        console.log('%c[MVD-MONITOR] ✅ Успешно перехвачен window.updateParams. Мониторинг активен!', 'color: #00FF00; font-weight: bold;');
+        // Ищем компонент MainMenu
+        const MainMenuComponent = window.component && window.component("MainMenu");
+        if (!MainMenuComponent || !MainMenuComponent.mixins) return;
+
+        // Находим миксин с методом updateMainStats
+        for (const mixin of MainMenuComponent.mixins) {
+            if (mixin.methods && typeof mixin.methods.updateMainStats === 'function') {
+                const originalUpdate = mixin.methods.updateMainStats;
+                
+                // Перехватываем метод
+                mixin.methods.updateMainStats = function(payload) {
+                    // Сначала вызываем оригинальный метод
+                    const result = originalUpdate.apply(this, arguments);
+                    
+                    // Затем логируем данные
+                    logStats(payload);
+                    
+                    return result;
+                };
+                
+                hooked = true;
+                console.log('[MVD-MONITOR] ✅ Мониторинг активирован! Изменения звания/организации будут логироваться в консоль.');
+                break;
+            }
+        }
     }
 
-    // Пытаемся перехватить сразу, или ждем через интервал, если index.js еще не загрузился
+    // Пытаемся перехватить сразу
     tryHook();
+    
+    // Если не удалось - повторяем попытки (компонент может загрузиться позже)
     if (!hooked) {
         const interval = setInterval(() => {
             tryHook();
             if (hooked) clearInterval(interval);
-        }, 500);
+        }, 1000);
+        
+        // Останавливаем попытки через 15 секунд
         setTimeout(() => clearInterval(interval), 15000);
     }
 })();
