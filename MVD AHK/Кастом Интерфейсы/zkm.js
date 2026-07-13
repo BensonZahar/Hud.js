@@ -35,7 +35,15 @@ function fixLayout(str){
 	for(const ch of str)out+=EN_TO_RU_LAYOUT[ch]!==undefined?EN_TO_RU_LAYOUT[ch]:ch;
 	return out;
 }
-
+// ══════════════════════════════════════════════════════════════════
+//  Унификация букв "ё" и "е" для поиска
+//  В JS toLowerCase() не превращает "Ё" в "Е", поэтому при поиске
+//  "желтый" не находится в тексте "жёлтый". Эта функция приводит
+//  всё к единому виду (заменяет ё -> е и переводит в нижний регистр).
+// ══════════════════════════════════════════════════════════════════
+function normalizeText(str) {
+    return str ? str.toLowerCase().replace(/ё/g, 'е') : '';
+}
 // ══════════════════════════════════════════════════════════════════
 //  Точный поиск по номеру статьи ("1.5" не должно находить "11.5")
 //  Если запрос выглядит как номер статьи (цифры и точки) — ищем
@@ -647,135 +655,154 @@ const _sfc_main={
 	computed:{
 		// ── Список табов с учётом режима ─────────────────────────
 		visibleTabs(){
-			if(this.mode==="wanted")return this.tabs.filter(t=>t.key==="wanted");
-			if(this.mode==="fine")  return this.tabs.filter(t=>t.key==="fines");
-			if(this.mode==="laws")  return this.tabs.filter(t=>t.key==="laws");
+			if(this.mode === "wanted") return this.tabs.filter(t => t.key === "wanted");
+			if(this.mode === "fine")   return this.tabs.filter(t => t.key === "fines");
+			if(this.mode === "laws")   return this.tabs.filter(t => t.key === "laws");
 			return this.tabs;
 		},
+		
 		// ── РОЗЫСК: фильтрация УК статей ─────────────────────────
 		filteredArticles(){
-			const q=this.search.trim().toLowerCase();
-			if(!q)return UK_ARTICLES;
-			const qAlt=fixLayout(q);
-			const isNum=isNumericQuery(q);
-			return UK_ARTICLES.filter(a=>
-				(isNum?numMatch(a.num,q):a.num.includes(q))||
-				a.title.toLowerCase().includes(q)||
-				(a.note&&a.note.toLowerCase().includes(q))||
-				(qAlt!==q&&(a.title.toLowerCase().includes(qAlt)||(a.note&&a.note.toLowerCase().includes(qAlt))))
-			);
+			const q = normalizeText(this.search.trim());
+			if(!q) return UK_ARTICLES;
+			const qAlt = fixLayout(q);
+			const isNum = isNumericQuery(q);
+			return UK_ARTICLES.filter(a => {
+				const title = normalizeText(a.title);
+				const note = normalizeText(a.note);
+				return (isNum ? numMatch(a.num, q) : a.num.includes(q)) ||
+					   title.includes(q) ||
+					   note.includes(q) ||
+					   (qAlt !== q && (title.includes(qAlt) || note.includes(qAlt)));
+			});
 		},
+		
 		selectedArticleObjects(){
-			return UK_ARTICLES.filter(a=>this.selectedArticles.includes(a.id));
+			return UK_ARTICLES.filter(a => this.selectedArticles.includes(a.id));
 		},
+		
 		totalTerm(){
-			return this.selectedArticleObjects.reduce((s,a)=>s+a.term,0);
+			return this.selectedArticleObjects.reduce((s, a) => s + a.term, 0);
 		},
+		
 		// ── РОЗЫСК: реальный срок ограничен максимум 6 годами розыска ──
-		// (статьи-причины продолжают выбираться без ограничений, срок лишь капается)
 		cappedTerm(){
 			return Math.min(this.totalTerm, 6);
 		},
+		
 		isTermOverCap(){
 			return this.totalTerm > 6;
 		},
+		
 		// ── ШТРАФЫ: фильтрация КоАП статей ───────────────────────
 		filteredKoapArticles(){
-			let arts=KOAP_ARTICLES;
-			if(this.fineKoapType!=="all")arts=arts.filter(a=>a.type===this.fineKoapType);
-			const q=this.search.trim().toLowerCase();
-			if(!q)return arts;
-			const qAlt=fixLayout(q);
-			const isNum=isNumericQuery(q);
-			return arts.filter(a=>
-				(isNum?numMatch(a.num,q):a.num.includes(q))||
-				a.title.toLowerCase().includes(q)||
-				(a.note&&a.note.toLowerCase().includes(q))||
-				(qAlt!==q&&(a.title.toLowerCase().includes(qAlt)||(a.note&&a.note.toLowerCase().includes(qAlt))))
-			);
+			let arts = KOAP_ARTICLES;
+			if(this.fineKoapType !== "all") arts = arts.filter(a => a.type === this.fineKoapType);
+			
+			const q = normalizeText(this.search.trim());
+			if(!q) return arts;
+			const qAlt = fixLayout(q);
+			const isNum = isNumericQuery(q);
+			
+			return arts.filter(a => {
+				const title = normalizeText(a.title);
+				const note = normalizeText(a.note);
+				return (isNum ? numMatch(a.num, q) : a.num.includes(q)) ||
+					   title.includes(q) ||
+					   note.includes(q) ||
+					   (qAlt !== q && (title.includes(qAlt) || note.includes(qAlt)));
+			});
 		},
+		
 		selectedFineArticleObjects(){
-			return KOAP_ARTICLES.filter(a=>this.selectedFineArticles.includes(a.id));
+			return KOAP_ARTICLES.filter(a => this.selectedFineArticles.includes(a.id));
 		},
+		
 		totalFine(){
-			return this.selectedFineArticleObjects.reduce((s,a)=>s+a.fine,0);
+			return this.selectedFineArticleObjects.reduce((s, a) => s + a.fine, 0);
 		},
-		// Можно ли изъять вод. удостоверение — хотя бы одна выбранная статья это разрешает
+		
 		fineCanRevoke(){
-			return this.selectedFineArticleObjects.some(a=>a.revoke===true);
+			return this.selectedFineArticleObjects.some(a => a.revoke === true);
 		},
+		
 		// ── ЗАКОНЫ: дерево с фильтрацией по поиску ───────────────
 		filteredLawDocuments(){
-			const q=this.search.trim().toLowerCase();
-			let docs=this.lawDocuments;
-			if(this.lawDocType!=="all")docs=docs.filter(d=>d.id===this.lawDocType);
-			if(!q)return docs;
-			const qAlt=fixLayout(q);
-			const matchQ=(text)=>text.includes(q)||(qAlt!==q&&text.includes(qAlt));
-			const isNum=isNumericQuery(q);
+			const q = normalizeText(this.search.trim());
+			let docs = this.lawDocuments;
+			if(this.lawDocType !== "all") docs = docs.filter(d => d.id === this.lawDocType);
+			if(!q) return docs;
+			
+			const qAlt = fixLayout(q);
+			// Умный поиск с учётом "ё/е"
+			const matchQ = (text) => {
+				const norm = normalizeText(text);
+				return norm.includes(q) || (qAlt !== q && norm.includes(qAlt));
+			};
+			
+			const isNum = isNumericQuery(q);
 			return docs
-				.map(doc=>{
-					const resultArticles=[];
-					for(const a of doc.articles){
-						const subArts=parseSubArticles(a.text);
-						if(isNum){
-							// ── Точный поиск номера статьи внутри главы (1.5 → только 1.5, не вся глава) ──
-							const exact=subArts.filter(s=>s.num===q);
-							if(exact.length){
-								for(const s of exact)resultArticles.push({id:a.id+"__"+s.num,num:s.num,title:s.title,text:s.html});
-								continue;
-							}
-						} else if(subArts.length){
-							// ── Текстовый поиск: показываем только те статьи главы, где реально
-							//    встретилось совпадение — а не всю главу целиком ──
-							const found=subArts.filter(s=>{
-								const subPlain=s.html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').toLowerCase();
-								return matchQ(s.title.toLowerCase())||matchQ(subPlain);
-							});
-							if(found.length){
-								for(const s of found)resultArticles.push({id:a.id+"__"+s.num,num:s.num,title:s.title,text:s.html});
-								continue;
-							}
+			.map(doc => {
+				const resultArticles = [];
+				for(const a of doc.articles){
+					const subArts = parseSubArticles(a.text);
+					if(isNum){
+						// ── Точный поиск номера статьи внутри главы ──
+						const exact = subArts.filter(s => s.num === q);
+						if(exact.length){
+							for(const s of exact) resultArticles.push({id:a.id+"__"+s.num, num:s.num, title:s.title, text:s.html});
+							continue;
 						}
-						// ── Запасной вариант: глава без разбивки на статьи, либо совпадение
-						//    только в общей части главы (номер/заголовок/примечания) ──
-						const plainText=a.text?a.text.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').toLowerCase():'';
-						const numMatched=isNum?numMatch(a.num.toLowerCase(),q):a.num.toLowerCase().includes(q);
-						if(numMatched||matchQ(a.title.toLowerCase())||matchQ(plainText))resultArticles.push(a);
+					} else if(subArts.length){
+						// ── Текстовый поиск: показываем только те статьи главы, где реально встретилось совпадение ──
+						const found = subArts.filter(s => {
+							const subPlain = normalizeText(s.html.replace(/<[^>]+>/g,' ').replace(/\s+/g,' '));
+							return matchQ(s.title) || matchQ(subPlain);
+						});
+						if(found.length){
+							for(const s of found) resultArticles.push({id:a.id+"__"+s.num, num:s.num, title:s.title, text:s.html});
+							continue;
+						}
 					}
-					if(resultArticles.length===0&&matchQ(doc.title.toLowerCase()))return doc;
-					if(resultArticles.length===0)return null;
-					return{...doc,articles:resultArticles};
-				})
-				.filter(Boolean);
+					// ── Запасной вариант: глава без разбивки на статьи ──
+					const plainText = a.text ? normalizeText(a.text.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ')) : '';
+					const numMatched = isNum ? numMatch(a.num.toLowerCase(), q) : a.num.toLowerCase().includes(q);
+					if(numMatched || matchQ(a.title) || matchQ(plainText)) resultArticles.push(a);
+				}
+				if(resultArticles.length === 0 && matchQ(doc.title)) return doc;
+				if(resultArticles.length === 0) return null;
+				return {...doc, articles:resultArticles};
+			})
+			.filter(Boolean);
 		},
+		
 		selectedLawArticle(){
-			if(!this.selectedLawArticleId)return null;
-			const sepIdx=this.selectedLawArticleId.indexOf("__");
-			if(sepIdx!==-1){
-				// Синтетический id отдельной статьи, извлечённой из главы (см. parseSubArticles)
-				const baseId=this.selectedLawArticleId.slice(0,sepIdx);
-				const subNum=this.selectedLawArticleId.slice(sepIdx+2);
+			if(!this.selectedLawArticleId) return null;
+			const sepIdx = this.selectedLawArticleId.indexOf("__");
+			if(sepIdx !== -1){
+				const baseId = this.selectedLawArticleId.slice(0, sepIdx);
+				const subNum = this.selectedLawArticleId.slice(sepIdx + 2);
 				for(const doc of this.lawDocuments){
-					const found=doc.articles.find(a=>a.id===baseId);
+					const found = doc.articles.find(a => a.id === baseId);
 					if(found){
-						const sub=parseSubArticles(found.text).find(s=>s.num===subNum);
-						if(sub)return{id:this.selectedLawArticleId,num:sub.num,title:sub.title,text:sub.html,docTitle:doc.title};
+						const sub = parseSubArticles(found.text).find(s => s.num === subNum);
+						if(sub) return {id:this.selectedLawArticleId, num:sub.num, title:sub.title, text:sub.html, docTitle:doc.title};
 					}
 				}
 				return null;
 			}
 			for(const doc of this.lawDocuments){
-				const found=doc.articles.find(a=>a.id===this.selectedLawArticleId);
-				if(found)return{...found,docTitle:doc.title};
+				const found = doc.articles.find(a => a.id === this.selectedLawArticleId);
+				if(found) return {...found, docTitle:doc.title};
 			}
 			return null;
 		},
+		
 		currentContent(){
-			const vtabs=this.visibleTabs;
-			const tab=vtabs[this.currentTab];
-			if(!tab)return"";
-			return this.content[tab.key]||"";
+			const vtabs = this.visibleTabs;
+			const tab = vtabs[this.currentTab];
+			if(!tab) return "";
+			return this.content[tab.key] || "";
 		}
 	},
 	created(){this.$data.noAdaptation=!0},
