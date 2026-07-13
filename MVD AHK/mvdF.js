@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.91 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4007,12 +4007,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 /* ============================================================
    [ZK-INTERFACE-VIEWER END]
    ============================================================ */
-// ==================== MVD-MONITOR: GLOBAL HOOK (BEFORE MENU OPEN) ====================
-// Перехватываем данные на уровне определения компонента (Mixin) и глобального 
-// обработчика window.updateParams, чтобы логировать организацию, звание и должности 
-// даже если меню MainMenu ни разу не открывалось.
+// ==================== MVD-MONITOR: GLOBAL HOOK (FIXED) ====================
+// Перехватываем window.updateParams до того, как движок отбросит данные 
+// из-за закрытого меню. Исправлена ошибка индекса (parsed[1] вместо parsed[2]).
 (function hookMainMenuStatsGlobally() {
-    let hookedMixin = false;
+    let hooked = false;
     let lastLoggedOrg = "";
     let lastLoggedJobs = "";
 
@@ -4032,8 +4031,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 currentJobsStr = jobsData.map(j => `${j[1]}:${j[3]}`).join(",");
             }
             
+            // Логируем только если данные реально изменились
             if (currentOrgStr !== lastLoggedOrg || currentJobsStr !== lastLoggedJobs) {
-                console.log(`%c[MVD-MONITOR] 📡 Получены данные статистики (Фоновое обновление / Открытие меню)!`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
+                console.log(`%c[MVD-MONITOR] 📡 Сервер обновил статистику игрока!`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
                 console.log(`%c🏢 Организация: %c${orgTitle}`, 'color: #AAAAAA; font-weight: bold;', 'color: #00AAFF; font-weight: bold;');
                 console.log(`%c⭐ Звание: %c${rangName} %c(ID: ${rangId})`, 'color: #AAAAAA; font-weight: bold;', 'color: #FFD700; font-weight: bold;', 'color: #888888;');
                 
@@ -4052,51 +4052,38 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         }
     }
 
-    function tryHookMixin() {
-        if (hookedMixin) return;
-        const MainMenuComponent = window.component && window.component("MainMenu");
-        if (!MainMenuComponent || !MainMenuComponent.mixins) return;
+    function tryHook() {
+        if (hooked) return;
+        if (typeof window.updateParams !== 'function') return;
 
-        for (const mixin of MainMenuComponent.mixins) {
-            if (mixin.methods && typeof mixin.methods.updateMainStats === 'function') {
-                const originalUpdate = mixin.methods.updateMainStats;
-                mixin.methods.updateMainStats = function(payload) {
-                    logStats(payload);
-                    return originalUpdate.apply(this, arguments);
-                };
-                hookedMixin = true;
-                console.log('%c[MVD-MONITOR] ✅ Успешно перехвачен updateMainStats на уровне Mixin. Мониторинг активен!', 'color: #00FF00; font-weight: bold;');
-                break;
-            }
-        }
-    }
-
-    // 1. Перехват фоновых обновлений (window.updateParams)
-    // Двиок отбрасывает обновления для MainMenu, если оно не открыто. Мы это исправляем.
-    if (!window.__mvdUpdateParamsHooked && typeof window.updateParams === 'function') {
         const origUpdateParams = window.updateParams;
         window.updateParams = function(interfaceName, paramsJson) {
             if (interfaceName === "MainMenu" && paramsJson) {
                 try {
                     const parsed = JSON.parse(paramsJson);
-                    // Если это пакет обновления статистики (eventType 0 = UPDATE_MAIN_STATS)
-                    if (Array.isArray(parsed) && parsed[0] === 0 && parsed[2]) {
-                        console.log(`%c[MVD-MONITOR] 📥 Перехвачен фоновый пакет updateParams (меню было закрыто, но данные пришли)!`, 'color: #FF00FF; font-weight: bold;');
-                        logStats(parsed[2]);
+                    // parsed[0] = eventType (0 = UPDATE_MAIN_STATS)
+                    // parsed[1] = payload (массив данных для updateMainStats)
+                    if (Array.isArray(parsed) && parsed[0] === 0 && Array.isArray(parsed[1])) {
+                        logStats(parsed[1]); // ИСПРАВЛЕНО: раньше было parsed[2]
                     }
                 } catch(e) {}
             }
+            // Передаем дальше в оригинальную функцию (она сама решит, отображать меню или отбросить)
             return origUpdateParams.apply(this, arguments);
         };
-        window.__mvdUpdateParamsHooked = true;
+        
+        hooked = true;
+        console.log('%c[MVD-MONITOR] ✅ Успешно перехвачен window.updateParams. Мониторинг активен!', 'color: #00FF00; font-weight: bold;');
     }
 
-    // 2. Ожидание регистрации компонента для перехвата Mixin
-    const interval = setInterval(() => {
-        tryHookMixin();
-        if (hookedMixin) clearInterval(interval);
-    }, 500);
-    
-    setTimeout(() => clearInterval(interval), 15000);
+    // Пытаемся перехватить сразу, или ждем через интервал, если index.js еще не загрузился
+    tryHook();
+    if (!hooked) {
+        const interval = setInterval(() => {
+            tryHook();
+            if (hooked) clearInterval(interval);
+        }, 500);
+        setTimeout(() => clearInterval(interval), 15000);
+    }
 })();
 // ==================== END MVD-MONITOR ====================
