@@ -61,8 +61,8 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             // ── Header ───────────────────────────────────────────────────────
             createBaseVNode("div",{class:"mvdmenu__header"},[
                 createBaseVNode("div",{class:"mvdmenu__title"},[
-                    createBaseVNode("span",{class:"mvdmenu__title-main"},"МВД"),
-                    createBaseVNode("span",{class:"mvdmenu__title-ahk"},"AHK"),
+                    createBaseVNode("span",{class:"mvdmenu__title-main"},"KONST"),
+                    createBaseVNode("span",{class:"mvdmenu__title-ahk"},"AHK MVD"),
                     $options.headerSubtitle
                         ? createBaseVNode("span",{class:"mvdmenu__title-sub"},
                             toDisplayString($options.headerSubtitle), 1 /* TEXT */
@@ -656,7 +656,7 @@ const _sfc_main={
 .mvdmenu__title{align-items:baseline;display:flex;font-family:"Open Sans Condensed",var(--fallback-font);font-style:italic;font-weight:700;gap:0.56vh;text-transform:uppercase;}
 .mvdmenu__title-main{color:#f4f1e1;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
 .mvdmenu__title-ahk{color:#f9b701;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
-.mvdmenu__title-sub{color:#f9b701;font-size:1.2vh;font-style:normal;letter-spacing:0.06vh;margin-left:0.19vh;white-space:nowrap;}
+.mvdmenu__title-sub{color:#f4f1e166;font-size:1.11vh;font-style:normal;font-weight:400;margin-left:0.74vh;text-transform:none;}
 .mvdmenu__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.48vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s ease;width:2.96vh;}
 @media (platform:pc){.mvdmenu__close-btn:hover{background:#e25544;border-color:#e25544;color:#fff;}}
 
