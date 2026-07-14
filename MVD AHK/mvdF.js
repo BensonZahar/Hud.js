@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.111 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3403,64 +3403,39 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (_busy) { _busy = false; console.log('[АВТО-ТАЗЕР] таймаут сброса'); }
         }, 5000);
 
-        // ── ФИКС: Фоновое открытие инвентаря без блокировки движения ──
-        const invComp = window.component('InventoryNew');
-        let origHud, origHideHud, origStyle;
-        
-        if (invComp && invComp.options) {
-            // Сохраняем оригинальные настройки
-            origHud = invComp.options.hud;
-            origHideHud = invComp.options.hideHud;
-            origStyle = invComp.options.style;
-            
-            // Подменяем настройки: не блокируем курсор/движение и не скрываем HUD
-            invComp.options.hud = true; 
-            invComp.options.hideHud = false; 
-            // Делаем UI невидимым и некликабельным
-            invComp.options.style = "z-index: -1; opacity: 0; pointer-events: none;"; 
-        }
-        
-        console.log('[АВТО-ТАЗЕР] открываем инвентарь в фоновом режиме...');
+        console.log('[АВТО-ТАЗЕР] открываем инвентарь...');
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
 
-        // Функция для безопасного закрытия и восстановления настроек
-        const restoreAndClose = () => {
-            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-            if (invComp && invComp.options) {
-                invComp.options.hud = origHud;
-                invComp.options.hideHud = origHideHud;
-                invComp.options.style = origStyle;
-            }
-        };
-
-        // Polling: ждём пока items появятся (инвентарь открылся и сервер прислал данные)
+        // Polling: ждём пока items появятся (инвентарь открылся)
         let attempts = 0;
         const maxAttempts = 40; // 40 * 50ms = 2 секунды
         const poll = setInterval(() => {
             attempts++;
             const items = tryGetItems();
+
             if (!items) {
                 if (attempts >= maxAttempts) {
                     clearInterval(poll);
                     console.log('[АВТО-ТАЗЕР] items не появились, отмена');
-                    restoreAndClose();
+                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                     snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
                     clearBusy();
                 }
                 return;
             }
+
             clearInterval(poll);
             console.log(`[АВТО-ТАЗЕР] items получены (попытка ${attempts})`);
-            
+
             const deagleLoc = findItem(items, ITEM_DEAGLE);
             if (!deagleLoc) {
                 console.log('[АВТО-ТАЗЕР] дигл не найден');
-                restoreAndClose();
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
                 clearBusy();
                 return;
             }
-            
+
             let fromCid, toCid;
             if (deagleLoc.cid === CT.INV) {
                 fromCid = CT.INV; toCid = CT.BACK;
@@ -3468,31 +3443,32 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 fromCid = CT.BACK; toCid = CT.INV;
             } else {
                 console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
-                restoreAndClose();
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 clearBusy();
                 return;
             }
-            
+
             const toSlot = findFreeSlot(items, toCid);
             if (toSlot < 0) {
                 console.log('[АВТО-ТАЗЕР] нет свободного слота');
-                restoreAndClose();
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
                 clearBusy();
                 return;
             }
-            
+
             const direction = (fromCid === CT.INV) ? 'Дигл -> Рюкзак' : 'Дигл -> Инвентарь';
             console.log(`[АВТО-ТАЗЕР] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] -> ${CT_NAMES[toCid]}[${toSlot}]`);
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
                 fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
-            
-            // Закрываем инвентарь через 150мс после хода и возвращаем настройки
+
+            // Закрываем инвентарь через 150мс после хода
             setTimeout(() => {
-                restoreAndClose();
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 snAdd(`[1, "АВТО-ТАЗЕР", "${direction}", "00CC44", 2000]`);
                 clearBusy();
             }, 150);
+
         }, 50);
     }
 
@@ -4031,119 +4007,4 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 /* ============================================================
    [ZK-INTERFACE-VIEWER END]
    ============================================================ */
-// ==================== MVD-MONITOR: ЗВАНИЕ И ОРГАНИЗАЦИЯ ====================
-(function() {
-    // Глобальные переменные для хранения данных
-    window._mvdPlayerRank = null;
-    window._mvdPlayerRankId = null;
-    window._mvdPlayerOrg = null;
-    window._mvdPlayerJobs = [];
-    
-    // Функция для логирования в консоль
-    function logPlayerStats() {
-        console.log(`%c[MVD-MONITOR] 📊 Статистика игрока:`, 'color: #00FF00; font-weight: bold; font-size: 14px;');
-        console.log(`%c🏢 Организация: %c${window._mvdPlayerOrg || 'Не состоит'}`, 'color: #AAAAAA; font-weight: bold;', 'color: #00AAFF; font-weight: bold;');
-        console.log(`%c⭐ Звание: %c${window._mvdPlayerRank || 'Нет'} %c(ID: ${window._mvdPlayerRankId || 'N/A'})`, 'color: #AAAAAA; font-weight: bold;', 'color: #FFD700; font-weight: bold;', 'color: #888888;');
-        
-        if (window._mvdPlayerJobs && window._mvdPlayerJobs.length > 0) {
-            console.log(`%c💼 Должности:`, 'color: #AAAAAA; font-weight: bold;');
-            window._mvdPlayerJobs.forEach(job => {
-                console.log(`  %c- ${job.title} %c(Уровень: ${job.lvl})`, 'color: #FFA500; font-weight: bold;', 'color: #888888;');
-            });
-        } else {
-            console.log(`%c💼 Должности: %cНет`, 'color: #AAAAAA; font-weight: bold;', 'color: #FF4444;');
-        }
-        console.log(`%c─────────────────────────────────────────────────`, 'color: #333333;');
-    }
-    
-    // Функция для обработки данных статистики
-    function processStatsData(payload) {
-        if (!Array.isArray(payload) || payload.length < 11) return;
-        
-        const orgData = payload[9];  // [rangId, rangName, orgTitle]
-        const jobsData = payload[10]; // [[id, title, icon, lvl, withoutGeo], ...]
-        
-        if (Array.isArray(orgData) && orgData.length >= 3) {
-            const [rangId, rangName, orgTitle] = orgData;
-            window._mvdPlayerRankId = rangId;
-            window._mvdPlayerRank = rangName;
-            window._mvdPlayerOrg = orgTitle;
-        }
-        
-        if (Array.isArray(jobsData)) {
-            window._mvdPlayerJobs = jobsData.map(j => ({
-                id: j[0],
-                title: j[1],
-                icon: j[2],
-                lvl: j[3],
-                withoutGeo: j[4]
-            }));
-        }
-    }
-    
-    // 1. Перехват window.updateParams
-    if (typeof window.updateParams === 'function') {
-        const origUpdateParams = window.updateParams;
-        window.updateParams = function(interfaceName, paramsJson) {
-            if (interfaceName === "MainMenu" && paramsJson) {
-                try {
-                    const parsed = JSON.parse(paramsJson);
-                    // parsed[0] = eventType (0 = UPDATE_MAIN_STATS)
-                    // parsed[1] = payload
-                    if (Array.isArray(parsed) && parsed[0] === 0 && Array.isArray(parsed[1])) {
-                        processStatsData(parsed[1]);
-                    }
-                } catch(e) {}
-            }
-            return origUpdateParams.apply(this, arguments);
-        };
-        console.log('[MVD-MONITOR] ✅ Перехват updateParams установлен');
-    }
-    
-    // 2. Перехват updateMainStats на уровне миксина
-    let hooked = false;
-    function hookMainMenu() {
-        if (hooked) return;
-        
-        const MainMenuComponent = window.component && window.component("MainMenu");
-        if (!MainMenuComponent || !MainMenuComponent.mixins) return;
-        
-        for (const mixin of MainMenuComponent.mixins) {
-            if (mixin.methods && typeof mixin.methods.updateMainStats === 'function') {
-                const originalUpdate = mixin.methods.updateMainStats;
-                mixin.methods.updateMainStats = function(payload) {
-                    const result = originalUpdate.apply(this, arguments);
-                    processStatsData(payload);
-                    return result;
-                };
-                
-                hooked = true;
-                console.log('[MVD-MONITOR] ✅ Перехват updateMainStats установлен');
-                break;
-            }
-        }
-    }
-    
-    hookMainMenu();
-    if (!hooked) {
-        const interval = setInterval(() => {
-            hookMainMenu();
-            if (hooked) clearInterval(interval);
-        }, 1000);
-        setTimeout(() => clearInterval(interval), 15000);
-    }
-    
-    // 3. Команда /raa
-    const origSendChatInput = window.sendChatInput;
-    window.sendChatInput = function(command) {
-        if (command && command.trim().toLowerCase() === '/raa') {
-            logPlayerStats();
-            return; // Не отправляем команду на сервер
-        }
-        return origSendChatInput.apply(this, arguments);
-    };
-    
-    console.log('[MVD-MONITOR] ✅ Команда /raa зарегистрирована');
-    console.log('[MVD-MONITOR] Используйте /raa для вывода статистики в консоль');
-})();
-// ==================== END MVD-MONITOR ====================
+// ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
