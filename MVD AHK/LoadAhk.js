@@ -11,6 +11,7 @@ const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК (пу
 const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневная» которые скрыты: ["greeting","checkDocuments",...]
 const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
 const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
+const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с: ["greeting","fine","wantedFine",...]
 const KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/keys.json";
 // ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
@@ -101,6 +102,11 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             if (MENU_ORDER && MENU_ORDER.length > 0) {
                 const orderJson = JSON.stringify(MENU_ORDER);
                 scriptText = scriptText.replace(/var MENU_ORDER = \[\];/, `var MENU_ORDER = ${orderJson};`);
+            }
+            // ── Патчим MENU_TIMER_ITEMS (var, не const) ──
+            if (MENU_TIMER_ITEMS && MENU_TIMER_ITEMS.length > 0) {
+                const timerJson = JSON.stringify(MENU_TIMER_ITEMS);
+                scriptText = scriptText.replace(/var MENU_TIMER_ITEMS = \[\];/, `var MENU_TIMER_ITEMS = ${timerJson};`);
             }
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,

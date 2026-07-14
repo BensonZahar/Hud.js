@@ -523,6 +523,20 @@ var MENU_BINDS = {};
 // Порядок пунктов меню «Повседневная» — настраивается установщиком
 // Формат: ["greeting","cuffing","checkDocuments",...] (пусто = по умолчанию)
 var MENU_ORDER = [];
+// Пункты меню, после которых шлём "/c 60" и закрываем диалог "Точное время" через 1.5с
+// Формат: ["greeting","fine","wantedFine",...] (пусто = выключено везде) — настраивается установщиком
+var MENU_TIMER_ITEMS = [];
+
+// ── Таймер после отыгровки: "/c 60" (латинская C, слитно) + автозакрытие диалога "Точное время" ──
+// Если для конкретного пункта включено в установщике (MENU_TIMER_ITEMS), после
+// завершения отыгровки шлём эту команду. Сервер в ответ показывает диалог
+// "Точное время" — он закрывается автоматически через 1.5с (см. перехватчик
+// window.addDialogInQueue ниже), чтобы не мешал на экране.
+function runPostActionTimer(actionKey) {
+    if (!Array.isArray(MENU_TIMER_ITEMS) || !MENU_TIMER_ITEMS.includes(actionKey)) return;
+    sendChatInput("/c 60");
+    console.log(`[AHK-TIMER] "${actionKey}": отправлена команда /c 60`);
+}
 
 // Применяем порядок пунктов если задан
 (function() {
@@ -1129,6 +1143,7 @@ const setupChatHandler = () => {
                                 console.log('[FINE-LOG] ⏭ Пропускаем дубль сообщения о штрафе (повтор < 3с)');
                             } else {
                                 lastFineTimerOpenAt = now;
+                                runPostActionTimer('fine');
                                 if (FINE_CD_TIMER_ENABLED) {
                                     console.log('[FINE-LOG] 🚀 Показываем таймер-уведомление КД штрафа...');
                                     try {
@@ -1938,12 +1953,14 @@ const executePovsednevAction = (action, targetId) => {
                     "Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
                 ], [0, 500, 500, 500]);
                 setTimeout(() => showDocCheckPrompt(targetId), 1800);
+                setTimeout(() => runPostActionTimer('greeting'), 1800);
             } else {
                 sendMessagesWithDelay([
                     `Здравия желаю, Вас беспокоит ${RANK} - ${FIRST_NAME} ${LAST_NAME}.`,
                     `/doc ${targetId}`
                 ], [0, 1000]);
                 setTimeout(() => showDocCheckPrompt(targetId), 1300);
+                setTimeout(() => runPostActionTimer('greeting'), 1300);
             }
             break;
       
@@ -1981,6 +1998,7 @@ const executePovsednevAction = (action, targetId) => {
       
         case "wantedFine":
             sendChatInput(`/su ${targetId}`);
+            runPostActionTimer('wantedFine');
             break;
 
         case "wanted":
@@ -1991,6 +2009,7 @@ const executePovsednevAction = (action, targetId) => {
                 "/do Нарушитель объявлен в розыск.",
                 `/su ${targetId}`
             ], [0, 1000, 1000, 1000, 1000]);
+            setTimeout(() => runPostActionTimer('wanted'), 4000);
             break;
       
         case "scanningTablet":
@@ -2840,6 +2859,18 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 `  Кнопки: [${button1}] [${button2}]`
             );
 
+            // ── Авто-закрытие диалога "Точное время" (открывается после команды /c 60) ──
+            // Команду шлёт runPostActionTimer() если для действия включена опция
+            // в установщике (MENU_TIMER_ITEMS). Сервер в ответ на "/c 60" всегда
+            // показывает этот MSGBOX — закрываем его через 1.5с, чтобы не мешал.
+            if (style === 0 && title.includes('Точное время')) {
+                const _timeDlgId = dialogId;
+                setTimeout(() => {
+                    try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                    console.log('[AHK-TIMER] Диалог "Точное время" закрыт');
+                }, 1500);
+            }
+
             // ── Трекинг пагинированных диалогов для Q/E перелистывания ──
             if (PAGINATED_DIALOG_IDS.includes(dialogId)) {
                 _lastPaginatedDialogId = dialogId;
@@ -2976,6 +3007,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     setTimeout(() => {
                         try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                         console.log('[AUTO-РОЗЫСК] Диалог закрыт');
+                        runPostActionTimer('wantedFine');
                     }, 100);
                 }, 300);
             }

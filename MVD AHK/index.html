@@ -506,6 +506,18 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .gdlg-bind-clear:hover{background:rgba(224,85,85,.18)}
 .gdlg-bind-clear svg{width:8px;height:8px;stroke:rgba(244,241,225,.35);stroke-width:2;fill:none;stroke-linecap:round}
 .gdlg-bind-clear:hover svg{stroke:var(--danger)}
+.gdlg-timer-btn{
+  width:18px;height:18px;border-radius:3px;border:none;
+  background:rgba(255,255,255,.06);cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .12s,border-color .12s;flex-shrink:0;
+  border:.5px solid transparent;
+}
+.gdlg-timer-btn svg{width:10px;height:10px;stroke:rgba(244,241,225,.35);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.gdlg-timer-btn:hover{background:rgba(249,183,1,.18)}
+.gdlg-timer-btn:hover svg{stroke:#f9b701}
+.gdlg-timer-btn.on{background:rgba(249,183,1,.22);border-color:rgba(249,183,1,.5)}
+.gdlg-timer-btn.on svg{stroke:#f9b701}
 
 /* Drag handle */
 .gdlg-drag{
@@ -940,7 +952,8 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
       </div>
       <div class="content" style="padding:16px 20px 16px">
         <div class="info-box" style="margin-bottom:14px">
-          Назначьте кнопки для пунктов меню <b>«Повседневная»</b>. Нажмите <b>⌨</b> справа от нужного пункта, чтобы задать бинд.
+          Назначьте кнопки для пунктов меню <b>«Повседневная»</b>. Нажмите <b>⌨</b> справа от нужного пункта, чтобы задать бинд.<br>
+          Значок <b>⏱</b> включает отправку команды <b>/c 60</b> после отыгровки этого пункта — диалог «Точное время» закроется сам через 1.5 сек, чтобы не мешал.
         </div>
         <div id="binds-list" style="display:flex;flex-direction:column;gap:6px"></div>
       </div>
@@ -1036,6 +1049,9 @@ var ALL_MENU_ITEMS=[
 // action -> комбо-строка ('' = не задан)
 var menuItemBinds={};
 ALL_MENU_ITEMS.forEach(function(it){menuItemBinds[it.action]='';});
+// action -> включен ли таймер "/c 60" после отыгровки (true/false)
+var menuItemTimers={};
+ALL_MENU_ITEMS.forEach(function(it){menuItemTimers[it.action]=false;});
 
 function buildBindsList(){
   var container=document.getElementById('binds-list');
@@ -1051,6 +1067,12 @@ function buildBindsList(){
     row.appendChild(lbl);
     var right=document.createElement('div');
     right.style.cssText='display:flex;align-items:center;gap:6px;flex-shrink:0';
+    var timerBtn=document.createElement('button');
+    timerBtn.className='gdlg-timer-btn'+(menuItemTimers[it.action]?' on':'');
+    timerBtn.title='После отыгровки слать /c 60 и закрывать диалог "Точное время" через 1.5с';
+    timerBtn.innerHTML='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>';
+    timerBtn.onclick=function(){toggleMenuTimer(it.action);};
+    right.appendChild(timerBtn);
     if(bind){
       var badge=document.createElement('span');
       badge.className='gdlg-bind-badge';
@@ -1085,6 +1107,15 @@ function getMenuBinds(){
   ALL_MENU_ITEMS.forEach(function(it){if(menuItemBinds[it.action])result[it.action]=menuItemBinds[it.action];});
   return result;
 }
+function toggleMenuTimer(action){
+  menuItemTimers[action]=!menuItemTimers[action];
+  buildBindsList();
+}
+function getMenuTimerItems(){
+  var result=[];
+  ALL_MENU_ITEMS.forEach(function(it){if(menuItemTimers[it.action])result.push(it.action);});
+  return result;
+}
 var grabItems={painkiller:false,medkit:false,baton:false,baton2:false,vest:false,taumeter:false,diag:false,taser:false,deagle:false,akm:false,aks74u:false,remington:false,magnum:false,ammo762:false,ammo545:false,ammo12x70:false};
 var api=null;
 
@@ -1109,6 +1140,9 @@ window.addEventListener('pywebviewready',function(){
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=menuKey;
     if(s.menu_binds&&typeof s.menu_binds==='object'){
       Object.keys(s.menu_binds).forEach(function(a){if(s.menu_binds[a]){menuItemBinds[a]=s.menu_binds[a];}});
+    }
+    if(s.menu_timer_items&&Array.isArray(s.menu_timer_items)){
+      s.menu_timer_items.forEach(function(a){menuItemTimers[a]=true;});
     }
     buildBindsList();
     if(s.path_valid){applyFolder(s.radmir_path||'');}
@@ -1318,7 +1352,7 @@ function updateSteps(){var r=document.getElementById('f-rank').value.trim();var 
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();if(!rank||!fn||!ln){flash(false);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,[],binds,[]).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();if(!rank||!fn||!ln){flash(false);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,[],binds,[],timerItems).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){if(!folderSelected){flash(false);setTab('home',null);return;}var btn=document.getElementById('btn-remove');btn.disabled=true;runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
