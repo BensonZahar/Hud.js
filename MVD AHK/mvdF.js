@@ -3366,7 +3366,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
 
-// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v15 — polling) ====================
+// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v16 — cache + invisible) ====================
 (function() {
     const ITEM_DEAGLE = 19;
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
@@ -3374,7 +3374,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
     let _busy = false;
     let _busyTimer = null;
-
     function clearBusy() {
         clearTimeout(_busyTimer);
         _busy = false;
@@ -3411,17 +3410,162 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     function tryGetItems() {
         try {
             const inv = window.interface('InventoryNew');
-            // items доступны только когда инвентарь открыт и Vue компонент смонтирован
             const items = inv?.items;
             if (!items) return null;
-            // проверяем что хотя бы один контейнер есть
             if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
         } catch(e) {}
         return null;
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // СЛОЙ 1: Кэш инвентаря — перехватываем items при штатном открытии
+    // ══════════════════════════════════════════════════════════════════════
+    window._inventoryCache = null;
+    window._inventoryCacheAt = 0;
+    const CACHE_TTL_MS = 60000; // кэш живёт 60 секунд
+
+    // Патчим openInterface — сохраняем items из openParams при каждом открытии InventoryNew
+    const _origOpenInterface = window.openInterface;
+    window.openInterface = function(name, params, ...rest) {
+        if (name === 'InventoryNew' && params) {
+            try {
+                // openParams приходит как JSON-строка "[showType, playerParams, containers, items]"
+                let parsed = params;
+                if (typeof params === 'string') {
+                    // В index.js replace(/[\r\n]/g, "\n") уже сделан — безопасно парсим
+                    parsed = JSON.parse(params.replace(/\r\n/g, '\\n').replace(/\n/g, '\\n'));
+                }
+                if (Array.isArray(parsed) && parsed.length >= 4 && Array.isArray(parsed[3])) {
+                    const rawItems = parsed[3];
+                    // Преобразуем в структуру { [cid]: { [slot]: item } } как в Inventory.js setItems()
+                    const cache = { [CT.ACC]: {}, [CT.INV]: {}, [CT.BACK]: {}, [CT.EXTRA]: {} };
+                    for (const row of rawItems) {
+                        if (!Array.isArray(row) || row.length < 3) continue;
+                        const [cid, slot, ...restData] = row;
+                        const itemObj = { id: restData[0], count: restData[1] || 1, weight: restData[2] || 0 };
+                        if (cache[cid]) cache[cid][slot] = itemObj;
+                    }
+                    window._inventoryCache = cache;
+                    window._inventoryCacheAt = Date.now();
+                    console.log('[АВТО-ТАЗЕР] 💾 Кэш инвентаря обновлён');
+                }
+            } catch(e) {
+                console.warn('[АВТО-ТАЗЕР] не удалось закэшировать items:', e.message);
+            }
+        }
+        return _origOpenInterface.apply(this, arguments);
+    };
+
+    // Патчим sendClientEvent — обновляем кэш при перемещении/взятии/выбросе
+    const _origSendClientEvent = window.sendClientEvent;
+    window.sendClientEvent = function(event, action, ...args) {
+        // Обновляем "свежесть" кэша при любых операциях с инвентарём
+        if (action === 'OnInventoryItemMove' && window._inventoryCache) {
+            const [fromCid, fromSlot, toCid, toSlot, count] = args;
+            try {
+                const item = window._inventoryCache[fromCid]?.[fromSlot];
+                if (item) {
+                    if (!window._inventoryCache[toCid]) window._inventoryCache[toCid] = {};
+                    window._inventoryCache[toCid][toSlot] = { ...item, count };
+                    delete window._inventoryCache[fromCid][fromSlot];
+                    window._inventoryCacheAt = Date.now();
+                }
+            } catch(e) {}
+        }
+        return _origSendClientEvent.apply(this, arguments);
+    };
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ОСНОВНАЯ ЛОГИКА СВОПА
+    // ══════════════════════════════════════════════════════════════════════
+    function doSwap(items) {
+        const deagleLoc = findItem(items, ITEM_DEAGLE);
+        if (!deagleLoc) {
+            snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
+            clearBusy();
+            return false;
+        }
+
+        let fromCid, toCid;
+        if (deagleLoc.cid === CT.INV)      { fromCid = CT.INV;  toCid = CT.BACK; }
+        else if (deagleLoc.cid === CT.BACK) { fromCid = CT.BACK; toCid = CT.INV;  }
+        else {
+            console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
+            clearBusy();
+            return false;
+        }
+
+        const toSlot = findFreeSlot(items, toCid);
+        if (toSlot < 0) {
+            snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
+            clearBusy();
+            return false;
+        }
+
+        const direction = (fromCid === CT.INV) ? 'Дигл → Рюкзак' : 'Дигл → Инвентарь';
+        console.log(`[АВТО-ТАЗЕР] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] → ${CT_NAMES[toCid]}[${toSlot}]`);
+        _origSendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
+            fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
+        snAdd(`[1, "АВТО-ТАЗЕР", "${direction}", "00CC44", 2000]`);
+        return true;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // СЛОЙ 2: Невидимое открытие (если кэш устарел)
+    // ══════════════════════════════════════════════════════════════════════
+    function openInventoryInvisible() {
+        // Патчим setCursorStatus чтобы инвентарь не блокировал движение
+        const origSetCursor = window.setCursorStatus;
+        window.setCursorStatus = function(name, status, allowMovement) {
+            if (name === 'InventoryNew') {
+                // Принудительно разрешаем движение и не показываем курсор
+                try {
+                    if (typeof engine !== 'undefined' && engine.trigger) {
+                        engine.trigger("SetCursorStatus", false, true);
+                    }
+                } catch(e) {}
+                return;
+            }
+            return origSetCursor.apply(this, arguments);
+        };
+
+        // Глушим звуки инвентаря
+        const origPlaySound = window.playSound;
+        window.playSound = function(path, ...rest) {
+            if (typeof path === 'string' && path.includes('inventory')) return;
+            return origPlaySound.apply(this, [path, ...rest]);
+        };
+
+        // Открываем инвентарь
+        _origSendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+
+        // Прячем UI через CSS как только он отрендерится
+        const hideInterval = setInterval(() => {
+            const el = document.querySelector('.inventory');
+            if (el) {
+                el.style.visibility = 'hidden';
+                el.style.pointerEvents = 'none';
+                el.style.opacity = '0';
+                clearInterval(hideInterval);
+            }
+        }, 10);
+
+        // Возвращаем cleanup-функцию
+        return {
+            close: () => {
+                clearInterval(hideInterval);
+                window.setCursorStatus = origSetCursor;
+                window.playSound = origPlaySound;
+                // Закрываем инвентарь (OnInventoryDisplayChange — это toggle)
+                _origSendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+            }
+        };
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // ГЛАВНАЯ ФУНКЦИЯ
+    // ══════════════════════════════════════════════════════════════════════
     function swapTaserDeagle() {
-        // Проверка формы — авто-тазер работает только в МВД скине
         if (!mvdSkins.includes(skinId)) {
             console.log('[АВТО-ТАЗЕР] не МВД форма, пропуск');
             return;
@@ -3435,77 +3579,47 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (_busy) { _busy = false; console.log('[АВТО-ТАЗЕР] таймаут сброса'); }
         }, 5000);
 
-        console.log('[АВТО-ТАЗЕР] открываем инвентарь...');
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+        // ── Сценарий A: кэш свежий → swap без открытия инвентаря (МГНОВЕННО) ──
+        const cacheAge = Date.now() - window._inventoryCacheAt;
+        if (window._inventoryCache && cacheAge < CACHE_TTL_MS) {
+            console.log(`[АВТО-ТАЗЕР] ⚡ Используем кэш (возраст ${Math.round(cacheAge/1000)}с)`);
+            const ok = doSwap(window._inventoryCache);
+            if (ok) clearBusy();
+            return;
+        }
 
-        // Polling: ждём пока items появятся (инвентарь открылся)
+        // ── Сценарий B: кэш устарел → невидимое открытие ──
+        console.log('[АВТО-ТАЗЕР] 🫥 кэш устарел — невидимое открытие инвентаря...');
+        const invis = openInventoryInvisible();
+
         let attempts = 0;
-        const maxAttempts = 40; // 40 * 50ms = 2 секунды
+        const maxAttempts = 40;
         const poll = setInterval(() => {
             attempts++;
             const items = tryGetItems();
-
             if (!items) {
                 if (attempts >= maxAttempts) {
                     clearInterval(poll);
-                    console.log('[АВТО-ТАЗЕР] items не появились, отмена');
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                     snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
+                    invis.close();
                     clearBusy();
                 }
                 return;
             }
-
             clearInterval(poll);
             console.log(`[АВТО-ТАЗЕР] items получены (попытка ${attempts})`);
 
-            const deagleLoc = findItem(items, ITEM_DEAGLE);
-            if (!deagleLoc) {
-                console.log('[АВТО-ТАЗЕР] дигл не найден');
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
-                clearBusy();
-                return;
-            }
-
-            let fromCid, toCid;
-            if (deagleLoc.cid === CT.INV) {
-                fromCid = CT.INV; toCid = CT.BACK;
-            } else if (deagleLoc.cid === CT.BACK) {
-                fromCid = CT.BACK; toCid = CT.INV;
-            } else {
-                console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                clearBusy();
-                return;
-            }
-
-            const toSlot = findFreeSlot(items, toCid);
-            if (toSlot < 0) {
-                console.log('[АВТО-ТАЗЕР] нет свободного слота');
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
-                clearBusy();
-                return;
-            }
-
-            const direction = (fromCid === CT.INV) ? 'Дигл -> Рюкзак' : 'Дигл -> Инвентарь';
-            console.log(`[АВТО-ТАЗЕР] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] -> ${CT_NAMES[toCid]}[${toSlot}]`);
-            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
-                fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
-
-            // Закрываем инвентарь через 150мс после хода
+            const ok = doSwap(items);
+            // Закрываем "невидимый" инвентарь через 150мс
             setTimeout(() => {
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                snAdd(`[1, "АВТО-ТАЗЕР", "${direction}", "00CC44", 2000]`);
-                clearBusy();
+                invis.close();
+                if (ok) clearBusy();
             }, 150);
-
         }, 50);
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[АВТО-ТАЗЕР] v15 готов');
+    console.log('[АВТО-ТАЗЕР] v16 готов (cache + invisible)');
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
 // ==================== ПРОСМОТРЩИК ИНТЕРФЕЙСОВ (/int, доступ: Zahar_Loidov) ====================
