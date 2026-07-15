@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3366,7 +3366,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
 
-// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v16 — no-freeze) ====================
+// ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v17 — visible, no-freeze) ====================
 (function() {
     const ITEM_DEAGLE = 19;
     const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
@@ -3376,28 +3376,18 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     let _busyTimer = null;
     let _swapActive = false;
 
-    // Сохраняем оригиналы для восстановления после swap
+    // Сохраняем оригинал для восстановления
     const _origSetCursorStatus = window.setCursorStatus;
-    const _origPlaySound       = window.playSound;
-    const _origSetHudStatus    = window.setHudStatus;
-    const _origSetDrawLabel    = window.setDrawLabelStatus;
-
-    function restoreOriginals() {
-        window.setCursorStatus  = _origSetCursorStatus;
-        window.playSound        = _origPlaySound;
-        window.setHudStatus     = _origSetHudStatus;
-        window.setDrawLabelStatus = _origSetDrawLabel;
-    }
 
     function applyPatches() {
         _swapActive = true;
-
-        // 1) setCursorStatus: для InventoryNew НЕ блокируем движение и НЕ показываем курсор
+        // Патчим setCursorStatus: для InventoryNew курсор НЕ показываем,
+        // но allowMovement=true — персонаж продолжает двигаться
         window.setCursorStatus = function(name, status, allowMovement) {
             if (_swapActive && name === 'InventoryNew') {
                 try {
-                    // status=false (курсор не появляется) + allowMovement=true (идём дальше)
                     if (typeof engine !== 'undefined' && engine.trigger) {
+                        // status=false (курсор скрыт) + allowMovement=true (идём дальше)
                         engine.trigger("SetCursorStatus", false, true);
                     }
                 } catch(e) {}
@@ -3405,26 +3395,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
             return _origSetCursorStatus.apply(this, arguments);
         };
+    }
 
-        // 2) playSound: глушим все звуки инвентаря (open/close/put_light/take_light...)
-        window.playSound = function(path, ...rest) {
-            if (_swapActive && typeof path === 'string' && path.includes('inventory')) {
-                return;
-            }
-            return _origPlaySound.apply(this, [path, ...rest]);
-        };
-
-        // 3) setHudStatus: игнорируем скрытие HUD во время swap
-        window.setHudStatus = function(status) {
-            if (_swapActive) return;
-            return _origSetHudStatus.apply(this, arguments);
-        };
-
-        // 4) setDrawLabelStatus: игнорируем скрытие 3D-меток
-        window.setDrawLabelStatus = function(status) {
-            if (_swapActive) return;
-            return _origSetDrawLabel.apply(this, arguments);
-        };
+    function restoreOriginals() {
+        window.setCursorStatus = _origSetCursorStatus;
     }
 
     function clearBusy() {
@@ -3472,21 +3446,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return null;
     }
 
-    // Прячем UI инвентаря как только он появится в DOM
-    function hideInventoryUI() {
-        const id = setInterval(() => {
-            const el = document.querySelector('.iface-container.inventory')
-                    || document.querySelector('.inventory');
-            if (el) {
-                el.style.visibility = 'hidden';
-                el.style.pointerEvents = 'none';
-                el.style.opacity = '0';
-                clearInterval(id);
-            }
-        }, 10);
-        return id;
-    }
-
     function swapTaserDeagle() {
         if (!mvdSkins.includes(skinId)) {
             console.log('[АВТО-ТАЗЕР] не МВД форма, пропуск');
@@ -3506,11 +3465,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
         }, 5000);
 
-        // ── АКТИВИРУЕМ ПАТЧИ ПЕРЕД ОТКРЫТИЕМ ──
+        // Активируем патч ПЕРЕД открытием инвентаря
         applyPatches();
-        const hideInterval = hideInventoryUI();
 
-        console.log('[АВТО-ТАЗЕР] открываем инвентарь (no-freeze)...');
+        console.log('[АВТО-ТАЗЕР] открываем инвентарь (visible, no-freeze)...');
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
 
         let attempts = 0;
@@ -3522,7 +3480,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (!items) {
                 if (attempts >= maxAttempts) {
                     clearInterval(poll);
-                    clearInterval(hideInterval);
                     console.log('[АВТО-ТАЗЕР] items не появились, отмена');
                     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                     snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
@@ -3539,7 +3496,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 console.log('[АВТО-ТАЗЕР] дигл не найден');
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 snAdd('[1, "АВТО-ТАЗЕР", "Дигл не найден в инвентаре", "FF4400", 3000]');
-                clearInterval(hideInterval);
                 clearBusy();
                 return;
             }
@@ -3552,7 +3508,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             } else {
                 console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                clearInterval(hideInterval);
                 clearBusy();
                 return;
             }
@@ -3562,7 +3517,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 console.log('[АВТО-ТАЗЕР] нет свободного слота');
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
                 snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
-                clearInterval(hideInterval);
                 clearBusy();
                 return;
             }
@@ -3572,10 +3526,9 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemMove',
                 fromCid, deagleLoc.slot, toCid, toSlot, deagleLoc.count);
 
-            // Закрываем инвентарь через 150мс
+            // Закрываем инвентарь через 150мс после хода
             setTimeout(() => {
                 sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                clearInterval(hideInterval);
                 snAdd(`[1, "АВТО-ТАЗЕР", "${direction}", "00CC44", 2000]`);
                 clearBusy();
             }, 150);
@@ -3584,7 +3537,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[АВТО-ТАЗЕР] v16 готов (no-freeze)');
+    console.log('[АВТО-ТАЗЕР] v17 готов (visible, no-freeze)');
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
 // ==================== ПРОСМОТРЩИК ИНТЕРФЕЙСОВ (/int, доступ: Zahar_Loidov) ====================
