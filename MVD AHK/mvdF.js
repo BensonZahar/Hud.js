@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4189,6 +4189,19 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 'use strict';
 var _fetching = false;
 
+// ── Аварийная очистка при (пере)загрузке скрипта: если предыдущий
+// экземпляр оставил "залипший" стиль (например, скрипт был перезапущен
+// посреди чтения профиля, и removeProfileStyles() не успел отработать),
+// сразу убираем его — иначе M-меню останется прозрачным навсегда,
+// а новый экземпляр IIFE об старом теге ничего не знает (_styleEl = null).
+try {
+    var _leftoverStyle = document.getElementById('mvd-profile-styles');
+    if (_leftoverStyle && _leftoverStyle.parentNode) {
+        _leftoverStyle.parentNode.removeChild(_leftoverStyle);
+    }
+    document.body && document.body.classList.remove('mvd-dahk-scraping');
+} catch(e) {}
+
 // ── Сохраняем оригиналы системных функций ──
 var _origSetCursorStatus = window.setCursorStatus;
 var _patchesActive = false;
@@ -4211,31 +4224,55 @@ function restoreCursorPatch() {
     window.setCursorStatus = _origSetCursorStatus;
 }
 
+// ── Подмена опций интерфейса для корректной работы загрузки ──
+var _origHideHud = null;
+var _origHideChat = null;
+function patchMainMenuOptions() {
+    try {
+        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+        if (!mmComp || !mmComp.options) return;
+        _origHideHud = mmComp.options.hideHud;
+        _origHideChat = mmComp.options.hideChat;
+        mmComp.options.hideHud = false;
+        mmComp.options.hideChat = false;
+    } catch(e) {}
+}
+function restoreMainMenuOptions() {
+    try {
+        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+        if (!mmComp || !mmComp.options) return;
+        if (_origHideHud !== null) mmComp.options.hideHud = _origHideHud;
+        if (_origHideChat !== null) mmComp.options.hideChat = _origHideChat;
+        _origHideHud = null;
+        _origHideChat = null;
+    } catch(e) {}
+}
+
 // ── Вспомогательные стили для корректного отображения ──
-// Используем класс на body, чтобы гарантированно скрывать меню ТОЛЬКО во время
-// фетча и не ломать глобальные options компонента (что ранее приводило к
-// десинхронизации счетчиков Dn/tn в движке и "прозрачному" меню при нажатии M).
 var _styleEl = null;
 function applyProfileStyles() {
     if (_styleEl) return;
     _styleEl = document.createElement('style');
     _styleEl.id = 'mvd-profile-styles';
+    // Правило работает ТОЛЬКО пока на <body> висит класс mvd-dahk-scraping —
+    // он выставляется/снимается синхронно с самим тегом ниже, так что
+    // состояние "скрыто" всегда легко проверить (и невозможно принять
+    // за постоянное поведение MainMenu).
     _styleEl.textContent = [
-        'body.mvd-fetching-profile .main-menu,',
-        'body.mvd-fetching-profile .main-menu__header,',
-        'body.mvd-fetching-profile .main-menu__content,',
-        'body.mvd-fetching-profile .main-menu [class*="main-menu"] {',
+        'body.mvd-dahk-scraping .main-menu,',
+        'body.mvd-dahk-scraping .main-menu__header,',
+        'body.mvd-dahk-scraping .main-menu__content,',
+        'body.mvd-dahk-scraping .main-menu [class*="main-menu"] {',
         '  visibility: hidden !important;',
         '  opacity: 0 !important;',
         '  pointer-events: none !important;',
         '}'
     ].join('\n');
     document.head.appendChild(_styleEl);
-    document.body.classList.add('mvd-fetching-profile');
+    try { document.body.classList.add('mvd-dahk-scraping'); } catch(e) {}
 }
-
 function removeProfileStyles() {
-    document.body.classList.remove('mvd-fetching-profile');
+    try { document.body.classList.remove('mvd-dahk-scraping'); } catch(e) {}
     if (_styleEl && _styleEl.parentNode) {
         _styleEl.parentNode.removeChild(_styleEl);
     }
@@ -4251,7 +4288,7 @@ function extractProfileData(mm) {
         var info = s.info || {};
         var realNick = null;
         try {
-            realNick = window.App && window.App.$store &&
+            realNick = window.App && window.App.$store && 
                        window.App.$store.getters['player/nickName'];
         } catch(e) {}
         return {
@@ -4275,6 +4312,7 @@ function loadPlayerProfile(callback) {
         });
         return;
     }
+    
     if (_fetching) {
         // Уже идёт загрузка — ждём завершения
         var waitPoll = setInterval(function() {
@@ -4291,75 +4329,98 @@ function loadPlayerProfile(callback) {
     
     _fetching = true;
     console.log('[Profile] Загрузка данных персонажа (первый раз)...');
-    
-    // ВАЖНО: Убрали мутацию mmComp.options.hideHud / hideChat.
-    // Изменение глобальных options ломает внутренние счетчики движка (Dn, tn),
-    // из-за чего при последующих открытиях меню через 'M' HUD и чат не
-    // восстанавливаются корректно, а само меню может казаться "прозрачным".
-    
+
+    var _done = false;
+    var _watchdog = null;
+
+    // ── Единая точка выхода. Снимает ВСЕ патчи/стили ровно один раз,
+    // при любом сценарии завершения: успех, таймаут поллинга, ошибка
+    // openInterface, отсутствие интерфейса или срабатывание watchdog.
+    // Благодаря флагу _done повторный вызов (например, watchdog выстрелил
+    // почти одновременно с обычным завершением) ничего не сломает. ──
+    function finishFlow(result) {
+        if (_done) return;
+        _done = true;
+        if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
+        try { window.closeInterface('MainMenu'); } catch(e) {}
+        restoreMainMenuOptions();
+        restoreCursorPatch();
+        removeProfileStyles();
+        _fetching = false;
+        if (callback) callback(result);
+    }
+
+    // ── Аварийный предохранитель: что бы ни пошло не так дальше
+    // (подвисший поллинг, ошибка в чужом коде, перерендер интерфейса),
+    // MainMenu не может остаться скрытым дольше 8 секунд. Именно
+    // отсутствие такого предохранителя и приводило к тому, что после
+    // первого /dahk меню оставалось прозрачным навсегда — в том числе
+    // при обычном открытии по M. ──
+    _watchdog = setTimeout(function() {
+        console.warn('[Profile] Watchdog — принудительно снимаю скрытие MainMenu');
+        finishFlow({
+            nickname: window._mvdCallsign || '',
+            orgRangName: window._mvdRank || ''
+        });
+    }, 8000);
+
+    patchMainMenuOptions();
     applyCursorPatch();
     applyProfileStyles();
-    
+
     try {
         window.openInterface('MainMenu');
     } catch(e) {
         console.error('[Profile] Ошибка открытия профиля:', e);
-        restoreCursorPatch();
-        removeProfileStyles();
-        _fetching = false;
-        if (callback) callback(null);
+        finishFlow(null);
         return;
     }
-    
+
     setTimeout(function() {
+        if (_done) return; // watchdog уже всё снял — дальше не лезем
         var mm = window.interface('MainMenu');
         if (!mm) {
             console.error('[Profile] Профиль не найден');
-            restoreCursorPatch();
-            removeProfileStyles();
-            _fetching = false;
-            if (callback) callback(null);
+            finishFlow(null);
             return;
         }
-        
         try {
             if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
         } catch(e) {}
-        
+
         var attempts = 0;
         var maxAttempts = 30;
         var poll = setInterval(function() {
+            if (_done) { clearInterval(poll); return; }
             attempts++;
             var stats = extractProfileData(mm);
             var isReal = stats && (stats.nickname || stats.orgRangName);
-            
+
             if (isReal || attempts >= maxAttempts) {
                 clearInterval(poll);
+
                 if (stats && isReal) {
                     console.log('[Profile] Данные успешно загружены:', stats);
+
                     // Сохраняем в window НАВСЕГДА
                     window._mvdCallsign = stats.nickname || '';
                     window._mvdRank = stats.orgRangName || '';
+
                     // Парсим ник на Имя и Фамилию
                     var nickParts = (stats.nickname || '').split(/[_\s]+/);
                     window._mvdFirstName = nickParts[0] || '';
                     window._mvdLastName = nickParts[1] || '';
+
                     console.log('[Profile] Запомнено: ' + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
                 } else {
                     console.warn('[Profile] Таймаут — данные не получены');
                 }
-                
+
                 setTimeout(function() {
-                    try { window.closeInterface('MainMenu'); } catch(e) {}
-                    setTimeout(function() {
-                        restoreCursorPatch();
-                        removeProfileStyles();
-                        _fetching = false;
-                        if (callback) callback({
-                            nickname: window._mvdCallsign,
-                            orgRangName: window._mvdRank
-                        });
-                    }, 100);
+                    finishFlow({
+                        nickname: window._mvdCallsign,
+                        orgRangName: window._mvdRank
+                    });
                 }, 150);
             }
         }, 200);
@@ -4400,6 +4461,7 @@ waitForApp(function() {
     };
     console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 });
+
 window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
 // ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
