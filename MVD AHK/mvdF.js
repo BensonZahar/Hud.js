@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.8 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3243,7 +3243,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         // ── ПАТЧИ: скрываем визуал инвентаря на время авто-снаряжения ──
         // Курсор не появляется, звуки глушатся, HUD и 3D-метки не прячутся,
         // DOM инвентаря и диалога становится невидимым.
-        const _grabOrigSetCursorStatus   = window.setCursorStatus;
         const _grabOrigPlaySound         = window.playSound;
         const _grabOrigSetHudStatus      = window.setHudStatus;
         const _grabOrigSetDrawLabel      = window.setDrawLabelStatus;
@@ -3251,27 +3250,20 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
         function applyGrabPatches() {
             _grabPatchesActive = true;
-            window.setCursorStatus = function(name, status, allowMovement) {
-                if (_grabPatchesActive && (name === 'InventoryNew' || name === 'Dialog')) {
-                    try {
-                        if (typeof engine !== 'undefined' && engine.trigger) {
-                            engine.trigger("SetCursorStatus", false, true);
-                        }
-                    } catch(e) {}
-                    return;
-                }
-                return _grabOrigSetCursorStatus.apply(this, arguments);
-            };
+            // Курсор НЕ трогаем — оставляем как есть
+            // Глушим все звуки инвентаря (open/close/take_light/put_light)
             window.playSound = function(path, ...rest) {
                 if (_grabPatchesActive && typeof path === 'string' && path.includes('inventory')) {
                     return;
                 }
                 return _grabOrigPlaySound.apply(this, [path, ...rest]);
             };
+            // HUD не прячется
             window.setHudStatus = function(status) {
                 if (_grabPatchesActive) return;
                 return _grabOrigSetHudStatus.apply(this, arguments);
             };
+            // 3D-метки не прячутся
             window.setDrawLabelStatus = function(status) {
                 if (_grabPatchesActive) return;
                 return _grabOrigSetDrawLabel.apply(this, arguments);
@@ -3280,7 +3272,6 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 
         function restoreGrabPatches() {
             _grabPatchesActive = false;
-            window.setCursorStatus    = _grabOrigSetCursorStatus;
             window.playSound          = _grabOrigPlaySound;
             window.setHudStatus       = _grabOrigSetHudStatus;
             window.setDrawLabelStatus = _grabOrigSetDrawLabel;
