@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.00 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4178,83 +4178,15 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
    ============================================================ */
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
 // ==================== ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) ====================
+// При первом /dahk делаем "flash": быстро открываем MainMenu, считываем данные
+// из statistics и сразу закрываем. Никаких CSS-хаков и мутаций options —
+// компонент проходит нормальный жизненный цикл, серверное меню на M не ломается.
+// Для принудительного обновления данных (после повышения звания) — команда /mmenu
 (function() {
 'use strict';
 var _fetching = false;
 
-var _origSetCursorStatus = window.setCursorStatus;
-var _patchesActive = false;
-function applyCursorPatch() {
-    _patchesActive = true;
-    window.setCursorStatus = function(name, status, allowMovement) {
-        if (_patchesActive && name === 'MainMenu') {
-            try {
-                if (typeof engine !== 'undefined' && engine.trigger) {
-                    engine.trigger("SetCursorStatus", false, true);
-                }
-            } catch(e) {}
-            return;
-        }
-        return _origSetCursorStatus.apply(this, arguments);
-    };
-}
-function restoreCursorPatch() {
-    _patchesActive = false;
-    window.setCursorStatus = _origSetCursorStatus;
-}
-
-var _styleEl = null;
-function applyProfileStyles() {
-    if (_styleEl) return;
-    _styleEl = document.createElement('style');
-    _styleEl.id = 'mvd-profile-styles';
-    // ВАЖНО: Не используем opacity: 0 и visibility: hidden!
-    // Они ломают Vue-переходы (fade) и внутренние состояния движка.
-    // Вместо этого просто уводим меню за пределы экрана и фиксируем opacity: 1.
-    _styleEl.textContent = [
-        '.main-menu.iface-container,',
-        '.main-menu {',
-        '  position: fixed !important;',
-        '  left: -100vw !important;',
-        '  top: -100vh !important;',
-        '  width: 1px !important;',
-        '  height: 1px !important;',
-        '  overflow: hidden !important;',
-        '  pointer-events: none !important;',
-        '  opacity: 1 !important;',
-        '  visibility: visible !important;',
-        '}'
-    ].join('\n');
-    document.head.appendChild(_styleEl);
-}
-
-function removeProfileStyles() {
-    var el = document.getElementById('mvd-profile-styles');
-    if (el && el.parentNode) {
-        el.parentNode.removeChild(el);
-    }
-    if (_styleEl && _styleEl.parentNode) {
-        _styleEl.parentNode.removeChild(_styleEl);
-    }
-    _styleEl = null;
-}
-
-// Принудительная очистка залипших классов переходов и инлайн-стилей
-function forceCleanupTransitions() {
-    try {
-        var menuEl = document.querySelector('.main-menu.iface-container') || document.querySelector('.main-menu');
-        if (menuEl) {
-            // Убираем любые залипшие классы переходов Vue
-            menuEl.classList.remove('fade-enter-active', 'fade-leave-active', 'fade-enter-from', 'fade-leave-to', 'fade-enter-to', 'fade-leave-from');
-            // Сбрасываем инлайн стили, если движок или Vue их повесили
-            menuEl.style.opacity = '';
-            menuEl.style.visibility = '';
-            menuEl.style.display = '';
-            menuEl.style.transform = '';
-        }
-    } catch(e) {}
-}
-
+// ── Извлечение данных из профиля ──
 function extractProfileData(mm) {
     try {
         var s = mm.statistics;
@@ -4266,18 +4198,25 @@ function extractProfileData(mm) {
             realNick = window.App && window.App.$store &&
                        window.App.$store.getters['player/nickName'];
         } catch(e) {}
-        return {
-            orgRangName: org.rangName || null,
-            nickname:    realNick || info.nickname || null,
-            fetchedAt: Date.now()
-        };
+        
+        var nick = realNick || info.nickname || null;
+        var rang = org.rangName || null;
+        
+        // Считаем данные валидными только если есть И звание, И ник
+        if (nick && rang) {
+            return { nickname: nick, orgRangName: rang };
+        }
+        return null;
     } catch(e) {
         return null;
     }
 }
 
+// ── Основная функция: flash-открытие MainMenu ──
 function loadPlayerProfile(callback) {
+    // Если данные уже загружены — НЕ открываем профиль повторно
     if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
+        console.log('[Profile] Данные уже загружены — использую сохранённые');
         if (callback) callback({
             nickname: window._mvdCallsign,
             orgRangName: window._mvdRank
@@ -4298,67 +4237,71 @@ function loadPlayerProfile(callback) {
     }
     
     _fetching = true;
-    applyCursorPatch();
-    applyProfileStyles();
+    console.log('[Profile] Flash-загрузка данных персонажа...');
     
-    var cleanup = function() {
-        try { window.closeInterface('MainMenu'); } catch(e) {}
-        restoreCursorPatch();
-        removeProfileStyles();
-        forceCleanupTransitions(); // Гарантируем, что меню не останется прозрачным
-        _fetching = false;
-    };
-
+    // Просто открываем MainMenu без всяких патчей
     try {
         window.openInterface('MainMenu');
     } catch(e) {
-        cleanup();
+        console.error('[Profile] Ошибка открытия:', e);
+        _fetching = false;
         if (callback) callback(null);
         return;
     }
     
+    // Ждем немного, чтобы Vue успел отрисовать компонент и запросить данные у сервера
     setTimeout(function() {
         var mm = window.interface('MainMenu');
         if (!mm) {
-            cleanup();
+            console.error('[Profile] MainMenu не найден');
+            try { window.closeInterface('MainMenu'); } catch(e) {}
+            _fetching = false;
             if (callback) callback(null);
             return;
         }
         
+        // Переключаемся на вкладку Statistics, где лежат нужные данные
         try {
             if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
         } catch(e) {}
         
         var attempts = 0;
-        var maxAttempts = 40;
+        var maxAttempts = 30; // 30 * 100ms = 3 секунды максимум
+        
         var poll = setInterval(function() {
             attempts++;
-            var stats = null;
-            try { stats = extractProfileData(mm); } catch(e) {}
-            var isReal = stats && (stats.nickname || stats.orgRangName);
+            var stats = extractProfileData(mm);
             
-            if (isReal || attempts >= maxAttempts) {
+            if (stats || attempts >= maxAttempts) {
                 clearInterval(poll);
-                if (stats && isReal) {
+                
+                if (stats) {
+                    console.log('[Profile] Данные успешно считаны:', stats);
                     window._mvdCallsign = stats.nickname || '';
                     window._mvdRank = stats.orgRangName || '';
                     var nickParts = (stats.nickname || '').split(/[_\s]+/);
                     window._mvdFirstName = nickParts[0] || '';
                     window._mvdLastName = nickParts[1] || '';
+                    console.log('[Profile] Запомнено: ' + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
+                } else {
+                    console.warn('[Profile] Таймаут — данные не получены за 3 сек');
                 }
                 
+                // СРАЗУ закрываем меню — оно мелькнет всего на ~0.5-3 сек
                 setTimeout(function() {
-                    cleanup();
+                    try { window.closeInterface('MainMenu'); } catch(e) {}
+                    _fetching = false;
                     if (callback) callback({
                         nickname: window._mvdCallsign,
                         orgRangName: window._mvdRank
                     });
-                }, 150);
+                }, 50);
             }
-        }, 200);
-    }, 600);
+        }, 100);
+    }, 300);
 }
 
+// ── Команда /mmenu для принудительного обновления данных ──
 function waitForApp(cb, attempts) {
     attempts = attempts || 0;
     if (window.App && window.interface) { cb(); }
@@ -4389,6 +4332,7 @@ waitForApp(function() {
         }
         return _origSendChatInput.apply(this, arguments);
     };
+    console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 });
 window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
