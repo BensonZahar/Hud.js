@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4178,17 +4178,10 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
    ============================================================ */
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
 // ==================== ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) ====================
-// При первом открытии меню /dahk один раз считывает актуальные данные
-// персонажа (ник, звание, должность) и сохраняет их в window для использования
-// в отыгровках (приветствие, строй и т.д.).
-// Повторные /dahk используют уже сохранённые данные — мгновенное открытие.
-// Для принудительного обновления данных (например, после повышения звания)
-// напишите в чат /mmenu
 (function() {
 'use strict';
 var _fetching = false;
 
-// ── Сохраняем оригиналы системных функций ──
 var _origSetCursorStatus = window.setCursorStatus;
 var _patchesActive = false;
 function applyCursorPatch() {
@@ -4210,31 +4203,32 @@ function restoreCursorPatch() {
     window.setCursorStatus = _origSetCursorStatus;
 }
 
-// ── Вспомогательные стили для корректного отображения ──
-// Мы НЕ используем классы на body, а внедряем <style> тег напрямую.
-// Это гарантирует, что при удалении тега меню СРАЗУ станет видимым,
-// и никакие "залипшие" классы не сделают серверное меню прозрачным.
 var _styleEl = null;
 function applyProfileStyles() {
     if (_styleEl) return;
     _styleEl = document.createElement('style');
     _styleEl.id = 'mvd-profile-styles';
+    // ВАЖНО: Не используем opacity: 0 и visibility: hidden!
+    // Они ломают Vue-переходы (fade) и внутренние состояния движка.
+    // Вместо этого просто уводим меню за пределы экрана и фиксируем opacity: 1.
     _styleEl.textContent = [
         '.main-menu.iface-container,',
-        '.main-menu,',
-        '.main-menu__header,',
-        '.main-menu__content {',
-        '  visibility: hidden !important;',
-        '  opacity: 0 !important;',
+        '.main-menu {',
+        '  position: fixed !important;',
+        '  left: -100vw !important;',
+        '  top: -100vh !important;',
+        '  width: 1px !important;',
+        '  height: 1px !important;',
+        '  overflow: hidden !important;',
         '  pointer-events: none !important;',
+        '  opacity: 1 !important;',
+        '  visibility: visible !important;',
         '}'
     ].join('\n');
     document.head.appendChild(_styleEl);
 }
 
 function removeProfileStyles() {
-    // Удаляем по ID, чтобы гарантировать, что даже если было несколько вызовов,
-    // все теги будут зачищены и меню не останется скрытым.
     var el = document.getElementById('mvd-profile-styles');
     if (el && el.parentNode) {
         el.parentNode.removeChild(el);
@@ -4245,7 +4239,22 @@ function removeProfileStyles() {
     _styleEl = null;
 }
 
-// ── Извлечение данных из профиля ──
+// Принудительная очистка залипших классов переходов и инлайн-стилей
+function forceCleanupTransitions() {
+    try {
+        var menuEl = document.querySelector('.main-menu.iface-container') || document.querySelector('.main-menu');
+        if (menuEl) {
+            // Убираем любые залипшие классы переходов Vue
+            menuEl.classList.remove('fade-enter-active', 'fade-leave-active', 'fade-enter-from', 'fade-leave-to', 'fade-enter-to', 'fade-leave-from');
+            // Сбрасываем инлайн стили, если движок или Vue их повесили
+            menuEl.style.opacity = '';
+            menuEl.style.visibility = '';
+            menuEl.style.display = '';
+            menuEl.style.transform = '';
+        }
+    } catch(e) {}
+}
+
 function extractProfileData(mm) {
     try {
         var s = mm.statistics;
@@ -4267,7 +4276,6 @@ function extractProfileData(mm) {
     }
 }
 
-// ── Основная функция: считывает ОДИН РАЗ, дальше возвращает сохранённые данные ──
 function loadPlayerProfile(callback) {
     if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
         if (callback) callback({
@@ -4293,11 +4301,11 @@ function loadPlayerProfile(callback) {
     applyCursorPatch();
     applyProfileStyles();
     
-    // Единая функция очистки, вызывается при ЛЮБОМ исходе
     var cleanup = function() {
         try { window.closeInterface('MainMenu'); } catch(e) {}
         restoreCursorPatch();
         removeProfileStyles();
+        forceCleanupTransitions(); // Гарантируем, что меню не останется прозрачным
         _fetching = false;
     };
 
@@ -4326,7 +4334,6 @@ function loadPlayerProfile(callback) {
         var poll = setInterval(function() {
             attempts++;
             var stats = null;
-            // try/catch защищает интервал от падения, если Vue еще не отрисовал данные
             try { stats = extractProfileData(mm); } catch(e) {}
             var isReal = stats && (stats.nickname || stats.orgRangName);
             
@@ -4346,13 +4353,12 @@ function loadPlayerProfile(callback) {
                         nickname: window._mvdCallsign,
                         orgRangName: window._mvdRank
                     });
-                }, 200);
+                }, 150);
             }
         }, 200);
-    }, 800);
+    }, 600);
 }
 
-// ── Команда /mmenu для принудительного обновления данных ──
 function waitForApp(cb, attempts) {
     attempts = attempts || 0;
     if (window.App && window.interface) { cb(); }
