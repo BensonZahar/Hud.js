@@ -757,15 +757,25 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
         <span class="page-title">Данные сотрудника МВД</span>
       </div>
       <div class="content">
-        
+        <div class="steps">
+          <div class="step done" id="si0"></div>
           <div class="step" id="si1"></div>
           <div class="step" id="si2"></div>
         </div>
 
-        
+        <div class="inp-grp">
+          <label class="inp-lbl">Звание (на русском)</label>
+          <input class="inp" id="f-rank" placeholder="Подполковник" oninput="updateSteps()">
+        </div>
         <div class="grid2">
-          
-          
+          <div class="inp-grp">
+            <label class="inp-lbl">Имя</label>
+            <input class="inp" id="f-fname" placeholder="Захар" oninput="updateSteps()">
+          </div>
+          <div class="inp-grp">
+            <label class="inp-lbl">Фамилия</label>
+            <input class="inp" id="f-lname" placeholder="Конст" oninput="updateSteps()">
+          </div>
         </div>
 
         <div class="chk-row" onclick="toggleCallsign()">
@@ -1119,9 +1129,9 @@ window.addEventListener('pywebviewready',function(){
   api=window.pywebview.api;
   api.get_saved_settings().then(function(s){
     if(!s)return;
-    if(s.rank){document.getElementById('f-rank').value=s.rank;}
-    if(s.first_name){document.getElementById('f-fname').value=s.first_name;}
-    if(s.last_name){document.getElementById('f-lname').value=s.last_name;}
+    if(s.rank){document.getElementById('f-rank').value=s.rank;updateSteps();}
+    if(s.first_name){document.getElementById('f-fname').value=s.first_name;updateSteps();}
+    if(s.last_name){document.getElementById('f-lname').value=s.last_name;updateSteps();}
     if(s.callsign){document.getElementById('f-callsign').value=s.callsign;if(s.use_callsign){callsignOn=true;document.getElementById('chk-box').classList.add('on');document.getElementById('cs-wrap').classList.add('show');}}
     if(s.auto_password){document.getElementById('f-password').value=s.auto_password;if(s.use_auto_password){autoPasswordOn=true;document.getElementById('chk-box-pwd').classList.add('on');document.getElementById('pwd-wrap').classList.add('show');}}
     if(s.auto_grab&&typeof s.auto_grab==='object'){savedAutoGrab=s.auto_grab;if(s.auto_grab.enabled){autoGrabOn=true;document.getElementById('chk-box-grab').classList.add('on');document.getElementById('grab-wrap').classList.add('show');setTimeout(initGrabScroll,300);}if(s.auto_grab.items){grabItems=Object.assign(grabItems,s.auto_grab.items);['painkiller','medkit','baton','baton2','vest','taumeter','diag','taser','deagle','akm','aks74u','remington','magnum','ammo762','ammo545','ammo12x70'].forEach(function(k){var el=document.getElementById('wmi-'+k);if(el)el.classList.toggle('on',!!grabItems[k]);});}}
@@ -1338,11 +1348,11 @@ document.addEventListener('wheel',function(e){
   });
 })();
 
-
+function updateSteps(){var r=document.getElementById('f-rank').value.trim();var f=document.getElementById('f-fname').value.trim();var l=document.getElementById('f-lname').value.trim();var done=(r?1:0)+(f?1:0)+(l?1:0);for(var i=0;i<3;i++){var el=document.getElementById('si'+i);el.className='step'+(i<done?' done':'')+(i===done-1&&done<3?' cur':'');}}
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs, callsignOn, pwd, grab, swapEnabled, swapKey, menuKey, [], binds, [], timerItems).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var rank=document.getElementById('f-rank').value.trim();var fn=document.getElementById('f-fname').value.trim();var ln=document.getElementById('f-lname').value.trim();if(!rank||!fn||!ln){flash(false);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(rank,fn,ln,cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,[],binds,[],timerItems).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){if(!folderSelected){flash(false);setTab('home',null);return;}var btn=document.getElementById('btn-remove');btn.disabled=true;runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
@@ -1418,7 +1428,7 @@ var _origToggleAutoGrab=toggleAutoGrab;
 toggleAutoGrab=function(){_origToggleAutoGrab();if(autoGrabOn)setTimeout(initGrabScroll,300);};
 
 document.querySelectorAll('.page').forEach(function(p){if(!p.classList.contains('active'))p.style.display='none';});
-
+updateSteps();
 document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);
 document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);
 document.getElementById('f-swap-key').value=swapKey;
