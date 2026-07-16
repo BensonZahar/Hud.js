@@ -4211,49 +4211,31 @@ function restoreCursorPatch() {
     window.setCursorStatus = _origSetCursorStatus;
 }
 
-// ── Подмена опций интерфейса для корректной работы загрузки ──
-var _origHideHud = null;
-var _origHideChat = null;
-function patchMainMenuOptions() {
-    try {
-        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
-        if (!mmComp || !mmComp.options) return;
-        _origHideHud = mmComp.options.hideHud;
-        _origHideChat = mmComp.options.hideChat;
-        mmComp.options.hideHud = false;
-        mmComp.options.hideChat = false;
-    } catch(e) {}
-}
-function restoreMainMenuOptions() {
-    try {
-        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
-        if (!mmComp || !mmComp.options) return;
-        if (_origHideHud !== null) mmComp.options.hideHud = _origHideHud;
-        if (_origHideChat !== null) mmComp.options.hideChat = _origHideChat;
-        _origHideHud = null;
-        _origHideChat = null;
-    } catch(e) {}
-}
-
 // ── Вспомогательные стили для корректного отображения ──
+// Используем класс на body, чтобы гарантированно скрывать меню ТОЛЬКО во время
+// фетча и не ломать глобальные options компонента (что ранее приводило к
+// десинхронизации счетчиков Dn/tn в движке и "прозрачному" меню при нажатии M).
 var _styleEl = null;
 function applyProfileStyles() {
     if (_styleEl) return;
     _styleEl = document.createElement('style');
     _styleEl.id = 'mvd-profile-styles';
     _styleEl.textContent = [
-        'body .main-menu,',
-        'body .main-menu__header,',
-        'body .main-menu__content,',
-        'body .main-menu [class*="main-menu"] {',
+        'body.mvd-fetching-profile .main-menu,',
+        'body.mvd-fetching-profile .main-menu__header,',
+        'body.mvd-fetching-profile .main-menu__content,',
+        'body.mvd-fetching-profile .main-menu [class*="main-menu"] {',
         '  visibility: hidden !important;',
         '  opacity: 0 !important;',
         '  pointer-events: none !important;',
         '}'
     ].join('\n');
     document.head.appendChild(_styleEl);
+    document.body.classList.add('mvd-fetching-profile');
 }
+
 function removeProfileStyles() {
+    document.body.classList.remove('mvd-fetching-profile');
     if (_styleEl && _styleEl.parentNode) {
         _styleEl.parentNode.removeChild(_styleEl);
     }
@@ -4269,7 +4251,7 @@ function extractProfileData(mm) {
         var info = s.info || {};
         var realNick = null;
         try {
-            realNick = window.App && window.App.$store && 
+            realNick = window.App && window.App.$store &&
                        window.App.$store.getters['player/nickName'];
         } catch(e) {}
         return {
@@ -4293,7 +4275,6 @@ function loadPlayerProfile(callback) {
         });
         return;
     }
-    
     if (_fetching) {
         // Уже идёт загрузка — ждём завершения
         var waitPoll = setInterval(function() {
@@ -4311,7 +4292,11 @@ function loadPlayerProfile(callback) {
     _fetching = true;
     console.log('[Profile] Загрузка данных персонажа (первый раз)...');
     
-    patchMainMenuOptions();
+    // ВАЖНО: Убрали мутацию mmComp.options.hideHud / hideChat.
+    // Изменение глобальных options ломает внутренние счетчики движка (Dn, tn),
+    // из-за чего при последующих открытиях меню через 'M' HUD и чат не
+    // восстанавливаются корректно, а само меню может казаться "прозрачным".
+    
     applyCursorPatch();
     applyProfileStyles();
     
@@ -4319,7 +4304,6 @@ function loadPlayerProfile(callback) {
         window.openInterface('MainMenu');
     } catch(e) {
         console.error('[Profile] Ошибка открытия профиля:', e);
-        restoreMainMenuOptions();
         restoreCursorPatch();
         removeProfileStyles();
         _fetching = false;
@@ -4331,13 +4315,13 @@ function loadPlayerProfile(callback) {
         var mm = window.interface('MainMenu');
         if (!mm) {
             console.error('[Profile] Профиль не найден');
-            restoreMainMenuOptions();
             restoreCursorPatch();
             removeProfileStyles();
             _fetching = false;
             if (callback) callback(null);
             return;
         }
+        
         try {
             if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
         } catch(e) {}
@@ -4351,19 +4335,15 @@ function loadPlayerProfile(callback) {
             
             if (isReal || attempts >= maxAttempts) {
                 clearInterval(poll);
-                
                 if (stats && isReal) {
                     console.log('[Profile] Данные успешно загружены:', stats);
-                    
                     // Сохраняем в window НАВСЕГДА
                     window._mvdCallsign = stats.nickname || '';
                     window._mvdRank = stats.orgRangName || '';
-                    
                     // Парсим ник на Имя и Фамилию
                     var nickParts = (stats.nickname || '').split(/[_\s]+/);
                     window._mvdFirstName = nickParts[0] || '';
                     window._mvdLastName = nickParts[1] || '';
-                    
                     console.log('[Profile] Запомнено: ' + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
                 } else {
                     console.warn('[Profile] Таймаут — данные не получены');
@@ -4372,7 +4352,6 @@ function loadPlayerProfile(callback) {
                 setTimeout(function() {
                     try { window.closeInterface('MainMenu'); } catch(e) {}
                     setTimeout(function() {
-                        restoreMainMenuOptions();
                         restoreCursorPatch();
                         removeProfileStyles();
                         _fetching = false;
@@ -4421,7 +4400,6 @@ waitForApp(function() {
     };
     console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 });
-
 window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
 // ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
