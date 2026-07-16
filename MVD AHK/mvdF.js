@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3369,7 +3369,224 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
+// ==================== АВТО-СЧИТЫВАНИЕ ДАННЫХ ПЕРСОНАЖА (при первом /dahk) ====================
+(function() {
+    var CACHE_TTL_MS = 300000; // кэш 5 минут
+    var _cache = null;
+    var _cacheTime = 0;
+    var _fetching = false;
+    var _firstDahkDone = false;
 
+    // Патчим optionsMainMenu чтобы HUD не скрывался
+    function patchMainMenuOptions() {
+        try {
+            var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+            if (!mmComp || !mmComp.options) return null;
+            var orig = {
+                hideHud: mmComp.options.hideHud,
+                hideChat: mmComp.options.hideChat
+            };
+            mmComp.options.hideHud = false;
+            mmComp.options.hideChat = false;
+            return orig;
+        } catch(e) { return null; }
+    }
+
+    function restoreMainMenuOptions(orig) {
+        if (!orig) return;
+        try {
+            var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+            if (!mmComp || !mmComp.options) return;
+            mmComp.options.hideHud = orig.hideHud;
+            mmComp.options.hideChat = orig.hideChat;
+        } catch(e) {}
+    }
+
+    // CSS скрывает MainMenu
+    var _styleEl = null;
+    function hideMainMenuCSS() {
+        if (_styleEl) return;
+        _styleEl = document.createElement('style');
+        _styleEl.id = 'mvd-hide-mainmenu';
+        _styleEl.textContent = [
+            '.main-menu,',
+            '.main-menu__header,',
+            '.main-menu__content,',
+            '.main-menu [class*="main-menu"] {',
+            '  display: none !important;',
+            '  pointer-events: none !important;',
+            '}'
+        ].join('\n');
+        document.head.appendChild(_styleEl);
+    }
+
+    function showMainMenuCSS() {
+        if (_styleEl && _styleEl.parentNode) {
+            _styleEl.parentNode.removeChild(_styleEl);
+        }
+        _styleEl = null;
+    }
+
+    // Патч курсора — движение разрешено
+    var _origSetCursorStatus = window.setCursorStatus;
+    var _patchesActive = false;
+
+    function applyPatches() {
+        _patchesActive = true;
+        window.setCursorStatus = function(name, status, allowMovement) {
+            if (_patchesActive && name === 'MainMenu') {
+                try {
+                    if (typeof engine !== 'undefined' && engine.trigger) {
+                        engine.trigger("SetCursorStatus", false, true);
+                    }
+                } catch(e) {}
+                return;
+            }
+            return _origSetCursorStatus.apply(this, arguments);
+        };
+    }
+
+    function restorePatches() {
+        _patchesActive = false;
+        window.setCursorStatus = _origSetCursorStatus;
+    }
+
+    // Извлечение данных из MainMenu
+    function extractStats(mm) {
+        try {
+            var s = mm.statistics;
+            if (!s) return null;
+            var org = s.organization || {};
+            var info = s.info || {};
+            var jobs = s.jobs || [];
+
+            // Ник из Vuex store
+            var realNick = null;
+            try {
+                realNick = window.App && window.App.$store &&
+                           window.App.$store.getters['player/nickName'];
+            } catch(e) {}
+
+            return {
+                orgTitle: org.title || null,
+                orgRangName: org.rangName || null,
+                orgRang: org.rang != null ? org.rang : null,
+                nickname: realNick || info.nickname || null,
+                jobs: jobs.map(function(j) {
+                    return { id: j.id, title: j.title, lvl: j.lvl };
+                })
+            };
+        } catch(e) {
+            return null;
+        }
+    }
+
+    // Основная функция скрытого считывания
+    function fetchPlayerData(callback) {
+        // Если кэш свежий — возвращаем сразу
+        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
+            if (callback) callback(_cache);
+            return _cache;
+        }
+        if (_fetching) return null;
+        _fetching = true;
+
+        console.log('[MVD-DATA] Скрытое считывание данных...');
+
+        // Патчим options ДО открытия
+        var origOptions = patchMainMenuOptions();
+        applyPatches();
+        hideMainMenuCSS();
+
+        try {
+            window.openInterface('MainMenu');
+        } catch(e) {
+            console.error('[MVD-DATA] Ошибка открытия:', e);
+            showMainMenuCSS();
+            restorePatches();
+            restoreMainMenuOptions(origOptions);
+            _fetching = false;
+            return null;
+        }
+
+        setTimeout(function() {
+            var mm = window.interface('MainMenu');
+            if (!mm) {
+                console.error('[MVD-DATA] MainMenu не найден');
+                showMainMenuCSS();
+                restorePatches();
+                restoreMainMenuOptions(origOptions);
+                _fetching = false;
+                return;
+            }
+
+            // Переключаемся на вкладку Statistics
+            try {
+                if (typeof mm.selectTab === 'function') {
+                    mm.selectTab('Statistics');
+                }
+            } catch(e) {}
+
+            // Polling данных
+            var attempts = 0;
+            var maxAttempts = 25; // 5 секунд
+            var poll = setInterval(function() {
+                attempts++;
+                var stats = extractStats(mm);
+                var isReal = stats && (
+                    (stats.orgTitle && stats.orgTitle !== 'Police departament') ||
+                    stats.jobs.length > 0
+                );
+
+                if (isReal || attempts >= maxAttempts) {
+                    clearInterval(poll);
+
+                    if (stats && isReal) {
+                        _cache = stats;
+                        _cacheTime = Date.now();
+                        console.log('[MVD-DATA] ✅ Данные считаны:', stats.orgTitle, stats.orgRangName);
+                    } else {
+                        console.warn('[MVD-DATA] ⚠️ Таймаут');
+                    }
+
+                    // Закрываем MainMenu
+                    setTimeout(function() {
+                        try { window.closeInterface('MainMenu'); } catch(e) {}
+                        showMainMenuCSS();
+                        restorePatches();
+                        restoreMainMenuOptions(origOptions);
+                        _fetching = false;
+                        if (callback) callback(_cache);
+                    }, 150);
+                }
+            }, 200);
+        }, 600);
+
+        return null;
+    }
+
+    // Публичный API
+    window._mvdGetPlayerData = function() {
+        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
+            return _cache;
+        }
+        return null;
+    };
+
+    window._mvdFetchPlayerData = fetchPlayerData;
+
+    // Флаг первого открытия
+    window._mvdIsFirstDahk = function() {
+        return !_firstDahkDone;
+    };
+
+    window._mvdMarkDahkDone = function() {
+        _firstDahkDone = true;
+    };
+
+    console.log('[MVD-DATA] ✅ Готов к скрытому считыванию');
+})();
+// ==================== END АВТО-СЧИТЫВАНИЕ ДАННЫХ ====================
 // ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v18 — sync + no-freeze) ====================
 (function() {
     const ITEM_DEAGLE = 19;
