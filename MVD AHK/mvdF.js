@@ -2714,23 +2714,11 @@ window.sendChatInputCustom = e => {
     const args = e.split(" ");
     if (args[0] == "/dahk") {
     targetId = args[1];
-    // Получаем актуальный скин напрямую перед проверкой
     const freshSkin = getSkinIdFromStore();
     if (freshSkin !== null) skinId = Number(freshSkin);
     if (mvdSkins.includes(skinId)) {
         
-        const openMenu = (stats) => {
-            // Если данные успешно считаны, парсим ник и сохраняем в window
-            if (stats && stats.nickname) {
-                // Разделяем ник (Vlad_Giovanni или Vlad Giovanni) на Имя и Фамилию
-                const nickParts = stats.nickname.split(/[_\s]+/);
-                window._mvdFirstName = nickParts[0] || FIRST_NAME;
-                window._mvdLastName = nickParts[1] || LAST_NAME;
-                window._mvdRank = stats.orgRangName || RANK;
-                window._mvdCallsign = stats.nickname || CALLSIGN;
-                console.log(`[MMENU] Данные обновлены: ${window._mvdRank} ${window._mvdFirstName} ${window._mvdLastName}`);
-            }
-            
+        const openMenu = () => {
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
             restoreTrackingTimer();
             refreshPartnerNickSilent();
@@ -2741,11 +2729,14 @@ window.sendChatInputCustom = e => {
             }
         };
 
-        // Вызываем считывание (если функция доступна)
-        if (typeof window._mvdFetchPlayerStats === 'function') {
-            window._mvdFetchPlayerStats(openMenu);
+        // Если данные уже загружены — открываем меню МГНОВЕННО
+        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
+            openMenu();
+        } else if (typeof window._mvdLoadPlayerProfile === 'function') {
+            // Первый раз — загружаем профиль, потом открываем
+            window._mvdLoadPlayerProfile(openMenu);
         } else {
-            openMenu(null);
+            openMenu();
         }
     } else {
         snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
