@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.000 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.099 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4183,70 +4183,40 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 'use strict';
 var _fetching = false;
 
-function extractProfileData(mm) {
-    try {
-        var s = mm.statistics;
-        if (!s || s.isLoading) return null;
-        var org = s.organization || {};
-        var info = s.info || {};
-        var realNick = null;
-        try {
-            realNick = window.App && window.App.$store &&
-                       window.App.$store.getters['player/nickName'];
-        } catch(e) {}
-        var nick = realNick || info.nickname || null;
-        var rang = org.rangName || null;
-        if (nick && rang) return { nickname: nick, orgRangName: rang };
-        return null;
-    } catch(e) { return null; }
-}
-
 function loadPlayerProfile(callback) {
+    // Если данные уже загружены — НЕ открываем профиль повторно
     if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
-        if (callback) callback({ nickname: window._mvdCallsign, orgRangName: window._mvdRank });
+        if (callback) callback({
+            nickname: window._mvdCallsign,
+            orgRangName: window._mvdRank
+        });
         return;
     }
     if (_fetching) {
         var waitPoll = setInterval(function() {
             if (!_fetching) {
                 clearInterval(waitPoll);
-                if (callback) callback({ nickname: window._mvdCallsign, orgRangName: window._mvdRank });
+                if (callback) callback({
+                    nickname: window._mvdCallsign,
+                    orgRangName: window._mvdRank
+                });
             }
         }, 100);
         return;
     }
     
+    _fetching = true;
+    
+    // Проверяем, не открыто ли меню уже (например, игрок сам нажал M)
     var wasAlreadyOpen = false;
     try { wasAlreadyOpen = window.getInterfaceStatus('MainMenu'); } catch(e) {}
     
-    _fetching = true;
-    
     if (!wasAlreadyOpen) {
-        try {
-            // КЛЮЧЕВОЙ ФИКС: передаём [999, 1] вместо ["not_from_server", 1]
-            //
-            // В MainMenu.js два branch обработки openParams:
-            //   Branch 1: openParams[0] === "not_from_server"
-            //     → openParams[1] трактуется как H.STORE(1)/H.CONVERT(2)/H.TOPUP(3)
-            //     → 1 = H.STORE → открывается МАГАЗИН (Специальные предложения)
-            //
-            //   Branch 2: openParams[0] !== "not_from_server"  
-            //     → openParams[1] трактуется как ИНДЕКС в массиве tabs[]
-            //     → tabs[1] = {name:"Statistics", label:"Персонаж"}
-            //     → открывается ПЕРСОНАЖ ✓
-            //
-            // 999 не равен "not_from_server" → попадаем в Branch 2
-            // onServerResponse(999, undefined) — ничего не делает (999 не matchит ни один case)
-            window.openInterface('MainMenu', [999, 1]);
-        } catch(e) {
-            _fetching = false;
-            if (callback) callback(null);
-            return;
-        }
+        try { window.openInterface('MainMenu'); } catch(e) {}
     }
     
     var attempts = 0;
-    var maxAttempts = 50;
+    var maxAttempts = 40; // 4 секунды на ответ сервера
     
     var poll = setInterval(function() {
         attempts++;
@@ -4254,7 +4224,27 @@ function loadPlayerProfile(callback) {
         var stats = null;
         
         if (mm) {
-            try { stats = extractProfileData(mm); } catch(e) {}
+            try {
+                // Переключаем на вкладку статистики при первой попытке
+                if (typeof mm.selectTab === 'function' && attempts === 1) {
+                    mm.selectTab('Statistics');
+                }
+                var s = mm.statistics;
+                if (s && s.organization && s.info) {
+                    var realNick = null;
+                    try {
+                        realNick = window.App && window.App.$store &&
+                                   window.App.$store.getters['player/nickName'];
+                    } catch(e) {}
+                    
+                    var nick = realNick || s.info.nickname || null;
+                    var rang = s.organization.rangName || null;
+                    
+                    if (nick && rang) {
+                        stats = { nickname: nick, orgRangName: rang };
+                    }
+                }
+            } catch(e) {}
         }
         
         if (stats || attempts >= maxAttempts) {
@@ -4268,36 +4258,31 @@ function loadPlayerProfile(callback) {
                 window._mvdLastName = nickParts[1] || '';
             }
             
+            // Закрываем меню ТОЛЬКО если мы сами его открывали
             if (!wasAlreadyOpen) {
-                setTimeout(function() {
-                    try {
-                        var mm = window.interface('MainMenu');
-                        if (mm && typeof mm.sendCloseEvent === 'function') {
-                            mm.sendCloseEvent();
-                        } else if (typeof window.sendClientEvent === 'function') {
-                            window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
-                        }
-                    } catch(e) {}
-                    
-                    try { window.closeInterface('MainMenu'); } catch(e) {}
-                    
-                    _fetching = false;
-                    if (callback) callback({
-                        nickname: window._mvdCallsign,
-                        orgRangName: window._mvdRank
-                    });
-                }, 100);
-            } else {
-                _fetching = false;
-                if (callback) callback({
-                    nickname: window._mvdCallsign,
-                    orgRangName: window._mvdRank
-                });
+                try {
+                    // КРИТИЧЕСКИ ВАЖНО: Синхронизируем закрытие с сервером!
+                    // Отправляем событие, которое обычно отправляется при нажатии ESC.
+                    if (mm && typeof mm.sendCloseEvent === 'function') {
+                        mm.sendCloseEvent();
+                    } else if (typeof window.sendClientEvent === 'function') {
+                        window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
+                    }
+                } catch(e) {}
+                
+                try { window.closeInterface('MainMenu'); } catch(e) {}
             }
+            
+            _fetching = false;
+            if (callback) callback({
+                nickname: window._mvdCallsign,
+                orgRangName: window._mvdRank
+            });
         }
     }, 100);
 }
 
+// ── Команда /mmenu для принудительного обновления данных ──
 function waitForApp(cb, attempts) {
     attempts = attempts || 0;
     if (window.App && window.interface) { cb(); }
