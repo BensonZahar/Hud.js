@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.89999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.000 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4179,9 +4179,6 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
 
 // ==================== ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) ====================
-// При первом /dahk открываем MainMenu СРАЗУ на вкладке Statistics (индекс 1),
-// считываем данные и корректно закрываем с синхронизацией с сервером.
-// Для принудительного обновления — команда /mmenu
 (function() {
 'use strict';
 var _fetching = false;
@@ -4190,7 +4187,7 @@ function extractProfileData(mm) {
     try {
         var s = mm.statistics;
         if (!s || s.isLoading) return null;
-        var org  = s.organization || {};
+        var org = s.organization || {};
         var info = s.info || {};
         var realNick = null;
         try {
@@ -4219,7 +4216,6 @@ function loadPlayerProfile(callback) {
         return;
     }
     
-    // Если меню УЖЕ открыто игроком (нажал M) — не трогаем его, просто читаем
     var wasAlreadyOpen = false;
     try { wasAlreadyOpen = window.getInterfaceStatus('MainMenu'); } catch(e) {}
     
@@ -4227,10 +4223,21 @@ function loadPlayerProfile(callback) {
     
     if (!wasAlreadyOpen) {
         try {
-            // КЛЮЧЕВОЙ МОМЕНТ: открываем СРАЗУ на вкладке Statistics (индекс 1)
-            // Формат: ["not_from_server", TAB_INDEX]
-            // M.STATISTICS = 1 из MainMenu.js
-            window.openInterface('MainMenu', '["not_from_server", 1]');
+            // КЛЮЧЕВОЙ ФИКС: передаём [999, 1] вместо ["not_from_server", 1]
+            //
+            // В MainMenu.js два branch обработки openParams:
+            //   Branch 1: openParams[0] === "not_from_server"
+            //     → openParams[1] трактуется как H.STORE(1)/H.CONVERT(2)/H.TOPUP(3)
+            //     → 1 = H.STORE → открывается МАГАЗИН (Специальные предложения)
+            //
+            //   Branch 2: openParams[0] !== "not_from_server"  
+            //     → openParams[1] трактуется как ИНДЕКС в массиве tabs[]
+            //     → tabs[1] = {name:"Statistics", label:"Персонаж"}
+            //     → открывается ПЕРСОНАЖ ✓
+            //
+            // 999 не равен "not_from_server" → попадаем в Branch 2
+            // onServerResponse(999, undefined) — ничего не делает (999 не matchит ни один case)
+            window.openInterface('MainMenu', [999, 1]);
         } catch(e) {
             _fetching = false;
             if (callback) callback(null);
@@ -4261,13 +4268,10 @@ function loadPlayerProfile(callback) {
                 window._mvdLastName = nickParts[1] || '';
             }
             
-            // Закрываем ТОЛЬКО если мы сами открывали
             if (!wasAlreadyOpen) {
                 setTimeout(function() {
                     try {
                         var mm = window.interface('MainMenu');
-                        // КРИТИЧНО: отправляем серверу событие закрытия
-                        // Иначе сервер будет считать меню открытым и следующее M его сломает
                         if (mm && typeof mm.sendCloseEvent === 'function') {
                             mm.sendCloseEvent();
                         } else if (typeof window.sendClientEvent === 'function') {
@@ -4294,7 +4298,6 @@ function loadPlayerProfile(callback) {
     }, 100);
 }
 
-// ── Команда /mmenu для принудительного обновления ──
 function waitForApp(cb, attempts) {
     attempts = attempts || 0;
     if (window.App && window.interface) { cb(); }
