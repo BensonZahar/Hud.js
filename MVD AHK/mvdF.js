@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.1 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3240,98 +3240,90 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         if (isProcessing) return;
         isProcessing = true;
 
-        // ── Патчим options.style у InventoryNew — Vue реактивно скроет инвентарь ──
-        // Это НАМНОГО надёжнее чем CSS <style> в <head>: стиль привязан к компоненту,
-        // восстанавливается в finally, и не ломает обычный инвентарь через I.
-        const _invComp = window.App?.components?.InventoryNew;
-        const _origInvStyle = _invComp?.options?.style || '';
-        if (_invComp) {
-            _invComp.options.style = _origInvStyle +
-                '; visibility: hidden !important;' +
-                ' opacity: 0 !important;' +
-                ' pointer-events: none !important;';
-        }
-
-        // ── Патчи звуков/HUD/меток (как раньше) ──
-        const _grabOrigPlaySound    = window.playSound;
-        const _grabOrigSetHudStatus = window.setHudStatus;
-        const _grabOrigSetDrawLabel = window.setDrawLabelStatus;
+        // ── Сохраняем оригиналы глобальных функций (как в v16 swap) ──
+        const _origSetCursorStatus = window.setCursorStatus;
+        const _origPlaySound       = window.playSound;
+        const _origSetHudStatus    = window.setHudStatus;
+        const _origSetDrawLabel    = window.setDrawLabelStatus;
         let _grabPatchesActive = true;
 
         function applyGrabPatches() {
             _grabPatchesActive = true;
-            window.playSound = function(path, ...rest) {
-                if (_grabPatchesActive && typeof path === 'string' && path.includes('inventory')) return;
-                return _grabOrigPlaySound.apply(this, [path, ...rest]);
+
+            // 1) setCursorStatus: курсор НЕ появляется, движение НЕ блокируется
+            window.setCursorStatus = function(name, status, allowMovement) {
+                if (_grabPatchesActive && (name === 'InventoryNew' || name === 'Dialog')) {
+                    try {
+                        if (typeof engine !== 'undefined' && engine.trigger) {
+                            engine.trigger("SetCursorStatus", false, true);
+                        }
+                    } catch(e) {}
+                    return;
+                }
+                return _origSetCursorStatus.apply(this, arguments);
             };
+
+            // 2) playSound: глушим звуки инвентаря
+            window.playSound = function(path, ...rest) {
+                if (_grabPatchesActive && typeof path === 'string' && path.includes('inventory')) {
+                    return;
+                }
+                return _origPlaySound.apply(this, [path, ...rest]);
+            };
+
+            // 3) setHudStatus: HUD не прячется
             window.setHudStatus = function(status) {
                 if (_grabPatchesActive) return;
-                return _grabOrigSetHudStatus.apply(this, arguments);
+                return _origSetHudStatus.apply(this, arguments);
             };
+
+            // 4) setDrawLabelStatus: 3D-метки не прячутся
             window.setDrawLabelStatus = function(status) {
                 if (_grabPatchesActive) return;
-                return _grabOrigSetDrawLabel.apply(this, arguments);
+                return _origSetDrawLabel.apply(this, arguments);
             };
         }
 
         function restoreGrabPatches() {
             _grabPatchesActive = false;
-            window.playSound          = _grabOrigPlaySound;
-            window.setHudStatus       = _grabOrigSetHudStatus;
-            window.setDrawLabelStatus = _grabOrigSetDrawLabel;
+            window.setCursorStatus    = _origSetCursorStatus;
+            window.playSound          = _origPlaySound;
+            window.setHudStatus       = _origSetHudStatus;
+            window.setDrawLabelStatus = _origSetDrawLabel;
         }
 
-        // ── CSS <style> ТОЛЬКО для серверного диалога "Полицейская служба" ──
-        // Инвентарь прячется через options.style (выше), диалог — через CSS
-        // (у диалога нет options.style который мы можем безопасно патчить).
-        // Этот <style> удаляется в finally — не застревает.
-        const _dlgStyleEl = document.createElement('style');
-        _dlgStyleEl.id = 'mvd-grab-dlg-hide';
-        _dlgStyleEl.textContent = [
-            '.dialog-container,',
-            '[class*="Dialog"],',
-            '.interface--dialog {',
-            '  visibility: hidden !important;',
-            '  opacity: 0 !important;',
-            '  pointer-events: none !important;',
-            '}'
-        ].join('\n');
-        document.head.appendChild(_dlgStyleEl);
-
-        // ── MutationObserver: мгновенно прячем DOM диалога при появлении ──
-        // Инвентарь уже скрыт через options.style, observer нужен только для диалога
-        const _grabObserver = new MutationObserver(function(mutations) {
-            for (const m of mutations) {
-                for (const node of m.addedNodes) {
-                    if (node.nodeType !== 1) continue;
-                    const el = node.matches?.('.dialog-container, [class*="Dialog"], .interface--dialog')
-                        ? node
-                        : node.querySelector?.('.dialog-container, [class*="Dialog"], .interface--dialog');
-                    if (el) {
-                        el.style.visibility = 'hidden';
-                        el.style.pointerEvents = 'none';
-                        el.style.opacity = '0';
-                    }
+        // ── Прячем UI инвентаря/диалога через setInterval (как в v16) ──
+        // Ищет DOM-элементы каждые 10мс и ставит inline-стили
+        function hideInventoryUI() {
+            const id = setInterval(() => {
+                // Инвентарь
+                const invEl = document.querySelector('.iface-container.inventory')
+                           || document.querySelector('.inventory');
+                if (invEl && invEl.style.visibility !== 'hidden') {
+                    invEl.style.visibility = 'hidden';
+                    invEl.style.pointerEvents = 'none';
+                    invEl.style.opacity = '0';
                 }
-            }
-        });
-        _grabObserver.observe(document.body, { childList: true, subtree: true });
+                // Диалог "Полицейская служба" (LIST меню)
+                const dlgEl = document.querySelector('.dialog-container')
+                           || document.querySelector('.interface--dialog');
+                if (dlgEl && dlgEl.style.visibility !== 'hidden') {
+                    dlgEl.style.visibility = 'hidden';
+                    dlgEl.style.pointerEvents = 'none';
+                    dlgEl.style.opacity = '0';
+                }
+            }, 10);
+            return id;
+        }
 
-        // ── Safety timeout: если finally не сработал, восстанавливаем через 15с ──
-        const _grabSafetyTimeout = setTimeout(function() {
-            if (_invComp) _invComp.options.style = _origInvStyle;
-            try { _grabObserver.disconnect(); } catch(e) {}
-            try { if (_dlgStyleEl.parentNode) _dlgStyleEl.parentNode.removeChild(_dlgStyleEl); } catch(e) {}
-            restoreGrabPatches();
-            console.log('[GRAB] ⚠️ Safety timeout: всё восстановлено принудительно');
-        }, 15000);
-
+        // ── Активируем патчи ПЕРЕД открытием (как в v16) ──
         applyGrabPatches();
+        const hideInterval = hideInventoryUI();
 
         try {
             const armourVal = getArmourValue();
 
-            // ── Шаг 1: открываем инвентарь (невидим через options.style) ──
+            // ── Шаг 1: открываем инвентарь (невидим благодаря патчам) ──
             let ready = false;
             for (let attempt = 0; attempt < 2 && !ready; attempt++) {
                 if (attempt > 0) await sleep(300);
@@ -3340,7 +3332,10 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
             if (!ready) {
                 notify("Ошибка", "Инвентарь не открылся", "FF0000");
-                return; // finally всё восстановит
+                clearInterval(hideInterval);
+                restoreGrabPatches();
+                isProcessing = false;
+                return;
             }
 
             // ── Шаг 2: читаем что нужно ──
@@ -3389,45 +3384,37 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             console.log('[GRAB] has:', JSON.stringify(has));
             console.log('[GRAB] need:', JSON.stringify(need));
 
-            // ── Шаг 3: запоминаем слоты и закрываем инвентарь ──
-            const freeInvSlots = [];
-            const freeBACKSlots = [];
-            try {
-                const inv0 = window.interface("InventoryNew");
-                if (inv0?.items) {
-                    const invMap  = inv0.items[CT.INV]  || {};
-                    const backMap = inv0.items[CT.BACK] || {};
-                    for (let s = 0; s < 20; s++) if (!invMap[s])  freeInvSlots.push(s);
-                    for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
-                }
-            } catch(e) {}
+            // ── Шаг 3: закрываем инвентарь (невидимо) ──
             closeInventory();
             await sleep(50);
 
-            // ── ВСЁ ЕСТЬ: закрываем и выходим (finally всё восстановит) ──
+            // ── ВСЁ ЕСТЬ: закрываем и выходим ──
             if (!Object.values(need).some(Boolean)) {
                 notify("МВД", "Всё снаряжение есть ✓", "00FF00");
+                clearInterval(hideInterval);
+                restoreGrabPatches();
+                isProcessing = false;
                 return;
             }
 
             // ── Шаг 4: берём предметы из меню ──
             const toTake = [];
-            if (need.painkillers) toTake.push({ name: "Обезболивающее",                    idx: MENU.PAINKILLERS });
-            if (need.medkit)      toTake.push({ name: "Аптечка",                           idx: MENU.MEDKIT });
-            if (need.baton)       toTake.push({ name: "Дубинка",                           idx: MENU.BATON });
-            if (need.wand)        toTake.push({ name: "Жезл",                              idx: MENU.WAND });
-            if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,        idx: MENU.VEST });
-            if (need.radarGun)    toTake.push({ name: "Тауметр",                           idx: MENU.RADAR_GUN });
-            if (need.diagnostics) toTake.push({ name: "Диагностика",                       idx: MENU.DIAGNOSTICS });
-            if (need.deagle)      toTake.push({ name: "Desert Eagle",                      idx: MENU.DEAGLE });
-            if (need.taser)       toTake.push({ name: "Тазер",                             idx: MENU.TASER });
-            if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`, idx: MENU.AMMO_MAGNUM });
-            if (need.akm)         toTake.push({ name: "АКМ",                               idx: MENU.AKM });
-            if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`, idx: MENU.AMMO_762 });
-            if (need.aks74u)      toTake.push({ name: "АКС-74У",                           idx: MENU.AKS74U });
-            if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`, idx: MENU.AMMO_545 });
-            if (need.remington)   toTake.push({ name: "Remington 870",                     idx: MENU.REMINGTON });
-            if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`, idx: MENU.AMMO_1270 });
+            if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
+            if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
+            if (need.baton)       toTake.push({ name: "Дубинка",                                 idx: MENU.BATON });
+            if (need.wand)        toTake.push({ name: "Жезл",                                    idx: MENU.WAND });
+            if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
+            if (need.radarGun)    toTake.push({ name: "Тауметр",                                 idx: MENU.RADAR_GUN });
+            if (need.diagnostics) toTake.push({ name: "Диагностика",                             idx: MENU.DIAGNOSTICS });
+            if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
+            if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
+            if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
+            if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
+            if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
+            if (need.aks74u)      toTake.push({ name: "АКС-74У",                                 idx: MENU.AKS74U });
+            if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
+            if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
+            if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
             for (let i = 0; i < toTake.length; i++) {
                 const delay = Math.floor(Math.random() * 150) + 250;
@@ -3443,34 +3430,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             console.error('[MVD-GRAB] Ошибка:', err);
             notify("Ошибка", err.message, "FF0000");
         } finally {
-            // ── Гарантированное восстановление при ЛЮБОМ выходе ──
-            clearTimeout(_grabSafetyTimeout);
-
-            // 1) Восстанавливаем options.style у InventoryNew — Vue реактивно покажет инвентарь
-            if (_invComp) {
-                _invComp.options.style = _origInvStyle;
-            }
-
-            // 2) Отключаем MutationObserver
-            try { _grabObserver.disconnect(); } catch(e) {}
-
-            // 3) Удаляем CSS <style> для диалога
-            try { if (_dlgStyleEl.parentNode) _dlgStyleEl.parentNode.removeChild(_dlgStyleEl); } catch(e) {}
-
-            // 4) Снимаем inline-стили с DOM-элементов диалога
-            try {
-                document.querySelectorAll('.dialog-container, [class*="Dialog"], .interface--dialog').forEach(el => {
-                    el.style.visibility = '';
-                    el.style.pointerEvents = '';
-                    el.style.opacity = '';
-                });
-            } catch(e) {}
-
-            // 5) Восстанавливаем патчи звуков/HUD/меток
+            // ── Гарантированное восстановление (как clearBusy в v16) ──
+            clearInterval(hideInterval);
             restoreGrabPatches();
-
             isProcessing = false;
-            console.log('[MVD-GRAB] готов (no-flicker, options.style)');
+            console.log('[MVD-GRAB] готов (v16-style no-freeze)');
         }
     }
 
