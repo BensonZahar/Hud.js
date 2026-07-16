@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3049,395 +3049,390 @@ window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
 // Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
 if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
-    console.log('[MVD-GRAB] === v2.1 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН ===');
-    window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
+console.log('[MVD-GRAB] === v2.2 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН (МОМЕНТАЛЬНЫЙ) ===');
+window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
 
-    // ==================== ID ПРЕДМЕТОВ ====================
-    const ITEM = {
-        DEAGLE:      19,   // Desert Eagle
-        AMMO_MAGNUM: 363,  // Патроны .44 Magnum
-        AKM:         21,   // АКМ
-        AMMO_762:    368,  // Патроны 7.62x39
-        BATON:       32,   // Дубинка
-        MEDKIT:      2,    // Аптечка
-        PAINKILLERS: 379,  // Обезболивающее
-        RADAR_GUN:   276,  // Тауметр
-        DIAGNOSTICS: 254,  // Набор диагностики
-        TASER:       13,   // Тазер
-        AKS74U:      18,   // АКС-74У
-        REMINGTON:   14,   // Remington 870
-        AMMO_545:    366,  // Патроны 5.45x39
-        AMMO_1270:   365,  // Патроны 12x70
-    };
+// ==================== ID ПРЕДМЕТОВ ====================
+ const ITEM = {
+     DEAGLE:      19,   // Desert Eagle
+     AMMO_MAGNUM: 363,  // Патроны .44 Magnum
+     AKM:         21,   // АКМ
+     AMMO_762:    368,  // Патроны 7.62x39
+     BATON:       32,   // Дубинка
+     MEDKIT:      2,    // Аптечка
+     PAINKILLERS: 379,  // Обезболивающее
+     RADAR_GUN:   276,  // Тауметр
+     DIAGNOSTICS: 254,  // Набор диагностики
+     TASER:       13,   // Тазер
+     AKS74U:      18,   // АКС-74У
+     REMINGTON:   14,   // Remington 870
+     AMMO_545:    366,  // Патроны 5.45x39
+     AMMO_1270:   365,  // Патроны 12x70
+ };
 
-    // ==================== ПОРОГИ ПАТРОНОВ ====================
-    const AMMO_THRESHOLD = { MAGNUM: 30, AK762: 60, AKS545: 60, REM1270: 20 };
+ // ==================== ПОРОГИ ПАТРОНОВ ====================
+ const AMMO_THRESHOLD = { MAGNUM: 30, AK762: 60, AKS545: 60, REM1270: 20 };
 
-    // ==================== ПОЗИЦИИ В МЕНЮ МВД (0-based) ====================
-    const MENU = {
-        PAINKILLERS:  0,
-        MEDKIT:       1,
-        BATON:        2,
-        WAND:         3,
-        VEST:         4,
-        RADAR_GUN:    5,
-        DIAGNOSTICS:  6,
-        TASER:        7,
-        DEAGLE:       8,
-        AKM:          9,
-        AKS74U:      10,
-        REMINGTON:   11,
-        AMMO_MAGNUM: 12,
-        AMMO_762:    13,
-        AMMO_545:    14,
-        AMMO_1270:   15,
-    };
+ // ==================== ПОЗИЦИИ В МЕНЮ МВД (0-based) ====================
+ const MENU = {
+     PAINKILLERS:  0,
+     MEDKIT:       1,
+     BATON:        2,
+     WAND:         3,
+     VEST:         4,
+     RADAR_GUN:    5,
+     DIAGNOSTICS:  6,
+     TASER:        7,
+     DEAGLE:       8,
+     AKM:          9,
+     AKS74U:      10,
+     REMINGTON:   11,
+     AMMO_MAGNUM: 12,
+     AMMO_762:    13,
+     AMMO_545:    14,
+     AMMO_1270:   15,
+ };
 
-    const DIALOG_ID = 0;
-    const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
+ const DIALOG_ID = 0;
+ const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
 
-    let isProcessing = false;
+ let isProcessing = false;
 
-    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-    function notify(title, text, color = "FFFFFF") {
-        snAdd(`[1, "${title}", "${text}", "${color}", 2500]`);
-    }
+ function notify(title, text, color = "FFFFFF") {
+     snAdd(`[1, "${title}", "${text}", "${color}", 2500]`);
+ }
 
-    // ==================== БРОНЯ ЧЕРЕЗ ХУД ====================
-    function getArmourValue() {
-        try {
-            const hud = window.interface("Hud");
-            if (!hud) return 0;
-            const armour = hud.$data?.info?.armour ?? hud.data?.info?.armour ?? 0;
-            return Number(armour) || 0;
-        } catch(e) { return 0; }
-    }
+ // ==================== БРОНЯ ЧЕРЕЗ ХУД ====================
+ function getArmourValue() {
+     try {
+         const hud = window.interface("Hud");
+         if (!hud) return 0;
+         const armour = hud.$data?.info?.armour ?? hud.data?.info?.armour ?? 0;
+         return Number(armour) || 0;
+     } catch(e) { return 0; }
+ }
 
-    // ==================== ИНВЕНТАРЬ ====================
-    const CT_NAMES_GRAB = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
+ // ==================== ИНВЕНТАРЬ ====================
+ const CT_NAMES_GRAB = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
 
-    function logInventoryGrab(label) {
-        try {
-            const inv = window.interface("InventoryNew");
-            if (!inv?.items) { console.log(`[GRAB-LOG] ${label}: items недоступны`); return; }
-            const lines = [`[GRAB-LOG] ── ${label} ──`];
-            for (const cid of [0, 1, 2, 3]) {
-                const c = inv.items[cid];
-                if (!c) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): нет контейнера`); continue; }
-                const entries = Object.entries(c);
-                if (entries.length === 0) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): пусто`); continue; }
-                for (const [slot, item] of entries) {
-                    if (!item) continue;
-                    lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}) slot${slot}: id=${item.id} x${item.count||1} w=${item.weight}`);
-                }
-            }
-            console.log(lines.join('\n'));
-        } catch(e) { console.log(`[GRAB-LOG] ${label}: ошибка`, e); }
-    }
+ function logInventoryGrab(label) {
+     try {
+         const inv = window.interface("InventoryNew");
+         if (!inv?.items) { console.log(`[GRAB-LOG] ${label}: items недоступны`); return; }
+         const lines = [`[GRAB-LOG] ── ${label} ──`];
+         for (const cid of [0, 1, 2, 3]) {
+             const c = inv.items[cid];
+             if (!c) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): нет контейнера`); continue; }
+             const entries = Object.entries(c);
+             if (entries.length === 0) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): пусто`); continue; }
+             for (const [slot, item] of entries) {
+                 if (!item) continue;
+                 lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}) slot${slot}: id=${item.id} x${item.count||1} w=${item.weight}`);
+             }
+         }
+         console.log(lines.join('\n'));
+     } catch(e) { console.log(`[GRAB-LOG] ${label}: ошибка`, e); }
+ }
 
-    function findItem(itemId) {
-        try {
-            const inv = window.interface("InventoryNew");
-            if (!inv?.items) return null;
-            for (const cid of [CT.INV, CT.BACK, CT.ACC]) {
-                const c = inv.items[cid];
-                if (!c) continue;
-                for (const [slot, item] of Object.entries(c)) {
-                    if (item?.id === itemId) {
-                        console.log(`[GRAB] findItem(id=${itemId}): найден в ${CT_NAMES_GRAB[cid]} slot${slot} x${item.count||1}`);
-                        return { cid, slot: parseInt(slot), count: item.count || 1 };
-                    }
-                }
-            }
-        } catch(e) {}
-        console.log(`[GRAB] findItem(id=${itemId}): НЕ НАЙДЕН`);
-        return null;
-    }
+ function findItem(itemId) {
+     try {
+         const inv = window.interface("InventoryNew");
+         if (!inv?.items) return null;
+         for (const cid of [CT.INV, CT.BACK, CT.ACC]) {
+             const c = inv.items[cid];
+             if (!c) continue;
+             for (const [slot, item] of Object.entries(c)) {
+                 if (item?.id === itemId) {
+                     console.log(`[GRAB] findItem(id=${itemId}): найден в ${CT_NAMES_GRAB[cid]} slot${slot} x${item.count||1}`);
+                     return { cid, slot: parseInt(slot), count: item.count || 1 };
+                 }
+             }
+         }
+     } catch(e) {}
+     console.log(`[GRAB] findItem(id=${itemId}): НЕ НАЙДЕН`);
+     return null;
+ }
 
-    // Проверка только пояса (INV) — рюкзак (BACK) и разгрузка (ACC) не учитываются.
-    // Нужна для аптечки: даже если она уже лежит в рюкзаке про запас, авто-снаряжение
-    // всё равно должно донести ещё одну на пояс.
-    function findItemInInv(itemId) {
-        try {
-            const inv = window.interface("InventoryNew");
-            if (!inv?.items) return null;
-            const c = inv.items[CT.INV];
-            if (!c) return null;
-            for (const [slot, item] of Object.entries(c)) {
-                if (item?.id === itemId) {
-                    console.log(`[GRAB] findItemInInv(id=${itemId}): найден в INV slot${slot} x${item.count||1}`);
-                    return { cid: CT.INV, slot: parseInt(slot), count: item.count || 1 };
-                }
-            }
-        } catch(e) {}
-        console.log(`[GRAB] findItemInInv(id=${itemId}): НЕ НАЙДЕН (в поясе)`);
-        return null;
-    }
+ function findItemInInv(itemId) {
+     try {
+         const inv = window.interface("InventoryNew");
+         if (!inv?.items) return null;
+         const c = inv.items[CT.INV];
+         if (!c) return null;
+         for (const [slot, item] of Object.entries(c)) {
+             if (item?.id === itemId) {
+                 console.log(`[GRAB] findItemInInv(id=${itemId}): найден в INV slot${slot} x${item.count||1}`);
+                 return { cid: CT.INV, slot: parseInt(slot), count: item.count || 1 };
+             }
+         }
+     } catch(e) {}
+     console.log(`[GRAB] findItemInInv(id=${itemId}): НЕ НАЙДЕН (в поясе)`);
+     return null;
+ }
 
-    function countItem(itemId) {
-        try {
-            const inv = window.interface("InventoryNew");
-            if (!inv?.items) return 0;
-            let total = 0;
-            for (const cid of [CT.INV, CT.BACK]) {
-                const c = inv.items[cid];
-                if (!c) continue;
-                for (const item of Object.values(c)) {
-                    if (item?.id === itemId) total += (item.count || 1);
-                }
-            }
-            console.log(`[GRAB] countItem(id=${itemId}): итого x${total}`);
-            return total;
-        } catch(e) { return 0; }
-    }
+ function countItem(itemId) {
+     try {
+         const inv = window.interface("InventoryNew");
+         if (!inv?.items) return 0;
+         let total = 0;
+         for (const cid of [CT.INV, CT.BACK]) {
+             const c = inv.items[cid];
+             if (!c) continue;
+             for (const item of Object.values(c)) {
+                 if (item?.id === itemId) total += (item.count || 1);
+             }
+         }
+         console.log(`[GRAB] countItem(id=${itemId}): итого x${total}`);
+         return total;
+     } catch(e) { return 0; }
+ }
 
-    function openInventory() {
-        console.log('[GRAB] openInventory()');
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
-    }
-	function closeInventory() {
-		console.log('[GRAB] closeInventory() — через сервер (синхронизация)');
-		// ВАЖНО: закрываем через серверный toggle, а не локально!
-		// window.closeInterface() закрывает только Vue-компонент, но сервер
-		// продолжает думать что инвентарь открыт — из-за этого следующий свап
-		// или открытие инвентаря не срабатывает с первого раза.
-		sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
-	}
+ function openInventory() {
+     console.log('[GRAB] openInventory()');
+     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+ }
 
-    async function waitInventory(maxMs = 1000) {
-        console.log(`[GRAB] waitInventory(${maxMs}ms)...`);
-        for (let i = 0; i < maxMs; i += 50) {
-            try {
-                const inv = window.interface("InventoryNew");
-                if (inv?.items?.[CT.INV] !== undefined) {
-                    console.log(`[GRAB] waitInventory: готов за ${i}мс`);
-                    return true;
-                }
-            } catch(e) {}
-            await sleep(50);
-        }
-        console.error(`[GRAB] waitInventory: таймаут!`);
-        return false;
-    }
+ function closeInventory() {
+ 	console.log('[GRAB] closeInventory() — через сервер (синхронизация)');
+ 	sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+ }
 
-    // ==================== МЕНЮ ====================
-    function take(index) {
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 1, index, "");
-    }
+ async function waitInventory(maxMs = 1000) {
+     console.log(`[GRAB] waitInventory(${maxMs}ms)...`);
+     for (let i = 0; i < maxMs; i += 50) {
+         try {
+             const inv = window.interface("InventoryNew");
+             if (inv?.items?.[CT.INV] !== undefined) {
+                 console.log(`[GRAB] waitInventory: готов за ${i}мс`);
+                 return true;
+             }
+         } catch(e) {}
+         await sleep(50);
+     }
+     console.error(`[GRAB] waitInventory: таймаут!`);
+     return false;
+ }
 
-    function closeMenu() {
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 0, 0, "");
-    }
+ // ==================== МЕНЮ ====================
+ function take(index) {
+     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 1, index, "");
+ }
 
-    function openMenu() {
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
-    }
+ function closeMenu() {
+     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 0, 0, "");
+ }
 
-    // ==================== ОСНОВНАЯ ЛОГИКА ====================
-        async function autoGrab() {
-        if (typeof autoGrabEnabled !== 'undefined' && !autoGrabEnabled) return;
-        if (isProcessing) return;
-        isProcessing = true;
+ function openMenu() {
+     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
+ }
 
-        // ── ПАТЧИ: скрываем визуал инвентаря на ВЕСЬ авто-граб ──
-        // Применяем ДО try чтобы они работали даже при раннем return
-        // когда "Всё снаряжение есть" — инвентарь вообще не появится на экране
-        const _grabOrigPlaySound         = window.playSound;
-        const _grabOrigSetHudStatus      = window.setHudStatus;
-        const _grabOrigSetDrawLabel      = window.setDrawLabelStatus;
-        let _grabPatchesActive = true;
+ // ==================== ОСНОВНАЯ ЛОГИКА ====================
+ async function autoGrab() {
+     if (typeof autoGrabEnabled !== 'undefined' && !autoGrabEnabled) return;
+     if (isProcessing) return;
+     isProcessing = true;
 
-        function applyGrabPatches() {
-            _grabPatchesActive = true;
-            window.playSound = function(path, ...rest) {
-                if (_grabPatchesActive && typeof path === 'string' && path.includes('inventory')) {
-                    return;
-                }
-                return _grabOrigPlaySound.apply(this, [path, ...rest]);
-            };
-            window.setHudStatus = function(status) {
-                if (_grabPatchesActive) return;
-                return _grabOrigSetHudStatus.apply(this, arguments);
-            };
-            window.setDrawLabelStatus = function(status) {
-                if (_grabPatchesActive) return;
-                return _grabOrigSetDrawLabel.apply(this, arguments);
-            };
-        }
+     // ── ПАТЧИ: скрываем визуал инвентаря на ВЕСЬ авто-граб ──
+     const _grabOrigPlaySound         = window.playSound;
+     const _grabOrigSetHudStatus      = window.setHudStatus;
+     const _grabOrigSetDrawLabel      = window.setDrawLabelStatus;
+     let _grabPatchesActive = true;
 
-        function restoreGrabPatches() {
-            _grabPatchesActive = false;
-            window.playSound          = _grabOrigPlaySound;
-            window.setHudStatus       = _grabOrigSetHudStatus;
-            window.setDrawLabelStatus = _grabOrigSetDrawLabel;
-        }
+     function applyGrabPatches() {
+         _grabPatchesActive = true;
+         window.playSound = function(path, ...rest) {
+             if (_grabPatchesActive && typeof path === 'string' && path.includes('inventory')) {
+                 return;
+             }
+             return _grabOrigPlaySound.apply(this, [path, ...rest]);
+         };
+         window.setHudStatus = function(status) {
+             if (_grabPatchesActive) return;
+             return _grabOrigSetHudStatus.apply(this, arguments);
+         };
+         window.setDrawLabelStatus = function(status) {
+             if (_grabPatchesActive) return;
+             return _grabOrigSetDrawLabel.apply(this, arguments);
+         };
+     }
 
-        function hideInventoryUI() {
-            const id = setInterval(() => {
-                const el = document.querySelector('.iface-container.inventory')
-                        || document.querySelector('.inventory')
-                        || document.querySelector('[class*="InventoryNew"]')
-                        || document.querySelector('.iface-container');
-                if (el && el.style.visibility !== 'hidden') {
-                    el.style.visibility = 'hidden';
-                    el.style.pointerEvents = 'none';
-                    el.style.opacity = '0';
-                }
-                const dlg = document.querySelector('.dialog-container')
-                         || document.querySelector('[class*="Dialog"]');
-                if (dlg && dlg.style.visibility !== 'hidden') {
-                    dlg.style.visibility = 'hidden';
-                    dlg.style.pointerEvents = 'none';
-                    dlg.style.opacity = '0';
-                }
-            }, 10);
-            return id;
-        }
+     function restoreGrabPatches() {
+         _grabPatchesActive = false;
+         window.playSound          = _grabOrigPlaySound;
+         window.setHudStatus       = _grabOrigSetHudStatus;
+         window.setDrawLabelStatus = _grabOrigSetDrawLabel;
+     }
 
-        applyGrabPatches();
-        const hideInterval = hideInventoryUI();
+     function hideInventoryUI() {
+         const id = setInterval(() => {
+             const el = document.querySelector('.iface-container.inventory')
+                     || document.querySelector('.inventory')
+                     || document.querySelector('[class*="InventoryNew"]')
+                     || document.querySelector('.iface-container');
+             if (el && el.style.visibility !== 'hidden') {
+                 el.style.visibility = 'hidden';
+                 el.style.pointerEvents = 'none';
+                 el.style.opacity = '0';
+             }
+             const dlg = document.querySelector('.dialog-container')
+                      || document.querySelector('[class*="Dialog"]');
+             if (dlg && dlg.style.visibility !== 'hidden') {
+                 dlg.style.visibility = 'hidden';
+                 dlg.style.pointerEvents = 'none';
+                 dlg.style.opacity = '0';
+             }
+         }, 10);
+         return id;
+     }
 
-        try {
-            const armourVal = getArmourValue();
+     applyGrabPatches();
+     const hideInterval = hideInventoryUI();
 
-            // ── Шаг 1: открываем инвентарь (невидимо благодаря патчам выше) ──
-            let ready = false;
-            for (let attempt = 0; attempt < 2 && !ready; attempt++) {
-                if (attempt > 0) await sleep(300);
-                openInventory();
-                ready = await waitInventory(1500);
-            }
-            if (!ready) {
-                notify("Ошибка", "Инвентарь не открылся", "FF0000");
-                return; // isProcessing сбросится в finally
-            }
+     try {
+         const armourVal = getArmourValue();
 
-            // ── Шаг 2: читаем что нужно ──
-            logInventoryGrab('GRAB ДО ВЗЯТИЯ');
-            const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
-            const skip = (key) => skipList.includes(key);
+         // ── Шаг 1: открываем инвентарь (невидимо благодаря патчам выше) ──
+         let ready = false;
+         for (let attempt = 0; attempt < 2 && !ready; attempt++) {
+             if (attempt > 0) await sleep(300);
+             openInventory();
+             ready = await waitInventory(1500);
+         }
+         if (!ready) {
+             notify("Ошибка", "Инвентарь не открылся", "FF0000");
+             return; 
+         }
 
-            const has = {
-                medkit:      skip('medkit')      ? 999 : (findItemInInv(ITEM.MEDKIT)  ? 1 : 0),
-                baton:       skip('baton')       ? 1   : (findItem(ITEM.BATON)       ? 1 : 0),
-                vest:        skip('vest') ? 100 : armourVal,
-                deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
-                magnum:      skip('magnum')      ? 999 : countItem(ITEM.AMMO_MAGNUM),
-                akm:         skip('akm')         ? 1   : (findItem(ITEM.AKM)         ? 1 : 0),
-                ammo762:     skip('ammo762')     ? 999 : countItem(ITEM.AMMO_762),
-                painkillers: skip('painkiller')  ? 1   : (findItem(ITEM.PAINKILLERS) ? 1 : 0),
-                radarGun:    skip('taumeter')    ? 1   : (findItem(ITEM.RADAR_GUN)   ? 1 : 0),
-                diagnostics: skip('diag')        ? 1   : (findItem(ITEM.DIAGNOSTICS) ? 1 : 0),
-                taser:       skip('taser')       ? 1   : (findItem(ITEM.TASER)       ? 1 : 0),
-                aks74u:      skip('aks74u')      ? 1   : (findItem(ITEM.AKS74U)      ? 1 : 0),
-                ammo545:     skip('ammo545')     ? 999 : countItem(ITEM.AMMO_545),
-                remington:   skip('remington')   ? 1   : (findItem(ITEM.REMINGTON)   ? 1 : 0),
-                ammo1270:    skip('ammo12x70')   ? 999 : countItem(ITEM.AMMO_1270),
-                wand:        skip('baton2')      ? 1   : 0,
-            };
+         // ── Шаг 2: читаем что нужно ──
+         logInventoryGrab('GRAB ДО ВЗЯТИЯ');
+         const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
+         const skip = (key) => skipList.includes(key);
 
-            const need = {
-                painkillers: !has.painkillers,
-                medkit:      has.medkit < 1,
-                baton:       !has.baton,
-                wand:        !has.wand,
-                vest:        has.vest < 10,
-                radarGun:    !has.radarGun,
-                diagnostics: !has.diagnostics,
-                taser:       !has.taser,
-                deagle:      !has.deagle,
-                magnum:      has.magnum < AMMO_THRESHOLD.MAGNUM,
-                akm:         !has.akm,
-                ammo762:     has.ammo762 < AMMO_THRESHOLD.AK762,
-                aks74u:      !has.aks74u,
-                ammo545:     has.ammo545 < AMMO_THRESHOLD.AKS545,
-                remington:   !has.remington,
-                ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
-            };
+         const has = {
+             medkit:      skip('medkit')      ? 999 : (findItemInInv(ITEM.MEDKIT)  ? 1 : 0),
+             baton:       skip('baton')       ? 1   : (findItem(ITEM.BATON)       ? 1 : 0),
+             vest:        skip('vest') ? 100 : armourVal,
+             deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
+             magnum:      skip('magnum')      ? 999 : countItem(ITEM.AMMO_MAGNUM),
+             akm:         skip('akm')         ? 1   : (findItem(ITEM.AKM)         ? 1 : 0),
+             ammo762:     skip('ammo762')     ? 999 : countItem(ITEM.AMMO_762),
+             painkillers: skip('painkiller')  ? 1   : (findItem(ITEM.PAINKILLERS) ? 1 : 0),
+             radarGun:    skip('taumeter')    ? 1   : (findItem(ITEM.RADAR_GUN)   ? 1 : 0),
+             diagnostics: skip('diag')        ? 1   : (findItem(ITEM.DIAGNOSTICS) ? 1 : 0),
+             taser:       skip('taser')       ? 1   : (findItem(ITEM.TASER)       ? 1 : 0),
+             aks74u:      skip('aks74u')      ? 1   : (findItem(ITEM.AKS74U)      ? 1 : 0),
+             ammo545:     skip('ammo545')     ? 999 : countItem(ITEM.AMMO_545),
+             remington:   skip('remington')   ? 1   : (findItem(ITEM.REMINGTON)   ? 1 : 0),
+             ammo1270:    skip('ammo12x70')   ? 999 : countItem(ITEM.AMMO_1270),
+             wand:        skip('baton2')      ? 1   : 0,
+         };
 
-            console.log('[GRAB] has:', JSON.stringify(has));
-            console.log('[GRAB] need:', JSON.stringify(need));
+         const need = {
+             painkillers: !has.painkillers,
+             medkit:      has.medkit < 1,
+             baton:       !has.baton,
+             wand:        !has.wand,
+             vest:        has.vest < 10,
+             radarGun:    !has.radarGun,
+             diagnostics: !has.diagnostics,
+             taser:       !has.taser,
+             deagle:      !has.deagle,
+             magnum:      has.magnum < AMMO_THRESHOLD.MAGNUM,
+             akm:         !has.akm,
+             ammo762:     has.ammo762 < AMMO_THRESHOLD.AK762,
+             aks74u:      !has.aks74u,
+             ammo545:     has.ammo545 < AMMO_THRESHOLD.AKS545,
+             remington:   !has.remington,
+             ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
+         };
 
-            // ── Шаг 3: запоминаем слоты и закрываем инвентарь (невидимо) ──
-            const freeInvSlots = [];
-            const freeBACKSlots = [];
-            try {
-                const inv0 = window.interface("InventoryNew");
-                if (inv0?.items) {
-                    const invMap  = inv0.items[CT.INV]  || {};
-                    const backMap = inv0.items[CT.BACK] || {};
-                    for (let s = 0; s < 20; s++) if (!invMap[s])  freeInvSlots.push(s);
-                    for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
-                }
-            } catch(e) {}
-            closeInventory();
-            await sleep(50);
+         console.log('[GRAB] has:', JSON.stringify(has));
+         console.log('[GRAB] need:', JSON.stringify(need));
 
-            // ── ВСЁ ЕСТЬ: выходим, инвентарь уже закрыт и невидим ──
-            if (!Object.values(need).some(Boolean)) {
-                notify("МВД", "Всё снаряжение есть ✓", "00FF00");
-                return; // isProcessing и патчи закроются в finally
-            }
+         // ── Шаг 3: запоминаем слоты и закрываем инвентарь (невидимо) ──
+         const freeInvSlots = [];
+         const freeBACKSlots = [];
+         try {
+             const inv0 = window.interface("InventoryNew");
+             if (inv0?.items) {
+                 const invMap  = inv0.items[CT.INV]  || {};
+                 const backMap = inv0.items[CT.BACK] || {};
+                 for (let s = 0; s < 20; s++) if (!invMap[s])  freeInvSlots.push(s);
+                 for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
+             }
+         } catch(e) {}
+         
+         closeInventory();
+         await sleep(50);
 
-            // ── Шаг 4: берём предметы из меню ──
-            const toTake = [];
-            if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
-            if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
-            if (need.baton)       toTake.push({ name: "Дубинка",                                 idx: MENU.BATON });
-            if (need.wand)        toTake.push({ name: "Жезл",                                    idx: MENU.WAND });
-            if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
-            if (need.radarGun)    toTake.push({ name: "Тауметр",                                 idx: MENU.RADAR_GUN });
-            if (need.diagnostics) toTake.push({ name: "Диагностика",                             idx: MENU.DIAGNOSTICS });
-            if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
-            if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
-            if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
-            if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
-            if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
-            if (need.aks74u)      toTake.push({ name: "АКС-74У",                                 idx: MENU.AKS74U });
-            if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
-            if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
-            if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
+         // ── ВСЁ ЕСТЬ: выходим, инвентарь уже закрыт и невидим ──
+         if (!Object.values(need).some(Boolean)) {
+             notify("МВД", "Всё снаряжение есть ✓", "00FF00");
+             return; 
+         }
 
-            for (let i = 0; i < toTake.length; i++) {
-                const delay = Math.floor(Math.random() * 150) + 250;
-                console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${delay}мс]`);
-                take(toTake[i].idx);
-                await sleep(delay);
-            }
+         // ── Шаг 4: МОМЕНТАЛЬНО берём предметы из меню ──
+         const toTake = [];
+         if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
+         if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
+         if (need.baton)       toTake.push({ name: "Дубинка",                                 idx: MENU.BATON });
+         if (need.wand)        toTake.push({ name: "Жезл",                                    idx: MENU.WAND });
+         if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
+         if (need.radarGun)    toTake.push({ name: "Тауметр",                                 idx: MENU.RADAR_GUN });
+         if (need.diagnostics) toTake.push({ name: "Диагностика",                             idx: MENU.DIAGNOSTICS });
+         if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
+         if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
+         if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
+         if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
+         if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
+         if (need.aks74u)      toTake.push({ name: "АКС-74У",                                 idx: MENU.AKS74U });
+         if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
+         if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
+         if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
-            const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
-            notify("МВД", notifyNames.join(", "), "00FF00");
+         for (let i = 0; i < toTake.length; i++) {
+             console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [МОМЕНТАЛЬНО]`);
+             take(toTake[i].idx);
+             // Микро-задержка 20мс на случай жесткого анти-флуда на сервере.
+             // Для глаза это выглядит как мгновенное выполнение.
+             await sleep(20); 
+         }
 
-        } catch (err) {
-            console.error('[MVD-GRAB] Ошибка:', err);
-            notify("Ошибка", err.message, "FF0000");
-        } finally {
-            // ── Гарантированное восстановление при ЛЮБОМ выходе ──
-            clearInterval(hideInterval);
-            try {
-                document.querySelectorAll('.iface-container.inventory, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"]').forEach(el => {
-                    el.style.visibility = '';
-                    el.style.pointerEvents = '';
-                    el.style.opacity = '';
-                });
-            } catch(e) {}
-            restoreGrabPatches();
-            isProcessing = false;
-            console.log('[MVD-GRAB] готов (no-flicker)');
-        }
-    }
+         // ⚠️ ВАЖНО: Закрываем меню принудительно, чтобы сервер не переоткрывал диалог
+         closeMenu();
 
-    // ==================== ТРИГГЕР ====================
-    // Авто-снаряжение запускается из общего хука addDialogInQueue (строка ~1541)
-    // который ловит диалог style=LIST title="Полицейская служба" и вызывает window.autoGrab().
-    // Публикуем autoGrab и флаг isProcessing через window._mvdGrabProcessing.
-    window.autoGrab = autoGrab;
-    Object.defineProperty(window, '_mvdGrabProcessing', {
-        get: () => isProcessing,
-        configurable: true
-    });
-    console.log('[MVD-GRAB] === v2.1 ✅ ГОТОВ — жду диалог Полицейская служба ===');
+         const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
+         notify("МВД", notifyNames.join(", "), "00FF00");
+         window.playSound("inventory/take_light.mp3");
+
+     } catch (err) {
+         console.error('[MVD-GRAB] Ошибка:', err);
+         notify("Ошибка", err.message, "FF0000");
+     } finally {
+         // ── Гарантированное восстановление при ЛЮБОМ выходе ──
+         clearInterval(hideInterval);
+         try {
+             document.querySelectorAll('.iface-container.inventory, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"]').forEach(el => {
+                 el.style.visibility = '';
+                 el.style.pointerEvents = '';
+                 el.style.opacity = '';
+             });
+         } catch(e) {}
+         restoreGrabPatches();
+         isProcessing = false;
+         console.log('[MVD-GRAB] готов (моментальный + закрытие меню)');
+     }
+ }
+
+ // ==================== ТРИГГЕР ====================
+ window.autoGrab = autoGrab;
+ Object.defineProperty(window, '_mvdGrabProcessing', {
+     get: () => isProcessing,
+     configurable: true
+ });
+ console.log('[MVD-GRAB] === v2.2 ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
