@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.33 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3049,7 +3049,7 @@ window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
 // Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
 if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
-    console.log('[MVD-GRAB] === v2.2 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН (v16-style) ===');
+    console.log('[MVD-GRAB] === v2.1 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН ===');
     window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
 
     // ==================== ID ПРЕДМЕТОВ ====================
@@ -3196,14 +3196,14 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         console.log('[GRAB] openInventory()');
         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
     }
-    function closeInventory() {
-        console.log('[GRAB] closeInventory() — через сервер (синхронизация)');
-        // ВАЖНО: закрываем через серверный toggle, а не локально!
-        // window.closeInterface() закрывает только Vue-компонент, но сервер
-        // продолжает думать что инвентарь открыт — из-за этого следующий свап
-        // или открытие инвентаря не срабатывает с первого раза.
-        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
-    }
+	function closeInventory() {
+		console.log('[GRAB] closeInventory() — через сервер (синхронизация)');
+		// ВАЖНО: закрываем через серверный toggle, а не локально!
+		// window.closeInterface() закрывает только Vue-компонент, но сервер
+		// продолжает думать что инвентарь открыт — из-за этого следующий свап
+		// или открытие инвентаря не срабатывает с первого раза.
+		sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+	}
 
     async function waitInventory(maxMs = 1000) {
         console.log(`[GRAB] waitInventory(${maxMs}ms)...`);
@@ -3235,83 +3235,73 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
     }
 
     // ==================== ОСНОВНАЯ ЛОГИКА ====================
-    async function autoGrab() {
+        async function autoGrab() {
         if (typeof autoGrabEnabled !== 'undefined' && !autoGrabEnabled) return;
         if (isProcessing) return;
         isProcessing = true;
 
-        // ── Сохраняем оригиналы глобальных функций (как в v16 swap) ──
-        // Курсор НЕ трогаем — оставляем как есть (по просьбе пользователя)
-        const _origPlaySound       = window.playSound;
-        const _origSetHudStatus    = window.setHudStatus;
-        const _origSetDrawLabel    = window.setDrawLabelStatus;
+        // ── ПАТЧИ: скрываем визуал инвентаря на ВЕСЬ авто-граб ──
+        // Применяем ДО try чтобы они работали даже при раннем return
+        // когда "Всё снаряжение есть" — инвентарь вообще не появится на экране
+        const _grabOrigPlaySound         = window.playSound;
+        const _grabOrigSetHudStatus      = window.setHudStatus;
+        const _grabOrigSetDrawLabel      = window.setDrawLabelStatus;
         let _grabPatchesActive = true;
 
         function applyGrabPatches() {
             _grabPatchesActive = true;
-
-            // 1) playSound: глушим звуки инвентаря (open/close/take_light/put_light)
             window.playSound = function(path, ...rest) {
                 if (_grabPatchesActive && typeof path === 'string' && path.includes('inventory')) {
                     return;
                 }
-                return _origPlaySound.apply(this, [path, ...rest]);
+                return _grabOrigPlaySound.apply(this, [path, ...rest]);
             };
-
-            // 2) setHudStatus: HUD не прячется
             window.setHudStatus = function(status) {
                 if (_grabPatchesActive) return;
-                return _origSetHudStatus.apply(this, arguments);
+                return _grabOrigSetHudStatus.apply(this, arguments);
             };
-
-            // 3) setDrawLabelStatus: 3D-метки не прячутся
             window.setDrawLabelStatus = function(status) {
                 if (_grabPatchesActive) return;
-                return _origSetDrawLabel.apply(this, arguments);
+                return _grabOrigSetDrawLabel.apply(this, arguments);
             };
         }
 
         function restoreGrabPatches() {
             _grabPatchesActive = false;
-            window.playSound          = _origPlaySound;
-            window.setHudStatus       = _origSetHudStatus;
-            window.setDrawLabelStatus = _origSetDrawLabel;
+            window.playSound          = _grabOrigPlaySound;
+            window.setHudStatus       = _grabOrigSetHudStatus;
+            window.setDrawLabelStatus = _grabOrigSetDrawLabel;
         }
 
-        // ── Прячем UI инвентаря/диалога через setInterval (как в v16) ──
-        // Ищет DOM-элементы каждые 10мс и ставит inline-стили
         function hideInventoryUI() {
             const id = setInterval(() => {
-                // Инвентарь
-                const invEl = document.querySelector('.iface-container.inventory')
-                           || document.querySelector('.inventory');
-                if (invEl && invEl.style.visibility !== 'hidden') {
-                    invEl.style.visibility = 'hidden';
-                    invEl.style.pointerEvents = 'none';
-                    invEl.style.opacity = '0';
+                const el = document.querySelector('.iface-container.inventory')
+                        || document.querySelector('.inventory')
+                        || document.querySelector('[class*="InventoryNew"]')
+                        || document.querySelector('.iface-container');
+                if (el && el.style.visibility !== 'hidden') {
+                    el.style.visibility = 'hidden';
+                    el.style.pointerEvents = 'none';
+                    el.style.opacity = '0';
                 }
-                // Диалог "Полицейская служба" (LIST меню) и любые серверные диалоги
-                const dlgEl = document.querySelector('.dialog-container')
-                           || document.querySelector('.interface--dialog')
-                           || document.querySelector('[class*="Dialog"]');
-                if (dlgEl && dlgEl.style.visibility !== 'hidden') {
-                    dlgEl.style.visibility = 'hidden';
-                    dlgEl.style.pointerEvents = 'none';
-                    dlgEl.style.opacity = '0';
+                const dlg = document.querySelector('.dialog-container')
+                         || document.querySelector('[class*="Dialog"]');
+                if (dlg && dlg.style.visibility !== 'hidden') {
+                    dlg.style.visibility = 'hidden';
+                    dlg.style.pointerEvents = 'none';
+                    dlg.style.opacity = '0';
                 }
             }, 10);
             return id;
         }
 
-        // ── Активируем патчи ПЕРЕД открытием (как в v16) ──
         applyGrabPatches();
         const hideInterval = hideInventoryUI();
 
         try {
             const armourVal = getArmourValue();
 
-            // ── Шаг 1: открываем инвентарь (невидим благодаря DOM-скрытию) ──
-            // НЕ закрываем меню перед чтением инвентаря (диалог живой на сервере)
+            // ── Шаг 1: открываем инвентарь (невидимо благодаря патчам выше) ──
             let ready = false;
             for (let attempt = 0; attempt < 2 && !ready; attempt++) {
                 if (attempt > 0) await sleep(300);
@@ -3320,14 +3310,13 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             }
             if (!ready) {
                 notify("Ошибка", "Инвентарь не открылся", "FF0000");
-                return; // finally всё восстановит
+                return; // isProcessing сбросится в finally
             }
 
             // ── Шаг 2: читаем что нужно ──
             logInventoryGrab('GRAB ДО ВЗЯТИЯ');
             const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
             const skip = (key) => skipList.includes(key);
-            console.log(`[GRAB] skipList:`, skipList);
 
             const has = {
                 medkit:      skip('medkit')      ? 999 : (findItemInInv(ITEM.MEDKIT)  ? 1 : 0),
@@ -3345,7 +3334,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 ammo545:     skip('ammo545')     ? 999 : countItem(ITEM.AMMO_545),
                 remington:   skip('remington')   ? 1   : (findItem(ITEM.REMINGTON)   ? 1 : 0),
                 ammo1270:    skip('ammo12x70')   ? 999 : countItem(ITEM.AMMO_1270),
-                wand:        skip('baton2')      ? 1   : 0, // жезл — нет ID, берём всегда
+                wand:        skip('baton2')      ? 1   : 0,
             };
 
             const need = {
@@ -3370,7 +3359,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             console.log('[GRAB] has:', JSON.stringify(has));
             console.log('[GRAB] need:', JSON.stringify(need));
 
-            // ── Шаг 3: запоминаем свободные слоты и закрываем инвентарь (невидимо) ──
+            // ── Шаг 3: запоминаем слоты и закрываем инвентарь (невидимо) ──
             const freeInvSlots = [];
             const freeBACKSlots = [];
             try {
@@ -3382,20 +3371,16 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
                 }
             } catch(e) {}
-            console.log(`[GRAB] freeInvSlots (до взятия):`, freeInvSlots);
-            console.log(`[GRAB] freeBACKSlots (до взятия):`, freeBACKSlots);
             closeInventory();
             await sleep(50);
 
-            // ── ВСЁ ЕСТЬ: закрываем и выходим (finally всё восстановит и закроет) ──
+            // ── ВСЁ ЕСТЬ: выходим, инвентарь уже закрыт и невидим ──
             if (!Object.values(need).some(Boolean)) {
                 notify("МВД", "Всё снаряжение есть ✓", "00FF00");
-                return;
+                return; // isProcessing и патчи закроются в finally
             }
 
-            // ── Шаг 4: диалог открыт, сразу берём — НЕ переоткрываем меню ──
-            // ── Тазер всегда живёт в рюкзаке (Alt+H только двигает дигл).
-            //    need.taser будет false если тазер уже в рюкзаке — пост-обработка не нужна.
+            // ── Шаг 4: берём предметы из меню ──
             const toTake = [];
             if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
             if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
@@ -3414,13 +3399,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
             if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
-            console.log(`[GRAB] toTake:`, toTake.map(t => `${t.name}(idx=${t.idx})`).join(', '));
-
             for (let i = 0; i < toTake.length; i++) {
-                const delay = Math.floor(Math.random() * 150) + 250; // рандом 250–400мс
+                const delay = Math.floor(Math.random() * 150) + 250;
                 console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${delay}мс]`);
                 take(toTake[i].idx);
-                await sleep(delay); // случайная задержка между предметами
+                await sleep(delay);
             }
 
             const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
@@ -3431,32 +3414,17 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             notify("Ошибка", err.message, "FF0000");
         } finally {
             // ── Гарантированное восстановление при ЛЮБОМ выходе ──
-            // (как clearBusy в v16 swap)
             clearInterval(hideInterval);
-
-            // Снимаем inline-стили с DOM-элементов чтобы при следующем ручном
-            // открытии инвентаря/диалога они отображались нормально
             try {
-                document.querySelectorAll('.iface-container.inventory, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"], .interface--dialog').forEach(el => {
+                document.querySelectorAll('.iface-container.inventory, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"]').forEach(el => {
                     el.style.visibility = '';
                     el.style.pointerEvents = '';
                     el.style.opacity = '';
                 });
             } catch(e) {}
-
-            // Восстанавливаем патчи глобальных функций
             restoreGrabPatches();
-
-            // ── Принудительно закрываем инвентарь на клиенте + сбрасываем курсор ──
-            // Делаем это ПОСЛЕ restoreGrabPatches(), когда оригинальная функция
-            // window.setCursorStatus уже восстановлена и патч не перехватывает вызов.
-            // Это решает проблему "мышки активной" после авто-снаряжения: без этого
-            // 'InventoryNew' остаётся в стеке курсора и диалоги не показываются.
-            try { window.closeInterface('InventoryNew'); } catch(e) {}
-            try { window.setCursorStatus('InventoryNew', false); } catch(e) {}
-
             isProcessing = false;
-            console.log('[MVD-GRAB] готов (v2.2 v16-style no-flicker)');
+            console.log('[MVD-GRAB] готов (no-flicker)');
         }
     }
 
@@ -3469,7 +3437,7 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         get: () => isProcessing,
         configurable: true
     });
-    console.log('[MVD-GRAB] === v2.2 ✅ ГОТОВ (v16-style) — жду диалог Полицейская служба ===');
+    console.log('[MVD-GRAB] === v2.1 ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
