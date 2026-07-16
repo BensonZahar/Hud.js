@@ -627,7 +627,7 @@ class InstallerAPI:
         save_settings(current)
         return {"ok": True, "path": str(self.radmir_path)}
 
-    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None):
+    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None):
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
@@ -663,9 +663,6 @@ class InstallerAPI:
                 self._notify(False)
                 return
 
-            code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
-            code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
-            code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
             if not swap_enabled or not safe_swap_key:
@@ -755,9 +752,6 @@ class InstallerAPI:
                 self._set_status("st-code","Установлен","cr-val ok")
                 current = load_settings()
                 save_settings({
-                    'rank': rank,
-                    'first_name': first_name,
-                    'last_name': last_name,
                     'callsign': callsign if use_callsign else '',
                     'use_callsign': bool(use_callsign),
                     'auto_password': auto_password,

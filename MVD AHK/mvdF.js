@@ -1945,9 +1945,9 @@ const executePovsednevAction = (action, targetId) => {
     const isOmonSkin = skinId === 15340;
     switch (action) {
 	case "greeting":
-		const _rank = window._mvdRank || RANK;
-		const _firstName = window._mvdFirstName || FIRST_NAME;
-		const _lastName = window._mvdLastName || LAST_NAME;
+		const _rank = window._mvdRank || '';
+		const _firstName = window._mvdFirstName || '';
+		const _lastName = window._mvdLastName || '';
 		const _callsign = window._mvdCallsign || CALLSIGN;
 
 		if (isOmonSkin) {
@@ -2170,8 +2170,8 @@ const executePovsednevAction = (action, targetId) => {
     }
 };
 const executeStroyAction = (action, hour = null, minute = null) => {
-    const _rank = window._mvdRank || RANK;
-    const _lastName = window._mvdLastName || LAST_NAME;
+    const _rank = window._mvdRank || '';
+    const _lastName = window._mvdLastName || '';
     const tag = rankTags[_rank] || `[${_rank}]`;
     
     switch (action) {
@@ -2372,7 +2372,7 @@ window.showMvdSubMenu = (e) => {
     let availableSub = [
         { name: "Повседневная", id: "povsednev" }
     ];
-    if (stroyRanks.includes(RANK)) {
+    if (stroyRanks.includes(window._mvdRank)) {
         availableSub.push({ name: "Строй", id: "stroy" });
     }
     availableSub.push({ name: trackingName, id: "tracking" });
