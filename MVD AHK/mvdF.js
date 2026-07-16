@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.888 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.8 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4179,10 +4179,9 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
 
 // ==================== ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) ====================
-// При первом /dahk делаем "flash": быстро открываем MainMenu, считываем данные
-// из statistics и сразу закрываем. 
-// ВАЖНО: Обязательно отправляем серверу событие закрытия, чтобы не ломать 
-// серверное меню при последующих нажатиях на 'M'.
+// При первом /dahk делает "flash": открывает MainMenu сразу на вкладке "Персонаж",
+// считывает данные и закрывает. Повторные /dahk используют кэш — мгновенное открытие.
+// Для принудительного обновления данных (после повышения звания) — команда /mmenu
 (function() {
 'use strict';
 var _fetching = false;
@@ -4197,39 +4196,28 @@ function extractProfileData(mm) {
         var info = s.info || {};
         var realNick = null;
         try {
-            realNick = window.App && window.App.$store &&
-                       window.App.$store.getters['player/nickName'];
+            realNick = window.App && window.App.$store && window.App.$store.getters['player/nickName'];
         } catch(e) {}
         
         var nick = realNick || info.nickname || null;
         var rang = org.rangName || null;
         
-        if (nick && rang) {
-            return { nickname: nick, orgRangName: rang };
-        }
+        if (nick && rang) return { nickname: nick, orgRangName: rang };
         return null;
-    } catch(e) {
-        return null;
-    }
+    } catch(e) { return null; }
 }
 
 function loadPlayerProfile(callback) {
     // Если данные уже загружены — НЕ открываем профиль повторно
     if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
-        if (callback) callback({
-            nickname: window._mvdCallsign,
-            orgRangName: window._mvdRank
-        });
+        if (callback) callback({ nickname: window._mvdCallsign, orgRangName: window._mvdRank });
         return;
     }
     if (_fetching) {
         var waitPoll = setInterval(function() {
             if (!_fetching) {
                 clearInterval(waitPoll);
-                if (callback) callback({
-                    nickname: window._mvdCallsign,
-                    orgRangName: window._mvdRank
-                });
+                if (callback) callback({ nickname: window._mvdCallsign, orgRangName: window._mvdRank });
             }
         }, 100);
         return;
@@ -4238,9 +4226,17 @@ function loadPlayerProfile(callback) {
     _fetching = true;
     
     try {
-        // Открытие меню автоматически триггерит MainMenu_OnPlayerOpen 
-        // внутри created() компонента, что запрашивает данные у сервера.
         window.openInterface('MainMenu');
+        var mm = window.interface('MainMenu');
+        
+        // МОМЕНТАЛЬНОЕ ПЕРЕКЛЮЧЕНИЕ НА "ПЕРСОНАЖ" (STATISTICS)
+        // Используем setTimeout 0, чтобы Vue успел смонтировать компонент, 
+        // но переключение произошло в том же кадре, до отрисовки вкладки "Карта".
+        if (mm && typeof mm.selectTab === 'function') {
+            setTimeout(function() {
+                try { mm.selectTab('Statistics'); } catch(e) {}
+            }, 0);
+        }
     } catch(e) {
         _fetching = false;
         if (callback) callback(null);
@@ -4248,7 +4244,7 @@ function loadPlayerProfile(callback) {
     }
     
     var attempts = 0;
-    var maxAttempts = 50; // 5 секунд на получение данных от сервера
+    var maxAttempts = 50; // 5 секунд на ответ сервера
     
     var poll = setInterval(function() {
         attempts++;
@@ -4256,7 +4252,7 @@ function loadPlayerProfile(callback) {
         var stats = null;
         
         if (mm) {
-            stats = extractProfileData(mm);
+            try { stats = extractProfileData(mm); } catch(e) {}
         }
         
         if (stats || attempts >= maxAttempts) {
@@ -4270,26 +4266,26 @@ function loadPlayerProfile(callback) {
                 window._mvdLastName = nickParts[1] || '';
             }
             
-            // КРИТИЧЕСКИЙ ФИКС: Уведомляем сервер о закрытии меню.
-            // Без этого сервер думает, что меню всё ещё открыто.
-            // При последующем нажатии 'M' сервер отправлял команду закрытия,
-            // что ломало UI (прозрачное меню, залипший курсор).
-            try {
-                if (typeof window.sendClientEvent === 'function') {
-                    window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
-                }
-            } catch(e) {}
-            
-            // Локально закрываем интерфейс
-            try { 
-                window.closeInterface('MainMenu'); 
-            } catch(e) {}
-            
-            _fetching = false;
-            if (callback) callback({
-                nickname: window._mvdCallsign,
-                orgRangName: window._mvdRank
-            });
+            setTimeout(function() {
+                try {
+                    // КРИТИЧЕСКИ ВАЖНО: Синхронизируем закрытие с сервером!
+                    // Отправляем событие, которое обычно отправляется при нажатии ESC.
+                    var mm = window.interface('MainMenu');
+                    if (mm && typeof mm.sendCloseEvent === 'function') {
+                        mm.sendCloseEvent();
+                    } else if (typeof window.sendClientEvent === 'function') {
+                        window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
+                    }
+                } catch(e) {}
+                
+                try { window.closeInterface('MainMenu'); } catch(e) {}
+                
+                _fetching = false;
+                if (callback) callback({
+                    nickname: window._mvdCallsign,
+                    orgRangName: window._mvdRank
+                });
+            }, 100);
         }
     }, 100);
 }
@@ -4306,7 +4302,6 @@ waitForApp(function() {
         if (typeof cmd === 'string') {
             var trimmed = cmd.trim().toLowerCase();
             if (trimmed === '/mmenu') {
-                // Принудительный сброс — перечитать данные
                 window._mvdFirstName = null;
                 window._mvdLastName = null;
                 window._mvdRank = null;
