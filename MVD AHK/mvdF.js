@@ -2170,7 +2170,10 @@ const executePovsednevAction = (action, targetId) => {
     }
 };
 const executeStroyAction = (action, hour = null, minute = null) => {
-    const tag = rankTags[RANK] || `[${RANK}]`;
+    const _rank = window._mvdRank || RANK;
+    const _lastName = window._mvdLastName || LAST_NAME;
+    const tag = rankTags[_rank] || `[${_rank}]`;
+    
     switch (action) {
         case "stroy1":
             sendMessagesWithDelay([
@@ -2216,13 +2219,13 @@ const executeStroyAction = (action, hour = null, minute = null) => {
                 "/c 060"
             ], [0, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000]);
             break;
-        case "trenya1":
-            sendMessagesWithDelay([
-                `/s Здравия. Я ${RANK} ${LAST_NAME}.`,
-                "/s Сегодня я проведу вам тренировку",
-                "/s Начнём с приседаний."
-            ], [0, 1700, 1700]);
-            break;
+	case "trenya1":
+		sendMessagesWithDelay([
+			`/s Здравия. Я ${_rank} ${_lastName}.`,
+			"/s Сегодня я проведу вам тренировку",
+			"/s Начнём с приседаний."
+		], [0, 1700, 1700]);
+		break;
         case "trenya2":
             sendMessagesWithDelay([
                 "/s Закончили.",
