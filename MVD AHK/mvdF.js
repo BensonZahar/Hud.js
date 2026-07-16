@@ -1944,25 +1944,30 @@ const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
     const isOmonSkin = skinId === 15340;
     switch (action) {
-        case "greeting":
-            if (isOmonSkin) {
-                sendMessagesWithDelay([
-                    `Работает сотрудник СОБР | Мой позывной ${CALLSIGN}`,
-                    "Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
-                    "Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
-                    "Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
-                ], [0, 500, 500, 500]);
-                setTimeout(() => showDocCheckPrompt(targetId), 1800);
-                setTimeout(() => runPostActionTimer('greeting'), 1800);
-            } else {
-                sendMessagesWithDelay([
-                    `Здравия желаю, Вас беспокоит ${RANK} - ${FIRST_NAME} ${LAST_NAME}.`,
-                    `/doc ${targetId}`
-                ], [0, 1000]);
-                setTimeout(() => showDocCheckPrompt(targetId), 1300);
-                setTimeout(() => runPostActionTimer('greeting'), 1300);
-            }
-            break;
+	case "greeting":
+		const _rank = window._mvdRank || RANK;
+		const _firstName = window._mvdFirstName || FIRST_NAME;
+		const _lastName = window._mvdLastName || LAST_NAME;
+		const _callsign = window._mvdCallsign || CALLSIGN;
+
+		if (isOmonSkin) {
+			sendMessagesWithDelay([
+				`Работает сотрудник СОБР | Мой позывной ${_callsign}`,
+				"Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
+				"Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
+				"Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
+			], [0, 500, 500, 500]);
+			setTimeout(() => showDocCheckPrompt(targetId), 1800);
+			setTimeout(() => runPostActionTimer('greeting'), 1800);
+		} else {
+			sendMessagesWithDelay([
+				`Здравия желаю, Вас беспокоит ${_rank} - ${_firstName} ${_lastName}.`,
+				`/doc ${targetId}` 
+			], [0, 1000]);
+			setTimeout(() => showDocCheckPrompt(targetId), 1300);
+			setTimeout(() => runPostActionTimer('greeting'), 1300);
+		}
+		break;
       
         case "checkDocuments":
             if (isOmonSkin) {
@@ -2705,26 +2710,43 @@ var __mvdPrevSendChatInput = window.sendChatInput; // сохраняем хук 
 window.sendChatInputCustom = e => {
     const args = e.split(" ");
     if (args[0] == "/dahk") {
-        targetId = args[1];
-        // Получаем актуальный скин напрямую перед проверкой
-        const freshSkin = getSkinIdFromStore();
-        if (freshSkin !== null) skinId = Number(freshSkin);
-        if (mvdSkins.includes(skinId)) {
-            // Успешное открытие меню МВД
+    targetId = args[1];
+    // Получаем актуальный скин напрямую перед проверкой
+    const freshSkin = getSkinIdFromStore();
+    if (freshSkin !== null) skinId = Number(freshSkin);
+    if (mvdSkins.includes(skinId)) {
+        
+        const openMenu = (stats) => {
+            // Если данные успешно считаны, парсим ник и сохраняем в window
+            if (stats && stats.nickname) {
+                // Разделяем ник (Vlad_Giovanni или Vlad Giovanni) на Имя и Фамилию
+                const nickParts = stats.nickname.split(/[_\s]+/);
+                window._mvdFirstName = nickParts[0] || FIRST_NAME;
+                window._mvdLastName = nickParts[1] || LAST_NAME;
+                window._mvdRank = stats.orgRangName || RANK;
+                window._mvdCallsign = stats.nickname || CALLSIGN;
+                console.log(`[MMENU] Данные обновлены: ${window._mvdRank} ${window._mvdFirstName} ${window._mvdLastName}`);
+            }
+            
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
             restoreTrackingTimer();
-            // Обновляем ник напарника тихо при каждом открытии меню
             refreshPartnerNickSilent();
             if (lastMenuType === "stroy") {
                 showStroyMenuPage(args[1]);
             } else {
-                // Главное меню МВД (экран main) — Повседневная открывается оттуда отдельным пунктом
                 showMvdMainMenuPage(args[1]);
             }
+        };
+
+        // Вызываем считывание (если функция доступна)
+        if (typeof window._mvdFetchPlayerStats === 'function') {
+            window._mvdFetchPlayerStats(openMenu);
         } else {
-            // Ошибка: скин не подходит
-            snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
+            openMenu(null);
         }
+    } else {
+        snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
+    }
     } else if (args[0] == "/console") {
         try {
             const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
@@ -4110,3 +4132,288 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
    [ZK-INTERFACE-VIEWER END]
    ============================================================ */
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
+
+// ==================== /mmenu — СКРЫТОЕ ЧТЕНИЕ ДАННЫХ ПЕРСОНАЖА (v7 — no HUD flicker) ====================
+(function() {
+'use strict';
+
+var CACHE_TTL_MS = 120000;
+var _cache = null;
+var _cacheTime = 0;
+var _fetching = false;
+
+// ── Сохраняем оригиналы функций ──
+var _origSetCursorStatus = window.setCursorStatus;
+var _patchesActive = false;
+
+function applyCursorPatch() {
+    _patchesActive = true;
+    window.setCursorStatus = function(name, status, allowMovement) {
+        if (_patchesActive && name === 'MainMenu') {
+            try {
+                if (typeof engine !== 'undefined' && engine.trigger) {
+                    engine.trigger("SetCursorStatus", false, true);
+                }
+            } catch(e) {}
+            return;
+        }
+        return _origSetCursorStatus.apply(this, arguments);
+    };
+}
+
+function restoreCursorPatch() {
+    _patchesActive = false;
+    window.setCursorStatus = _origSetCursorStatus;
+}
+
+// ── КЛЮЧЕВОЙ ФИКС: подмена options.hideHud / hideChat ──
+// MainMenu в index.js имеет options:{hideChat:!0, hideHud:!0}
+// openInterface() видит hideHud=true и вызывает Hud.hideInfo() — HUD пропадает.
+// Временно ставим false перед открытием, возвращаем после закрытия.
+var _origHideHud = null;
+var _origHideChat = null;
+
+function patchMainMenuOptions() {
+    try {
+        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+        if (!mmComp || !mmComp.options) return;
+        _origHideHud = mmComp.options.hideHud;
+        _origHideChat = mmComp.options.hideChat;
+        mmComp.options.hideHud = false;
+        mmComp.options.hideChat = false;
+    } catch(e) {}
+}
+
+function restoreMainMenuOptions() {
+    try {
+        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+        if (!mmComp || !mmComp.options) return;
+        if (_origHideHud !== null) mmComp.options.hideHud = _origHideHud;
+        if (_origHideChat !== null) mmComp.options.hideChat = _origHideChat;
+        _origHideHud = null;
+        _origHideChat = null;
+    } catch(e) {}
+}
+
+// ── CSS-скрытие самого меню (чтобы не мелькало на экране) ──
+var _styleEl = null;
+function hideMainMenuCSS() {
+    if (_styleEl) return;
+    _styleEl = document.createElement('style');
+    _styleEl.id = 'mvd-hide-mainmenu';
+    _styleEl.textContent = [
+        'body .main-menu,',
+        'body .main-menu__header,',
+        'body .main-menu__content,',
+        'body .main-menu [class*="main-menu"] {',
+        '  visibility: hidden !important;',
+        '  opacity: 0 !important;',
+        '  pointer-events: none !important;',
+        '}'
+    ].join('\n');
+    document.head.appendChild(_styleEl);
+}
+
+function showMainMenuCSS() {
+    if (_styleEl && _styleEl.parentNode) {
+        _styleEl.parentNode.removeChild(_styleEl);
+    }
+    _styleEl = null;
+}
+
+// ── Извлечение данных ──
+function extractStats(mm) {
+    try {
+        var s = mm.statistics;
+        if (!s) return null;
+        var org  = s.organization || {};
+        var info = s.info || {};
+        var lvl  = s.level || {};
+        var jobs = s.jobs || [];
+        
+        // Реальный ник из Vuex store (сервер не шлёт его в updateMainStats)
+        var realNick = null;
+        try {
+            realNick = window.App && window.App.$store && 
+                       window.App.$store.getters['player/nickName'];
+        } catch(e) {}
+        
+        return {
+            orgTitle:    org.title    || null,
+            orgRangName: org.rangName || null,
+            orgRang:     org.rang     != null ? org.rang : null,
+            nickname:    realNick || info.nickname || null,
+            status:      info.status   || null,
+            vipType:     (info.subscribe && info.subscribe.type) || null,
+            vipPeriod:   (info.subscribe && info.subscribe.period) || null,
+            level:       lvl.value != null ? lvl.value : null,
+            levelScore:  (lvl.score && lvl.score.current) || null,
+            levelTarget: (lvl.score && lvl.score.target)  || null,
+            jobs: jobs.map(function(j) {
+                return { id: j.id, title: j.title, lvl: j.lvl, icon: j.icon };
+            }),
+            fetchedAt: Date.now()
+        };
+    } catch(e) {
+        return null;
+    }
+}
+
+// ── Основная функция ──
+function fetchPlayerStats(callback) {
+    if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
+        console.log('[MMENU] из кэша (' + Math.round((Date.now() - _cacheTime) / 1000) + 'с)');
+        if (callback) callback(_cache);
+        return _cache;
+    }
+    if (_fetching) return null;
+    _fetching = true;
+    console.log('[MMENU] скрытое чтение данных...');
+
+    // 1) Патчим options ДО открытия — HUD и чат НЕ скроются
+    patchMainMenuOptions();
+    // 2) Патчим курсор — персонаж не остановится
+    applyCursorPatch();
+    // 3) CSS — само меню невидимо
+    hideMainMenuCSS();
+
+    try {
+        window.openInterface('MainMenu');
+    } catch(e) {
+        console.error('[MMENU] openInterface error:', e);
+        restoreMainMenuOptions();
+        restoreCursorPatch();
+        showMainMenuCSS();
+        _fetching = false;
+        return null;
+    }
+
+    setTimeout(function() {
+        var mm = window.interface('MainMenu');
+        if (!mm) {
+            console.error('[MMENU] MainMenu не найден');
+            restoreMainMenuOptions();
+            restoreCursorPatch();
+            showMainMenuCSS();
+            _fetching = false;
+            return;
+        }
+
+        try {
+            if (typeof mm.selectTab === 'function') {
+                mm.selectTab('Statistics');
+            }
+        } catch(e) {}
+
+        var attempts = 0;
+        var maxAttempts = 30;
+        var poll = setInterval(function() {
+            attempts++;
+            var stats = extractStats(mm);
+            var isReal = stats && (
+                (stats.orgTitle && stats.orgTitle !== 'Police departament') ||
+                (stats.status && stats.status !== 'Первый полноценный') ||
+                stats.jobs.length > 0
+            );
+
+            if (isReal || attempts >= maxAttempts) {
+                clearInterval(poll);
+
+                if (stats && isReal) {
+                    _cache = stats;
+                    _cacheTime = Date.now();
+                    console.log('[MMENU] данные получены');
+                } else {
+                    console.warn('[MMENU] таймаут');
+                }
+
+                setTimeout(function() {
+                    try { window.closeInterface('MainMenu'); } catch(e) {}
+
+                    // ВАЖНО: восстанавливаем options ПОСЛЕ closeInterface
+                    // чтобы closeInterface не дёрнул setHudStatus(true) повторно
+                    setTimeout(function() {
+                        restoreMainMenuOptions();
+                        restoreCursorPatch();
+                        showMainMenuCSS();
+                        _fetching = false;
+                        if (callback) callback(_cache);
+                    }, 100);
+                }, 150);
+            }
+        }, 200);
+    }, 600);
+
+    return null;
+}
+
+// ── Быстрый геттер ──
+function getPlayerStats() {
+    if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) return _cache;
+    return null;
+}
+
+// ── Печать в консоль ──
+function printStats(stats) {
+    if (!stats) {
+        console.log('[MMENU] нет данных');
+        return;
+    }
+    console.log('[MMENU] ═══════════════════════════════════════');
+    console.log('[MMENU] ДАННЫЕ ПЕРСОНАЖА');
+    console.log('[MMENU] ═══════════════════════════════════════');
+    console.log('[MMENU] Ник:    ' + (stats.nickname || '—'));
+    console.log('[MMENU] Статус: ' + (stats.status || '—'));
+    console.log('[MMENU] Организация:');
+    console.log('        Название: ' + (stats.orgTitle || '—'));
+    console.log('        Звание:   ' + (stats.orgRangName || '—') + ' (rang=' + (stats.orgRang != null ? stats.orgRang : '—') + ')');
+    console.log('[MMENU] Уровень: ' + (stats.level != null ? stats.level : '—'));
+    if (stats.levelScore != null) {
+        console.log('        Score: ' + stats.levelScore + '/' + (stats.levelTarget || '—'));
+    }
+    console.log('[MMENU] VIP: ' + (stats.vipType || '—'));
+    console.log('[MMENU] Должности (' + stats.jobs.length + '):');
+    stats.jobs.forEach(function(job, i) {
+        console.log('        ' + (i + 1) + '. ' + (job.title || '—') + ' (lvl=' + (job.lvl != null ? job.lvl : '—') + ')');
+    });
+    console.log('[MMENU] ═══════════════════════════════════════');
+}
+
+// ── Перехват /mmenu ──
+function waitForApp(cb, attempts) {
+    attempts = attempts || 0;
+    if (window.App && window.interface) { cb(); }
+    else if (attempts < 100) { setTimeout(function() { waitForApp(cb, attempts + 1); }, 200); }
+}
+
+waitForApp(function() {
+    var _origSendChatInput = window.sendChatInput;
+    window.sendChatInput = function(cmd) {
+        if (typeof cmd === 'string') {
+            var trimmed = cmd.trim().toLowerCase();
+            if (trimmed === '/mmenu') {
+                fetchPlayerStats(function(data) {
+                    printStats(data);
+                    if (data) {
+                        try {
+                            var sn = window.ZkmScreenNotification;
+                            if (sn && typeof sn.add === 'function') {
+                                sn.add('[1, "MMENU", "Данные получены → консоль (F8)", "00CC44", 3000]');
+                            }
+                        } catch(e) {}
+                    }
+                });
+                return;
+            }
+        }
+        return _origSendChatInput.apply(this, arguments);
+    };
+    console.log('[MMENU] v7 готов (no HUD flicker). Команда: /mmenu');
+});
+
+window._mvdGetPlayerStats = getPlayerStats;
+window._mvdFetchPlayerStats = fetchPlayerStats;
+window._mvdPrintPlayerStats = function() { printStats(getPlayerStats()); };
+
+})();
+// ==================== END /mmenu ====================
