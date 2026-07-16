@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.8 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3273,30 +3273,48 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             window.setDrawLabelStatus = _grabOrigSetDrawLabel;
         }
 
-        function hideInventoryUI() {
-            const id = setInterval(() => {
-                const el = document.querySelector('.iface-container.inventory')
-                        || document.querySelector('.inventory')
-                        || document.querySelector('[class*="InventoryNew"]')
-                        || document.querySelector('.iface-container');
-                if (el && el.style.visibility !== 'hidden') {
-                    el.style.visibility = 'hidden';
-                    el.style.pointerEvents = 'none';
-                    el.style.opacity = '0';
+        // ── CSS pre-hide: прячем инвентарь ДО рендеринга Vue ──
+        // Создаём <style> который скрывает элементы инвентаря/диалога
+        // ещё до того как Vue их смонтирует. Благодаря этому элемент
+        // невидим с самого первого кадра — никакого "моргания".
+        const _grabStyleEl = document.createElement('style');
+        _grabStyleEl.id = 'mvd-grab-hide';
+        _grabStyleEl.textContent = [
+            '.iface-container.inventory,',
+            '.inventory,',
+            '[class*="InventoryNew"],',
+            '.iface-container,',
+            '.dialog-container,',
+            '[class*="Dialog"] {',
+            '  visibility: hidden !important;',
+            '  opacity: 0 !important;',
+            '  pointer-events: none !important;',
+            '}'
+        ].join('\n');
+        document.head.appendChild(_grabStyleEl);
+
+        // ── MutationObserver: мгновенно прячем DOM-элементы при появлении ──
+        // Срабатывает синхронно в момент добавления элемента в DOM —
+        // быстрее чем setInterval. Дублирует CSS-правило на случай
+        // если Vue переопределит стили инлайн.
+        const _grabObserver = new MutationObserver(function(mutations) {
+            for (const m of mutations) {
+                for (const node of m.addedNodes) {
+                    if (node.nodeType !== 1) continue;
+                    const el = node.matches?.('.iface-container, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"]')
+                        ? node
+                        : node.querySelector?.('.iface-container, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"]');
+                    if (el) {
+                        el.style.visibility = 'hidden';
+                        el.style.pointerEvents = 'none';
+                        el.style.opacity = '0';
+                    }
                 }
-                const dlg = document.querySelector('.dialog-container')
-                         || document.querySelector('[class*="Dialog"]');
-                if (dlg && dlg.style.visibility !== 'hidden') {
-                    dlg.style.visibility = 'hidden';
-                    dlg.style.pointerEvents = 'none';
-                    dlg.style.opacity = '0';
-                }
-            }, 10);
-            return id;
-        }
+            }
+        });
+        _grabObserver.observe(document.body, { childList: true, subtree: true });
 
         applyGrabPatches();
-        const hideInterval = hideInventoryUI();
 
         try {
             const armourVal = getArmourValue();
@@ -3413,8 +3431,11 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
             console.error('[MVD-GRAB] Ошибка:', err);
             notify("Ошибка", err.message, "FF0000");
         } finally {
-            // ── Гарантированное восстановление при ЛЮБОМ выходе ──
-            clearInterval(hideInterval);
+            // Убираем MutationObserver
+            try { _grabObserver.disconnect(); } catch(e) {}
+            // Убираем CSS-правило
+            try { if (_grabStyleEl.parentNode) _grabStyleEl.parentNode.removeChild(_grabStyleEl); } catch(e) {}
+            // Снимаем inline-стили с DOM-элементов
             try {
                 document.querySelectorAll('.iface-container.inventory, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"]').forEach(el => {
                     el.style.visibility = '';
