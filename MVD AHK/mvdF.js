@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.099 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4179,10 +4179,87 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
 
 // ==================== ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) ====================
+// При первом открытии меню /dahk один раз считывает актуальные данные
+// персонажа (ник, звание, должность) и сохраняет их в window для использования
+// в отыгровках (приветствие, строй и т.д.).
+// Повторные /dahk используют уже сохранённые данные — мгновенное открытие.
+// Для принудительного обновления данных (например, после повышения звания)
+// напишите в чат /mmenu
 (function() {
 'use strict';
 var _fetching = false;
 
+// ── Безопасное скрытие: только геометрический сдвиг, БЕЗ opacity/visibility ──
+var _styleEl = null;
+function applyHideStyles() {
+    if (_styleEl) return;
+    _styleEl = document.createElement('style');
+    _styleEl.id = 'mvd-profile-hide-styles';
+    // Только геометрическое смещение — не ломаем Vue-переходы и счетчики движка
+    _styleEl.textContent = [
+        '.main-menu.iface-container,',
+        '.main-menu {',
+        '  position: fixed !important;',
+        '  left: -200vw !important;',
+        '  top: -200vh !important;',
+        '  width: 1px !important;',
+        '  height: 1px !important;',
+        '  overflow: hidden !important;',
+        '  pointer-events: none !important;',
+        '  transform: translateX(-200vw) !important;',
+        '}'
+    ].join('\n');
+    document.head.appendChild(_styleEl);
+}
+
+function removeHideStyles() {
+    var el = document.getElementById('mvd-profile-hide-styles');
+    if (el && el.parentNode) {
+        el.parentNode.removeChild(el);
+    }
+    if (_styleEl && _styleEl.parentNode) {
+        _styleEl.parentNode.removeChild(_styleEl);
+    }
+    _styleEl = null;
+    
+    // Принудительный сброс инлайн-стилей на DOM-элементе меню
+    // (на случай если Vue или движок повесили свои стили)
+    try {
+        var menuEl = document.querySelector('.main-menu.iface-container') || 
+                     document.querySelector('.main-menu');
+        if (menuEl) {
+            menuEl.removeAttribute('style');
+            // Сбрасываем классы Vue-переходов
+            menuEl.classList.remove('fade-enter-active', 'fade-leave-active', 
+                                   'fade-enter-from', 'fade-leave-to',
+                                   'fade-enter-to', 'fade-leave-from');
+        }
+    } catch(e) {}
+}
+
+// ── Извлечение данных из профиля ──
+function extractProfileData(mm) {
+    try {
+        var s = mm.statistics;
+        if (!s) return null;
+        var org  = s.organization || {};
+        var info = s.info || {};
+        var realNick = null;
+        try {
+            realNick = window.App && window.App.$store &&
+                       window.App.$store.getters['player/nickName'];
+        } catch(e) {}
+        return {
+            orgRangName: org.rangName || null,
+            nickname:    realNick || info.nickname || null,
+            fetchedAt: Date.now()
+        };
+    } catch(e) {
+        return null;
+    }
+}
+
+// ── Основная функция ──
 function loadPlayerProfile(callback) {
     // Если данные уже загружены — НЕ открываем профиль повторно
     if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
@@ -4206,80 +4283,67 @@ function loadPlayerProfile(callback) {
     }
     
     _fetching = true;
+    applyHideStyles();
     
-    // Проверяем, не открыто ли меню уже (например, игрок сам нажал M)
-    var wasAlreadyOpen = false;
-    try { wasAlreadyOpen = window.getInterfaceStatus('MainMenu'); } catch(e) {}
-    
-    if (!wasAlreadyOpen) {
-        try { window.openInterface('MainMenu'); } catch(e) {}
+    try {
+        window.openInterface('MainMenu');
+    } catch(e) {
+        removeHideStyles();
+        _fetching = false;
+        if (callback) callback(null);
+        return;
     }
     
-    var attempts = 0;
-    var maxAttempts = 40; // 4 секунды на ответ сервера
-    
-    var poll = setInterval(function() {
-        attempts++;
+    setTimeout(function() {
         var mm = window.interface('MainMenu');
-        var stats = null;
-        
-        if (mm) {
-            try {
-                // Переключаем на вкладку статистики при первой попытке
-                if (typeof mm.selectTab === 'function' && attempts === 1) {
-                    mm.selectTab('Statistics');
-                }
-                var s = mm.statistics;
-                if (s && s.organization && s.info) {
-                    var realNick = null;
-                    try {
-                        realNick = window.App && window.App.$store &&
-                                   window.App.$store.getters['player/nickName'];
-                    } catch(e) {}
-                    
-                    var nick = realNick || s.info.nickname || null;
-                    var rang = s.organization.rangName || null;
-                    
-                    if (nick && rang) {
-                        stats = { nickname: nick, orgRangName: rang };
-                    }
-                }
-            } catch(e) {}
-        }
-        
-        if (stats || attempts >= maxAttempts) {
-            clearInterval(poll);
-            
-            if (stats) {
-                window._mvdCallsign = stats.nickname || '';
-                window._mvdRank = stats.orgRangName || '';
-                var nickParts = (stats.nickname || '').split(/[_\s]+/);
-                window._mvdFirstName = nickParts[0] || '';
-                window._mvdLastName = nickParts[1] || '';
-            }
-            
-            // Закрываем меню ТОЛЬКО если мы сами его открывали
-            if (!wasAlreadyOpen) {
-                try {
-                    // КРИТИЧЕСКИ ВАЖНО: Синхронизируем закрытие с сервером!
-                    // Отправляем событие, которое обычно отправляется при нажатии ESC.
-                    if (mm && typeof mm.sendCloseEvent === 'function') {
-                        mm.sendCloseEvent();
-                    } else if (typeof window.sendClientEvent === 'function') {
-                        window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
-                    }
-                } catch(e) {}
-                
-                try { window.closeInterface('MainMenu'); } catch(e) {}
-            }
-            
+        if (!mm) {
+            removeHideStyles();
             _fetching = false;
-            if (callback) callback({
-                nickname: window._mvdCallsign,
-                orgRangName: window._mvdRank
-            });
+            if (callback) callback(null);
+            return;
         }
-    }, 100);
+        
+        try {
+            if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
+        } catch(e) {}
+        
+        var attempts = 0;
+        var maxAttempts = 40;
+        var poll = setInterval(function() {
+            attempts++;
+            var stats = null;
+            try { stats = extractProfileData(mm); } catch(e) {}
+            var isReal = stats && (stats.nickname || stats.orgRangName);
+            
+            if (isReal || attempts >= maxAttempts) {
+                clearInterval(poll);
+                if (stats && isReal) {
+                    window._mvdCallsign = stats.nickname || '';
+                    window._mvdRank = stats.orgRangName || '';
+                    var nickParts = (stats.nickname || '').split(/[_\s]+/);
+                    window._mvdFirstName = nickParts[0] || '';
+                    window._mvdLastName = nickParts[1] || '';
+                }
+                
+                setTimeout(function() {
+                    try { window.closeInterface('MainMenu'); } catch(e) {}
+                    // Даём Vue время отрисовать анимацию закрытия, потом убираем стили
+                    setTimeout(function() {
+                        removeHideStyles();
+                        // Дополнительный сброс через requestAnimationFrame
+                        requestAnimationFrame(function() {
+                            removeHideStyles();
+                        });
+                        _fetching = false;
+                        if (callback) callback({
+                            nickname: window._mvdCallsign,
+                            orgRangName: window._mvdRank
+                        });
+                    }, 150);
+                }, 50);
+            }
+        }, 200);
+    }, 300);
 }
 
 // ── Команда /mmenu для принудительного обновления данных ──
