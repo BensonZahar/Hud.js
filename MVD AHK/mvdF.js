@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.888 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1945,9 +1945,9 @@ const executePovsednevAction = (action, targetId) => {
     const isOmonSkin = skinId === 15340;
     switch (action) {
 	case "greeting":
-		const _rank = window._mvdRank || '';
-		const _firstName = window._mvdFirstName || '';
-		const _lastName = window._mvdLastName || '';
+		const _rank = window._mvdRank || RANK;
+		const _firstName = window._mvdFirstName || FIRST_NAME;
+		const _lastName = window._mvdLastName || LAST_NAME;
 		const _callsign = window._mvdCallsign || CALLSIGN;
 
 		if (isOmonSkin) {
@@ -2170,8 +2170,8 @@ const executePovsednevAction = (action, targetId) => {
     }
 };
 const executeStroyAction = (action, hour = null, minute = null) => {
-    const _rank = window._mvdRank || '';
-    const _lastName = window._mvdLastName || '';
+    const _rank = window._mvdRank || RANK;
+    const _lastName = window._mvdLastName || LAST_NAME;
     const tag = rankTags[_rank] || `[${_rank}]`;
     
     switch (action) {
@@ -2372,7 +2372,7 @@ window.showMvdSubMenu = (e) => {
     let availableSub = [
         { name: "Повседневная", id: "povsednev" }
     ];
-    if (stroyRanks.includes(window._mvdRank)) {
+    if (stroyRanks.includes(RANK)) {
         availableSub.push({ name: "Строй", id: "stroy" });
     }
     availableSub.push({ name: trackingName, id: "tracking" });
@@ -2714,11 +2714,23 @@ window.sendChatInputCustom = e => {
     const args = e.split(" ");
     if (args[0] == "/dahk") {
     targetId = args[1];
+    // Получаем актуальный скин напрямую перед проверкой
     const freshSkin = getSkinIdFromStore();
     if (freshSkin !== null) skinId = Number(freshSkin);
     if (mvdSkins.includes(skinId)) {
         
-        const openMenu = () => {
+        const openMenu = (stats) => {
+            // Если данные успешно считаны, парсим ник и сохраняем в window
+            if (stats && stats.nickname) {
+                // Разделяем ник (Vlad_Giovanni или Vlad Giovanni) на Имя и Фамилию
+                const nickParts = stats.nickname.split(/[_\s]+/);
+                window._mvdFirstName = nickParts[0] || FIRST_NAME;
+                window._mvdLastName = nickParts[1] || LAST_NAME;
+                window._mvdRank = stats.orgRangName || RANK;
+                window._mvdCallsign = stats.nickname || CALLSIGN;
+                console.log(`[MMENU] Данные обновлены: ${window._mvdRank} ${window._mvdFirstName} ${window._mvdLastName}`);
+            }
+            
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
             restoreTrackingTimer();
             refreshPartnerNickSilent();
@@ -2729,14 +2741,11 @@ window.sendChatInputCustom = e => {
             }
         };
 
-        // Если данные уже загружены — открываем меню МГНОВЕННО
-        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
-            openMenu();
-        } else if (typeof window._mvdLoadPlayerProfile === 'function') {
-            // Первый раз — загружаем профиль, потом открываем
-            window._mvdLoadPlayerProfile(openMenu);
+        // Вызываем считывание (если функция доступна)
+        if (typeof window._mvdFetchPlayerStats === 'function') {
+            window._mvdFetchPlayerStats(openMenu);
         } else {
-            openMenu();
+            openMenu(null);
         }
     } else {
         snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
@@ -3049,390 +3058,339 @@ window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
 // Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
 if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
-console.log('[MVD-GRAB] === v2.2 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН (МОМЕНТАЛЬНЫЙ) ===');
-window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
+    console.log('[MVD-GRAB] === v2.1 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН ===');
+    window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
 
-// ==================== ID ПРЕДМЕТОВ ====================
- const ITEM = {
-     DEAGLE:      19,   // Desert Eagle
-     AMMO_MAGNUM: 363,  // Патроны .44 Magnum
-     AKM:         21,   // АКМ
-     AMMO_762:    368,  // Патроны 7.62x39
-     BATON:       32,   // Дубинка
-     MEDKIT:      2,    // Аптечка
-     PAINKILLERS: 379,  // Обезболивающее
-     RADAR_GUN:   276,  // Тауметр
-     DIAGNOSTICS: 254,  // Набор диагностики
-     TASER:       13,   // Тазер
-     AKS74U:      18,   // АКС-74У
-     REMINGTON:   14,   // Remington 870
-     AMMO_545:    366,  // Патроны 5.45x39
-     AMMO_1270:   365,  // Патроны 12x70
- };
+    // ==================== ID ПРЕДМЕТОВ ====================
+    const ITEM = {
+        DEAGLE:      19,   // Desert Eagle
+        AMMO_MAGNUM: 363,  // Патроны .44 Magnum
+        AKM:         21,   // АКМ
+        AMMO_762:    368,  // Патроны 7.62x39
+        BATON:       32,   // Дубинка
+        MEDKIT:      2,    // Аптечка
+        PAINKILLERS: 379,  // Обезболивающее
+        RADAR_GUN:   276,  // Тауметр
+        DIAGNOSTICS: 254,  // Набор диагностики
+        TASER:       13,   // Тазер
+        AKS74U:      18,   // АКС-74У
+        REMINGTON:   14,   // Remington 870
+        AMMO_545:    366,  // Патроны 5.45x39
+        AMMO_1270:   365,  // Патроны 12x70
+    };
 
- // ==================== ПОРОГИ ПАТРОНОВ ====================
- const AMMO_THRESHOLD = { MAGNUM: 30, AK762: 60, AKS545: 60, REM1270: 20 };
+    // ==================== ПОРОГИ ПАТРОНОВ ====================
+    const AMMO_THRESHOLD = { MAGNUM: 30, AK762: 60, AKS545: 60, REM1270: 20 };
 
- // ==================== ПОЗИЦИИ В МЕНЮ МВД (0-based) ====================
- const MENU = {
-     PAINKILLERS:  0,
-     MEDKIT:       1,
-     BATON:        2,
-     WAND:         3,
-     VEST:         4,
-     RADAR_GUN:    5,
-     DIAGNOSTICS:  6,
-     TASER:        7,
-     DEAGLE:       8,
-     AKM:          9,
-     AKS74U:      10,
-     REMINGTON:   11,
-     AMMO_MAGNUM: 12,
-     AMMO_762:    13,
-     AMMO_545:    14,
-     AMMO_1270:   15,
- };
+    // ==================== ПОЗИЦИИ В МЕНЮ МВД (0-based) ====================
+    const MENU = {
+        PAINKILLERS:  0,
+        MEDKIT:       1,
+        BATON:        2,
+        WAND:         3,
+        VEST:         4,
+        RADAR_GUN:    5,
+        DIAGNOSTICS:  6,
+        TASER:        7,
+        DEAGLE:       8,
+        AKM:          9,
+        AKS74U:      10,
+        REMINGTON:   11,
+        AMMO_MAGNUM: 12,
+        AMMO_762:    13,
+        AMMO_545:    14,
+        AMMO_1270:   15,
+    };
 
- const DIALOG_ID = 0;
- const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
+    const DIALOG_ID = 0;
+    const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
 
- let isProcessing = false;
+    let isProcessing = false;
 
- function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
- function notify(title, text, color = "FFFFFF") {
-     snAdd(`[1, "${title}", "${text}", "${color}", 2500]`);
- }
+    function notify(title, text, color = "FFFFFF") {
+        snAdd(`[1, "${title}", "${text}", "${color}", 2500]`);
+    }
 
- // ==================== БРОНЯ ЧЕРЕЗ ХУД ====================
- function getArmourValue() {
-     try {
-         const hud = window.interface("Hud");
-         if (!hud) return 0;
-         const armour = hud.$data?.info?.armour ?? hud.data?.info?.armour ?? 0;
-         return Number(armour) || 0;
-     } catch(e) { return 0; }
- }
+    // ==================== БРОНЯ ЧЕРЕЗ ХУД ====================
+    function getArmourValue() {
+        try {
+            const hud = window.interface("Hud");
+            if (!hud) return 0;
+            const armour = hud.$data?.info?.armour ?? hud.data?.info?.armour ?? 0;
+            return Number(armour) || 0;
+        } catch(e) { return 0; }
+    }
 
- // ==================== ИНВЕНТАРЬ ====================
- const CT_NAMES_GRAB = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
+    // ==================== ИНВЕНТАРЬ ====================
+    const CT_NAMES_GRAB = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
 
- function logInventoryGrab(label) {
-     try {
-         const inv = window.interface("InventoryNew");
-         if (!inv?.items) { console.log(`[GRAB-LOG] ${label}: items недоступны`); return; }
-         const lines = [`[GRAB-LOG] ── ${label} ──`];
-         for (const cid of [0, 1, 2, 3]) {
-             const c = inv.items[cid];
-             if (!c) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): нет контейнера`); continue; }
-             const entries = Object.entries(c);
-             if (entries.length === 0) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): пусто`); continue; }
-             for (const [slot, item] of entries) {
-                 if (!item) continue;
-                 lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}) slot${slot}: id=${item.id} x${item.count||1} w=${item.weight}`);
-             }
-         }
-         console.log(lines.join('\n'));
-     } catch(e) { console.log(`[GRAB-LOG] ${label}: ошибка`, e); }
- }
+    function logInventoryGrab(label) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) { console.log(`[GRAB-LOG] ${label}: items недоступны`); return; }
+            const lines = [`[GRAB-LOG] ── ${label} ──`];
+            for (const cid of [0, 1, 2, 3]) {
+                const c = inv.items[cid];
+                if (!c) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): нет контейнера`); continue; }
+                const entries = Object.entries(c);
+                if (entries.length === 0) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): пусто`); continue; }
+                for (const [slot, item] of entries) {
+                    if (!item) continue;
+                    lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}) slot${slot}: id=${item.id} x${item.count||1} w=${item.weight}`);
+                }
+            }
+            console.log(lines.join('\n'));
+        } catch(e) { console.log(`[GRAB-LOG] ${label}: ошибка`, e); }
+    }
 
- function findItem(itemId) {
-     try {
-         const inv = window.interface("InventoryNew");
-         if (!inv?.items) return null;
-         for (const cid of [CT.INV, CT.BACK, CT.ACC]) {
-             const c = inv.items[cid];
-             if (!c) continue;
-             for (const [slot, item] of Object.entries(c)) {
-                 if (item?.id === itemId) {
-                     console.log(`[GRAB] findItem(id=${itemId}): найден в ${CT_NAMES_GRAB[cid]} slot${slot} x${item.count||1}`);
-                     return { cid, slot: parseInt(slot), count: item.count || 1 };
-                 }
-             }
-         }
-     } catch(e) {}
-     console.log(`[GRAB] findItem(id=${itemId}): НЕ НАЙДЕН`);
-     return null;
- }
+    function findItem(itemId) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) return null;
+            for (const cid of [CT.INV, CT.BACK, CT.ACC]) {
+                const c = inv.items[cid];
+                if (!c) continue;
+                for (const [slot, item] of Object.entries(c)) {
+                    if (item?.id === itemId) {
+                        console.log(`[GRAB] findItem(id=${itemId}): найден в ${CT_NAMES_GRAB[cid]} slot${slot} x${item.count||1}`);
+                        return { cid, slot: parseInt(slot), count: item.count || 1 };
+                    }
+                }
+            }
+        } catch(e) {}
+        console.log(`[GRAB] findItem(id=${itemId}): НЕ НАЙДЕН`);
+        return null;
+    }
 
- function findItemInInv(itemId) {
-     try {
-         const inv = window.interface("InventoryNew");
-         if (!inv?.items) return null;
-         const c = inv.items[CT.INV];
-         if (!c) return null;
-         for (const [slot, item] of Object.entries(c)) {
-             if (item?.id === itemId) {
-                 console.log(`[GRAB] findItemInInv(id=${itemId}): найден в INV slot${slot} x${item.count||1}`);
-                 return { cid: CT.INV, slot: parseInt(slot), count: item.count || 1 };
-             }
-         }
-     } catch(e) {}
-     console.log(`[GRAB] findItemInInv(id=${itemId}): НЕ НАЙДЕН (в поясе)`);
-     return null;
- }
+    // Проверка только пояса (INV) — рюкзак (BACK) и разгрузка (ACC) не учитываются.
+    // Нужна для аптечки: даже если она уже лежит в рюкзаке про запас, авто-снаряжение
+    // всё равно должно донести ещё одну на пояс.
+    function findItemInInv(itemId) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) return null;
+            const c = inv.items[CT.INV];
+            if (!c) return null;
+            for (const [slot, item] of Object.entries(c)) {
+                if (item?.id === itemId) {
+                    console.log(`[GRAB] findItemInInv(id=${itemId}): найден в INV slot${slot} x${item.count||1}`);
+                    return { cid: CT.INV, slot: parseInt(slot), count: item.count || 1 };
+                }
+            }
+        } catch(e) {}
+        console.log(`[GRAB] findItemInInv(id=${itemId}): НЕ НАЙДЕН (в поясе)`);
+        return null;
+    }
 
- function countItem(itemId) {
-     try {
-         const inv = window.interface("InventoryNew");
-         if (!inv?.items) return 0;
-         let total = 0;
-         for (const cid of [CT.INV, CT.BACK]) {
-             const c = inv.items[cid];
-             if (!c) continue;
-             for (const item of Object.values(c)) {
-                 if (item?.id === itemId) total += (item.count || 1);
-             }
-         }
-         console.log(`[GRAB] countItem(id=${itemId}): итого x${total}`);
-         return total;
-     } catch(e) { return 0; }
- }
+    function countItem(itemId) {
+        try {
+            const inv = window.interface("InventoryNew");
+            if (!inv?.items) return 0;
+            let total = 0;
+            for (const cid of [CT.INV, CT.BACK]) {
+                const c = inv.items[cid];
+                if (!c) continue;
+                for (const item of Object.values(c)) {
+                    if (item?.id === itemId) total += (item.count || 1);
+                }
+            }
+            console.log(`[GRAB] countItem(id=${itemId}): итого x${total}`);
+            return total;
+        } catch(e) { return 0; }
+    }
 
- function openInventory() {
-     console.log('[GRAB] openInventory()');
-     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
- }
+    function openInventory() {
+        console.log('[GRAB] openInventory()');
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+    }
+	function closeInventory() {
+		console.log('[GRAB] closeInventory() — через сервер (синхронизация)');
+		// ВАЖНО: закрываем через серверный toggle, а не локально!
+		// window.closeInterface() закрывает только Vue-компонент, но сервер
+		// продолжает думать что инвентарь открыт — из-за этого следующий свап
+		// или открытие инвентаря не срабатывает с первого раза.
+		sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+	}
 
- function closeInventory() {
- 	console.log('[GRAB] closeInventory() — через сервер (синхронизация)');
- 	sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
- }
+    async function waitInventory(maxMs = 1000) {
+        console.log(`[GRAB] waitInventory(${maxMs}ms)...`);
+        for (let i = 0; i < maxMs; i += 50) {
+            try {
+                const inv = window.interface("InventoryNew");
+                if (inv?.items?.[CT.INV] !== undefined) {
+                    console.log(`[GRAB] waitInventory: готов за ${i}мс`);
+                    return true;
+                }
+            } catch(e) {}
+            await sleep(50);
+        }
+        console.error(`[GRAB] waitInventory: таймаут!`);
+        return false;
+    }
 
- async function waitInventory(maxMs = 1000) {
-     console.log(`[GRAB] waitInventory(${maxMs}ms)...`);
-     for (let i = 0; i < maxMs; i += 50) {
-         try {
-             const inv = window.interface("InventoryNew");
-             if (inv?.items?.[CT.INV] !== undefined) {
-                 console.log(`[GRAB] waitInventory: готов за ${i}мс`);
-                 return true;
-             }
-         } catch(e) {}
-         await sleep(50);
-     }
-     console.error(`[GRAB] waitInventory: таймаут!`);
-     return false;
- }
+    // ==================== МЕНЮ ====================
+    function take(index) {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 1, index, "");
+    }
 
- // ==================== МЕНЮ ====================
- function take(index) {
-     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 1, index, "");
- }
+    function closeMenu() {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 0, 0, "");
+    }
 
- function closeMenu() {
-     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 0, 0, "");
- }
+    function openMenu() {
+        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
+    }
 
- function openMenu() {
-     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
- }
+    // ==================== ОСНОВНАЯ ЛОГИКА ====================
+    async function autoGrab() {
+        if (typeof autoGrabEnabled !== 'undefined' && !autoGrabEnabled) return;
+        if (isProcessing) return;
+        isProcessing = true;
 
- // ==================== ОСНОВНАЯ ЛОГИКА ====================
- async function autoGrab() {
-     if (typeof autoGrabEnabled !== 'undefined' && !autoGrabEnabled) return;
-     if (isProcessing) return;
-     isProcessing = true;
+        try {
+            const armourVal = getArmourValue();
 
-     // ── ПАТЧИ: скрываем визуал инвентаря на ВЕСЬ авто-граб ──
-     const _grabOrigPlaySound         = window.playSound;
-     const _grabOrigSetHudStatus      = window.setHudStatus;
-     const _grabOrigSetDrawLabel      = window.setDrawLabelStatus;
-     let _grabPatchesActive = true;
+            // ── Шаг 1: открываем инвентарь — диалог меню остаётся открытым ──
+            // НЕ закрываем меню перед чтением инвентаря (диалог живой на сервере)
+            let ready = false;
+            for (let attempt = 0; attempt < 2 && !ready; attempt++) {
+                if (attempt > 0) await sleep(300);
+                openInventory();
+                ready = await waitInventory(1500);
+            }
+            if (!ready) {
+                notify("Ошибка", "Инвентарь не открылся", "FF0000");
+                isProcessing = false;
+                return;
+            }
 
-     function applyGrabPatches() {
-         _grabPatchesActive = true;
-         window.playSound = function(path, ...rest) {
-             if (_grabPatchesActive && typeof path === 'string' && path.includes('inventory')) {
-                 return;
-             }
-             return _grabOrigPlaySound.apply(this, [path, ...rest]);
-         };
-         window.setHudStatus = function(status) {
-             if (_grabPatchesActive) return;
-             return _grabOrigSetHudStatus.apply(this, arguments);
-         };
-         window.setDrawLabelStatus = function(status) {
-             if (_grabPatchesActive) return;
-             return _grabOrigSetDrawLabel.apply(this, arguments);
-         };
-     }
+            // ── Шаг 2: читаем что нужно ──
+            logInventoryGrab('GRAB ДО ВЗЯТИЯ');
+            const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
+            const skip = (key) => skipList.includes(key);
+            console.log(`[GRAB] skipList:`, skipList);
 
-     function restoreGrabPatches() {
-         _grabPatchesActive = false;
-         window.playSound          = _grabOrigPlaySound;
-         window.setHudStatus       = _grabOrigSetHudStatus;
-         window.setDrawLabelStatus = _grabOrigSetDrawLabel;
-     }
+            const has = {
+                medkit:      skip('medkit')      ? 999 : (findItemInInv(ITEM.MEDKIT)  ? 1 : 0),
+                baton:       skip('baton')       ? 1   : (findItem(ITEM.BATON)       ? 1 : 0),
+                vest:        skip('vest') ? 100 : armourVal,
+                deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
+                magnum:      skip('magnum')      ? 999 : countItem(ITEM.AMMO_MAGNUM),
+                akm:         skip('akm')         ? 1   : (findItem(ITEM.AKM)         ? 1 : 0),
+                ammo762:     skip('ammo762')     ? 999 : countItem(ITEM.AMMO_762),
+                painkillers: skip('painkiller')  ? 1   : (findItem(ITEM.PAINKILLERS) ? 1 : 0),
+                radarGun:    skip('taumeter')    ? 1   : (findItem(ITEM.RADAR_GUN)   ? 1 : 0),
+                diagnostics: skip('diag')        ? 1   : (findItem(ITEM.DIAGNOSTICS) ? 1 : 0),
+                taser:       skip('taser')       ? 1   : (findItem(ITEM.TASER)       ? 1 : 0),
+                aks74u:      skip('aks74u')      ? 1   : (findItem(ITEM.AKS74U)      ? 1 : 0),
+                ammo545:     skip('ammo545')     ? 999 : countItem(ITEM.AMMO_545),
+                remington:   skip('remington')   ? 1   : (findItem(ITEM.REMINGTON)   ? 1 : 0),
+                ammo1270:    skip('ammo12x70')   ? 999 : countItem(ITEM.AMMO_1270),
+                wand:        skip('baton2')      ? 1   : 0, // жезл — нет ID, берём всегда
+            };
 
-     function hideInventoryUI() {
-         const id = setInterval(() => {
-             const el = document.querySelector('.iface-container.inventory')
-                     || document.querySelector('.inventory')
-                     || document.querySelector('[class*="InventoryNew"]')
-                     || document.querySelector('.iface-container');
-             if (el && el.style.visibility !== 'hidden') {
-                 el.style.visibility = 'hidden';
-                 el.style.pointerEvents = 'none';
-                 el.style.opacity = '0';
-             }
-             const dlg = document.querySelector('.dialog-container')
-                      || document.querySelector('[class*="Dialog"]');
-             if (dlg && dlg.style.visibility !== 'hidden') {
-                 dlg.style.visibility = 'hidden';
-                 dlg.style.pointerEvents = 'none';
-                 dlg.style.opacity = '0';
-             }
-         }, 10);
-         return id;
-     }
+            const need = {
+                painkillers: !has.painkillers,
+                medkit:      has.medkit < 1,
+                baton:       !has.baton,
+                wand:        !has.wand,
+                vest:        has.vest < 10,
+                radarGun:    !has.radarGun,
+                diagnostics: !has.diagnostics,
+                taser:       !has.taser,
+                deagle:      !has.deagle,
+                magnum:      has.magnum < AMMO_THRESHOLD.MAGNUM,
+                akm:         !has.akm,
+                ammo762:     has.ammo762 < AMMO_THRESHOLD.AK762,
+                aks74u:      !has.aks74u,
+                ammo545:     has.ammo545 < AMMO_THRESHOLD.AKS545,
+                remington:   !has.remington,
+                ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
+            };
 
-     applyGrabPatches();
-     const hideInterval = hideInventoryUI();
+            console.log('[GRAB] has:', JSON.stringify(has));
+            console.log('[GRAB] need:', JSON.stringify(need));
 
-     try {
-         const armourVal = getArmourValue();
+            // ── Шаг 3: запоминаем свободные слоты и закрываем инвентарь ──
+            // Сохраняем список свободных INV-слотов — используем в шаге 5
+            const freeInvSlots = [];
+            const freeBACKSlots = [];
+            try {
+                const inv0 = window.interface("InventoryNew");
+                if (inv0?.items) {
+                    const invMap  = inv0.items[CT.INV]  || {};
+                    const backMap = inv0.items[CT.BACK] || {};
+                    for (let s = 0; s < 20; s++) if (!invMap[s])  freeInvSlots.push(s);
+                    for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
+                }
+            } catch(e) {}
+            console.log(`[GRAB] freeInvSlots (до взятия):`, freeInvSlots);
+            console.log(`[GRAB] freeBACKSlots (до взятия):`, freeBACKSlots);
+            closeInventory();
+            await sleep(50);
 
-         // ── Шаг 1: открываем инвентарь (невидимо благодаря патчам выше) ──
-         let ready = false;
-         for (let attempt = 0; attempt < 2 && !ready; attempt++) {
-             if (attempt > 0) await sleep(300);
-             openInventory();
-             ready = await waitInventory(1500);
-         }
-         if (!ready) {
-             notify("Ошибка", "Инвентарь не открылся", "FF0000");
-             return; 
-         }
+            if (!Object.values(need).some(Boolean)) {
+                notify("МВД", "Всё снаряжение есть ✓", "00FF00");
+                isProcessing = false;
+                return;
+            }
 
-         // ── Шаг 2: читаем что нужно ──
-         logInventoryGrab('GRAB ДО ВЗЯТИЯ');
-         const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._mvdGrabSkip !== 'undefined') ? window._mvdGrabSkip : []);
-         const skip = (key) => skipList.includes(key);
+            // ── Шаг 4: диалог открыт, сразу берём — НЕ переоткрываем меню ──
 
-         const has = {
-             medkit:      skip('medkit')      ? 999 : (findItemInInv(ITEM.MEDKIT)  ? 1 : 0),
-             baton:       skip('baton')       ? 1   : (findItem(ITEM.BATON)       ? 1 : 0),
-             vest:        skip('vest') ? 100 : armourVal,
-             deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
-             magnum:      skip('magnum')      ? 999 : countItem(ITEM.AMMO_MAGNUM),
-             akm:         skip('akm')         ? 1   : (findItem(ITEM.AKM)         ? 1 : 0),
-             ammo762:     skip('ammo762')     ? 999 : countItem(ITEM.AMMO_762),
-             painkillers: skip('painkiller')  ? 1   : (findItem(ITEM.PAINKILLERS) ? 1 : 0),
-             radarGun:    skip('taumeter')    ? 1   : (findItem(ITEM.RADAR_GUN)   ? 1 : 0),
-             diagnostics: skip('diag')        ? 1   : (findItem(ITEM.DIAGNOSTICS) ? 1 : 0),
-             taser:       skip('taser')       ? 1   : (findItem(ITEM.TASER)       ? 1 : 0),
-             aks74u:      skip('aks74u')      ? 1   : (findItem(ITEM.AKS74U)      ? 1 : 0),
-             ammo545:     skip('ammo545')     ? 999 : countItem(ITEM.AMMO_545),
-             remington:   skip('remington')   ? 1   : (findItem(ITEM.REMINGTON)   ? 1 : 0),
-             ammo1270:    skip('ammo12x70')   ? 999 : countItem(ITEM.AMMO_1270),
-             wand:        skip('baton2')      ? 1   : 0,
-         };
+            // ── Тазер всегда живёт в рюкзаке (Alt+H только двигает дигл).
+            //    need.taser будет false если тазер уже в рюкзаке — пост-обработка не нужна.
 
-         const need = {
-             painkillers: !has.painkillers,
-             medkit:      has.medkit < 1,
-             baton:       !has.baton,
-             wand:        !has.wand,
-             vest:        has.vest < 10,
-             radarGun:    !has.radarGun,
-             diagnostics: !has.diagnostics,
-             taser:       !has.taser,
-             deagle:      !has.deagle,
-             magnum:      has.magnum < AMMO_THRESHOLD.MAGNUM,
-             akm:         !has.akm,
-             ammo762:     has.ammo762 < AMMO_THRESHOLD.AK762,
-             aks74u:      !has.aks74u,
-             ammo545:     has.ammo545 < AMMO_THRESHOLD.AKS545,
-             remington:   !has.remington,
-             ammo1270:    has.ammo1270 < AMMO_THRESHOLD.REM1270,
-         };
+            const toTake = [];
+            if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
+            if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
+            if (need.baton)       toTake.push({ name: "Дубинка",                                 idx: MENU.BATON });
+            if (need.wand)        toTake.push({ name: "Жезл",                                    idx: MENU.WAND });
+            if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
+            if (need.radarGun)    toTake.push({ name: "Тауметр",                                 idx: MENU.RADAR_GUN });
+            if (need.diagnostics) toTake.push({ name: "Диагностика",                             idx: MENU.DIAGNOSTICS });
+            if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
+            if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
+            if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
+            if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
+            if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
+            if (need.aks74u)      toTake.push({ name: "АКС-74У",                                 idx: MENU.AKS74U });
+            if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
+            if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
+            if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
-         console.log('[GRAB] has:', JSON.stringify(has));
-         console.log('[GRAB] need:', JSON.stringify(need));
+            console.log(`[GRAB] toTake:`, toTake.map(t => `${t.name}(idx=${t.idx})`).join(', '));
 
-         // ── Шаг 3: запоминаем слоты и закрываем инвентарь (невидимо) ──
-         const freeInvSlots = [];
-         const freeBACKSlots = [];
-         try {
-             const inv0 = window.interface("InventoryNew");
-             if (inv0?.items) {
-                 const invMap  = inv0.items[CT.INV]  || {};
-                 const backMap = inv0.items[CT.BACK] || {};
-                 for (let s = 0; s < 20; s++) if (!invMap[s])  freeInvSlots.push(s);
-                 for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
-             }
-         } catch(e) {}
-         
-         closeInventory();
-         await sleep(50);
+            for (let i = 0; i < toTake.length; i++) {
+                const delay = Math.floor(Math.random() * 150) + 250; // рандом 250–400мс
+                console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [задержка: ${delay}мс]`);
+                take(toTake[i].idx);
+                await sleep(delay); // случайная задержка между предметами
+            }
 
-         // ── ВСЁ ЕСТЬ: выходим, инвентарь уже закрыт и невидим ──
-         if (!Object.values(need).some(Boolean)) {
-             notify("МВД", "Всё снаряжение есть ✓", "00FF00");
-             return; 
-         }
+            const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
+            notify("МВД", notifyNames.join(", "), "00FF00");
+            window.playSound("inventory/take_light.mp3");
 
-         // ── Шаг 4: МОМЕНТАЛЬНО берём предметы из меню ──
-         const toTake = [];
-         if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
-         if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
-         if (need.baton)       toTake.push({ name: "Дубинка",                                 idx: MENU.BATON });
-         if (need.wand)        toTake.push({ name: "Жезл",                                    idx: MENU.WAND });
-         if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
-         if (need.radarGun)    toTake.push({ name: "Тауметр",                                 idx: MENU.RADAR_GUN });
-         if (need.diagnostics) toTake.push({ name: "Диагностика",                             idx: MENU.DIAGNOSTICS });
-         if (need.deagle)      toTake.push({ name: "Desert Eagle",                            idx: MENU.DEAGLE });
-         if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
-         if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
-         if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
-         if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
-         if (need.aks74u)      toTake.push({ name: "АКС-74У",                                 idx: MENU.AKS74U });
-         if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
-         if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
-         if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
+        } catch (err) {
+            console.error('[MVD-GRAB] Ошибка:', err);
+            notify("Ошибка", err.message, "FF0000");
+        } finally {
+            isProcessing = false;
+        }
+    }
 
-         for (let i = 0; i < toTake.length; i++) {
-             console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [МОМЕНТАЛЬНО]`);
-             take(toTake[i].idx);
-             // Микро-задержка 20мс на случай жесткого анти-флуда на сервере.
-             // Для глаза это выглядит как мгновенное выполнение.
-             await sleep(20); 
-         }
-
-         // ⚠️ ВАЖНО: Закрываем меню принудительно, чтобы сервер не переоткрывал диалог
-         closeMenu();
-
-         const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
-         notify("МВД", notifyNames.join(", "), "00FF00");
-         window.playSound("inventory/take_light.mp3");
-
-     } catch (err) {
-         console.error('[MVD-GRAB] Ошибка:', err);
-         notify("Ошибка", err.message, "FF0000");
-     } finally {
-         // ── Гарантированное восстановление при ЛЮБОМ выходе ──
-         clearInterval(hideInterval);
-         try {
-             document.querySelectorAll('.iface-container.inventory, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"]').forEach(el => {
-                 el.style.visibility = '';
-                 el.style.pointerEvents = '';
-                 el.style.opacity = '';
-             });
-         } catch(e) {}
-         restoreGrabPatches();
-         isProcessing = false;
-         console.log('[MVD-GRAB] готов (моментальный + закрытие меню)');
-     }
- }
-
- // ==================== ТРИГГЕР ====================
- window.autoGrab = autoGrab;
- Object.defineProperty(window, '_mvdGrabProcessing', {
-     get: () => isProcessing,
-     configurable: true
- });
- console.log('[MVD-GRAB] === v2.2 ✅ ГОТОВ — жду диалог Полицейская служба ===');
+    // ==================== ТРИГГЕР ====================
+    // Авто-снаряжение запускается из общего хука addDialogInQueue (строка ~1541)
+    // который ловит диалог style=LIST title="Полицейская служба" и вызывает window.autoGrab().
+    // Публикуем autoGrab и флаг isProcessing через window._mvdGrabProcessing.
+    window.autoGrab = autoGrab;
+    Object.defineProperty(window, '_mvdGrabProcessing', {
+        get: () => isProcessing,
+        configurable: true
+    });
+    console.log('[MVD-GRAB] === v2.1 ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
@@ -4178,36 +4136,19 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
    ============================================================ */
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
 
-// ==================== ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) ====================
-// При первом открытии меню /dahk один раз считывает актуальные данные
-// персонажа (ник, звание, должность) и сохраняет их в window для использования
-// в отыгровках (приветствие, строй и т.д.).
-// Повторные /dahk используют уже сохранённые данные — мгновенное открытие.
-// Для принудительного обновления данных (например, после повышения звания)
-// напишите в чат /mmenu
+// ==================== /mmenu — СКРЫТОЕ ЧТЕНИЕ ДАННЫХ ПЕРСОНАЖА (v7 — no HUD flicker) ====================
 (function() {
 'use strict';
+
+var CACHE_TTL_MS = 120000;
+var _cache = null;
+var _cacheTime = 0;
 var _fetching = false;
 
-// ── Аварийная очистка при (пере)загрузке скрипта: если предыдущий
-// экземпляр оставил "залипший" стиль (например, скрипт был перезапущен
-// посреди чтения профиля, и removeProfileStyles() не успел отработать),
-// сразу убираем его — иначе M-меню останется прозрачным навсегда,
-// а новый экземпляр IIFE о старом слое ничего не знает (свои переменные пустые).
-try {
-    var _leftoverStyle = document.getElementById('mvd-profile-styles');
-    if (_leftoverStyle && _leftoverStyle.parentNode) {
-        _leftoverStyle.parentNode.removeChild(_leftoverStyle);
-    }
-    var _leftoverOverlay = document.getElementById('mvd-profile-scan-overlay');
-    if (_leftoverOverlay && _leftoverOverlay.parentNode) {
-        _leftoverOverlay.parentNode.removeChild(_leftoverOverlay);
-    }
-} catch(e) {}
-
-// ── Сохраняем оригиналы системных функций ──
+// ── Сохраняем оригиналы функций ──
 var _origSetCursorStatus = window.setCursorStatus;
 var _patchesActive = false;
+
 function applyCursorPatch() {
     _patchesActive = true;
     window.setCursorStatus = function(name, status, allowMovement) {
@@ -4222,14 +4163,19 @@ function applyCursorPatch() {
         return _origSetCursorStatus.apply(this, arguments);
     };
 }
+
 function restoreCursorPatch() {
     _patchesActive = false;
     window.setCursorStatus = _origSetCursorStatus;
 }
 
-// ── Подмена опций интерфейса для корректной работы загрузки ──
+// ── КЛЮЧЕВОЙ ФИКС: подмена options.hideHud / hideChat ──
+// MainMenu в index.js имеет options:{hideChat:!0, hideHud:!0}
+// openInterface() видит hideHud=true и вызывает Hud.hideInfo() — HUD пропадает.
+// Временно ставим false перед открытием, возвращаем после закрытия.
 var _origHideHud = null;
 var _origHideChat = null;
+
 function patchMainMenuOptions() {
     try {
         var mmComp = window.App && window.App.components && window.App.components.MainMenu;
@@ -4240,6 +4186,7 @@ function patchMainMenuOptions() {
         mmComp.options.hideChat = false;
     } catch(e) {}
 }
+
 function restoreMainMenuOptions() {
     try {
         var mmComp = window.App && window.App.components && window.App.components.MainMenu;
@@ -4251,53 +4198,63 @@ function restoreMainMenuOptions() {
     } catch(e) {}
 }
 
-// ── Вспомогательный слой поверх экрана на время скана. Раньше здесь
-// прятали именно .main-menu через CSS (visibility/opacity), но это
-// означало, что мы трогаем стили/состояние РЕАЛЬНОГО компонента меню,
-// которым потом пользуется игрок вручную (M) — и после грубого цикла
-// open→selectTab→close он мог остаться "подвисшим" (пустой, прозрачный,
-// видна только мышь), даже если наш стиль корректно снимался.
-// Теперь вместо этого создаём независимый div поверх всего экрана —
-// сам MainMenu вообще не трогаем, а значит ему нечему поломаться.
-var _overlayEl = null;
-function applyProfileStyles() {
-    if (_overlayEl) return;
-    _overlayEl = document.createElement('div');
-    _overlayEl.id = 'mvd-profile-scan-overlay';
-    _overlayEl.style.cssText = [
-        'position:fixed',
-        'top:0',
-        'left:0',
-        'width:100vw',
-        'height:100vh',
-        'background:#010106',
-        'z-index:2147483647',
-        'pointer-events:none'
-    ].join(';');
-    document.body.appendChild(_overlayEl);
-}
-function removeProfileStyles() {
-    if (_overlayEl && _overlayEl.parentNode) {
-        _overlayEl.parentNode.removeChild(_overlayEl);
-    }
-    _overlayEl = null;
+// ── CSS-скрытие самого меню (чтобы не мелькало на экране) ──
+var _styleEl = null;
+function hideMainMenuCSS() {
+    if (_styleEl) return;
+    _styleEl = document.createElement('style');
+    _styleEl.id = 'mvd-hide-mainmenu';
+    _styleEl.textContent = [
+        'body .main-menu,',
+        'body .main-menu__header,',
+        'body .main-menu__content,',
+        'body .main-menu [class*="main-menu"] {',
+        '  visibility: hidden !important;',
+        '  opacity: 0 !important;',
+        '  pointer-events: none !important;',
+        '}'
+    ].join('\n');
+    document.head.appendChild(_styleEl);
 }
 
-// ── Извлечение данных из профиля ──
-function extractProfileData(mm) {
+function showMainMenuCSS() {
+    if (_styleEl && _styleEl.parentNode) {
+        _styleEl.parentNode.removeChild(_styleEl);
+    }
+    _styleEl = null;
+}
+
+// ── Извлечение данных ──
+function extractStats(mm) {
     try {
         var s = mm.statistics;
         if (!s) return null;
         var org  = s.organization || {};
         var info = s.info || {};
+        var lvl  = s.level || {};
+        var jobs = s.jobs || [];
+        
+        // Реальный ник из Vuex store (сервер не шлёт его в updateMainStats)
         var realNick = null;
         try {
             realNick = window.App && window.App.$store && 
                        window.App.$store.getters['player/nickName'];
         } catch(e) {}
+        
         return {
+            orgTitle:    org.title    || null,
             orgRangName: org.rangName || null,
+            orgRang:     org.rang     != null ? org.rang : null,
             nickname:    realNick || info.nickname || null,
+            status:      info.status   || null,
+            vipType:     (info.subscribe && info.subscribe.type) || null,
+            vipPeriod:   (info.subscribe && info.subscribe.period) || null,
+            level:       lvl.value != null ? lvl.value : null,
+            levelScore:  (lvl.score && lvl.score.current) || null,
+            levelTarget: (lvl.score && lvl.score.target)  || null,
+            jobs: jobs.map(function(j) {
+                return { id: j.id, title: j.title, lvl: j.lvl, icon: j.icon };
+            }),
             fetchedAt: Date.now()
         };
     } catch(e) {
@@ -4305,155 +4262,146 @@ function extractProfileData(mm) {
     }
 }
 
-// ── Основная функция: считывает ОДИН РАЗ, дальше возвращает сохранённые данные ──
-function loadPlayerProfile(callback) {
-    // Если данные уже загружены — НЕ открываем профиль повторно
-    if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
-        console.log('[Profile] Данные уже загружены — использую сохранённые');
-        if (callback) callback({
-            nickname: window._mvdCallsign,
-            orgRangName: window._mvdRank
-        });
-        return;
+// ── Основная функция ──
+function fetchPlayerStats(callback) {
+    if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
+        console.log('[MMENU] из кэша (' + Math.round((Date.now() - _cacheTime) / 1000) + 'с)');
+        if (callback) callback(_cache);
+        return _cache;
     }
-    
-    if (_fetching) {
-        // Уже идёт загрузка — ждём завершения
-        var waitPoll = setInterval(function() {
-            if (!_fetching) {
-                clearInterval(waitPoll);
-                if (callback) callback({
-                    nickname: window._mvdCallsign,
-                    orgRangName: window._mvdRank
-                });
-            }
-        }, 100);
-        return;
-    }
-    
+    if (_fetching) return null;
     _fetching = true;
-    console.log('[Profile] Загрузка данных персонажа (первый раз)...');
+    console.log('[MMENU] скрытое чтение данных...');
 
-    var _done = false;
-    var _watchdog = null;
-
-    // ── Единая точка выхода. Снимает ВСЕ патчи/стили ровно один раз,
-    // при любом сценарии завершения: успех, таймаут поллинга, ошибка
-    // openInterface, отсутствие интерфейса или срабатывание watchdog.
-    // Благодаря флагу _done повторный вызов (например, watchdog выстрелил
-    // почти одновременно с обычным завершением) ничего не сломает. ──
-    function finishFlow(result) {
-        if (_done) return;
-        _done = true;
-        if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
-        try { window.closeInterface('MainMenu'); } catch(e) {}
-        restoreMainMenuOptions();
-        restoreCursorPatch();
-        removeProfileStyles();
-        _fetching = false;
-        if (callback) callback(result);
-    }
-
-    // ── Аварийный предохранитель: что бы ни пошло не так дальше
-    // (подвисший поллинг, ошибка в чужом коде, перерендер интерфейса),
-    // MainMenu не может остаться скрытым дольше 8 секунд. Именно
-    // отсутствие такого предохранителя и приводило к тому, что после
-    // первого /dahk меню оставалось прозрачным навсегда — в том числе
-    // при обычном открытии по M. ──
-    _watchdog = setTimeout(function() {
-        console.warn('[Profile] Watchdog — принудительно снимаю скрытие MainMenu');
-        finishFlow({
-            nickname: window._mvdCallsign || '',
-            orgRangName: window._mvdRank || ''
-        });
-    }, 8000);
-
+    // 1) Патчим options ДО открытия — HUD и чат НЕ скроются
     patchMainMenuOptions();
+    // 2) Патчим курсор — персонаж не остановится
     applyCursorPatch();
-    applyProfileStyles();
+    // 3) CSS — само меню невидимо
+    hideMainMenuCSS();
 
     try {
         window.openInterface('MainMenu');
     } catch(e) {
-        console.error('[Profile] Ошибка открытия профиля:', e);
-        finishFlow(null);
-        return;
+        console.error('[MMENU] openInterface error:', e);
+        restoreMainMenuOptions();
+        restoreCursorPatch();
+        showMainMenuCSS();
+        _fetching = false;
+        return null;
     }
 
     setTimeout(function() {
-        if (_done) return; // watchdog уже всё снял — дальше не лезем
         var mm = window.interface('MainMenu');
         if (!mm) {
-            console.error('[Profile] Профиль не найден');
-            finishFlow(null);
+            console.error('[MMENU] MainMenu не найден');
+            restoreMainMenuOptions();
+            restoreCursorPatch();
+            showMainMenuCSS();
+            _fetching = false;
             return;
         }
+
         try {
-            if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
+            if (typeof mm.selectTab === 'function') {
+                mm.selectTab('Statistics');
+            }
         } catch(e) {}
 
         var attempts = 0;
         var maxAttempts = 30;
         var poll = setInterval(function() {
-            if (_done) { clearInterval(poll); return; }
             attempts++;
-            var stats = extractProfileData(mm);
-            var isReal = stats && (stats.nickname || stats.orgRangName);
+            var stats = extractStats(mm);
+            var isReal = stats && (
+                (stats.orgTitle && stats.orgTitle !== 'Police departament') ||
+                (stats.status && stats.status !== 'Первый полноценный') ||
+                stats.jobs.length > 0
+            );
 
             if (isReal || attempts >= maxAttempts) {
                 clearInterval(poll);
 
                 if (stats && isReal) {
-                    console.log('[Profile] Данные успешно загружены:', stats);
-
-                    // Сохраняем в window НАВСЕГДА
-                    window._mvdCallsign = stats.nickname || '';
-                    window._mvdRank = stats.orgRangName || '';
-
-                    // Парсим ник на Имя и Фамилию
-                    var nickParts = (stats.nickname || '').split(/[_\s]+/);
-                    window._mvdFirstName = nickParts[0] || '';
-                    window._mvdLastName = nickParts[1] || '';
-
-                    console.log('[Profile] Запомнено: ' + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
+                    _cache = stats;
+                    _cacheTime = Date.now();
+                    console.log('[MMENU] данные получены');
                 } else {
-                    console.warn('[Profile] Таймаут — данные не получены');
+                    console.warn('[MMENU] таймаут');
                 }
 
                 setTimeout(function() {
-                    finishFlow({
-                        nickname: window._mvdCallsign,
-                        orgRangName: window._mvdRank
-                    });
+                    try { window.closeInterface('MainMenu'); } catch(e) {}
+
+                    // ВАЖНО: восстанавливаем options ПОСЛЕ closeInterface
+                    // чтобы closeInterface не дёрнул setHudStatus(true) повторно
+                    setTimeout(function() {
+                        restoreMainMenuOptions();
+                        restoreCursorPatch();
+                        showMainMenuCSS();
+                        _fetching = false;
+                        if (callback) callback(_cache);
+                    }, 100);
                 }, 150);
             }
         }, 200);
     }, 600);
+
+    return null;
 }
 
-// ── Команда /mmenu для принудительного обновления данных ──
+// ── Быстрый геттер ──
+function getPlayerStats() {
+    if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) return _cache;
+    return null;
+}
+
+// ── Печать в консоль ──
+function printStats(stats) {
+    if (!stats) {
+        console.log('[MMENU] нет данных');
+        return;
+    }
+    console.log('[MMENU] ═══════════════════════════════════════');
+    console.log('[MMENU] ДАННЫЕ ПЕРСОНАЖА');
+    console.log('[MMENU] ═══════════════════════════════════════');
+    console.log('[MMENU] Ник:    ' + (stats.nickname || '—'));
+    console.log('[MMENU] Статус: ' + (stats.status || '—'));
+    console.log('[MMENU] Организация:');
+    console.log('        Название: ' + (stats.orgTitle || '—'));
+    console.log('        Звание:   ' + (stats.orgRangName || '—') + ' (rang=' + (stats.orgRang != null ? stats.orgRang : '—') + ')');
+    console.log('[MMENU] Уровень: ' + (stats.level != null ? stats.level : '—'));
+    if (stats.levelScore != null) {
+        console.log('        Score: ' + stats.levelScore + '/' + (stats.levelTarget || '—'));
+    }
+    console.log('[MMENU] VIP: ' + (stats.vipType || '—'));
+    console.log('[MMENU] Должности (' + stats.jobs.length + '):');
+    stats.jobs.forEach(function(job, i) {
+        console.log('        ' + (i + 1) + '. ' + (job.title || '—') + ' (lvl=' + (job.lvl != null ? job.lvl : '—') + ')');
+    });
+    console.log('[MMENU] ═══════════════════════════════════════');
+}
+
+// ── Перехват /mmenu ──
 function waitForApp(cb, attempts) {
     attempts = attempts || 0;
     if (window.App && window.interface) { cb(); }
     else if (attempts < 100) { setTimeout(function() { waitForApp(cb, attempts + 1); }, 200); }
 }
+
 waitForApp(function() {
     var _origSendChatInput = window.sendChatInput;
     window.sendChatInput = function(cmd) {
         if (typeof cmd === 'string') {
             var trimmed = cmd.trim().toLowerCase();
             if (trimmed === '/mmenu') {
-                // Принудительный сброс — перечитать данные
-                window._mvdFirstName = null;
-                window._mvdLastName = null;
-                window._mvdRank = null;
-                window._mvdCallsign = null;
-                loadPlayerProfile(function(data) {
+                fetchPlayerStats(function(data) {
+                    printStats(data);
                     if (data) {
                         try {
                             var sn = window.ZkmScreenNotification;
                             if (sn && typeof sn.add === 'function') {
-                                sn.add('[1, "Профиль", "Данные обновлены", "00CC44", 3000]');
+                                sn.add('[1, "MMENU", "Данные получены → консоль (F8)", "00CC44", 3000]');
                             }
                         } catch(e) {}
                     }
@@ -4463,9 +4411,12 @@ waitForApp(function() {
         }
         return _origSendChatInput.apply(this, arguments);
     };
-    console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
+    console.log('[MMENU] v7 готов (no HUD flicker). Команда: /mmenu');
 });
 
-window._mvdLoadPlayerProfile = loadPlayerProfile;
+window._mvdGetPlayerStats = getPlayerStats;
+window._mvdFetchPlayerStats = fetchPlayerStats;
+window._mvdPrintPlayerStats = function() { printStats(getPlayerStats()); };
+
 })();
-// ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
+// ==================== END /mmenu ====================
