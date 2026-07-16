@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.888 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4193,11 +4193,15 @@ var _fetching = false;
 // экземпляр оставил "залипший" стиль (например, скрипт был перезапущен
 // посреди чтения профиля, и removeProfileStyles() не успел отработать),
 // сразу убираем его — иначе M-меню останется прозрачным навсегда,
-// а новый экземпляр IIFE об старом теге ничего не знает (_styleEl = null).
+// а новый экземпляр IIFE о старом слое ничего не знает (свои переменные пустые).
 try {
     var _leftoverStyle = document.getElementById('mvd-profile-styles');
     if (_leftoverStyle && _leftoverStyle.parentNode) {
         _leftoverStyle.parentNode.removeChild(_leftoverStyle);
+    }
+    var _leftoverOverlay = document.getElementById('mvd-profile-scan-overlay');
+    if (_leftoverOverlay && _leftoverOverlay.parentNode) {
+        _leftoverOverlay.parentNode.removeChild(_leftoverOverlay);
     }
 } catch(e) {}
 
@@ -4247,34 +4251,36 @@ function restoreMainMenuOptions() {
     } catch(e) {}
 }
 
-// ── Вспомогательные стили для корректного отображения ──
-var _styleEl = null;
+// ── Вспомогательный слой поверх экрана на время скана. Раньше здесь
+// прятали именно .main-menu через CSS (visibility/opacity), но это
+// означало, что мы трогаем стили/состояние РЕАЛЬНОГО компонента меню,
+// которым потом пользуется игрок вручную (M) — и после грубого цикла
+// open→selectTab→close он мог остаться "подвисшим" (пустой, прозрачный,
+// видна только мышь), даже если наш стиль корректно снимался.
+// Теперь вместо этого создаём независимый div поверх всего экрана —
+// сам MainMenu вообще не трогаем, а значит ему нечему поломаться.
+var _overlayEl = null;
 function applyProfileStyles() {
-    if (_styleEl) return;
-    _styleEl = document.createElement('style');
-    _styleEl.id = 'mvd-profile-styles';
-    // Правило безусловное — как и раньше, единственный "выключатель" это
-    // присутствие самого тега в <head>. Завязывать это ещё и на класс
-    // body оказалось лишним звеном: если classList.add по любой причине
-    // не срабатывал, правило переставало матчиться и MainMenu оставался
-    // видимым во время скана — регрессия.
-    _styleEl.textContent = [
-        'body .main-menu,',
-        'body .main-menu__header,',
-        'body .main-menu__content,',
-        'body .main-menu [class*="main-menu"] {',
-        '  visibility: hidden !important;',
-        '  opacity: 0 !important;',
-        '  pointer-events: none !important;',
-        '}'
-    ].join('\n');
-    document.head.appendChild(_styleEl);
+    if (_overlayEl) return;
+    _overlayEl = document.createElement('div');
+    _overlayEl.id = 'mvd-profile-scan-overlay';
+    _overlayEl.style.cssText = [
+        'position:fixed',
+        'top:0',
+        'left:0',
+        'width:100vw',
+        'height:100vh',
+        'background:#010106',
+        'z-index:2147483647',
+        'pointer-events:none'
+    ].join(';');
+    document.body.appendChild(_overlayEl);
 }
 function removeProfileStyles() {
-    if (_styleEl && _styleEl.parentNode) {
-        _styleEl.parentNode.removeChild(_styleEl);
+    if (_overlayEl && _overlayEl.parentNode) {
+        _overlayEl.parentNode.removeChild(_overlayEl);
     }
-    _styleEl = null;
+    _overlayEl = null;
 }
 
 // ── Извлечение данных из профиля ──
