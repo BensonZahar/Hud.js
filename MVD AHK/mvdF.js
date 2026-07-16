@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.00 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.099 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4177,46 +4177,15 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
    [ZK-INTERFACE-VIEWER END]
    ============================================================ */
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
+
 // ==================== ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) ====================
-// При первом /dahk делаем "flash": быстро открываем MainMenu, считываем данные
-// из statistics и сразу закрываем. Никаких CSS-хаков и мутаций options —
-// компонент проходит нормальный жизненный цикл, серверное меню на M не ломается.
-// Для принудительного обновления данных (после повышения звания) — команда /mmenu
 (function() {
 'use strict';
 var _fetching = false;
 
-// ── Извлечение данных из профиля ──
-function extractProfileData(mm) {
-    try {
-        var s = mm.statistics;
-        if (!s) return null;
-        var org  = s.organization || {};
-        var info = s.info || {};
-        var realNick = null;
-        try {
-            realNick = window.App && window.App.$store &&
-                       window.App.$store.getters['player/nickName'];
-        } catch(e) {}
-        
-        var nick = realNick || info.nickname || null;
-        var rang = org.rangName || null;
-        
-        // Считаем данные валидными только если есть И звание, И ник
-        if (nick && rang) {
-            return { nickname: nick, orgRangName: rang };
-        }
-        return null;
-    } catch(e) {
-        return null;
-    }
-}
-
-// ── Основная функция: flash-открытие MainMenu ──
 function loadPlayerProfile(callback) {
     // Если данные уже загружены — НЕ открываем профиль повторно
     if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
-        console.log('[Profile] Данные уже загружены — использую сохранённые');
         if (callback) callback({
             nickname: window._mvdCallsign,
             orgRangName: window._mvdRank
@@ -4237,68 +4206,80 @@ function loadPlayerProfile(callback) {
     }
     
     _fetching = true;
-    console.log('[Profile] Flash-загрузка данных персонажа...');
     
-    // Просто открываем MainMenu без всяких патчей
-    try {
-        window.openInterface('MainMenu');
-    } catch(e) {
-        console.error('[Profile] Ошибка открытия:', e);
-        _fetching = false;
-        if (callback) callback(null);
-        return;
+    // Проверяем, не открыто ли меню уже (например, игрок сам нажал M)
+    var wasAlreadyOpen = false;
+    try { wasAlreadyOpen = window.getInterfaceStatus('MainMenu'); } catch(e) {}
+    
+    if (!wasAlreadyOpen) {
+        try { window.openInterface('MainMenu'); } catch(e) {}
     }
     
-    // Ждем немного, чтобы Vue успел отрисовать компонент и запросить данные у сервера
-    setTimeout(function() {
+    var attempts = 0;
+    var maxAttempts = 40; // 4 секунды на ответ сервера
+    
+    var poll = setInterval(function() {
+        attempts++;
         var mm = window.interface('MainMenu');
-        if (!mm) {
-            console.error('[Profile] MainMenu не найден');
-            try { window.closeInterface('MainMenu'); } catch(e) {}
-            _fetching = false;
-            if (callback) callback(null);
-            return;
+        var stats = null;
+        
+        if (mm) {
+            try {
+                // Переключаем на вкладку статистики при первой попытке
+                if (typeof mm.selectTab === 'function' && attempts === 1) {
+                    mm.selectTab('Statistics');
+                }
+                var s = mm.statistics;
+                if (s && s.organization && s.info) {
+                    var realNick = null;
+                    try {
+                        realNick = window.App && window.App.$store &&
+                                   window.App.$store.getters['player/nickName'];
+                    } catch(e) {}
+                    
+                    var nick = realNick || s.info.nickname || null;
+                    var rang = s.organization.rangName || null;
+                    
+                    if (nick && rang) {
+                        stats = { nickname: nick, orgRangName: rang };
+                    }
+                }
+            } catch(e) {}
         }
         
-        // Переключаемся на вкладку Statistics, где лежат нужные данные
-        try {
-            if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
-        } catch(e) {}
-        
-        var attempts = 0;
-        var maxAttempts = 30; // 30 * 100ms = 3 секунды максимум
-        
-        var poll = setInterval(function() {
-            attempts++;
-            var stats = extractProfileData(mm);
+        if (stats || attempts >= maxAttempts) {
+            clearInterval(poll);
             
-            if (stats || attempts >= maxAttempts) {
-                clearInterval(poll);
-                
-                if (stats) {
-                    console.log('[Profile] Данные успешно считаны:', stats);
-                    window._mvdCallsign = stats.nickname || '';
-                    window._mvdRank = stats.orgRangName || '';
-                    var nickParts = (stats.nickname || '').split(/[_\s]+/);
-                    window._mvdFirstName = nickParts[0] || '';
-                    window._mvdLastName = nickParts[1] || '';
-                    console.log('[Profile] Запомнено: ' + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
-                } else {
-                    console.warn('[Profile] Таймаут — данные не получены за 3 сек');
-                }
-                
-                // СРАЗУ закрываем меню — оно мелькнет всего на ~0.5-3 сек
-                setTimeout(function() {
-                    try { window.closeInterface('MainMenu'); } catch(e) {}
-                    _fetching = false;
-                    if (callback) callback({
-                        nickname: window._mvdCallsign,
-                        orgRangName: window._mvdRank
-                    });
-                }, 50);
+            if (stats) {
+                window._mvdCallsign = stats.nickname || '';
+                window._mvdRank = stats.orgRangName || '';
+                var nickParts = (stats.nickname || '').split(/[_\s]+/);
+                window._mvdFirstName = nickParts[0] || '';
+                window._mvdLastName = nickParts[1] || '';
             }
-        }, 100);
-    }, 300);
+            
+            // Закрываем меню ТОЛЬКО если мы сами его открывали
+            if (!wasAlreadyOpen) {
+                try {
+                    // КРИТИЧЕСКИ ВАЖНО: Синхронизируем закрытие с сервером!
+                    // Отправляем событие, которое обычно отправляется при нажатии ESC.
+                    if (mm && typeof mm.sendCloseEvent === 'function') {
+                        mm.sendCloseEvent();
+                    } else if (typeof window.sendClientEvent === 'function') {
+                        window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
+                    }
+                } catch(e) {}
+                
+                try { window.closeInterface('MainMenu'); } catch(e) {}
+            }
+            
+            _fetching = false;
+            if (callback) callback({
+                nickname: window._mvdCallsign,
+                orgRangName: window._mvdRank
+            });
+        }
+    }, 100);
 }
 
 // ── Команда /mmenu для принудительного обновления данных ──
@@ -4332,7 +4313,6 @@ waitForApp(function() {
         }
         return _origSendChatInput.apply(this, arguments);
     };
-    console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 });
 window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
