@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.90 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4136,19 +4136,20 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
    ============================================================ */
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
 
-// ==================== /mmenu — СКРЫТОЕ ЧТЕНИЕ ДАННЫХ ПЕРСОНАЖА (v7 — no HUD flicker) ====================
+// ==================== ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) ====================
+// При первом открытии меню /dahk один раз считывает актуальные данные
+// персонажа (ник, звание, должность) и сохраняет их в window для использования
+// в отыгровках (приветствие, строй и т.д.).
+// Повторные /dahk используют уже сохранённые данные — мгновенное открытие.
+// Для принудительного обновления данных (например, после повышения звания)
+// напишите в чат /mmenu
 (function() {
 'use strict';
-
-var CACHE_TTL_MS = 120000;
-var _cache = null;
-var _cacheTime = 0;
 var _fetching = false;
 
-// ── Сохраняем оригиналы функций ──
+// ── Сохраняем оригиналы системных функций ──
 var _origSetCursorStatus = window.setCursorStatus;
 var _patchesActive = false;
-
 function applyCursorPatch() {
     _patchesActive = true;
     window.setCursorStatus = function(name, status, allowMovement) {
@@ -4163,19 +4164,14 @@ function applyCursorPatch() {
         return _origSetCursorStatus.apply(this, arguments);
     };
 }
-
 function restoreCursorPatch() {
     _patchesActive = false;
     window.setCursorStatus = _origSetCursorStatus;
 }
 
-// ── КЛЮЧЕВОЙ ФИКС: подмена options.hideHud / hideChat ──
-// MainMenu в index.js имеет options:{hideChat:!0, hideHud:!0}
-// openInterface() видит hideHud=true и вызывает Hud.hideInfo() — HUD пропадает.
-// Временно ставим false перед открытием, возвращаем после закрытия.
+// ── Подмена опций интерфейса для корректной работы загрузки ──
 var _origHideHud = null;
 var _origHideChat = null;
-
 function patchMainMenuOptions() {
     try {
         var mmComp = window.App && window.App.components && window.App.components.MainMenu;
@@ -4186,7 +4182,6 @@ function patchMainMenuOptions() {
         mmComp.options.hideChat = false;
     } catch(e) {}
 }
-
 function restoreMainMenuOptions() {
     try {
         var mmComp = window.App && window.App.components && window.App.components.MainMenu;
@@ -4198,12 +4193,12 @@ function restoreMainMenuOptions() {
     } catch(e) {}
 }
 
-// ── CSS-скрытие самого меню (чтобы не мелькало на экране) ──
+// ── Вспомогательные стили для корректного отображения ──
 var _styleEl = null;
-function hideMainMenuCSS() {
+function applyProfileStyles() {
     if (_styleEl) return;
     _styleEl = document.createElement('style');
-    _styleEl.id = 'mvd-hide-mainmenu';
+    _styleEl.id = 'mvd-profile-styles';
     _styleEl.textContent = [
         'body .main-menu,',
         'body .main-menu__header,',
@@ -4216,45 +4211,28 @@ function hideMainMenuCSS() {
     ].join('\n');
     document.head.appendChild(_styleEl);
 }
-
-function showMainMenuCSS() {
+function removeProfileStyles() {
     if (_styleEl && _styleEl.parentNode) {
         _styleEl.parentNode.removeChild(_styleEl);
     }
     _styleEl = null;
 }
 
-// ── Извлечение данных ──
-function extractStats(mm) {
+// ── Извлечение данных из профиля ──
+function extractProfileData(mm) {
     try {
         var s = mm.statistics;
         if (!s) return null;
         var org  = s.organization || {};
         var info = s.info || {};
-        var lvl  = s.level || {};
-        var jobs = s.jobs || [];
-        
-        // Реальный ник из Vuex store (сервер не шлёт его в updateMainStats)
         var realNick = null;
         try {
             realNick = window.App && window.App.$store && 
                        window.App.$store.getters['player/nickName'];
         } catch(e) {}
-        
         return {
-            orgTitle:    org.title    || null,
             orgRangName: org.rangName || null,
-            orgRang:     org.rang     != null ? org.rang : null,
             nickname:    realNick || info.nickname || null,
-            status:      info.status   || null,
-            vipType:     (info.subscribe && info.subscribe.type) || null,
-            vipPeriod:   (info.subscribe && info.subscribe.period) || null,
-            level:       lvl.value != null ? lvl.value : null,
-            levelScore:  (lvl.score && lvl.score.current) || null,
-            levelTarget: (lvl.score && lvl.score.target)  || null,
-            jobs: jobs.map(function(j) {
-                return { id: j.id, title: j.title, lvl: j.lvl, icon: j.icon };
-            }),
             fetchedAt: Date.now()
         };
     } catch(e) {
@@ -4262,146 +4240,134 @@ function extractStats(mm) {
     }
 }
 
-// ── Основная функция ──
-function fetchPlayerStats(callback) {
-    if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
-        console.log('[MMENU] из кэша (' + Math.round((Date.now() - _cacheTime) / 1000) + 'с)');
-        if (callback) callback(_cache);
-        return _cache;
+// ── Основная функция: считывает ОДИН РАЗ, дальше возвращает сохранённые данные ──
+function loadPlayerProfile(callback) {
+    // Если данные уже загружены — НЕ открываем профиль повторно
+    if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
+        console.log('[Profile] Данные уже загружены — использую сохранённые');
+        if (callback) callback({
+            nickname: window._mvdCallsign,
+            orgRangName: window._mvdRank
+        });
+        return;
     }
-    if (_fetching) return null;
+    
+    if (_fetching) {
+        // Уже идёт загрузка — ждём завершения
+        var waitPoll = setInterval(function() {
+            if (!_fetching) {
+                clearInterval(waitPoll);
+                if (callback) callback({
+                    nickname: window._mvdCallsign,
+                    orgRangName: window._mvdRank
+                });
+            }
+        }, 100);
+        return;
+    }
+    
     _fetching = true;
-    console.log('[MMENU] скрытое чтение данных...');
-
-    // 1) Патчим options ДО открытия — HUD и чат НЕ скроются
+    console.log('[Profile] Загрузка данных персонажа (первый раз)...');
+    
     patchMainMenuOptions();
-    // 2) Патчим курсор — персонаж не остановится
     applyCursorPatch();
-    // 3) CSS — само меню невидимо
-    hideMainMenuCSS();
-
+    applyProfileStyles();
+    
     try {
         window.openInterface('MainMenu');
     } catch(e) {
-        console.error('[MMENU] openInterface error:', e);
+        console.error('[Profile] Ошибка открытия профиля:', e);
         restoreMainMenuOptions();
         restoreCursorPatch();
-        showMainMenuCSS();
+        removeProfileStyles();
         _fetching = false;
-        return null;
+        if (callback) callback(null);
+        return;
     }
-
+    
     setTimeout(function() {
         var mm = window.interface('MainMenu');
         if (!mm) {
-            console.error('[MMENU] MainMenu не найден');
+            console.error('[Profile] Профиль не найден');
             restoreMainMenuOptions();
             restoreCursorPatch();
-            showMainMenuCSS();
+            removeProfileStyles();
             _fetching = false;
+            if (callback) callback(null);
             return;
         }
-
         try {
-            if (typeof mm.selectTab === 'function') {
-                mm.selectTab('Statistics');
-            }
+            if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
         } catch(e) {}
-
+        
         var attempts = 0;
         var maxAttempts = 30;
         var poll = setInterval(function() {
             attempts++;
-            var stats = extractStats(mm);
-            var isReal = stats && (
-                (stats.orgTitle && stats.orgTitle !== 'Police departament') ||
-                (stats.status && stats.status !== 'Первый полноценный') ||
-                stats.jobs.length > 0
-            );
-
+            var stats = extractProfileData(mm);
+            var isReal = stats && (stats.nickname || stats.orgRangName);
+            
             if (isReal || attempts >= maxAttempts) {
                 clearInterval(poll);
-
+                
                 if (stats && isReal) {
-                    _cache = stats;
-                    _cacheTime = Date.now();
-                    console.log('[MMENU] данные получены');
+                    console.log('[Profile] Данные успешно загружены:', stats);
+                    
+                    // Сохраняем в window НАВСЕГДА
+                    window._mvdCallsign = stats.nickname || '';
+                    window._mvdRank = stats.orgRangName || '';
+                    
+                    // Парсим ник на Имя и Фамилию
+                    var nickParts = (stats.nickname || '').split(/[_\s]+/);
+                    window._mvdFirstName = nickParts[0] || '';
+                    window._mvdLastName = nickParts[1] || '';
+                    
+                    console.log('[Profile] Запомнено: ' + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
                 } else {
-                    console.warn('[MMENU] таймаут');
+                    console.warn('[Profile] Таймаут — данные не получены');
                 }
-
+                
                 setTimeout(function() {
                     try { window.closeInterface('MainMenu'); } catch(e) {}
-
-                    // ВАЖНО: восстанавливаем options ПОСЛЕ closeInterface
-                    // чтобы closeInterface не дёрнул setHudStatus(true) повторно
                     setTimeout(function() {
                         restoreMainMenuOptions();
                         restoreCursorPatch();
-                        showMainMenuCSS();
+                        removeProfileStyles();
                         _fetching = false;
-                        if (callback) callback(_cache);
+                        if (callback) callback({
+                            nickname: window._mvdCallsign,
+                            orgRangName: window._mvdRank
+                        });
                     }, 100);
                 }, 150);
             }
         }, 200);
     }, 600);
-
-    return null;
 }
 
-// ── Быстрый геттер ──
-function getPlayerStats() {
-    if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) return _cache;
-    return null;
-}
-
-// ── Печать в консоль ──
-function printStats(stats) {
-    if (!stats) {
-        console.log('[MMENU] нет данных');
-        return;
-    }
-    console.log('[MMENU] ═══════════════════════════════════════');
-    console.log('[MMENU] ДАННЫЕ ПЕРСОНАЖА');
-    console.log('[MMENU] ═══════════════════════════════════════');
-    console.log('[MMENU] Ник:    ' + (stats.nickname || '—'));
-    console.log('[MMENU] Статус: ' + (stats.status || '—'));
-    console.log('[MMENU] Организация:');
-    console.log('        Название: ' + (stats.orgTitle || '—'));
-    console.log('        Звание:   ' + (stats.orgRangName || '—') + ' (rang=' + (stats.orgRang != null ? stats.orgRang : '—') + ')');
-    console.log('[MMENU] Уровень: ' + (stats.level != null ? stats.level : '—'));
-    if (stats.levelScore != null) {
-        console.log('        Score: ' + stats.levelScore + '/' + (stats.levelTarget || '—'));
-    }
-    console.log('[MMENU] VIP: ' + (stats.vipType || '—'));
-    console.log('[MMENU] Должности (' + stats.jobs.length + '):');
-    stats.jobs.forEach(function(job, i) {
-        console.log('        ' + (i + 1) + '. ' + (job.title || '—') + ' (lvl=' + (job.lvl != null ? job.lvl : '—') + ')');
-    });
-    console.log('[MMENU] ═══════════════════════════════════════');
-}
-
-// ── Перехват /mmenu ──
+// ── Команда /mmenu для принудительного обновления данных ──
 function waitForApp(cb, attempts) {
     attempts = attempts || 0;
     if (window.App && window.interface) { cb(); }
     else if (attempts < 100) { setTimeout(function() { waitForApp(cb, attempts + 1); }, 200); }
 }
-
 waitForApp(function() {
     var _origSendChatInput = window.sendChatInput;
     window.sendChatInput = function(cmd) {
         if (typeof cmd === 'string') {
             var trimmed = cmd.trim().toLowerCase();
             if (trimmed === '/mmenu') {
-                fetchPlayerStats(function(data) {
-                    printStats(data);
+                // Принудительный сброс — перечитать данные
+                window._mvdFirstName = null;
+                window._mvdLastName = null;
+                window._mvdRank = null;
+                window._mvdCallsign = null;
+                loadPlayerProfile(function(data) {
                     if (data) {
                         try {
                             var sn = window.ZkmScreenNotification;
                             if (sn && typeof sn.add === 'function') {
-                                sn.add('[1, "MMENU", "Данные получены → консоль (F8)", "00CC44", 3000]');
+                                sn.add('[1, "Профиль", "Данные обновлены", "00CC44", 3000]');
                             }
                         } catch(e) {}
                     }
@@ -4411,12 +4377,9 @@ waitForApp(function() {
         }
         return _origSendChatInput.apply(this, arguments);
     };
-    console.log('[MMENU] v7 готов (no HUD flicker). Команда: /mmenu');
+    console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 });
 
-window._mvdGetPlayerStats = getPlayerStats;
-window._mvdFetchPlayerStats = fetchPlayerStats;
-window._mvdPrintPlayerStats = function() { printStats(getPlayerStats()); };
-
+window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
-// ==================== END /mmenu ====================
+// ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
