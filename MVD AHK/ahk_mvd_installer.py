@@ -627,7 +627,8 @@ class InstallerAPI:
         save_settings(current)
         return {"ok": True, "path": str(self.radmir_path)}
 
-    def insert_code(self, rank, first_name, last_name, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None):
+    # ДОБАВЛЕН АРГУМЕНТ: callsign (для СОБР/ОМОН)
+    def insert_code(self, callsign='', auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None):
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
@@ -663,10 +664,11 @@ class InstallerAPI:
                 self._notify(False)
                 return
 
-            code = code.replace('const RANK = "";',       f'const RANK = "{rank}";')
-            code = code.replace('const FIRST_NAME = "";', f'const FIRST_NAME = "{first_name}";')
-            code = code.replace('const LAST_NAME = "";',  f'const LAST_NAME = "{last_name}";')
-            code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
+            # ДОБАВЛЕНА ЗАМЕНА ТОЛЬКО ДЛЯ CALLSIGN (Остальное берется авто из mvdF.js)
+            if callsign:
+                code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
+            
+            code = code.replace('const HWID = "";', f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
             if not swap_enabled or not safe_swap_key:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = false;')
@@ -688,8 +690,7 @@ class InstallerAPI:
             timer_list = menu_timer if isinstance(menu_timer, list) and menu_timer else []
             timer_json = json.dumps(timer_list)
             code = code.replace('const MENU_TIMER_ITEMS = [];', f'const MENU_TIMER_ITEMS = {timer_json};')
-            if use_callsign and callsign:
-                code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
+            
             if auto_password:
                 code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
             items_dict = auto_grab.get('items', {}) if auto_grab else {}
@@ -754,12 +755,9 @@ class InstallerAPI:
 
                 self._set_status("st-code","Установлен","cr-val ok")
                 current = load_settings()
+                # СОХРАНЯЕМ ТОЛЬКО callsign (остальное авто)
                 save_settings({
-                    'rank': rank,
-                    'first_name': first_name,
-                    'last_name': last_name,
-                    'callsign': callsign if use_callsign else '',
-                    'use_callsign': bool(use_callsign),
+                    'callsign': callsign,
                     'auto_password': auto_password,
                     'use_auto_password': bool(auto_password),
                     'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
