@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.09 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1945,43 +1945,40 @@ const executePovsednevAction = (action, targetId) => {
     const isOmonSkin = skinId === 15340;
     switch (action) {
 	case "greeting":
-	    if (isOmonSkin) {
-	        sendMessagesWithDelay([
-	            `Работает сотрудник СОБР | Мой позывной ${CALLSIGN}`,
-	            "Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
-	            "Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
-	            "Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
-	        ], [0, 500, 500, 500]);
-	        setTimeout(() => showDocCheckPrompt(targetId), 1800);
-	        setTimeout(() => runPostActionTimer('greeting'), 1800);
-	    } else {
-	        // ── Берём данные из считанного MainMenu (window._mvdPlayerData) ──
-	        // Если данные ещё не считаны (Alt+0 ещё не нажимали) —
-	        // fallback на константы из LoadAhk (если они там заданы)
-	        const _pData = window._mvdPlayerData || {};
-	        const _rank = _pData.rank
-	            || (typeof RANK !== 'undefined' ? RANK : '')
-	            || 'Сотрудник';
-	        const _firstName = _pData.firstName
-	            || (typeof FIRST_NAME !== 'undefined' ? FIRST_NAME : '');
-	        const _lastName = _pData.lastName
-	            || (typeof LAST_NAME !== 'undefined' ? LAST_NAME : '');
-	
-	        // Собираем текст приветствия
-	        let greetingText = `Здравия желаю, Вас беспокоит ${_rank}`;
-	        if (_firstName && _lastName) {
-	            greetingText += ` - ${_firstName} ${_lastName}`;
-	        }
-	        greetingText += '.';
-	
-	        sendMessagesWithDelay([
-	            greetingText,
-	            `/doc ${targetId}`
-	        ], [0, 1000]);
-	        setTimeout(() => showDocCheckPrompt(targetId), 1300);
-	        setTimeout(() => runPostActionTimer('greeting'), 1300);
-	    }
-	    break;
+		if (isOmonSkin) {
+			sendMessagesWithDelay([
+				`Работает сотрудник СОБР | Мой позывной ${CALLSIGN}`,
+				"Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
+				"Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
+				"Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
+			], [0, 500, 500, 500]);
+			setTimeout(() => showDocCheckPrompt(targetId), 1800);
+			setTimeout(() => runPostActionTimer('greeting'), 1800);
+		} else {
+			// Берём данные из скрытого считывания
+			var _pData = (typeof window._mvdGetPlayerData === 'function')
+				? window._mvdGetPlayerData() : null;
+			var _rank = (_pData && _pData.rank) ? _pData.rank
+				: (typeof RANK !== 'undefined' ? RANK : 'Сотрудник');
+			var _firstName = (_pData && _pData.firstName) ? _pData.firstName
+				: (typeof FIRST_NAME !== 'undefined' ? FIRST_NAME : '');
+			var _lastName = (_pData && _pData.lastName) ? _pData.lastName
+				: (typeof LAST_NAME !== 'undefined' ? LAST_NAME : '');
+
+			var greetingText = 'Здравия желаю, Вас беспокоит ' + _rank;
+			if (_firstName && _lastName) {
+				greetingText += ' - ' + _firstName + ' ' + _lastName;
+			}
+			greetingText += '.';
+
+			sendMessagesWithDelay([
+				greetingText,
+				'/doc ' + targetId
+			], [0, 1000]);
+			setTimeout(() => showDocCheckPrompt(targetId), 1300);
+			setTimeout(() => runPostActionTimer('greeting'), 1300);
+		}
+		break;
       
         case "checkDocuments":
             if (isOmonSkin) {
@@ -2725,13 +2722,25 @@ window.sendClientEventCustom = (event, ...args) => {
 var __mvdPrevSendChatInput = window.sendChatInput; // сохраняем хук /has, /has_s, чтобы не потерять его при замене ниже
 window.sendChatInputCustom = e => {
     const args = e.split(" ");
-if (args[0] == "/dahk") {
+    if (args[0] == "/dahk") {
     targetId = args[1];
     const freshSkin = getSkinIdFromStore();
     if (freshSkin !== null) skinId = Number(freshSkin);
     if (mvdSkins.includes(skinId)) {
-        // При первом /dahk — скрыто считываем данные, потом открываем меню
-        window._mvdFetchAndOpen(function() {
+        // При первом открытии — скрыто считываем данные, потом открываем меню
+        if (typeof window._mvdFetchAndOpen === 'function') {
+            window._mvdFetchAndOpen(function() {
+                snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
+                restoreTrackingTimer();
+                refreshPartnerNickSilent();
+                if (lastMenuType === "stroy") {
+                    showStroyMenuPage(args[1]);
+                } else {
+                    showMvdMainMenuPage(args[1]);
+                }
+            });
+        } else {
+            // Fallback если блок считывания не загружен
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
             restoreTrackingTimer();
             refreshPartnerNickSilent();
@@ -2740,7 +2749,7 @@ if (args[0] == "/dahk") {
             } else {
                 showMvdMainMenuPage(args[1]);
             }
-        });
+        }
     } else {
         snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
     }
@@ -3388,226 +3397,162 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
-// ==================== /mmenu — СКРЫТОЕ СЧИТЫВАНИЕ ДАННЫХ (v8 — no HUD hide) ====================
+// ==================== СКРЫТОЕ СЧИТЫВАНИЕ ДАННЫХ (для mvdF.js) ====================
+// Открывает MainMenu невидимо, считывает ник/звание/организацию,
+// закрывает и вызывает callback. Данные кэшируются на 5 минут.
+// НЕ перехватывает window.openInterface — не ломает другие интерфейсы.
 (function() {
     'use strict';
 
-    var CACHE_TTL_MS = 120000;
     var _cache = null;
     var _cacheTime = 0;
     var _fetching = false;
+    var CACHE_TTL = 300000; // 5 минут
 
-    // Подменяем openInterface чтобы MainMenu НЕ прятал HUD
-    var _origOpenInterface = window.openInterface;
-    var _hideHudPatchActive = false;
+    // Скрытие MainMenu через CSS
+    var _hideStyle = null;
+    function hideMM() {
+        if (_hideStyle) return;
+        _hideStyle = document.createElement('style');
+        _hideStyle.id = 'mvd-hide-mm';
+        _hideStyle.textContent =
+            '.main-menu, .main-menu *, .main-menu__header, .main-menu__content ' +
+            '{ display:none !important; visibility:hidden !important; ' +
+            '  opacity:0 !important; pointer-events:none !important; }';
+        document.head.appendChild(_hideStyle);
+    }
+    function unhideMM() {
+        if (_hideStyle && _hideStyle.parentNode) {
+            _hideStyle.parentNode.removeChild(_hideStyle);
+        }
+        _hideStyle = null;
+    }
 
-    window.openInterface = function(name, params, opts) {
-        if (_hideHudPatchActive && name === 'MainMenu') {
-            // Временно меняем options чтобы HUD не прятался
-            var comp = window.component && window.component('MainMenu');
-            var origHideHud = null;
-            var origHideChat = null;
-            
-            if (comp && comp.options) {
-                origHideHud = comp.options.hideHud;
-                origHideChat = comp.options.hideChat;
-                comp.options.hideHud = false;
-                comp.options.hideChat = false;
+    // Патч курсора: не показываем курсор, разрешаем движение
+    var _origCursor = window.setCursorStatus;
+    var _cursorPatched = false;
+    function patchCursor() {
+        if (_cursorPatched) return;
+        _cursorPatched = true;
+        window.setCursorStatus = function(name, status, allowMove) {
+            if (_cursorPatched && name === 'MainMenu') {
+                try {
+                    if (typeof engine !== 'undefined' && engine.trigger)
+                        engine.trigger("SetCursorStatus", false, true);
+                } catch(e) {}
+                return;
             }
-
-            // Вызываем оригинал
-            var result = _origOpenInterface.call(this, name, params, opts);
-
-            // Восстанавливаем options через микрозадачу
-            setTimeout(function() {
-                if (comp && comp.options && origHideHud !== null) {
-                    comp.options.hideHud = origHideHud;
-                    comp.options.hideChat = origHideChat;
-                }
-            }, 50);
-
-            return result;
-        }
-        return _origOpenInterface.apply(this, arguments);
-    };
-
-    function hideMainMenuCSS() {
-        var style = document.createElement('style');
-        style.id = 'mvd-hide-mainmenu-css';
-        style.textContent = [
-            '.main-menu,',
-            '.main-menu *,',
-            '.main-menu__header,',
-            '.main-menu__content,',
-            '.main-menu__tab-loader {',
-            '  display: none !important;',
-            '  visibility: hidden !important;',
-            '  opacity: 0 !important;',
-            '  pointer-events: none !important;',
-            '}'
-        ].join('\n');
-        document.head.appendChild(style);
+            return _origCursor.apply(this, arguments);
+        };
+    }
+    function unpatchCursor() {
+        if (!_cursorPatched) return;
+        _cursorPatched = false;
+        window.setCursorStatus = _origCursor;
     }
 
-    function showMainMenuCSS() {
-        var style = document.getElementById('mvd-hide-mainmenu-css');
-        if (style && style.parentNode) {
-            style.parentNode.removeChild(style);
-        }
-    }
-
-    function extractStats(mm) {
+    // Извлечение данных из MainMenu
+    function extract(mm) {
         try {
             var s = mm.statistics;
             if (!s) return null;
-
             var org = s.organization || {};
-            var info = s.info || {};
-            var jobs = s.jobs || [];
-
-            // Ник из Vuex store
-            var realNick = '';
+            var nick = '';
             try {
-                realNick = window.App && window.App.$store &&
-                           window.App.$store.getters && window.App.$store.getters['player/nickName'] || '';
+                nick = (window.App && window.App.$store &&
+                        window.App.$store.getters &&
+                        window.App.$store.getters['player/nickName']) || '';
             } catch(e) {}
-
-            var firstName = '';
-            var lastName = '';
-            if (realNick) {
-                var parts = realNick.split('_');
-                firstName = parts[0] || '';
-                lastName = parts[1] || '';
-            }
-
+            var parts = nick ? nick.split('_') : [];
             return {
-                firstName: firstName,
-                lastName: lastName,
-                rank: org.rangName || '',
-                orgName: org.title || '',
-                orgRang: org.rang != null ? org.rang : null,
-                jobs: jobs.map(function(j) {
-                    return { id: j.id, title: j.title, lvl: j.lvl };
-                }),
+                firstName: parts[0] || '',
+                lastName:  parts[1] || '',
+                rank:      org.rangName || '',
+                orgName:   org.title    || '',
                 fetchedAt: Date.now()
             };
-        } catch(e) {
-            return null;
-        }
+        } catch(e) { return null; }
     }
 
-    function fetchPlayerDataSilently(callback) {
-        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
-            if (callback) callback(_cache);
-            return _cache;
+    // Главная функция: считывает данные и вызывает callback
+    window._mvdFetchAndOpen = function(callback) {
+        // Кэш свежий — сразу callback
+        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL) {
+            console.log('[MVD-FETCH] из кэша');
+            if (callback) callback();
+            return;
         }
-        if (_fetching) return null;
+        if (_fetching) {
+            console.log('[MVD-FETCH] уже считывается...');
+            if (callback) setTimeout(callback, 2000);
+            return;
+        }
         _fetching = true;
+        console.log('[MVD-FETCH] скрытое считывание...');
 
-        _hideHudPatchActive = true;
-        hideMainMenuCSS();
+        // Применяем патчи и скрываем
+        patchCursor();
+        hideMM();
 
-        try {
-            window.openInterface('MainMenu');
-        } catch(e) {
-            showMainMenuCSS();
-            _hideHudPatchActive = false;
-            _fetching = false;
-            if (callback) callback(null);
-            return null;
+        try { window.openInterface('MainMenu'); } catch(e) {
+            unhideMM(); unpatchCursor(); _fetching = false;
+            if (callback) callback();
+            return;
         }
 
         setTimeout(function() {
             var mm = window.interface('MainMenu');
             if (!mm) {
-                showMainMenuCSS();
-                _hideHudPatchActive = false;
-                _fetching = false;
-                if (callback) callback(null);
+                unhideMM(); unpatchCursor(); _fetching = false;
+                if (callback) callback();
                 return;
             }
 
-            // Переключаемся на вкладку Statistics
-            try {
-                if (typeof mm.selectTab === 'function') {
-                    mm.selectTab('Statistics');
-                }
-            } catch(e) {}
+            // Переключаем на вкладку Statistics
+            try { if (typeof mm.selectTab === 'function') mm.selectTab('Statistics'); } catch(e) {}
 
             var attempts = 0;
-            var maxAttempts = 30;
             var poll = setInterval(function() {
                 attempts++;
-                var stats = extractStats(mm);
-                var isReal = stats && (
-                    (stats.orgName && stats.orgName !== 'Police departament') ||
-                    stats.jobs.length > 0
+                var data = extract(mm);
+                var isReal = data && (
+                    (data.orgName && data.orgName !== 'Police departament') ||
+                    data.firstName
                 );
 
-                if (isReal || attempts >= maxAttempts) {
+                if (isReal || attempts >= 25) {
                     clearInterval(poll);
-
-                    if (stats && isReal) {
-                        _cache = stats;
+                    if (data && isReal) {
+                        _cache = data;
                         _cacheTime = Date.now();
-                        console.log('[MMENU] ✅ Данные считаны:', stats.firstName, stats.lastName, '|', stats.rank, '|', stats.orgName);
-                    } else {
-                        console.warn('[MMENU] ⚠️ Таймаут — данные не получены');
+                        console.log('[MVD-FETCH] ✅',
+                            data.firstName, data.lastName,
+                            '|', data.rank, '|', data.orgName);
                     }
-
+                    // Закрываем MainMenu
                     setTimeout(function() {
                         try { window.closeInterface('MainMenu'); } catch(e) {}
-                        showMainMenuCSS();
-                        _hideHudPatchActive = false;
-                        _fetching = false;
-                        if (callback) callback(_cache);
-                    }, 150);
+                        setTimeout(function() {
+                            unhideMM();
+                            unpatchCursor();
+                            _fetching = false;
+                            if (callback) callback();
+                        }, 100);
+                    }, 100);
                 }
             }, 200);
-        }, 800);
+        }, 600);
+    };
 
-        return null;
-    }
-
-    function waitForApp(cb, attempts) {
-        attempts = attempts || 0;
-        if (window.App && window.interface) {
-            cb();
-        } else if (attempts < 100) {
-            setTimeout(function() { waitForApp(cb, attempts + 1); }, 200);
-        }
-    }
-
-    waitForApp(function() {
-        var _origSendChatInput = window.sendChatInput;
-        window.sendChatInput = function(cmd) {
-            if (typeof cmd === 'string') {
-                var trimmed = cmd.trim().toLowerCase();
-                if (trimmed === '/mmenu') {
-                    fetchPlayerDataSilently(function(data) {
-                        if (data) {
-                            console.log('[MMENU] Имя:', data.firstName, data.lastName);
-                            console.log('[MMENU] Звание:', data.rank);
-                            console.log('[MMENU] Организация:', data.orgName);
-                            console.log('[MMENU] Должности:', data.jobs.map(function(j) { return j.title; }).join(', '));
-                        }
-                    });
-                    return;
-                }
-            }
-            return _origSendChatInput.apply(this, arguments);
-        };
-        console.log('[MMENU] v8 готов. Команда: /mmenu');
-    });
-
+    // Геттер для greeting/stroy
     window._mvdGetPlayerData = function() {
-        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) return _cache;
+        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL) return _cache;
         return null;
     };
 
-    window._mvdFetchPlayerData = fetchPlayerDataSilently;
+    console.log('[MVD-FETCH] ✅ готов. /dahk считает данные автоматически.');
 })();
-// ==================== END /mmenu ====================
+// ==================== END СКРЫТОЕ СЧИТЫВАНИЕ ====================
 // ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v18 — sync + no-freeze) ====================
 (function() {
     const ITEM_DEAGLE = 19;
