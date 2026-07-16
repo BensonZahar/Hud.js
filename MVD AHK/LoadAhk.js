@@ -316,14 +316,38 @@ verifyAndLoad();
     }
 
     // Кнопки мыши (средняя и боковые)
+    // Работает ТОЛЬКО на короткий клик (≤ CLICK_MAX_MS), чтобы не мешать
+    // камере GTA: зажатие средней кнопки в игре включает режим осмотра.
     if (matchMouse !== null) {
+        var _mouseBtnDownAt = 0;       // timestamp момента mousedown
+        var _mouseBtnModsOk = false;   // были ли нужные модификаторы при нажатии
+        var CLICK_MAX_MS = 200;        // удержание дольше = камера, не свап
+
         window.addEventListener('mousedown', function(e) {
             if (e.button !== matchMouse) return;
-            if (!isModMatch(e)) return;
-            e.preventDefault && e.preventDefault();
-            window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+            // НЕ делаем preventDefault — даём игре включить камеру при удержании.
+            // Просто запоминаем факт нажатия и состояние модификаторов.
+            _mouseBtnDownAt = Date.now();
+            _mouseBtnModsOk = isModMatch(e);
         });
-        console.log('[SWAP-KEY] Кнопка мыши зарегистрирована: button=' + matchMouse);
+
+        window.addEventListener('mouseup', function(e) {
+            if (e.button !== matchMouse) return;
+            if (!_mouseBtnModsOk) return;          // нажали без Alt/Ctrl/Shift — игнор
+            var held = Date.now() - _mouseBtnDownAt;
+            _mouseBtnDownAt = 0;
+            _mouseBtnModsOk = false;
+
+            if (held > 0 && held <= CLICK_MAX_MS) {
+                // Короткий клик → свап тазер ↔ дигл
+                e.preventDefault && e.preventDefault();
+                window._mvdSwapTaserDeagle && window._mvdSwapTaserDeagle();
+            }
+            // else: удержание (камера GTA) — ничего не делаем
+        });
+
+        console.log('[SWAP-KEY] Кнопка мыши зарегистрирована: button=' + matchMouse +
+                    ' (клик ≤ ' + CLICK_MAX_MS + 'мс, удержание = камера)');
     }
 
     // Также перехватываем через движок для Numpad1 (keyCode 40 в Radmir)
