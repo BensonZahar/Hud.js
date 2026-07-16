@@ -1,4 +1,7 @@
 (function() {
+const RANK = "";
+const FIRST_NAME = "";
+const LAST_NAME = "";
 const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
 const HWID = ""; // Вшивается установщиком — проверяется онлайн при каждом запуске игры
