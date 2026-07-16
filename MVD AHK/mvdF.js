@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4199,7 +4199,6 @@ try {
     if (_leftoverStyle && _leftoverStyle.parentNode) {
         _leftoverStyle.parentNode.removeChild(_leftoverStyle);
     }
-    document.body && document.body.classList.remove('mvd-dahk-scraping');
 } catch(e) {}
 
 // ── Сохраняем оригиналы системных функций ──
@@ -4254,25 +4253,24 @@ function applyProfileStyles() {
     if (_styleEl) return;
     _styleEl = document.createElement('style');
     _styleEl.id = 'mvd-profile-styles';
-    // Правило работает ТОЛЬКО пока на <body> висит класс mvd-dahk-scraping —
-    // он выставляется/снимается синхронно с самим тегом ниже, так что
-    // состояние "скрыто" всегда легко проверить (и невозможно принять
-    // за постоянное поведение MainMenu).
+    // Правило безусловное — как и раньше, единственный "выключатель" это
+    // присутствие самого тега в <head>. Завязывать это ещё и на класс
+    // body оказалось лишним звеном: если classList.add по любой причине
+    // не срабатывал, правило переставало матчиться и MainMenu оставался
+    // видимым во время скана — регрессия.
     _styleEl.textContent = [
-        'body.mvd-dahk-scraping .main-menu,',
-        'body.mvd-dahk-scraping .main-menu__header,',
-        'body.mvd-dahk-scraping .main-menu__content,',
-        'body.mvd-dahk-scraping .main-menu [class*="main-menu"] {',
+        'body .main-menu,',
+        'body .main-menu__header,',
+        'body .main-menu__content,',
+        'body .main-menu [class*="main-menu"] {',
         '  visibility: hidden !important;',
         '  opacity: 0 !important;',
         '  pointer-events: none !important;',
         '}'
     ].join('\n');
     document.head.appendChild(_styleEl);
-    try { document.body.classList.add('mvd-dahk-scraping'); } catch(e) {}
 }
 function removeProfileStyles() {
-    try { document.body.classList.remove('mvd-dahk-scraping'); } catch(e) {}
     if (_styleEl && _styleEl.parentNode) {
         _styleEl.parentNode.removeChild(_styleEl);
     }
