@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.0009 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.09 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -3388,94 +3388,82 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
-// ==================== АВТО-СЧИТЫВАНИЕ ДАННЫХ ПЕРСОНАЖА (v7 — при первом /dahk) ====================
-// При первом нажатии Alt+0 (/dahk): скрыто открывает MainMenu → Statistics,
-// считывает ник/звание/организацию, закрывает, и только потом открывает MvdMenu.
-// Последующие /dahk — мгновенно открывают MvdMenu из кэша.
-// HUD не мерцает, курсор не появляется, персонаж не останавливается.
+// ==================== /mmenu — СКРЫТОЕ СЧИТЫВАНИЕ ДАННЫХ (v8 — no HUD hide) ====================
 (function() {
-    var CACHE_TTL_MS = 300000; // 5 минут
+    'use strict';
+
+    var CACHE_TTL_MS = 120000;
     var _cache = null;
     var _cacheTime = 0;
     var _fetching = false;
 
-    // ── Оригиналы для патчей ──
-    var _origSetCursorStatus = window.setCursorStatus;
-    var _origPlaySound = window.playSound;
-    var _origSetHudStatus = window.setHudStatus;
-    var _patchesActive = false;
+    // Подменяем openInterface чтобы MainMenu НЕ прятал HUD
+    var _origOpenInterface = window.openInterface;
+    var _hideHudPatchActive = false;
 
-    function applyPatches() {
-        _patchesActive = true;
-        // Курсор скрыт, движение разрешено
-        window.setCursorStatus = function(name, status, allowMovement) {
-            if (_patchesActive && name === 'MainMenu') {
-                try {
-                    if (typeof engine !== 'undefined' && engine.trigger) {
-                        engine.trigger("SetCursorStatus", false, true);
-                    }
-                } catch(e) {}
-                return;
+    window.openInterface = function(name, params, opts) {
+        if (_hideHudPatchActive && name === 'MainMenu') {
+            // Временно меняем options чтобы HUD не прятался
+            var comp = window.component && window.component('MainMenu');
+            var origHideHud = null;
+            var origHideChat = null;
+            
+            if (comp && comp.options) {
+                origHideHud = comp.options.hideHud;
+                origHideChat = comp.options.hideChat;
+                comp.options.hideHud = false;
+                comp.options.hideChat = false;
             }
-            return _origSetCursorStatus.apply(this, arguments);
-        };
-        // Глушим звуки меню
-        window.playSound = function(path) {
-            if (_patchesActive && typeof path === 'string' && (
-                path.indexOf('main_menu') !== -1 ||
-                path.indexOf('UI_menu') !== -1 ||
-                path.indexOf('UI_settings') !== -1 ||
-                path.indexOf('UI_menuesc') !== -1 ||
-                path.indexOf('UI_click') !== -1
-            )) { return; }
-            return _origPlaySound.apply(this, arguments);
-        };
-        // HUD не прячется
-        window.setHudStatus = function(status) {
-            if (_patchesActive) return;
-            return _origSetHudStatus.apply(this, arguments);
-        };
-    }
 
-    function restorePatches() {
-        _patchesActive = false;
-        window.setCursorStatus = _origSetCursorStatus;
-        window.playSound = _origPlaySound;
-        window.setHudStatus = _origSetHudStatus;
-    }
+            // Вызываем оригинал
+            var result = _origOpenInterface.call(this, name, params, opts);
 
-    // ── CSS скрытие MainMenu ──
-    var _styleEl = null;
+            // Восстанавливаем options через микрозадачу
+            setTimeout(function() {
+                if (comp && comp.options && origHideHud !== null) {
+                    comp.options.hideHud = origHideHud;
+                    comp.options.hideChat = origHideChat;
+                }
+            }, 50);
+
+            return result;
+        }
+        return _origOpenInterface.apply(this, arguments);
+    };
+
     function hideMainMenuCSS() {
-        if (_styleEl) return;
-        _styleEl = document.createElement('style');
-        _styleEl.id = 'mvd-hide-mainmenu';
-        _styleEl.textContent = [
+        var style = document.createElement('style');
+        style.id = 'mvd-hide-mainmenu-css';
+        style.textContent = [
             '.main-menu,',
+            '.main-menu *,',
             '.main-menu__header,',
             '.main-menu__content,',
-            '.main-menu [class*="main-menu"] {',
+            '.main-menu__tab-loader {',
             '  display: none !important;',
+            '  visibility: hidden !important;',
+            '  opacity: 0 !important;',
             '  pointer-events: none !important;',
             '}'
         ].join('\n');
-        document.head.appendChild(_styleEl);
+        document.head.appendChild(style);
     }
 
     function showMainMenuCSS() {
-        if (_styleEl && _styleEl.parentNode) {
-            _styleEl.parentNode.removeChild(_styleEl);
+        var style = document.getElementById('mvd-hide-mainmenu-css');
+        if (style && style.parentNode) {
+            style.parentNode.removeChild(style);
         }
-        _styleEl = null;
     }
 
-    // ── Извлечение данных ──
     function extractStats(mm) {
         try {
             var s = mm.statistics;
             if (!s) return null;
+
             var org = s.organization || {};
             var info = s.info || {};
+            var jobs = s.jobs || [];
 
             // Ник из Vuex store
             var realNick = '';
@@ -3484,11 +3472,23 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                            window.App.$store.getters && window.App.$store.getters['player/nickName'] || '';
             } catch(e) {}
 
+            var firstName = '';
+            var lastName = '';
+            if (realNick) {
+                var parts = realNick.split('_');
+                firstName = parts[0] || '';
+                lastName = parts[1] || '';
+            }
+
             return {
-                orgTitle: org.title || null,
-                orgRangName: org.rangName || null,
+                firstName: firstName,
+                lastName: lastName,
+                rank: org.rangName || '',
+                orgName: org.title || '',
                 orgRang: org.rang != null ? org.rang : null,
-                nickname: realNick || info.nickname || null,
+                jobs: jobs.map(function(j) {
+                    return { id: j.id, title: j.title, lvl: j.lvl };
+                }),
                 fetchedAt: Date.now()
             };
         } catch(e) {
@@ -3496,29 +3496,22 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         }
     }
 
-    // ── Скрытое считывание ──
-    function fetchPlayerData(callback) {
+    function fetchPlayerDataSilently(callback) {
         if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
-            console.log('[MVD-DATA] ✅ из кэша (' + Math.round((Date.now() - _cacheTime) / 1000) + 'с)');
             if (callback) callback(_cache);
             return _cache;
         }
-        if (_fetching) {
-            console.log('[MVD-DATA] ⏳ уже считывается...');
-            return null;
-        }
+        if (_fetching) return null;
         _fetching = true;
-        console.log('[MVD-DATA] 🕵️ скрытое считывание...');
 
-        applyPatches();
+        _hideHudPatchActive = true;
         hideMainMenuCSS();
 
         try {
             window.openInterface('MainMenu');
         } catch(e) {
-            console.error('[MVD-DATA] openInterface error:', e);
             showMainMenuCSS();
-            restorePatches();
+            _hideHudPatchActive = false;
             _fetching = false;
             if (callback) callback(null);
             return null;
@@ -3527,14 +3520,14 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         setTimeout(function() {
             var mm = window.interface('MainMenu');
             if (!mm) {
-                console.error('[MVD-DATA] MainMenu не найден');
                 showMainMenuCSS();
-                restorePatches();
+                _hideHudPatchActive = false;
                 _fetching = false;
                 if (callback) callback(null);
                 return;
             }
 
+            // Переключаемся на вкладку Statistics
             try {
                 if (typeof mm.selectTab === 'function') {
                     mm.selectTab('Statistics');
@@ -3547,8 +3540,8 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                 attempts++;
                 var stats = extractStats(mm);
                 var isReal = stats && (
-                    (stats.orgTitle && stats.orgTitle !== 'Police departament') ||
-                    stats.nickname
+                    (stats.orgName && stats.orgName !== 'Police departament') ||
+                    stats.jobs.length > 0
                 );
 
                 if (isReal || attempts >= maxAttempts) {
@@ -3557,20 +3550,17 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
                     if (stats && isReal) {
                         _cache = stats;
                         _cacheTime = Date.now();
-                        console.log('[MVD-DATA] ✅ данные считаны:',
-                            stats.nickname, '|', stats.orgRangName, '|', stats.orgTitle);
+                        console.log('[MMENU] ✅ Данные считаны:', stats.firstName, stats.lastName, '|', stats.rank, '|', stats.orgName);
                     } else {
-                        console.warn('[MVD-DATA] ⚠️ таймаут');
+                        console.warn('[MMENU] ⚠️ Таймаут — данные не получены');
                     }
 
                     setTimeout(function() {
                         try { window.closeInterface('MainMenu'); } catch(e) {}
-                        setTimeout(function() {
-                            showMainMenuCSS();
-                            restorePatches();
-                            _fetching = false;
-                            if (callback) callback(_cache);
-                        }, 100);
+                        showMainMenuCSS();
+                        _hideHudPatchActive = false;
+                        _fetching = false;
+                        if (callback) callback(_cache);
                     }, 150);
                 }
             }, 200);
@@ -3579,30 +3569,45 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
         return null;
     }
 
-    // ── Геттер для greeting/stroy ──
-    window._mvdGetPlayerData = function() {
-        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
-            return _cache;
+    function waitForApp(cb, attempts) {
+        attempts = attempts || 0;
+        if (window.App && window.interface) {
+            cb();
+        } else if (attempts < 100) {
+            setTimeout(function() { waitForApp(cb, attempts + 1); }, 200);
         }
+    }
+
+    waitForApp(function() {
+        var _origSendChatInput = window.sendChatInput;
+        window.sendChatInput = function(cmd) {
+            if (typeof cmd === 'string') {
+                var trimmed = cmd.trim().toLowerCase();
+                if (trimmed === '/mmenu') {
+                    fetchPlayerDataSilently(function(data) {
+                        if (data) {
+                            console.log('[MMENU] Имя:', data.firstName, data.lastName);
+                            console.log('[MMENU] Звание:', data.rank);
+                            console.log('[MMENU] Организация:', data.orgName);
+                            console.log('[MMENU] Должности:', data.jobs.map(function(j) { return j.title; }).join(', '));
+                        }
+                    });
+                    return;
+                }
+            }
+            return _origSendChatInput.apply(this, arguments);
+        };
+        console.log('[MMENU] v8 готов. Команда: /mmenu');
+    });
+
+    window._mvdGetPlayerData = function() {
+        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) return _cache;
         return null;
     };
 
-    // ── Публичный API для /dahk ──
-    window._mvdFetchAndOpen = function(openMenuCallback) {
-        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
-            // Кэш свежий — сразу открываем меню
-            openMenuCallback();
-            return;
-        }
-        // Считываем данные, потом открываем меню
-        fetchPlayerData(function() {
-            openMenuCallback();
-        });
-    };
-
-    console.log('[MVD-DATA] ✅ v7 готов (считывание при первом /dahk)');
+    window._mvdFetchPlayerData = fetchPlayerDataSilently;
 })();
-// ==================== END АВТО-СЧИТЫВАНИЕ ДАННЫХ ====================
+// ==================== END /mmenu ====================
 // ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v18 — sync + no-freeze) ====================
 (function() {
     const ITEM_DEAGLE = 19;
