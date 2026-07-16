@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.99 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.0009 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1944,36 +1944,44 @@ const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
     const isOmonSkin = skinId === 15340;
     switch (action) {
-    case "greeting":
-        if (isOmonSkin) {
-            sendMessagesWithDelay([
-                `Работает сотрудник СОБР | Мой позывной ${CALLSIGN}`,
-                "Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
-                "Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
-                "Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
-            ], [0, 500, 500, 500]);
-            setTimeout(() => showDocCheckPrompt(targetId), 1800);
-            setTimeout(() => runPostActionTimer('greeting'), 1800);
-        } else {
-            // Используем данные из считывания, если есть
-            let rank = window._mvdPlayerData?.rank || 'Сотрудник';
-            let firstName = window._mvdPlayerData?.firstName || '';
-            let lastName = window._mvdPlayerData?.lastName || '';
-            
-            let greetingText = `Здравия желаю, Вас беспокоит ${rank}`;
-            if (firstName && lastName) {
-                greetingText += ` - ${firstName} ${lastName}`;
-            }
-            greetingText += '.';
-            
-            sendMessagesWithDelay([
-                greetingText,
-                `/doc ${targetId}`
-            ], [0, 1000]);
-            setTimeout(() => showDocCheckPrompt(targetId), 1300);
-            setTimeout(() => runPostActionTimer('greeting'), 1300);
-        }
-        break;
+	case "greeting":
+	    if (isOmonSkin) {
+	        sendMessagesWithDelay([
+	            `Работает сотрудник СОБР | Мой позывной ${CALLSIGN}`,
+	            "Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
+	            "Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
+	            "Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
+	        ], [0, 500, 500, 500]);
+	        setTimeout(() => showDocCheckPrompt(targetId), 1800);
+	        setTimeout(() => runPostActionTimer('greeting'), 1800);
+	    } else {
+	        // ── Берём данные из считанного MainMenu (window._mvdPlayerData) ──
+	        // Если данные ещё не считаны (Alt+0 ещё не нажимали) —
+	        // fallback на константы из LoadAhk (если они там заданы)
+	        const _pData = window._mvdPlayerData || {};
+	        const _rank = _pData.rank
+	            || (typeof RANK !== 'undefined' ? RANK : '')
+	            || 'Сотрудник';
+	        const _firstName = _pData.firstName
+	            || (typeof FIRST_NAME !== 'undefined' ? FIRST_NAME : '');
+	        const _lastName = _pData.lastName
+	            || (typeof LAST_NAME !== 'undefined' ? LAST_NAME : '');
+	
+	        // Собираем текст приветствия
+	        let greetingText = `Здравия желаю, Вас беспокоит ${_rank}`;
+	        if (_firstName && _lastName) {
+	            greetingText += ` - ${_firstName} ${_lastName}`;
+	        }
+	        greetingText += '.';
+	
+	        sendMessagesWithDelay([
+	            greetingText,
+	            `/doc ${targetId}`
+	        ], [0, 1000]);
+	        setTimeout(() => showDocCheckPrompt(targetId), 1300);
+	        setTimeout(() => runPostActionTimer('greeting'), 1300);
+	    }
+	    break;
       
         case "checkDocuments":
             if (isOmonSkin) {
@@ -2717,27 +2725,25 @@ window.sendClientEventCustom = (event, ...args) => {
 var __mvdPrevSendChatInput = window.sendChatInput; // сохраняем хук /has, /has_s, чтобы не потерять его при замене ниже
 window.sendChatInputCustom = e => {
     const args = e.split(" ");
-    if (args[0] == "/dahk") {
-        targetId = args[1];
-        // Получаем актуальный скин напрямую перед проверкой
-        const freshSkin = getSkinIdFromStore();
-        if (freshSkin !== null) skinId = Number(freshSkin);
-        if (mvdSkins.includes(skinId)) {
-            // Успешное открытие меню МВД
+if (args[0] == "/dahk") {
+    targetId = args[1];
+    const freshSkin = getSkinIdFromStore();
+    if (freshSkin !== null) skinId = Number(freshSkin);
+    if (mvdSkins.includes(skinId)) {
+        // При первом /dahk — скрыто считываем данные, потом открываем меню
+        window._mvdFetchAndOpen(function() {
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
             restoreTrackingTimer();
-            // Обновляем ник напарника тихо при каждом открытии меню
             refreshPartnerNickSilent();
             if (lastMenuType === "stroy") {
                 showStroyMenuPage(args[1]);
             } else {
-                // Главное меню МВД (экран main) — Повседневная открывается оттуда отдельным пунктом
                 showMvdMainMenuPage(args[1]);
             }
-        } else {
-            // Ошибка: скин не подходит
-            snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
-        }
+        });
+    } else {
+        snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
+    }
     } else if (args[0] == "/console") {
         try {
             const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
@@ -3382,98 +3388,219 @@ if (AUTO_GRAB || window.AUTO_GRAB === true) {
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
-// ==================== АВТО-СЧИТЫВАНИЕ ДАННЫХ ПЕРСОНАЖА (v3 — при загрузке) ====================
-// Считывает данные персонажа (ник, звание, организация) из MainMenu
-// при загрузке скрипта. Данные используются в greeting и stroy.
+// ==================== АВТО-СЧИТЫВАНИЕ ДАННЫХ ПЕРСОНАЖА (v7 — при первом /dahk) ====================
+// При первом нажатии Alt+0 (/dahk): скрыто открывает MainMenu → Statistics,
+// считывает ник/звание/организацию, закрывает, и только потом открывает MvdMenu.
+// Последующие /dahk — мгновенно открывают MvdMenu из кэша.
+// HUD не мерцает, курсор не появляется, персонаж не останавливается.
 (function() {
-    // Глобальные переменные для данных персонажа
-    window._mvdPlayerData = {
-        firstName: '',
-        lastName: '',
-        rank: '',
-        orgName: '',
-        loaded: false
-    };
+    var CACHE_TTL_MS = 300000; // 5 минут
+    var _cache = null;
+    var _cacheTime = 0;
+    var _fetching = false;
 
-    async function fetchPlayerDataSilently() {
-        console.log('[MVD-DATA] Начинаем считывание данных персонажа...');
-        
-        try {
-            // Получаем ник из Vuex store
-            let nick = '';
-            try {
-                nick = window.App?.$store?.getters?.['player/nickName'] || '';
-            } catch(e) {}
-            
-            if (nick) {
-                let parts = nick.split('_');
-                window._mvdPlayerData.firstName = parts[0] || '';
-                window._mvdPlayerData.lastName = parts[1] || '';
-            }
+    // ── Оригиналы для патчей ──
+    var _origSetCursorStatus = window.setCursorStatus;
+    var _origPlaySound = window.playSound;
+    var _origSetHudStatus = window.setHudStatus;
+    var _patchesActive = false;
 
-            // Открываем MainMenu скрытно
-            let style = document.createElement('style');
-            style.id = 'mvd-hidden-mainmenu-fetch';
-            style.textContent = '.main-menu, .main-menu * { display: none !important; }';
-            document.head.appendChild(style);
-
-            window.openInterface('MainMenu');
-            await new Promise(r => setTimeout(r, 800));
-
-            let mm = window.interface('MainMenu');
-            if (mm && typeof mm.selectTab === 'function') {
-                mm.selectTab('Statistics');
-            }
-
-            // Ждём данные
-            let attempts = 0;
-            let maxAttempts = 25;
-            
-            while (attempts < maxAttempts) {
-                await new Promise(r => setTimeout(r, 200));
-                attempts++;
-                
-                if (mm && mm.statistics && mm.statistics.organization) {
-                    let org = mm.statistics.organization;
-                    if (org.title && org.title !== 'Police departament') {
-                        window._mvdPlayerData.rank = org.rangName || '';
-                        window._mvdPlayerData.orgName = org.title || '';
-                        window._mvdPlayerData.loaded = true;
-                        console.log('[MVD-DATA] ✅ Данные считаны:', 
-                            window._mvdPlayerData.firstName, 
-                            window._mvdPlayerData.lastName,
-                            window._mvdPlayerData.rank,
-                            window._mvdPlayerData.orgName);
-                        break;
+    function applyPatches() {
+        _patchesActive = true;
+        // Курсор скрыт, движение разрешено
+        window.setCursorStatus = function(name, status, allowMovement) {
+            if (_patchesActive && name === 'MainMenu') {
+                try {
+                    if (typeof engine !== 'undefined' && engine.trigger) {
+                        engine.trigger("SetCursorStatus", false, true);
                     }
-                }
+                } catch(e) {}
+                return;
             }
+            return _origSetCursorStatus.apply(this, arguments);
+        };
+        // Глушим звуки меню
+        window.playSound = function(path) {
+            if (_patchesActive && typeof path === 'string' && (
+                path.indexOf('main_menu') !== -1 ||
+                path.indexOf('UI_menu') !== -1 ||
+                path.indexOf('UI_settings') !== -1 ||
+                path.indexOf('UI_menuesc') !== -1 ||
+                path.indexOf('UI_click') !== -1
+            )) { return; }
+            return _origPlaySound.apply(this, arguments);
+        };
+        // HUD не прячется
+        window.setHudStatus = function(status) {
+            if (_patchesActive) return;
+            return _origSetHudStatus.apply(this, arguments);
+        };
+    }
 
-            // Закрываем MainMenu
-            window.closeInterface('MainMenu');
-            await new Promise(r => setTimeout(r, 200));
+    function restorePatches() {
+        _patchesActive = false;
+        window.setCursorStatus = _origSetCursorStatus;
+        window.playSound = _origPlaySound;
+        window.setHudStatus = _origSetHudStatus;
+    }
 
-            // Убираем стиль
-            let s = document.getElementById('mvd-hidden-mainmenu-fetch');
-            if (s) s.remove();
+    // ── CSS скрытие MainMenu ──
+    var _styleEl = null;
+    function hideMainMenuCSS() {
+        if (_styleEl) return;
+        _styleEl = document.createElement('style');
+        _styleEl.id = 'mvd-hide-mainmenu';
+        _styleEl.textContent = [
+            '.main-menu,',
+            '.main-menu__header,',
+            '.main-menu__content,',
+            '.main-menu [class*="main-menu"] {',
+            '  display: none !important;',
+            '  pointer-events: none !important;',
+            '}'
+        ].join('\n');
+        document.head.appendChild(_styleEl);
+    }
 
-            if (!window._mvdPlayerData.loaded) {
-                console.warn('[MVD-DATA] ⚠️ Не удалось считать данные');
-            }
+    function showMainMenuCSS() {
+        if (_styleEl && _styleEl.parentNode) {
+            _styleEl.parentNode.removeChild(_styleEl);
+        }
+        _styleEl = null;
+    }
 
+    // ── Извлечение данных ──
+    function extractStats(mm) {
+        try {
+            var s = mm.statistics;
+            if (!s) return null;
+            var org = s.organization || {};
+            var info = s.info || {};
+
+            // Ник из Vuex store
+            var realNick = '';
+            try {
+                realNick = window.App && window.App.$store &&
+                           window.App.$store.getters && window.App.$store.getters['player/nickName'] || '';
+            } catch(e) {}
+
+            return {
+                orgTitle: org.title || null,
+                orgRangName: org.rangName || null,
+                orgRang: org.rang != null ? org.rang : null,
+                nickname: realNick || info.nickname || null,
+                fetchedAt: Date.now()
+            };
         } catch(e) {
-            console.error('[MVD-DATA] Ошибка:', e);
-            let s = document.getElementById('mvd-hidden-mainmenu-fetch');
-            if (s) s.remove();
+            return null;
         }
     }
 
-    // Запускаем считывание через 10 секунд после загрузки
-    setTimeout(() => {
-        fetchPlayerDataSilently();
-    }, 10000);
+    // ── Скрытое считывание ──
+    function fetchPlayerData(callback) {
+        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
+            console.log('[MVD-DATA] ✅ из кэша (' + Math.round((Date.now() - _cacheTime) / 1000) + 'с)');
+            if (callback) callback(_cache);
+            return _cache;
+        }
+        if (_fetching) {
+            console.log('[MVD-DATA] ⏳ уже считывается...');
+            return null;
+        }
+        _fetching = true;
+        console.log('[MVD-DATA] 🕵️ скрытое считывание...');
 
-    console.log('[MVD-DATA] Блок загружен, считывание через 10 сек');
+        applyPatches();
+        hideMainMenuCSS();
+
+        try {
+            window.openInterface('MainMenu');
+        } catch(e) {
+            console.error('[MVD-DATA] openInterface error:', e);
+            showMainMenuCSS();
+            restorePatches();
+            _fetching = false;
+            if (callback) callback(null);
+            return null;
+        }
+
+        setTimeout(function() {
+            var mm = window.interface('MainMenu');
+            if (!mm) {
+                console.error('[MVD-DATA] MainMenu не найден');
+                showMainMenuCSS();
+                restorePatches();
+                _fetching = false;
+                if (callback) callback(null);
+                return;
+            }
+
+            try {
+                if (typeof mm.selectTab === 'function') {
+                    mm.selectTab('Statistics');
+                }
+            } catch(e) {}
+
+            var attempts = 0;
+            var maxAttempts = 30;
+            var poll = setInterval(function() {
+                attempts++;
+                var stats = extractStats(mm);
+                var isReal = stats && (
+                    (stats.orgTitle && stats.orgTitle !== 'Police departament') ||
+                    stats.nickname
+                );
+
+                if (isReal || attempts >= maxAttempts) {
+                    clearInterval(poll);
+
+                    if (stats && isReal) {
+                        _cache = stats;
+                        _cacheTime = Date.now();
+                        console.log('[MVD-DATA] ✅ данные считаны:',
+                            stats.nickname, '|', stats.orgRangName, '|', stats.orgTitle);
+                    } else {
+                        console.warn('[MVD-DATA] ⚠️ таймаут');
+                    }
+
+                    setTimeout(function() {
+                        try { window.closeInterface('MainMenu'); } catch(e) {}
+                        setTimeout(function() {
+                            showMainMenuCSS();
+                            restorePatches();
+                            _fetching = false;
+                            if (callback) callback(_cache);
+                        }, 100);
+                    }, 150);
+                }
+            }, 200);
+        }, 800);
+
+        return null;
+    }
+
+    // ── Геттер для greeting/stroy ──
+    window._mvdGetPlayerData = function() {
+        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
+            return _cache;
+        }
+        return null;
+    };
+
+    // ── Публичный API для /dahk ──
+    window._mvdFetchAndOpen = function(openMenuCallback) {
+        if (_cache && (Date.now() - _cacheTime) < CACHE_TTL_MS) {
+            // Кэш свежий — сразу открываем меню
+            openMenuCallback();
+            return;
+        }
+        // Считываем данные, потом открываем меню
+        fetchPlayerData(function() {
+            openMenuCallback();
+        });
+    };
+
+    console.log('[MVD-DATA] ✅ v7 готов (считывание при первом /dahk)');
 })();
 // ==================== END АВТО-СЧИТЫВАНИЕ ДАННЫХ ====================
 // ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v18 — sync + no-freeze) ====================
