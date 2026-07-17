@@ -1,17 +1,17 @@
 (function() {
-    const CALLSIGN = " ";
-    const AUTO_PASSWORD = " "; // Авто-ввод пароля при входе (пусто = отключено)
-    const HWID = " "; // Вшивается установщиком — проверяется онлайн при каждом запуске игры
-    const SWAP_ENABLED = true; // Включить свап тазер ↔ дигл
-    const SWAP_KEY = "Alt+Q"; // Хоткей свапа
-    const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК
-    const MENU_HIDDEN_ITEMS = []; // Скрытые пункты меню
-    const MENU_BINDS = {}; // Прямые биндинги
-    const MENU_ORDER = []; // Порядок пунктов меню
-    const MENU_TIMER_ITEMS = []; // Пункты с таймером "/c 60"
+    const CALLSIGN = "";
+    const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
+    const HWID = ""; // Вшивается установщиком — проверяется онлайн при каждом запуске игры
+    const SWAP_ENABLED = true; // Включить свап тазер ↔ дигл (установщик может выключить)
+    const SWAP_KEY = "Alt+Q"; // Хоткей свапа: "Alt+Q", "Numpad1", "F6", "Alt+F", и т.д. Пусто = отключено
+    const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК (пусто = отключено)
+    const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневная» которые скрыты: ["greeting","checkDocuments",...]
+    const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
+    const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
+    const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с: ["greeting","fine","wantedFine",...]
     const KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/keys.json";
     
-    // ── Авто-снаряжение ─────────────────
+    // ── Авто-снаряжение (авто при открытии службы) ─────────────────
     const AUTO_GRAB = false;
     const AUTO_GRAB_THR_MAGNUM = 30;
     const AUTO_GRAB_THR_762    = 60;
@@ -41,29 +41,42 @@
     const folder = 'MVD AHK';
     const filename = 'mvdF.js';
 
-    // Функция показа видимой ошибки игроку (если консоль закрыта)
+    // ── ФУНКЦИИ ВИДИМЫХ УВЕДОМЛЕНИЙ (с защитой от квадратиков) ──
+    const FALLBACK_FONT = '"Open Sans", var(--fallback-font), Arial, sans-serif';
+
     function showLoadError(msg) {
         console.error('[AHK] ' + msg);
         try {
             if (window.ZkmScreenNotification && typeof window.ZkmScreenNotification.add === 'function') {
                 window.ZkmScreenNotification.add(`[1, "Ошибка AHK", "${msg}", "FF0000", 10000]`);
-            } else if (window.snAdd && typeof window.snAdd === 'function') {
-                window.snAdd(`[1, "Ошибка AHK", "${msg}", "FF0000", 10000]`);
             } else {
                 const div = document.createElement('div');
-                // ИСПРАВЛЕНО: используем тот же шрифт, что и в ZkmScreenNotification.css, 
-                // чтобы избежать квадратиков вместо кириллицы в CEF
-                div.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#ff0000;color:#fff;padding:15px 25px;border-radius:8px;z-index:999999;font-family:"Open Sans", var(--fallback-font), Arial, sans-serif;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.5);text-align:center;max-width:80%;';
-                div.textContent = '⚠️ Ошибка загрузки AHK: ' + msg;
+                div.style.cssText = `position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#ff0000;color:#fff;padding:15px 25px;border-radius:8px;z-index:999999;font-family:${FALLBACK_FONT};font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.5);text-align:center;max-width:80%;`;
+                div.textContent = '⚠️ Ошибка AHK: ' + msg;
                 document.body.appendChild(div);
-                setTimeout(() => div.remove(), 15000);
+                setTimeout(() => div.remove(), 10000);
             }
         } catch(e) {}
     }
 
+    function showLoadSuccess() {
+        try {
+            if (window.ZkmScreenNotification && typeof window.ZkmScreenNotification.add === 'function') {
+                window.ZkmScreenNotification.add('[0, "AHK MVD", "Скрипт успешно загружен", "00FF00", 5000]');
+            } else {
+                const div = document.createElement('div');
+                div.style.cssText = `position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#00c853;color:#fff;padding:15px 25px;border-radius:8px;z-index:999999;font-family:${FALLBACK_FONT};font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.5);text-align:center;max-width:80%;`;
+                div.textContent = '✅ AHK MVD: Скрипт успешно загружен';
+                document.body.appendChild(div);
+                setTimeout(() => div.remove(), 5000);
+            }
+        } catch(e) {}
+    }
+
+    // ── ФУНКЦИЯ ЗАГРУЗЧИКА С ТАЙМАУТОМ И ЗАПАСНЫМ CDN ──
     function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, useFallback = false) {
         const path = folder ? `${encodeURIComponent(folder)}/` : '';
-        // Если основная ссылка блокируется в РФ, используем jsdelivr как запасной вариант
+        // Если основной GitHub заблокирован, используем jsdelivr (он работает в РФ стабильно)
         const baseUrl = useFallback
             ? `https://cdn.jsdelivr.net/gh/${username}/${repo}@main/${path}`
             : `https://raw.githubusercontent.com/${username}/${repo}/main/${path}`;
@@ -77,11 +90,11 @@
                 let scriptText = xhr.responseText;
                 
                 try {
-                    // ── Патчим AUTO_GRAB ──
+                    // ── Патчим AUTO_GRAB и AUTO_GRAB_SKIP ──
                     if (AUTO_GRAB) {
                         scriptText = scriptText.replace(/var AUTO_GRAB = false;/, 'var AUTO_GRAB = true;');
-                        scriptText = scriptText.replace(/window\.AUTO_GRAB = AUTO_GRAB;/, 'window.AUTO_GRAB = true;');
-                        scriptText = scriptText.replace(/const AMMO_THRESHOLD = \{[^}]+\}/, 
+                        scriptText = scriptText.replace('window.AUTO_GRAB = AUTO_GRAB;', 'window.AUTO_GRAB = true;');
+                        scriptText = scriptText.replace(/const AMMO_THRESHOLD = \{[^}]+\}/,
                             `const AMMO_THRESHOLD = { MAGNUM: ${AUTO_GRAB_THR_MAGNUM}, AK762: ${AUTO_GRAB_THR_762}, AKS545: ${AUTO_GRAB_THR_545}, REM1270: ${AUTO_GRAB_THR_1270} }`);
                         
                         const menuPatch = {
@@ -104,12 +117,12 @@
 
                         if (AUTO_GRAB_SKIP.length > 0) {
                             const skipJson = JSON.stringify(AUTO_GRAB_SKIP);
-                            // ИСПРАВЛЕНО: добавлено экранирование \[\s*\]
+                            // Добавлено \s* для надежности, если в оригинале есть пробелы: [ ]
                             scriptText = scriptText.replace(/var AUTO_GRAB_SKIP = \[\s*\];/, `var AUTO_GRAB_SKIP = ${skipJson};`);
                         }
                     }
 
-                    // ── Патчим настройки меню (ИСПРАВЛЕНЫ ВСЕ REGEX С {} и []) ──
+                    // ── Патчим настройки (с \s* для надежности) ──
                     scriptText = scriptText.replace(/var MENU_KEY = "Alt\+0";/, `var MENU_KEY = "${MENU_KEY}";`);
                     
                     if (MENU_HIDDEN_ITEMS.length > 0) {
@@ -129,10 +142,9 @@
                         scriptText = scriptText.replace(/var MENU_TIMER_ITEMS = \[\s*\];/, `var MENU_TIMER_ITEMS = ${timerJson};`);
                     }
 
-                    // ── Выполнение скрипта с защитой try-catch ──
+                    // ── Выполнение и перехваты ──
                     eval(scriptText);
                     
-                    // ── Перехват окон после успешного eval ──
                     var _origShowUk = window.showUkInputDialog;
                     window.showUkInputDialog = function(targetId) {
                         window._duranWantedTargetId = (targetId !== undefined) ? targetId : -1;
@@ -150,20 +162,13 @@
                     window._origShowKoapTypeMenu = _origShowKoap;
 
                     if (AUTO_GRAB) window.AUTO_GRAB = true;
-                    console.log(`[AHK] ✅ Скрипт ${filename} загружен и выполнен успешно`);
-                                        // ── Зеленое уведомление об успешной загрузке ──
-                    setTimeout(function() {
-                        try {
-                            if (window.ZkmScreenNotification && typeof window.ZkmScreenNotification.add === 'function') {
-                                window.ZkmScreenNotification.add('[0, "AHK MVD", "Скрипт успешно загружен", "00FF00", 5000]');
-                            }
-                        } catch(e) {
-                            console.warn('[AHK] Не удалось показать уведомление о загрузке:', e);
-                        }
-                    }, 1500);
+                    console.log(`Скрипт ${filename} загружен и выполнен успешно`);
+                    
+                    // Показываем зеленое уведомление с небольшой задержкой, чтобы ZkmSN успел инициализироваться
+                    setTimeout(showLoadSuccess, 1500);
                     
                 } catch (e) {
-                    console.error(`[AHK] ❌ КРИТИЧЕСКАЯ ОШИБКА выполнения ${filename}:`, e);
+                    console.error(`[AHK] КРИТИЧЕСКАЯ ОШИБКА выполнения ${filename}:`, e);
                     showLoadError('Ошибка выполнения скрипта: ' + e.message);
                 }
             } else {
@@ -199,7 +204,13 @@
 
         xhr.ontimeout = function() {
             console.error(`[AHK] Таймаут при загрузке ${url} (10 сек)`);
-            xhr.onerror(); // Используем ту же логику обработки ошибок
+            // При таймауте сразу пробуем fallback, если еще не пробовали
+            if (!useFallback) {
+                console.log('[AHK] ⚠️ Таймаут, переключаюсь на запасной CDN (jsdelivr)...');
+                loadScriptFromGitHub(username, repo, folder, filename, retries, true);
+            } else {
+                xhr.onerror(); // Используем логику ошибки сети
+            }
         };
 
         xhr.send();
@@ -245,14 +256,14 @@
         })();
     }
 
-    // ── HWID-проверка перед запуском скрипта ──────────────────────
+    // ── HWID-проверка перед запуском скрипта (с таймаутом и уведомлениями) ──
     function verifyAndLoad() {
         if (!HWID) {
             loadScriptFromGitHub(username, repo, folder, filename);
             return;
         }
         var xhr = new XMLHttpRequest();
-        xhr.timeout = 10000; // Таймаут 10 секунд для проверки ключа
+        xhr.timeout = 10000; // 10 секунд таймаут
         xhr.open('GET', KEYS_URL + '?_=' + Date.now(), true);
         
         xhr.onload = function() {
@@ -262,7 +273,7 @@
                     if (HWID in keys) {
                         loadScriptFromGitHub(username, repo, folder, filename);
                     } else {
-                        console.warn('[AHK] Доступ отозван (HWID не найден)');
+                        console.warn('[AHK] Доступ отозван');
                         showLoadError('Доступ отозван. Обратитесь к создателю для привязки ключа.');
                     }
                 } catch (e) {
@@ -277,7 +288,7 @@
         
         xhr.onerror = function() {
             console.warn('[AHK] Нет подключения к серверу ключей');
-            showLoadError('Нет подключения к серверу ключей. Проверьте интернет или отключите блокировщики.');
+            showLoadError('Нет подключения к серверу ключей. Проверьте интернет.');
         };
         
         xhr.ontimeout = function() {
@@ -288,6 +299,7 @@
         xhr.send();
     }
 
+    // Запуск загрузчика
     verifyAndLoad();
 
     // ── Регистрация хоткея свапа ────────────────────────────────
