@@ -51,7 +51,9 @@
                 window.snAdd(`[1, "Ошибка AHK", "${msg}", "FF0000", 10000]`);
             } else {
                 const div = document.createElement('div');
-                div.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#ff0000;color:#fff;padding:15px 25px;border-radius:8px;z-index:999999;font-family:sans-serif;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.5);text-align:center;max-width:80%;';
+                // ИСПРАВЛЕНО: используем тот же шрифт, что и в ZkmScreenNotification.css, 
+                // чтобы избежать квадратиков вместо кириллицы в CEF
+                div.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#ff0000;color:#fff;padding:15px 25px;border-radius:8px;z-index:999999;font-family:"Open Sans", var(--fallback-font), Arial, sans-serif;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.5);text-align:center;max-width:80%;';
                 div.textContent = '⚠️ Ошибка загрузки AHK: ' + msg;
                 document.body.appendChild(div);
                 setTimeout(() => div.remove(), 15000);
