@@ -91,7 +91,18 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.1 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
+// ── Авто-обновление собственного ID (каждые 30 секунд) ──
+// Гарантирует что hud.info.id всегда актуальный, даже без /has
+setInterval(function() {
+    try {
+        if (window.updatePlayerList) window.updatePlayerList();
+    } catch(e) {}
+}, 30000);
+// Первый запрос — через 3 секунды после загрузки
+setTimeout(function() {
+    try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
+}, 3000);
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1977,24 +1988,35 @@ const executePovsednevAction = (action, targetId) => {
                  "/s Готовим свои документы!"
              ], [750, 1000, 1000]);
          } else {
-             // ── Берём свой ID так же, как HASSLE HUD ──
-             let myId = 0;
-             try {
-                 var hud = window.interface && window.interface("Hud");
-                 if (hud && hud.info && hud.info.id) {
-                     myId = parseInt(hud.info.id, 10) || 0;
-                 }
-             } catch(e) {
-                 console.warn('[MVD] Ошибка получения ID из Hud:', e);
-             }
+             // ── Принудительно запрашиваем ID у сервера ──
+             try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
 
-             sendMessagesWithDelay([
-                 "Будьте добры предъявить Ваши документы, а именно:",
-                 "Паспорт, вод.права и документы на т/с.",
-                 `/n /pass ${myId}, /carpass ${myId}`,
-                 "А также, отстегните пожалуйста ремень безопасности.",
-                 "/n /rem"
-             ], [0, 1000, 1000, 1000, 1000]);
+             // Даём серверу 400мс на ответ, потом читаем ID и отправляем команды
+             setTimeout(function() {
+                 let myId = 0;
+                 try {
+                     var hud = window.interface && window.interface("Hud");
+                     if (hud && hud.info && hud.info.id) {
+                         myId = parseInt(hud.info.id, 10) || 0;
+                     }
+                 } catch(e) {}
+
+                 if (myId === 0) {
+                     // Fallback: пробуем перечитать ещё раз
+                     try {
+                         var hud2 = window.interface && window.interface("Hud");
+                         if (hud2 && hud2.info) myId = hud2.info.id || 0;
+                     } catch(e2) {}
+                 }
+
+                 sendMessagesWithDelay([
+                     "Будьте добры предъявить Ваши документы, а именно:",
+                     "Паспорт, вод.права и документы на т/с.",
+                     "/n /pass " + myId + ", /carpass " + myId,
+                     "А также, отстегните пожалуйста ремень безопасности.",
+                     "/n /rem"
+                 ], [0, 1000, 1000, 1000, 1000]);
+             }, 400);
          }
          break;
       
