@@ -4756,8 +4756,34 @@ function __hasPatchLiveInstance(hud) {
         }
     } catch(e) { console.warn("[HAS] подмена Chat не удалась:", e); }
 
-    // 4. Force update
-    if (hud.$forceUpdate) hud.$forceUpdate();
+    // 4. Принудительно включаем VoiceChat через данные инстанса
+    try {
+        if (hud.$data && hud.$data.voiceChat) {
+            hud.$data.voiceChat.show = true;
+            hud.$data.voiceChat.showButtons = true;
+            console.log("[HAS] ✅ VoiceChat принудительно включён через $data");
+        }
+        if (hud.data && hud.data.voiceChat) {
+            hud.data.voiceChat.show = true;
+            hud.data.voiceChat.showButtons = true;
+        }
+        // Также включаем useChat если выключен
+        if (hud.$data && hud.$data.useChat !== undefined) {
+            hud.$data.useChat = true;
+        }
+        if (hud.data && hud.data.useChat !== undefined) {
+            hud.data.useChat = true;
+        }
+    } catch(e) { console.warn("[HAS] включение VoiceChat через data не удалось:", e); }
+
+    // 5. Force update для применения всех изменений
+    if (hud.$forceUpdate) {
+        setTimeout(function() {
+            hud.$forceUpdate();
+            console.log("[HAS] ✅ $forceUpdate вызван");
+        }, 100);
+    }
+
     return true;
 }
 
