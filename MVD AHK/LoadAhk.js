@@ -370,44 +370,12 @@ verifyAndLoad();
 })();
 })();
 // === HASSLE HUD PATCH (FIXED — chat preservation, универсальный для Hud.js и index.js) ===
-
+(function(){
 console.log("[HAS] патч запускается");
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // УНИВЕРСАЛЬНОСТЬ (Hud.js ИЛИ index.js)
 // ═══════════════════════════════════════════════════════════════════════════════
-// Раньше скрипт работал только если его вставляли в конец Hud.js — там в
-// области видимости были локальные переменные Mu (сам компонент Hud) и o/w/h
-// (openBlock/createBlock/createCommentVNode), которые Hud.js импортирует из
-// index.js. При вставке в конец index.js эти имена либо не существуют вовсе,
-// либо (что хуже) заняты СОВСЕМ ДРУГИМИ вещами: например, в index.js "Mu" —
-// это чужая служебная функция (что-то вроде merge props), а не компонент Hud,
-// и обращение к ней напрямую тихо сломало бы патч без единой ошибки в консоли.
-//
-// Что изменилось:
-//  1) Компонент Hud теперь ищется безопасно: сначала проверяем typeof (не
-//     кидает ReferenceError на необъявленных именах), а затем проверяем, что
-//     это ПОХОЖЕ на компонент Hud (есть data()/computed/components), а не
-//     просто "переменная с именем Mu существует".
-//  2) Если компонент не нашёлся в текущей области видимости (значит, скрипт
-//     вставлен не в Hud.js) — компонент подгружается вручную через тот же
-//     динамический import("./Hud.js"), которым это делает само приложение
-//     (Hud — это лениво загружаемый чанк). Тайминг безопасен: к моменту
-//     резолва import() модуль Hud.js уже полностью выполнился и Mu создан,
-//     так что патч применяется до первого создания инстанса.
-//  3) openBlock/createBlock/createCommentVNode ищутся тем же способом: сначала
-//     под именами из Hud.js (o/w/h), а если их нет — под именами, которые эти
-//     же функции носят в index.js (Oe/Ao/sr — установлено разбором текущей
-//     сборки: Oe(e=!1){...} = openBlock, Ao(...)=>createVNode(...,!0) =
-//     createBlock, sr(e="",t=!1){...} = createCommentVNode).
-//     ⚠️ ЭТИ ИМЕНА (Oe/Ao/sr) ПРИВЯЗАНЫ К КОНКРЕТНОЙ СБОРКЕ index.js и почти
-//     наверняка изменятся после обновления игры. Если после обновления в
-//     консоли снова появится "VoiceChat-патч отключён" — надо заново найти
-//     актуальные имена (ищите в index.js функции с телом вида
-//     "e=!1)=>...push..." для openBlock и "(e,t,o,n,r)=>...!0)" для
-//     createBlock) и подставить их в __hasFindVueHelpers ниже.
-// ═══════════════════════════════════════════════════════════════════════════════
-
 function __hasLooksLikeHudComp(x) {
     return !!x && typeof x === "object" &&
         (typeof x.data === "function" || !!x.computed || !!x.components);
@@ -418,7 +386,6 @@ function __hasFindVueHelpers() {
     try { if (typeof o === "function") ob = o; } catch (e) {}
     try { if (typeof w === "function") cb = w; } catch (e) {}
     try { if (typeof h === "function") cc = h; } catch (e) {}
-    // Фолбэк для index.js текущей сборки (см. предупреждение выше)
     try { if (!ob && typeof Oe === "function") ob = Oe; } catch (e) {}
     try { if (!cb && typeof Ao === "function") cb = Ao; } catch (e) {}
     try { if (!cc && typeof sr === "function") cc = sr; } catch (e) {}
@@ -477,30 +444,12 @@ function __hasPatchHudComponent(__hasComp) {
                     var props = arguments[2] || {};
                     var dataObj = props.data;
                     if (vnode && Array.isArray(vnode.children)) {
-                        // ═══════════════════════════════════════════════════════════
-                        // ФИКС: раньше узел VoiceChat пушился в children/dynamicChildren
-                        // ТОЛЬКО когда voiceChat.show===true. Из-за этого длина и порядок
-                        // dynamicChildren "плавали" между рендерами (то есть узел, то нет),
-                        // а Vue при быстром патче (patchBlockChildren) сверяет старое и
-                        // новое дерево ПОЗИЦИОННО — рассинхрон позиций и ловил
-                        // "Cannot read properties of null (reading 'emitsOptions')" /
-                        // "...reading 'el'".
-                        //
-                        // У HudRadmir (dd/rd) точно такая же условная отрисовка VoiceChat
-                        // сделана как v-if/v-else:
-                        //   showVoice ? (o(), w(VoiceChat, {key:0,...})) : h("", !0)
-                        // т.е. на каждый рендер добавляется РОВНО один узел — либо
-                        // компонент, либо пустой комментарий-заглушка. Позиция стабильна
-                        // всегда. Повторяем этот же паттерн здесь вручную.
-                        // ═══════════════════════════════════════════════════════════
                         var showVoice = !!(dataObj && dataObj.useChat && dataObj.voiceChat && dataObj.voiceChat.show);
                         var vcNode;
                         if (showVoice) {
                             var chatFontSize = (window.App && window.App.chatFontSize) || 0;
                             var chatPageSize = (window.App && window.App.chatPageSize) || 1;
                             var chatHeightPx = (window.App && typeof window.App.vhToPx === "function") ? window.App.vhToPx(2.22 + 0.15 * chatFontSize) * chatPageSize : 0;
-                            // openBlock()+createBlock() вместо голого createVNode — так же,
-                            // как это делает сам компилятор для условных (v-if) веток с key.
                             o();
                             vcNode = w(__hasVoiceChatComp, {
                                 key: 0,
@@ -511,8 +460,6 @@ function __hasPatchHudComponent(__hasComp) {
                                 isTransparent: window.isOpenedChat ? window.isOpenedChat() : false
                             }, null, 8, ["entries", "chatHeightPx", "isHudControls", "isShowButtons", "isTransparent"]);
                         } else {
-                            // Плейсхолдер — держит позицию в массиве стабильной,
-                            // когда VoiceChat скрыт (ровно как h("",!0) у Radmir).
                             vcNode = h("", true);
                         }
                         vnode.children.push(vcNode);
@@ -527,29 +474,12 @@ function __hasPatchHudComponent(__hasComp) {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // ФИКС: предотвращаем пересоздание чата при переключении isHassleHud
-    // ═══════════════════════════════════════════════════════════════════════════════
-    //
-    // В шаблоне Hud чат рендерится внутри Fragment с разными key:
-    //   isHassleHud=true  → Fragment key:3
-    //   isHassleHud=false → Fragment key:2
-    // Vue видит разные ключи и уничтожает старый компонент чата, создавая новый.
-    // Новый компонент имеет пустой messages:[] — все сообщения теряются.
-    //
-    // Решение: патчим Mu.render, чтобы Fragment-обёртка чата использовала
-    // фиксированный ключ. Тогда Vue переиспользует тот же инстанс компонента,
-    // и сообщения не теряются.
-    // ═══════════════════════════════════════════════════════════════════════════════
-
     var FRAGMENT_SYM = Symbol.for("v-fgt");
 
     function __hasFixChatFragmentKey(vnode) {
         if (!vnode) return;
 
-        // Проверяем, является ли vnode Fragment с key:2 или key:3
         if (vnode.type === FRAGMENT_SYM && (vnode.key === 2 || vnode.key === 3)) {
-            // Проверяем, содержит ли children компонент с ref:"chat"
             if (vnode.children && vnode.children.length > 0) {
                 var hasChatRef = false;
                 for (var i = 0; i < vnode.children.length; i++) {
@@ -560,13 +490,11 @@ function __hasPatchHudComponent(__hasComp) {
                     }
                 }
                 if (hasChatRef) {
-                    // Фиксируем ключ — Vue будет переиспользовать инстанс
                     vnode.key = "__has_chat_fixed__";
                 }
             }
         }
 
-        // Рекурсивно обходим children
         if (vnode.children && Array.isArray(vnode.children)) {
             for (var j = 0; j < vnode.children.length; j++) {
                 __hasFixChatFragmentKey(vnode.children[j]);
@@ -589,20 +517,13 @@ function __hasPatchHudComponent(__hasComp) {
     }
 }
 
-// ─── Точка входа: скрипт может лежать в конце Hud.js ИЛИ в конце index.js ───
 (function __hasInitCompPatch() {
     var comp = null;
     try { if (typeof Mu !== "undefined" && __hasLooksLikeHudComp(Mu)) comp = Mu; } catch (e) {}
 
     if (comp) {
-        // Мы в Hud.js — Mu уже в области видимости, патчим синхронно (как раньше).
         __hasPatchHudComponent(comp);
     } else {
-        // Мы не в Hud.js (например, в index.js) — Mu не виден напрямую (а если
-        // переменная с именем Mu вообще существует в этой области видимости,
-        // это, скорее всего, что-то другое — см. __hasLooksLikeHudComp выше).
-        // Hud — лениво загружаемый чанк, подгружаем его сами тем же import(),
-        // которым это делает приложение.
         console.log("[HAS] Mu не найден/не похож на компонент Hud в этой области видимости — подгружаю чанк Hud.js вручную");
         import("./Hud.js").then(function(mod) {
             var loadedComp = mod && mod.default;
@@ -616,11 +537,6 @@ function __hasPatchHudComponent(__hasComp) {
         });
     }
 })();
-
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// FALLBACK: сохранение/восстановление состояния чата
-// ═══════════════════════════════════════════════════════════════════════════════
 
 var __mvdChatAddFn = null;
 var __mvdChatMessages = null;
@@ -647,7 +563,6 @@ function __hasRestoreChatState() {
         if (hud && hud.$refs && hud.$refs.chat) {
             var chat = hud.$refs.chat;
             if (chat !== __mvdChatInst) {
-                // Новый инстанс — восстанавливаем .add() и messages
                 if (__mvdChatAddFn) {
                     chat.add = __mvdChatAddFn;
                 }
@@ -664,31 +579,30 @@ function __hasRestoreChatState() {
     }
 }
 
-var ALLOWED_NICKS = ["Zahar_Konstov", "Fura_Loidov"];
 function __hasGetOwnNick() {
     try { var n = window.App && window.App.$store && window.App.$store.getters && window.App.$store.getters['player/nickName']; return n; }
     catch (e) { console.warn("[HAS] ошибка получения ника", e); return null; }
 }
-function __hasIsAllowedNick() {
-    var nick = __hasGetOwnNick();
-    return !!nick && ALLOWED_NICKS.indexOf(nick) !== -1;
+function __hasIsZahar() {
+    return __hasGetOwnNick() === "Zahar_Loidov";
 }
 
 var NICK_PROFILES = {
-    "Zahar_Loidov": { autoEnable: true,  border: "default" },
+    "Zahar_Loidov": { autoEnable: false, border: "default" },
     "Fura_Loidov":  { autoEnable: false, border: "default" }
 };
-var DEFAULT_PROFILE = { autoEnable: true, border: "default" };
+var DEFAULT_PROFILE = { autoEnable: false, border: "default" };
 function __hasGetNickProfile(nick) { return NICK_PROFILES[nick] || DEFAULT_PROFILE; }
 
 var DEFAULTS = { chatLeft: 21.53, chatTop: 5.92, chatWidth: 45.89, chatHeight: 26.2, chatFontSize: 6, radarLeft: 6.67, radarTop: 6.57, radarSize: 35.8, infoRight: -1.82, infoTop: -4.35, infoScale: 100, voiceExtra: 7, controlsExtra: -7, border: "default" };
 var PC_DEFAULTS = { chatLeft: 21.53, chatTop: 5.92, chatWidth: 45.89, chatHeight: 23.0, chatFontSize: 1, radarLeft: 6.67, radarTop: 6.57, radarSize: 30.8, infoRight: -1.82, infoTop: -1, infoScale: 75, voiceExtra: 7, controlsExtra: -7, border: "default" };
-var settings = Object.assign({}, PC_DEFAULTS, { hassleForced: true });
+var settings = Object.assign({}, PC_DEFAULTS, { hassleForced: false });
 var __hasSettingsNick = null;
 
 var __hasOriginalSendChatInput = window.sendChatInput;
 
 var panelEl = null;
+var __hasActiveTab = "main"; // "main", "design", "sizes"
 
 function __hasStorageKeyFor(nick) { return STORAGE_KEY + "::" + nick; }
 function __hasLoadSettingsForNick(nick) {
@@ -801,7 +715,6 @@ function __hasApplyToHud() {
 function __hasApplyAll() { __hasApplyCSSVars(); __hasApplyToHud(); }
 
 function __hasSetForced(hud, val, silent) {
-    // Сохраняем состояние чата ПЕРЕД переключением
     __hasCaptureChatState();
 
     hud.__hassleForced = val; settings.hassleForced = val;
@@ -814,7 +727,6 @@ function __hasSetForced(hud, val, silent) {
     }
     __hasSaveSettings();
 
-    // Восстанавливаем состояние чата ПОСЛЕ Vue re-render (fallback)
     setTimeout(__hasRestoreChatState, 100);
     setTimeout(__hasRestoreChatState, 300);
     setTimeout(__hasRestoreChatState, 600);
@@ -843,64 +755,351 @@ function __hasSlider(label, key, min, max, step) {
 }
 
 function __hasBuildPanel() {
-    if (panelEl) return panelEl;
+    if (panelEl) {
+        // Обновляем контент активной вкладки
+        __hasRenderTabContent();
+        return panelEl;
+    }
+    
     var p = document.createElement("div");
     p.style.cssText = "position:fixed;top:8vh;right:1.5vw;width:580px;max-height:88vh;overflow-y:auto;overflow-x:hidden;background:rgba(17,21,29,0.95);border:1px solid #1f242e;border-radius:10px;padding:14px;z-index:999998;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-family:Open Sans,var(--fallback-font),sans-serif;display:none;";
+    
     var header = document.createElement("div"); header.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;";
     var title = document.createElement("div"); title.textContent = "HASSLE HUD"; title.style.cssText = "color:#d2a65e;font-weight:700;font-size:13px;letter-spacing:0.5px;";
     var closeBtn = document.createElement("div"); closeBtn.textContent = "\u2715"; closeBtn.style.cssText = "color:#f4f1e199;cursor:pointer;font-size:14px;padding:2px 6px;";
     closeBtn.addEventListener("click", function() { __hasHidePanel(); });
     header.appendChild(title); header.appendChild(closeBtn); p.appendChild(header);
-    var columns = document.createElement("div"); columns.style.cssText = "display:flex;gap:16px;";
-    var colLeft = document.createElement("div"); colLeft.style.cssText = "flex:1;min-width:0;";
-    var colRight = document.createElement("div"); colRight.style.cssText = "flex:1;min-width:0;";
-    columns.appendChild(colLeft); columns.appendChild(colRight); p.appendChild(columns);
-    var chatLabel = document.createElement("div"); chatLabel.textContent = "\u0427\u0430\u0442"; chatLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 6px;"; colRight.appendChild(chatLabel);
-    colRight.appendChild(__hasSlider("\u0421\u043b\u0435\u0432\u0430 (vw)", "chatLeft", 0, 60, 0.1));
-    colRight.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)", "chatTop", 0, 40, 0.1));
-    colRight.appendChild(__hasSlider("\u0428\u0438\u0440\u0438\u043d\u0430 (vw)", "chatWidth", 20, 70, 0.1));
-    colRight.appendChild(__hasSlider("\u0412\u044b\u0441\u043e\u0442\u0430 (vh)", "chatHeight", 10, 50, 0.1));
-    colRight.appendChild(__hasSlider("\u0420\u0430\u0437\u043c\u0435\u0440 \u0448\u0440\u0438\u0444\u0442\u0430", "chatFontSize", -5, 20, 1));
-    colRight.appendChild(__hasSlider("\u0421\u043c\u0435\u0449\u0435\u043d\u0438\u0435 T \u0427\u0410\u0422 / F1 (vh, \u043c\u0438\u043d\u0443\u0441 \u2014 \u0432\u044b\u0448\u0435)", "controlsExtra", -25, 10, 0.1));
-    colRight.appendChild(__hasSlider("\u041e\u0442\u0441\u0442\u0443\u043f \u0413\u0421 \u043d\u0438\u0436\u0435 \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043e\u043a (vh)", "voiceExtra", -5, 15, 0.1));
-    var radarLabel = document.createElement("div"); radarLabel.textContent = "\u0420\u0430\u0434\u0430\u0440"; radarLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 6px;"; colLeft.appendChild(radarLabel);
-    colLeft.appendChild(__hasSlider("\u0421\u043b\u0435\u0432\u0430 (vh)", "radarLeft", 0, 40, 0.1));
-    colLeft.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)", "radarTop", 0, 40, 0.1));
-    colLeft.appendChild(__hasSlider("\u0420\u0430\u0437\u043c\u0435\u0440 (vh)", "radarSize", 15, 60, 0.1));
-    var borderLabel = document.createElement("div"); borderLabel.textContent = "\u0411\u043e\u0440\u0434\u0435\u0440 \u0440\u0430\u0434\u0430\u0440\u0430"; borderLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;"; colLeft.appendChild(borderLabel);
-    var borderRow = document.createElement("div"); borderRow.style.cssText = "display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;";
-    var borderOptions = [["default", "\u041e\u0431\u044b\u0447\u043d\u044b\u0439"], ["helloween", "\u0425\u044d\u043b\u043b\u043e\u0443\u0438\u043d"], ["newyear", "\u041d\u043e\u0432\u044b\u0439 \u0433\u043e\u0434"]];
+    
+    // Вкладки
+    var tabsContainer = document.createElement("div");
+    tabsContainer.style.cssText = "display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid #1f242e;padding-bottom:8px;";
+    
+    var tabs = [
+        { id: "main", label: "🎛 Основное" },
+        { id: "design", label: "🎨 Дизайн" }
+    ];
+    if (__hasIsZahar()) {
+        tabs.push({ id: "sizes", label: "📏 Размеры" });
+    }
+    
+    var tabButtons = {};
+    tabs.forEach(function(tab) {
+        var btn = document.createElement("div");
+        btn.textContent = tab.label;
+        btn.dataset.tab = tab.id;
+        btn.style.cssText = "flex:1;text-align:center;padding:8px 12px;border-radius:6px 6px 0 0;font-size:12px;cursor:pointer;border:1px solid transparent;color:#f4f1e199;transition:all 0.2s;";
+        btn.addEventListener("click", function() {
+            __hasActiveTab = tab.id;
+            __hasRenderTabContent();
+        });
+        tabsContainer.appendChild(btn);
+        tabButtons[tab.id] = btn;
+    });
+    p.appendChild(tabsContainer);
+    
+    // Контейнер для контента вкладки
+    var contentContainer = document.createElement("div");
+    contentContainer.style.cssText = "min-height:400px;";
+    p.appendChild(contentContainer);
+    
+    document.body.appendChild(p);
+    panelEl = p;
+    panelEl.__tabButtons = tabButtons;
+    panelEl.__contentContainer = contentContainer;
+    
+    __hasRenderTabContent();
+    return p;
+}
+
+function __hasRenderTabContent() {
+    if (!panelEl) return;
+    
+    var contentContainer = panelEl.__contentContainer;
+    contentContainer.innerHTML = "";
+    
+    // Обновляем стили кнопок табов
+    Object.keys(panelEl.__tabButtons).forEach(function(tabId) {
+        var btn = panelEl.__tabButtons[tabId];
+        if (tabId === __hasActiveTab) {
+            btn.style.background = "#d2a65e";
+            btn.style.color = "#11151d";
+            btn.style.borderColor = "#d2a65e";
+            btn.style.fontWeight = "600";
+        } else {
+            btn.style.background = "transparent";
+            btn.style.color = "#f4f1e199";
+            btn.style.borderColor = "transparent";
+            btn.style.fontWeight = "400";
+        }
+    });
+    
+    if (__hasActiveTab === "main") {
+        __hasRenderMainTab(contentContainer);
+    } else if (__hasActiveTab === "design") {
+        __hasRenderDesignTab(contentContainer);
+    } else if (__hasActiveTab === "sizes") {
+        if (__hasIsZahar()) {
+            __hasRenderSizesTab(contentContainer);
+        } else {
+            var msg = document.createElement("div");
+            msg.textContent = "Эта вкладка доступна только для Zahar_Loidov";
+            msg.style.cssText = "color:#f4f1e199;text-align:center;padding:40px 20px;font-size:13px;";
+            contentContainer.appendChild(msg);
+        }
+    }
+}
+
+function __hasRenderMainTab(container) {
+    var hud = window.interface && window.interface("Hud");
+    
+    // Статус
+    var statusBox = document.createElement("div");
+    statusBox.style.cssText = "background:rgba(210,166,94,0.1);border:1px solid #d2a65e44;border-radius:8px;padding:12px;margin-bottom:16px;";
+    
+    var statusLabel = document.createElement("div");
+    statusLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:6px;";
+    statusLabel.textContent = "Статус Hassle HUD";
+    
+    var statusValue = document.createElement("div");
+    statusValue.style.cssText = "color:#d2a65e;font-size:14px;font-weight:600;";
+    statusValue.textContent = hud && hud.__hassleForced ? "✅ Включено" : "⭕ Выключено";
+    
+    statusBox.appendChild(statusLabel);
+    statusBox.appendChild(statusValue);
+    container.appendChild(statusBox);
+    
+    // Кнопка переключения
+    var toggleBtn = document.createElement("div");
+    toggleBtn.textContent = hud && hud.__hassleForced ? "Выключить Hassle HUD" : "Включить Hassle HUD";
+    toggleBtn.style.cssText = "text-align:center;padding:12px;border-radius:8px;font-size:13px;cursor:pointer;border:2px solid #d2a65e;color:#d2a65e;font-weight:600;margin-bottom:16px;transition:all 0.2s;";
+    toggleBtn.addEventListener("mouseenter", function() {
+        toggleBtn.style.background = "#d2a65e";
+        toggleBtn.style.color = "#11151d";
+    });
+    toggleBtn.addEventListener("mouseleave", function() {
+        toggleBtn.style.background = "transparent";
+        toggleBtn.style.color = "#d2a65e";
+    });
+    toggleBtn.addEventListener("click", function() {
+        if (!hud) return;
+        __hasSetForced(hud, !hud.__hassleForced);
+        __hasRenderTabContent();
+    });
+    container.appendChild(toggleBtn);
+    
+    // Разделитель
+    var divider = document.createElement("div");
+    divider.style.cssText = "height:1px;background:#1f242e;margin:16px 0;";
+    container.appendChild(divider);
+    
+    // Пресеты
+    var presetsLabel = document.createElement("div");
+    presetsLabel.textContent = "Быстрые пресеты";
+    presetsLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:8px;";
+    container.appendChild(presetsLabel);
+    
+    var pcBtn = document.createElement("div");
+    pcBtn.textContent = "🖥 ПК размер";
+    pcBtn.style.cssText = "text-align:center;padding:10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e199;margin-bottom:8px;transition:all 0.2s;";
+    pcBtn.addEventListener("mouseenter", function() {
+        pcBtn.style.borderColor = "#d2a65e";
+        pcBtn.style.color = "#d2a65e";
+    });
+    pcBtn.addEventListener("mouseleave", function() {
+        pcBtn.style.borderColor = "#1f242e";
+        pcBtn.style.color = "#f4f1e199";
+    });
+    pcBtn.addEventListener("click", function() {
+        settings = Object.assign({}, PC_DEFAULTS, { hassleForced: settings.hassleForced, border: settings.border });
+        __hasSaveSettings();
+        __hasApplyAll();
+        __hasToast("Пресет ПК применён");
+    });
+    container.appendChild(pcBtn);
+    
+    var hassleBtn = document.createElement("div");
+    hassleBtn.textContent = "🎮 Hassle размер";
+    hassleBtn.style.cssText = "text-align:center;padding:10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#d2a65e;margin-bottom:8px;transition:all 0.2s;";
+    hassleBtn.addEventListener("mouseenter", function() {
+        hassleBtn.style.background = "#d2a65e";
+        hassleBtn.style.color = "#11151d";
+    });
+    hassleBtn.addEventListener("mouseleave", function() {
+        hassleBtn.style.background = "transparent";
+        hassleBtn.style.color = "#d2a65e";
+    });
+    hassleBtn.addEventListener("click", function() {
+        settings = Object.assign({}, DEFAULTS, { hassleForced: settings.hassleForced, border: settings.border });
+        __hasSaveSettings();
+        __hasApplyAll();
+        __hasToast("Пресет Hassle применён");
+    });
+    container.appendChild(hassleBtn);
+    
+    // Подсказки
+    var hintsBox = document.createElement("div");
+    hintsBox.style.cssText = "background:rgba(255,255,255,0.03);border-radius:6px;padding:10px;margin-top:16px;";
+    
+    var hintsTitle = document.createElement("div");
+    hintsTitle.textContent = "Команды чата:";
+    hintsTitle.style.cssText = "color:#d2a65e;font-size:11px;font-weight:600;margin-bottom:6px;";
+    
+    var hint1 = document.createElement("div");
+    hint1.innerHTML = "<code style='color:#f4f1e1;background:#1f242e;padding:2px 6px;border-radius:3px;'>/has</code> — включить/выключить Hassle HUD";
+    hint1.style.cssText = "color:#f4f1e199;font-size:11px;margin-bottom:4px;";
+    
+    var hint2 = document.createElement("div");
+    hint2.innerHTML = "<code style='color:#f4f1e1;background:#1f242e;padding:2px 6px;border-radius:3px;'>/has_s</code> — открыть это меню";
+    hint2.style.cssText = "color:#f4f1e199;font-size:11px;";
+    
+    hintsBox.appendChild(hintsTitle);
+    hintsBox.appendChild(hint1);
+    hintsBox.appendChild(hint2);
+    container.appendChild(hintsBox);
+}
+
+function __hasRenderDesignTab(container) {
+    var borderLabel = document.createElement("div");
+    borderLabel.textContent = "Бордер радара";
+    borderLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:12px;";
+    container.appendChild(borderLabel);
+    
+    var borderRow = document.createElement("div");
+    borderRow.style.cssText = "display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;";
+    
+    var borderOptions = [
+        ["default", "Обычный", "🟢"],
+        ["helloween", "Хэллоуин", "🎃"],
+        ["newyear", "Новый год", "🎄"]
+    ];
+    
     var borderButtons = [];
     borderOptions.forEach(function(opt) {
-        var btn = document.createElement("div"); btn.textContent = opt[1]; btn.dataset.value = opt[0];
-        btn.style.cssText = "flex:1 1 auto;text-align:center;padding:6px 4px;border-radius:6px;font-size:11px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e1;";
-        btn.style.background = settings.border === opt[0] ? "#d2a65e" : "transparent";
-        btn.style.color = settings.border === opt[0] ? "#11151d" : "#f4f1e1";
+        var btn = document.createElement("div");
+        btn.innerHTML = opt[2] + " " + opt[1];
+        btn.dataset.value = opt[0];
+        btn.style.cssText = "flex:1 1 auto;text-align:center;padding:12px 8px;border-radius:8px;font-size:12px;cursor:pointer;border:2px solid #1f242e;color:#f4f1e1;transition:all 0.2s;min-width:120px;";
+        
+        if (settings.border === opt[0]) {
+            btn.style.borderColor = "#d2a65e";
+            btn.style.background = "rgba(210,166,94,0.15)";
+            btn.style.color = "#d2a65e";
+            btn.style.fontWeight = "600";
+        }
+        
+        btn.addEventListener("mouseenter", function() {
+            if (settings.border !== opt[0]) {
+                btn.style.borderColor = "#d2a65e88";
+            }
+        });
+        btn.addEventListener("mouseleave", function() {
+            if (settings.border !== opt[0]) {
+                btn.style.borderColor = "#1f242e";
+            }
+        });
+        
         btn.addEventListener("click", function() {
             settings.border = opt[0];
-            borderButtons.forEach(function(b) { var active = b.dataset.value === settings.border; b.style.background = active ? "#d2a65e" : "transparent"; b.style.color = active ? "#11151d" : "#f4f1e1"; });
-            __hasApplyAll(); __hasSaveSettings();
+            borderButtons.forEach(function(b) {
+                var active = b.dataset.value === settings.border;
+                b.style.borderColor = active ? "#d2a65e" : "#1f242e";
+                b.style.background = active ? "rgba(210,166,94,0.15)" : "transparent";
+                b.style.color = active ? "#d2a65e" : "#f4f1e1";
+                b.style.fontWeight = active ? "600" : "400";
+            });
+            __hasApplyAll();
+            __hasSaveSettings();
+            __hasToast("Бордер: " + opt[1]);
         });
-        borderButtons.push(btn); borderRow.appendChild(btn);
+        
+        borderButtons.push(btn);
+        borderRow.appendChild(btn);
     });
-    colLeft.appendChild(borderRow);
-    var infoLabel = document.createElement("div"); infoLabel.textContent = "\u041f\u0440\u0430\u0432\u044b\u0439 HUD"; infoLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:12px 0 6px;"; colLeft.appendChild(infoLabel);
-    colLeft.appendChild(__hasSlider("\u0421\u043f\u0440\u0430\u0432\u0430 (vw)", "infoRight", -10, 20, 0.1));
-    colLeft.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)", "infoTop", -10, 20, 0.1));
-    colLeft.appendChild(__hasSlider("\u041c\u0430\u0441\u0448\u0442\u0430\u0431 (%)", "infoScale", 50, 200, 1));
-    function __hasRebuildPanel() { panelEl.remove(); panelEl = null; __hasBuildPanel(); __hasShowPanel(); }
-    var footer = document.createElement("div"); footer.style.cssText = "margin-top:12px;"; p.appendChild(footer);
-    var pcBtn = document.createElement("div"); pcBtn.textContent = "\u041f\u041a \u0440\u0430\u0437\u043c\u0435\u0440"; pcBtn.style.cssText = "text-align:center;padding:8px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e199;margin-top:4px;";
-    pcBtn.addEventListener("click", function() { settings = Object.assign({}, PC_DEFAULTS, { hassleForced: true }); __hasSaveSettings(); __hasApplyAll(); __hasRebuildPanel(); });
-    footer.appendChild(pcBtn);
-    var hassleBtn = document.createElement("div"); hassleBtn.textContent = "Hassle \u0440\u0430\u0437\u043c\u0435\u0440"; hassleBtn.style.cssText = "text-align:center;padding:8px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#d2a65e;margin-top:6px;";
-    hassleBtn.addEventListener("click", function() { settings = Object.assign({}, DEFAULTS, { hassleForced: true }); __hasSaveSettings(); __hasApplyAll(); __hasRebuildPanel(); });
-    footer.appendChild(hassleBtn);
-    document.body.appendChild(p); panelEl = p; return p;
+    container.appendChild(borderRow);
+    
+    // Информация
+    var infoBox = document.createElement("div");
+    infoBox.style.cssText = "background:rgba(255,255,255,0.03);border-radius:6px;padding:12px;margin-top:16px;";
+    
+    var infoTitle = document.createElement("div");
+    infoTitle.textContent = "ℹ️ О бордерах";
+    infoTitle.style.cssText = "color:#d2a65e;font-size:11px;font-weight:600;margin-bottom:8px;";
+    
+    var infoText = document.createElement("div");
+    infoText.textContent = "Бордеры меняют визуальное оформление радара в режиме Hassle HUD. Выбор сохраняется автоматически и применяется сразу.";
+    infoText.style.cssText = "color:#f4f1e199;font-size:11px;line-height:1.5;";
+    
+    infoBox.appendChild(infoTitle);
+    infoBox.appendChild(infoText);
+    container.appendChild(infoBox);
 }
-function __hasShowPanel() { __hasBuildPanel(); panelEl.style.display = "block"; window.setCursorStatus && window.setCursorStatus("HasPanel", true); }
-function __hasHidePanel() { if (panelEl) panelEl.style.display = "none"; window.setCursorStatus && window.setCursorStatus("HasPanel", false); }
-function __hasIsPanelOpen() { return !!panelEl && panelEl.style.display !== "none"; }
+
+function __hasRenderSizesTab(container) {
+    if (!__hasIsZahar()) {
+        var msg = document.createElement("div");
+        msg.textContent = "⚠️ Доступ только для Zahar_Loidov";
+        msg.style.cssText = "color:#f4f1e199;text-align:center;padding:40px 20px;font-size:13px;";
+        container.appendChild(msg);
+        return;
+    }
+    
+    // Чат
+    var chatLabel = document.createElement("div");
+    chatLabel.textContent = "📝 Чат";
+    chatLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;";
+    container.appendChild(chatLabel);
+    
+    container.appendChild(__hasSlider("Слева (vw)", "chatLeft", 0, 60, 0.1));
+    container.appendChild(__hasSlider("Сверху (vh)", "chatTop", 0, 40, 0.1));
+    container.appendChild(__hasSlider("Ширина (vw)", "chatWidth", 20, 70, 0.1));
+    container.appendChild(__hasSlider("Высота (vh)", "chatHeight", 10, 50, 0.1));
+    container.appendChild(__hasSlider("Размер шрифта", "chatFontSize", -5, 20, 1));
+    container.appendChild(__hasSlider("Смещение T ЧАТ / F1 (vh)", "controlsExtra", -25, 10, 0.1));
+    container.appendChild(__hasSlider("Отступ ГС ниже подсказок (vh)", "voiceExtra", -5, 15, 0.1));
+    
+    var divider1 = document.createElement("div");
+    divider1.style.cssText = "height:1px;background:#1f242e;margin:20px 0;";
+    container.appendChild(divider1);
+    
+    // Радар
+    var radarLabel = document.createElement("div");
+    radarLabel.textContent = "🗺 Радар";
+    radarLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;";
+    container.appendChild(radarLabel);
+    
+    container.appendChild(__hasSlider("Слева (vh)", "radarLeft", 0, 40, 0.1));
+    container.appendChild(__hasSlider("Сверху (vh)", "radarTop", 0, 40, 0.1));
+    container.appendChild(__hasSlider("Размер (vh)", "radarSize", 15, 60, 0.1));
+    
+    var divider2 = document.createElement("div");
+    divider2.style.cssText = "height:1px;background:#1f242e;margin:20px 0;";
+    container.appendChild(divider2);
+    
+    // Правый HUD
+    var infoLabel = document.createElement("div");
+    infoLabel.textContent = "ℹ️ Правый HUD";
+    infoLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;";
+    container.appendChild(infoLabel);
+    
+    container.appendChild(__hasSlider("Справа (vw)", "infoRight", -10, 20, 0.1));
+    container.appendChild(__hasSlider("Сверху (vh)", "infoTop", -10, 20, 0.1));
+    container.appendChild(__hasSlider("Масштаб (%)", "infoScale", 50, 200, 1));
+}
+
+function __hasShowPanel() {
+    __hasBuildPanel();
+    panelEl.style.display = "block";
+    window.setCursorStatus && window.setCursorStatus("HasPanel", true);
+}
+
+function __hasHidePanel() {
+    if (panelEl) panelEl.style.display = "none";
+    window.setCursorStatus && window.setCursorStatus("HasPanel", false);
+}
+
+function __hasIsPanelOpen() {
+    return !!panelEl && panelEl.style.display !== "none";
+}
 
 window.sendChatInput = function(e) {
     if (!e || typeof e !== "string") {
@@ -914,10 +1113,6 @@ window.sendChatInput = function(e) {
 
     var firstSpace = trimmed.indexOf(" ");
     var cmd = (firstSpace === -1 ? trimmed : trimmed.substring(0, firstSpace)).toLowerCase();
-
-    if ((cmd === "/has" || cmd === "/has_s") && !__hasIsAllowedNick()) {
-        return __hasOriginalSendChatInput(e);
-    }
 
     if (cmd === "/has" || cmd === "/has_s") {
         __hasEnsureSettings();
@@ -978,18 +1173,13 @@ window.setPlayerId = function(id) {
     var timer = setInterval(function() {
         tries++;
         var hud = window.interface && window.interface("Hud");
-        if (hud && __hasIsAllowedNick()) {
+        if (hud) {
             clearInterval(timer);
-            console.log("[HAS] автозапуск: HUD найден, ник разрешён");
+            console.log("[HAS] подготовка: HUD найден (автовключение отключено)");
             __hasEnsureSettings();
             __hasInjectChatStyle();
-
-            setTimeout(function() {
-                __hasCaptureChatState();
-                if (settings.hassleForced !== false) { __hasSetForced(hud, true, true); }
-            }, 500);
         } else if (tries >= maxTries) {
-            console.warn("[HAS] автозапуск: не дождались HUD/разрешённого ника");
+            console.warn("[HAS] подготовка: не дождались HUD");
             clearInterval(timer);
         }
     }, 150);
@@ -1005,4 +1195,5 @@ setInterval(function() {
     }
 }, 3000);
 
+})();
 // === END HASSLE HUD PATCH ===
