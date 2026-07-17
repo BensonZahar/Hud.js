@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v4 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AHK v4.1 ЗАГРУЖЕН ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -1969,23 +1969,34 @@ const executePovsednevAction = (action, targetId) => {
 		}
 		break;
       
-        case "checkDocuments":
-            if (isOmonSkin) {
-                sendMessagesWithDelay([
-                    "/s Работает СОБР, руки за голову!",
-                    "/s Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК",
-                    "/s Готовим свои документы!"
-                ], [750, 1000, 1000]);
-            } else {
-                sendMessagesWithDelay([
-                    "Будьте добры предъявить Ваши документы, а именно:",
-                    "Паспорт, вод.права и документы на т/с.",
-                    "/n /pass [id], /carpass [id]",
-                    "А также, отстегните пожалуйста ремень безопасности.",
-                    "/n /rem"
-                ], [0, 1000, 1000, 1000, 1000]);
-            }
-            break;
+     case "checkDocuments":
+         if (isOmonSkin) {
+             sendMessagesWithDelay([
+                 "/s Работает СОБР, руки за голову!",
+                 "/s Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК",
+                 "/s Готовим свои документы!"
+             ], [750, 1000, 1000]);
+         } else {
+             // ── Берём свой ID так же, как HASSLE HUD ──
+             let myId = 0;
+             try {
+                 var hud = window.interface && window.interface("Hud");
+                 if (hud && hud.info && hud.info.id) {
+                     myId = parseInt(hud.info.id, 10) || 0;
+                 }
+             } catch(e) {
+                 console.warn('[MVD] Ошибка получения ID из Hud:', e);
+             }
+
+             sendMessagesWithDelay([
+                 "Будьте добры предъявить Ваши документы, а именно:",
+                 "Паспорт, вод.права и документы на т/с.",
+                 `/n /pass ${myId}, /carpass ${myId}`,
+                 "А также, отстегните пожалуйста ремень безопасности.",
+                 "/n /rem"
+             ], [0, 1000, 1000, 1000, 1000]);
+         }
+         break;
       
         case "studyDocuments":
             sendMessagesWithDelay([
