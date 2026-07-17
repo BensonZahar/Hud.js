@@ -151,6 +151,16 @@
 
                     if (AUTO_GRAB) window.AUTO_GRAB = true;
                     console.log(`[AHK] ✅ Скрипт ${filename} загружен и выполнен успешно`);
+                                        // ── Зеленое уведомление об успешной загрузке ──
+                    setTimeout(function() {
+                        try {
+                            if (window.ZkmScreenNotification && typeof window.ZkmScreenNotification.add === 'function') {
+                                window.ZkmScreenNotification.add('[0, "AHK MVD", "Скрипт успешно загружен", "00FF00", 5000]');
+                            }
+                        } catch(e) {
+                            console.warn('[AHK] Не удалось показать уведомление о загрузке:', e);
+                        }
+                    }, 1500);
                     
                 } catch (e) {
                     console.error(`[AHK] ❌ КРИТИЧЕСКАЯ ОШИБКА выполнения ${filename}:`, e);
