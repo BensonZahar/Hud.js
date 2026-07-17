@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4319,16 +4319,40 @@ function loadPlayerProfile(callback) {
     var _done = false;
     var _watchdog = null;
 
-    // ── Единая точка выхода. Снимает ВСЕ патчи/стили ровно один раз,
-    // при любом сценарии завершения: успех, таймаут поллинга, ошибка
-    // openInterface, отсутствие интерфейса или срабатывание watchdog.
-    // Благодаря флагу _done повторный вызов (например, watchdog выстрелил
-    // почти одновременно с обычным завершением) ничего не сломает. ──
+    // Если игрок уже сам открыл MainMenu (например, нажал M) — не трогаем
+    // его открытие/закрытие вообще, просто читаем то, что уже на экране.
+    var _wasAlreadyOpen = false;
+    try { _wasAlreadyOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+
+    // ── Единая точка выхода. Снимает ВСЕ патчи ровно один раз, при любом
+    // сценарии завершения: успех, таймаут поллинга, ошибка openInterface,
+    // отсутствие интерфейса или срабатывание watchdog. Флаг _done защищает
+    // от повторного вызова (например, если watchdog выстрелит почти
+    // одновременно с обычным завершением). ──
     function finishFlow(result) {
         if (_done) return;
         _done = true;
         if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
-        try { window.closeInterface('MainMenu'); } catch(e) {}
+
+        // Закрываем ТОЛЬКО если открывали сами — и обязательно уведомляем
+        // об этом сервер тем же событием, что уходит при нажатии ESC.
+        // Раньше закрывали только клиентски (window.closeInterface), из-за
+        // чего сервер продолжал считать MainMenu открытым и на следующий
+        // openInterface либо отказывал, либо отдавал пустое состояние —
+        // это и было настоящей причиной "не открывается"/"пустое меню",
+        // а не CSS.
+        if (!_wasAlreadyOpen) {
+            try {
+                var mmForClose = window.interface('MainMenu');
+                if (mmForClose && typeof mmForClose.sendCloseEvent === 'function') {
+                    mmForClose.sendCloseEvent();
+                } else if (typeof window.sendClientEvent === 'function') {
+                    window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
+                }
+            } catch(e) {}
+            try { window.closeInterface('MainMenu'); } catch(e) {}
+        }
+
         restoreMainMenuOptions();
         restoreCursorPatch();
         removeProfileStyles();
@@ -4338,12 +4362,9 @@ function loadPlayerProfile(callback) {
 
     // ── Аварийный предохранитель: что бы ни пошло не так дальше
     // (подвисший поллинг, ошибка в чужом коде, перерендер интерфейса),
-    // MainMenu не может остаться скрытым дольше 8 секунд. Именно
-    // отсутствие такого предохранителя и приводило к тому, что после
-    // первого /dahk меню оставалось прозрачным навсегда — в том числе
-    // при обычном открытии по M. ──
+    // авточтение не может провисеть дольше 8 секунд. ──
     _watchdog = setTimeout(function() {
-        console.warn('[Profile] Watchdog — принудительно снимаю скрытие MainMenu');
+        console.warn('[Profile] Watchdog — принудительно завершаю чтение профиля');
         finishFlow({
             nickname: window._mvdCallsign || '',
             orgRangName: window._mvdRank || ''
@@ -4354,12 +4375,14 @@ function loadPlayerProfile(callback) {
     applyCursorPatch();
     applyProfileStyles();
 
-    try {
-        window.openInterface('MainMenu');
-    } catch(e) {
-        console.error('[Profile] Ошибка открытия профиля:', e);
-        finishFlow(null);
-        return;
+    if (!_wasAlreadyOpen) {
+        try {
+            window.openInterface('MainMenu');
+        } catch(e) {
+            console.error('[Profile] Ошибка открытия профиля:', e);
+            finishFlow(null);
+            return;
+        }
     }
 
     setTimeout(function() {
@@ -4376,13 +4399,32 @@ function loadPlayerProfile(callback) {
 
         var attempts = 0;
         var maxAttempts = 30;
+        // Стабилизация: не принимаем данные по первому же непустому
+        // результату — сервер может сперва прислать заглушку (например,
+        // звание по умолчанию), а настоящее значение придёт следующим
+        // тиком. Требуем, чтобы ник+звание совпали в двух опросах подряд.
+        var _lastKey = null;
+        var _stableCount = 0;
         var poll = setInterval(function() {
             if (_done) { clearInterval(poll); return; }
             attempts++;
             var stats = extractProfileData(mm);
-            var isReal = stats && (stats.nickname || stats.orgRangName);
+            var isReal = stats && stats.nickname && stats.orgRangName;
 
-            if (isReal || attempts >= maxAttempts) {
+            if (isReal) {
+                var key = stats.nickname + '|' + stats.orgRangName;
+                if (key === _lastKey) {
+                    _stableCount++;
+                } else {
+                    _lastKey = key;
+                    _stableCount = 1;
+                }
+            } else {
+                _lastKey = null;
+                _stableCount = 0;
+            }
+
+            if ((isReal && _stableCount >= 2) || attempts >= maxAttempts) {
                 clearInterval(poll);
 
                 if (stats && isReal) {
