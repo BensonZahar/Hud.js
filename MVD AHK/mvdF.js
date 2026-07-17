@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.099 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.11 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4179,20 +4179,155 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 // ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
 
 // ==================== ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) ====================
+// При первом открытии меню /dahk один раз считывает актуальные данные
+// персонажа (ник, звание, должность) и сохраняет их в window для использования
+// в отыгровках (приветствие, строй и т.д.).
+// Повторные /dahk используют уже сохранённые данные — мгновенное открытие.
+// Для принудительного обновления данных (например, после повышения звания)
+// напишите в чат /mmenu
 (function() {
 'use strict';
 var _fetching = false;
 
+// ── Аварийная очистка при (пере)загрузке скрипта: если предыдущий
+// экземпляр оставил "залипший" стиль (например, скрипт был перезапущен
+// посреди чтения профиля, и removeProfileStyles() не успел отработать),
+// сразу убираем его — иначе M-меню останется прозрачным навсегда,
+// а новый экземпляр IIFE о старом слое ничего не знает (свои переменные пустые).
+try {
+    var _leftoverStyle = document.getElementById('mvd-profile-styles');
+    if (_leftoverStyle && _leftoverStyle.parentNode) {
+        _leftoverStyle.parentNode.removeChild(_leftoverStyle);
+    }
+    var _leftoverOverlay = document.getElementById('mvd-profile-scan-overlay');
+    if (_leftoverOverlay && _leftoverOverlay.parentNode) {
+        _leftoverOverlay.parentNode.removeChild(_leftoverOverlay);
+    }
+} catch(e) {}
+
+// ── Сохраняем оригиналы системных функций ──
+var _origSetCursorStatus = window.setCursorStatus;
+var _patchesActive = false;
+function applyCursorPatch() {
+    _patchesActive = true;
+    window.setCursorStatus = function(name, status, allowMovement) {
+        if (_patchesActive && name === 'MainMenu') {
+            try {
+                if (typeof engine !== 'undefined' && engine.trigger) {
+                    engine.trigger("SetCursorStatus", false, true);
+                }
+            } catch(e) {}
+            return;
+        }
+        return _origSetCursorStatus.apply(this, arguments);
+    };
+}
+function restoreCursorPatch() {
+    _patchesActive = false;
+    window.setCursorStatus = _origSetCursorStatus;
+}
+
+// ── Подмена опций интерфейса для корректной работы загрузки ──
+var _origHideHud = null;
+var _origHideChat = null;
+function patchMainMenuOptions() {
+    try {
+        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+        if (!mmComp || !mmComp.options) return;
+        _origHideHud = mmComp.options.hideHud;
+        _origHideChat = mmComp.options.hideChat;
+        mmComp.options.hideHud = false;
+        mmComp.options.hideChat = false;
+    } catch(e) {}
+}
+function restoreMainMenuOptions() {
+    try {
+        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+        if (!mmComp || !mmComp.options) return;
+        if (_origHideHud !== null) mmComp.options.hideHud = _origHideHud;
+        if (_origHideChat !== null) mmComp.options.hideChat = _origHideChat;
+        _origHideHud = null;
+        _origHideChat = null;
+    } catch(e) {}
+}
+
+// ── Скрытие MainMenu на время скана. Полноэкранный div (одна из
+// прошлых версий) решал проблему "залипания", но заодно закрывал весь
+// экран, включая HUD — так быть не должно. Возвращаемся к точечному
+// скрытию именно .main-menu — по построению не может задеть HUD/чат,
+// у них другие классы, и они уже явно оставлены видимыми через
+// patchMainMenuOptions() (hideHud/hideChat = false).
+//
+// Ни "opacity", ни просто "visibility" не спасли от залипания — судя
+// по всему, дело не в CSS-переходе, а в том, что какая-то внутренняя
+// логика самого компонента (например, измерение размеров вкладок для
+// анимированной полоски под активным табом) при visibility:hidden
+// отрабатывает некорректно и оставляет компонент в поломанном
+// состоянии уже после того, как видимость возвращена.
+//
+// Поэтому вместо visibility/opacity уводим .main-menu трансформом за
+// пределы экрана. Элемент остаётся полностью "живым" с точки зрения
+// DOM — offsetWidth/getBoundingClientRect и любые внутренние измерения
+// компонента продолжают возвращать нормальные значения, просто
+// картинка физически рисуется за пределами вьюпорта. Это стандартный
+// приём именно на случай, когда visibility/opacity конфликтуют с
+// внутренней логикой компонента.
+var _styleEl = null;
+function applyProfileStyles() {
+    if (_styleEl) return;
+    _styleEl = document.createElement('style');
+    _styleEl.id = 'mvd-profile-styles';
+    _styleEl.textContent = [
+        'body .main-menu {',
+        '  transform: translateX(-200vw) !important;',
+        '  pointer-events: none !important;',
+        '}'
+    ].join('\n');
+    document.head.appendChild(_styleEl);
+}
+function removeProfileStyles() {
+    if (_styleEl && _styleEl.parentNode) {
+        _styleEl.parentNode.removeChild(_styleEl);
+    }
+    _styleEl = null;
+}
+
+// ── Извлечение данных из профиля ──
+function extractProfileData(mm) {
+    try {
+        var s = mm.statistics;
+        if (!s) return null;
+        var org  = s.organization || {};
+        var info = s.info || {};
+        var realNick = null;
+        try {
+            realNick = window.App && window.App.$store && 
+                       window.App.$store.getters['player/nickName'];
+        } catch(e) {}
+        return {
+            orgRangName: org.rangName || null,
+            nickname:    realNick || info.nickname || null,
+            fetchedAt: Date.now()
+        };
+    } catch(e) {
+        return null;
+    }
+}
+
+// ── Основная функция: считывает ОДИН РАЗ, дальше возвращает сохранённые данные ──
 function loadPlayerProfile(callback) {
     // Если данные уже загружены — НЕ открываем профиль повторно
     if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
+        console.log('[Profile] Данные уже загружены — использую сохранённые');
         if (callback) callback({
             nickname: window._mvdCallsign,
             orgRangName: window._mvdRank
         });
         return;
     }
+    
     if (_fetching) {
+        // Уже идёт загрузка — ждём завершения
         var waitPoll = setInterval(function() {
             if (!_fetching) {
                 clearInterval(waitPoll);
@@ -4206,80 +4341,103 @@ function loadPlayerProfile(callback) {
     }
     
     _fetching = true;
-    
-    // Проверяем, не открыто ли меню уже (например, игрок сам нажал M)
-    var wasAlreadyOpen = false;
-    try { wasAlreadyOpen = window.getInterfaceStatus('MainMenu'); } catch(e) {}
-    
-    if (!wasAlreadyOpen) {
-        try { window.openInterface('MainMenu'); } catch(e) {}
+    console.log('[Profile] Загрузка данных персонажа (первый раз)...');
+
+    var _done = false;
+    var _watchdog = null;
+
+    // ── Единая точка выхода. Снимает ВСЕ патчи/стили ровно один раз,
+    // при любом сценарии завершения: успех, таймаут поллинга, ошибка
+    // openInterface, отсутствие интерфейса или срабатывание watchdog.
+    // Благодаря флагу _done повторный вызов (например, watchdog выстрелил
+    // почти одновременно с обычным завершением) ничего не сломает. ──
+    function finishFlow(result) {
+        if (_done) return;
+        _done = true;
+        if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
+        try { window.closeInterface('MainMenu'); } catch(e) {}
+        restoreMainMenuOptions();
+        restoreCursorPatch();
+        removeProfileStyles();
+        _fetching = false;
+        if (callback) callback(result);
     }
-    
-    var attempts = 0;
-    var maxAttempts = 40; // 4 секунды на ответ сервера
-    
-    var poll = setInterval(function() {
-        attempts++;
+
+    // ── Аварийный предохранитель: что бы ни пошло не так дальше
+    // (подвисший поллинг, ошибка в чужом коде, перерендер интерфейса),
+    // MainMenu не может остаться скрытым дольше 8 секунд. Именно
+    // отсутствие такого предохранителя и приводило к тому, что после
+    // первого /dahk меню оставалось прозрачным навсегда — в том числе
+    // при обычном открытии по M. ──
+    _watchdog = setTimeout(function() {
+        console.warn('[Profile] Watchdog — принудительно снимаю скрытие MainMenu');
+        finishFlow({
+            nickname: window._mvdCallsign || '',
+            orgRangName: window._mvdRank || ''
+        });
+    }, 8000);
+
+    patchMainMenuOptions();
+    applyCursorPatch();
+    applyProfileStyles();
+
+    try {
+        window.openInterface('MainMenu');
+    } catch(e) {
+        console.error('[Profile] Ошибка открытия профиля:', e);
+        finishFlow(null);
+        return;
+    }
+
+    setTimeout(function() {
+        if (_done) return; // watchdog уже всё снял — дальше не лезем
         var mm = window.interface('MainMenu');
-        var stats = null;
-        
-        if (mm) {
-            try {
-                // Переключаем на вкладку статистики при первой попытке
-                if (typeof mm.selectTab === 'function' && attempts === 1) {
-                    mm.selectTab('Statistics');
-                }
-                var s = mm.statistics;
-                if (s && s.organization && s.info) {
-                    var realNick = null;
-                    try {
-                        realNick = window.App && window.App.$store &&
-                                   window.App.$store.getters['player/nickName'];
-                    } catch(e) {}
-                    
-                    var nick = realNick || s.info.nickname || null;
-                    var rang = s.organization.rangName || null;
-                    
-                    if (nick && rang) {
-                        stats = { nickname: nick, orgRangName: rang };
-                    }
-                }
-            } catch(e) {}
+        if (!mm) {
+            console.error('[Profile] Профиль не найден');
+            finishFlow(null);
+            return;
         }
-        
-        if (stats || attempts >= maxAttempts) {
-            clearInterval(poll);
-            
-            if (stats) {
-                window._mvdCallsign = stats.nickname || '';
-                window._mvdRank = stats.orgRangName || '';
-                var nickParts = (stats.nickname || '').split(/[_\s]+/);
-                window._mvdFirstName = nickParts[0] || '';
-                window._mvdLastName = nickParts[1] || '';
+        try {
+            if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
+        } catch(e) {}
+
+        var attempts = 0;
+        var maxAttempts = 30;
+        var poll = setInterval(function() {
+            if (_done) { clearInterval(poll); return; }
+            attempts++;
+            var stats = extractProfileData(mm);
+            var isReal = stats && (stats.nickname || stats.orgRangName);
+
+            if (isReal || attempts >= maxAttempts) {
+                clearInterval(poll);
+
+                if (stats && isReal) {
+                    console.log('[Profile] Данные успешно загружены:', stats);
+
+                    // Сохраняем в window НАВСЕГДА
+                    window._mvdCallsign = stats.nickname || '';
+                    window._mvdRank = stats.orgRangName || '';
+
+                    // Парсим ник на Имя и Фамилию
+                    var nickParts = (stats.nickname || '').split(/[_\s]+/);
+                    window._mvdFirstName = nickParts[0] || '';
+                    window._mvdLastName = nickParts[1] || '';
+
+                    console.log('[Profile] Запомнено: ' + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
+                } else {
+                    console.warn('[Profile] Таймаут — данные не получены');
+                }
+
+                setTimeout(function() {
+                    finishFlow({
+                        nickname: window._mvdCallsign,
+                        orgRangName: window._mvdRank
+                    });
+                }, 150);
             }
-            
-            // Закрываем меню ТОЛЬКО если мы сами его открывали
-            if (!wasAlreadyOpen) {
-                try {
-                    // КРИТИЧЕСКИ ВАЖНО: Синхронизируем закрытие с сервером!
-                    // Отправляем событие, которое обычно отправляется при нажатии ESC.
-                    if (mm && typeof mm.sendCloseEvent === 'function') {
-                        mm.sendCloseEvent();
-                    } else if (typeof window.sendClientEvent === 'function') {
-                        window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
-                    }
-                } catch(e) {}
-                
-                try { window.closeInterface('MainMenu'); } catch(e) {}
-            }
-            
-            _fetching = false;
-            if (callback) callback({
-                nickname: window._mvdCallsign,
-                orgRangName: window._mvdRank
-            });
-        }
-    }, 100);
+        }, 200);
+    }, 600);
 }
 
 // ── Команда /mmenu для принудительного обновления данных ──
@@ -4294,6 +4452,7 @@ waitForApp(function() {
         if (typeof cmd === 'string') {
             var trimmed = cmd.trim().toLowerCase();
             if (trimmed === '/mmenu') {
+                // Принудительный сброс — перечитать данные
                 window._mvdFirstName = null;
                 window._mvdLastName = null;
                 window._mvdRank = null;
@@ -4313,7 +4472,9 @@ waitForApp(function() {
         }
         return _origSendChatInput.apply(this, arguments);
     };
+    console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 });
+
 window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
 // ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
