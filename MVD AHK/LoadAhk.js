@@ -370,7 +370,7 @@ verifyAndLoad();
 })();
 })();
 // === HASSLE HUD PATCH (FIXED — chat preservation, универсальный для Hud.js и index.js) ===
-(function(){
+
 console.log("[HAS] патч запускается");
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1005,5 +1005,4 @@ setInterval(function() {
     }
 }, 3000);
 
-})();
 // === END HASSLE HUD PATCH ===
