@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4251,49 +4251,46 @@ function restoreMainMenuOptions() {
     } catch(e) {}
 }
 
-// ── Скрытие убрано полностью. Три разных способа (полноэкранный div,
-// visibility, transform) так и не дали стабильного результата — что-то
-// внутри самого компонента портится именно от программного
-// закрытия во время скрытого состояния. Раз "свап" прекрасно
-// обходится вообще без попыток что-либо прятать (только быстро
-// открывает-закрывает и патчит курсор), делаем так же и здесь:
-// MainMenu на секунду-две мелькнёт на экране во время авточтения через
-// /dahk, зато гарантированно не сломается для последующих открытий
-// по M. applyProfileStyles/removeProfileStyles оставлены как пустые
-// функции — вызовы ниже не трогаю, чтобы не переписывать finishFlow,
-// но реального эффекта они больше не производят.
-// ── Безопасное скрытие меню (не ломает offsetWidth и сетевые пакеты) ──
-function applyProfileStyles() {
-    // Страховка: удаляем стиль, если он вдруг остался от прошлого запуска
-    removeProfileStyles(); 
+// ── Безопасное скрытие меню через ИНЛАЙН-СТИЛИ (не ломает Vue Transition) ──
+// Почему инлайн, а не CSS-тег <style>?
+// MainMenu.js использует Vue Transition с name="fade" (анимация появления/
+// закрытия через opacity). CSS-правило "opacity: 0 !important" перебивает
+// эту анимацию, и когда мы удаляем <style> тег, Vue уже не может восстановить
+// нормальную opacity — меню остаётся прозрачным навсегда.
+//
+// Инлайн-стили (el.style.opacity = '0') решают проблему радикально:
+// 1) Задаём opacity: 0 напрямую DOM-элементу после его создания.
+// 2) При closeInterface() Vue УДАЛЯЕТ этот элемент из DOM вместе с инлайн-стилями.
+// 3) При следующем openInterface() Vue создаёт АБСОЛЮТНО НОВЫЙ элемент
+//    без каких-либо следов нашего вмешательства — меню открывается нормально.
+//
+// offsetWidth/offsetHeight сохраняются (элемент в DOM), store обновляется,
+// Vue Transition leave-анимация отрабатывает от 0 к 0 (незаметно для глаза).
+var _profileCheckInterval = null;
+
+function applyProfileStyles(skipHiding) {
+    removeProfileStyles();
+    if (skipHiding) return; // Меню уже открыто игроком — не трогаем его
     
-    var style = document.createElement('style');
-    style.id = 'mvd-profile-styles';
-    style.textContent = `
-        /* Скрываем само меню и всё его содержимое */
-        .main-menu.iface-container, 
-        .main-menu.iface-container * {
-            opacity: 0 !important;
-            pointer-events: none !important;
-            /* ВАЖНО: НЕ используем visibility: hidden, display: none или transform!
-               Они останавливают обновление Vuex store и ломают offsetWidth 
-               для анимации вкладок (updateTabLine), что убивает компонент. */
+    _profileCheckInterval = setInterval(function() {
+        var el = document.querySelector('.main-menu');
+        if (el) {
+            clearInterval(_profileCheckInterval);
+            _profileCheckInterval = null;
+            el.style.opacity = '0';
+            el.style.pointerEvents = 'none';
         }
-        
-        /* На всякий случай скрываем стандартный курсор игры, если он появился */
-        .cursor {
-            opacity: 0 !important;
-            pointer-events: none !important;
-        }
-    `;
-    document.head.appendChild(style);
+    }, 50);
 }
 
 function removeProfileStyles() {
-    var style = document.getElementById('mvd-profile-styles');
-    if (style && style.parentNode) {
-        style.parentNode.removeChild(style);
+    if (_profileCheckInterval) {
+        clearInterval(_profileCheckInterval);
+        _profileCheckInterval = null;
     }
+    // ВАЖНО: инлайн-стили НЕ убираем намеренно!
+    // closeInterface() удалит DOM-элемент вместе с ними.
+    // Следующее openInterface() создаст чистый элемент без инлайн-стилей.
 }
 
 // ── Извлечение данных из профиля ──
@@ -4404,7 +4401,7 @@ function loadPlayerProfile(callback) {
 
     patchMainMenuOptions();
     applyCursorPatch();
-    applyProfileStyles();
+    applyProfileStyles(_wasAlreadyOpen);
 
     if (!_wasAlreadyOpen) {
         try {
