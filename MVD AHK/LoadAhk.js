@@ -376,38 +376,6 @@ console.log("[HAS] патч запускается");
 // ═══════════════════════════════════════════════════════════════════════════════
 // УНИВЕРСАЛЬНОСТЬ (Hud.js ИЛИ index.js)
 // ═══════════════════════════════════════════════════════════════════════════════
-// Раньше скрипт работал только если его вставляли в конец Hud.js — там в
-// области видимости были локальные переменные Mu (сам компонент Hud) и o/w/h
-// (openBlock/createBlock/createCommentVNode), которые Hud.js импортирует из
-// index.js. При вставке в конец index.js эти имена либо не существуют вовсе,
-// либо (что хуже) заняты СОВСЕМ ДРУГИМИ вещами: например, в index.js "Mu" —
-// это чужая служебная функция (что-то вроде merge props), а не компонент Hud,
-// и обращение к ней напрямую тихо сломало бы патч без единой ошибки в консоли.
-//
-// Что изменилось:
-//  1) Компонент Hud теперь ищется безопасно: сначала проверяем typeof (не
-//     кидает ReferenceError на необъявленных именах), а затем проверяем, что
-//     это ПОХОЖЕ на компонент Hud (есть data()/computed/components), а не
-//     просто "переменная с именем Mu существует".
-//  2) Если компонент не нашёлся в текущей области видимости (значит, скрипт
-//     вставлен не в Hud.js) — компонент подгружается вручную через тот же
-//     динамический import("./Hud.js"), которым это делает само приложение
-//     (Hud — это лениво загружаемый чанк). Тайминг безопасен: к моменту
-//     резолва import() модуль Hud.js уже полностью выполнился и Mu создан,
-//     так что патч применяется до первого создания инстанса.
-//  3) openBlock/createBlock/createCommentVNode ищутся тем же способом: сначала
-//     под именами из Hud.js (o/w/h), а если их нет — под именами, которые эти
-//     же функции носят в index.js (Oe/Ao/sr — установлено разбором текущей
-//     сборки: Oe(e=!1){...} = openBlock, Ao(...)=>createVNode(...,!0) =
-//     createBlock, sr(e="",t=!1){...} = createCommentVNode).
-//     ⚠️ ЭТИ ИМЕНА (Oe/Ao/sr) ПРИВЯЗАНЫ К КОНКРЕТНОЙ СБОРКЕ index.js и почти
-//     наверняка изменятся после обновления игры. Если после обновления в
-//     консоли снова появится "VoiceChat-патч отключён" — надо заново найти
-//     актуальные имена (ищите в index.js функции с телом вида
-//     "e=!1)=>...push..." для openBlock и "(e,t,o,n,r)=>...!0)" для
-//     createBlock) и подставить их в __hasFindVueHelpers ниже.
-// ═══════════════════════════════════════════════════════════════════════════════
-
 function __hasLooksLikeHudComp(x) {
     return !!x && typeof x === "object" &&
         (typeof x.data === "function" || !!x.computed || !!x.components);
@@ -418,7 +386,6 @@ function __hasFindVueHelpers() {
     try { if (typeof o === "function") ob = o; } catch (e) {}
     try { if (typeof w === "function") cb = w; } catch (e) {}
     try { if (typeof h === "function") cc = h; } catch (e) {}
-    // Фолбэк для index.js текущей сборки (см. предупреждение выше)
     try { if (!ob && typeof Oe === "function") ob = Oe; } catch (e) {}
     try { if (!cb && typeof Ao === "function") cb = Ao; } catch (e) {}
     try { if (!cc && typeof sr === "function") cc = sr; } catch (e) {}
@@ -477,30 +444,12 @@ function __hasPatchHudComponent(__hasComp) {
                     var props = arguments[2] || {};
                     var dataObj = props.data;
                     if (vnode && Array.isArray(vnode.children)) {
-                        // ═══════════════════════════════════════════════════════════
-                        // ФИКС: раньше узел VoiceChat пушился в children/dynamicChildren
-                        // ТОЛЬКО когда voiceChat.show===true. Из-за этого длина и порядок
-                        // dynamicChildren "плавали" между рендерами (то есть узел, то нет),
-                        // а Vue при быстром патче (patchBlockChildren) сверяет старое и
-                        // новое дерево ПОЗИЦИОННО — рассинхрон позиций и ловил
-                        // "Cannot read properties of null (reading 'emitsOptions')" /
-                        // "...reading 'el'".
-                        //
-                        // У HudRadmir (dd/rd) точно такая же условная отрисовка VoiceChat
-                        // сделана как v-if/v-else:
-                        //   showVoice ? (o(), w(VoiceChat, {key:0,...})) : h("", !0)
-                        // т.е. на каждый рендер добавляется РОВНО один узел — либо
-                        // компонент, либо пустой комментарий-заглушка. Позиция стабильна
-                        // всегда. Повторяем этот же паттерн здесь вручную.
-                        // ═══════════════════════════════════════════════════════════
                         var showVoice = !!(dataObj && dataObj.useChat && dataObj.voiceChat && dataObj.voiceChat.show);
                         var vcNode;
                         if (showVoice) {
                             var chatFontSize = (window.App && window.App.chatFontSize) || 0;
                             var chatPageSize = (window.App && window.App.chatPageSize) || 1;
                             var chatHeightPx = (window.App && typeof window.App.vhToPx === "function") ? window.App.vhToPx(2.22 + 0.15 * chatFontSize) * chatPageSize : 0;
-                            // openBlock()+createBlock() вместо голого createVNode — так же,
-                            // как это делает сам компилятор для условных (v-if) веток с key.
                             o();
                             vcNode = w(__hasVoiceChatComp, {
                                 key: 0,
@@ -511,8 +460,6 @@ function __hasPatchHudComponent(__hasComp) {
                                 isTransparent: window.isOpenedChat ? window.isOpenedChat() : false
                             }, null, 8, ["entries", "chatHeightPx", "isHudControls", "isShowButtons", "isTransparent"]);
                         } else {
-                            // Плейсхолдер — держит позицию в массиве стабильной,
-                            // когда VoiceChat скрыт (ровно как h("",!0) у Radmir).
                             vcNode = h("", true);
                         }
                         vnode.children.push(vcNode);
@@ -527,29 +474,12 @@ function __hasPatchHudComponent(__hasComp) {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════════════════════
-    // ФИКС: предотвращаем пересоздание чата при переключении isHassleHud
-    // ═══════════════════════════════════════════════════════════════════════════════
-    //
-    // В шаблоне Hud чат рендерится внутри Fragment с разными key:
-    //   isHassleHud=true  → Fragment key:3
-    //   isHassleHud=false → Fragment key:2
-    // Vue видит разные ключи и уничтожает старый компонент чата, создавая новый.
-    // Новый компонент имеет пустой messages:[] — все сообщения теряются.
-    //
-    // Решение: патчим Mu.render, чтобы Fragment-обёртка чата использовала
-    // фиксированный ключ. Тогда Vue переиспользует тот же инстанс компонента,
-    // и сообщения не теряются.
-    // ═══════════════════════════════════════════════════════════════════════════════
-
     var FRAGMENT_SYM = Symbol.for("v-fgt");
 
     function __hasFixChatFragmentKey(vnode) {
         if (!vnode) return;
 
-        // Проверяем, является ли vnode Fragment с key:2 или key:3
         if (vnode.type === FRAGMENT_SYM && (vnode.key === 2 || vnode.key === 3)) {
-            // Проверяем, содержит ли children компонент с ref:"chat"
             if (vnode.children && vnode.children.length > 0) {
                 var hasChatRef = false;
                 for (var i = 0; i < vnode.children.length; i++) {
@@ -560,13 +490,11 @@ function __hasPatchHudComponent(__hasComp) {
                     }
                 }
                 if (hasChatRef) {
-                    // Фиксируем ключ — Vue будет переиспользовать инстанс
                     vnode.key = "__has_chat_fixed__";
                 }
             }
         }
 
-        // Рекурсивно обходим children
         if (vnode.children && Array.isArray(vnode.children)) {
             for (var j = 0; j < vnode.children.length; j++) {
                 __hasFixChatFragmentKey(vnode.children[j]);
@@ -589,20 +517,13 @@ function __hasPatchHudComponent(__hasComp) {
     }
 }
 
-// ─── Точка входа: скрипт может лежать в конце Hud.js ИЛИ в конце index.js ───
 (function __hasInitCompPatch() {
     var comp = null;
     try { if (typeof Mu !== "undefined" && __hasLooksLikeHudComp(Mu)) comp = Mu; } catch (e) {}
 
     if (comp) {
-        // Мы в Hud.js — Mu уже в области видимости, патчим синхронно (как раньше).
         __hasPatchHudComponent(comp);
     } else {
-        // Мы не в Hud.js (например, в index.js) — Mu не виден напрямую (а если
-        // переменная с именем Mu вообще существует в этой области видимости,
-        // это, скорее всего, что-то другое — см. __hasLooksLikeHudComp выше).
-        // Hud — лениво загружаемый чанк, подгружаем его сами тем же import(),
-        // которым это делает приложение.
         console.log("[HAS] Mu не найден/не похож на компонент Hud в этой области видимости — подгружаю чанк Hud.js вручную");
         import("./Hud.js").then(function(mod) {
             var loadedComp = mod && mod.default;
@@ -616,11 +537,6 @@ function __hasPatchHudComponent(__hasComp) {
         });
     }
 })();
-
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// FALLBACK: сохранение/восстановление состояния чата
-// ═══════════════════════════════════════════════════════════════════════════════
 
 var __mvdChatAddFn = null;
 var __mvdChatMessages = null;
@@ -647,7 +563,6 @@ function __hasRestoreChatState() {
         if (hud && hud.$refs && hud.$refs.chat) {
             var chat = hud.$refs.chat;
             if (chat !== __mvdChatInst) {
-                // Новый инстанс — восстанавливаем .add() и messages
                 if (__mvdChatAddFn) {
                     chat.add = __mvdChatAddFn;
                 }
@@ -664,26 +579,22 @@ function __hasRestoreChatState() {
     }
 }
 
-var ALLOWED_NICKS = ["Zahar_Konstov", "Fura_Loidov"];
-function __hasGetOwnNick() {
-    try { var n = window.App && window.App.$store && window.App.$store.getters && window.App.$store.getters['player/nickName']; return n; }
-    catch (e) { console.warn("[HAS] ошибка получения ника", e); return null; }
-}
+// Проверка по нику убрана — доступно всем
 function __hasIsAllowedNick() {
-    var nick = __hasGetOwnNick();
-    return !!nick && ALLOWED_NICKS.indexOf(nick) !== -1;
+    return true;
 }
 
+// Автовключение (autoEnable) отключено во всех профилях
 var NICK_PROFILES = {
-    "Zahar_Loidov": { autoEnable: true,  border: "default" },
+    "Zahar_Loidov": { autoEnable: false, border: "default" },
     "Fura_Loidov":  { autoEnable: false, border: "default" }
 };
-var DEFAULT_PROFILE = { autoEnable: true, border: "default" };
+var DEFAULT_PROFILE = { autoEnable: false, border: "default" };
 function __hasGetNickProfile(nick) { return NICK_PROFILES[nick] || DEFAULT_PROFILE; }
 
 var DEFAULTS = { chatLeft: 21.53, chatTop: 5.92, chatWidth: 45.89, chatHeight: 26.2, chatFontSize: 6, radarLeft: 6.67, radarTop: 6.57, radarSize: 35.8, infoRight: -1.82, infoTop: -4.35, infoScale: 100, voiceExtra: 7, controlsExtra: -7, border: "default" };
 var PC_DEFAULTS = { chatLeft: 21.53, chatTop: 5.92, chatWidth: 45.89, chatHeight: 23.0, chatFontSize: 1, radarLeft: 6.67, radarTop: 6.57, radarSize: 30.8, infoRight: -1.82, infoTop: -1, infoScale: 75, voiceExtra: 7, controlsExtra: -7, border: "default" };
-var settings = Object.assign({}, PC_DEFAULTS, { hassleForced: true });
+var settings = Object.assign({}, PC_DEFAULTS, { hassleForced: false });
 var __hasSettingsNick = null;
 
 var __hasOriginalSendChatInput = window.sendChatInput;
@@ -713,6 +624,10 @@ function __hasEnsureSettings() {
         console.log("[HAS] настройки загружены для ника", nick, settings);
     }
     return settings;
+}
+function __hasGetOwnNick() {
+    try { var n = window.App && window.App.$store && window.App.$store.getters && window.App.$store.getters['player/nickName']; return n; }
+    catch (e) { console.warn("[HAS] ошибка получения ника", e); return null; }
 }
 function __hasSaveSettings() {
     try {
@@ -801,7 +716,6 @@ function __hasApplyToHud() {
 function __hasApplyAll() { __hasApplyCSSVars(); __hasApplyToHud(); }
 
 function __hasSetForced(hud, val, silent) {
-    // Сохраняем состояние чата ПЕРЕД переключением
     __hasCaptureChatState();
 
     hud.__hassleForced = val; settings.hassleForced = val;
@@ -814,7 +728,6 @@ function __hasSetForced(hud, val, silent) {
     }
     __hasSaveSettings();
 
-    // Восстанавливаем состояние чата ПОСЛЕ Vue re-render (fallback)
     setTimeout(__hasRestoreChatState, 100);
     setTimeout(__hasRestoreChatState, 300);
     setTimeout(__hasRestoreChatState, 600);
@@ -891,10 +804,10 @@ function __hasBuildPanel() {
     function __hasRebuildPanel() { panelEl.remove(); panelEl = null; __hasBuildPanel(); __hasShowPanel(); }
     var footer = document.createElement("div"); footer.style.cssText = "margin-top:12px;"; p.appendChild(footer);
     var pcBtn = document.createElement("div"); pcBtn.textContent = "\u041f\u041a \u0440\u0430\u0437\u043c\u0435\u0440"; pcBtn.style.cssText = "text-align:center;padding:8px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e199;margin-top:4px;";
-    pcBtn.addEventListener("click", function() { settings = Object.assign({}, PC_DEFAULTS, { hassleForced: true }); __hasSaveSettings(); __hasApplyAll(); __hasRebuildPanel(); });
+    pcBtn.addEventListener("click", function() { settings = Object.assign({}, PC_DEFAULTS, { hassleForced: settings.hassleForced }); __hasSaveSettings(); __hasApplyAll(); __hasRebuildPanel(); });
     footer.appendChild(pcBtn);
     var hassleBtn = document.createElement("div"); hassleBtn.textContent = "Hassle \u0440\u0430\u0437\u043c\u0435\u0440"; hassleBtn.style.cssText = "text-align:center;padding:8px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#d2a65e;margin-top:6px;";
-    hassleBtn.addEventListener("click", function() { settings = Object.assign({}, DEFAULTS, { hassleForced: true }); __hasSaveSettings(); __hasApplyAll(); __hasRebuildPanel(); });
+    hassleBtn.addEventListener("click", function() { settings = Object.assign({}, DEFAULTS, { hassleForced: settings.hassleForced }); __hasSaveSettings(); __hasApplyAll(); __hasRebuildPanel(); });
     footer.appendChild(hassleBtn);
     document.body.appendChild(p); panelEl = p; return p;
 }
@@ -914,10 +827,6 @@ window.sendChatInput = function(e) {
 
     var firstSpace = trimmed.indexOf(" ");
     var cmd = (firstSpace === -1 ? trimmed : trimmed.substring(0, firstSpace)).toLowerCase();
-
-    if ((cmd === "/has" || cmd === "/has_s") && !__hasIsAllowedNick()) {
-        return __hasOriginalSendChatInput(e);
-    }
 
     if (cmd === "/has" || cmd === "/has_s") {
         __hasEnsureSettings();
@@ -973,23 +882,19 @@ window.setPlayerId = function(id) {
     if (hud) hud.info.id = parseInt(id) || 0;
 };
 
+// АВТОЗАПУСК ОТКЛЮЧЕН: теперь скрипт только подготавливает настройки и CSS, не включая сам Hassle HUD
 (function __hasAutoInit() {
     var tries = 0, maxTries = 200;
     var timer = setInterval(function() {
         tries++;
         var hud = window.interface && window.interface("Hud");
-        if (hud && __hasIsAllowedNick()) {
+        if (hud) {
             clearInterval(timer);
-            console.log("[HAS] автозапуск: HUD найден, ник разрешён");
+            console.log("[HAS] подготовка: HUD найден (автовключение отключено)");
             __hasEnsureSettings();
             __hasInjectChatStyle();
-
-            setTimeout(function() {
-                __hasCaptureChatState();
-                if (settings.hassleForced !== false) { __hasSetForced(hud, true, true); }
-            }, 500);
         } else if (tries >= maxTries) {
-            console.warn("[HAS] автозапуск: не дождались HUD/разрешённого ника");
+            console.warn("[HAS] подготовка: не дождались HUD");
             clearInterval(timer);
         }
     }, 150);
