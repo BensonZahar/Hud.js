@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.0 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4262,8 +4262,39 @@ function restoreMainMenuOptions() {
 // по M. applyProfileStyles/removeProfileStyles оставлены как пустые
 // функции — вызовы ниже не трогаю, чтобы не переписывать finishFlow,
 // но реального эффекта они больше не производят.
-function applyProfileStyles() {}
-function removeProfileStyles() {}
+// ── Безопасное скрытие меню (не ломает offsetWidth и сетевые пакеты) ──
+function applyProfileStyles() {
+    // Страховка: удаляем стиль, если он вдруг остался от прошлого запуска
+    removeProfileStyles(); 
+    
+    var style = document.createElement('style');
+    style.id = 'mvd-profile-styles';
+    style.textContent = `
+        /* Скрываем само меню и всё его содержимое */
+        .main-menu.iface-container, 
+        .main-menu.iface-container * {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            /* ВАЖНО: НЕ используем visibility: hidden, display: none или transform!
+               Они останавливают обновление Vuex store и ломают offsetWidth 
+               для анимации вкладок (updateTabLine), что убивает компонент. */
+        }
+        
+        /* На всякий случай скрываем стандартный курсор игры, если он появился */
+        .cursor {
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+function removeProfileStyles() {
+    var style = document.getElementById('mvd-profile-styles');
+    if (style && style.parentNode) {
+        style.parentNode.removeChild(style);
+    }
+}
 
 // ── Извлечение данных из профиля ──
 function extractProfileData(mm) {
