@@ -1988,35 +1988,38 @@ const executePovsednevAction = (action, targetId) => {
                  "/s Готовим свои документы!"
              ], [750, 1000, 1000]);
          } else {
-             // ── Принудительно запрашиваем ID у сервера ──
-             try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
-
-             // Даём серверу 400мс на ответ, потом читаем ID и отправляем команды
-             setTimeout(function() {
-                 let myId = 0;
-                 try {
-                     var hud = window.interface && window.interface("Hud");
-                     if (hud && hud.info && hud.info.id) {
-                         myId = parseInt(hud.info.id, 10) || 0;
-                     }
-                 } catch(e) {}
-
-                 if (myId === 0) {
-                     // Fallback: пробуем перечитать ещё раз
-                     try {
-                         var hud2 = window.interface && window.interface("Hud");
-                         if (hud2 && hud2.info) myId = hud2.info.id || 0;
-                     } catch(e2) {}
+             // ── Определяем скины ГУВД ──
+             const guvdSkins = [190, 148, 15341, 15342, 15343, 15344, 15348, 15351];
+             const isGuvdSkin = guvdSkins.includes(skinId);
+             
+             // ── Получаем свой ID (как в HASSLE HUD) ──
+             let myId = 0;
+             try {
+                 const hud = window.interface && window.interface("Hud");
+                 if (hud && hud.info && hud.info.id) {
+                     myId = parseInt(hud.info.id, 10) || 0;
                  }
-
+             } catch(e) {
+                 console.warn('[MVD] Ошибка получения ID из Hud:', e);
+             }
+             
+             if (isGuvdSkin) {
+                 // ── ГУВД: только паспорт, без прав и ремня ──
+                 sendMessagesWithDelay([
+                     "Будьте добры предъявить Ваши документы, а именно:",
+                     "Паспорт.",
+                     `/n /pass ${myId}`
+                 ], [0, 1000, 1000]);
+             } else {
+                 // ── Остальные скины: полный комплект (паспорт + права + документы на т/с + ремень) ──
                  sendMessagesWithDelay([
                      "Будьте добры предъявить Ваши документы, а именно:",
                      "Паспорт, вод.права и документы на т/с.",
-                     "/n /pass " + myId + ", /carpass " + myId,
+                     `/n /pass ${myId}, /carpass ${myId}`,
                      "А также, отстегните пожалуйста ремень безопасности.",
                      "/n /rem"
                  ], [0, 1000, 1000, 1000, 1000]);
-             }, 400);
+             }
          }
          break;
       
