@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v3 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v4 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4521,9 +4521,9 @@ waitForApp(function() {
 window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
 // ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
-// === HASSLE HUD PATCH (instance-level, работает из eval mvdF.js) ===
+// === HASSLE HUD UI (mvdF.js — работает в паре с компонентным патчем из LoadAhk.js) ===
 (function(){
-console.log("[HAS] патч запускается (instance-level mode)");
+console.log("[HAS-UI] патч запускается");
 
 var STORAGE_KEY = "hassle_hud_settings";
 
@@ -4533,13 +4533,6 @@ function __hasGetOwnNick() {
 }
 function __hasIsZahar() { return __hasGetOwnNick() === "Zahar_Konstov"; }
 
-var NICK_PROFILES = {
-    "Zahar_Konstov": { autoEnable: false, border: "default" },
-    "Fura_Loidov":   { autoEnable: false, border: "default" }
-};
-var DEFAULT_PROFILE = { autoEnable: false, border: "default" };
-function __hasGetNickProfile(nick) { return NICK_PROFILES[nick] || DEFAULT_PROFILE; }
-
 var DEFAULTS = { chatLeft: 21.53, chatTop: 5.92, chatWidth: 45.89, chatHeight: 26.2, chatFontSize: 6, radarLeft: 6.67, radarTop: 6.57, radarSize: 35.8, infoRight: -1.82, infoTop: -4.35, infoScale: 100, voiceExtra: 7, controlsExtra: -7, border: "default" };
 var PC_DEFAULTS = { chatLeft: 21.53, chatTop: 5.92, chatWidth: 45.89, chatHeight: 23.0, chatFontSize: 1, radarLeft: 6.67, radarTop: 6.57, radarSize: 30.8, infoRight: -1.82, infoTop: -1, infoScale: 75, voiceExtra: 7, controlsExtra: -7, border: "default" };
 var settings = Object.assign({}, PC_DEFAULTS, { hassleForced: false });
@@ -4547,8 +4540,7 @@ var __hasSettingsNick = null;
 
 function __hasStorageKeyFor(nick) { return STORAGE_KEY + "::" + nick; }
 function __hasLoadSettingsForNick(nick) {
-    var profile = __hasGetNickProfile(nick);
-    var nickDefaults = Object.assign({}, PC_DEFAULTS, { hassleForced: profile.autoEnable, border: profile.border });
+    var nickDefaults = Object.assign({}, PC_DEFAULTS, { hassleForced: false, border: "default" });
     try {
         var raw = localStorage.getItem(__hasStorageKeyFor(nick));
         if (!raw) {
@@ -4564,7 +4556,7 @@ function __hasEnsureSettings() {
     if (nick && nick !== __hasSettingsNick) {
         __hasSettingsNick = nick;
         settings = __hasLoadSettingsForNick(nick);
-        console.log("[HAS] настройки загружены для ника", nick, settings);
+        console.log("[HAS-UI] настройки загружены для ника", nick);
     }
     return settings;
 }
@@ -4572,9 +4564,12 @@ function __hasSaveSettings() {
     try {
         var key = __hasSettingsNick ? __hasStorageKeyFor(__hasSettingsNick) : STORAGE_KEY;
         localStorage.setItem(key, JSON.stringify(settings));
-    } catch (e) { console.warn("[HAS] ошибка сохранения настроек", e); }
+    } catch (e) { console.warn("[HAS-UI] ошибка сохранения настроек", e); }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// СОХРАНЕНИЕ / ВОССТАНОВЛЕНИЕ ЧАТА
+// ═══════════════════════════════════════════════════════════════
 var __mvdChatAddFn = null;
 var __mvdChatMessages = null;
 var __mvdChatInst = null;
@@ -4590,6 +4585,7 @@ function __hasCaptureChatState() {
         }
     } catch (e) {}
 }
+
 function __hasRestoreChatState() {
     try {
         var hud = window.interface && window.interface("Hud");
@@ -4602,14 +4598,18 @@ function __hasRestoreChatState() {
                     if (chat.$forceUpdate) chat.$forceUpdate();
                 }
                 __mvdChatInst = chat;
+                console.log("[HAS-UI] ✅ chat state восстановлен");
             }
         }
     } catch (e) {}
 }
 
+// ═══════════════════════════════════════════════════════════════
+// UI ХЕЛПЕРЫ
+// ═══════════════════════════════════════════════════════════════
 function __hasToast(text) {
     var el = document.createElement("div"); el.textContent = text;
-    el.style.cssText = "position:fixed;top:12vh;left:50%;transform:translateX(-50%) translateY(-6px);background:rgba(17,21,29,0.92);color:#d2a65e;border:1px solid #1f242e;border-radius:8px;padding:10px 18px;font:600 14px/1.3 Open Sans,sans-serif;z-index:999999;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.4);opacity:0;transition:opacity .2s,transform .2s;";
+    el.style.cssText = "position:fixed;top:12vh;left:50%;transform:translateX(-50%) translateY(-6px);background:rgba(17,21,29,0.92);color:#d2a65e;border:1px solid #1f242e;border-radius:8px;padding:10px 18px;font:600 14px/1.3 Open Sans,var(--fallback-font),sans-serif;z-index:999999;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.4);opacity:0;transition:opacity .2s,transform .2s;";
     document.body.appendChild(el);
     requestAnimationFrame(function() { el.style.opacity = "1"; el.style.transform = "translateX(-50%) translateY(0)"; });
     setTimeout(function() { el.style.opacity = "0"; el.style.transform = "translateX(-50%) translateY(-6px)"; setTimeout(function() { el.remove(); }, 250); }, 1800);
@@ -4674,80 +4674,55 @@ function __hasApplyToHud() {
     window.App.chatFontSize = settings.chatFontSize;
     hud.isHelloween = settings.border === "helloween";
     hud.isNewYear = settings.border === "newyear";
+    // Включаем VoiceChat и кнопки управления на инстансе
     if (hud.voiceChat) {
         hud.voiceChat.show = true;
         hud.voiceChat.showButtons = true;
     }
+    hud.isHudControls = true;
+    hud.canChatFadeout = true;
+    hud.useChatAnimation = true;
 }
+
 function __hasApplyAll() { __hasApplyCSSVars(); __hasApplyToHud(); }
 
+// ═══════════════════════════════════════════════════════════════
+// ГЛАВНОЕ: переключение __hassleForced на инстансе
+// Компонентный патч в LoadAhk.js уже переопределил computed.isHassleHud
+// чтобы он читал это поле. Здесь мы просто его переключаем.
+// ═══════════════════════════════════════════════════════════════
 function __hasSetForced(hud, val, silent) {
     __hasCaptureChatState();
-    hud.__hassleForced = !!val; settings.hassleForced = !!val;
+    hud.__hassleForced = !!val;
+    settings.hassleForced = !!val;
     document.body.classList.toggle("__has-chat-hassle-pos", !!val);
-    if (val) { __hasApplyAll(); window.updatePlayerList && window.updatePlayerList(); }
-    else {
-        window.App.chatFontSize = 0; hud.isHelloween = false; hud.isNewYear = false;
+    console.log("[HAS-UI] __hassleForced = ", val, "| body class: ", document.body.classList.contains("__has-chat-hassle-pos"));
+    if (val) {
+        __hasApplyAll();
+        window.updatePlayerList && window.updatePlayerList();
+    } else {
+        window.App.chatFontSize = 0;
+        hud.isHelloween = false;
+        hud.isNewYear = false;
         if (!silent) __hasHidePanel();
     }
     __hasSaveSettings();
+    // Force update чтобы Vue пересчитал computed.isHassleHud
     if (hud.$forceUpdate) hud.$forceUpdate();
     setTimeout(__hasRestoreChatState, 100);
     setTimeout(__hasRestoreChatState, 300);
     setTimeout(__hasRestoreChatState, 600);
 }
 
-function __hasPatchLiveInstance(hud) {
-    if (!hud || hud.__hasPatched) return false;
-    hud.__hasPatched = true;
-    if (typeof hud.__hassleForced === "undefined") {
-        hud.__hassleForced = false;
-    }
-    try {
-        Object.defineProperty(hud, 'isHassleHud', {
-            get: function() { return !!this.__hassleForced; },
-            set: function(v) { this.__hassleForced = !!v; },
-            configurable: true,
-            enumerable: true
-        });
-        console.log("[HAS] ✅ computed.isHassleHud переопределён на инстансе");
-    } catch(e) {
-        console.warn("[HAS] не удалось переопределить isHassleHud:", e);
-    }
-    try {
-        var HudComp = hud.$options && hud.$options.components;
-        if (HudComp && HudComp.RadmirChat) {
-            var rc = HudComp.RadmirChat;
-            if (rc.props) {
-                if (rc.props.isHudControls) rc.props.isHudControls.default = true;
-                if (rc.props.canChatFadeout) rc.props.canChatFadeout.default = true;
-                if (rc.props.useChatAnimation) rc.props.useChatAnimation.default = true;
-            }
-            HudComp.Chat = rc;
-            console.log("[HAS] ✅ Chat подменён на RadmirChat");
-        }
-    } catch(e) { console.warn("[HAS] подмена Chat не удалась:", e); }
-    try {
-        if (hud.$data && hud.$data.voiceChat) {
-            hud.$data.voiceChat.show = true;
-            hud.$data.voiceChat.showButtons = true;
-        }
-        if (hud.$data && hud.$data.useChat !== undefined) {
-            hud.$data.useChat = true;
-        }
-    } catch(e) {}
-    if (hud.$forceUpdate) {
-        setTimeout(function() { hud.$forceUpdate(); }, 100);
-    }
-    return true;
-}
-
+// ═══════════════════════════════════════════════════════════════
+// ПАНЕЛЬ НАСТРОЕК (3 вкладки)
+// ═══════════════════════════════════════════════════════════════
 var panelEl = null;
 var __hasActiveTab = "main";
 
 function __hasSlider(label, key, min, max, step) {
     var row = document.createElement("div"); row.style.cssText = "margin-bottom:10px;";
-    var top = document.createElement("div"); top.style.cssText = "display:flex;justify-content:space-between;color:#f4f1e1;font-size:12px;margin-bottom:4px;";
+    var top = document.createElement("div"); top.style.cssText = "display:flex;justify-content:space-between;color:#f4f1e1;font-size:12px;margin-bottom:4px;font-family:Open Sans,var(--fallback-font),sans-serif;";
     var lbl = document.createElement("span"); lbl.textContent = label;
     var val = document.createElement("span"); val.textContent = settings[key]; val.style.color = "#d2a65e";
     top.appendChild(lbl); top.appendChild(val);
@@ -4760,7 +4735,7 @@ function __hasSlider(label, key, min, max, step) {
 function __hasBuildPanel() {
     if (panelEl) { __hasRenderTabContent(); return panelEl; }
     var p = document.createElement("div");
-    p.style.cssText = "position:fixed;top:8vh;right:1.5vw;width:580px;max-height:88vh;overflow-y:auto;overflow-x:hidden;background:rgba(17,21,29,0.95);border:1px solid #1f242e;border-radius:10px;padding:14px;z-index:999998;box-shadow:0 8px 24px rgba(0,0,0,0.5);display:none;";
+    p.style.cssText = "position:fixed;top:8vh;right:1.5vw;width:580px;max-height:88vh;overflow-y:auto;overflow-x:hidden;background:rgba(17,21,29,0.95);border:1px solid #1f242e;border-radius:10px;padding:14px;z-index:999998;box-shadow:0 8px 24px rgba(0,0,0,0.5);font-family:Open Sans,var(--fallback-font),sans-serif;display:none;";
     var header = document.createElement("div"); header.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;";
     var title = document.createElement("div"); title.textContent = "HASSLE HUD"; title.style.cssText = "color:#d2a65e;font-weight:700;font-size:13px;letter-spacing:0.5px;";
     var closeBtn = document.createElement("div"); closeBtn.textContent = "\u2715"; closeBtn.style.cssText = "color:#f4f1e199;cursor:pointer;font-size:14px;padding:2px 6px;";
@@ -4769,11 +4744,11 @@ function __hasBuildPanel() {
     var tabsContainer = document.createElement("div");
     tabsContainer.style.cssText = "display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid #1f242e;padding-bottom:8px;";
     var tabs = [
-        { id: "main", label: "🎛 Основное" },
-        { id: "design", label: "🎨 Дизайн" }
+        { id: "main", label: "\u{1F39B} \u041E\u0441\u043D\u043E\u0432\u043D\u043E\u0435" },
+        { id: "design", label: "\u{1F3A8} \u0414\u0438\u0437\u0430\u0439\u043D" }
     ];
     if (__hasIsZahar()) {
-        tabs.push({ id: "sizes", label: "📏 Размеры" });
+        tabs.push({ id: "sizes", label: "\u{1F4CF} \u0420\u0430\u0437\u043C\u0435\u0440\u044B" });
     }
     var tabButtons = {};
     tabs.forEach(function(tab) {
@@ -4814,13 +4789,16 @@ function __hasRenderTabContent() {
             btn.style.borderColor = "transparent"; btn.style.fontWeight = "400";
         }
     });
-    if (__hasActiveTab === "main") __hasRenderMainTab(contentContainer);
-    else if (__hasActiveTab === "design") __hasRenderDesignTab(contentContainer);
-    else if (__hasActiveTab === "sizes") {
-        if (__hasIsZahar()) __hasRenderSizesTab(contentContainer);
-        else {
+    if (__hasActiveTab === "main") {
+        __hasRenderMainTab(contentContainer);
+    } else if (__hasActiveTab === "design") {
+        __hasRenderDesignTab(contentContainer);
+    } else if (__hasActiveTab === "sizes") {
+        if (__hasIsZahar()) {
+            __hasRenderSizesTab(contentContainer);
+        } else {
             var msg = document.createElement("div");
-            msg.textContent = "Эта вкладка доступна только для Zahar_Konstov";
+            msg.textContent = "\u042D\u0442\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430 \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F Zahar_Konstov";
             msg.style.cssText = "color:#f4f1e199;text-align:center;padding:40px 20px;font-size:13px;";
             contentContainer.appendChild(msg);
         }
@@ -4833,48 +4811,54 @@ function __hasRenderMainTab(container) {
     statusBox.style.cssText = "background:rgba(210,166,94,0.1);border:1px solid #d2a65e44;border-radius:8px;padding:12px;margin-bottom:16px;";
     var statusLabel = document.createElement("div");
     statusLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:6px;";
-    statusLabel.textContent = "Статус Hassle HUD";
+    statusLabel.textContent = "\u0421\u0442\u0430\u0442\u0443\u0441 Hassle HUD";
     var statusValue = document.createElement("div");
     statusValue.style.cssText = "color:#d2a65e;font-size:14px;font-weight:600;";
-    statusValue.textContent = hud && hud.__hassleForced ? "✅ Включено" : "⭕ Выключено";
+    statusValue.textContent = hud && hud.__hassleForced ? "\u2705 \u0412\u043A\u043B\u044E\u0447\u0435\u043D\u043E" : "\u2B55 \u0412\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u043E";
     statusBox.appendChild(statusLabel); statusBox.appendChild(statusValue); container.appendChild(statusBox);
     var toggleBtn = document.createElement("div");
-    toggleBtn.textContent = hud && hud.__hassleForced ? "Выключить Hassle HUD" : "Включить Hassle HUD";
+    toggleBtn.textContent = hud && hud.__hassleForced ? "\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C Hassle HUD" : "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C Hassle HUD";
     toggleBtn.style.cssText = "text-align:center;padding:12px;border-radius:8px;font-size:13px;cursor:pointer;border:2px solid #d2a65e;color:#d2a65e;font-weight:600;margin-bottom:16px;transition:all 0.2s;";
     toggleBtn.addEventListener("mouseenter", function() { toggleBtn.style.background = "#d2a65e"; toggleBtn.style.color = "#11151d"; });
     toggleBtn.addEventListener("mouseleave", function() { toggleBtn.style.background = "transparent"; toggleBtn.style.color = "#d2a65e"; });
     toggleBtn.addEventListener("click", function() { if (!hud) return; __hasSetForced(hud, !hud.__hassleForced); __hasRenderTabContent(); });
     container.appendChild(toggleBtn);
     var divider = document.createElement("div"); divider.style.cssText = "height:1px;background:#1f242e;margin:16px 0;"; container.appendChild(divider);
-    var presetsLabel = document.createElement("div"); presetsLabel.textContent = "Быстрые пресеты"; presetsLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:8px;"; container.appendChild(presetsLabel);
-    var pcBtn = document.createElement("div"); pcBtn.textContent = "🖥 ПК размер";
-    pcBtn.style.cssText = "text-align:center;padding:10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e199;margin-bottom:8px;";
-    pcBtn.addEventListener("click", function() { settings = Object.assign({}, PC_DEFAULTS, { hassleForced: settings.hassleForced, border: settings.border }); __hasSaveSettings(); __hasApplyAll(); __hasToast("Пресет ПК применён"); });
+    var presetsLabel = document.createElement("div"); presetsLabel.textContent = "\u0411\u044B\u0441\u0442\u0440\u044B\u0435 \u043F\u0440\u0435\u0441\u0435\u0442\u044B"; presetsLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:8px;"; container.appendChild(presetsLabel);
+    var pcBtn = document.createElement("div"); pcBtn.textContent = "\u{1F5A5} \u041F\u041A \u0440\u0430\u0437\u043C\u0435\u0440";
+    pcBtn.style.cssText = "text-align:center;padding:10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e199;margin-bottom:8px;transition:all 0.2s;";
+    pcBtn.addEventListener("mouseenter", function() { pcBtn.style.borderColor = "#d2a65e"; pcBtn.style.color = "#d2a65e"; });
+    pcBtn.addEventListener("mouseleave", function() { pcBtn.style.borderColor = "#1f242e"; pcBtn.style.color = "#f4f1e199"; });
+    pcBtn.addEventListener("click", function() { settings = Object.assign({}, PC_DEFAULTS, { hassleForced: settings.hassleForced, border: settings.border }); __hasSaveSettings(); __hasApplyAll(); __hasToast("\u041F\u0440\u0435\u0441\u0435\u0442 \u041F\u041A \u043F\u0440\u0438\u043C\u0435\u043D\u0451\u043D"); });
     container.appendChild(pcBtn);
-    var hassleBtn = document.createElement("div"); hassleBtn.textContent = "🎮 Hassle размер";
-    hassleBtn.style.cssText = "text-align:center;padding:10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#d2a65e;margin-bottom:8px;";
-    hassleBtn.addEventListener("click", function() { settings = Object.assign({}, DEFAULTS, { hassleForced: settings.hassleForced, border: settings.border }); __hasSaveSettings(); __hasApplyAll(); __hasToast("Пресет Hassle применён"); });
+    var hassleBtn = document.createElement("div"); hassleBtn.textContent = "\u{1F3AE} Hassle \u0440\u0430\u0437\u043C\u0435\u0440";
+    hassleBtn.style.cssText = "text-align:center;padding:10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#d2a65e;margin-bottom:8px;transition:all 0.2s;";
+    hassleBtn.addEventListener("mouseenter", function() { hassleBtn.style.background = "#d2a65e"; hassleBtn.style.color = "#11151d"; });
+    hassleBtn.addEventListener("mouseleave", function() { hassleBtn.style.background = "transparent"; hassleBtn.style.color = "#d2a65e"; });
+    hassleBtn.addEventListener("click", function() { settings = Object.assign({}, DEFAULTS, { hassleForced: settings.hassleForced, border: settings.border }); __hasSaveSettings(); __hasApplyAll(); __hasToast("\u041F\u0440\u0435\u0441\u0435\u0442 Hassle \u043F\u0440\u0438\u043C\u0435\u043D\u0451\u043D"); });
     container.appendChild(hassleBtn);
     var hintsBox = document.createElement("div"); hintsBox.style.cssText = "background:rgba(255,255,255,0.03);border-radius:6px;padding:10px;margin-top:16px;";
-    var hintsTitle = document.createElement("div"); hintsTitle.textContent = "Команды чата:"; hintsTitle.style.cssText = "color:#d2a65e;font-size:11px;font-weight:600;margin-bottom:6px;";
-    var hint1 = document.createElement("div"); hint1.innerHTML = "<code style='color:#f4f1e1;background:#1f242e;padding:2px 6px;border-radius:3px;'>/has</code> — включить/выключить Hassle HUD"; hint1.style.cssText = "color:#f4f1e199;font-size:11px;margin-bottom:4px;";
-    var hint2 = document.createElement("div"); hint2.innerHTML = "<code style='color:#f4f1e1;background:#1f242e;padding:2px 6px;border-radius:3px;'>/has_s</code> — открыть это меню"; hint2.style.cssText = "color:#f4f1e199;font-size:11px;";
+    var hintsTitle = document.createElement("div"); hintsTitle.textContent = "\u041A\u043E\u043C\u0430\u043D\u0434\u044B \u0447\u0430\u0442\u0430:"; hintsTitle.style.cssText = "color:#d2a65e;font-size:11px;font-weight:600;margin-bottom:6px;";
+    var hint1 = document.createElement("div"); hint1.innerHTML = "<code style='color:#f4f1e1;background:#1f242e;padding:2px 6px;border-radius:3px;'>/has</code> \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C/\u0432\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C Hassle HUD"; hint1.style.cssText = "color:#f4f1e199;font-size:11px;margin-bottom:4px;";
+    var hint2 = document.createElement("div"); hint2.innerHTML = "<code style='color:#f4f1e1;background:#1f242e;padding:2px 6px;border-radius:3px;'>/has_s</code> \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u044D\u0442\u043E \u043C\u0435\u043D\u044E"; hint2.style.cssText = "color:#f4f1e199;font-size:11px;";
     hintsBox.appendChild(hintsTitle); hintsBox.appendChild(hint1); hintsBox.appendChild(hint2); container.appendChild(hintsBox);
 }
 
 function __hasRenderDesignTab(container) {
-    var borderLabel = document.createElement("div"); borderLabel.textContent = "Бордер радара"; borderLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:12px;"; container.appendChild(borderLabel);
+    var borderLabel = document.createElement("div"); borderLabel.textContent = "\u0411\u043E\u0440\u0434\u0435\u0440 \u0440\u0430\u0434\u0430\u0440\u0430"; borderLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:12px;"; container.appendChild(borderLabel);
     var borderRow = document.createElement("div"); borderRow.style.cssText = "display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;";
-    var borderOptions = [["default", "Обычный", "🟢"], ["helloween", "Хэллоуин", "🎃"], ["newyear", "Новый год", "🎄"]];
+    var borderOptions = [["default", "\u041E\u0431\u044B\u0447\u043D\u044B\u0439", "\u{1F7E2}"], ["helloween", "\u0425\u044D\u043B\u043B\u043E\u0443\u0438\u043D", "\u{1F383}"], ["newyear", "\u041D\u043E\u0432\u044B\u0439 \u0433\u043E\u0434", "\u{1F384}"]];
     var borderButtons = [];
     borderOptions.forEach(function(opt) {
         var btn = document.createElement("div"); btn.innerHTML = opt[2] + " " + opt[1]; btn.dataset.value = opt[0];
         btn.style.cssText = "flex:1 1 auto;text-align:center;padding:12px 8px;border-radius:8px;font-size:12px;cursor:pointer;border:2px solid #1f242e;color:#f4f1e1;transition:all 0.2s;min-width:120px;";
         if (settings.border === opt[0]) { btn.style.borderColor = "#d2a65e"; btn.style.background = "rgba(210,166,94,0.15)"; btn.style.color = "#d2a65e"; btn.style.fontWeight = "600"; }
+        btn.addEventListener("mouseenter", function() { if (settings.border !== opt[0]) btn.style.borderColor = "#d2a65e88"; });
+        btn.addEventListener("mouseleave", function() { if (settings.border !== opt[0]) btn.style.borderColor = "#1f242e"; });
         btn.addEventListener("click", function() {
             settings.border = opt[0];
             borderButtons.forEach(function(b) { var active = b.dataset.value === settings.border; b.style.borderColor = active ? "#d2a65e" : "#1f242e"; b.style.background = active ? "rgba(210,166,94,0.15)" : "transparent"; b.style.color = active ? "#d2a65e" : "#f4f1e1"; b.style.fontWeight = active ? "600" : "400"; });
-            __hasApplyAll(); __hasSaveSettings(); __hasToast("Бордер: " + opt[1]);
+            __hasApplyAll(); __hasSaveSettings(); __hasToast("\u0411\u043E\u0440\u0434\u0435\u0440: " + opt[1]);
         });
         borderButtons.push(btn); borderRow.appendChild(btn);
     });
@@ -4883,36 +4867,35 @@ function __hasRenderDesignTab(container) {
 
 function __hasRenderSizesTab(container) {
     if (!__hasIsZahar()) {
-        var msg = document.createElement("div");
-        msg.textContent = "⚠️ Доступ только для Zahar_Konstov";
-        msg.style.cssText = "color:#f4f1e199;text-align:center;padding:40px 20px;font-size:13px;";
-        container.appendChild(msg);
-        return;
+        var msg = document.createElement("div"); msg.textContent = "\u26A0\uFE0F \u0414\u043E\u0441\u0442\u0443\u043F \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F Zahar_Konstov"; msg.style.cssText = "color:#f4f1e199;text-align:center;padding:40px 20px;font-size:13px;"; container.appendChild(msg); return;
     }
-    var chatLabel = document.createElement("div"); chatLabel.textContent = "📝 Чат"; chatLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;"; container.appendChild(chatLabel);
-    container.appendChild(__hasSlider("Слева (vw)", "chatLeft", 0, 60, 0.1));
-    container.appendChild(__hasSlider("Сверху (vh)", "chatTop", 0, 40, 0.1));
-    container.appendChild(__hasSlider("Ширина (vw)", "chatWidth", 20, 70, 0.1));
-    container.appendChild(__hasSlider("Высота (vh)", "chatHeight", 10, 50, 0.1));
-    container.appendChild(__hasSlider("Размер шрифта", "chatFontSize", -5, 20, 1));
-    container.appendChild(__hasSlider("Смещение T ЧАТ / F1 (vh)", "controlsExtra", -25, 10, 0.1));
-    container.appendChild(__hasSlider("Отступ ГС ниже подсказок (vh)", "voiceExtra", -5, 15, 0.1));
+    var chatLabel = document.createElement("div"); chatLabel.textContent = "\u{1F4DD} \u0427\u0430\u0442"; chatLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;"; container.appendChild(chatLabel);
+    container.appendChild(__hasSlider("\u0421\u043B\u0435\u0432\u0430 (vw)", "chatLeft", 0, 60, 0.1));
+    container.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)", "chatTop", 0, 40, 0.1));
+    container.appendChild(__hasSlider("\u0428\u0438\u0440\u0438\u043D\u0430 (vw)", "chatWidth", 20, 70, 0.1));
+    container.appendChild(__hasSlider("\u0412\u044B\u0441\u043E\u0442\u0430 (vh)", "chatHeight", 10, 50, 0.1));
+    container.appendChild(__hasSlider("\u0420\u0430\u0437\u043C\u0435\u0440 \u0448\u0440\u0438\u0444\u0442\u0430", "chatFontSize", -5, 20, 1));
+    container.appendChild(__hasSlider("\u0421\u043C\u0435\u0449\u0435\u043D\u0438\u0435 T \u0427\u0410\u0422 / F1 (vh)", "controlsExtra", -25, 10, 0.1));
+    container.appendChild(__hasSlider("\u041E\u0442\u0441\u0442\u0443\u043F \u0413\u0421 \u043D\u0438\u0436\u0435 \u043F\u043E\u0434\u0441\u043A\u0430\u0437\u043E\u043A (vh)", "voiceExtra", -5, 15, 0.1));
     var divider1 = document.createElement("div"); divider1.style.cssText = "height:1px;background:#1f242e;margin:20px 0;"; container.appendChild(divider1);
-    var radarLabel = document.createElement("div"); radarLabel.textContent = "🗺 Радар"; radarLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;"; container.appendChild(radarLabel);
-    container.appendChild(__hasSlider("Слева (vh)", "radarLeft", 0, 40, 0.1));
-    container.appendChild(__hasSlider("Сверху (vh)", "radarTop", 0, 40, 0.1));
-    container.appendChild(__hasSlider("Размер (vh)", "radarSize", 15, 60, 0.1));
+    var radarLabel = document.createElement("div"); radarLabel.textContent = "\u{1F5FA} \u0420\u0430\u0434\u0430\u0440"; radarLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;"; container.appendChild(radarLabel);
+    container.appendChild(__hasSlider("\u0421\u043B\u0435\u0432\u0430 (vh)", "radarLeft", 0, 40, 0.1));
+    container.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)", "radarTop", 0, 40, 0.1));
+    container.appendChild(__hasSlider("\u0420\u0430\u0437\u043C\u0435\u0440 (vh)", "radarSize", 15, 60, 0.1));
     var divider2 = document.createElement("div"); divider2.style.cssText = "height:1px;background:#1f242e;margin:20px 0;"; container.appendChild(divider2);
-    var infoLabel = document.createElement("div"); infoLabel.textContent = "ℹ️ Правый HUD"; infoLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;"; container.appendChild(infoLabel);
-    container.appendChild(__hasSlider("Справа (vw)", "infoRight", -10, 20, 0.1));
-    container.appendChild(__hasSlider("Сверху (vh)", "infoTop", -10, 20, 0.1));
-    container.appendChild(__hasSlider("Масштаб (%)", "infoScale", 50, 200, 1));
+    var infoLabel = document.createElement("div"); infoLabel.textContent = "\u2139\uFE0F \u041F\u0440\u0430\u0432\u044B\u0439 HUD"; infoLabel.style.cssText = "color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;"; container.appendChild(infoLabel);
+    container.appendChild(__hasSlider("\u0421\u043F\u0440\u0430\u0432\u0430 (vw)", "infoRight", -10, 20, 0.1));
+    container.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)", "infoTop", -10, 20, 0.1));
+    container.appendChild(__hasSlider("\u041C\u0430\u0441\u0448\u0442\u0430\u0431 (%)", "infoScale", 50, 200, 1));
 }
 
 function __hasShowPanel() { __hasBuildPanel(); panelEl.style.display = "block"; window.setCursorStatus && window.setCursorStatus("HasPanel", true); }
 function __hasHidePanel() { if (panelEl) panelEl.style.display = "none"; window.setCursorStatus && window.setCursorStatus("HasPanel", false); }
 function __hasIsPanelOpen() { return !!panelEl && panelEl.style.display !== "none"; }
 
+// ═══════════════════════════════════════════════════════════════
+// КОМАНДЫ /has и /has_s
+// ═══════════════════════════════════════════════════════════════
 var __hasOriginalSendChatInput = window.sendChatInput;
 window.sendChatInput = function(e) {
     if (!e || typeof e !== "string") return __hasOriginalSendChatInput(e);
@@ -4923,14 +4906,14 @@ window.sendChatInput = function(e) {
     if (cmd === "/has" || cmd === "/has_s") __hasEnsureSettings();
     if (cmd === "/has") {
         var hud = window.interface && window.interface("Hud");
-        if (!hud) { __hasToast("HASSLE: HUD не инициализирован"); return; }
+        if (!hud) { __hasToast("HASSLE: HUD \u043D\u0435 \u0438\u043D\u0438\u0446\u0438\u0430\u043B\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D"); return; }
         __hasInjectChatStyle();
         __hasSetForced(hud, !hud.__hassleForced);
-        __hasToast(hud.__hassleForced ? "HASSLE HUD: включен" : "HASSLE HUD: выключен");
+        __hasToast(hud.__hassleForced ? "HASSLE HUD: \u0432\u043A\u043B\u044E\u0447\u0435\u043D" : "HASSLE HUD: \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D");
         return;
     } else if (cmd === "/has_s") {
         var hud = window.interface && window.interface("Hud");
-        if (!hud) { __hasToast("HASSLE: HUD не инициализирован"); return; }
+        if (!hud) { __hasToast("HASSLE: HUD \u043D\u0435 \u0438\u043D\u0438\u0446\u0438\u0430\u043B\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D"); return; }
         __hasInjectChatStyle();
         if (!hud.__hassleForced) __hasSetForced(hud, true, true);
         if (__hasIsPanelOpen()) __hasHidePanel(); else __hasShowPanel();
@@ -4939,6 +4922,9 @@ window.sendChatInput = function(e) {
     return __hasOriginalSendChatInput(e);
 };
 
+// ═══════════════════════════════════════════════════════════════
+// ХУКИ
+// ═══════════════════════════════════════════════════════════════
 var __hasOriginalOnUpdatePlayersList = window.onUpdatePlayersList;
 window.onUpdatePlayersList = function(e) {
     try {
@@ -4962,6 +4948,9 @@ window.setPlayerId = function(id) {
     if (hud) hud.info.id = parseInt(id) || 0;
 };
 
+// ═══════════════════════════════════════════════════════════════
+// АВТО-ИНИЦИАЛИЗАЦИЯ (без автовключения)
+// ═══════════════════════════════════════════════════════════════
 (function __hasAutoInit() {
     var tries = 0, maxTries = 200;
     var timer = setInterval(function() {
@@ -4969,24 +4958,25 @@ window.setPlayerId = function(id) {
         var hud = window.interface && window.interface("Hud");
         if (hud) {
             clearInterval(timer);
-            __hasPatchLiveInstance(hud);
             __hasEnsureSettings();
             __hasInjectChatStyle();
-            console.log("[HAS] ✅ подготовка завершена (автовключение отключено, используйте /has)");
+            console.log("[HAS-UI] \u2705 \u0433\u043E\u0442\u043E\u0432 (\u0430\u0432\u0442\u043E\u0432\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043E\u0442\u043A\u043B\u044E\u0447\u0435\u043D\u043E, \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 /has)");
         } else if (tries >= maxTries) {
             clearInterval(timer);
         }
     }, 150);
 })();
 
+// Восстановление чата при пересоздании инстанса
 setInterval(function() {
     var hud = window.interface && window.interface("Hud");
     if (hud && hud.$refs && hud.$refs.chat && __mvdChatAddFn) {
         if (hud.$refs.chat !== __mvdChatInst) {
+            console.log("[HAS-UI] \u26A0\uFE0F \u041D\u043E\u0432\u044B\u0439 \u0438\u043D\u0441\u0442\u0430\u043D\u0441 \u0447\u0430\u0442\u0430 \u2014 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u0430\u0432\u043B\u0438\u0432\u0430\u0435\u043C state");
             __hasRestoreChatState();
         }
     }
 }, 3000);
 
 })();
-// === END HASSLE HUD PATCH ===
+// === END HASSLE HUD UI ===
