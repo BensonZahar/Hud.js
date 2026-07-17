@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AK v2.9999 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
+console.log("[INIT] === MVD AK v2.9 ЗАГРУЖЕН (SWAP: хоткей из LoadAhk/установщика) ===");
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Рядовой": "[Р]",
@@ -4521,3 +4521,328 @@ waitForApp(function() {
 window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
 // ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
+// === HASSLE HUD UI (commands, CSS, panel, settings) ===
+(function(){
+console.log("[HAS-UI] Инициализация UI...");
+
+var STORAGE_KEY = "hassle_hud_settings";
+
+function __hasGetOwnNick() {
+    try { return window.App && window.App.$store && window.App.$store.getters && window.App.$store.getters['player/nickName']; }
+    catch (e) { return null; }
+}
+function __hasIsZahar() { return __hasGetOwnNick() === "Zahar_Loidov"; }
+
+var DEFAULTS = { chatLeft:21.53,chatTop:5.92,chatWidth:45.89,chatHeight:26.2,chatFontSize:6,radarLeft:6.67,radarTop:6.57,radarSize:35.8,infoRight:-1.82,infoTop:-4.35,infoScale:100,voiceExtra:7,controlsExtra:-7,border:"default" };
+var PC_DEFAULTS = { chatLeft:21.53,chatTop:5.92,chatWidth:45.89,chatHeight:23.0,chatFontSize:1,radarLeft:6.67,radarTop:6.57,radarSize:30.8,infoRight:-1.82,infoTop:-1,infoScale:75,voiceExtra:7,controlsExtra:-7,border:"default" };
+var settings = Object.assign({}, PC_DEFAULTS, { hassleForced: false });
+var __hasSettingsNick = null;
+
+function __hasStorageKeyFor(nick) { return STORAGE_KEY + "::" + nick; }
+function __hasLoadSettingsForNick(nick) {
+    var nd = Object.assign({}, PC_DEFAULTS, { hassleForced: false, border: "default" });
+    try {
+        var raw = localStorage.getItem(__hasStorageKeyFor(nick));
+        if (!raw) { var leg = localStorage.getItem(STORAGE_KEY); if (leg) { try { return Object.assign({}, nd, JSON.parse(leg)); } catch(e){} } return nd; }
+        return Object.assign({}, nd, JSON.parse(raw));
+    } catch(e) { return nd; }
+}
+function __hasEnsureSettings() {
+    var nick = __hasGetOwnNick();
+    if (nick && nick !== __hasSettingsNick) { __hasSettingsNick = nick; settings = __hasLoadSettingsForNick(nick); }
+    return settings;
+}
+function __hasSaveSettings() {
+    try { var k = __hasSettingsNick ? __hasStorageKeyFor(__hasSettingsNick) : STORAGE_KEY; localStorage.setItem(k, JSON.stringify(settings)); } catch(e){}
+}
+
+// Chat state preservation
+var __mvdChatAddFn = null, __mvdChatMessages = null, __mvdChatInst = null;
+function __hasCaptureChatState() {
+    try {
+        var hud = window.interface && window.interface("Hud");
+        if (hud && hud.$refs && hud.$refs.chat) {
+            var chat = hud.$refs.chat;
+            __mvdChatAddFn = chat.add;
+            __mvdChatMessages = chat.messages ? chat.messages.slice() : [];
+            __mvdChatInst = chat;
+        }
+    } catch(e){}
+}
+function __hasRestoreChatState() {
+    try {
+        var hud = window.interface && window.interface("Hud");
+        if (hud && hud.$refs && hud.$refs.chat) {
+            var chat = hud.$refs.chat;
+            if (chat !== __mvdChatInst) {
+                if (__mvdChatAddFn) chat.add = __mvdChatAddFn;
+                if (__mvdChatMessages && __mvdChatMessages.length > 0) { chat.messages = __mvdChatMessages; if (chat.$forceUpdate) chat.$forceUpdate(); }
+                __mvdChatInst = chat;
+            }
+        }
+    } catch(e){}
+}
+
+function __hasToast(text) {
+    var el = document.createElement("div"); el.textContent = text;
+    el.style.cssText = "position:fixed;top:12vh;left:50%;transform:translateX(-50%) translateY(-6px);background:rgba(17,21,29,0.92);color:#d2a65e;border:1px solid #1f242e;border-radius:8px;padding:10px 18px;font:600 14px/1.3 Open Sans,sans-serif;z-index:999999;pointer-events:none;box-shadow:0 4px 16px rgba(0,0,0,0.4);opacity:0;transition:opacity .2s,transform .2s;";
+    document.body.appendChild(el);
+    requestAnimationFrame(function(){ el.style.opacity="1"; el.style.transform="translateX(-50%) translateY(0)"; });
+    setTimeout(function(){ el.style.opacity="0"; el.style.transform="translateX(-50%) translateY(-6px)"; setTimeout(function(){ el.remove(); },250); },1800);
+}
+
+function __hasInjectChatStyle() {
+    if (document.getElementById("__has-chat-style")) return;
+    var style = document.createElement("style"); style.id = "__has-chat-style";
+    style.textContent =
+        "body.__has-chat-hassle-pos .radmir-chat{left:var(--has-chat-left)!important;top:var(--has-chat-top)!important;width:var(--has-chat-width)!important;}" +
+        "body.__has-chat-hassle-pos .radmir-chat__messages{width:var(--has-chat-width)!important;height:var(--has-chat-height)!important;}" +
+        "body.__has-chat-hassle-pos .radmir-chat-input{width:var(--has-chat-width)!important;}" +
+        "body.__has-chat-hassle-pos .radmir-chat-input__input{border-top:0!important;}" +
+        "body.__has-chat-hassle-pos .radmir-chat__before{background:linear-gradient(180deg,#1414149e 33.5%,#14141400)!important;height:71.85vh!important;}" +
+        "body.__has-chat-hassle-pos .radmir-chat_opened .radmir-chat__before{opacity:1!important;}" +
+        "body.__has-chat-hassle-pos .radmir-chat__controls{top:var(--has-chat-controls-top)!important;transform:scale(var(--has-chat-controls-scale))!important;transform-origin:left top!important;z-index:50!important;}" +
+        "body.__has-chat-hassle-pos .hud-hassle-radar{left:var(--has-radar-left)!important;top:var(--has-radar-top)!important;}" +
+        "body.__has-chat-hassle-pos .hud-hassle-radar__map{transform:scale(var(--has-radar-scale))!important;opacity:1!important;visibility:visible!important;}" +
+        "body.__has-chat-hassle-pos .hud-radmir-radar{left:var(--has-radar-left)!important;top:var(--has-radar-top)!important;bottom:auto!important;}" +
+        "body.__has-chat-hassle-pos .hud-radmir-radar__map{transform:scale(var(--has-radar-scale))!important;opacity:1!important;visibility:visible!important;}" +
+        "body.__has-chat-hassle-pos .hud-hassle-info{right:var(--has-info-right)!important;top:var(--has-info-top)!important;transform:scale(var(--has-info-scale))!important;}" +
+        "body.__has-chat-hassle-pos .hud-radmir-info{right:var(--has-info-right)!important;top:var(--has-info-top)!important;transform:scale(var(--has-info-scale))!important;}" +
+        "body.__has-chat-hassle-pos .voice-chat{left:var(--has-voicechat-left)!important;top:var(--has-voicechat-top)!important;margin-top:0!important;z-index:50!important;visibility:visible!important;opacity:1!important;}" +
+        "body.__has-chat-hassle-pos .hud-hassle-controls__joystick,body.__has-chat-hassle-pos .hud-hassle-controls__pedals,body.__has-chat-hassle-pos .hud-hassle-controls__buttons,body.__has-chat-hassle-pos .hud-hassle-controls__threangel,body.__has-chat-hassle-pos .hud-hassle-controls-right_top,body.__has-chat-hassle-pos .hud-hassle-controls-right_bottom,body.__has-chat-hassle-pos .hud-hassle-controls__close,body.__has-chat-hassle-pos .hud-hassle-speedometer__controls,body.__has-chat-hassle-pos .hud-hassle-radar .mobile-button,body.__has-chat-hassle-pos .mobile-button{display:none!important;pointer-events:none!important;}";
+    document.head.appendChild(style);
+}
+
+function __hasApplyCSSVars() {
+    var r = document.documentElement.style;
+    r.setProperty("--has-chat-left", settings.chatLeft + "vw");
+    r.setProperty("--has-chat-top", settings.chatTop + "vh");
+    r.setProperty("--has-chat-width", settings.chatWidth + "vw");
+    r.setProperty("--has-chat-height", settings.chatHeight + "vh");
+    r.setProperty("--has-radar-left", settings.radarLeft + "vh");
+    r.setProperty("--has-radar-top", settings.radarTop + "vh");
+    r.setProperty("--has-radar-scale", (settings.radarSize / DEFAULTS.radarSize).toFixed(4));
+    r.setProperty("--has-info-right", settings.infoRight + "vw");
+    r.setProperty("--has-info-top", settings.infoTop + "vh");
+    r.setProperty("--has-info-scale", (settings.infoScale / 100).toFixed(4));
+    var cs = 1 + settings.chatFontSize * 0.045;
+    var ct = settings.chatTop + settings.chatHeight + 1.2 + (settings.controlsExtra || 0);
+    r.setProperty("--has-chat-controls-top", ct + "vh");
+    r.setProperty("--has-chat-controls-scale", cs.toFixed(3));
+    var vt = ct + 3 * cs + 1 + (settings.voiceExtra || 0);
+    r.setProperty("--has-voicechat-left", settings.chatLeft + "vw");
+    r.setProperty("--has-voicechat-top", vt + "vh");
+}
+
+function __hasApplyToHud() {
+    var hud = window.interface && window.interface("Hud");
+    if (!hud) return;
+    window.App.chatFontSize = settings.chatFontSize;
+    hud.isHelloween = settings.border === "helloween";
+    hud.isNewYear = settings.border === "newyear";
+    if (hud.voiceChat) { hud.voiceChat.show = true; hud.voiceChat.showButtons = true; }
+}
+function __hasApplyAll() { __hasApplyCSSVars(); __hasApplyToHud(); }
+
+function __hasSetForced(hud, val, silent) {
+    __hasCaptureChatState();
+    hud.__hassleForced = !!val; settings.hassleForced = !!val;
+    document.body.classList.toggle("__has-chat-hassle-pos", !!val);
+    if (val) { __hasApplyAll(); window.updatePlayerList && window.updatePlayerList(); }
+    else { window.App.chatFontSize = 0; hud.isHelloween = false; hud.isNewYear = false; if (!silent) __hasHidePanel(); }
+    __hasSaveSettings();
+    if (hud.$forceUpdate) hud.$forceUpdate();
+    setTimeout(__hasRestoreChatState, 100);
+    setTimeout(__hasRestoreChatState, 300);
+    setTimeout(__hasRestoreChatState, 600);
+}
+
+// Panel
+var panelEl = null, __hasActiveTab = "main";
+function __hasSlider(label, key, min, max, step) {
+    var row = document.createElement("div"); row.style.cssText = "margin-bottom:10px;";
+    var top = document.createElement("div"); top.style.cssText = "display:flex;justify-content:space-between;color:#f4f1e1;font-size:12px;margin-bottom:4px;";
+    var lbl = document.createElement("span"); lbl.textContent = label;
+    var val = document.createElement("span"); val.textContent = settings[key]; val.style.color = "#d2a65e";
+    top.appendChild(lbl); top.appendChild(val);
+    var input = document.createElement("input"); input.type = "range"; input.min = min; input.max = max; input.step = step; input.value = settings[key];
+    input.style.cssText = "width:100%;accent-color:#d2a65e;";
+    input.addEventListener("input", function(){ settings[key] = parseFloat(input.value); val.textContent = settings[key]; __hasApplyAll(); __hasSaveSettings(); });
+    row.appendChild(top); row.appendChild(input); return row;
+}
+
+function __hasBuildPanel() {
+    if (panelEl) { __hasRenderTabContent(); return panelEl; }
+    var p = document.createElement("div");
+    p.style.cssText = "position:fixed;top:8vh;right:1.5vw;width:580px;max-height:88vh;overflow-y:auto;overflow-x:hidden;background:rgba(17,21,29,0.95);border:1px solid #1f242e;border-radius:10px;padding:14px;z-index:999998;box-shadow:0 8px 24px rgba(0,0,0,0.5);display:none;";
+    var header = document.createElement("div"); header.style.cssText = "display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;";
+    var title = document.createElement("div"); title.textContent = "HASSLE HUD"; title.style.cssText = "color:#d2a65e;font-weight:700;font-size:13px;";
+    var closeBtn = document.createElement("div"); closeBtn.textContent = "\u2715"; closeBtn.style.cssText = "color:#f4f1e199;cursor:pointer;font-size:14px;padding:2px 6px;";
+    closeBtn.addEventListener("click", function(){ __hasHidePanel(); });
+    header.appendChild(title); header.appendChild(closeBtn); p.appendChild(header);
+    var tabsC = document.createElement("div"); tabsC.style.cssText = "display:flex;gap:4px;margin-bottom:16px;border-bottom:1px solid #1f242e;padding-bottom:8px;";
+    var tabs = [{id:"main",label:"\u{1F39B} \u041E\u0441\u043D\u043E\u0432\u043D\u043E\u0435"},{id:"design",label:"\u{1F3A8} \u0414\u0438\u0437\u0430\u0439\u043D"}];
+    if (__hasIsZahar()) tabs.push({id:"sizes",label:"\u{1F4CF} \u0420\u0430\u0437\u043C\u0435\u0440\u044B"});
+    var tabBtns = {};
+    tabs.forEach(function(tab){
+        var btn = document.createElement("div"); btn.textContent = tab.label; btn.dataset.tab = tab.id;
+        btn.style.cssText = "flex:1;text-align:center;padding:8px 12px;border-radius:6px 6px 0 0;font-size:12px;cursor:pointer;border:1px solid transparent;color:#f4f1e199;";
+        btn.addEventListener("click", function(){ __hasActiveTab = tab.id; __hasRenderTabContent(); });
+        tabsC.appendChild(btn); tabBtns[tab.id] = btn;
+    });
+    p.appendChild(tabsC);
+    var cc = document.createElement("div"); cc.style.cssText = "min-height:400px;"; p.appendChild(cc);
+    document.body.appendChild(p); panelEl = p; panelEl.__tabButtons = tabBtns; panelEl.__contentContainer = cc;
+    __hasRenderTabContent(); return p;
+}
+
+function __hasRenderTabContent() {
+    if (!panelEl) return;
+    var cc = panelEl.__contentContainer; cc.innerHTML = "";
+    Object.keys(panelEl.__tabButtons).forEach(function(id){
+        var b = panelEl.__tabButtons[id];
+        if (id === __hasActiveTab) { b.style.background="#d2a65e"; b.style.color="#11151d"; b.style.borderColor="#d2a65e"; b.style.fontWeight="600"; }
+        else { b.style.background="transparent"; b.style.color="#f4f1e199"; b.style.borderColor="transparent"; b.style.fontWeight="400"; }
+    });
+    if (__hasActiveTab === "main") __hasRenderMainTab(cc);
+    else if (__hasActiveTab === "design") __hasRenderDesignTab(cc);
+    else if (__hasActiveTab === "sizes") {
+        if (__hasIsZahar()) __hasRenderSizesTab(cc);
+        else { var m=document.createElement("div"); m.textContent="\u042D\u0442\u0430 \u0432\u043A\u043B\u0430\u0434\u043A\u0430 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430 \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F Zahar_Loidov"; m.style.cssText="color:#f4f1e199;text-align:center;padding:40px 20px;font-size:13px;"; cc.appendChild(m); }
+    }
+}
+
+function __hasRenderMainTab(c) {
+    var hud = window.interface && window.interface("Hud");
+    var sb=document.createElement("div"); sb.style.cssText="background:rgba(210,166,94,0.1);border:1px solid #d2a65e44;border-radius:8px;padding:12px;margin-bottom:16px;";
+    var sl=document.createElement("div"); sl.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:6px;"; sl.textContent="\u0421\u0442\u0430\u0442\u0443\u0441 Hassle HUD";
+    var sv=document.createElement("div"); sv.style.cssText="color:#d2a65e;font-size:14px;font-weight:600;"; sv.textContent=hud&&hud.__hassleForced?"\u2705 \u0412\u043A\u043B\u044E\u0447\u0435\u043D\u043E":"\u2B55 \u0412\u044B\u043A\u043B\u044E\u0447\u0435\u043D\u043E";
+    sb.appendChild(sl); sb.appendChild(sv); c.appendChild(sb);
+    var tb=document.createElement("div"); tb.textContent=hud&&hud.__hassleForced?"\u0412\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C Hassle HUD":"\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u044C Hassle HUD";
+    tb.style.cssText="text-align:center;padding:12px;border-radius:8px;font-size:13px;cursor:pointer;border:2px solid #d2a65e;color:#d2a65e;font-weight:600;margin-bottom:16px;";
+    tb.addEventListener("click", function(){ if(!hud) return; __hasSetForced(hud,!hud.__hassleForced); __hasRenderTabContent(); });
+    c.appendChild(tb);
+    var dv=document.createElement("div"); dv.style.cssText="height:1px;background:#1f242e;margin:16px 0;"; c.appendChild(dv);
+    var pl=document.createElement("div"); pl.textContent="\u0411\u044B\u0441\u0442\u0440\u044B\u0435 \u043F\u0440\u0435\u0441\u0435\u0442\u044B"; pl.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:8px;"; c.appendChild(pl);
+    var pb=document.createElement("div"); pb.textContent="\u{1F5A5} \u041F\u041A \u0440\u0430\u0437\u043C\u0435\u0440";
+    pb.style.cssText="text-align:center;padding:10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#f4f1e199;margin-bottom:8px;";
+    pb.addEventListener("click", function(){ settings=Object.assign({},PC_DEFAULTS,{hassleForced:settings.hassleForced,border:settings.border}); __hasSaveSettings(); __hasApplyAll(); __hasToast("\u041F\u0440\u0435\u0441\u0435\u0442 \u041F\u041A \u043F\u0440\u0438\u043C\u0435\u043D\u0451\u043D"); });
+    c.appendChild(pb);
+    var hb=document.createElement("div"); hb.textContent="\u{1F3AE} Hassle \u0440\u0430\u0437\u043C\u0435\u0440";
+    hb.style.cssText="text-align:center;padding:10px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid #1f242e;color:#d2a65e;margin-bottom:8px;";
+    hb.addEventListener("click", function(){ settings=Object.assign({},DEFAULTS,{hassleForced:settings.hassleForced,border:settings.border}); __hasSaveSettings(); __hasApplyAll(); __hasToast("\u041F\u0440\u0435\u0441\u0435\u0442 Hassle \u043F\u0440\u0438\u043C\u0435\u043D\u0451\u043D"); });
+    c.appendChild(hb);
+    var hb2=document.createElement("div"); hb2.style.cssText="background:rgba(255,255,255,0.03);border-radius:6px;padding:10px;margin-top:16px;";
+    var ht=document.createElement("div"); ht.textContent="\u041A\u043E\u043C\u0430\u043D\u0434\u044B \u0447\u0430\u0442\u0430:"; ht.style.cssText="color:#d2a65e;font-size:11px;font-weight:600;margin-bottom:6px;";
+    var h1=document.createElement("div"); h1.innerHTML="<code style='color:#f4f1e1;background:#1f242e;padding:2px 6px;border-radius:3px;'>/has</code> \u2014 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C/\u0432\u044B\u043A\u043B\u044E\u0447\u0438\u0442\u044C Hassle HUD"; h1.style.cssText="color:#f4f1e199;font-size:11px;margin-bottom:4px;";
+    var h2=document.createElement("div"); h2.innerHTML="<code style='color:#f4f1e1;background:#1f242e;padding:2px 6px;border-radius:3px;'>/has_s</code> \u2014 \u043E\u0442\u043A\u0440\u044B\u0442\u044C \u044D\u0442\u043E \u043C\u0435\u043D\u044E"; h2.style.cssText="color:#f4f1e199;font-size:11px;";
+    hb2.appendChild(ht); hb2.appendChild(h1); hb2.appendChild(h2); c.appendChild(hb2);
+}
+
+function __hasRenderDesignTab(c) {
+    var bl=document.createElement("div"); bl.textContent="\u0411\u043E\u0440\u0434\u0435\u0440 \u0440\u0430\u0434\u0430\u0440\u0430"; bl.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin-bottom:12px;"; c.appendChild(bl);
+    var br=document.createElement("div"); br.style.cssText="display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;";
+    var opts=[["default","\u041E\u0431\u044B\u0447\u043D\u044B\u0439","\u{1F7E2}"],["helloween","\u0425\u044D\u043B\u043B\u043E\u0443\u0438\u043D","\u{1F383}"],["newyear","\u041D\u043E\u0432\u044B\u0439 \u0433\u043E\u0434","\u{1F384}"]];
+    var btns=[];
+    opts.forEach(function(o){
+        var b=document.createElement("div"); b.innerHTML=o[2]+" "+o[1]; b.dataset.value=o[0];
+        b.style.cssText="flex:1 1 auto;text-align:center;padding:12px 8px;border-radius:8px;font-size:12px;cursor:pointer;border:2px solid #1f242e;color:#f4f1e1;min-width:120px;";
+        if(settings.border===o[0]){b.style.borderColor="#d2a65e";b.style.background="rgba(210,166,94,0.15)";b.style.color="#d2a65e";b.style.fontWeight="600";}
+        b.addEventListener("click",function(){
+            settings.border=o[0];
+            btns.forEach(function(x){var a=x.dataset.value===settings.border;x.style.borderColor=a?"#d2a65e":"#1f242e";x.style.background=a?"rgba(210,166,94,0.15)":"transparent";x.style.color=a?"#d2a65e":"#f4f1e1";x.style.fontWeight=a?"600":"400";});
+            __hasApplyAll();__hasSaveSettings();__hasToast("\u0411\u043E\u0440\u0434\u0435\u0440: "+o[1]);
+        });
+        btns.push(b);br.appendChild(b);
+    });
+    c.appendChild(br);
+}
+
+function __hasRenderSizesTab(c) {
+    if(!__hasIsZahar()) return;
+    var cl=document.createElement("div");cl.textContent="\u{1F4DD} \u0427\u0430\u0442";cl.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;";c.appendChild(cl);
+    c.appendChild(__hasSlider("\u0421\u043B\u0435\u0432\u0430 (vw)","chatLeft",0,60,0.1));
+    c.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)","chatTop",0,40,0.1));
+    c.appendChild(__hasSlider("\u0428\u0438\u0440\u0438\u043D\u0430 (vw)","chatWidth",20,70,0.1));
+    c.appendChild(__hasSlider("\u0412\u044B\u0441\u043E\u0442\u0430 (vh)","chatHeight",10,50,0.1));
+    c.appendChild(__hasSlider("\u0420\u0430\u0437\u043C\u0435\u0440 \u0448\u0440\u0438\u0444\u0442\u0430","chatFontSize",-5,20,1));
+    c.appendChild(__hasSlider("\u0421\u043C\u0435\u0449\u0435\u043D\u0438\u0435 T \u0427\u0410\u0422 / F1 (vh)","controlsExtra",-25,10,0.1));
+    c.appendChild(__hasSlider("\u041E\u0442\u0441\u0442\u0443\u043F \u0413\u0421 (vh)","voiceExtra",-5,15,0.1));
+    var d1=document.createElement("div");d1.style.cssText="height:1px;background:#1f242e;margin:20px 0;";c.appendChild(d1);
+    var rl=document.createElement("div");rl.textContent="\u{1F5FA} \u0420\u0430\u0434\u0430\u0440";rl.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;";c.appendChild(rl);
+    c.appendChild(__hasSlider("\u0421\u043B\u0435\u0432\u0430 (vh)","radarLeft",0,40,0.1));
+    c.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)","radarTop",0,40,0.1));
+    c.appendChild(__hasSlider("\u0420\u0430\u0437\u043C\u0435\u0440 (vh)","radarSize",15,60,0.1));
+    var d2=document.createElement("div");d2.style.cssText="height:1px;background:#1f242e;margin:20px 0;";c.appendChild(d2);
+    var il=document.createElement("div");il.textContent="\u2139\uFE0F \u041F\u0440\u0430\u0432\u044B\u0439 HUD";il.style.cssText="color:#f4f1e199;font-size:11px;text-transform:uppercase;margin:0 0 12px;";c.appendChild(il);
+    c.appendChild(__hasSlider("\u0421\u043F\u0440\u0430\u0432\u0430 (vw)","infoRight",-10,20,0.1));
+    c.appendChild(__hasSlider("\u0421\u0432\u0435\u0440\u0445\u0443 (vh)","infoTop",-10,20,0.1));
+    c.appendChild(__hasSlider("\u041C\u0430\u0441\u0448\u0442\u0430\u0431 (%)","infoScale",50,200,1));
+}
+
+function __hasShowPanel(){__hasBuildPanel();panelEl.style.display="block";window.setCursorStatus&&window.setCursorStatus("HasPanel",true);}
+function __hasHidePanel(){if(panelEl)panelEl.style.display="none";window.setCursorStatus&&window.setCursorStatus("HasPanel",false);}
+function __hasIsPanelOpen(){return !!panelEl&&panelEl.style.display!=="none";}
+
+// Commands
+var __hasOriginalSendChatInput = window.sendChatInput;
+window.sendChatInput = function(e) {
+    if(!e||typeof e!=="string") return __hasOriginalSendChatInput(e);
+    var trimmed=e.trim(); if(!trimmed) return __hasOriginalSendChatInput(e);
+    var fs=trimmed.indexOf(" ");
+    var cmd=(fs===-1?trimmed:trimmed.substring(0,fs)).toLowerCase();
+    if(cmd==="/has"||cmd==="/has_s") __hasEnsureSettings();
+    if(cmd==="/has"){
+        var hud=window.interface&&window.interface("Hud");
+        if(!hud){__hasToast("HASSLE: HUD \u043D\u0435 \u0438\u043D\u0438\u0446\u0438\u0430\u043B\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D");return;}
+        __hasInjectChatStyle();__hasSetForced(hud,!hud.__hassleForced);
+        __hasToast(hud.__hassleForced?"HASSLE HUD: \u0432\u043A\u043B\u044E\u0447\u0435\u043D":"HASSLE HUD: \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D");return;
+    } else if(cmd==="/has_s"){
+        var hud=window.interface&&window.interface("Hud");
+        if(!hud){__hasToast("HASSLE: HUD \u043D\u0435 \u0438\u043D\u0438\u0446\u0438\u0430\u043B\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D");return;}
+        __hasInjectChatStyle();
+        if(!hud.__hassleForced) __hasSetForced(hud,true,true);
+        if(__hasIsPanelOpen()) __hasHidePanel(); else __hasShowPanel();return;
+    }
+    return __hasOriginalSendChatInput(e);
+};
+
+// Hooks
+var __hasOrigOPL = window.onUpdatePlayersList;
+window.onUpdatePlayersList = function(e) {
+    try {
+        var hud=window.interface&&window.interface("Hud");
+        if(hud&&e&&typeof e.count==="number") hud.info.online=e.count+1;
+        if(hud&&e&&e.local&&e.local.id!=null){var rid=parseInt(e.local.id,10);if(!isNaN(rid)&&rid!==0&&rid!==hud.info.id)hud.info.id=rid;}
+    } catch(err){}
+    if(__hasOrigOPL) return __hasOrigOPL(e);
+};
+setInterval(function(){var hud=window.interface&&window.interface("Hud");if(hud&&hud.__hassleForced&&window.updatePlayerList)window.updatePlayerList();},15000);
+window.setPlayerId=function(id){var hud=window.interface&&window.interface("Hud");if(hud)hud.info.id=parseInt(id)||0;};
+
+// Chat restore
+setInterval(function(){
+    var hud=window.interface&&window.interface("Hud");
+    if(hud&&hud.$refs&&hud.$refs.chat&&__mvdChatAddFn){
+        if(hud.$refs.chat!==__mvdChatInst){__hasRestoreChatState();}
+    }
+},3000);
+
+// Auto-init
+(function(){
+    var tries=0,maxTries=200;
+    var timer=setInterval(function(){
+        tries++;
+        var hud=window.interface&&window.interface("Hud");
+        if(hud){
+            clearInterval(timer);
+            __hasEnsureSettings();
+            __hasInjectChatStyle();
+            console.log("[HAS-UI] \u2705 UI \u0433\u043E\u0442\u043E\u0432 (\u0430\u0432\u0442\u043E\u0432\u043A\u043B\u044E\u0447\u0435\u043D\u0438\u0435 \u043E\u0442\u043A\u043B\u044E\u0447\u0435\u043D\u043E, \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 /has)");
+        } else if(tries>=maxTries){clearInterval(timer);}
+    },150);
+})();
+
+console.log("[HAS-UI] \u2705 UI \u0438\u043D\u0438\u0446\u0438\u0430\u043B\u0438\u0437\u0438\u0440\u043E\u0432\u0430\u043D");
+})();
+// === END HASSLE HUD UI ===
