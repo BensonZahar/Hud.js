@@ -831,7 +831,7 @@ const setupChatHandler = () => {
                     _partnerNickSearch = false;
                     _partnerNickSearchTarget = null;
                     console.log(`[PARTNER] ⚠️ Не удалось определить напарника: "${partnerNick}" не найден`);
-                    snAdd('[1, "Напарник", "Не удалось определить напарника", "FF4400", 3000]');
+                    snAdd('[1, "Напарник", "Не удалось определить напарника", "FF4400", 5000]');
                     return; // Блокируем "Совпадений не найдено" из чата
                 }
             }
@@ -1033,7 +1033,7 @@ const setupChatHandler = () => {
                             if (typeof sn.hideAll === 'function') sn.hideAll();
                             hideTrackingTimer();   // гасим таймер-уведомление отслеживания (timerQueue)
                             clearSetmarkCdTimer(); // и КД-таймер, если он был активен
-                            sn.add(`[1, "Отслеживание", "${reason}", "CECECE", 2500]`);
+                            sn.add(`[1, "Отслеживание", "${reason}", "CECECE", 5000]`);
                         }
                     } catch(e) {}
 
@@ -1054,7 +1054,7 @@ const setupChatHandler = () => {
                     // Закрываем открытые МВД интерфейсы
                     try { window.closeInterface('MvdMenu'); } catch(e) {}
                     try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
-                    snAdd('[1, "Погоня", "Игрок не в розыске — погоня отменена", "FF4400", 3000]');
+                    snAdd('[1, "Погоня", "Игрок не в розыске — погоня отменена", "FF4400", 5000]');
                 }
             }
             // ==================== КОНЕЦ АВТО-СТОП: ИГРОК НЕ В РОЗЫСКЕ ====================
