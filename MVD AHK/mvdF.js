@@ -2748,32 +2748,31 @@ window.sendClientEventCustom = (event, ...args) => {
 var __mvdPrevSendChatInput = window.sendChatInput; // сохраняем хук /has, /has_s, чтобы не потерять его при замене ниже
 window.sendChatInputCustom = e => {
     const args = e.split(" ");
-if (args[0] == "/dahk") {
+    if (args[0] == "/dahk") {
     targetId = args[1];
     const freshSkin = getSkinIdFromStore();
     if (freshSkin !== null) skinId = Number(freshSkin);
     if (mvdSkins.includes(skinId)) {
-        // 🔥 ОТКРЫВАЕМ MvdMenu МГНОВЕННО (поверх скрытого MainMenu)
+        
         const openMenu = () => {
-             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
-             restoreTrackingTimer();
-             refreshPartnerNickSilent();
-             if (lastMenuType === "stroy") {
-                 showStroyMenuPage(args[1]);
-             } else {
-                 showMvdMainMenuPage(args[1]);
-             }
-        };
-        
-        // Открываем MvdMenu СРАЗУ
-        openMenu();
-        
-        // Если данные ещё не загружены — запускаем загрузку В ФОНЕ (MainMenu невидимо)
-        if (!window._mvdFirstName && !window._mvdLastName && !window._mvdRank) {
-            if (typeof window._mvdLoadPlayerProfile === 'function') {
-                console.log('[Profile] MvdMenu открыт, профиль загружается в фоне...');
-                window._mvdLoadPlayerProfile(); // без callback — просто грузим данные
+            snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
+            restoreTrackingTimer();
+            refreshPartnerNickSilent();
+            if (lastMenuType === "stroy") {
+                showStroyMenuPage(args[1]);
+            } else {
+                showMvdMainMenuPage(args[1]);
             }
+        };
+
+        // Если данные уже загружены — открываем меню МГНОВЕННО
+        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) {
+            openMenu();
+        } else if (typeof window._mvdLoadPlayerProfile === 'function') {
+            // Первый раз — загружаем профиль, потом открываем
+            window._mvdLoadPlayerProfile(openMenu);
+        } else {
+            openMenu();
         }
     } else {
         snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
