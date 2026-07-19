@@ -10,7 +10,7 @@
 (function prefetchAllCustomUI() {
     // ==== ПЕРЕКЛЮЧАТЕЛЬ CDN ==========================================
     // 1 = GitHub, 2 = jsDelivr
-    var CDN_MODE = 2;
+    var CDN_MODE = 1;
     var BASE = (CDN_MODE === 1
             ? 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
             : 'https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK/')
@@ -97,7 +97,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.44 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {

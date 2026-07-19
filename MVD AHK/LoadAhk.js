@@ -9,7 +9,17 @@ const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневна�
 const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
 const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
 const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с: ["greeting","fine","wantedFine",...]
-const KEYS_URL = "https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK/keys.json";
+// ==== ПЕРЕКЛЮЧАТЕЛЬ CDN =================================================
+// 1 = GitHub, 2 = jsDelivr
+const CDN_MODE = 1;
+function ghRawUrl(user, repo, folder, filename) {
+    const path = folder ? `${encodeURIComponent(folder)}/` : '';
+    return CDN_MODE === 1
+        ? `https://raw.githubusercontent.com/${user}/${repo}/main/${path}${filename}`
+        : `https://cdn.jsdelivr.net/gh/${user}/${repo}@main/${path}${filename}`;
+}
+// =========================================================================
+const KEYS_URL = ghRawUrl('BensonZahar', 'Hud.js', 'MVD AHK', 'keys.json');
 // ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
 const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
@@ -41,8 +51,7 @@ const folder = 'MVD AHK';
 const filename = 'mvdF.js';
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
-    const path = folder ? `${encodeURIComponent(folder)}/` : '';
-    const url = `https://cdn.jsdelivr.net/gh/${username}/${repo}@main/${path}${filename}`;
+    const url = ghRawUrl(username, repo, folder, filename);
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
     xhr.onload = function() {

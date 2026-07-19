@@ -7,7 +7,11 @@ from PIL import Image
 # ═══════════════════════════════════════════════════════
 #  НАСТРОЙКИ
 # ═══════════════════════════════════════════════════════
-GITHUB_RAW    = "https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK"
+# 1 = GitHub, 2 = jsDelivr
+CDN_MODE      = 1
+GITHUB_RAW    = ("https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
+                 if CDN_MODE == 1 else
+                 "https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK")
 KEYS_URL      = f"{GITHUB_RAW}/keys.json"
 AHK_URL       = f"{GITHUB_RAW}/LoadAhk.js"
 INTLOAD_URL   = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
