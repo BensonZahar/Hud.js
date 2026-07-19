@@ -1,6 +1,6 @@
 // ZkmScreenNotification.js — sideEffect загрузчик
 // У оригинала нет import/export, только IIFE который вешает window.ZkmScreenNotification
-const _GH_BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/' + encodeURIComponent('Кастом Интерфейсы') + '/';
+const _GH_BASE = 'https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK/' + encodeURIComponent('Кастом Интерфейсы') + '/';
 
 function _xhrGet(url, attempt) {
     return new Promise(function(resolve, reject) {

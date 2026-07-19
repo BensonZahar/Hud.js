@@ -1,7 +1,7 @@
 // AdvMenu.js — загрузчик. Префетч из window.__prefetch_advmenu_js
 import{o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,n as normalizeClass,t as toDisplayString,f as createCommentVNode,_ as _export_sfc}from"./index.js";
 
-const _GH_URL = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
+const _GH_URL = 'https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK/'
               + encodeURIComponent('Кастом Интерфейсы') + '/AdvMenu.js';
 
 function _xhrGet(url, attempt) {
