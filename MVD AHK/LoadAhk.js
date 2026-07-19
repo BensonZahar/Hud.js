@@ -321,7 +321,7 @@ verifyAndLoad();
     if (matchMouse !== null) {
         var _mouseBtnDownAt = 0;       // timestamp момента mousedown
         var _mouseBtnModsOk = false;   // были ли нужные модификаторы при нажатии
-        var CLICK_MAX_MS = 200;        // удержание дольше = камера, не свап
+        var CLICK_MAX_MS = 400;        // удержание дольше = камера, не свап
 
         window.addEventListener('mousedown', function(e) {
             if (e.button !== matchMouse) return;
