@@ -8,8 +8,14 @@
 //
 // Promise.allSettled — падение одного файла не убивает остальные.
 (function prefetchAllCustomUI() {
-    var BASE = 'https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK/'
+    // ==== ПЕРЕКЛЮЧАТЕЛЬ CDN ==========================================
+    // 1 = GitHub, 2 = jsDelivr
+    var CDN_MODE = 2;
+    var BASE = (CDN_MODE === 1
+            ? 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
+            : 'https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK/')
              + encodeURIComponent('Кастом Интерфейсы') + '/';
+    // ==================================================================
     var FILES = {
         mvdmenu_js:  BASE + 'MvdMenu.js',
         advmenu_js:  BASE + 'AdvMenu.js',
@@ -91,7 +97,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.3 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -905,6 +911,17 @@ const setupChatHandler = () => {
             }
             // ==================== КОНЕЦ ПИКА НИКА ====================
 
+            // ==================== УСПЕШНЫЙ СТАРТ ОТСЛЕЖИВАНИЯ ====================
+            // "Текущее местоположение преступника отмечено на карте." — сервер подтвердил,
+            // что цель реально отслеживается. С этого момента сбои переоткрывать /wanted не должны.
+            if (typeof message === 'string' && currentScanId && _wantedReopenPending &&
+                message.includes('Текущее местоположение преступника отмечено на карте')) {
+                _wantedReopenPending = false;
+                console.log('[WANTED] ✅ Отслеживание нормально началось — переоткрытие /wanted больше не актуально');
+            }
+            // ==================== КОНЕЦ УСПЕШНОГО СТАРТА ====================
+
+
             // ==================== ПИК НИКА НАПАРНИКА ИЗ /id ====================
             if (typeof message === 'string' && _awaitingPartnerId && window._pendingPartnerId) {
                 const idPartnerMatch = message.match(/(?:^\[\d{2}:\d{2}:\d{2}(?::\d+)?\]:\s*)?([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
@@ -1001,13 +1018,16 @@ const setupChatHandler = () => {
 
             // ==================== АВТО-СТОП: НЕВОЗМОЖНО ОПРЕДЕЛИТЬ / ТАКОГО ИГРОКА НЕТ ====================
             if (typeof message === 'string' && currentScanId && !window._trackingStopPending) {
-                const isNoLocation = message.includes('Невозможно определить местоположение игрока');
-                const isNoPlayer   = message.includes('Такого игрока нет');
+                const isNoLocation  = message.includes('Невозможно определить местоположение игрока');
+                const isNoPlayer    = message.includes('Такого игрока нет');
+                const isUnreachable = /дос.гаемости/i.test(message); // "не в досягаемости" (встречается и с опечаткой "досигаемости")
 
-                if (isNoLocation || isNoPlayer) {
+                if (isNoLocation || isNoPlayer || isUnreachable) {
                     const reason = isNoPlayer
                         ? 'Такого игрока нет'
-                        : 'Невозможно определить местоположение';
+                        : isUnreachable
+                            ? 'Игрок не в досягаемости'
+                            : 'Невозможно определить местоположение';
                     console.log(`[TRACKING] ⚠️ ${reason} — стоп немедленно`);
                     window._trackingStopPending = true;
 
@@ -1039,6 +1059,9 @@ const setupChatHandler = () => {
 
                     setTimeout(() => { window._trackingStopPending = false; }, 3000);
                     console.log(`[TRACKING] 🛑 Авто-стоп: ${reason}`);
+
+                    // ── Если цель была выбрана из /wanted-списка — переоткрываем список ──
+                    _maybeReopenWanted('[WANTED] 🔄 Автопереоткрытие /wanted (цель недоступна)');
                 }
             }
             // ==================== КОНЕЦ АВТО-СТОП ====================
@@ -1055,6 +1078,9 @@ const setupChatHandler = () => {
                     try { window.closeInterface('MvdMenu'); } catch(e) {}
                     try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                     snAdd('[1, "Погоня", "Игрок не в розыске — погоня отменена", "FF4400", 5000]');
+
+                    // ── Если цель была выбрана из /wanted-списка — переоткрываем список ──
+                    _maybeReopenWanted('[WANTED] 🔄 Автопереоткрытие /wanted (игрок не в розыске)');
                 }
             }
             // ==================== КОНЕЦ АВТО-СТОП: ИГРОК НЕ В РОЗЫСКЕ ====================
@@ -2731,6 +2757,12 @@ window.sendClientEventCustom = (event, ...args) => {
             if (player) {
                 console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание`);
                 _wantedDialogId = null;
+                _wantedReopenPending = true;
+                const _myWantedGen = ++_wantedReopenGen;
+                setTimeout(() => {
+                    // Сбрасываем только если это ожидание всё ещё актуально (не перекрыто новым выбором)
+                    if (_wantedReopenGen === _myWantedGen) _wantedReopenPending = false;
+                }, 5000);
                 setTimeout(() => startTracking(player.id, player.nick), 100);
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
@@ -2876,6 +2908,23 @@ let _awaitingRoziskInput = false;
 // ── /wanted список: сохраняем ID игроков при открытии диалога ──
 let _wantedDialogId = null;      // ID серверного диалога /wanted
 let _wantedPlayers = [];         // [ { nick, id }, ... ] — в порядке строк
+let _wantedReopenPending = false; // true = ждём подтверждения (успех/провал) по цели из /wanted-списка
+let _wantedReopenGen = 0;         // "поколение" ожидания — чтобы старый защитный таймер не сбросил новое ожидание
+let _wantedReopenInFlight = false; // защита от повторной отправки /wanted подряд
+
+// Переоткрывает /wanted, если мы всё ещё ждём подтверждения по цели из списка
+// (флаг остаётся активным, пока не придёт успех — можно сработать несколько раз подряд)
+function _maybeReopenWanted(logMsg) {
+    if (!_wantedReopenPending || _wantedReopenInFlight) return;
+    _wantedReopenInFlight = true;
+    setTimeout(() => {
+        try {
+            sendChatInput('/wanted');
+            console.log(logMsg);
+        } catch (e) {}
+        _wantedReopenInFlight = false;
+    }, 900);
+}
 
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
