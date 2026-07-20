@@ -485,7 +485,7 @@ mounted(){
 .adv-menu__question{color:#f4f1e1cc;font-size:1.2vh;font-weight:600;text-align:center;}
 /* Location select (МВД / ФСИН) */
 .adv-menu__loc-list{display:flex;flex-direction:column;gap:0.74vh;}
-.adv-menu__loc-card{align-items:center;background:rgba(255,255,255,0.03);border:0.14vh solid rgba(255,255,255,0.08);border-radius:0.56vh;cursor:pointer;display:flex;gap:0.93vh;padding:1.2vh 1.3vh;text-align:left;transition:all 0.15s;}
+.adv-menu__loc-card{align-items:center;background:rgba(255,255,255,0.03);border:0.14vh solid rgba(255,255,255,0.08);border-radius:0.56vh;cursor:pointer;display:flex;font-family:inherit;gap:0.93vh;padding:1.2vh 1.3vh;text-align:left;transition:all 0.15s;}
 .adv-menu__loc-card_mvd:hover{background:rgba(74,144,217,0.12);border-color:rgba(74,144,217,0.55);transform:translateY(-0.1vh);}
 .adv-menu__loc-card_fsin:hover{background:rgba(226,85,68,0.10);border-color:rgba(226,85,68,0.55);transform:translateY(-0.1vh);}
 .adv-menu__loc-icon{align-items:center;display:flex;flex-shrink:0;}
