@@ -19,8 +19,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             // ── Шапка ───────────────────────────────────────────────────────
             createBaseVNode("div",{class:"adv-menu__header"},[
                 createBaseVNode("div",{class:"adv-menu__title"},[
-                    createBaseVNode("span",{class:"adv-menu__title-main"},"МВД"),
-                    createBaseVNode("span",{class:"adv-menu__title-sub"}," АДВОКАТ"),
+                    createBaseVNode("span",{class:"adv-menu__title-main"},"АДВОКАТ"),
                 ]),
                 createBaseVNode("div",{class:"adv-menu__close-btn",onClick:$options.close},"X"),
             ]),

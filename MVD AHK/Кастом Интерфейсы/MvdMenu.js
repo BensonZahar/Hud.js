@@ -62,7 +62,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
             createBaseVNode("div",{class:"mvdmenu__header"},[
                 createBaseVNode("div",{class:"mvdmenu__title"},[
                     createBaseVNode("span",{class:"mvdmenu__title-main"},"KONST"),
-                    createBaseVNode("span",{class:"mvdmenu__title-ahk"},"AHK MVD"),
+                    createBaseVNode("span",{class:"mvdmenu__title-ahk"},"AHK"),
                     $options.headerSubtitle
                         ? createBaseVNode("span",{class:"mvdmenu__title-sub"},
                             toDisplayString($options.headerSubtitle), 1 /* TEXT */
