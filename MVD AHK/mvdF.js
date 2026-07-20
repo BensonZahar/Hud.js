@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.3 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -1959,7 +1959,7 @@ const executePovsednevAction = (action, targetId) => {
 		const _rank = window._mvdRank || '';
 		const _firstName = window._mvdFirstName || '';
 		const _lastName = window._mvdLastName || '';
-		const _callsign = window._mvdCallsign || CALLSIGN;
+		const _callsign = CALLSIGN || window._mvdCallsign || '';
 
 		if (isOmonSkin) {
 			sendMessagesWithDelay([
