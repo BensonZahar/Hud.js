@@ -167,7 +167,7 @@ body{{font-family:var(--font);color:var(--text);background:var(--bg);
     <div class="logo-ico">
       <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13 1.5L3.8 13.6h6.1L8.4 22.5l11.8-13.6h-6.9L13 1.5z"/></svg>
     </div>
-    <div class="logo-txt">AHK MVD Installer<span>Авторизация</span></div>
+    <div class="logo-txt">AHK Installer<span>Авторизация</span></div>
   </div>
   <div class="spinner" id="spin"></div>
   <div id="status">Проверка лицензии...</div>
@@ -245,7 +245,7 @@ function copyHwid() {{
     auth_thread.start()
 
     w = webview.create_window(
-        'AHK MVD Installer',
+        'AHK Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
         width=380, height=280,  # <-- Увеличили высоту с 220 до 280 для нового блока
         frameless=True, background_color='#010106'
@@ -364,7 +364,7 @@ function copyKeys(){{
             import webbrowser; webbrowser.open(url)
 
     api = _Q()
-    w = webview.create_window('AHK MVD Installer',
+    w = webview.create_window('AHK Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
         js_api=api, width=460, height=430,
         frameless=True, background_color='#0a0a0b')
@@ -398,7 +398,7 @@ border-radius:4px;cursor:pointer;font-size:11px;-webkit-app-region:no-drag}
             if self._window: self._window.destroy()
     
     api = _Q()
-    w = webview.create_window('AHK MVD Installer',
+    w = webview.create_window('AHK Installer',
         f"file:///{tmp.name.replace(os.sep,'/')}",
         js_api=api, width=380, height=200,
         frameless=True, background_color='#141414')
@@ -843,7 +843,7 @@ class InstallerAPI:
         if not result_data["ok"]:
             try:
                 import ctypes
-                ctypes.windll.user32.MessageBoxW(0, result_data["message"], "AHK MVD Installer - Ошибка", 0x10 | 0x40000)
+                ctypes.windll.user32.MessageBoxW(0, result_data["message"], "AHK Installer - Ошибка", 0x10 | 0x40000)
             except Exception:
                 pass
                 
@@ -884,7 +884,7 @@ class InstallerAPI:
         if not result_data["ok"]:
             try:
                 import ctypes
-                ctypes.windll.user32.MessageBoxW(0, result_data["message"], "AHK MVD Installer - Ошибка", 0x10 | 0x40000)
+                ctypes.windll.user32.MessageBoxW(0, result_data["message"], "AHK Installer - Ошибка", 0x10 | 0x40000)
             except Exception:
                 pass
                 
@@ -921,7 +921,7 @@ def main():
     url = f"file:///{html_tmp.replace(os.sep, '/')}"
     api = InstallerAPI()
     w = webview.create_window(
-        title="AHK MVD Installer", url=url, js_api=api,
+        title="AHK Installer", url=url, js_api=api,
         width=860, height=640, resizable=False,
         frameless=True, easy_drag=True,
         background_color="#111114", confirm_close=False,
