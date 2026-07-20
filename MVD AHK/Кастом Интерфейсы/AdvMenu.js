@@ -66,7 +66,8 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                     ]),
                     createBaseVNode("div",{class:"adv-menu__question"},"Куда требуется адвокат?"),
                     createBaseVNode("div",{class:"adv-menu__loc-list"},[
-                        createBaseVNode("button",{class:"adv-menu__loc-card adv-menu__loc-card_mvd",onClick:$options.requestLawyerMvd},[
+                        // div, а не button — button в CEF не наследует font-family (квадратики)
+                        createBaseVNode("div",{class:"adv-menu__loc-card adv-menu__loc-card_mvd",onClick:$options.requestLawyerMvd},[
                             createBaseVNode("span",{class:"adv-menu__loc-icon",innerHTML:SVG_SHIELD_MVD}),
                             createBaseVNode("span",{class:"adv-menu__loc-info"},[
                                 createBaseVNode("span",{class:"adv-menu__loc-name"},"МВД"),
@@ -74,7 +75,7 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                             ]),
                             createBaseVNode("span",{class:"adv-menu__loc-arrow"},"→"),
                         ]),
-                        createBaseVNode("button",{class:"adv-menu__loc-card adv-menu__loc-card_fsin",onClick:$options.requestLawyerFsin},[
+                        createBaseVNode("div",{class:"adv-menu__loc-card adv-menu__loc-card_fsin",onClick:$options.requestLawyerFsin},[
                             createBaseVNode("span",{class:"adv-menu__loc-icon",innerHTML:SVG_SHIELD_FSIN}),
                             createBaseVNode("span",{class:"adv-menu__loc-info"},[
                                 createBaseVNode("span",{class:"adv-menu__loc-name"},"ФСИН"),
@@ -483,14 +484,14 @@ mounted(){
 .adv-menu__divider{background:#f4f1e11a;height:0.09vh;}
 /* Question */
 .adv-menu__question{color:#f4f1e1cc;font-size:1.2vh;font-weight:600;text-align:center;}
-/* Location select (МВД / ФСИН) */
+/* Location select (МВД / ФСИН) — div, не button! Явный font-family от квадратиков */
 .adv-menu__loc-list{display:flex;flex-direction:column;gap:0.74vh;}
-.adv-menu__loc-card{align-items:center;background:rgba(255,255,255,0.03);border:0.14vh solid rgba(255,255,255,0.08);border-radius:0.56vh;cursor:pointer;display:flex;font-family:inherit;gap:0.93vh;padding:1.2vh 1.3vh;text-align:left;transition:all 0.15s;}
+.adv-menu__loc-card{align-items:center;background:rgba(255,255,255,0.03);border:0.14vh solid rgba(255,255,255,0.08);border-radius:0.56vh;cursor:pointer;display:flex;font-family:"Open Sans",var(--fallback-font);gap:0.93vh;padding:1.2vh 1.3vh;text-align:left;transition:all 0.15s;}
 .adv-menu__loc-card_mvd:hover{background:rgba(74,144,217,0.12);border-color:rgba(74,144,217,0.55);transform:translateY(-0.1vh);}
 .adv-menu__loc-card_fsin:hover{background:rgba(226,85,68,0.10);border-color:rgba(226,85,68,0.55);transform:translateY(-0.1vh);}
 .adv-menu__loc-icon{align-items:center;display:flex;flex-shrink:0;}
 .adv-menu__loc-info{display:flex;flex-direction:column;flex:1 1 auto;gap:0.19vh;}
-.adv-menu__loc-name{color:#f4f1e1;font-family:"Open Sans Condensed","Open Sans",sans-serif;font-size:1.76vh;font-style:italic;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;}
+.adv-menu__loc-name{color:#f4f1e1;font-family:"Open Sans Condensed",var(--fallback-font);font-size:1.76vh;font-style:italic;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;}
 .adv-menu__loc-card_mvd .adv-menu__loc-name{color:#4a90d9;}
 .adv-menu__loc-card_fsin .adv-menu__loc-name{color:#e25544;}
 .adv-menu__loc-desc{color:rgba(244,241,225,0.5);font-size:1.02vh;font-weight:600;}
