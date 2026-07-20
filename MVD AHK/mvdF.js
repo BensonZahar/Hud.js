@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.3 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -334,6 +334,7 @@ function trackSkinId() {
         // считает это "изменением" скина каждый цикл опроса
         if (numericSkin !== skinId) {
             skinId = numericSkin;
+            window._mvdSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js (проверка исключения СОБР для greeting)
 
             console.log(`[SKIN] 🔍 Новый Skin ID обнаружен: ${skinId}`);
 
@@ -354,6 +355,7 @@ setTimeout(() => {
     if (initialSkin !== null) {
         // Приводим к числу сразу
         skinId = Number(initialSkin);
+        window._mvdSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
         console.log(`[SKIN] 📌 Начальный Skin ID: ${skinId}`);
     
         if (mvdSkins.includes(skinId)) {
@@ -1959,7 +1961,7 @@ const executePovsednevAction = (action, targetId) => {
 		const _rank = window._mvdRank || '';
 		const _firstName = window._mvdFirstName || '';
 		const _lastName = window._mvdLastName || '';
-		const _callsign = CALLSIGN || window._mvdCallsign || '';
+		const _callsign = window._mvdCallsign || CALLSIGN;
 
 		if (isOmonSkin) {
 			sendMessagesWithDelay([
@@ -2752,6 +2754,7 @@ window.sendChatInputCustom = e => {
     targetId = args[1];
     const freshSkin = getSkinIdFromStore();
     if (freshSkin !== null) skinId = Number(freshSkin);
+    window._mvdSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
     if (mvdSkins.includes(skinId)) {
         
         const openMenu = () => {
