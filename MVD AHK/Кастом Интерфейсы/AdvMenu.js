@@ -7,6 +7,13 @@ const SVG_WARN=`<svg width="13" height="12" viewBox="0 0 13 12" fill="none" xmln
 const SVG_PERSON=`<svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="6.5" cy="4" r="2.3" stroke="currentColor" stroke-width="1.1"/><path d="M1.5 12C1.5 9.5 3.7 7.5 6.5 7.5C9.3 7.5 11.5 9.5 11.5 12" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>`;
 const SVG_SHIELD_MVD=`<svg width="16" height="16" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.5 1L13 3V7C13 10.5 10.5 13 7.5 14C4.5 13 2 10.5 2 7V3L7.5 1Z" fill="rgba(74,144,217,0.12)" stroke="rgba(74,144,217,0.7)" stroke-width="1.1" stroke-linejoin="round"/><path d="M5.2 7.4L6.9 9.1L9.9 5.9" stroke="rgba(74,144,217,0.9)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const SVG_SHIELD_FSIN=`<svg width="16" height="16" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.5 1L13 3V7C13 10.5 10.5 13 7.5 14C4.5 13 2 10.5 2 7V3L7.5 1Z" fill="rgba(226,85,68,0.10)" stroke="rgba(226,85,68,0.65)" stroke-width="1.1" stroke-linejoin="round"/><rect x="5.6" y="6.6" width="3.8" height="3.2" rx="0.5" stroke="rgba(226,85,68,0.9)" stroke-width="1"/><path d="M6.3 6.6V5.6C6.3 4.9 6.8 4.3 7.5 4.3C8.2 4.3 8.7 4.9 8.7 5.6V6.6" stroke="rgba(226,85,68,0.9)" stroke-width="1"/></svg>`;
+// ─── SVG-иконки для кнопок (вместо юникод-символов ✓ ✗ → ←, которых нет в
+// шрифте Open Sans внутри CEF — они рисовались квадратиками).
+// currentColor — иконка наследует цвет текста кнопки и перекрашивается вместе с ней.
+const SVG_ARROW_R=`<svg width="12" height="10" viewBox="0 0 12 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 5H10.5M10.5 5L6.5 1M10.5 5L6.5 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const SVG_ARROW_L=`<svg width="12" height="10" viewBox="0 0 12 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M11 5H1.5M1.5 5L5.5 1M1.5 5L5.5 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const SVG_CHECK=`<svg width="11" height="9" viewBox="0 0 11 9" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4.5L3.5 7.5L10 1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const SVG_CROSS=`<svg width="9" height="9" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L8 8M8 1L1 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`;
 // ─── render ──────────────────────────────────────────────────────────────────
 function render(_ctx,_cache,$props,$setup,$data,$options){
 return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},[
@@ -49,8 +56,10 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                 ]),
                 createBaseVNode("div",{class:"adv-menu__footer"},[
                     createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_refuse",onClick:$options.refuseLawyer},"Отказался"),
-                    // Ведёт на экран выбора места (МВД / ФСИН)
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_request",onClick:$options.goSelectLocation},"Требует →"),
+                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_request",onClick:$options.goSelectLocation},[
+                        createBaseVNode("span",{},"Требует"),
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
+                    ]),
                 ]),
             ],64))
             :createCommentVNode("",true),
@@ -73,7 +82,7 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                                 createBaseVNode("span",{class:"adv-menu__loc-name"},"МВД"),
                                 createBaseVNode("span",{class:"adv-menu__loc-desc"},"Отдел внутренних дел"),
                             ]),
-                            createBaseVNode("span",{class:"adv-menu__loc-arrow"},"→"),
+                            createBaseVNode("span",{class:"adv-menu__loc-arrow",innerHTML:SVG_ARROW_R}),
                         ]),
                         createBaseVNode("div",{class:"adv-menu__loc-card adv-menu__loc-card_fsin",onClick:$options.requestLawyerFsin},[
                             createBaseVNode("span",{class:"adv-menu__loc-icon",innerHTML:SVG_SHIELD_FSIN}),
@@ -81,7 +90,7 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                                 createBaseVNode("span",{class:"adv-menu__loc-name"},"ФСИН"),
                                 createBaseVNode("span",{class:"adv-menu__loc-desc"},"СИЗО / исправительное учреждение"),
                             ]),
-                            createBaseVNode("span",{class:"adv-menu__loc-arrow"},"→"),
+                            createBaseVNode("span",{class:"adv-menu__loc-arrow",innerHTML:SVG_ARROW_R}),
                         ]),
                     ]),
                     createBaseVNode("div",{class:"adv-menu__hint"},[
@@ -90,7 +99,10 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                     ]),
                 ]),
                 createBaseVNode("div",{class:"adv-menu__footer"},[
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_back",onClick:$options.goBack},"← Назад"),
+                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_back",onClick:$options.goBack},[
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                        createBaseVNode("span",{},"Назад"),
+                    ]),
                 ]),
             ],64))
             :createCommentVNode("",true),
@@ -122,12 +134,24 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                     createBaseVNode("div",{class:"adv-menu__phase-note"},"Время на принятие: 5 минут"),
                 ]),
                 createBaseVNode("div",{class:"adv-menu__footer"},[
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_accept",onClick:$options.lawyerAccepted},"✓ Принял"),
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_timeout",onClick:$options.lawyerNotAccepted},"✗ Не принял"),
+                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_accept",onClick:$options.lawyerAccepted},[
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_CHECK}),
+                        createBaseVNode("span",{},"Принял"),
+                    ]),
+                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_timeout",onClick:$options.lawyerNotAccepted},[
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_CROSS}),
+                        createBaseVNode("span",{},"Не принял"),
+                    ]),
                 ]),
                 createBaseVNode("div",{class:"adv-menu__footer-nav"},[
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},"← Назад"),
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},"Пропустить →"),
+                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},[
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                        createBaseVNode("span",{},"Назад"),
+                    ]),
+                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},[
+                        createBaseVNode("span",{},"Пропустить"),
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
+                    ]),
                 ]),
             ],64))
             :createCommentVNode("",true),
@@ -157,8 +181,14 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                     createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_timeout",onClick:$options.lawyerNotArrived},"Не прибыл"),
                 ]),
                 createBaseVNode("div",{class:"adv-menu__footer-nav"},[
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},"← Назад"),
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},"Пропустить →"),
+                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},[
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                        createBaseVNode("span",{},"Назад"),
+                    ]),
+                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},[
+                        createBaseVNode("span",{},"Пропустить"),
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
+                    ]),
                 ]),
             ],64))
             :createCommentVNode("",true),
@@ -183,8 +213,14 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                     createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_done",onClick:$options.consultationDone},"Беседа завершена"),
                 ]),
                 createBaseVNode("div",{class:"adv-menu__footer-nav"},[
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},"← Назад"),
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},"Пропустить →"),
+                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},[
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                        createBaseVNode("span",{},"Назад"),
+                    ]),
+                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},[
+                        createBaseVNode("span",{},"Пропустить"),
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
+                    ]),
                 ]),
             ],64))
             :createCommentVNode("",true),
@@ -199,7 +235,10 @@ return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},
                     createBaseVNode("div",{class:"adv-menu__done-text"},toDisplayString($options.doneText)),
                 ]),
                 createBaseVNode("div",{class:"adv-menu__footer"},[
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_back",onClick:$options.goBack},"← Начало"),
+                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_back",onClick:$options.goBack},[
+                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                        createBaseVNode("span",{},"Начало"),
+                    ]),
                     createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_close",onClick:$options.close},"Закрыть"),
                 ]),
             ],64))
@@ -266,8 +305,6 @@ methods:{
         return String(msk.getHours()).padStart(2,"0")+":"+String(msk.getMinutes()).padStart(2,"0");
     },
     // ── Прямое обновление DOM таймера (обход Vue reactivity в CEF) ────────
-    // Vue не перерисовывает компонент при изменении timerSeconds внутри
-    // setInterval из-за патч-флагов CEF; обновляем DOM руками, как тост.
     _updateTimerDOM(){
         const m=Math.floor(this.timerSeconds/60);
         const s=this.timerSeconds%60;
@@ -293,18 +330,15 @@ methods:{
         this.timerSeconds=seconds;
         this.timerTotal=seconds;
         this.timerPhase=phase;
-        // Точка отсчёта в реальном времени: остаток всегда пересчитывается
-        // от Date.now(), поэтому дрейф setInterval ни на что не влияет.
         this.timerEndAt=Date.now()+seconds*1000;
         this._createToast();
-        // Ждём следующего тика чтобы Vue успел отрендерить элемент с id
         setTimeout(()=>this._updateTimerDOM(),30);
         this.timerInterval=setInterval(()=>{
             const rem=Math.max(0,Math.ceil((this.timerEndAt-Date.now())/1000));
             if(rem>0){
                 if(rem!==this.timerSeconds){
                     this.timerSeconds=rem;
-                    this._updateTimerDOM();  // DOM напрямую
+                    this._updateTimerDOM();
                     this._updateToast();
                 }
             }else{
@@ -351,13 +385,12 @@ methods:{
         const colors={accept:"#4a90d9",arrival:"#f9b701",consultation:"#a07bd4"};
         const col=colors[this.timerPhase]||"#4a90d9";
         const tcol=this.timerSeconds<=60?"#e25544":col;
-        const loc=this.location?" · "+this.location:"";
+        const loc=this.location?" - "+this.location:"";
         el.innerHTML=`<div style="color:${col};font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[АДВ] ${labels[this.timerPhase]||""}${loc}</div>`+
                      `<div style="color:${tcol};font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${t}</div>`;
     },
     // ── Навигация ─────────────────────────────────────────────────────────
     goBack(){
-        // Всегда возвращает на экран прав, отменяя текущий процесс
         this.stopTimer();
         if(this.screen==="rights"){
             this.close();
@@ -368,7 +401,6 @@ methods:{
         }
     },
     goSkip(){
-        // Пропускает текущее ожидание, переходя на следующий этап
         if(this.screen==="awaiting_accept")       this.lawyerAccepted();
         else if(this.screen==="awaiting_arrival") this.lawyerArrived();
         else if(this.screen==="in_consultation")  this.consultationDone();
@@ -435,7 +467,7 @@ methods:{
                 const cols={accept:"#4a90d9",arrival:"#f9b701",consultation:"#a07bd4"};
                 const col=cols[phase]||"#4a90d9";
                 const tcol=rem<=60?"#e25544":col;
-                const locSfx=loc?" · "+loc:"";
+                const locSfx=loc?" - "+loc:"";
                 el.innerHTML=`<div style="color:${col};font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[АДВ] ${labels[phase]||""}${locSfx}</div>`+
                              `<div style="color:${tcol};font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${t}</div>`;
                 if(rem===0){clearInterval(window._advToastInterval);window._advToastInterval=null;this._removeToast();window._advTimerState=null;}
@@ -495,7 +527,8 @@ mounted(){
 .adv-menu__loc-card_mvd .adv-menu__loc-name{color:#4a90d9;}
 .adv-menu__loc-card_fsin .adv-menu__loc-name{color:#e25544;}
 .adv-menu__loc-desc{color:rgba(244,241,225,0.5);font-size:1.02vh;font-weight:600;}
-.adv-menu__loc-arrow{color:rgba(244,241,225,0.35);font-size:1.48vh;font-weight:700;transition:all 0.15s;}
+.adv-menu__loc-arrow{align-items:center;color:rgba(244,241,225,0.35);display:flex;flex-shrink:0;transition:all 0.15s;}
+.adv-menu__loc-arrow svg{display:block;height:1.3vh;width:1.3vh;}
 .adv-menu__loc-card:hover .adv-menu__loc-arrow{transform:translateX(0.28vh);}
 .adv-menu__loc-card_mvd:hover .adv-menu__loc-arrow{color:#4a90d9;}
 .adv-menu__loc-card_fsin:hover .adv-menu__loc-arrow{color:#e25544;}
@@ -536,10 +569,15 @@ mounted(){
 .adv-menu__done-icon svg{height:2vh;width:2vh;}
 .adv-menu__done-title{color:#f4f1e1;font-size:1.48vh;font-weight:700;}
 .adv-menu__done-text{color:#f4f1e199;font-size:1.18vh;line-height:1.5;}
+/* Иконки в кнопках (SVG вместо юникод-символов — в CEF их нет в шрифте) */
+.adv-menu__btn-ic{align-items:center;display:inline-flex;flex-shrink:0;justify-content:center;transition:transform 0.15s;}
+.adv-menu__btn-ic svg{display:block;height:1.02vh;width:1.02vh;}
 /* Primary footer */
 .adv-menu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;gap:0.74vh;padding:1.2vh 1.67vh 0.74vh;position:relative;z-index:1;}
-.adv-menu__btn{border:0.19vh solid;border-radius:0.37vh;cursor:pointer;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.18vh;font-weight:700;letter-spacing:0.03vh;padding:0.93vh 0.37vh;transition:all 0.15s;}
+.adv-menu__btn{align-items:center;border:0.19vh solid;border-radius:0.37vh;cursor:pointer;display:flex;font-family:"Open Sans",Arial,sans-serif;font-size:1.18vh;font-weight:700;gap:0.46vh;justify-content:center;letter-spacing:0.03vh;padding:0.93vh 0.37vh;transition:all 0.15s;flex:1 1 auto;}
 @media (platform:pc){.adv-menu__btn:hover{opacity:0.85;}}
+@media (platform:pc){.adv-menu__btn_request:hover .adv-menu__btn-ic{transform:translateX(0.28vh);}}
+@media (platform:pc){.adv-menu__btn_back:hover .adv-menu__btn-ic{transform:translateX(-0.28vh);}}
 .adv-menu__btn_refuse{background:#ffffff0d;border-color:#f4f1e11a;color:rgba(244,241,225,0.7);}
 .adv-menu__btn_request{background:rgba(74,144,217,0.14);border-color:rgba(74,144,217,0.5);color:#4a90d9;}
 @media (platform:pc){.adv-menu__btn_request:hover{background:rgba(74,144,217,0.24);opacity:1;}}
@@ -554,11 +592,13 @@ mounted(){
 .adv-menu__btn_close{background:#ffffff0d;border-color:#f4f1e11a;color:rgba(244,241,225,0.7);}
 /* Secondary nav footer (Назад / Пропустить) */
 .adv-menu__footer-nav{align-items:center;border-top:0.09vh solid #f4f1e10a;display:flex;gap:0.56vh;padding:0.56vh 1.67vh 0.93vh;position:relative;z-index:1;}
-.adv-menu__btn-nav{background:transparent;border:none;border-radius:0.28vh;cursor:pointer;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.08vh;font-weight:700;letter-spacing:0.03vh;padding:0.46vh 0.37vh;transition:all 0.15s;}
-.adv-menu__btn-nav_back{color:rgba(244,241,225,0.35);text-align:left;}
+.adv-menu__btn-nav{align-items:center;background:transparent;border:none;border-radius:0.28vh;cursor:pointer;display:flex;font-family:"Open Sans",Arial,sans-serif;font-size:1.08vh;font-weight:700;gap:0.37vh;letter-spacing:0.03vh;padding:0.46vh 0.37vh;transition:all 0.15s;flex:1 1 auto;}
+.adv-menu__btn-nav_back{color:rgba(244,241,225,0.35);justify-content:flex-start;text-align:left;}
 @media (platform:pc){.adv-menu__btn-nav_back:hover{color:rgba(244,241,225,0.65);}}
-.adv-menu__btn-nav_skip{color:rgba(74,144,217,0.5);text-align:right;}
+@media (platform:pc){.adv-menu__btn-nav_back:hover .adv-menu__btn-ic{transform:translateX(-0.28vh);}}
+.adv-menu__btn-nav_skip{color:rgba(74,144,217,0.5);justify-content:flex-end;text-align:right;}
 @media (platform:pc){.adv-menu__btn-nav_skip:hover{color:rgba(74,144,217,0.85);}}
+@media (platform:pc){.adv-menu__btn-nav_skip:hover .adv-menu__btn-ic{transform:translateX(0.28vh);}}
 `;
         document.head.appendChild(s);
     }
