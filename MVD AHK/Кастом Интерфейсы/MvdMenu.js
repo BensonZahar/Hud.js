@@ -537,95 +537,119 @@ const _sfc_main={
         },
         // ── Повседневная — выбор действия ────────────────────────────────────
         selectOption(opt){
-            const id=this.targetId;
-            if(opt.special==="fine"){
+            const id = (this.targetId !== null && this.targetId !== -1) ? this.targetId : null;
+        
+            if(opt.special === "fine"){
                 this.close();
                 setTimeout(()=>{
-                    if(typeof window.showKoapTypeMenu==="function") window.showKoapTypeMenu(id);
-                },80);
-            } else if(opt.special==="wanted"){
+                    if(typeof window.showKoapTypeMenu === "function")
+                        window.showKoapTypeMenu(id !== null ? id : -1);
+                }, 80);
+            } else if(opt.special === "wanted"){
                 this.close();
                 setTimeout(()=>{
-                    if(typeof window.showUkInputDialog==="function") window.showUkInputDialog(id);
-                },80);
+                    if(typeof window.showUkInputDialog === "function")
+                        window.showUkInputDialog(id !== null ? id : -1);
+                }, 80);
             } else if(opt.needsId){
-                // Проверяем: если targetId уже задан — сразу выполняем, иначе показываем экран ввода
-                if(this.targetId!==null&&this.targetId!==-1){
-                    const id=this.targetId;
+                if(id !== null){
+                    // targetId уже задан — сразу выполняем
                     this.close();
                     setTimeout(()=>{
-                        window._mvdMenuPendingAction=opt.action;
-                        if(typeof window._mvdExecuteAction==="function")
-                            window._mvdExecuteAction(opt.action,id);
-                    },80);
+                        window._mvdMenuPendingAction = opt.action;
+                        if(typeof window._mvdExecuteAction === "function")
+                            window._mvdExecuteAction(opt.action, id);
+                    }, 80);
                 } else {
                     // Собственный экран ввода ID
-                    this.idInputLabel="Введите ID игрока";
-                    this.idInputValue="";
-                    this.idInputContext="action";
-                    this._idPrevScreen="povsednev";
-                    this._pendingOpt=opt;
-                    this.screen="id-input";
-                    this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
+                    this.idInputLabel = "Введите ID игрока";
+                    this.idInputValue = "";
+                    this.idInputContext = "action";
+                    this._idPrevScreen = "povsednev";
+                    this._pendingOpt = opt;
+                    this.screen = "id-input";
+                    this.$nextTick(()=>{
+                        const f = document.getElementById("mvdmenu-id-field");
+                        if(f) f.focus();
+                    });
                 }
             } else {
+                // Действие без ID — выполняем сразу
                 this.close();
                 setTimeout(()=>{
-                    if(typeof window._mvdExecuteAction==="function")
-                        window._mvdExecuteAction(opt.action,id);
-                },80);
+                    if(typeof window._mvdExecuteAction === "function")
+                        window._mvdExecuteAction(opt.action, id !== null ? id : -1);
+                }, 80);
             }
         },
-        // ── ID-input ──────────────────────────────────────────────────────
-        openIdInput(label,defaultVal,context,prevScreen){
-            this.idInputLabel=label||"Введите ID игрока";
-            this.idInputValue=defaultVal!=null&&defaultVal!==-1?String(defaultVal):"";
-            this.idInputContext=context;
-            this._idPrevScreen=prevScreen||"main";
-            this.screen="id-input";
-            this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
+        
+        // ── ID-input ──────────────────────────────────────────────────────────
+        openIdInput(label, defaultVal, context, prevScreen){
+            this.idInputLabel = label || "Введите ID игрока";
+            this.idInputValue = (defaultVal != null && defaultVal !== -1) ? String(defaultVal) : "";
+            this.idInputContext = context;
+            this._idPrevScreen = prevScreen || "main";
+            this.screen = "id-input";
+            this.$nextTick(()=>{
+                const f = document.getElementById("mvdmenu-id-field");
+                if(f) f.focus();
+            });
         },
+        
         confirmIdInput(){
-            const raw=String(this.idInputValue||"").trim();
-            const id=raw===""?-1:parseInt(raw,10);
-            const ctx=this.idInputContext;
-            if(ctx==="action"){
-                const opt=this._pendingOpt;
-                if(opt&&id>0){
-                    this.targetId=id;
+            const raw = String(this.idInputValue || "").trim();
+            const id = raw === "" ? -1 : parseInt(raw, 10);
+            const ctx = this.idInputContext;
+        
+            if(ctx === "action"){
+                const opt = this._pendingOpt;
+                this._pendingOpt = null; // сбрасываем сразу, чтобы не повис
+        
+                if(opt && id > 0){
+                    this.targetId = id;
                     this.close();
                     setTimeout(()=>{
-                        window._mvdMenuPendingAction=opt.action;
-                        if(typeof window._mvdExecuteAction==="function")
-                            window._mvdExecuteAction(opt.action,id);
-                    },80);
+                        window._mvdMenuPendingAction = opt.action;
+                        if(typeof window._mvdExecuteAction === "function")
+                            window._mvdExecuteAction(opt.action, id);
+                    }, 80);
                 } else {
-                    this.screen=this._idPrevScreen||"povsednev";
-                    this.idInputValue="";
+                    // Неверный ID или отмена — возврат в список
+                    this.screen = this._idPrevScreen || "povsednev";
+                    this.idInputValue = "";
                 }
-            } else if(ctx==="tracking"){
-                if(id>0){
-                    this.targetId=id;
+        
+            } else if(ctx === "tracking"){
+                if(id > 0){
+                    this.targetId = id;
                     this.close();
                     setTimeout(()=>{
-                        if(typeof window._mvdStartTracking==="function") window._mvdStartTracking(id);
-                    },80);
+                        if(typeof window._mvdStartTracking === "function")
+                            window._mvdStartTracking(id);
+                    }, 80);
                 } else {
-                    this.screen="main";
-                    this.idInputValue="";
+                    this.screen = "main";
+                    this.idInputValue = "";
                 }
-            } else if(ctx==="partner"){
-                if(id>0){
-                    this.targetId=id;
+        
+            } else if(ctx === "partner"){
+                if(id > 0){
+                    this.targetId = id;
                     this.close();
                     setTimeout(()=>{
-                        // Эмулируем ответ диалога 683 вручную
-                        if(typeof window.sendClientEventCustom==="function")
-                            window.sendClientEventCustom("custom","OnDialogResponse",683,1,0,String(id),"");
-                    },80);
+                        // Прямой вызов публичного API вместо эмуляции диалога 683
+                        if(typeof window._mvdPartnerSetId === "function"){
+                            window._mvdPartnerSetId(String(id));
+                        } else if(typeof window.sendClientEventCustom === "function"){
+                            // Fallback: эмуляция ответа диалога 683
+                            window.sendClientEventCustom(
+                                "custom", "OnDialogResponse", 683, 1, 0, String(id), ""
+                            );
+                        }
+                    }, 80);
                 } else {
-                    this.screen="partner";
-                    this.idInputValue="";
+                    this.screen = "partner";
+                    this.idInputValue = "";
                 }
             }
         },
