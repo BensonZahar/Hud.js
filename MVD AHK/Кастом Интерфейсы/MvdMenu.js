@@ -1,832 +1,527 @@
-import{r as resolveComponent,o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,h as renderList,n as normalizeClass,t as toDisplayString,f as createCommentVNode,g as createBlock,b as createVNode,_ as _export_sfc}from"./index.js";
-import{C as ControlsContaineredButton}from"./ContaineredButton.js";
+import{o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,n as normalizeClass,t as toDisplayString,f as createCommentVNode,_ as _export_sfc}from"./index.js";
 
-// ─── SVG иконки ───────────────────────────────────────────────────────────────
-const SVG_SEARCH=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5.5" cy="5.5" r="4" stroke="rgba(244,241,225,0.4)" stroke-width="1.5"/><line x1="8.5" y1="8.5" x2="13" y2="13" stroke="rgba(244,241,225,0.4)" stroke-width="1.5" stroke-linecap="round"/></svg>`;
-const SVG_ARROW=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2L7 5L3 8" stroke="rgba(244,241,225,0.3)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+// ─── SVG ─────────────────────────────────────────────────────────────────────
+const SVG_GAVEL=`<svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="0.5" width="4.5" height="2.5" rx="0.5" transform="rotate(45 9 0.5)" fill="rgba(74,144,217,0.12)" stroke="rgba(74,144,217,0.65)" stroke-width="1.1"/><rect x="4.5" y="5" width="4.5" height="2.5" rx="0.5" transform="rotate(45 4.5 5)" fill="rgba(74,144,217,0.12)" stroke="rgba(74,144,217,0.65)" stroke-width="1.1"/><path d="M1.5 13.5H9" stroke="rgba(74,144,217,0.5)" stroke-width="1.3" stroke-linecap="round"/></svg>`;
+const SVG_OK=`<svg width="11" height="9" viewBox="0 0 11 9" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4.5L3.5 7.5L10 1" stroke="#3dba7a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const SVG_WARN=`<svg width="13" height="12" viewBox="0 0 13 12" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.5 1.5L12 10.5H1L6.5 1.5Z" stroke="rgba(249,183,1,0.55)" stroke-width="1.1" fill="rgba(249,183,1,0.07)"/><path d="M6.5 5V8M6.5 9.5V10" stroke="rgba(249,183,1,0.65)" stroke-width="1.1" stroke-linecap="round"/></svg>`;
+const SVG_PERSON=`<svg width="13" height="13" viewBox="0 0 13 13" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="6.5" cy="4" r="2.3" stroke="currentColor" stroke-width="1.1"/><path d="M1.5 12C1.5 9.5 3.7 7.5 6.5 7.5C9.3 7.5 11.5 9.5 11.5 12" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></svg>`;
 
-// GraffitiPattern
-const GRAFFITI_SVG=`<svg width="400" height="400" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" style="position:absolute;top:-60px;left:-40px;width:48.52vh;height:23.61vh;opacity:0.05;pointer-events:none;transform:rotate(148deg)"><line x1="0" y1="20" x2="400" y2="20" stroke="white" stroke-width="1.2"/><line x1="0" y1="40" x2="400" y2="40" stroke="white" stroke-width="1.2"/><line x1="0" y1="60" x2="400" y2="60" stroke="white" stroke-width="1.2"/><line x1="0" y1="80" x2="400" y2="80" stroke="white" stroke-width="1.2"/><line x1="0" y1="100" x2="400" y2="100" stroke="white" stroke-width="1.2"/><line x1="0" y1="120" x2="400" y2="120" stroke="white" stroke-width="1.2"/><line x1="0" y1="140" x2="400" y2="140" stroke="white" stroke-width="1.2"/><line x1="0" y1="160" x2="400" y2="160" stroke="white" stroke-width="1.2"/><line x1="0" y1="180" x2="400" y2="180" stroke="white" stroke-width="1.2"/><line x1="0" y1="200" x2="400" y2="200" stroke="white" stroke-width="1.2"/><line x1="20" y1="0" x2="20" y2="400" stroke="white" stroke-width="1.2"/><line x1="40" y1="0" x2="40" y2="400" stroke="white" stroke-width="1.2"/><line x1="60" y1="0" x2="60" y2="400" stroke="white" stroke-width="1.2"/><line x1="80" y1="0" x2="80" y2="400" stroke="white" stroke-width="1.2"/><line x1="100" y1="0" x2="100" y2="400" stroke="white" stroke-width="1.2"/></svg>`;
-
-// ─── Пункты меню Повседневная ─────────────────────────────────────────────────
-const POVSEDNEV_OPTIONS=[
-    {action:"greeting",      label:"Приветствие",              needsId:true},
-    {action:"checkDocuments",label:"Проверка документов",      needsId:false},
-    {action:"studyDocuments",label:"Изучение документов",      needsId:false},
-    {action:"scanningTablet",label:"Сканирование",             needsId:false},
-    {action:"cuffing",       label:"Надевание наручников",     needsId:true},
-    {action:"putInCar",      label:"Посадка в машину",         needsId:true},
-    {action:"arrest",        label:"Доставка в участок",       needsId:true},
-    {action:"uncuffing",     label:"Снятие наручников",        needsId:true},
-    {action:"chase",         label:"Преследование преступника",needsId:true},
-    {action:"search",        label:"Обыск",                    needsId:true},
-    {action:"escort",        label:"Конвоирование",            needsId:true},
-    {action:"clearWanted",   label:"Снятие розыска",           needsId:true},
-    {action:"fine",          label:"Выдача штрафа",            needsId:false, special:"fine"},
-    {action:"wantedFine",    label:"Выдача розыска",           needsId:false, special:"wanted"},
-    {action:"confiscate",    label:"Изъятие веществ",          needsId:true},
-    {action:"breakGlass",    label:"Разбитие стекла",          needsId:true},
-    {action:"removeMask",    label:"Снятие маски",             needsId:false},
-    {action:"fingerprint",   label:"Сканирование отпечатков",  needsId:false},
-    {action:"takeLicense",   label:"Изъятие прав",             needsId:true},
-    {action:"miranda",       label:"Права Миранды",            needsId:false},
-];
-
-const ACTION_TAGS={
-    fine:       {label:"/ticket", color:"rgba(61,186,122,"},
-    wantedFine: {label:"/su",     color:"rgba(224,85,85,"},
-    cuffing:    {label:"/cuff",   color:"rgba(249,183,1,"},
-    arrest:     {label:"/arrest", color:"rgba(249,183,1,"},
-    clearWanted:{label:"/clear",  color:"rgba(79,110,247,"},
-    search:     {label:"/search", color:"rgba(79,110,247,"},
-    escort:     {label:"/escort", color:"rgba(79,110,247,"},
-    putInCar:   {label:"/putpl",  color:"rgba(79,110,247,"},
-    uncuffing:  {label:"/uncuff", color:"rgba(79,110,247,"},
-};
-
-// ─── render ───────────────────────────────────────────────────────────────────
+// ─── render ──────────────────────────────────────────────────────────────────
 function render(_ctx,_cache,$props,$setup,$data,$options){
-    const _component_ControlsContaineredButton=resolveComponent("ControlsContaineredButton");
-    return (openBlock(), createElementBlock("div",{class:"mvdmenu iface-container"},[
+    return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},[
 
-        // Overlay
-        createBaseVNode("div",{class:"mvdmenu__overlay",onClick:$options.close}),
+        createBaseVNode("div",{class:"adv-menu__overlay",onClick:$options.close}),
 
-        // Wrapper
-        createBaseVNode("div",{class:"mvdmenu__wrapper"},[
+        createBaseVNode("div",{class:"adv-menu__wrapper"},[
 
-            createBaseVNode("div",{class:"mvdmenu__pattern",innerHTML:GRAFFITI_SVG}),
-            createBaseVNode("div",{class:"mvdmenu__top-accent"}),
+            createBaseVNode("div",{class:"adv-menu__top-accent"}),
 
-            // ── Header ───────────────────────────────────────────────────────
-            createBaseVNode("div",{class:"mvdmenu__header"},[
-                createBaseVNode("div",{class:"mvdmenu__title"},[
-                    createBaseVNode("span",{class:"mvdmenu__title-main"},"KONST"),
-                    createBaseVNode("span",{class:"mvdmenu__title-ahk"},"AHK"),
-                    $options.headerSubtitle
-                        ? createBaseVNode("span",{class:"mvdmenu__title-sub"},
-                            toDisplayString($options.headerSubtitle), 1 /* TEXT */
-                          )
-                        : createCommentVNode("",true)
+            // ── Шапка ───────────────────────────────────────────────────────
+            createBaseVNode("div",{class:"adv-menu__header"},[
+                createBaseVNode("div",{class:"adv-menu__title"},[
+                    createBaseVNode("span",{class:"adv-menu__title-main"},"АДВОКАТ"),
                 ]),
-                createBaseVNode("div",{class:"mvdmenu__close-btn",onClick:$options.close},"X")
+                createBaseVNode("div",{class:"adv-menu__close-btn",onClick:$options.close},"X"),
             ]),
 
-            // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: main — МВД меню
-            // ══════════════════════════════════════════════════════════════════
-            $data.screen==="main"
-                ? (openBlock(),createElementBlock(Fragment,{key:"main"},[
-                    createBaseVNode("div",{class:"mvdmenu__list"},[
-                        (openBlock(true),createElementBlock(Fragment,null,
-                            renderList($options.mainMenuItems,(item,i)=>(
-                                openBlock(),createElementBlock("div",{
-                                    key:item.id,
-                                    class:normalizeClass(["mvdmenu__item",{
-                                        "mvdmenu__item_toggle_on": item.toggleOn===true,
-                                        "mvdmenu__item_toggle_off": item.toggleOn===false,
-                                        "mvdmenu__item_selected": $data.selectedIndex===i,
-                                    }]),
-                                    onClick:$event=>{$data.selectedIndex=i;$options.selectMain(item);}
-                                },[
-                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
-                                    ),
-                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                        toDisplayString(item.label), 1 /* TEXT */
-                                    ),
-                                    // Стрелка → для пунктов-переходов
-                                    item.arrow
-                                        ? createBaseVNode("div",{class:"mvdmenu__item-arrow",innerHTML:SVG_ARROW})
-                                        : createCommentVNode("",true),
-                                    // Статус toggle
-                                    item.toggleOn!==undefined
-                                        ? createBaseVNode("div",{
-                                            class:normalizeClass(["mvdmenu__item-status",
-                                                item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                            ])
-                                          }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
-                                        : createCommentVNode("",true),
-                                ],10,["onClick"])
-                            ))
-                        ,128))
-                    ])
-                  ],64))
-                : createCommentVNode("",true),
-
-            // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: povsednev — Список повседневных действий
-            // ══════════════════════════════════════════════════════════════════
-            $data.screen==="povsednev"
-                ? (openBlock(),createElementBlock(Fragment,{key:"povsednev"},[
-                    // Поиск
-                    createBaseVNode("div",{class:"mvdmenu__search"},[
-                        createBaseVNode("span",{class:"mvdmenu__search-icon",innerHTML:SVG_SEARCH}),
-                        createBaseVNode("input",{
-                            type:"text",
-                            placeholder:"Поиск действия...",
-                            value:$data.search,
-                            onInput:$event=>{$data.search=$event.target.value}
-                        },null,40,["value","onInput"])
-                    ]),
-                    createBaseVNode("div",{class:"mvdmenu__list"},[
-                        (openBlock(true),createElementBlock(Fragment,null,
-                            renderList($options.filteredOptions,(opt,i)=>(
-                                openBlock(),createElementBlock("div",{
-                                    key:opt.action,
-                                    class:normalizeClass(["mvdmenu__item",{
-                                        "mvdmenu__item_fine":    opt.special==="fine",
-                                        "mvdmenu__item_wanted":  opt.special==="wanted",
-                                        "mvdmenu__item_selected": $data.selectedIndex===i,
-                                    }]),
-                                    onClick:$event=>{$data.selectedIndex=i;$options.selectOption(opt);}
-                                },[
-                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                        toDisplayString(String($options.globalIndex(opt)+1).padStart(2,"0")), 1 /* TEXT */
-                                    ),
-                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                        toDisplayString(opt.label), 1 /* TEXT */
-                                    ),
-                                    ACTION_TAGS[opt.action]
-                                        ? createBaseVNode("div",{
-                                            class:"mvdmenu__item-tag",
-                                            style:`background:${ACTION_TAGS[opt.action].color}0.13);color:${ACTION_TAGS[opt.action].color}1)`
-                                          },toDisplayString(ACTION_TAGS[opt.action].label), 1 /* TEXT */)
-                                        : createCommentVNode("",true),
-                                    opt.needsId
-                                        ? createBaseVNode("div",{class:"mvdmenu__item-id-badge"},"ID")
-                                        : createCommentVNode("",true),
-                                ],10,["onClick"])
-                            ))
-                        ,128)),
-                        $options.filteredOptions.length===0
-                            ? createBaseVNode("div",{class:"mvdmenu__empty"},"Ничего не найдено")
-                            : createCommentVNode("",true)
-                    ])
-                  ],64))
-                : createCommentVNode("",true),
-
-            // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: id-input — Ввод ID
-            // ══════════════════════════════════════════════════════════════════
-            $data.screen==="id-input"
-                ? (openBlock(),createElementBlock(Fragment,{key:"id-input"},[
-                    createBaseVNode("div",{class:"mvdmenu__id-input-wrap"},[
-                        createBaseVNode("div",{class:"mvdmenu__id-input-label"},
-                            toDisplayString($data.idInputLabel||"Введите ID игрока"), 1 /* TEXT */
-                        ),
-                        createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
-                            createBaseVNode("input",{
-                                class:"mvdmenu__id-input-field",
-                                id:"mvdmenu-id-field",
-                                type:"number",
-                                min:"1",
-                                placeholder:"ID игрока...",
-                                value:$data.idInputValue,
-                                onInput:$event=>{$data.idInputValue=$event.target.value},
-                                onKeydown:$options.onIdInputKeydown,
-                            },null,40,["value","onInput","onKeydown"])
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: rights — Разъяснение прав
+            // ════════════════════════════════════════════════════════════════
+            $data.screen==="rights"
+                ?(openBlock(),createElementBlock(Fragment,{key:"rights"},[
+                    createBaseVNode("div",{class:"adv-menu__body"},[
+                        createBaseVNode("div",{class:"adv-menu__section-hdr"},[
+                            createBaseVNode("span",{class:"adv-menu__section-icon",innerHTML:SVG_GAVEL}),
+                            createBaseVNode("span",{class:"adv-menu__section-title"},"Права задержанного — ч.7 ПК"),
                         ]),
-                    ])
-                  ],64))
-                : createCommentVNode("",true),
-
-            // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: partner — Меню напарника (кастомный, без старого диалога)
-            // ══════════════════════════════════════════════════════════════════
-            $data.screen==="partner"
-                ? (openBlock(),createElementBlock(Fragment,{key:"partner"},[
-                    createBaseVNode("div",{class:"mvdmenu__list"},[
-                        (openBlock(true),createElementBlock(Fragment,null,
-                            renderList($options.partnerMenuItems,(item,i)=>(
-                                openBlock(),createElementBlock("div",{
-                                    key:item.id,
-                                    class:normalizeClass(["mvdmenu__item",{
-                                        "mvdmenu__item_toggle_on": item.toggleOn===true,
-                                        "mvdmenu__item_toggle_off": item.toggleOn===false,
-                                        "mvdmenu__item_selected": $data.selectedIndex===i,
-                                    }]),
-                                    onClick:$event=>{$data.selectedIndex=i;$options[item.onClick]();}
-                                },[
-                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
-                                    ),
-                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                        toDisplayString(item.label), 1 /* TEXT */
-                                    ),
-                                    createBaseVNode("div",{
-                                        class:normalizeClass(["mvdmenu__item-status",
-                                            item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                        ])
-                                    }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
-                                ],10,["onClick"])
-                            ))
-                        ,128))
+                        createBaseVNode("div",{class:"adv-menu__rights-list"},[
+                            createBaseVNode("div",{class:"adv-menu__right-item"},[
+                                createBaseVNode("div",{class:"adv-menu__right-bullet"}),
+                                createBaseVNode("div",{class:"adv-menu__right-text"},"Право на молчание"),
+                            ]),
+                            createBaseVNode("div",{class:"adv-menu__right-item"},[
+                                createBaseVNode("div",{class:"adv-menu__right-bullet"}),
+                                createBaseVNode("div",{class:"adv-menu__right-text"},"Право на получение адвокатской помощи"),
+                            ]),
+                            createBaseVNode("div",{class:"adv-menu__right-item"},[
+                                createBaseVNode("div",{class:"adv-menu__right-bullet"}),
+                                createBaseVNode("div",{class:"adv-menu__right-text"},"Право на обжалование действий сотрудника"),
+                            ]),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__divider"}),
+                        createBaseVNode("div",{class:"adv-menu__question"},"Задержанный требует адвоката?"),
                     ]),
-                  ],64))
-                : createCommentVNode("",true),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_refuse",onClick:$options.refuseLawyer},"Отказался"),
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_request",onClick:$options.requestLawyer},"Требует →"),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
 
-            // ── Footer: Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
-            createBaseVNode("div",{class:"mvdmenu__footer"},[
-                (openBlock(),createBlock(_component_ControlsContaineredButton,{
-                    key:0,
-                    containerText:$options.footerConfirmText,
-                    text:"Enter",
-                    keyCode:$data.KEY_CODE_ENTER,
-                    disabled:$options.footerConfirmDisabled,
-                    onPressed:$options.footerConfirm
-                },null,8,["containerText","keyCode","disabled","onPressed"])),
-                (openBlock(),createBlock(_component_ControlsContaineredButton,{
-                    key:1,
-                    containerText:$options.footerBackText,
-                    keyCode:$data.KEY_CODE_ESC,
-                    onPressed:$options.goBack
-                },null,8,["containerText","keyCode","onPressed"]))
-            ]),
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: awaiting_accept — 5 мин на принятие вызова
+            // ════════════════════════════════════════════════════════════════
+            $data.screen==="awaiting_accept"
+                ?(openBlock(),createElementBlock(Fragment,{key:"awaiting_accept"},[
+                    createBaseVNode("div",{class:"adv-menu__body"},[
+                        createBaseVNode("div",{class:"adv-menu__call-sent"},[
+                            createBaseVNode("span",{class:"adv-menu__call-sent-icon",innerHTML:SVG_OK}),
+                            createBaseVNode("span",{},"Вызов отправлен в /d"),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__call-info"},[
+                            createBaseVNode("span",{class:"adv-menu__call-info-label"},"Время вызова:"),
+                            createBaseVNode("span",{class:"adv-menu__call-info-val"},toDisplayString($data.callTime)),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-label"},"Ожидание принятия вызова"),
+                        // id="adv-timer-disp" — обновляется напрямую через DOM (CEF-fix)
+                        createBaseVNode("div",{id:"adv-timer-disp",class:"adv-menu__timer-display"},toDisplayString($options.timerDisplay)),
+                        createBaseVNode("div",{class:"adv-menu__progress-track"},[
+                            // id="adv-progress-bar" — ширина/класс warn обновляются напрямую
+                            createBaseVNode("div",{id:"adv-progress-bar",class:"adv-menu__progress-fill",style:`width:${$options.timerPercent}%`}),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-note"},"Время на принятие: 5 минут"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_accept",onClick:$options.lawyerAccepted},"✓ Принял"),
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_timeout",onClick:$options.lawyerNotAccepted},"✗ Не принял"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer-nav"},[
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},"← Назад"),
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},"Пропустить →"),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
+
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: awaiting_arrival — 10 мин на приезд
+            // ════════════════════════════════════════════════════════════════
+            $data.screen==="awaiting_arrival"
+                ?(openBlock(),createElementBlock(Fragment,{key:"awaiting_arrival"},[
+                    createBaseVNode("div",{class:"adv-menu__body"},[
+                        createBaseVNode("div",{class:"adv-menu__phase-badge adv-menu__phase-badge_arrival"},[
+                            createBaseVNode("span",{class:"adv-menu__phase-badge-icon",innerHTML:SVG_PERSON,style:"color:#f9b701"}),
+                            createBaseVNode("span",{},"Адвокат принял вызов"),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-label"},"Ожидание приезда адвоката"),
+                        createBaseVNode("div",{id:"adv-timer-disp",class:"adv-menu__timer-display adv-menu__timer-display_arrival"},toDisplayString($options.timerDisplay)),
+                        createBaseVNode("div",{class:"adv-menu__progress-track"},[
+                            createBaseVNode("div",{id:"adv-progress-bar",class:"adv-menu__progress-fill adv-menu__progress-fill_arrival",style:`width:${$options.timerPercent}%`}),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-note"},"Время на приезд: 10 минут"),
+                        createBaseVNode("div",{class:"adv-menu__hint"},[
+                            createBaseVNode("span",{class:"adv-menu__hint-icon",innerHTML:SVG_WARN}),
+                            createBaseVNode("span",{class:"adv-menu__hint-text"},"После прибытия адвокату положено 10 мин беседы с задержанным"),
+                        ]),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_accept",onClick:$options.lawyerArrived},"Прибыл"),
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_timeout",onClick:$options.lawyerNotArrived},"Не прибыл"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer-nav"},[
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},"← Назад"),
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},"Пропустить →"),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
+
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: in_consultation — 10 мин беседы
+            // ════════════════════════════════════════════════════════════════
+            $data.screen==="in_consultation"
+                ?(openBlock(),createElementBlock(Fragment,{key:"in_consultation"},[
+                    createBaseVNode("div",{class:"adv-menu__body"},[
+                        createBaseVNode("div",{class:"adv-menu__phase-badge adv-menu__phase-badge_consult"},[
+                            createBaseVNode("span",{class:"adv-menu__phase-badge-icon",innerHTML:SVG_PERSON,style:"color:#a07bd4"}),
+                            createBaseVNode("span",{},"Беседа адвоката с задержанным"),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-label"},"Идёт беседа"),
+                        createBaseVNode("div",{id:"adv-timer-disp",class:"adv-menu__timer-display adv-menu__timer-display_consult"},toDisplayString($options.timerDisplay)),
+                        createBaseVNode("div",{class:"adv-menu__progress-track"},[
+                            createBaseVNode("div",{id:"adv-progress-bar",class:"adv-menu__progress-fill adv-menu__progress-fill_consult",style:`width:${$options.timerPercent}%`}),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-note"},"Время беседы: 10 минут"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_done",onClick:$options.consultationDone},"Беседа завершена"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer-nav"},[
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},"← Назад"),
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},"Пропустить →"),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
+
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: done states
+            // ════════════════════════════════════════════════════════════════
+            ($data.screen==="done_no_lawyer"||$data.screen==="done_no_accept"||$data.screen==="done_not_arrived"||$data.screen==="done_complete")
+                ?(openBlock(),createElementBlock(Fragment,{key:"done"},[
+                    createBaseVNode("div",{class:"adv-menu__body adv-menu__body_done"},[
+                        createBaseVNode("div",{class:"adv-menu__done-icon",innerHTML:$data.screen==="done_complete"?SVG_OK:SVG_WARN}),
+                        createBaseVNode("div",{class:"adv-menu__done-title"},toDisplayString($options.doneTitle)),
+                        createBaseVNode("div",{class:"adv-menu__done-text"},toDisplayString($options.doneText)),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_back",onClick:$options.goBack},"← Начало"),
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_close",onClick:$options.close},"Закрыть"),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
 
         ])
     ]));
 }
 
-// ─── Компонент ────────────────────────────────────────────────────────────────
+// ─── Компонент ───────────────────────────────────────────────────────────────
 const _sfc_main={
-    name:"MvdMenu",
-    components:{ControlsContaineredButton},
+    name:"AdvMenu",
     data(){
         return{
-            // screen: "main" | "povsednev" | "partner" | "id-input"
-            screen:"main",
-            search:"",
-            targetId:null,
-            KEY_CODE_ESC:window.KEY_CODE_ESC,
-            KEY_CODE_ENTER:window.KEY_CODE_ENTER,
-            // ── Навигация по списку стрелочками/Enter ──
-            selectedIndex:0,
-            // ── Реактивные флаги тоглов главного меню (читаем из window сразу) ──
-            trackingOn: !!(typeof window._mvdTrackingActive!=="undefined"
-                ? window._mvdTrackingActive
-                : (window._mvdCurrentScanId != null)),
-            trackingNick: (typeof window._mvdTrackingNick!=="undefined" ? window._mvdTrackingNick : null),
-            autocuffOn: !!(typeof window._mvdAutoCuffEnabled!=="undefined"
-                ? window._mvdAutoCuffEnabled : false),
-            autograbOn: !!(typeof window._mvdAutoGrabEnabled!=="undefined"
-                ? window._mvdAutoGrabEnabled : true),
-            // ── Напарник (читаем из window сразу, как trackingOn/autocuffOn) ──
-            partnerTracking: (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return !!(s&&s.tracking); }catch(e){ return false; } })(),
-            partnerMessage:  (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return !!(s&&s.message);  }catch(e){ return false; } })(),
-            partnerNick:     (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return (s&&s.nick)||null;  }catch(e){ return null;  } })(),
-            partnerId:       (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return (s&&s.id)||null;    }catch(e){ return null;  } })(),
-            // ── ID-input ──
-            idInputValue:"",
-            idInputLabel:"Введите ID игрока",
-            // "action" | "tracking" | "partner"
-            idInputContext:null,
-            _idPrevScreen:null,
-            // ── DEBUG: уникальный id инстанса для отладки napaарника ──
-            _debugInstanceId: Math.random().toString(36).slice(2,8),
-        }
+            screen:"rights",
+            callTime:null,
+            timerSeconds:0,
+            timerTotal:300,
+            timerInterval:null,
+            timerPhase:null,
+            timerEndAt:0,
+        };
     },
     computed:{
-        headerSubtitle(){
-            if(this.screen==="main")            return "";
-            if(this.screen==="povsednev")       return "ПОВСЕДНЕВНАЯ";
-            if(this.screen==="partner")         return "НАПАРНИК";
-            if(this.screen==="id-input")        return this.idInputContext==="tracking"?"ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?"НАПАРНИК":"ВВОД ID";
-            return "";
+        // Используется только для начального рендера; далее обновляется через DOM напрямую
+        timerDisplay(){
+            const m=Math.floor(this.timerSeconds/60);
+            const s=this.timerSeconds%60;
+            return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
         },
-        mainMenuItems(){
-            const items=[];
-            items.push({id:"povsednev", label:"Повседневная", arrow:true});
-            const trackingLabel = this.trackingOn && this.trackingNick
-                ? "Отслеживание: "+this.trackingNick+"["+(window._mvdCurrentScanId??"")+"]"
-                : "Отслеживание";
-            items.push({id:"tracking", label: trackingLabel, toggleOn: this.trackingOn});
-            items.push({id:"autocuff", label:"Auto-cuff", toggleOn: this.autocuffOn});
-            if(typeof window.AUTO_GRAB!=="undefined"&&window.AUTO_GRAB===true){
-                items.push({id:"autograb", label:"Авто-снаряжение", toggleOn: this.autograbOn});
-            }
-            // Напарник — показываем текущий статус
-            const partnerLabel = this.partnerTracking && this.partnerNick
-                ? "Напарник: "+this.partnerNick+"["+this.partnerId+"]"
-                : "Напарник";
-            items.push({id:"naparnick", label: partnerLabel, arrow:true});
-            items.push({id:"laws", label:"Законы", arrow:true});
-            items.push({id:"advokat", label:"Вызов адвоката", arrow:true});
-            return items;
+        timerPercent(){
+            if(!this.timerTotal)return 0;
+            return Math.round((this.timerSeconds/this.timerTotal)*100);
         },
-        visibleOptions(){
-            let opts=[...POVSEDNEV_OPTIONS];
-            const hidden=(typeof window.MENU_HIDDEN_ITEMS!=="undefined"&&Array.isArray(window.MENU_HIDDEN_ITEMS))
-                ?window.MENU_HIDDEN_ITEMS:[];
-            if(hidden.length) opts=opts.filter(o=>!hidden.includes(o.action));
-            const order=(typeof window.MENU_ORDER!=="undefined"&&Array.isArray(window.MENU_ORDER)&&window.MENU_ORDER.length)
-                ?window.MENU_ORDER:[];
-            if(order.length){
-                const ordered=[];
-                order.forEach(a=>{const f=opts.find(o=>o.action===a);if(f)ordered.push(f);});
-                opts.forEach(o=>{if(!ordered.find(x=>x.action===o.action))ordered.push(o);});
-                opts=ordered;
-            }
-            return opts;
+        doneTitle(){
+            if(this.screen==="done_no_lawyer")return"Адвокат не требуется";
+            if(this.screen==="done_no_accept")return"Право на адвоката реализовано";
+            if(this.screen==="done_not_arrived")return"Адвокат не прибыл";
+            if(this.screen==="done_complete")return"Беседа завершена";
+            return"";
         },
-        filteredOptions(){
-            const q=this.search.trim().toLowerCase();
-            if(!q)return this.visibleOptions;
-            return this.visibleOptions.filter(o=>o.label.toLowerCase().includes(q)||o.action.toLowerCase().includes(q));
+        doneText(){
+            if(this.screen==="done_no_lawyer")return"Задержанный отказался от адвоката. Задержание продолжается.";
+            if(this.screen==="done_no_accept")return"Адвокат не принял вызов за 5 минут. Право на адвоката считается реализованным. Задержание продолжается.";
+            if(this.screen==="done_not_arrived")return"Адвокат не прибыл в отведённое время. Зафиксируйте отсутствие в /adlist. Задержание продолжается.";
+            if(this.screen==="done_complete")return"Беседа с адвокатом завершена. Задержание продолжается.";
+            return"";
         },
-        // ── Список пунктов меню напарника (через computed — как mainMenuItems) ──
-        partnerMenuItems(){
-            return [
-                {
-                    id:"tracking",
-                    label: this.partnerTracking && this.partnerNick
-                        ? "Следить: "+this.partnerNick+"["+this.partnerId+"]"
-                        : "Следить за напарником",
-                    toggleOn: this.partnerTracking,
-                    onClick: "togglePartnerTracking"
-                },
-                {
-                    id:"message",
-                    label: "Сообщение для напарника",
-                    toggleOn: this.partnerMessage,
-                    onClick: "togglePartnerMessage"
-                }
-            ];
-        },
-        // ── Текущий список пунктов для клавиатурной навигации (зависит от экрана) ──
-        currentListItems(){
-            if(this.screen==="main")      return this.mainMenuItems;
-            if(this.screen==="povsednev") return this.filteredOptions;
-            if(this.screen==="partner")   return this.partnerMenuItems;
-            return [];
-        },
-        // ── Футер (Enter/ESC), как в нижней панели Window.js ──────────────────
-        footerConfirmText(){
-            return this.screen==="id-input" ? "Подтвердить" : "Выбрать";
-        },
-        footerBackText(){
-            if(this.screen==="main")     return "Закрыть";
-            if(this.screen==="id-input") return "Отмена";
-            return "Назад";
-        },
-        footerConfirmDisabled(){
-            if(this.screen==="id-input") return false;
-            return this.currentListItems.length===0;
-        },
-    },
-    watch:{
-        // Сбрасываем выделение при смене экрана или фильтрации поиском —
-        // иначе индекс может "уехать" на несуществующий пункт
-        screen(){ this.selectedIndex=0; },
-        search(){ this.selectedIndex=0; },
     },
     methods:{
-        // ── Клавиатурная навигация: стрелки двигают индекс по кругу, Enter подтверждает ──
-        moveSelection(delta){
-            const items=this.currentListItems;
-            if(!items.length) return;
-            const len=items.length;
-            this.selectedIndex=((this.selectedIndex+delta)%len+len)%len;
-            this.$nextTick(()=>this._scrollSelectedIntoView());
+        _getTime(){
+            const n=new Date();
+            return String(n.getHours()).padStart(2,"0")+":"+String(n.getMinutes()).padStart(2,"0");
         },
-        // Скроллим список к выделенному пункту так же, как нативный window-list в Window.js —
-        // считаем нужный scrollTop по индексу/высоте пункта и выставляем напрямую,
-        // а не полагаемся на scrollIntoView (он не всегда поспевает, когда стрелка зажата
-        // и пункты меняются быстро один за другим — список оставался прокрученным наверх,
-        // хотя выделение уже было внизу за пределами видимой области).
-        _scrollSelectedIntoView(){
-            const list=this.$el.querySelector(".mvdmenu__list");
-            if(!list) return;
-            const sel=list.querySelector(".mvdmenu__item_selected");
-            if(!sel) return;
-            const itemHeight=sel.offsetHeight;
-            if(!itemHeight) return;
-            const buffer=2; // сколько пунктов держим "запасом" перед выделенным, как в Window.js
-            const maxScroll=Math.max(list.scrollHeight-list.clientHeight,0);
-            let target=itemHeight*(this.selectedIndex-buffer);
-            if(target<0) target=0;
-            if(target>maxScroll) target=maxScroll;
-            list.scrollTop=target;
+
+        // ── Прямое обновление DOM таймера (обход Vue reactivity в CEF) ────────
+        // Vue не перерисовывает компонент при изменении timerSeconds внутри
+        // setInterval из-за патч-флагов CEF; обновляем DOM руками, как тост.
+        _updateTimerDOM(){
+            const m=Math.floor(this.timerSeconds/60);
+            const s=this.timerSeconds%60;
+            const t=String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+            const warn=this.timerSeconds<=60;
+
+            const disp=document.getElementById("adv-timer-disp");
+            if(disp){
+                disp.textContent=t;
+                if(warn) disp.classList.add("adv-menu__timer-display_warn");
+                else     disp.classList.remove("adv-menu__timer-display_warn");
+            }
+            const bar=document.getElementById("adv-progress-bar");
+            if(bar){
+                const pct=this.timerTotal?Math.round((this.timerSeconds/this.timerTotal)*100):0;
+                bar.style.width=pct+"%";
+                if(warn) bar.classList.add("adv-menu__progress-fill_warn");
+                else     bar.classList.remove("adv-menu__progress-fill_warn");
+            }
         },
-        confirmSelected(){
-            const items=this.currentListItems;
-            if(!items.length) return;
-            const idx=Math.min(Math.max(this.selectedIndex,0),items.length-1);
-            const item=items[idx];
-            if(this.screen==="main") this.selectMain(item);
-            else if(this.screen==="povsednev") this.selectOption(item);
-            else if(this.screen==="partner" && typeof this[item.onClick]==="function") this[item.onClick]();
+
+        // ── Таймер ───────────────────────────────────────────────────────────
+        startTimer(seconds,phase){
+            this._clearTimer();
+            this.timerSeconds=seconds;
+            this.timerTotal=seconds;
+            this.timerPhase=phase;
+            // Точка отсчёта в реальном времени. Раньше таймер просто вычитал
+            // по 1 каждый "тик" setInterval — если CEF отдавал тики чаще/реже
+            // 1000мс (а он это делает), таймер шёл быстрее/медленнее реального
+            // времени и расходился за 5-10 минут. Теперь остаток всегда
+            // пересчитывается от Date.now(), поэтому дрейф setInterval ни на
+            // что не влияет — так же, как уже сделано в toast'е при close().
+            this.timerEndAt=Date.now()+seconds*1000;
+            this._createToast();
+            // Ждём следующего тика чтобы Vue успел отрендерить элемент с id
+            setTimeout(()=>this._updateTimerDOM(),30);
+            this.timerInterval=setInterval(()=>{
+                const rem=Math.max(0,Math.ceil((this.timerEndAt-Date.now())/1000));
+                if(rem>0){
+                    if(rem!==this.timerSeconds){
+                        this.timerSeconds=rem;
+                        this._updateTimerDOM();  // DOM напрямую
+                        this._updateToast();
+                    }
+                }else{
+                    this.timerSeconds=0;
+                    this._updateTimerDOM();
+                    this._clearTimer();
+                    this.timerPhase=null;
+                    this._removeToast();
+                    if(phase==="accept")         this.screen="done_no_accept";
+                    else if(phase==="arrival")   this.screen="done_not_arrived";
+                    else if(phase==="consultation")this.screen="done_complete";
+                }
+            },250);
         },
-        // ── Кнопка футера Enter: ведёт на confirmIdInput на экране ввода ID,
-        // на остальных экранах — на confirmSelected ──────────────────────────
-        footerConfirm(){
-            if(this.screen==="id-input") this.confirmIdInput();
-            else this.confirmSelected();
+        _clearTimer(){
+            if(this.timerInterval){clearInterval(this.timerInterval);this.timerInterval=null;}
         },
-        globalIndex(opt){
-            return this.visibleOptions.indexOf(opt);
+        stopTimer(){
+            this._clearTimer();
+            this.timerPhase=null;
+            this._removeToast();
+            if(window._advToastInterval){clearInterval(window._advToastInterval);window._advToastInterval=null;}
         },
+
+        // ── Toast ────────────────────────────────────────────────────────────
+        _createToast(){
+            this._removeToast();
+            const el=document.createElement("div");
+            el.id="adv-menu-toast";
+            el.style.cssText="position:fixed;bottom:3vh;right:2vh;background:#141419f2;border:0.15vh solid rgba(74,144,217,0.55);border-radius:0.56vh;padding:0.56vh 1.11vh;pointer-events:none;z-index:9999;font-family:'Open Sans',sans-serif;min-width:10vh;box-shadow:0 0.56vh 1.85vh rgba(0,0,0,0.6);";
+            document.body.appendChild(el);
+            this._updateToast();
+        },
+        _removeToast(){
+            const el=document.getElementById("adv-menu-toast");
+            if(el)el.remove();
+        },
+        _updateToast(){
+            const el=document.getElementById("adv-menu-toast");
+            if(!el)return;
+            const m=Math.floor(this.timerSeconds/60);
+            const s=this.timerSeconds%60;
+            const t=String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+            const labels={accept:"Ожидание вызова",arrival:"Адвокат едет",consultation:"Беседа"};
+            const colors={accept:"#4a90d9",arrival:"#f9b701",consultation:"#a07bd4"};
+            const col=colors[this.timerPhase]||"#4a90d9";
+            const tcol=this.timerSeconds<=60?"#e25544":col;
+            el.innerHTML=`<div style="color:${col};font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[АДВ] ${labels[this.timerPhase]||""}</div>`+
+                         `<div style="color:${tcol};font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${t}</div>`;
+        },
+
+        // ── Навигация ─────────────────────────────────────────────────────────
         goBack(){
-            if(this.screen==="id-input"){
-                this.screen=this._idPrevScreen||"main";
-                this.idInputValue="";
-            } else if(this.screen==="povsednev"){
-                this.screen="main";
-                this.search="";
-            } else if(this.screen==="partner"){
-                this.screen="main";
-            } else if(this.screen==="main"){
+            // Всегда возвращает на экран прав, отменяя текущий процесс
+            this.stopTimer();
+            if(this.screen==="rights"){
                 this.close();
+            }else{
+                this.callTime=null;
+                this.screen="rights";
             }
         },
-        // ── Главное меню ──────────────────────────────────────────────────────
-        selectMain(item){
-            if(item.id==="povsednev"){
-                this.screen="povsednev";
-            } else if(item.id==="tracking"){
-                if(this.trackingOn || window._mvdCurrentScanId){
-                    this.trackingOn=false;
-                    this.close();
-                    setTimeout(()=>{
-                        if(typeof window._mvdToggleTracking==="function") window._mvdToggleTracking();
-                    },80);
-                } else {
-                    // Собственный экран ввода ID для отслеживания
-                    this.idInputLabel="Введите ID для отслеживания";
-                    this.idInputValue=this.targetId!==null&&this.targetId!==-1?String(this.targetId):"";
-                    this.idInputContext="tracking";
-                    this._idPrevScreen="main";
-                    this.screen="id-input";
-                    this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
-                }
-            } else if(item.id==="autocuff"){
-                this.autocuffOn=!this.autocuffOn;
-                if(typeof window._mvdToggleAutoCuff==="function") window._mvdToggleAutoCuff();
-            } else if(item.id==="autograb"){
-                this.autograbOn=!this.autograbOn;
-                if(typeof window._mvdToggleAutoGrab==="function") window._mvdToggleAutoGrab();
-            } else if(item.id==="naparnick"){
-                this._syncPartnerState();
-                this.screen="partner";
-            } else if(item.id==="laws"){
-                window._duranOpenMode="laws";
-                this.close();
-                setTimeout(()=>{
-                    window.openInterface("Zkm");
-                },80);
-            } else if(item.id==="advokat"){
-                this.close();
-                setTimeout(()=>{
-                    window.openInterface("AdvMenu");
-                },80);
-            }
+        goSkip(){
+            // Пропускает текущее ожидание, переходя на следующий этап
+            if(this.screen==="awaiting_accept")      this.lawyerAccepted();
+            else if(this.screen==="awaiting_arrival") this.lawyerArrived();
+            else if(this.screen==="in_consultation")  this.consultationDone();
         },
-        // ── Синхронизация тоглов главного меню из window ─────────────────────
-        _syncToggleState(){
-            this.trackingOn = !!(typeof window._mvdTrackingActive!=="undefined"
-                ? window._mvdTrackingActive
-                : (window._mvdCurrentScanId != null));
-            this.trackingNick = (typeof window._mvdTrackingNick!=="undefined" ? window._mvdTrackingNick : null);
-            this.autocuffOn = !!(typeof window._mvdAutoCuffEnabled!=="undefined"
-                ? window._mvdAutoCuffEnabled : false);
-            this.autograbOn = !!(typeof window._mvdAutoGrabEnabled!=="undefined"
-                ? window._mvdAutoGrabEnabled : true);
+
+        // ── Флоу ─────────────────────────────────────────────────────────────
+        refuseLawyer(){
+            this.screen="done_no_lawyer";
         },
-        // ── Синхронизация состояния напарника из window ───────────────────────
-        _syncPartnerState(){
-            if(typeof window._mvdPartnerGetState==="function"){
-                const s=window._mvdPartnerGetState();
-                this.partnerTracking = !!s.tracking;
-                this.partnerMessage  = !!s.message;
-                this.partnerNick     = s.nick || null;
-                this.partnerId       = s.id   || null;
-                // Без $forceUpdate() пункт "Напарник: ..." в списке не перерисовывается,
-                // когда _syncPartnerState() вызывается извне (через
-                // window._mvdMenuRefreshPartner, пока меню уже открыто) — данные
-                // меняются, а DOM не обновляется до переоткрытия меню.
-                try{
-                    if(typeof this.$forceUpdate==="function") this.$forceUpdate();
-                }catch(_fuErr){}
-            }
+        requestLawyer(){
+            this.callTime=this._getTime();
+            const msg=`/d [МВД]-[Пра-во] Требуется адвокат в МВД. Время вызова ${this.callTime}`;
+            if(typeof window.sendChatInput==="function")window.sendChatInput(msg);
+            else if(typeof window.sendChatMessage==="function")window.sendChatMessage(msg);
+            this.startTimer(300,"accept");
+            this.screen="awaiting_accept";
         },
-        // ── Напарник — переключить слежку ────────────────────────────────────
-        togglePartnerTracking(){
-            this._syncPartnerState();
-            if(this.partnerTracking){
-                if(typeof window._mvdPartnerDisable==="function") window._mvdPartnerDisable();
-                this.partnerTracking=false;
-                this.partnerNick=null;
-                this.partnerId=null;
-            } else {
-                // Собственный экран ввода ID напарника
-                const cur=(this.partnerNick&&this.partnerId)?`Текущий: ${this.partnerNick}[${this.partnerId}]`:`Не задан`;
-                this.idInputLabel=`Введите ID напарника (${cur})`;
-                this.idInputValue=this.targetId!==null&&this.targetId!==-1?String(this.targetId):"";
-                this.idInputContext="partner";
-                this._idPrevScreen="partner";
-                this.screen="id-input";
-                this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
-            }
+        lawyerAccepted(){
+            this.startTimer(600,"arrival");
+            this.screen="awaiting_arrival";
         },
-        // ── Напарник — переключить сообщение ─────────────────────────────────
-        togglePartnerMessage(){
-            const newVal=!this.partnerMessage;
-            if(typeof window._mvdPartnerSetMessage==="function") window._mvdPartnerSetMessage(newVal);
-            this.partnerMessage=newVal;
-            if(typeof this.$forceUpdate==="function") this.$forceUpdate();
+        lawyerNotAccepted(){
+            this.stopTimer();
+            this.screen="done_no_accept";
         },
-        // ── Повседневная — выбор действия ────────────────────────────────────
-        selectOption(opt){
-            const id = (this.targetId !== null && this.targetId !== -1) ? this.targetId : null;
-        
-            if(opt.special === "fine"){
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window.showKoapTypeMenu === "function")
-                        window.showKoapTypeMenu(id !== null ? id : -1);
-                }, 80);
-            } else if(opt.special === "wanted"){
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window.showUkInputDialog === "function")
-                        window.showUkInputDialog(id !== null ? id : -1);
-                }, 80);
-            } else if(opt.needsId){
-                if(id !== null){
-                    // targetId уже задан — сразу выполняем
-                    this.close();
-                    setTimeout(()=>{
-                        window._mvdMenuPendingAction = opt.action;
-                        if(typeof window._mvdExecuteAction === "function")
-                            window._mvdExecuteAction(opt.action, id);
-                    }, 80);
-                } else {
-                    // Собственный экран ввода ID
-                    this.idInputLabel = "Введите ID игрока";
-                    this.idInputValue = "";
-                    this.idInputContext = "action";
-                    this._idPrevScreen = "povsednev";
-                    this._pendingOpt = opt;
-                    this.screen = "id-input";
-                    this.$nextTick(()=>{
-                        const f = document.getElementById("mvdmenu-id-field");
-                        if(f) f.focus();
-                    });
-                }
-            } else {
-                // Действие без ID — выполняем сразу
-                this.close();
-                setTimeout(()=>{
-                    if(typeof window._mvdExecuteAction === "function")
-                        window._mvdExecuteAction(opt.action, id !== null ? id : -1);
-                }, 80);
-            }
+        lawyerArrived(){
+            this.startTimer(600,"consultation");
+            this.screen="in_consultation";
         },
-        
-        // ── ID-input ──────────────────────────────────────────────────────────
-        openIdInput(label, defaultVal, context, prevScreen){
-            this.idInputLabel = label || "Введите ID игрока";
-            this.idInputValue = (defaultVal != null && defaultVal !== -1) ? String(defaultVal) : "";
-            this.idInputContext = context;
-            this._idPrevScreen = prevScreen || "main";
-            this.screen = "id-input";
-            this.$nextTick(()=>{
-                const f = document.getElementById("mvdmenu-id-field");
-                if(f) f.focus();
-            });
+        lawyerNotArrived(){
+            this.stopTimer();
+            this.screen="done_not_arrived";
         },
-        
-        confirmIdInput(){
-            const raw = String(this.idInputValue || "").trim();
-            const id = raw === "" ? -1 : parseInt(raw, 10);
-            const ctx = this.idInputContext;
-        
-            if(ctx === "action"){
-                const opt = this._pendingOpt;
-                this._pendingOpt = null; // сбрасываем сразу, чтобы не повис
-        
-                if(opt && id > 0){
-                    this.targetId = id;
-                    this.close();
-                    setTimeout(()=>{
-                        window._mvdMenuPendingAction = opt.action;
-                        if(typeof window._mvdExecuteAction === "function")
-                            window._mvdExecuteAction(opt.action, id);
-                    }, 80);
-                } else {
-                    // Неверный ID или отмена — возврат в список
-                    this.screen = this._idPrevScreen || "povsednev";
-                    this.idInputValue = "";
-                }
-        
-            } else if(ctx === "tracking"){
-                if(id > 0){
-                    this.targetId = id;
-                    this.close();
-                    setTimeout(()=>{
-                        if(typeof window._mvdStartTracking === "function")
-                            window._mvdStartTracking(id);
-                    }, 80);
-                } else {
-                    this.screen = "main";
-                    this.idInputValue = "";
-                }
-        
-            } else if(ctx === "partner"){
-                if(id > 0){
-                    this.targetId = id;
-                    this.close();
-                    setTimeout(()=>{
-                        // Прямой вызов публичного API вместо эмуляции диалога 683
-                        if(typeof window._mvdPartnerSetId === "function"){
-                            window._mvdPartnerSetId(String(id));
-                        } else if(typeof window.sendClientEventCustom === "function"){
-                            // Fallback: эмуляция ответа диалога 683
-                            window.sendClientEventCustom(
-                                "custom", "OnDialogResponse", 683, 1, 0, String(id), ""
-                            );
-                        }
-                    }, 80);
-                } else {
-                    this.screen = "partner";
-                    this.idInputValue = "";
-                }
-            }
+        consultationDone(){
+            this.stopTimer();
+            this.screen="done_complete";
         },
-        cancelIdInput(){
-            this.idInputValue="";
-            this.screen=this._idPrevScreen||"main";
-        },
-        onIdInputKeydown(e){
-            if(e.key==="Escape") this.cancelIdInput();
-        },
+
+        // ── Закрытие (сохраняет состояние таймера) ────────────────────────────
         close(){
-            window.closeInterface("MvdMenu");
-        }
+            if(this.timerPhase&&this.timerSeconds>0){
+                const endAt=Date.now()+this.timerSeconds*1000;
+                const phase=this.timerPhase;
+                window._advTimerState={screen:this.screen,callTime:this.callTime,timerEndAt:endAt,timerPhase:phase};
+                if(window._advToastInterval)clearInterval(window._advToastInterval);
+                window._advToastInterval=setInterval(()=>{
+                    const rem=Math.max(0,Math.ceil((endAt-Date.now())/1000));
+                    const el=document.getElementById("adv-menu-toast");
+                    if(!el){clearInterval(window._advToastInterval);window._advToastInterval=null;return;}
+                    const m=Math.floor(rem/60);const s=rem%60;
+                    const t=String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+                    const labels={accept:"Ожидание вызова",arrival:"Адвокат едет",consultation:"Беседа"};
+                    const cols={accept:"#4a90d9",arrival:"#f9b701",consultation:"#a07bd4"};
+                    const col=cols[phase]||"#4a90d9";
+                    const tcol=rem<=60?"#e25544":col;
+                    el.innerHTML=`<div style="color:${col};font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[АДВ] ${labels[phase]||""}</div>`+
+                                 `<div style="color:${tcol};font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${t}</div>`;
+                    if(rem===0){clearInterval(window._advToastInterval);window._advToastInterval=null;this._removeToast();window._advTimerState=null;}
+                },1000);
+            }else{
+                window._advTimerState=null;
+                if(window._advToastInterval){clearInterval(window._advToastInterval);window._advToastInterval=null;}
+                this._removeToast();
+            }
+            this._clearTimer();
+            this.timerPhase=null;
+            window.closeInterface("AdvMenu");
+        },
     },
-    created(){this.$data.noAdaptation=true},
+
+    created(){this.$data.noAdaptation=true;},
+
     mounted(){
-        const s=document.createElement("style");
-        s.id="mvdmenu-style";
-        s.textContent=`
-.mvdmenu{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:absolute;text-transform:none;top:0;width:100vw;z-index:11;}
-.mvdmenu__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
-.mvdmenu__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(249,183,1,0.2),0 1.5vh 5vh rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:36vh;z-index:1;}
-.mvdmenu__top-accent{background:#f9b701;height:0.19vh;left:0;position:absolute;right:0;top:0;}
-.mvdmenu__pattern{height:23.61vh;left:0;mask-image:linear-gradient(180deg,#d9d9d9,rgba(115,115,115,0) 70%);overflow:hidden;pointer-events:none;position:absolute;top:0;width:100%;}
-
+        if(!document.getElementById("adv-menu-style")){
+            const s=document.createElement("style");
+            s.id="adv-menu-style";
+            s.textContent=`
+/* ════ AdvMenu ═══════════════════════════════════════════════════════ */
+.adv-menu{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:absolute;text-transform:none;top:0;width:100vw;z-index:11;}
+.adv-menu__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
+.adv-menu__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(74,144,217,0.18),0 1.5vh 5vh rgba(0,0,0,.75);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:32vh;z-index:1;}
+.adv-menu__top-accent{background:#4a90d9;height:0.19vh;left:0;position:absolute;right:0;top:0;}
 /* Header */
-.mvdmenu__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
-.mvdmenu__title{align-items:baseline;display:flex;font-family:"Open Sans Condensed",var(--fallback-font);font-style:italic;font-weight:700;gap:0.56vh;text-transform:uppercase;}
-.mvdmenu__title-main{color:#f4f1e1;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
-.mvdmenu__title-ahk{color:#f9b701;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
-.mvdmenu__title-sub{color:#f4f1e166;font-size:1.11vh;font-style:normal;font-weight:400;margin-left:0.74vh;text-transform:none;}
-.mvdmenu__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.48vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s ease;width:2.96vh;}
-@media (platform:pc){.mvdmenu__close-btn:hover{background:#e25544;border-color:#e25544;color:#fff;}}
-
-/* Search */
-.mvdmenu__search{align-items:center;background:#ffffff05;border-bottom:0.19vh solid #f4f1e11a;display:flex;gap:0.93vh;padding:0.93vh 1.67vh;position:relative;z-index:1;}
-.mvdmenu__search-icon{align-items:center;display:flex;flex-shrink:0;height:1.48vh;justify-content:center;width:1.48vh;}
-.mvdmenu__search-icon svg{height:100%;width:100%;}
-.mvdmenu__search input{-webkit-appearance:none;background:transparent;border:none;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;}
-.mvdmenu__search input::placeholder{color:#f4f1e166;font-weight:400;}
-
-/* List */
-.mvdmenu__list{display:flex;flex-direction:column;max-height:48vh;overflow-y:auto;position:relative;z-index:1;}
-.mvdmenu__list::-webkit-scrollbar{width:1.11vh;}
-.mvdmenu__list::-webkit-scrollbar-thumb{background:linear-gradient(0deg,#bcbcbd,#fff 75%);border-radius:0.19vh;}
-.mvdmenu__list::-webkit-scrollbar-track{background:#ffffff1a;border-radius:0.19vh;}
-
-/* Items */
-.mvdmenu__item{align-items:center;border-bottom:0.09vh solid #f4f1e10d;cursor:pointer;display:flex;gap:1.11vh;padding:0.93vh 1.48vh;transition:background 0.1s ease;}
-@media (platform:pc){.mvdmenu__item:hover{background:rgba(255,255,255,.04);}}
-.mvdmenu__item_fine{border-left:0.19vh solid rgba(61,186,122,.4);}
-@media (platform:pc){.mvdmenu__item_fine:hover{background:rgba(61,186,122,.05);}}
-.mvdmenu__item_wanted{border-left:0.19vh solid rgba(224,85,85,.4);}
-@media (platform:pc){.mvdmenu__item_wanted:hover{background:rgba(224,85,85,.05);}}
-.mvdmenu__item_toggle_on{border-left:0.19vh solid rgba(61,186,122,.5);}
-@media (platform:pc){.mvdmenu__item_toggle_on:hover{background:rgba(61,186,122,.05);}}
-.mvdmenu__item_toggle_off{border-left:0.19vh solid rgba(224,85,85,.3);}
-.mvdmenu__item_selected{background:rgba(249,183,1,.1);border-left:0.19vh solid #f9b701;}
-.mvdmenu__item_selected .mvdmenu__item-label{color:#f4f1e1;}
-.mvdmenu__item-num{color:#f4f1e166;flex-shrink:0;font-size:1.11vh;font-weight:700;min-width:2.4vh;}
-.mvdmenu__item-label{color:#f4f1e1cc;flex:1 1 auto;font-size:1.3vh;font-weight:600;line-height:1.4;}
-.mvdmenu__item-tag{border-radius:0.22vh;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.04vh;padding:0.15vh 0.5vh;}
-.mvdmenu__item-id-badge{background:rgba(249,183,1,.1);border-radius:0.22vh;color:rgba(249,183,1,.7);flex-shrink:0;font-size:0.93vh;font-weight:700;letter-spacing:0.04vh;padding:0.15vh 0.46vh;}
-.mvdmenu__item-arrow{align-items:center;display:flex;flex-shrink:0;opacity:0.5;}
-.mvdmenu__item-arrow svg{height:1.11vh;width:1.11vh;}
-.mvdmenu__item-status{border-radius:0.22vh;flex-shrink:0;font-size:0.93vh;font-weight:700;padding:0.15vh 0.56vh;}
-.mvdmenu__item-status_on{background:rgba(61,186,122,.15);color:rgba(61,186,122,1);}
-.mvdmenu__item-status_off{background:rgba(224,85,85,.12);color:rgba(224,85,85,0.9);}
-.mvdmenu__empty{color:#f4f1e166;font-size:1.3vh;font-style:italic;padding:2.22vh;text-align:center;}
-
-
-/* ID Input screen */
-.mvdmenu__id-input-wrap{display:flex;flex-direction:column;gap:1.3vh;padding:2vh 1.85vh 1.85vh;position:relative;z-index:1;}
-.mvdmenu__id-input-label{color:#f4f1e1cc;font-size:1.3vh;font-weight:600;line-height:1.4;}
-.mvdmenu__id-input-row{display:flex;gap:0.74vh;}
-.mvdmenu__id-input-field{-webkit-appearance:none;appearance:none;background:#ffffff08;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;padding:0.74vh 1.11vh;transition:border-color 0.15s;}
-.mvdmenu__id-input-field:focus{border-color:rgba(249,183,1,0.5);}
-.mvdmenu__id-input-field::placeholder{color:#f4f1e144;font-weight:400;}
-.mvdmenu__id-input-field::-webkit-inner-spin-button,.mvdmenu__id-input-field::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
-
-/* Footer (Подтвердить/Назад — как window__buttons в Window.js) */
-.mvdmenu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
-.mvdmenu__footer .controls-button__container{margin-right:1.48vh;}
-.mvdmenu__footer .controls-button__container:last-child{margin-right:0;}
-        `;
-        document.head.appendChild(s);
-
-        // Читаем targetId
-        this.targetId=(typeof window._mvdMenuTargetId!=="undefined"&&window._mvdMenuTargetId!==null)
-            ?window._mvdMenuTargetId:null;
-        window._mvdMenuTargetId=null;
-
-        // Читаем начальный экран
-        if(window._mvdMenuStartScreen==="povsednev"){
-            this.screen="povsednev";
-        } else if(window._mvdMenuStartScreen==="main"){
-            this.screen="main";
+.adv-menu__header{align-items:center;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.adv-menu__title{align-items:baseline;display:flex;gap:0.37vh;}
+.adv-menu__title-main{color:#f4f1e1;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;letter-spacing:0.1vh;text-transform:uppercase;}
+.adv-menu__title-sub{color:#4a90d9;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;letter-spacing:0.1vh;text-transform:uppercase;}
+.adv-menu__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.48vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s;width:2.96vh;}
+@media (platform:pc){.adv-menu__close-btn:hover{background:#e25544;border-color:#e25544;color:#fff;}}
+/* Body */
+.adv-menu__body{display:flex;flex-direction:column;flex:1 1 auto;gap:1.11vh;padding:1.67vh;position:relative;z-index:1;}
+.adv-menu__body_done{align-items:center;gap:0.74vh;justify-content:center;padding:2.96vh 1.85vh;text-align:center;}
+/* Section header */
+.adv-menu__section-hdr{align-items:center;display:flex;gap:0.56vh;}
+.adv-menu__section-icon{align-items:center;display:flex;flex-shrink:0;}
+.adv-menu__section-title{color:rgba(74,144,217,0.7);font-size:1.02vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;}
+/* Rights list */
+.adv-menu__rights-list{background:rgba(74,144,217,0.05);border:0.09vh solid rgba(74,144,217,0.14);border-radius:0.46vh;display:flex;flex-direction:column;gap:0.74vh;padding:1.11vh 1.11vh 1.11vh 0.93vh;}
+.adv-menu__right-item{align-items:flex-start;display:flex;gap:0.74vh;}
+.adv-menu__right-bullet{background:#4a90d9;border-radius:50%;flex-shrink:0;height:0.46vh;margin-top:0.74vh;width:0.46vh;}
+.adv-menu__right-text{color:rgba(244,241,225,0.75);font-size:1.2vh;font-weight:600;line-height:1.5;}
+/* Divider */
+.adv-menu__divider{background:#f4f1e11a;height:0.09vh;}
+/* Question */
+.adv-menu__question{color:#f4f1e1cc;font-size:1.2vh;font-weight:600;text-align:center;}
+/* Call sent */
+.adv-menu__call-sent{align-items:center;background:rgba(61,186,122,0.08);border:0.09vh solid rgba(61,186,122,0.25);border-radius:0.37vh;color:#3dba7a;display:flex;font-size:1.2vh;font-weight:700;gap:0.56vh;padding:0.65vh 1.11vh;}
+.adv-menu__call-sent-icon{align-items:center;display:flex;}
+/* Call info */
+.adv-menu__call-info{align-items:center;display:flex;gap:0.56vh;}
+.adv-menu__call-info-label{color:#f4f1e166;font-size:1.11vh;font-weight:600;}
+.adv-menu__call-info-val{color:#4a90d9;font-size:1.3vh;font-weight:700;}
+/* Phase badge */
+.adv-menu__phase-badge{align-items:center;border-radius:0.37vh;display:flex;font-size:1.2vh;font-weight:700;gap:0.56vh;padding:0.65vh 1.11vh;}
+.adv-menu__phase-badge-icon{align-items:center;display:flex;flex-shrink:0;}
+.adv-menu__phase-badge_arrival{background:rgba(249,183,1,0.08);border:0.09vh solid rgba(249,183,1,0.22);color:#f9b701;}
+.adv-menu__phase-badge_consult{background:rgba(160,123,212,0.08);border:0.09vh solid rgba(160,123,212,0.22);color:#a07bd4;}
+/* Phase label */
+.adv-menu__phase-label{color:rgba(244,241,225,0.75);font-size:1.2vh;font-weight:600;text-align:center;}
+/* Timer — обновляется напрямую через DOM */
+.adv-menu__timer-display{color:#4a90d9;font-family:"Open Sans Condensed","Open Sans",monospace;font-size:5.37vh;font-style:italic;font-weight:700;letter-spacing:0.19vh;line-height:1;text-align:center;}
+.adv-menu__timer-display_arrival{color:#f9b701;}
+.adv-menu__timer-display_consult{color:#a07bd4;}
+.adv-menu__timer-display_warn{color:#e25544!important;}
+/* Progress bar — ширина обновляется напрямую через DOM */
+.adv-menu__progress-track{background:#ffffff0d;border-radius:0.19vh;height:0.46vh;overflow:hidden;width:100%;}
+.adv-menu__progress-fill{background:#4a90d9;border-radius:0.19vh;height:100%;transition:width 0.9s linear;}
+.adv-menu__progress-fill_arrival{background:#f9b701;}
+.adv-menu__progress-fill_consult{background:#a07bd4;}
+.adv-menu__progress-fill_warn{background:#e25544!important;}
+/* Phase note */
+.adv-menu__phase-note{color:#f4f1e166;font-size:1.02vh;font-weight:600;text-align:center;}
+/* Hint */
+.adv-menu__hint{align-items:flex-start;display:flex;gap:0.46vh;}
+.adv-menu__hint-icon{display:flex;flex-shrink:0;margin-top:0.09vh;}
+.adv-menu__hint-text{color:#f4f1e166;font-size:1.08vh;line-height:1.4;}
+/* Done */
+.adv-menu__done-icon{margin-bottom:0.37vh;}
+.adv-menu__done-icon svg{height:2vh;width:2vh;}
+.adv-menu__done-title{color:#f4f1e1;font-size:1.48vh;font-weight:700;}
+.adv-menu__done-text{color:#f4f1e199;font-size:1.18vh;line-height:1.5;}
+/* Primary footer */
+.adv-menu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;gap:0.74vh;padding:1.2vh 1.67vh 0.74vh;position:relative;z-index:1;}
+.adv-menu__btn{border:0.19vh solid;border-radius:0.37vh;cursor:pointer;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.18vh;font-weight:700;letter-spacing:0.03vh;padding:0.93vh 0.37vh;transition:all 0.15s;}
+@media (platform:pc){.adv-menu__btn:hover{opacity:0.85;}}
+.adv-menu__btn_refuse{background:#ffffff0d;border-color:#f4f1e11a;color:rgba(244,241,225,0.7);}
+.adv-menu__btn_request{background:rgba(74,144,217,0.14);border-color:rgba(74,144,217,0.5);color:#4a90d9;}
+@media (platform:pc){.adv-menu__btn_request:hover{background:rgba(74,144,217,0.24);opacity:1;}}
+.adv-menu__btn_accept{background:rgba(61,186,122,0.12);border-color:rgba(61,186,122,0.45);color:#3dba7a;}
+@media (platform:pc){.adv-menu__btn_accept:hover{background:rgba(61,186,122,0.22);opacity:1;}}
+.adv-menu__btn_timeout{background:rgba(226,85,68,0.1);border-color:rgba(226,85,68,0.4);color:#e25544;}
+@media (platform:pc){.adv-menu__btn_timeout:hover{background:rgba(226,85,68,0.2);opacity:1;}}
+.adv-menu__btn_done{background:rgba(74,144,217,0.12);border-color:rgba(74,144,217,0.45);color:#4a90d9;}
+@media (platform:pc){.adv-menu__btn_done:hover{background:rgba(74,144,217,0.22);opacity:1;}}
+.adv-menu__btn_back{background:#ffffff08;border-color:#f4f1e114;color:rgba(244,241,225,0.5);}
+@media (platform:pc){.adv-menu__btn_back:hover{background:#ffffff12;opacity:1;}}
+.adv-menu__btn_close{background:#ffffff0d;border-color:#f4f1e11a;color:rgba(244,241,225,0.7);}
+/* Secondary nav footer (Назад / Пропустить) */
+.adv-menu__footer-nav{align-items:center;border-top:0.09vh solid #f4f1e10a;display:flex;gap:0.56vh;padding:0.56vh 1.67vh 0.93vh;position:relative;z-index:1;}
+.adv-menu__btn-nav{background:transparent;border:none;border-radius:0.28vh;cursor:pointer;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.08vh;font-weight:700;letter-spacing:0.03vh;padding:0.46vh 0.37vh;transition:all 0.15s;}
+.adv-menu__btn-nav_back{color:rgba(244,241,225,0.35);text-align:left;}
+@media (platform:pc){.adv-menu__btn-nav_back:hover{color:rgba(244,241,225,0.65);}}
+.adv-menu__btn-nav_skip{color:rgba(74,144,217,0.5);text-align:right;}
+@media (platform:pc){.adv-menu__btn-nav_skip:hover{color:rgba(74,144,217,0.85);}}
+`;
+            document.head.appendChild(s);
         }
-        window._mvdMenuStartScreen=null;
 
-        // Прямой вызов конкретного действия «Повседневной» (хоткей из MENU_BINDS) —
-        // сразу показываем свой экран ввода ID (или выполняем действие, если ID уже
-        // известен), минуя нативный диалог 668.
-        const _directAction=window._mvdMenuDirectAction;
-        window._mvdMenuDirectAction=null;
-        if(_directAction){
-            const _opt=POVSEDNEV_OPTIONS.find(o=>o.action===_directAction);
-            if(_opt){
-                if(this.targetId!==null&&this.targetId!==-1){
-                    const id=this.targetId;
-                    this.close();
-                    setTimeout(()=>{
-                        window._mvdMenuPendingAction=_opt.action;
-                        if(typeof window._mvdExecuteAction==="function")
-                            window._mvdExecuteAction(_opt.action,id);
-                    },80);
-                } else {
-                    this.idInputLabel="Введите ID игрока";
-                    this.idInputValue="";
-                    this.idInputContext="action";
-                    this._idPrevScreen="povsednev";
-                    this._pendingOpt=_opt;
-                    this.screen="id-input";
-                    this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
-                }
+        // Восстанавливаем состояние если было закрыто с активным таймером
+        if(window._advToastInterval){clearInterval(window._advToastInterval);window._advToastInterval=null;}
+        const saved=window._advTimerState;
+        window._advTimerState=null;
+        if(saved){
+            const remaining=Math.ceil((saved.timerEndAt-Date.now())/1000);
+            this.callTime=saved.callTime;
+            if(remaining>0){
+                this.screen=saved.screen;
+                this.startTimer(remaining,saved.timerPhase);
+            }else{
+                if(saved.timerPhase==="accept")         this.screen="done_no_accept";
+                else if(saved.timerPhase==="arrival")   this.screen="done_not_arrived";
+                else if(saved.timerPhase==="consultation")this.screen="done_complete";
             }
         }
 
-        // Синхронизируем состояние напарника при монтировании
-        this._syncToggleState();
-        this._syncPartnerState();
-        // Колбэк для мгновенного обновления из mvdF.js (когда ID меняется пока меню открыто)
-        window._mvdMenuRefreshPartner = () => {
-            this._syncPartnerState();
-        };
-        // Подстраховка: колбэк выше может не успеть сработать, если ответ "/id"
-        // от сервера придёт чуть раньше монтирования компонента или позже того,
-        // как _partnerNickSearch уже сброшен по таймауту в mvdF.js. Поэтому пока
-        // меню открыто — дополнительно сами раз в 700мс подтягиваем актуальное
-        // состояние напарника напрямую из window, без ожидания внешнего вызова.
-        this._partnerPollId = setInterval(() => {
-            this._syncPartnerState();
-        }, 700);
-
-        // ESC/Enter теперь обрабатываются самими кнопками футера (ControlsContaineredButton
-        // слушает document keydown/keyup по своему keyCode так же, как в нативных Window/Modal),
-        // поэтому отдельный глобальный window.onKeyUp хук для этого больше не нужен.
-
-        // Навигация по списку стрелками — на keydown (как window-list в Window.js:
-        // document.addEventListener("keydown",this.keyEvent)), а не на keyup.
-        // keyup срабатывает только один раз в момент отпускания клавиши, поэтому
-        // зажатие стрелки никак не двигало список. keydown подхватывает системный
-        // автоповтор браузера — зажал стрелку и список листается сам, как в нативных окнах.
-        this._onArrowKeyDown=(e)=>{
-            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner") return;
-            if(e.keyCode===window.KEY_CODE_ARROW_TOP){
-                e.preventDefault();
-                this.moveSelection(-1);
-            } else if(e.keyCode===window.KEY_CODE_ARROW_BOTTOM){
-                e.preventDefault();
-                this.moveSelection(1);
-            }
-        };
-        document.addEventListener("keydown",this._onArrowKeyDown,false);
-
-        // showInterface → setCursorStatus(true) → setDrawLabelStatus(false) скрыл метки;
-        // восстанавливаем явно, чтобы ники над игроками оставались видны
-        if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
+        if(!window.App?.developmentMode)window.setDrawLabelStatus(true);
     },
+
     unmounted(){
-        document.removeEventListener("keydown",this._onArrowKeyDown,false);
-        const s=document.getElementById("mvdmenu-style");
+        this._clearTimer();
+        const s=document.getElementById("adv-menu-style");
         if(s)s.remove();
-        window._mvdMenuRefreshPartner=null; // сбрасываем колбэк при закрытии меню
-        if(this._partnerPollId){ clearInterval(this._partnerPollId); this._partnerPollId=null; }
-    }
+    },
 };
 
-const MvdMenu=_export_sfc(_sfc_main,[["render",render]]);
-export{MvdMenu as default};
+const AdvMenu=_export_sfc(_sfc_main,[["render",render]]);
+export{AdvMenu as default};
