@@ -1,24 +1,46 @@
-(function() {
-const FACTION = "FSB"; // ← МЕНЯЕТСЯ УСТАНОВЩИКОМ: "MVD" или "FSB"
-const CALLSIGN = "";
-const AUTO_PASSWORD = "";
-const HWID = "";
-const SWAP_ENABLED = true;
-const SWAP_KEY = "Alt+Q";
-const MENU_KEY = "Alt+0";
-const MENU_HIDDEN_ITEMS = [];
-const MENU_BINDS = {};
-const MENU_ORDER = [];
-const MENU_TIMER_ITEMS = [];
-const KEYS_URL = "https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK/keys.json";
+// ═══════════════════════════════════════════════════════════════════════
+// ⚠️ ЧТО ЭТО ЗА ФАЙЛ
+// ═══════════════════════════════════════════════════════════════════════
+// LoadAhk.js — ЗАГРУЗЧИК ПОМОЩНИКА ДЛЯ ТЕСТИРОВАНИЯ МВД И ФУНКЦИЙ
+// ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ. Версия: beta 0.1.
+//
+// Это НЕ обычный пользовательский скрипт/мод для рядовых игроков.
+// Файл встраивается установщиком AHK MVD в Index.js игры. При запуске
+// он подтягивает основной скрипт mvdF.js с GitHub, подставляет в него
+// настройки, выбранные в установщике (хоткеи, биндинги меню, таймеры
+// после отыгровок, авто-снаряжение, HWID и т.д.), и выполняет его.
+//
+// Доступ ограничен: HWID вшивается и проверяется установщиком по
+// списку авторизованных ключей (см. KEYS_URL) — без ключа в этом
+// списке файл сюда попасть не может. Если вы обычный игрок и не
+// участвуете в тестировании — вам этот файл не нужен.
+//
+// Этот код используется исключительно на закрытых тестовых серверах
+// для тестирования интерфейса МВД (полиции) и функций разработчиков
+// игры — на обычных (боевых) серверах игры этот функционал недоступен
+// и никак не влияет на игровой процесс других игроков. Это beta-версия
+// (0.1) — возможны баги и незавершённые функции.
+// ═══════════════════════════════════════════════════════════════════════
 
-// ── Авто-снаряжение (пока идентично МВД, задел на будущее) ──
-const AUTO_GRAB = false;
-const AUTO_GRAB_THR_MAGNUM = 30;
-const AUTO_GRAB_THR_762    = 60;
-const AUTO_GRAB_THR_545    = 60;
-const AUTO_GRAB_THR_1270   = 20;
-const AUTO_GRAB_MENU_MEDKIT      = -1;
+(function() {
+const CALLSIGN = "";
+const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
+const HWID = ""; // Вшивается установщиком — проверяется онлайн при каждом запуске игры
+const SWAP_ENABLED = true; // Включить свап тазер ↔ дигл (установщик может выключить)
+const SWAP_KEY = "Alt+Q"; // Хоткей свапа: "Alt+Q", "Numpad1", "F6", "Alt+F", и т.д. Пусто = отключено
+const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК (пусто = отключено)
+const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневная» которые скрыты: ["greeting","checkDocuments",...]
+const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
+const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
+const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с: ["greeting","fine","wantedFine",...]
+const KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/keys.json";
+// ── Авто-снаряжение (авто при открытии службы) ─────────────────
+const AUTO_GRAB = false;              // Включить авто-снаряжение
+const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
+const AUTO_GRAB_THR_762    = 60;     // Добирать 7.62x39 если меньше N штук
+const AUTO_GRAB_THR_545    = 60;     // Добирать 5.45x39 если меньше N штук
+const AUTO_GRAB_THR_1270   = 20;     // Добирать 12x70 если меньше N штук
+const AUTO_GRAB_MENU_MEDKIT      = -1; // Позиция Аптечки в меню (-1 = без изменений)
 const AUTO_GRAB_MENU_BATON       = -1;
 const AUTO_GRAB_MENU_VEST        = -1;
 const AUTO_GRAB_MENU_DEAGLE      = -1;
@@ -34,19 +56,19 @@ const AUTO_GRAB_MENU_AKS74U      = -1;
 const AUTO_GRAB_MENU_REMINGTON   = -1;
 const AUTO_GRAB_MENU_AMMO_545    = -1;
 const AUTO_GRAB_MENU_AMMO_1270   = -1;
-const AUTO_GRAB_SKIP = [];
-
-// ── Параметры загрузки: ФСБ-скрипт ──
+const AUTO_GRAB_SKIP = []; // Список предметов которые НЕ брать: ["medkit","painkiller","baton","baton2","vest","taumeter","diag","taser","deagle","magnum","akm","ammo762","aks74u","remington","ammo545","ammo12x70"]
+// ── END Авто-снаряжение ─────────────────────────────────────────
+// Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
-const folder = 'MVD AHK/FSB';   // ← папка ФСБ
-const filename = 'fsb.js';       // ← скрипт ФСБ
+const folder = 'MVD AHK';
+const filename = 'mvdF.js';
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     const path = folder ? `${encodeURIComponent(folder)}/` : '';
-    const url = `https://cdn.jsdelivr.net/gh/${username}/${repo}@main/${path}${filename}`;
+    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
+    xhr.open('GET', url + '?_=' + Date.now(), true);
     xhr.onload = function() {
         if (xhr.status >= 200 && xhr.status < 300) {
             let scriptText = xhr.responseText;
