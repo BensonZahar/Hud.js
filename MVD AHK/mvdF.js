@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.4 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.3 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -3649,6 +3649,14 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 
                 clearInterval(poll);
                 console.log(`[АВТО-ТАЗЕР] items получены (попытка ${attempts})`);
+
+                if (!hasBackpack()) {
+                    console.log('[АВТО-ТАЗЕР] рюкзак не одет');
+                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                    snAdd('[1, "АВТО-ТАЗЕР", "Рюкзак не одет", "FF4400", 3000]');
+                    clearBusy();
+                    return;
+                }
 
                 const deagleLoc = findItem(items, ITEM_DEAGLE);
                 if (!deagleLoc) {
