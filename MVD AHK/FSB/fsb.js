@@ -124,24 +124,24 @@ setTimeout(function() {
 }, 3000);
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
-    "Рядовой": "[Р]",
-    "Сержант": "[С]",
-    "Старшина": "[СТ]",
-    "Прапорщик": "[ПР]",
-    "Лейтенант": "[Л]",
+    "Старший лейтенант": "[СТЛ]",
     "Капитан": "[К]",
     "Майор": "[М]",
     "Подполковник": "[ПП]",
-    "Командир ДПС": "[Ком.ДПС]",
-    "Командир ППС": "[Ком.ППС]",
-    "Командир ОМОН": "[Ком.ОМОН]",
-    "Заместитель командира ОМОН": "[Зам.Ком.ОМОН]",
-    "Командир мотобатальона": "[Ком.МБ]",
     "Полковник": "[П]",
     "Генерал": "[Г]"
 };
-const mvdSkins = [15321, 15323, 15325, 15330, 15332, 15334, 15335, 190, 148, 15340, 15341, 15342, 15343, 15344, 15348, 15351];
-const stroyRanks = ["Капитан", "Майор", "Подполковник", "Полковник", "Генерал"];
+const mvdSkins = [15346, 15349, 17034, 17035, 17036, 17037, 17082, 17083, 17084];
+const stroyRanks = ["Старший лейтенант", "Капитан", "Майор", "Подполковник", "Полковник", "Генерал"];
+// Зарплаты по званиям ФСБ (руб.)
+const rankSalaries = {
+    "Старший лейтенант": 72085,
+    "Капитан": 75665,
+    "Майор": 87775,
+    "Подполковник": 98915,
+    "Полковник": 117890,
+    "Генерал": 139835
+};
 // КоАП тексты (сокращенные)
 const dpsKoapLines = [
     "{FFD700}Глава 1. Нарушения, касаемо регистрации т/с",
@@ -353,15 +353,15 @@ function trackSkinId() {
         // считает это "изменением" скина каждый цикл опроса
         if (numericSkin !== skinId) {
             skinId = numericSkin;
-            window._mvdSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js (проверка исключения СОБР для greeting)
+            window._mvdSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
 
             console.log(`[SKIN] 🔍 Новый Skin ID обнаружен: ${skinId}`);
 
-            // Проверяем, является ли скин МВД
+            // Проверяем, является ли скин ФСБ
             if (mvdSkins.includes(skinId)) {
-                console.log(`[SKIN] ✅ Скин ${skinId} - это МВД скин!`);
+                console.log(`[SKIN] ✅ Скин ${skinId} - это скин ФСБ!`);
             } else {
-                console.log(`[SKIN] ❌ Скин ${skinId} НЕ входит в список МВД`);
+                console.log(`[SKIN] ❌ Скин ${skinId} НЕ входит в список ФСБ`);
             }
         }
     }
@@ -369,7 +369,7 @@ function trackSkinId() {
 }
 // 5. ЗАПУСК после загрузки
 setTimeout(() => {
-    console.log('[SKIN] 🚀 Запуск отслеживания скина МВД...');
+    console.log('[SKIN] 🚀 Запуск отслеживания скина ФСБ...');
     const initialSkin = getSkinIdFromStore();
     if (initialSkin !== null) {
         // Приводим к числу сразу
@@ -378,9 +378,9 @@ setTimeout(() => {
         console.log(`[SKIN] 📌 Начальный Skin ID: ${skinId}`);
     
         if (mvdSkins.includes(skinId)) {
-            console.log(`[SKIN] ✅ Скин ${skinId} в списке МВД - меню /dahk доступно`);
+            console.log(`[SKIN] ✅ Скин ${skinId} в списке ФСБ - меню /dahk доступно`);
         } else {
-            console.log(`[SKIN] ⚠️ Скин ${skinId} не является МВД скином`);
+            console.log(`[SKIN] ⚠️ Скин ${skinId} не является скином ФСБ`);
         }
     } else {
         console.log('[SKIN] ❌ Не удалось получить начальный Skin ID');
@@ -463,7 +463,7 @@ function shouldBlockMessage(message) {
 let currentPage = 0;
 let shownLicenseTypes = [];
 let shownMvdSubTypes = [];
-let lastMenuType = null; // "povsednev" or "omon" or "stroy" or null
+let lastMenuType = null; // "povsednev" or "stroy" or null
 let giveLicenseTo = -1;
 let targetId = null;
 let currentMenu = null;
@@ -645,9 +645,7 @@ window.addEventListener('keydown', function(e) {
             if (!_opt) break;
             currentAction = _action;
             currentMenu = "povsednev"; // FIX: устанавливаем currentMenu чтобы диалог 668 сработал
-            // FIX: СОБР-скин (15340) для greeting не требует ID — как в HandlePovsednevCommand
-            var _isOmonSkin = skinId === 15340;
-            var _needsIdForThis = _opt.needsId && !(_action === 'greeting' && _isOmonSkin);
+            var _needsIdForThis = _opt.needsId;
             if (_needsIdForThis) {
                 // FIX: открываем кастомный экран ввода ID внутри MvdMenu (а не нативный
                 // диалог 668), чтобы хоткей вёл себя так же, как обычный клик по пункту меню.
@@ -1704,9 +1702,7 @@ const HandlePovsednevCommand = (optionIndex) => {
         const option = _visible[adjustedIndex];
         currentAction = option.action;
   
-        // Динамическая проверка needsId: для "greeting" не запрашивать ID, если скин ОМОН (15340)
-        const isOmonSkin = skinId === 15340;
-        const needsIdForThis = option.needsId && !(option.action === "greeting" && isOmonSkin);
+        const needsIdForThis = option.needsId;
   
         if (needsIdForThis) {
             setTimeout(() => {
@@ -1987,7 +1983,6 @@ window.addEventListener('keydown', function (e) {
 
 const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
-    const isOmonSkin = skinId === 15340;
     switch (action) {
 	case "greeting":
 		const _rank = window._mvdRank || '';
@@ -1995,66 +1990,36 @@ const executePovsednevAction = (action, targetId) => {
 		const _lastName = window._mvdLastName || '';
 		const _callsign = CALLSIGN || window._mvdCallsign || '';
 
-		if (isOmonSkin) {
-			sendMessagesWithDelay([
-				`Работает сотрудник СОБР | Мой позывной ${_callsign}`,
-				"Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
-				"Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
-				"Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
-			], [0, 500, 500, 500]);
-			setTimeout(() => showDocCheckPrompt(targetId), 1800);
-			setTimeout(() => runPostActionTimer('greeting'), 1800);
-		} else {
-			sendMessagesWithDelay([
-				`Здравия желаю, Вас беспокоит ${_rank} - ${_firstName} ${_lastName}.`,
-				`/doc ${targetId}` 
-			], [0, 1000]);
-			setTimeout(() => showDocCheckPrompt(targetId), 1300);
-			setTimeout(() => runPostActionTimer('greeting'), 1300);
-		}
+		sendMessagesWithDelay([
+			"Здравия желаю.",
+			`${_rank} ФСБ, мой позывной ${_callsign}`,
+			"В каком кармане находятся ваши документы? Отвечайте.",
+			`/doc ${targetId}`
+		], [0, 500, 500, 1000]);
+		setTimeout(() => showDocCheckPrompt(targetId), 2000);
+		setTimeout(() => runPostActionTimer('greeting'), 2000);
 		break;
       
      case "checkDocuments":
-         if (isOmonSkin) {
-             sendMessagesWithDelay([
-                 "/s Работает СОБР, руки за голову!",
-                 "/s Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК",
-                 "/s Готовим свои документы!"
-             ], [750, 1000, 1000]);
-         } else {
-             // ── Определяем скины ГУВД ──
-             const guvdSkins = [190, 148, 15341, 15342, 15343, 15344, 15348, 15351];
-             const isGuvdSkin = guvdSkins.includes(skinId);
-             
-             // ── Получаем свой ID (как в HASSLE HUD) ──
-             let myId = 0;
-             try {
-                 const hud = window.interface && window.interface("Hud");
-                 if (hud && hud.info && hud.info.id) {
-                     myId = parseInt(hud.info.id, 10) || 0;
-                 }
-             } catch(e) {
-                 console.warn('[MVD] Ошибка получения ID из Hud:', e);
+         // ── Получаем свой ID (как в HASSLE HUD) ──
+         let myId = 0;
+         try {
+             const hud = window.interface && window.interface("Hud");
+             if (hud && hud.info && hud.info.id) {
+                 myId = parseInt(hud.info.id, 10) || 0;
              }
-             
-             if (isGuvdSkin) {
-                 // ── ГУВД: только паспорт, без прав и ремня ──
-                 sendMessagesWithDelay([
-                     "Будьте добры предъявить Ваши документы, а именно:",
-                     "Паспорт.",
-                     `/n /pass ${myId}`
-                 ], [0, 1000, 1000]);
-             } else {
-                 // ── Остальные скины: полный комплект (паспорт + права + документы на т/с + ремень) ──
-                 sendMessagesWithDelay([
-                     "Будьте добры предъявить Ваши документы, а именно:",
-                     "Паспорт, вод.права и документы на т/с.",
-                     `/n /pass ${myId}, /carpass ${myId}`,
-                     "А также, отстегните пожалуйста ремень безопасности.",
-                     "/n /rem"
-                 ], [0, 1000, 1000, 1000, 1000]);
-             }
+         } catch(e) {
+             console.warn('[FSB] Ошибка получения ID из Hud:', e);
          }
+
+         // ── Единый сценарий проверки документов для ФСБ ──
+         sendMessagesWithDelay([
+             "Будьте добры предъявить Ваши документы, а именно:",
+             "Паспорт, вод.права и документы на т/с.",
+             `/n /pass ${myId}, /carpass ${myId}`,
+             "А также, отстегните пожалуйста ремень безопасности.",
+             "/n /rem"
+         ], [0, 1000, 1000, 1000, 1000]);
          break;
       
         case "studyDocuments":
