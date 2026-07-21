@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.3 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.444 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -3535,7 +3535,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 
     function findFreeSlot(items, targetCid) {
         const container = items[targetCid];
-        if (!container) return -1;
+        if (!container) return 0;
         for (let s = 0; s < 50; s++) {
             if (!container[s]) {
                 console.log(`[АВТО-ТАЗЕР] freeSlot(${CT_NAMES[targetCid]}): ${s}`);
@@ -3553,17 +3553,6 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
             if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
         } catch(e) {}
         return null;
-    }
-
-    // Рюкзак определяем так же, как это делает сам инвентарь игры:
-    // по наличию описания контейнера BACK (containers[CT.BACK]), а не items —
-    // items[CT.BACK] может быть undefined и без рюкзака, и с пустым рюкзаком.
-    function hasBackpack() {
-        try {
-            const inv = window.interface('InventoryNew');
-            return !!(inv && inv.containers && inv.containers[CT.BACK]);
-        } catch(e) {}
-        return false;
     }
 
     function swapTaserDeagle() {
@@ -3640,14 +3629,6 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                 } else {
                     console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
                     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    clearBusy();
-                    return;
-                }
-
-                if (toCid === CT.BACK && !hasBackpack()) {
-                    console.log('[АВТО-ТАЗЕР] рюкзак не надет');
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    snAdd('[1, "АВТО-ТАЗЕР", "Рюкзак не надет", "FF4400", 3000]');
                     clearBusy();
                     return;
                 }
