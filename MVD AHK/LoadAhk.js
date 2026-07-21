@@ -1,5 +1,4 @@
 (function() {
-const FACTION = "MVD";
 const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
 const HWID = ""; // Вшивается установщиком — проверяется онлайн при каждом запуске игры
