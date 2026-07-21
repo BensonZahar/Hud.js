@@ -561,9 +561,27 @@ def fetch_html() -> str:
     resp = requests.get(f"{GITHUB_RAW}/index.html", timeout=15)
     resp.raise_for_status()
     html = resp.text
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8')
-    tmp.write(html); tmp.close()
-    return tmp.name
+
+    # Кладём index.html в отдельную temp-папку (а не файл со случайным именем),
+    # чтобы рядом с ним лежал index.css и относительная ссылка
+    # <link rel="stylesheet" href="index.css"> корректно резолвилась через file://
+    tmp_dir = tempfile.mkdtemp(prefix="ahk_installer_ui_")
+    html_path = os.path.join(tmp_dir, "index.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+    try:
+        css_resp = requests.get(f"{GITHUB_RAW}/index.css", timeout=15)
+        css_resp.raise_for_status()
+        css_path = os.path.join(tmp_dir, "index.css")
+        with open(css_path, "w", encoding="utf-8") as f:
+            f.write(css_resp.text)
+    except Exception:
+        # Если index.css не найден/не загрузился — не валим установщик,
+        # окно просто откроется без стилей
+        pass
+
+    return html_path
 
 
 class InstallerAPI:
@@ -1032,7 +1050,9 @@ def main():
         webview.start(icon=ico if os.path.exists(ico) else None, debug=False)
     except TypeError:
         webview.start(debug=False)
-    try: os.unlink(html_tmp)
+    try:
+        import shutil
+        shutil.rmtree(os.path.dirname(html_tmp), ignore_errors=True)
     except: pass
 
 
