@@ -76,6 +76,19 @@
         <span class="page-title">Статус системы</span>
       </div>
       <div class="content">
+
+        <!-- Выбор структуры -->
+        <div class="dept-selector">
+          <button id="dept-mvd" class="dept-btn dept-mvd active" onclick="setDepartment('mvd')">
+            <svg viewBox="0 0 24 24"><path d="M12 2L3 7v6c0 5.25 3.75 10.15 9 11.25C17.25 23.15 21 18.25 21 13V7L12 2z"/></svg>
+            <span>МВД</span>
+          </button>
+          <button id="dept-fsb" class="dept-btn dept-fsb" onclick="setDepartment('fsb')">
+            <svg viewBox="0 0 24 24"><path d="M12 2L2 7l2 9 8 6 8-6 2-9L12 2zm0 3.5l6.5 3.25-1.5 6.75L12 19l-5-3.5-1.5-6.75L12 5.5z"/></svg>
+            <span>ФСБ</span>
+          </button>
+        </div>
+
         <div class="card">
           <div class="card-row">
             <span class="cr-lbl">Папка RADMIR CRMP</span>
@@ -122,6 +135,7 @@
       <div class="content">
 
 
+        <div id="section-callsign">
         <div class="chk-row" onclick="toggleCallsign()">
           <div class="chk-box" id="chk-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <span class="chk-lbl">Позывной ОМОН</span>
@@ -132,6 +146,7 @@
             <input class="inp" id="f-callsign" placeholder="Напр. Гром-1">
           </div>
         </div>
+        </div><!-- /section-callsign -->
 
         <div class="chk-row" onclick="toggleAutoPassword()">
           <div class="chk-box" id="chk-box-pwd"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -144,6 +159,7 @@
           </div>
         </div>
 
+        <div id="section-grab">
         <div class="chk-row" onclick="toggleAutoGrab()">
           <div class="chk-box" id="chk-box-grab"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <span class="chk-lbl">Авто-снаряжение</span>
@@ -231,6 +247,7 @@
             </div>
           </div>
         </div>
+        </div><!-- /section-grab -->
 
         <!-- Auto-taser toggle -->
         <div class="chk-row" onclick="toggleSwap()">
@@ -367,6 +384,25 @@
 var folderSelected=false,callsignOn=false,autoPasswordOn=false,autoGrabOn=false;
 var savedAutoGrab=null,swapEnabled=false,swapKey='Alt+Q';
 var menuKey='Alt+0';
+var currentDepartment='mvd';
+
+function setDepartment(dept){
+  currentDepartment=dept;
+  document.getElementById('dept-mvd').classList.toggle('active',dept==='mvd');
+  document.getElementById('dept-fsb').classList.toggle('active',dept==='fsb');
+  applyDepartment(dept);
+  if(api)api.save_department(dept);
+}
+function applyDepartment(dept){
+  var isMvd=dept==='mvd';
+  // МВД-only блоки: позывной ОМОН и авто-снаряжение
+  var el;
+  el=document.getElementById('section-callsign');if(el)el.style.display=isMvd?'':'none';
+  el=document.getElementById('section-grab');    if(el)el.style.display=isMvd?'':'none';
+  // Обновляем подсказку на главной
+  var infoEl=document.getElementById('info-dept');
+  if(infoEl)infoEl.textContent=isMvd?'МВД':'ФСБ';
+}
 // action -> label для пунктов меню «Повседневная»
 var ALL_MENU_ITEMS=[
   {action:'greeting',       label:'1. Приветствие'},
@@ -491,6 +527,13 @@ window.addEventListener('pywebviewready',function(){
     if(s.code_installed){
       document.getElementById('st-code').textContent='Установлен';
       document.getElementById('st-code').className='cr-val ok';
+    }
+    // Восстанавливаем выбор структуры (МВД/ФСБ)
+    if(s.department==='fsb'||s.department==='mvd'){
+      currentDepartment=s.department;
+      document.getElementById('dept-mvd').classList.toggle('active',s.department==='mvd');
+      document.getElementById('dept-fsb').classList.toggle('active',s.department==='fsb');
+      applyDepartment(s.department);
     }
     // Если путь рабочий — сразу открываем страницу вставки
     if(s.path_valid){setTimeout(function(){setTab('insert',null);},80);}
@@ -691,7 +734,7 @@ document.addEventListener('wheel',function(e){
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,[],binds,[],timerItems).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){if(!folderSelected){flash(false);setTab('home',null);return;}var btn=document.getElementById('btn-remove');btn.disabled=true;runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 

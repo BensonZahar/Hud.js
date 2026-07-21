@@ -634,3 +634,27 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 
 /* Совместимость */
 .menu-item-row{display:none!important}
+
+/* ══ Department selector (МВД / ФСБ) ══ */
+.dept-selector{display:flex;gap:8px;margin-bottom:12px}
+.dept-btn{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:8px;
+  height:42px;border-radius:8px;border:1px solid rgba(255,255,255,.08);
+  background:rgba(255,255,255,.04);cursor:pointer;
+  font-family:var(--font);font-size:13px;font-weight:700;color:rgba(255,255,255,.45);
+  letter-spacing:.06em;text-transform:uppercase;
+  transition:background .15s,border-color .15s,color .15s;
+  -webkit-app-region:no-drag
+}
+.dept-btn svg{width:16px;height:16px;fill:currentColor;flex-shrink:0;transition:fill .15s}
+.dept-btn:hover{background:rgba(255,255,255,.08);color:rgba(255,255,255,.7)}
+/* МВД active — золотой акцент */
+.dept-mvd.active{
+  background:rgba(249,183,1,.12);border-color:rgba(249,183,1,.4);
+  color:#f9b701;box-shadow:0 0 0 1px rgba(249,183,1,.12) inset
+}
+/* ФСБ active — синий акцент */
+.dept-fsb.active{
+  background:rgba(82,140,255,.12);border-color:rgba(82,140,255,.4);
+  color:#7aa8ff;box-shadow:0 0 0 1px rgba(82,140,255,.12) inset
+}

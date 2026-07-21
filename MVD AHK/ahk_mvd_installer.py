@@ -35,6 +35,8 @@ from PIL import Image
 GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
 KEYS_URL      = f"{GITHUB_RAW}/keys.json"
 AHK_URL       = f"{GITHUB_RAW}/LoadAhk.js"
+FSB_RAW       = f"{GITHUB_RAW}/FSB"
+FSB_AHK_URL   = f"{FSB_RAW}/LoadFsb.js"
 INTLOAD_URL   = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
 CUSTOM_UI_URL = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
 LOADERS_URL   = f"{CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
@@ -806,7 +808,13 @@ class InstallerAPI:
         save_settings(current)
         return {"ok": True, "path": str(self.radmir_path)}
 
-    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None):
+    def save_department(self, department: str) -> bool:
+        """Сохраняет выбранную структуру (mvd/fsb) в settings.json."""
+        dept = 'fsb' if department == 'fsb' else 'mvd'
+        save_settings({'department': dept})
+        return True
+
+    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd'):
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
@@ -819,10 +827,11 @@ class InstallerAPI:
                 ifaces = self._fetch_custom_interfaces()
                 self._deploy_custom_ui_files(ifaces)
                 
+                loader_url = FSB_AHK_URL if department == 'fsb' else AHK_URL
                 code = None
                 for attempt in range(3):
                     try:
-                        resp = requests.get(AHK_URL, timeout=15)
+                        resp = requests.get(loader_url, timeout=15)
                         resp.raise_for_status()
                         code = resp.text.strip()
                         break
@@ -944,6 +953,7 @@ class InstallerAPI:
                     'menu_binds': binds_dict,
                     'menu_order': order_list,
                     'menu_timer_items': timer_list,
+                    'department': 'fsb' if department == 'fsb' else 'mvd',
                 })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"
