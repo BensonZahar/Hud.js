@@ -110,7 +110,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4. ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.1 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -559,6 +559,13 @@ var MENU_ORDER = [];
 // Формат: ["greeting","fine","wantedFine",...] (пусто = выключено везде) — настраивается установщиком
 var MENU_TIMER_ITEMS = [];
 
+// Флаг: ждём диалог "Точное время" именно как ОТВЕТ на нашу команду "/c 60"
+// после отыгровки. Без этого флага перехватчик ниже закрывал бы ЛЮБОЙ диалог
+// с таким заголовком — даже открытый вручную (например, командой /time),
+// не после отыгровки из MENU_TIMER_ITEMS.
+let _awaitingTimerDialog = false;
+let _timerDialogResetTO = null;
+
 // ── Таймер после отыгровки: "/c 60" (латинская C, слитно) + автозакрытие диалога "Точное время" ──
 // Если для конкретного пункта включено в установщике (MENU_TIMER_ITEMS), после
 // завершения отыгровки шлём эту команду. Сервер в ответ показывает диалог
@@ -568,6 +575,12 @@ function runPostActionTimer(actionKey) {
     if (!Array.isArray(MENU_TIMER_ITEMS) || !MENU_TIMER_ITEMS.includes(actionKey)) return;
     sendChatInput("/c 60");
     console.log(`[AHK-TIMER] "${actionKey}": отправлена команда /c 60`);
+    // Взводим флаг ожидания — закрыть можно только диалог, пришедший, пока флаг взведён
+    _awaitingTimerDialog = true;
+    if (_timerDialogResetTO) clearTimeout(_timerDialogResetTO);
+    // Если сервер по какой-то причине не прислал диалог за 5с — снимаем флаг,
+    // чтобы случайный более поздний "Точное время" не закрылся по ошибке
+    _timerDialogResetTO = setTimeout(() => { _awaitingTimerDialog = false; }, 5000);
 }
 
 // Применяем порядок пунктов если задан
@@ -2934,10 +2947,13 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             );
 
             // ── Авто-закрытие диалога "Точное время" (открывается после команды /c 60) ──
-            // Команду шлёт runPostActionTimer() если для действия включена опция
-            // в установщике (MENU_TIMER_ITEMS). Сервер в ответ на "/c 60" всегда
-            // показывает этот MSGBOX — закрываем его через 1.5с, чтобы не мешал.
-            if (style === 0 && title.includes('Точное время')) {
+            // Закрываем ТОЛЬКО если этот диалог пришёл в ответ на НАШУ команду /c 60,
+            // отправленную runPostActionTimer() после отыгровки (флаг _awaitingTimerDialog).
+            // Если "Точное время" открылось не после отыгровки (например, игрок
+            // сам написал /time) — флаг не взведён, и диалог остаётся как обычно.
+            if (style === 0 && title.includes('Точное время') && _awaitingTimerDialog) {
+                _awaitingTimerDialog = false;
+                if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
                 const _timeDlgId = dialogId;
                 setTimeout(() => {
                     try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
