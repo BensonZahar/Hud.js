@@ -1,3 +1,22 @@
+// ═══════════════════════════════════════════════════════════════════════
+// ⚠️ ЧТО ЭТО ЗА ФАЙЛ
+// ═══════════════════════════════════════════════════════════════════════
+// mvdF.js — ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ МВД И ФУНКЦИЙ ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ.
+// Версия: beta 0.1.
+//
+// Это НЕ обычный пользовательский скрипт/мод для рядовых игроков.
+// Он предназначен для внутреннего тестирования интерфейса МВД (полиции)
+// и функций, которые готовятся для разработчиков игры — включая
+// визуальный тест системы задержаний (/are), кастомные интерфейсы,
+// хуки чата и HUD и т.п.
+//
+// Если вы обычный игрок и не участвуете в тестировании — этот файл
+// НЕ нужно себе ставить. Часть функций рассчитана на конкретную роль
+// (МВД) и тестовый контур, а не на обычный игровой процесс, и может
+// вести себя непредсказуемо или ломать интерфейс при обычной игре.
+// Это beta-версия (0.1) — возможны баги и незавершённые функции.
+// ═══════════════════════════════════════════════════════════════════════
+
 // ── ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB ──────────────────
 // Грузим 5 файлов параллельно при старте игры. Локальные загрузчики
 // (assets/MvdMenu.js, zkm.js, AdvMenu.js, ZkmScreenNotification.js)
@@ -91,7 +110,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.3 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4. ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -5077,3 +5096,239 @@ setInterval(function() {
 
 })();
 // === END HASSLE HUD UI ===
+
+// ═══════════════════════════════════════════════════════════════
+// ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ МВД (визуальный тест системы задержаний)
+// Функция версии: beta 0.1
+//
+// Команда /are [1-6] рисует в чат тестовую последовательность
+// сообщений об аресте (передача преступника, доставка в тюрьму,
+// время заключения, премия к зарплате) — так, как это выглядит
+// при реальном задержании. Число после /are (1-6) задаёт "уровень"
+// звёзд розыска: чем выше, тем больше время заключения и премия.
+//
+// ВНИМАНИЕ: это ТОЛЬКО визуальный тест интерфейса чата. Скрипт
+// не взаимодействует с сервером — деньги, опыт и сам арест не
+// настоящие, ничего в игре реально не меняется.
+// ═══════════════════════════════════════════════════════════════
+
+(function() {
+    const originalSendChatInput = window.sendChatInput;
+
+    // Персистентный уровень стиля одежды: живёт, пока не перезагрузится страница/скрипт.
+    // При первом вызове - случайное небольшое число, дальше +1 за каждое использование.
+    let clothingStyleLevel = null;
+
+    // Последний полученный от движка список игроков онлайн: {count, local:{id,name,ping}, players:[{id,name,ping},...]}
+    let latestPlayerList = null;
+
+    // Перехватываем колбэк движка со списком игроков, чтобы брать реальный свой ID и реальные ники
+    const originalOnUpdatePlayersList = window.onUpdatePlayersList;
+    window.onUpdatePlayersList = function(e) {
+        latestPlayerList = e;
+        if (originalOnUpdatePlayersList) {
+            originalOnUpdatePlayersList.apply(this, arguments);
+        }
+    };
+
+    // Просим движок прислать свежий список (ответ придёт асинхронно в onUpdatePlayersList выше)
+    function requestPlayerListUpdate() {
+        try {
+            window.updatePlayerList && window.updatePlayerList();
+        } catch (e) {}
+    }
+
+    // Достаём ведущий цвет сообщения (первый {HEX}-тег в начале текста),
+    // чтобы таймстамп красился в тот же цвет, что и сама строка (как у реальных сообщений)
+    function getLeadingColor(text) {
+        const match = text.match(/^\{([0-9A-Fa-f]{6})\}/);
+        return match ? match[1] : 'FFFFFF';
+    }
+
+    // Функция для генерации случайного времени (0.5-3 секунды) - оставлена для фолбэков
+    function getRandomDelay() {
+        return Math.floor(Math.random() * 2500) + 500;
+    }
+
+    // Небольшая случайная задержка внутри "пачки" сообщений, идущих почти одновременно (как в реальном логе)
+    function getBurstDelay() {
+        return Math.floor(Math.random() * 400) + 100; // 0.1-0.5 сек
+    }
+
+    // Задержка между "пачками" сообщений (в реальном логе между группами проходит 3-4 сек)
+    function getBetweenBurstsDelay() {
+        return Math.floor(Math.random() * 1200) + 3000; // 3-4.2 сек
+    }
+
+    // Фолбэк-список преступников на случай, если реальный список игроков ещё не пришёл
+    function getRandomCriminal() {
+        const criminals = [
+            'Dima_Bogrovin',
+            'Kayto_Kirishima',
+            'Sergey_Petrov',
+            'Alex_Smirnov',
+            'Ivan_Ivanov',
+            'Mihail_Sokolov'
+        ];
+        return criminals[Math.floor(Math.random() * criminals.length)];
+    }
+
+    // Фолбэк-список сотрудников на случай, если свой ник получить не удалось
+    function getRandomOfficer() {
+        const officers = [
+            'Zahar_Konstov',
+            'Maxim_Vortex',
+            'Ivan_Rorger',
+            'Van_Rorger'
+        ];
+        return officers[Math.floor(Math.random() * officers.length)];
+    }
+
+    // Ник текущего аккаунта из стора
+    function getOwnNick() {
+        try {
+            return window.App && window.App.$store && window.App.$store.getters && window.App.$store.getters['player/nickName'];
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Актуальный ID текущего игрока (из последнего списка игроков, присланного движком)
+    function getOwnId() {
+        try {
+            return latestPlayerList && latestPlayerList.local ? latestPlayerList.local.id : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    // Случайный реальный игрок с сервера (не сам игрок), для роли "преступника"
+    function getRandomRealPlayer() {
+        if (!latestPlayerList || !Array.isArray(latestPlayerList.players) || latestPlayerList.players.length === 0) {
+            return null;
+        }
+        const myId = getOwnId();
+        const others = latestPlayerList.players.filter(p => p.id !== myId);
+        const pool = others.length ? others : latestPlayerList.players;
+        return pool[Math.floor(Math.random() * pool.length)];
+    }
+
+    window.sendChatInput = function(text) {
+        if (text && text.startsWith('/are')) {
+            // На всякий случай обновляем список игроков перед стартом (данные придут к следующему вызову)
+            requestPlayerListUpdate();
+
+            const parts = text.split(' ');
+            let stars = 1;
+
+            if (parts.length > 1) {
+                const num = parseInt(parts[1]);
+                if (!isNaN(num) && num >= 1 && num <= 6) {
+                    stars = num;
+                }
+            }
+
+            // Настройки в зависимости от количества звезд
+            const settings = {
+                1: { minutes: 20, bonus: 10000, exp: 5 },
+                2: { minutes: 40, bonus: 20000, exp: 10 },
+                3: { minutes: 60, bonus: 30000, exp: 15 },
+                4: { minutes: 80, bonus: 40000, exp: 20 },
+                5: { minutes: 100, bonus: 50000, exp: 25 },
+                6: { minutes: 120, bonus: 60000, exp: 30 }
+            };
+
+            const config = settings[stars];
+
+            // Преступник: реальный игрок с сервера, если список уже пришёл, иначе - фолбэк
+            const realCriminal = getRandomRealPlayer();
+            const criminal = realCriminal ? realCriminal.name : getRandomCriminal();
+
+            // Офицер (мы сами): реальный ник + реальный ID, если доступны, иначе - фолбэк
+            const officer = getOwnNick() || getRandomOfficer();
+            const officerId = getOwnId();
+            const officerIdDisplay = (officerId !== null && officerId !== undefined) ? officerId : 529;
+
+            // Прокачка стиля одежды: первый раз - случайное небольшое число, дальше +1
+            if (clothingStyleLevel === null) {
+                clothingStyleLevel = Math.floor(Math.random() * 20) + 1; // 1-20
+            } else {
+                clothingStyleLevel += 1;
+            }
+            const previousLevel = clothingStyleLevel - 1;
+            const newLevel = clothingStyleLevel;
+            const maxLevel = 600;
+
+            console.log(`[TEST] ⭐ ${stars} звезд | ⏱ ${config.minutes} мин | 💰 ${config.bonus} руб | ✨ +${config.exp} опыта`);
+            console.log(`[TEST] 👮 ${officer}[${officerIdDisplay}] задерживает ${criminal}${realCriminal ? ` (реальный игрок, ID ${realCriminal.id})` : ' (фолбэк-имя, список игроков ещё не получен)'}`);
+
+            // Сообщения: арест + прокачка + премия (без семьи)
+            const messages = [
+                {
+                    delay: 500,
+                    text: `{DD90FF}{v:${officer}}[${officerIdDisplay}] передаёт преступника ${criminal} в полицейский участок`
+                },
+                {
+                    delay: getRandomDelay(),
+                    text: `{75A3D2}Вы успешно {FFFFFF}провели задержание{75A3D2} и прокачали новый стиль одежды {FFFFFF}${newLevel}{75A3D2} из {FFFFFF}${maxLevel}{75A3D2}.`
+                },
+                // {
+                //     delay: getRandomDelay(),
+                //     text: `{FF7100}<...:KIRIESHKI:...> Вашей семье добавлено ${config.exp} очков опыта. Причина: Арест преступника. Благодаря ${officer}`
+                // },
+                {
+                    delay: getRandomDelay(),
+                    text: `{FFFFFF}${criminal} был доставлен в тюрьму для отбывания наказания`
+                },
+                {
+                    delay: getRandomDelay(),
+                    text: `{66CC00}Время заключения: ${config.minutes}:00`
+                },
+                {
+                    delay: getRandomDelay(),
+                    text: `{FFDF87}Вы получили премию к зарплате в размере {FFFFFF}${config.bonus} руб {FFDF87}за {FFFFFF}'Задержание преступника'`
+                },
+                {
+                    delay: getRandomDelay(),
+                    text: `{DD90FF}{v:Maxim_Vortex}[382] просматривает список разыскиваемых по федеральной базе`
+                }
+            ];
+
+            let totalDelay = 0;
+
+            messages.forEach((msg, index) => {
+                totalDelay += msg.delay;
+
+                setTimeout(() => {
+                    window.onChatMessage(msg.text, [0, 0, getLeadingColor(msg.text)]);
+
+                    // Очищаем текст от цветовых кодов для лога
+                    const cleanText = msg.text
+                        .replace(/\{[0-9A-Fa-f]{6}\}/g, '')
+                        .replace(/\{v:[^}]+\}/g, '')
+                        .trim();
+                    console.log(`[${index + 1}] ${cleanText}`);
+                }, totalDelay);
+            });
+
+            // Итоговое сообщение
+            setTimeout(() => {
+                console.log(`[TEST] ✅ Готово! (визуальный тест, реальных изменений в игре не произошло)`);
+                console.log(`[TEST] ⭐${stars} | ⏱${config.minutes} мин | 💰${config.bonus} руб | ✨+${config.exp} опыта`);
+                console.log(`[TEST] 👕 Прокачка: ${previousLevel} → ${newLevel} / ${maxLevel}`);
+            }, totalDelay + 500);
+
+            return;
+        }
+
+        if (originalSendChatInput) {
+            originalSendChatInput.apply(this, arguments);
+        }
+    };
+
+    // Запрашиваем список игроков сразу при загрузке скрипта, чтобы ID/ники были доступны как можно раньше
+    requestPlayerListUpdate();
+
+    console.log('[TEST] ✅ Загружено (визуальный тест системы арестов, ничего в игре реально не меняет)');
+    console.log('[TEST] 📋 /are [1-6] - симуляция ареста с прокачкой');
+})();
