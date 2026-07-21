@@ -14,6 +14,12 @@ INTLOAD_URL   = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%
 CUSTOM_UI_URL = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
 LOADERS_URL   = f"{CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
 
+# ── ФСБ: отдельный загрузчик и папка ──
+FSB_FOLDER_URL = f"{GITHUB_RAW}/FSB"
+FSB_LOAD_URL   = f"{FSB_FOLDER_URL}/LoadFsb.js"
+# МВД-загрузчик (основной)
+MVD_LOAD_URL   = AHK_URL  # = f"{GITHUB_RAW}/LoadAhk.js"
+
 RETRY_COUNT = 5
 RETRY_DELAY = 4
 
@@ -71,7 +77,6 @@ def run_auth_with_ui(hwid: str) -> dict:
     window_ref  = [None]
     ready_event = threading.Event()
 
-    # Используем f-строку, чтобы сразу вставить hwid в HTML
     LOADING_HTML = f"""<!DOCTYPE html><html lang="ru"><head><meta charset='UTF-8'>
 <link href='https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,700&family=Open+Sans+Condensed:ital,wght@0,700;1,700&display=swap' rel='stylesheet'>
 <style>
@@ -247,7 +252,7 @@ function copyHwid() {{
     w = webview.create_window(
         'AHK Installer',
         f"file:///{tmp.name.replace(os.sep, '/')}",
-        width=380, height=280,  # <-- Увеличили высоту с 220 до 280 для нового блока
+        width=380, height=280,
         frameless=True, background_color='#010106'
     )
     window_ref[0] = w
@@ -418,7 +423,7 @@ function copyKeys(){{
 
 def show_no_internet_window():
     html = """<!DOCTYPE html><html><head><meta charset='UTF-8'>
-<link href='https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,600;1,700&family=Open+Sans+Condensed:ital,wght@0,700;1,700&display=swap' rel='stylesheet'>
+<link href='https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,600;0,700&family=Open+Sans+Condensed:ital,wght@0,700;1,700&display=swap' rel='stylesheet'>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -580,7 +585,6 @@ class InstallerAPI:
         p1, p2, p3 = codes[:n//3], codes[n//3:(n*2)//3], codes[(n*2)//3:]
         def rnd(): return '_0x'+''.join(random.choices(string.ascii_letters+string.digits, k=6))
         v1,v2,v3,v4,v6 = rnd(),rnd(),rnd(),rnd(),rnd()
-        # Direct eval — видит переменные модуля index.js (Oe, Ao, sr, Mu и т.д.)
         return (f"(function(){{const {v1}=[{','.join(map(str,p1))}];"
                 f"const {v2}=[{','.join(map(str,p2))}];"
                 f"const {v3}=[{','.join(map(str,p3))}];"
@@ -645,6 +649,7 @@ class InstallerAPI:
         result = dict(self._saved)
         result['path_valid'] = self.radmir_path is not None
         result['radmir_path'] = str(self.radmir_path) if self.radmir_path else ''
+        result['faction'] = self._saved.get('faction', 'mvd')
         idx = self._index_js()
         if idx:
             try:
@@ -763,7 +768,10 @@ class InstallerAPI:
         save_settings(current)
         return {"ok": True, "path": str(self.radmir_path)}
 
-    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None):
+    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None,
+                    swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0',
+                    menu_hidden=None, menu_binds=None, menu_order=None,
+                    menu_timer=None, faction='mvd'):
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
@@ -775,11 +783,15 @@ class InstallerAPI:
                     return
                 ifaces = self._fetch_custom_interfaces()
                 self._deploy_custom_ui_files(ifaces)
-                
+
+                # ── Выбор загрузчика по фракции ──
+                load_url = FSB_LOAD_URL if faction == 'fsb' else MVD_LOAD_URL
+                _log_to_file(f'insert_code: faction={faction}, load_url={load_url}')
+
                 code = None
                 for attempt in range(3):
                     try:
-                        resp = requests.get(AHK_URL, timeout=15)
+                        resp = requests.get(load_url, timeout=15)
                         resp.raise_for_status()
                         code = resp.text.strip()
                         break
@@ -798,6 +810,11 @@ class InstallerAPI:
                 result_event.set()
                 self._notify(False)
                 return
+
+            # ── Патч константы FACTION в загрузчике ──
+            faction_upper = "FSB" if faction == 'fsb' else "MVD"
+            code = code.replace('const FACTION = "MVD";', f'const FACTION = "{faction_upper}";')
+            code = code.replace('const FACTION = "FSB";', f'const FACTION = "{faction_upper}";')
 
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
@@ -893,6 +910,7 @@ class InstallerAPI:
                     'auto_password': auto_password,
                     'use_auto_password': bool(auto_password),
                     'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
+                    'faction': faction,
                     'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {},
                     'swap_enabled': bool(swap_enabled),
                     'swap_key': safe_swap_key if swap_enabled else '',
