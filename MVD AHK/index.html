@@ -138,7 +138,7 @@
         <div id="section-callsign">
         <div class="chk-row" onclick="toggleCallsign()">
           <div class="chk-box" id="chk-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-          <span class="chk-lbl">Позывной ОМОН</span>
+          <span class="chk-lbl" id="callsign-lbl">Позывной ОМОН</span>
         </div>
         <div class="cs-wrap" id="cs-wrap">
           <div class="inp-grp">
@@ -378,10 +378,11 @@ function setDepartment(dept){
 }
 function applyDepartment(dept){
   var isMvd=dept==='mvd';
-  // Позывной ОМОН — только у МВД. Авто-снаряжение теперь есть у обеих структур,
-  // просто с разным заголовком и набором предметов (см. renderGrabItems).
+  // Позывной теперь используется и у МВД, и у ФСБ. Авто-снаряжение тоже есть
+  // у обеих структур, просто с разным заголовком и набором предметов (см. renderGrabItems).
   var el;
-  el=document.getElementById('section-callsign');if(el)el.style.display=isMvd?'':'none';
+  var lbl=document.getElementById('callsign-lbl');
+  if(lbl)lbl.textContent=isMvd?'Позывной ОМОН':'Позывной';
   renderGrabItems(dept);
   // Обновляем подсказку на главной
   var infoEl=document.getElementById('info-dept');
