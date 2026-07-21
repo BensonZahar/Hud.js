@@ -9,7 +9,7 @@ const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневна�
 const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
 const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
 const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с: ["greeting","fine","wantedFine",...]
-const KEYS_URL = "https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK/keys.json";
+const KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/keys.json";
 // ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
 const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
@@ -42,9 +42,9 @@ const filename = 'mvdF.js';
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     const path = folder ? `${encodeURIComponent(folder)}/` : '';
-    const url = `https://cdn.jsdelivr.net/gh/${username}/${repo}@main/${path}${filename}`;
+    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
-    xhr.open('GET', url, true);
+    xhr.open('GET', url + '?_=' + Date.now(), true);
     xhr.onload = function() {
         if (xhr.status >= 200 && xhr.status < 300) {
             let scriptText = xhr.responseText;

@@ -8,7 +8,7 @@
 //
 // Promise.allSettled — падение одного файла не убивает остальные.
 (function prefetchAllCustomUI() {
-    var BASE = 'https://cdn.jsdelivr.net/gh/BensonZahar/Hud.js@main/MVD%20AHK/'
+    var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
              + encodeURIComponent('Кастом Интерфейсы') + '/';
     var FILES = {
         mvdmenu_js:  BASE + 'MvdMenu.js',
