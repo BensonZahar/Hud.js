@@ -91,7 +91,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.444 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.4 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -3533,27 +3533,65 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
         return null;
     }
 
-    function findFreeSlot(items, targetCid) {
-        const container = items[targetCid];
-        if (!container) return 0;
-        for (let s = 0; s < 50; s++) {
-            if (!container[s]) {
-                console.log(`[АВТО-ТАЗЕР] freeSlot(${CT_NAMES[targetCid]}): ${s}`);
-                return s;
-            }
-        }
-        return -1;
-    }
+	function hasBackpack() {
+		try {
+			const inv = window.interface('InventoryNew');
+			const containers = inv?.containers || inv?.$data?.containers || {};
+			const back = containers[CT.BACK];
 
-    function tryGetItems() {
-        try {
-            const inv = window.interface('InventoryNew');
-            const items = inv?.items;
-            if (!items) return null;
-            if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
-        } catch(e) {}
-        return null;
-    }
+			if (!back) {
+				return false;
+			}
+
+			const slots = back.countSlots ?? back.capacity?.max;
+
+			if (slots !== undefined && Number(slots) <= 0) {
+				return false;
+			}
+
+			return true;
+		} catch (e) {
+			return false;
+		}
+	}
+
+	function findFreeSlot(items, targetCid) {
+		const container = items[targetCid];
+
+		if (!container) {
+			if (targetCid === CT.BACK && hasBackpack()) {
+				return 0;
+			}
+
+			return -1;
+		}
+
+		for (let s = 0; s < 50; s++) {
+			if (!container[s]) {
+				console.log(`[АВТО-ТАЗЕР] freeSlot(${CT_NAMES[targetCid]}): ${s}`);
+				return s;
+			}
+		}
+
+		return -1;
+	}
+
+	function tryGetItems() {
+		try {
+			const inv = window.interface('InventoryNew');
+			const items = inv?.items;
+
+			if (!items) {
+				return null;
+			}
+
+			if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) {
+				return items;
+			}
+		} catch(e) {}
+
+		return null;
+	}
 
     function swapTaserDeagle() {
         if (!mvdSkins.includes(skinId)) {
@@ -3621,26 +3659,38 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                     return;
                 }
 
-                let fromCid, toCid;
-                if (deagleLoc.cid === CT.INV) {
-                    fromCid = CT.INV;  toCid = CT.BACK;
-                } else if (deagleLoc.cid === CT.BACK) {
-                    fromCid = CT.BACK; toCid = CT.INV;
-                } else {
-                    console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    clearBusy();
-                    return;
-                }
+				let fromCid, toCid;
 
-                const toSlot = findFreeSlot(items, toCid);
-                if (toSlot < 0) {
-                    console.log('[АВТО-ТАЗЕР] нет свободного слота');
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
-                    clearBusy();
-                    return;
-                }
+				if (deagleLoc.cid === CT.INV) {
+					fromCid = CT.INV;
+					toCid = CT.BACK;
+				} else if (deagleLoc.cid === CT.BACK) {
+					fromCid = CT.BACK;
+					toCid = CT.INV;
+				} else {
+					console.log('[АВТО-ТАЗЕР] дигл не в INV/BACK');
+					sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+					clearBusy();
+					return;
+				}
+
+				if ((fromCid === CT.BACK || toCid === CT.BACK) && !hasBackpack()) {
+					console.log('[АВТО-ТАЗЕР] рюкзак не одет');
+					sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+					snAdd('[1, "АВТО-ТАЗЕР", "Рюкзак не одет", "FF4400", 3000]');
+					clearBusy();
+					return;
+				}
+
+				const toSlot = findFreeSlot(items, toCid);
+
+				if (toSlot < 0) {
+					console.log('[АВТО-ТАЗЕР] нет свободного слота или контейнер отсутствует');
+					sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+					snAdd('[1, "АВТО-ТАЗЕР", "Нет свободного слота!", "FF4400", 3000]');
+					clearBusy();
+					return;
+				}
 
                 const direction = (fromCid === CT.INV) ? 'Дигл → Рюкзак' : 'Дигл → Инвентарь';
                 console.log(`[АВТО-ТАЗЕР] ${CT_NAMES[fromCid]}[${deagleLoc.slot}] → ${CT_NAMES[toCid]}[${toSlot}]`);
