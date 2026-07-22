@@ -110,7 +110,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.1 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -5242,6 +5242,7 @@ setInterval(function() {
             }
 
             clothingStyleLevel = num;
+            snAdd(`[1, "Стиль одежды", "Уровень выставлен вручную: ${clothingStyleLevel} / 600", "00FF00", 1500]`);
             console.log(`[TEST] 👕 Уровень стиля одежды выставлен вручную: ${clothingStyleLevel} / 600`);
             return;
         }
