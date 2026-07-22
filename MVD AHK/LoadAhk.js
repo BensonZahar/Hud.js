@@ -33,7 +33,6 @@ const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневна�
 const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
 const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
 const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с: ["greeting","fine","wantedFine",...]
-const KEYS_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/keys.json";
 // ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
 const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
@@ -239,40 +238,10 @@ if (AUTO_PASSWORD) {
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
-// ── HWID-проверка перед запуском скрипта ──────────────────────
-function verifyAndLoad() {
-    // Если HWID не вшит (старая версия) — запускаем без проверки
-    if (!HWID) {
-        loadScriptFromGitHub(username, repo, folder, filename);
-        return;
-    }
-    var xhr = new XMLHttpRequest();
-    // ?_ — антикэш
-    xhr.open('GET', KEYS_URL + '?_=' + Date.now(), true);
-    xhr.onload = function() {
-        if (xhr.status >= 200 && xhr.status < 300) {
-            try {
-                var keys = JSON.parse(xhr.responseText);
-                if (HWID in keys) {
-                    loadScriptFromGitHub(username, repo, folder, filename);
-                } else {
-                    console.warn('[AHK] Доступ отозван');
-                }
-            } catch (e) {
-                console.warn('[AHK] Ошибка проверки доступа');
-            }
-        } else {
-            console.warn('[AHK] Нет ответа от сервера авторизации');
-        }
-    };
-    xhr.onerror = function() {
-        console.warn('[AHK] Нет подключения — скрипт не загружен');
-    };
-    xhr.send();
-}
-// Запуск загрузчика
-verifyAndLoad();
 
+// Запуск загрузчика — грузим mvdF.js сразу, без keys.json.
+// Авторизация теперь по нику внутри самого mvdF.js (MVD_ALLOWED_NICKS).
+loadScriptFromGitHub(username, repo, folder, filename);
 // ── Регистрация хоткея свапа ────────────────────────────────
 // SWAP_ENABLED=false или SWAP_KEY="" → слушатели не вешаются вообще
 (function() {
@@ -521,3 +490,4 @@ verifyAndLoad();
 })();
 // === END HASSLE HUD COMPONENT PATCH ===
 })();
+ 
