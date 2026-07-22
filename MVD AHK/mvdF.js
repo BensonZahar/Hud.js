@@ -170,7 +170,7 @@ const _ALLOWED_NICKS = [
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.3 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -2543,7 +2543,7 @@ window.showKoapTypeMenu = (e) => {
     giveLicenseTo = e;
     window._duranOpenMode = 'fine';
     window._duranFineTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('LawsHelper');
+    window.openInterface('Zkm');
 };
 window.showKoapInputDialog = (e) => {
     giveLicenseTo = e;
@@ -2566,7 +2566,7 @@ window.showUkInputDialog = (e) => {
     giveLicenseTo = e;
     window._duranOpenMode = 'wanted';
     window._duranWantedTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('LawsHelper');
+    window.openInterface('Zkm');
 };
 window.showTakeLicReasonDialog = (e) => {
     giveLicenseTo = e;
