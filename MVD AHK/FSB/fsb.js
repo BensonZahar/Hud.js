@@ -2937,10 +2937,10 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 _lastPaginatedDialogId = null;
             }
 
-            // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
-            if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
+            // ── Авто-снаряжение ФСБ: LIST "ФСБ" (id=0) ──
+            if (style === 2 && dialogId === 0 && title.includes('ФСБ') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
                 if (!window._mvdGrabProcessing) {
-                    console.log('[MVD-GRAB] === v2.1 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
+                    console.log('[FSB-GRAB] === v2.1 🎯 ТРИГГЕР СРАБОТАЛ — Служба ФСБ ===');
                     setTimeout(() => window.autoGrab(), 150);
                 }
             }
@@ -3490,7 +3490,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
      get: () => isProcessing,
      configurable: true
  });
- console.log('[MVD-GRAB] === v2.2 ✅ ГОТОВ — жду диалог Полицейская служба ===');
+ console.log('[FSB-GRAB] === v2.2 ✅ ГОТОВ — жду диалог "ФСБ" ===');
 })();
 } // end if (AUTO_GRAB)
 // ==================== END АВТОБРАНИЕ МВД ====================
