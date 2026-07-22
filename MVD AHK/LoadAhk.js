@@ -2,7 +2,7 @@
 // ⚠️ ЧТО ЭТО ЗА ФАЙЛ
 // ═══════════════════════════════════════════════════════════════════════
 // LoadAhk.js — ЗАГРУЗЧИК ПОМОЩНИКА ДЛЯ ТЕСТИРОВАНИЯ МВД И ФУНКЦИЙ
-// ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ. Версия: beta 0.1  (сборка v2.1 — расширенное логирование)
+// ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ. Версия: beta 0.1.
 //
 // Это НЕ обычный пользовательский скрипт/мод для рядовых игроков.
 // Файл встраивается установщиком AHK MVD в Index.js игры. При запуске
@@ -63,28 +63,15 @@ const username = 'BensonZahar';
 const repo = 'Hud.js';
 const folder = 'MVD AHK';
 const filename = 'mvdF.js';
-
-// [LOG] ── Стартовый лог конфигурации загрузчика ─────────────────────────
-// Видно сразу при входе: вшит ли HWID, какие хоткеи/флаги, какой KEYS_URL.
-// Помогает понять, что установщик вшил именно то, что ожидалось.
-console.log('[AHK-LOADER] v2.1 (расширенное логирование) — старт');
-console.log('[AHK-LOADER] HWID:', HWID ? ('вшит, ' + HWID.length + ' симв. = ' + HWID) : 'ПУСТО (старая версия, запуск без HWID-проверки)');
-console.log('[AHK-LOADER] MENU_KEY="' + MENU_KEY + '" | SWAP_ENABLED=' + SWAP_ENABLED + ' | SWAP_KEY="' + SWAP_KEY + '" | AUTO_GRAB=' + AUTO_GRAB + ' | AUTO_PASSWORD=' + (AUTO_PASSWORD ? 'задан' : 'пусто'));
-console.log('[AHK-LOADER] KEYS_URL=' + KEYS_URL);
-// [LOG] ── END стартовый лог ─────────────────────────────────────────────
-
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     const path = folder ? `${encodeURIComponent(folder)}/` : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
-    console.log('[AHK-LOADER] loadScriptFromGitHub →', url, '| осталось попыток:', retries); // [LOG]
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url + '?_=' + Date.now(), true);
     xhr.onload = function() {
         if (xhr.status >= 200 && xhr.status < 300) {
             let scriptText = xhr.responseText;
-            // [LOG] подтверждаем, что пришёл именно JS, а не HTML-заглушка/ошибка
-            console.log('[AHK-LOADER] mvdF.js получен, байт:', scriptText.length, '| первые 60 символов:', JSON.stringify(scriptText.slice(0, 60)));
             // ── Патчим AUTO_GRAB и AUTO_GRAB_SKIP (var, не const) ──
             if (AUTO_GRAB) {
                 scriptText = scriptText.replace(/var AUTO_GRAB = false;/, 'var AUTO_GRAB = true;');
@@ -145,15 +132,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
             // перезаписываем их сразу после eval.
-            // [LOG] eval обёрнут в try/catch: если mvdF упадёт при выполнении —
-            // увидим стек и кусок ответа, а не «тишину» в консоли.
-            try {
-                eval(scriptText);
-            } catch (e) {
-                console.error('[AHK-LOADER] ❌ eval(mvdF.js) упал:', e && e.stack || e);
-                console.error('[AHK-LOADER] длина scriptText:', scriptText.length, '| первые 120 символов:', JSON.stringify(scriptText.slice(0, 120)));
-                return; // не ставим перехваты на сломанном ядре
-            }
+            eval(scriptText);
             // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
             // Вызывается mvdF при action === 'wantedFine'.
             // Открываем LawsHelper в режиме 'wanted' — только таб РОЗЫСК.
@@ -178,11 +157,8 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             // Явно устанавливаем window.AUTO_GRAB после eval
             if (AUTO_GRAB) window.AUTO_GRAB = true;
             console.log(`Скрипт ${filename} загружен и выполнен успешно`);
-            console.log('[AHK-LOADER] ✅ mvdF.js выполнен, перехваты showUkInputDialog/showKoapTypeMenu установлены'); // [LOG]
         } else {
             console.error(`HTTP error! status: ${xhr.status} для ${url}`);
-            // [LOG] показываем тело ответа — часто это HTML-страница 404/429 (rate limit)
-            console.error('[AHK-LOADER] тело ответа (первые 200 символов):', JSON.stringify(xhr.responseText.slice(0, 200)));
             if (retries > 0) {
                 console.log(`Повторная попытка... Осталось попыток: ${retries - 1}`);
                 setTimeout(() => loadScriptFromGitHub(username, repo, folder, filename, retries - 1), 2000);
@@ -264,55 +240,33 @@ if (AUTO_PASSWORD) {
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
 // ── HWID-проверка перед запуском скрипта ──────────────────────
-function verifyAndLoad(attempt) {
-    attempt = attempt || 0;
-    if (!HWID) { loadScriptFromGitHub(username, repo, folder, filename); return; } // старый ключ — без проверки
-    console.log('[AHK-LOADER] verifyAndLoad, попытка ' + attempt + ' → ' + KEYS_URL); // [LOG]
+function verifyAndLoad() {
+    // Если HWID не вшит (старая версия) — запускаем без проверки
+    if (!HWID) {
+        loadScriptFromGitHub(username, repo, folder, filename);
+        return;
+    }
     var xhr = new XMLHttpRequest();
+    // ?_ — антикэш
     xhr.open('GET', KEYS_URL + '?_=' + Date.now(), true);
     xhr.onload = function() {
         if (xhr.status >= 200 && xhr.status < 300) {
             try {
                 var keys = JSON.parse(xhr.responseText);
-                console.log('[AHK] keys.json получен, ключей:', Object.keys(keys).length,
-                            '| HWID в списке:', (HWID in keys));
                 if (HWID in keys) {
-                    console.log('[AHK] ✅ HWID авторизован → загружаю mvdF.js'); // [LOG]
                     loadScriptFromGitHub(username, repo, folder, filename);
                 } else {
-                    // [LOG] печатаем вшитый HWID и реальный список ключей — сразу видно несовпадение
-                    console.warn('[AHK] ❌ Доступ отозван: HWID=' + HWID + ' отсутствует в keys.json. Ключи в файле: [' + Object.keys(keys).join(', ') + ']');
+                    console.warn('[AHK] Доступ отозван');
                 }
             } catch (e) {
-                // [LOG] битый/частичный ответ — логируем ПРИЧИНУ и БАЙТЫ, чтобы не гадать:
-                // charCodeAt покажет BOM (65279), кириллицу (>127), умные кавычки (8220/8221);
-                // JSON.stringify покажет невидимые символы как \uXXXX.
-                var _snippet = '';
-                var _codes = [];
-                try {
-                    _snippet = xhr.responseText.slice(0, 80);
-                    for (var _i = 0; _i < Math.min(40, xhr.responseText.length); _i++) _codes.push(xhr.responseText.charCodeAt(_i));
-                } catch (_e2) {}
-                console.warn('[AHK] keys.json parse fail, повтор ' + (attempt + 1) +
-                             ' | причина: ' + (e && e.message) +
-                             ' | длина ответа: ' + xhr.responseText.length +
-                             ' | первые 80 символов: ' + JSON.stringify(_snippet) +
-                             ' | charCodeAt[0..40]: ' + _codes.join(','));
-                if (attempt < 5) { setTimeout(function(){ verifyAndLoad(attempt + 1); }, 2000); }
-                else console.warn('[AHK] Ошибка проверки доступа после 5 попыток');
+                console.warn('[AHK] Ошибка проверки доступа');
             }
         } else {
-            // [LOG] не-2xx: показываем тело (HTML 404/429 и т.п.)
-            console.warn('[AHK] keys.json HTTP ' + xhr.status + ', попытка ' + (attempt + 1) +
-                         ' | тело (первые 200): ' + JSON.stringify(xhr.responseText.slice(0, 200)));
-            if (attempt < 5) { setTimeout(function(){ verifyAndLoad(attempt + 1); }, 2000); }
-            else console.warn('[AHK] Нет ответа от сервера авторизации, status=', xhr.status);
+            console.warn('[AHK] Нет ответа от сервера авторизации');
         }
     };
     xhr.onerror = function() {
-        if (attempt < 5) { console.log('[AHK] keys.json onerror, повтор ' + (attempt + 1) + ' (CEF-сеть ещё не готова)');
-                           setTimeout(function(){ verifyAndLoad(attempt + 1); }, 2000); }
-        else console.warn('[AHK] Нет подключения после 5 попыток — скрипт не загружен');
+        console.warn('[AHK] Нет подключения — скрипт не загружен');
     };
     xhr.send();
 }
