@@ -116,7 +116,7 @@
 // mvdF полностью не запустится (весь код ниже не выполнится).
 // ══════════════════════════════════════════════════════════════
 const _ALLOWED_NICKS = [
-    "Zahar_Konsto",
+    "Zahar_Konstov",
     "Maxim_Vortex",
     "Ivan_Rorger",
     "Van_Rorger"
