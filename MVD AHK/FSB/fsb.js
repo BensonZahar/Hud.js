@@ -5214,22 +5214,6 @@ setInterval(function() {
     }
 
     window.sendChatInput = function(text) {
-        // /are_s <число> — вручную выставить уровень стиля одежды
-        if (text && text.startsWith('/are_s')) {
-            const parts = text.split(' ');
-            const num = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
-
-            if (isNaN(num) || num < 0 || num > 600) {
-                console.log('[TEST] ⚠️ Используй: /are_s <число от 0 до 600>');
-                return;
-            }
-
-            clothingStyleLevel = num;
-            snAdd(`[1, "Стиль одежды", "Уровень выставлен вручную: ${clothingStyleLevel} / 600", "00FF00", 1500]`);
-            console.log(`[TEST] 👕 Уровень стиля одежды выставлен вручную: ${clothingStyleLevel} / 600`);
-            return;
-        }
-
         if (text && text.startsWith('/are')) {
             // На всякий случай обновляем список игроков перед стартом (данные придут к следующему вызову)
             requestPlayerListUpdate();
@@ -5303,6 +5287,10 @@ setInterval(function() {
                 {
                     delay: getRandomDelay(),
                     text: `{FFDF87}Вы получили премию к зарплате в размере {FFFFFF}${config.bonus} руб {FFDF87}за {FFFFFF}'Задержание преступника'`
+                },
+                {
+                    delay: getRandomDelay(),
+                    text: `{DD90FF}{v:Maxim_Vortex}[382] просматривает список разыскиваемых по федеральной базе`
                 }
             ];
 
@@ -5343,5 +5331,4 @@ setInterval(function() {
 
     console.log('[TEST] ✅ Загружено (визуальный тест системы арестов, ничего в игре реально не меняет)');
     console.log('[TEST] 📋 /are [1-6] - симуляция ареста с прокачкой');
-    console.log('[TEST] 📋 /are_s <0-600> - вручную выставить уровень стиля одежды');
 })();
