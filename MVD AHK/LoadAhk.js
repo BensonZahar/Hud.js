@@ -240,33 +240,32 @@ if (AUTO_PASSWORD) {
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
 // ── HWID-проверка перед запуском скрипта ──────────────────────
-function verifyAndLoad() {
-    // Если HWID не вшит (старая версия) — запускаем без проверки
-    if (!HWID) {
-        loadScriptFromGitHub(username, repo, folder, filename);
-        return;
-    }
+function verifyAndLoad(attempt) {
+    attempt = attempt || 0;
+    if (!HWID) { loadScriptFromGitHub(username, repo, folder, filename); return; } // старый ключ — без проверки
     var xhr = new XMLHttpRequest();
-    // ?_ — антикэш
     xhr.open('GET', KEYS_URL + '?_=' + Date.now(), true);
     xhr.onload = function() {
         if (xhr.status >= 200 && xhr.status < 300) {
             try {
                 var keys = JSON.parse(xhr.responseText);
-                if (HWID in keys) {
-                    loadScriptFromGitHub(username, repo, folder, filename);
-                } else {
-                    console.warn('[AHK] Доступ отозван');
-                }
+                console.log('[AHK] keys.json получен, ключей:', Object.keys(keys).length,
+                            '| HWID в списке:', (HWID in keys));
+                if (HWID in keys) loadScriptFromGitHub(username, repo, folder, filename);
+                else console.warn('[AHK] Доступ отозван (HWID нет в keys.json)'); // реально нет ключа — не повторяем
             } catch (e) {
-                console.warn('[AHK] Ошибка проверки доступа');
+                // битый/частичный ранний ответ — повторяем как сетевую ошибку
+                if (attempt < 5) { console.log('[AHK] keys.json parse fail, повтор ' + (attempt + 1));
+                                   setTimeout(function(){ verifyAndLoad(attempt + 1); }, 2000); }
+                else console.warn('[AHK] Ошибка проверки доступа после 5 попыток');
             }
-        } else {
-            console.warn('[AHK] Нет ответа от сервера авторизации');
-        }
+        } else if (attempt < 5) { setTimeout(function(){ verifyAndLoad(attempt + 1); }, 2000); }
+        else console.warn('[AHK] Нет ответа от сервера авторизации, status=', xhr.status);
     };
     xhr.onerror = function() {
-        console.warn('[AHK] Нет подключения — скрипт не загружен');
+        if (attempt < 5) { console.log('[AHK] keys.json onerror, повтор ' + (attempt + 1) + ' (CEF-сеть ещё не готова)');
+                           setTimeout(function(){ verifyAndLoad(attempt + 1); }, 2000); }
+        else console.warn('[AHK] Нет подключения после 5 попыток — скрипт не загружен');
     };
     xhr.send();
 }
