@@ -891,16 +891,20 @@ class InstallerAPI:
                     code = code.replace('const AUTO_GRAB_THR_762 = 60;',    f'const AUTO_GRAB_THR_762 = {int(thr["ammo762"])};')
                 if thr.get('ammo545') is not None:
                     code = code.replace('const AUTO_GRAB_THR_545 = 60;',    f'const AUTO_GRAB_THR_545 = {int(thr["ammo545"])};')
+                if thr.get('ammo556') is not None:
+                    code = code.replace('const AUTO_GRAB_THR_556 = 60;',    f'const AUTO_GRAB_THR_556 = {int(thr["ammo556"])};')
                 if thr.get('ammo12x70') is not None:
                     code = code.replace('const AUTO_GRAB_THR_1270 = 20;',   f'const AUTO_GRAB_THR_1270 = {int(thr["ammo12x70"])};')
                 for key, mkey in [
-                    ('medkit',     'MEDKIT'),   ('baton',      'BATON'),
+                    ('medkit',     'MEDKIT'),   ('baton',      'BATON'),   ('bat',        'BAT'),
                     ('vest',       'VEST'),     ('deagle',     'DEAGLE'),
                     ('ammo_magnum','AMMO_MAGNUM'),('akm',      'AKM'),  ('ammo_762',  'AMMO_762'),
                     ('painkiller', 'PAINKILLERS'),('baton2',   'WAND'),
                     ('taumeter',   'RADAR_GUN'),('diag',       'DIAGNOSTICS'),
                     ('taser',      'TASER'),    ('aks74u',     'AKS74U'),
+                    ('hk416',      'HK416'),    ('ammo_556',   'AMMO_556'),
                     ('remington',  'REMINGTON'),('ammo_545',   'AMMO_545'), ('ammo_12x70','AMMO_1270'),
+                    ('flashbang',  'FLASHBANG'),('mask',       'MASK'),    ('repairkit',  'REPAIRKIT'),
                 ]:
                     val = menu.get(key)
                     if val is not None:
