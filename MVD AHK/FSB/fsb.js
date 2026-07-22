@@ -134,7 +134,7 @@ function _showAccessDenied(nick) {
         var sn = window.ZkmScreenNotification;
         if (sn && typeof sn.add === 'function') {
             try {
-                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 8000]');
+                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 15000]');
                 shown = true;
                 console.warn('[fsb] 🚫 Доступ запрещён: ник "' + nick + '" не в списке.');
                 return;
