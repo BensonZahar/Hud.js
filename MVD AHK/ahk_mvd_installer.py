@@ -77,10 +77,8 @@ def get_hwid() -> str:
 
 
 def is_authorized(hwid: str) -> bool:
-    resp = requests.get(KEYS_URL, timeout=10)
-    resp.raise_for_status()
-    keys = resp.json()
-    return hwid in keys
+    # ПРОВЕРКА ОТКЛЮЧЕНА: всегда возвращаем успешную авторизацию
+    return True
 
 
 def get_icon_b64() -> str:
@@ -94,146 +92,8 @@ def get_icon_b64() -> str:
 
 
 def run_auth_with_ui(hwid: str) -> dict:
-    result      = {"authorized": None, "failed": False}
-    window_ref  = [None]
-    ready_event = threading.Event()
-
-    # Используем f-строку, чтобы сразу вставить hwid в HTML
-    LOADING_HTML = f"""<!DOCTYPE html><html lang="ru"><head><meta charset='UTF-8'>
-<link href='https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Open+Sans:ital,wght@0,400;0,600;0,700;1,700&family=Open+Sans+Condensed:ital,wght@0,700;1,700&display=swap' rel='stylesheet'>
-<style>
-*{{margin:0;padding:0;box-sizing:border-box}}
-:root{{
-  --bg:#010106;
-  --border:rgba(255,255,255,.06);
-  --text:#fff;--text3:rgba(255,255,255,.36);
-  --accent-grad:linear-gradient(168deg,#f9b701 -73.4%,#fda02f 58.52%,#ff9446 126.58%);
-  --danger:#e25544;
-  --font:'Open Sans',sans-serif;--font-head:'Open Sans Condensed','Open Sans',sans-serif;
-}}
-html,body{{width:100%;height:100%;overflow:hidden}}
-body{{font-family:var(--font);color:var(--text);background:var(--bg);
-  display:flex;align-items:stretch;justify-content:stretch;
-  user-select:none;-webkit-app-region:drag}}
-.window{{
-  width:100%;height:100%;
-  background:
-    radial-gradient(60% 50% at 14% -6%,rgba(249,183,1,.10),transparent 60%),
-    radial-gradient(50% 40% at 100% 105%,rgba(10,153,71,.07),transparent 65%),
-    var(--bg);
-  border:1px solid #1a1a1e;border-radius:10px;
-  display:flex;flex-direction:column;align-items:center;justify-content:center;
-  gap:16px;padding:24px;
-  position:relative;overflow:hidden;-webkit-app-region:no-drag
-}}
-.logo-row{{display:flex;align-items:center;gap:10px}}
-.logo-ico{{
-  width:40px;height:40px;border-radius:9px;flex-shrink:0;
-  background:var(--accent-grad);
-  box-shadow:0 4px 14px rgba(253,160,47,.35),inset 0 1px 0 rgba(255,255,255,.3);
-  display:flex;align-items:center;justify-content:center
-}}
-.logo-ico svg{{width:20px;height:20px;fill:#1a1106}}
-.logo-txt{{font-family:var(--font-head);font-size:14px;font-weight:700;font-style:italic;
-  color:var(--text);text-transform:uppercase;letter-spacing:.02em;line-height:1.2}}
-.logo-txt span{{display:block;font-family:var(--font);font-size:9px;font-weight:400;font-style:normal;
-  color:var(--text3);letter-spacing:.14em;text-transform:uppercase;margin-top:2px}}
-.spinner{{
-  width:28px;height:28px;
-  border:2.5px solid rgba(249,183,1,.12);
-  border-top-color:#f9b701;
-  border-radius:50%;
-  animation:spin .8s linear infinite
-}}
-.spinner.error{{border-top-color:var(--danger);animation:spin 1.4s linear infinite}}
-@keyframes spin{{to{{transform:rotate(360deg)}}}}
-#status{{font-size:11px;color:var(--text3);text-align:center;line-height:1.6;min-height:30px}}
-
-.hwid-label {{
-  font-size: 10px;
-  color: var(--text3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin-bottom: 6px;
-  text-align: center;
-}}
-.hwid-box {{
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 13px;
-  color: #f9b701;
-  cursor: pointer;
-  user-select: text;
-  -webkit-app-region: no-drag;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  transition: all 0.2s ease;
-}}
-.hwid-box:hover {{
-  background: rgba(249,183,1,0.08);
-  border-color: rgba(249,183,1,0.3);
-}}
-.hwid-box:active {{
-  transform: scale(0.98);
-}}
-.hwid-copy-icon {{
-  width: 16px; height: 16px; fill: var(--text3); flex-shrink: 0;
-  transition: fill 0.2s;
-}}
-.hwid-box:hover .hwid-copy-icon {{
-  fill: #f9b701;
-}}
-</style></head><body>
-<div class="window">
-  <div class="logo-row">
-    <div class="logo-ico">
-      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M13 1.5L3.8 13.6h6.1L8.4 22.5l11.8-13.6h-6.9L13 1.5z"/></svg>
-    </div>
-    <div class="logo-txt">AHK Installer<span>Авторизация</span></div>
-  </div>
-  <div class="spinner" id="spin"></div>
-  <div id="status">Проверка лицензии...</div>
-  
-  <div style="width: 100%; max-width: 280px; -webkit-app-region: no-drag;">
-    <div class="hwid-label">Ваш ключ (нажмите чтобы скопировать):</div>
-    <div class="hwid-box" onclick="copyHwid()" id="hwidBox">
-      <span id="hwidText">{hwid}</span>
-      <svg class="hwid-copy-icon" viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-    </div>
-  </div>
-</div>
-<script>
-var hwidStr = "{hwid}";
-function setStatus(txt,isError){{
-  document.getElementById('status').textContent=txt;
-  var s=document.getElementById('spin');
-  if(isError)s.classList.add('error');else s.classList.remove('error');
-}}
-function copyHwid() {{
-  if(navigator.clipboard) {{
-    navigator.clipboard.writeText(hwidStr).then(function() {{
-      var txt = document.getElementById('hwidText');
-      txt.textContent = "Скопировано!";
-      txt.style.color = "#3dba7a";
-      setTimeout(function() {{
-        txt.textContent = hwidStr;
-        txt.style.color = "";
-      }}, 1500);
-    }});
-  }}
-}}
-</script>
-</body></html>"""
-
-    tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.html',
-                                      delete=False, encoding='utf-8')
-    tmp.write(LOADING_HTML); tmp.close()
-
+    # ПРОВЕРКА ОТКЛЮЧЕНА: мгновенный успех без показа окна загрузки
+    return {"authorized": True, "failed": False}
     def _auth_loop():
         ready_event.wait(timeout=6)
         w = window_ref[0]
