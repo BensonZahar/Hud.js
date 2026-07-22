@@ -39,33 +39,37 @@ const AUTO_GRAB = false;              // Включить авто-снаряж�
 const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
 const AUTO_GRAB_THR_762    = 60;     // Добирать 7.62x39 если меньше N штук
 const AUTO_GRAB_THR_545    = 60;     // Добирать 5.45x39 если меньше N штук
+const AUTO_GRAB_THR_556    = 60;     // Добирать 5.56x45 (для HK416) если меньше N штук
 const AUTO_GRAB_THR_1270   = 20;     // Добирать 12x70 если меньше N штук
 const AUTO_GRAB_MENU_MEDKIT      = -1; // Позиция Аптечки в меню (-1 = без изменений)
 const AUTO_GRAB_MENU_BATON       = -1;
+const AUTO_GRAB_MENU_BAT         = -1;
 const AUTO_GRAB_MENU_VEST        = -1;
 const AUTO_GRAB_MENU_DEAGLE      = -1;
 const AUTO_GRAB_MENU_AMMO_MAGNUM = -1;
 const AUTO_GRAB_MENU_AKM         = -1;
 const AUTO_GRAB_MENU_AMMO_762    = -1;
 const AUTO_GRAB_MENU_PAINKILLERS = -1;
-const AUTO_GRAB_MENU_WAND        = -1;
-const AUTO_GRAB_MENU_RADAR_GUN   = -1;
-const AUTO_GRAB_MENU_DIAGNOSTICS = -1;
 const AUTO_GRAB_MENU_TASER       = -1;
 const AUTO_GRAB_MENU_AKS74U      = -1;
+const AUTO_GRAB_MENU_HK416       = -1;
+const AUTO_GRAB_MENU_AMMO_556    = -1;
 const AUTO_GRAB_MENU_REMINGTON   = -1;
 const AUTO_GRAB_MENU_AMMO_545    = -1;
 const AUTO_GRAB_MENU_AMMO_1270   = -1;
-const AUTO_GRAB_SKIP = []; // Список предметов которые НЕ брать: ["medkit","painkiller","baton","baton2","vest","taumeter","diag","taser","deagle","magnum","akm","ammo762","aks74u","remington","ammo545","ammo12x70"]
+const AUTO_GRAB_MENU_FLASHBANG   = -1;
+const AUTO_GRAB_MENU_MASK        = -1;
+const AUTO_GRAB_MENU_REPAIRKIT   = -1;
+const AUTO_GRAB_SKIP = []; // Список предметов которые НЕ брать: ["medkit","painkiller","baton","bat","vest","taser","deagle","magnum","akm","ammo762","aks74u","hk416","ammo556","remington","ammo545","ammo12x70","flashbang","mask","repairkit"]
 // ── END Авто-снаряжение ─────────────────────────────────────────
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
-const folder = 'MVD AHK';
-const filename = 'mvdF.js';
+const folder = 'MVD AHK/FSB';
+const filename = 'fsb.js';
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
-    const path = folder ? `${encodeURIComponent(folder)}/` : '';
+    const path = folder ? `${folder.split('/').map(encodeURIComponent).join('/')}/` : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url + '?_=' + Date.now(), true);
@@ -80,15 +84,16 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                     'window.AUTO_GRAB = true;'
                 );
                 scriptText = scriptText.replace(/const AMMO_THRESHOLD = \{[^}]+\}/,
-                    `const AMMO_THRESHOLD = { MAGNUM: ${AUTO_GRAB_THR_MAGNUM}, AK762: ${AUTO_GRAB_THR_762}, AKS545: ${AUTO_GRAB_THR_545}, REM1270: ${AUTO_GRAB_THR_1270} }`);
+                    `const AMMO_THRESHOLD = { MAGNUM: ${AUTO_GRAB_THR_MAGNUM}, AK762: ${AUTO_GRAB_THR_762}, AKS545: ${AUTO_GRAB_THR_545}, HK556: ${AUTO_GRAB_THR_556}, REM1270: ${AUTO_GRAB_THR_1270} }`);
                 const menuPatch = {
-                    MEDKIT: AUTO_GRAB_MENU_MEDKIT, BATON: AUTO_GRAB_MENU_BATON,
+                    MEDKIT: AUTO_GRAB_MENU_MEDKIT, BATON: AUTO_GRAB_MENU_BATON, BAT: AUTO_GRAB_MENU_BAT,
                     VEST: AUTO_GRAB_MENU_VEST, DEAGLE: AUTO_GRAB_MENU_DEAGLE,
                     AMMO_MAGNUM: AUTO_GRAB_MENU_AMMO_MAGNUM, AKM: AUTO_GRAB_MENU_AKM, AMMO_762: AUTO_GRAB_MENU_AMMO_762,
-                    PAINKILLERS: AUTO_GRAB_MENU_PAINKILLERS, WAND: AUTO_GRAB_MENU_WAND,
-                    RADAR_GUN: AUTO_GRAB_MENU_RADAR_GUN, DIAGNOSTICS: AUTO_GRAB_MENU_DIAGNOSTICS,
+                    PAINKILLERS: AUTO_GRAB_MENU_PAINKILLERS,
                     TASER: AUTO_GRAB_MENU_TASER, AKS74U: AUTO_GRAB_MENU_AKS74U,
-                    REMINGTON: AUTO_GRAB_MENU_REMINGTON, AMMO_545: AUTO_GRAB_MENU_AMMO_545, AMMO_1270: AUTO_GRAB_MENU_AMMO_1270
+                    HK416: AUTO_GRAB_MENU_HK416, AMMO_556: AUTO_GRAB_MENU_AMMO_556,
+                    REMINGTON: AUTO_GRAB_MENU_REMINGTON, AMMO_545: AUTO_GRAB_MENU_AMMO_545, AMMO_1270: AUTO_GRAB_MENU_AMMO_1270,
+                    FLASHBANG: AUTO_GRAB_MENU_FLASHBANG, MASK: AUTO_GRAB_MENU_MASK, REPAIRKIT: AUTO_GRAB_MENU_REPAIRKIT
                 };
                 // Патчим позиции ТОЛЬКО внутри блока const MENU = { ... }
                 // чтобы не задеть одноимённые ключи в const ITEM = { ... }
