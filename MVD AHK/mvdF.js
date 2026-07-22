@@ -118,8 +118,8 @@
 const _ALLOWED_NICKS = [
     "Zahar_Konstov",
     "Maxim_Vortex",
-    "Ivan_Rorger",
-    "Van_Rorger"
+    "Denis_Galievskiy",
+    "Cosmos_Dissapointed"
 ];
 
 (function _nickCheck(callback) {
