@@ -110,7 +110,7 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.1 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -5131,8 +5131,9 @@ setInterval(function() {
 (function() {
     const originalSendChatInput = window.sendChatInput;
 
-    // Персистентный уровень стиля одежды: живёт, пока не перезагрузится страница/скрипт.
-    // При первом вызове - случайное небольшое число, дальше +1 за каждое использование.
+    // Уровень стиля одежды: живёт, пока не перезагрузится страница/скрипт.
+    // При первом вызове /are - случайное небольшое число, дальше +1 за каждое использование.
+    // Выставить конкретное число вручную можно командой /are_s <число>.
     let clothingStyleLevel = null;
 
     // Последний полученный от движка список игроков онлайн: {count, local:{id,name,ping}, players:[{id,name,ping},...]}
@@ -5230,6 +5231,21 @@ setInterval(function() {
     }
 
     window.sendChatInput = function(text) {
+        // /are_s <число> — вручную выставить уровень стиля одежды
+        if (text && text.startsWith('/are_s')) {
+            const parts = text.split(' ');
+            const num = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
+
+            if (isNaN(num) || num < 0 || num > 600) {
+                console.log('[TEST] ⚠️ Используй: /are_s <число от 0 до 600>');
+                return;
+            }
+
+            clothingStyleLevel = num;
+            console.log(`[TEST] 👕 Уровень стиля одежды выставлен вручную: ${clothingStyleLevel} / 600`);
+            return;
+        }
+
         if (text && text.startsWith('/are')) {
             // На всякий случай обновляем список игроков перед стартом (данные придут к следующему вызову)
             requestPlayerListUpdate();
@@ -5303,10 +5319,6 @@ setInterval(function() {
                 {
                     delay: getRandomDelay(),
                     text: `{FFDF87}Вы получили премию к зарплате в размере {FFFFFF}${config.bonus} руб {FFDF87}за {FFFFFF}'Задержание преступника'`
-                },
-                {
-                    delay: getRandomDelay(),
-                    text: `{DD90FF}{v:Maxim_Vortex}[382] просматривает список разыскиваемых по федеральной базе`
                 }
             ];
 
@@ -5347,4 +5359,5 @@ setInterval(function() {
 
     console.log('[TEST] ✅ Загружено (визуальный тест системы арестов, ничего в игре реально не меняет)');
     console.log('[TEST] 📋 /are [1-6] - симуляция ареста с прокачкой');
+    console.log('[TEST] 📋 /are_s <0-600> - вручную выставить уровень стиля одежды');
 })();
