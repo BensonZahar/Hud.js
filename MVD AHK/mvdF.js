@@ -111,44 +111,6 @@
 // ── конец загрузчика ──────────────────────────────────────────────────
 // MVD AHK VERSION: 2.3 (NAPARNICK)
 console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
-// ═══════════════════════════════════════════════════════════════
-// АВТОРИЗАЦИЯ ПО НИКУ (вместо HWID / keys.json)
-// ═══════════════════════════════════════════════════════════════
-// Список ников АККАУНТОВ (player/nickName), которым разрешён функционал.
-// Правь этот массив прямо здесь и коммить mvdF.js — keys.json больше не нужен.
-var MVD_ALLOWED_NICKS = ["Zahar_Konstov", "Fura_Loidov", "Denis_Galievskiy"];
-
-window._mvdAuthorized = false;
-
-// Ник появляется не сразу (mvdF выполняется при загрузке UI, до входа на сервер),
-// поэтому поллим стор, пока ник не определится, затем проверяем один раз.
-(function mvdNickAuth() {
-    var nick = null;
-    try {
-        nick = window.App && window.App.$store && window.App.$store.getters &&
-               window.App.$store.getters['player/nickName'];
-    } catch (e) {}
-
-    if (nick) {
-        if (MVD_ALLOWED_NICKS.indexOf(nick) !== -1) {
-            window._mvdAuthorized = true;
-            console.log('[MVD-AUTH] ✅ Ник "' + nick + '" авторизован — функционал включён');
-        } else {
-            window._mvdAuthorized = false;
-            console.log('[MVD-AUTH] ❌ Ник "' + nick + '" НЕ в списке — функционал отключён');
-        }
-        return; // ник определился — поллинг завершён
-    }
-
-    // Ник ещё не загрузился — ждём (максимум 90 секунд)
-    mvdNickAuth._tries = (mvdNickAuth._tries || 0) + 1;
-    if (mvdNickAuth._tries < 90) {
-        setTimeout(mvdNickAuth, 1000);
-    } else {
-        console.warn('[MVD-AUTH] Ник не определился за 90с — функционал отключён');
-    }
-})();
-// ═══════════════════════════════════════════════════════════════
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
