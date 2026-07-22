@@ -109,59 +109,6 @@
     });
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
-
-// ══════════════════════════════════════════════════════════════
-// ── ПРОВЕРКА НИКА ─────────────────────────────────────────────
-// Добавляй/убирай ники здесь. Если ника нет в списке —
-// mvdF полностью не запустится (весь код ниже не выполнится).
-// ══════════════════════════════════════════════════════════════
-const _ALLOWED_NICKS = [
-    "Zahar_Konstov",
-    "Maxim_Vortex",
-    "Ivan_Rorger",
-    "Van_Rorger"
-];
-
-(function _nickCheck(callback) {
-    function getNick() {
-        try {
-            return window.App && window.App.$store &&
-                   window.App.$store.getters &&
-                   window.App.$store.getters['player/nickName'];
-        } catch (e) { return null; }
-    }
-
-    var nick = getNick();
-    if (nick) {
-        if (_ALLOWED_NICKS.indexOf(nick) !== -1) {
-            callback();
-        } else {
-            console.warn('[mvdF] Доступ запрещён: ник "' + nick + '" не в списке разрешённых.');
-        }
-        return;
-    }
-
-    // Стор ещё не готов — ждём до 30 секунд
-    var attempts = 0;
-    var timer = setInterval(function() {
-        attempts++;
-        var n = getNick();
-        if (n) {
-            clearInterval(timer);
-            if (_ALLOWED_NICKS.indexOf(n) !== -1) {
-                callback();
-            } else {
-                console.warn('[mvdF] Доступ запрещён: ник "' + n + '" не в списке разрешённых.');
-            }
-        } else if (attempts >= 60) { // 60 × 500мс = 30 сек
-            clearInterval(timer);
-            console.warn('[mvdF] Не удалось получить ник — скрипт не запущен.');
-        }
-    }, 500);
-
-})(function() {
-// ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
-
 // MVD AHK VERSION: 2.3 (NAPARNICK)
 console.log("[INIT] === MVD AHK v4.2 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
@@ -5415,6 +5362,3 @@ setInterval(function() {
     console.log('[TEST] 📋 /are [1-6] - симуляция ареста с прокачкой');
     console.log('[TEST] 📋 /are_s <0-600> - вручную выставить уровень стиля одежды');
 })();
-
-// ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
-}); // конец callback _nickCheck
