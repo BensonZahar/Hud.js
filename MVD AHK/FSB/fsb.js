@@ -1,18 +1,18 @@
 // ═══════════════════════════════════════════════════════════════════════
 // ⚠️ ЧТО ЭТО ЗА ФАЙЛ
 // ═══════════════════════════════════════════════════════════════════════
-// mvdF.js — ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ МВД И ФУНКЦИЙ ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ.
+// fsb.js — ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ ФСБ И ФУНКЦИЙ ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ.
 // Версия: beta 0.1.
 //
 // Это НЕ обычный пользовательский скрипт/мод для рядовых игроков.
-// Он предназначен для внутреннего тестирования интерфейса МВД (полиции)
+// Он предназначен для внутреннего тестирования интерфейса ФСБ
 // и функций, которые готовятся для разработчиков игры — включая
 // визуальный тест системы задержаний (/are), кастомные интерфейсы,
 // хуки чата и HUD и т.п.
 //
 // Если вы обычный игрок и не участвуете в тестировании — этот файл
 // НЕ нужно себе ставить. Часть функций рассчитана на конкретную роль
-// (МВД) и тестовый контур, а не на обычный игровой процесс, и может
+// (ФСБ) и тестовый контур, а не на обычный игровой процесс, и может
 // вести себя непредсказуемо или ломать интерфейс при обычной игре.
 // Это beta-версия (0.1) — возможны баги и незавершённые функции.
 // ═══════════════════════════════════════════════════════════════════════
@@ -109,8 +109,8 @@
     });
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
-// MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.1 ЗАГРУЖЕН ===");
+// FSB AHK VERSION: 2.3 (NAPARNICK)
+console.log("[INIT] === FSB AHK v4.1 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -388,7 +388,7 @@ setTimeout(() => {
     trackSkinId();
 }, 500);
 const licenseTypes = [
-    { name: "МВД", id: "mvd_main" }
+    { name: "ФСБ", id: "fsb_main" }
 ];
 const mvdSubTypes = [
     { name: "Повседневная", id: "povsednev" },
@@ -545,7 +545,7 @@ function refreshPartnerNickSilent() {
     console.log(`[PARTNER] 🔍 Поиск напарника по нику: /id ${partnerNick}`);
 }
 // ── END обновление по нику ────────────────────────────────────────────────────
-// Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
+// Хоткей открытия меню ФСБ — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
 var MENU_HIDDEN_ITEMS = [];
@@ -808,7 +808,7 @@ const setupChatHandler = () => {
                     message.includes('Такого игрока нет')) {
 
                     if (_docCheckActive) {
-                        console.log('[MVD] 🚫 Проверка документов отменена (отказ/далеко/нет игрока)');
+                        console.log('[FSB] 🚫 Проверка документов отменена (отказ/далеко/нет игрока)');
                         _docCheckCleanup();
                         _docCheckHideNotif();
                     }
@@ -966,7 +966,7 @@ const setupChatHandler = () => {
             //   2) если найден — считаем сообщение напарниковым;
             //   3) если ID в сообщении отличается от сохранённого partnerId — тихо
             //      синхронизируем partnerId на актуальный. Никакого /id и открытия
-            //      меню МВД для этого больше не нужно.
+            //      меню ФСБ для этого больше не нужно.
             if (typeof message === 'string' && partnerTrackingEnabled && partnerNick) {
                 const msgStr = String(message);
                 const _escNick = escapeRegex(partnerNick);
@@ -989,7 +989,7 @@ const setupChatHandler = () => {
 
                 if (hasPartnerTag) {
                     // ── Тихая синхронизация ID напарника прямо из сообщения чата ──
-                    // (без /id-запроса и без открытия меню МВД)
+                    // (без /id-запроса и без открытия меню ФСБ)
                     if (partnerTagMatch) {
                         const seenId = partnerTagMatch[1];
                         if (String(seenId) !== String(partnerId)) {
@@ -1083,7 +1083,7 @@ const setupChatHandler = () => {
                 if (_wantedColor === '0xCECECE') {
                     console.log('[TRACKING] ⚠️ Игрок не в розыске (#CECECE) — стоп отслеживания + закрытие меню');
                     stopTracking();
-                    // Закрываем открытые МВД интерфейсы
+                    // Закрываем открытые ФСБ интерфейсы
                     try { window.closeInterface('MvdMenu'); } catch(e) {}
                     try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                     snAdd('[1, "Погоня", "Игрок не в розыске — погоня отменена", "FF4400", 5000]');
@@ -1247,7 +1247,7 @@ setupChatHandler();
 (() => {
     const originalOnChatMessage = window.onChatMessage;
     if (typeof originalOnChatMessage !== 'function') {
-        console.log('[MVD-CHAT] window.onChatMessage не найден — раннее логирование не установлено');
+        console.log('[FSB-CHAT] window.onChatMessage не найден — раннее логирование не установлено');
         return;
     }
     window.onChatMessage = function(message, args) {
@@ -1265,7 +1265,7 @@ setupChatHandler();
         }
         return originalOnChatMessage.apply(this, arguments);
     };
-    console.log('[MVD-CHAT] Раннее логирование чата установлено (onChatMessage)');
+    console.log('[FSB-CHAT] Раннее логирование чата установлено (onChatMessage)');
 })();
 // ==================== КОНЕЦ РАННЕГО ЛОГИРОВАНИЯ ====================
 
@@ -1288,9 +1288,9 @@ const getPaginatedKoap = () => {
 // (см. ZkmScreenNotification.js), а НЕ window.interface('ScreenNotification').
 // Раньше код шёл через window.interface('ScreenNotification'), а сам
 // ZkmScreenNotification.js подменял этот геттер ГЛОБАЛЬНО — из-за чего
-// родные игровые уведомления (не от МВД) тоже улетали в наш кастомный UI
+// родные игровые уведомления (не от ФСБ) тоже улетали в наш кастомный UI
 // и часть нативных интерфейсов пропадала/ломалась.
-// Теперь подмена убрана, и МВД явно берёт именно свой namespace —
+// Теперь подмена убрана, и ФСБ явно берёт именно свой namespace —
 // родной ScreenNotification движка для всей остальной игры не трогается.
 const getZkmSN = () => window.ZkmScreenNotification || null;
 
@@ -1623,7 +1623,7 @@ const toggleAutoGrab = () => {
             snAdd(`[1, "Авто-снаряжение", "Выключено", "FF4444", 3000]`);
         }
     } catch(e) {
-        console.warn('[MVD-GRAB] toggleAutoGrab notify error:', e);
+        console.warn('[FSB-GRAB] toggleAutoGrab notify error:', e);
     }
 };
 // ── Публичные флаги состояния для MvdMenu ─────────────────────────────────────
@@ -1690,7 +1690,7 @@ const SendGiveLicenseCommand = (to, index) => {
         return;
     const selected = shownLicenseTypes[index];
     switch (selected.id) {
-        case "mvd_main": // МВД
+        case "fsb_main": // ФСБ
             lastMenuType = "mvd_sub";
             setTimeout(() => {
                 showMvdSubMenu(giveLicenseTo);
@@ -1931,7 +1931,7 @@ function showDocCheckPrompt(targetId) {
     if (_docCheckAbortedTargetId !== null &&
         String(_docCheckAbortedTargetId) === String(_resolvedTarget) &&
         (Date.now() - _docCheckAbortedAt) < DOC_CHECK_ABORT_WINDOW_MS) {
-        console.log('[MVD] 🚫 Проверка документов пропущена (недавняя отмена по этой цели)');
+        console.log('[FSB] 🚫 Проверка документов пропущена (недавняя отмена по этой цели)');
         _docCheckAbortedTargetId = null;
         return;
     }
@@ -1951,7 +1951,7 @@ function showDocCheckPrompt(targetId) {
         );
     } else {
         // Fallback на случай, если ZKM ещё не подгружен или это старая версия без addChoice
-        console.warn('[MVD] ZkmScreenNotification.addChoice недоступен — fallback на обычное уведомление');
+        console.warn('[FSB] ZkmScreenNotification.addChoice недоступен — fallback на обычное уведомление');
         snAdd(`[2, "Проверка документов", "Alt (1 раз) — Нет<br>Alt (2 раза) — Да", "f9b701", ${DOC_CHECK_PROMPT_SEC * 1000}]`);
         _docCheckExpireTimer = setTimeout(_docCheckCleanup, DOC_CHECK_PROMPT_SEC * 1000);
     }
@@ -2320,7 +2320,7 @@ window.showGiveLicenseDialog = (e) => {
     currentMenu = null;
     let availableTypes = [];
     if (mvdSkins.includes(skinId)) {
-        availableTypes.push({ name: "МВД", id: "mvd_main" });
+        availableTypes.push({ name: "ФСБ", id: "fsb_main" });
     }
     shownLicenseTypes = availableTypes;
     let licenseList = '';
@@ -2339,7 +2339,7 @@ window.showPovsednevMenuPage = (e) => {
     window.openInterface('MvdMenu');
 };
 
-// Открыть главное меню МВД (экран "main") — для общего хоткея MENU_KEY
+// Открыть главное меню ФСБ (экран "main") — для общего хоткея MENU_KEY
 window.showMvdMainMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "main";
@@ -2425,7 +2425,7 @@ window.showMvdSubMenu = (e) => {
     availableSub.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-    window.addDialogInQueue(`[677,2,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    window.addDialogInQueue(`[677,2,"ФСБ","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 // ==================== МЕНЮ НАПАРНИКА ====================
 window.showPartnerMenu = (e) => {
@@ -2520,7 +2520,7 @@ window.sendClientEventCustom = (event, ...args) => {
                 _navPending = false;
                 return;
             } else if (args[2] === 0) {
-                // ESC — возврат в МВД подменю
+                // ESC — возврат в ФСБ подменю
                 currentPage = 0;
                 lastMenuType = null; currentMenu = null;
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
@@ -2634,7 +2634,7 @@ window.sendClientEventCustom = (event, ...args) => {
             currentStroyAction = null;
             tempHour = null;
         }
-        else if (args[1] === 677) { // Меню МВД sub
+        else if (args[1] === 677) { // Меню ФСБ sub
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleMvdSubCommand(listitem);
@@ -2689,7 +2689,7 @@ window.sendClientEventCustom = (event, ...args) => {
                     setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
                 }
             } else if (args[2] === 0) {
-                // Назад — в МВД подменю
+                // Назад — в ФСБ подменю
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
             }
         }
@@ -2758,7 +2758,7 @@ window.sendChatInputCustom = e => {
     if (mvdSkins.includes(skinId)) {
         
         const openMenu = () => {
-            snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
+            snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'ФСБ\'", "0000FF", 5000]');
             restoreTrackingTimer();
             refreshPartnerNickSilent();
             if (lastMenuType === "stroy") {
@@ -2830,7 +2830,7 @@ window.sendChatInputCustom = e => {
         partnerMessageEnabled = false;
         _awaitingPartnerId = false;
         partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
-        sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
+        sendChatInput("Настройки ФСБ сброшены. Следующее /mvd откроет главное меню.");
     } else if (args[0] == "/int") {
         // Просмотрщик интерфейсов (см. блок [ZK-INTERFACE-VIEWER] ниже в файле).
         // window.zkInterfaceViewer регистрируется в самом конце скрипта, но т.к.
@@ -3079,7 +3079,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 console.log('[DIALOG MONITOR] Загружен. Все диалоги выводятся в консоль.');
 // ==================== END DIALOG MONITOR ====================
 
-// ==================== АВТОБРАНИЕ МВД ====================
+// ==================== АВТОБРАНИЕ ФСБ ====================
 // Авто-снаряжение — включается только если AUTO_GRAB === true
 // (LoadAhk патчит константы ниже перед eval)
 // Используем var чтобы избежать SyntaxError при повторном объявлении через eval
@@ -3091,7 +3091,7 @@ window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
 // Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
 if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
-console.log('[MVD-GRAB] === v2.2 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН (МОМЕНТАЛЬНЫЙ) ===');
+console.log('[FSB-GRAB] === v2.2 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН (МОМЕНТАЛЬНЫЙ) ===');
 window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
 
 // ==================== ID ПРЕДМЕТОВ (ФСБ) ====================
@@ -3451,7 +3451,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          if (need.repairkit)   toTake.push({ name: "Ремонтный комплект",                      idx: MENU.REPAIRKIT });
 
          for (let i = 0; i < toTake.length; i++) {
-             console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [МОМЕНТАЛЬНО]`);
+             console.log(`[FSB-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [МОМЕНТАЛЬНО]`);
              take(toTake[i].idx);
              // Микро-задержка 20мс на случай жесткого анти-флуда на сервере.
              // Для глаза это выглядит как мгновенное выполнение.
@@ -3466,7 +3466,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          window.playSound("inventory/take_light.mp3");
 
      } catch (err) {
-         console.error('[MVD-GRAB] Ошибка:', err);
+         console.error('[FSB-GRAB] Ошибка:', err);
          notify("Ошибка", err.message, "FF0000");
      } finally {
          // ── Гарантированное восстановление при ЛЮБОМ выходе ──
@@ -3480,7 +3480,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          } catch(e) {}
          restoreGrabPatches();
          isProcessing = false;
-         console.log('[MVD-GRAB] готов (моментальный + закрытие меню)');
+         console.log('[FSB-GRAB] готов (моментальный + закрытие меню)');
      }
  }
 
@@ -3493,7 +3493,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
  console.log('[FSB-GRAB] === v2.2 ✅ ГОТОВ — жду диалог "ФСБ" ===');
 })();
 } // end if (AUTO_GRAB)
-// ==================== END АВТОБРАНИЕ МВД ====================
+// ==================== END АВТОБРАНИЕ ФСБ ====================
 
 // ==================== АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ (v18 — sync + no-freeze) ====================
 (function() {
@@ -3614,7 +3614,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 
     function swapTaserDeagle() {
         if (!mvdSkins.includes(skinId)) {
-            console.log('[АВТО-ТАЗЕР] не МВД форма, пропуск');
+            console.log('[АВТО-ТАЗЕР] не ФСБ форма, пропуск');
             return;
         }
         if (_busy) {
@@ -5098,7 +5098,7 @@ setInterval(function() {
 // === END HASSLE HUD UI ===
 
 // ═══════════════════════════════════════════════════════════════
-// ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ МВД (визуальный тест системы задержаний)
+// ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ ФСБ (визуальный тест системы задержаний)
 // Функция версии: beta 0.1
 //
 // Команда /are [1-6] рисует в чат тестовую последовательность
