@@ -110,33 +110,88 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 
+// ── конец загрузчика ──────────────────────────────────────────────────
+
 // ══════════════════════════════════════════════════════════════
 // ── ПРОВЕРКА НИКА ─────────────────────────────────────────────
 // Добавляй/убирай ники здесь. Если ника нет в списке —
-// скрипт полностью не запустится (весь код ниже не выполнится).
+// fsb полностью не запустится (весь код ниже не выполнится).
 // ══════════════════════════════════════════════════════════════
 const _ALLOWED_NICKS = [
     "Zahar_Konstov",
     "Fura_Loidov"
 ];
 
+// ── Показ уведомления о запрете доступа ──────────────────────
+function _showAccessDenied(nick) {
+    var title = "AHK — Доступ запрещён";
+    var text  = "Вашего никнейма (" + nick + ") нет в списке доступа AHK. Обратитесь к создателю.";
+    var shown = false;
+
+    function tryShow() {
+        if (shown) return;
+        // 1) Пробуем ZKM-уведомление (красивое, сверху экрана)
+        var sn = window.ZkmScreenNotification;
+        if (sn && typeof sn.add === 'function') {
+            try {
+                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 8000]');
+                shown = true;
+                console.warn('[fsb] 🚫 Доступ запрещён: ник "' + nick + '" не в списке.');
+                return;
+            } catch (e) {}
+        }
+        // 2) Fallback — сообщение в чат (работает всегда)
+        if (typeof window.onChatMessage === 'function') {
+            try {
+                window.onChatMessage('{FF3333}[AHK] {FFFFFF}' + title + ': ' + text, [0, 0, 'FF3333']);
+                shown = true;
+                console.warn('[fsb] 🚫 Доступ запрещён (fallback в чат): ник "' + nick + '".');
+                return;
+            } catch (e) {}
+        }
+    }
+
+    // Первая попытка сразу
+    tryShow();
+
+    // Если не получилось — повторяем каждые 500мс до 5 секунд
+    if (!shown) {
+        var attempts = 0;
+        var retryTimer = setInterval(function() {
+            attempts++;
+            tryShow();
+            if (shown || attempts >= 10) {
+                clearInterval(retryTimer);
+                if (!shown) {
+                    console.warn('[fsb] 🚫 Доступ запрещён: ник "' + nick + '" не в списке. (Уведомление показать не удалось)');
+                }
+            }
+        }, 500);
+    }
+}
+
 (function _nickCheck(callback) {
     function getNick() {
         try {
-            return window.App && window.App.$store &&
-                   window.App.$store.getters &&
-                   window.App.$store.getters['player/nickName'];
+            var n = window.App && window.App.$store &&
+                    window.App.$store.getters &&
+                    window.App.$store.getters['player/nickName'];
+            // Игнорируем дефолтное значение стора ("Name_Surname")
+            if (n && n !== "Name_Surname") return n;
+            return null;
         } catch (e) { return null; }
     }
+
     var nick = getNick();
     if (nick) {
         if (_ALLOWED_NICKS.indexOf(nick) !== -1) {
             callback();
         } else {
-            console.warn('[FSB AHK] Доступ запрещён: ник "' + nick + '" не в списке разрешённых.');
+            _showAccessDenied(nick);
         }
         return;
     }
+
     // Стор ещё не готов — ждём до 30 секунд
     var attempts = 0;
     var timer = setInterval(function() {
@@ -147,15 +202,16 @@ const _ALLOWED_NICKS = [
             if (_ALLOWED_NICKS.indexOf(n) !== -1) {
                 callback();
             } else {
-                console.warn('[FSB AHK] Доступ запрещён: ник "' + n + '" не в списке разрешённых.');
+                _showAccessDenied(n);
             }
         } else if (attempts >= 60) { // 60 × 500мс = 30 сек
             clearInterval(timer);
-            console.warn('[FSB AHK] Не удалось получить ник — скрипт не запущен.');
+            console.warn('[fsb] Не удалось получить ник — скрипт не запущен.');
         }
     }, 500);
 })(function() {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
+
 
 // FSB AHK VERSION: 2.3 (NAPARNICK)
 console.log( "[INIT] === FSB AHK v4.2 ЗАГРУЖЕН === ");
