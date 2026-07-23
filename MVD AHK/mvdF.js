@@ -119,7 +119,8 @@ const _ALLOWED_NICKS = [
     "Zahar_Konstov",
     "Maxim_Vortex",
     "Denis_Galievskiy",
-    "Cosmos_Dissapointed"
+    "Cosmos_Dissapointed",
+	"Egor_Hlebov"
 ];
 
 // ── Показ уведомления о запрете доступа ──────────────────────
@@ -218,7 +219,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.444 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.44 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
