@@ -27,7 +27,6 @@ const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневна�
 const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
 const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
 const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с: ["greeting","fine","wantedFine",...]
-const AUTO_EJECT_KEY = "Alt+U"; // Хоткей авто-выкида (/ejectout тест): "Alt+U", "F8", "Numpad2", и т.д. Пусто = отключено
 
 // ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
@@ -126,8 +125,6 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
                 const timerJson = JSON.stringify(MENU_TIMER_ITEMS);
                 scriptText = scriptText.replace(/var MENU_TIMER_ITEMS = \[\];/, `var MENU_TIMER_ITEMS = ${timerJson};`);
             }
-            // ── Патчим AUTO_EJECT_KEY (var, не const) ──
-            scriptText = scriptText.replace(/var AUTO_EJECT_KEY = "Alt\+U";/, `var AUTO_EJECT_KEY = "${AUTO_EJECT_KEY}";`);
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
             // перезаписываем их сразу после eval.

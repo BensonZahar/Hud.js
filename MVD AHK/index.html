@@ -273,23 +273,7 @@
           </div>
         </div>
 
-        <!-- Кнопка авто-выкида — всегда видна -->
-        <div id="eject-key-wrap">
-          <div style="background:rgba(226,85,68,.07);border:.5px solid rgba(226,85,68,.22);border-radius:8px;padding:10px 12px;margin-bottom:10px">
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-              <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:#e25544;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
-              <span style="font-size:10px;color:#e25544;font-weight:500">Авто-выкид из ТС (тест /ejectout)</span>
-            </div>
-            <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
-              <div style="flex:1">
-                <label class="inp-lbl">Вкл / выкл авто-выкида</label>
-                <input class="inp inp-hotkey" id="f-eject-key" placeholder="Нажмите кнопку..." readonly
-                  onfocus="startListeningEjectKey()" onblur="stopListeningEjectKey()">
-              </div>
-              <button class="btn btn-ghost" type="button" onclick="clearEjectKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
-            </div>
-          </div>
-        </div><!-- /eject-key-wrap -->
+        
 
       </div>
       <!-- sticky footer вне скролла -->
@@ -383,7 +367,6 @@
 var folderSelected=false,callsignOn=false,autoPasswordOn=false,autoGrabOn=false;
 var savedAutoGrab=null,swapEnabled=false,swapKey='Alt+Q';
 var menuKey='Alt+0';
-var autoEjectKey='Alt+U';
 var currentDepartment='mvd';
 
 function setDepartment(dept){
@@ -588,7 +571,6 @@ window.addEventListener('pywebviewready',function(){
     if(typeof s.swap_enabled!=='undefined'){swapEnabled=!!s.swap_enabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
     if(s.swap_key!==undefined){swapKey=s.swap_key||'Alt+Q';}document.getElementById('f-swap-key').value=swapKey;
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=menuKey;
-    if(s.auto_eject_key!==undefined){autoEjectKey=s.auto_eject_key||'Alt+U';}document.getElementById('f-eject-key').value=autoEjectKey;
     if(s.menu_binds&&typeof s.menu_binds==='object'){
       Object.keys(s.menu_binds).forEach(function(a){if(s.menu_binds[a]){menuItemBinds[a]=s.menu_binds[a];}});
     }
@@ -685,7 +667,6 @@ function _showOverlay(target){
   var title=document.getElementById('key-overlay-title');
   if(target==='swap') title.textContent='Кнопка свапа тазер ↔ дигл';
   else if(target==='menu') title.textContent='Кнопка открытия меню АХК';
-  else if(target==='eject') title.textContent='Кнопка авто-выкида (/ejectout тест)';
   else if(target.indexOf('bind:')=== 0){
     var action=target.slice(5);
     var item=ALL_MENU_ITEMS.find(function(it){return it.action===action;});
@@ -704,9 +685,6 @@ function _applyCapture(combo){
   } else if(_captureTarget==='menu'){
     menuKey=combo;
     document.getElementById('f-menu-key').value=combo;
-  } else if(_captureTarget==='eject'){
-    autoEjectKey=combo;
-    document.getElementById('f-eject-key').value=combo;
   } else if(_captureTarget&&_captureTarget.indexOf('bind:')===0){
     var action=_captureTarget.slice(5);
     menuItemBinds[action]=combo;
@@ -724,9 +702,6 @@ function clearSwapKey(){swapKey='';document.getElementById('f-swap-key').value='
 function startListeningMenuKey(){_showOverlay('menu');}
 function stopListeningMenuKey(){/* blur — оверлей управляет сам */}
 function clearMenuKey(){menuKey='';document.getElementById('f-menu-key').value='';}
-function startListeningEjectKey(){_showOverlay('eject');}
-function stopListeningEjectKey(){/* blur — оверлей управляет сам */}
-function clearEjectKey(){autoEjectKey='';document.getElementById('f-eject-key').value='';}
 
 // ── Клавиатура ──
 document.addEventListener('keydown',function(e){
@@ -815,7 +790,7 @@ document.addEventListener('wheel',function(e){
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,[],binds,[],timerItems,currentDepartment,autoEjectKey).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){if(!folderSelected){flash(false);setTab('home',null);return;}var btn=document.getElementById('btn-remove');btn.disabled=true;runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
@@ -895,7 +870,6 @@ document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);
 document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);
 document.getElementById('f-swap-key').value=swapKey;
 document.getElementById('f-menu-key').value=menuKey;
-document.getElementById('f-eject-key').value=autoEjectKey;
 renderGrabItems(currentDepartment);
 buildBindsList();
 </script>
