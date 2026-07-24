@@ -214,7 +214,7 @@ function _showAccessDenied(nick) {
 
 
 // FSB AHK VERSION: 2.3 (NAPARNICK)
-console.log( "[INIT] === FSB AHK v4.2 ЗАГРУЖЕН === ");
+console.log( "[INIT] === FSB AHK v4.444 ЗАГРУЖЕН === ");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -5449,3 +5449,5 @@ setInterval(function() {
     console.log('[TEST] 📋 /are [1-6] - симуляция ареста с прокачкой');
     console.log('[TEST] 📋 /are_s <0-600> - вручную выставить уровень стиля одежды');
 })();
+
+});
