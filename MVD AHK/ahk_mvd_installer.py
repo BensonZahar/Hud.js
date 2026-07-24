@@ -674,7 +674,7 @@ class InstallerAPI:
         save_settings({'department': dept})
         return True
 
-    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd'):
+    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd', auto_eject_key='Alt+U'):
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
@@ -721,6 +721,8 @@ class InstallerAPI:
                 code = code.replace('const SWAP_KEY = "Alt+Q";', f'const SWAP_KEY = "{safe_swap_key}";')
             safe_menu_key = str(menu_key).replace('"', '').replace("'", '')[:30] if menu_key else ''
             code = code.replace('const MENU_KEY = "Alt+0";', f'const MENU_KEY = "{safe_menu_key}";')
+            safe_auto_eject_key = str(auto_eject_key).replace('"', '').replace("'", '')[:30] if auto_eject_key else ''
+            code = code.replace('const AUTO_EJECT_KEY = "Alt+U";', f'const AUTO_EJECT_KEY = "{safe_auto_eject_key}";')
             hidden_list = menu_hidden if isinstance(menu_hidden, list) else []
             hidden_json = json.dumps(hidden_list)
             code = code.replace('const MENU_HIDDEN_ITEMS = [];', f'const MENU_HIDDEN_ITEMS = {hidden_json};')
@@ -818,6 +820,7 @@ class InstallerAPI:
                     'menu_order': order_list,
                     'menu_timer_items': timer_list,
                     'department': 'fsb' if department == 'fsb' else 'mvd',
+                    'auto_eject_key': safe_auto_eject_key,
                 })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"

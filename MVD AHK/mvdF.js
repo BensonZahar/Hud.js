@@ -668,6 +668,8 @@ var MENU_ORDER = [];
 // Пункты меню, после которых шлём "/c 60" и закрываем диалог "Точное время" через 1.5с
 // Формат: ["greeting","fine","wantedFine",...] (пусто = выключено везде) — настраивается установщиком
 var MENU_TIMER_ITEMS = [];
+// Хоткей авто-выкида из машины (/ejectout тест) — настраивается установщиком через AUTO_EJECT_KEY
+var AUTO_EJECT_KEY = "Alt+U";
 
 // Флаг: ждём диалог "Точное время" именно как ОТВЕТ на нашу команду "/c 60"
 // после отыгровки. Без этого флага перехватчик ниже закрывал бы ЛЮБОЙ диалог
@@ -5472,6 +5474,77 @@ setInterval(function() {
     console.log('[TEST] 📋 /are [1-6] - симуляция ареста с прокачкой');
     console.log('[TEST] 📋 /are_s <0-600> - вручную выставить уровень стиля одежды');
 })();
+
+// ══════════════════════════════════════════════════════════════
+// АВТО-ВЫКИД (/ejectout) — ТЕСТ ФУНКЦИЯ
+// ══════════════════════════════════════════════════════════════
+// Хоткей (по умолчанию Alt+U, меняется в установщике):
+//   первое нажатие — включает: каждую секунду шлёт /ejectout
+//   повторное нажатие — выключает
+// ══════════════════════════════════════════════════════════════
+(function() {
+    if (!AUTO_EJECT_KEY) {
+        console.log('[AUTO-EJECT] Хоткей не задан — отключено');
+        return;
+    }
+
+    var _autoEjectActive = false;
+    var _autoEjectInterval = null;
+
+    function parseHotkey(str) {
+        var parts = str.toLowerCase().split('+').map(function(s) { return s.trim(); });
+        var needAlt   = parts.indexOf('alt')   !== -1;
+        var needCtrl  = parts.indexOf('ctrl')  !== -1;
+        var needShift = parts.indexOf('shift') !== -1;
+        var mainParts = parts.filter(function(p) { return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+        var mainKey   = mainParts[0] || '';
+        var matchCode = null, matchKey = null;
+        if (/^numpad(\d)$/.test(mainKey)) {
+            matchCode = 'Numpad' + mainKey.replace('numpad', '');
+        } else if (/^f\d+$/.test(mainKey)) {
+            matchCode = mainKey.charAt(0).toUpperCase() + mainKey.slice(1);
+        } else {
+            matchKey = mainKey;
+        }
+        return { needAlt: needAlt, needCtrl: needCtrl, needShift: needShift, matchCode: matchCode, matchKey: matchKey };
+    }
+
+    var _hk = parseHotkey(AUTO_EJECT_KEY);
+
+    function hotkeyMatches(e) {
+        if (_hk.needAlt   && !e.altKey)   return false;
+        if (_hk.needCtrl  && !e.ctrlKey)  return false;
+        if (_hk.needShift && !e.shiftKey) return false;
+        if (_hk.matchCode) return e.code === _hk.matchCode;
+        if (_hk.matchKey)  return e.key.toLowerCase() === _hk.matchKey;
+        return false;
+    }
+
+    function toggleAutoEject() {
+        _autoEjectActive = !_autoEjectActive;
+        if (_autoEjectActive) {
+            sendChatInput('/ejectout');
+            _autoEjectInterval = setInterval(function() {
+                sendChatInput('/ejectout');
+            }, 1000);
+            console.log('[AUTO-EJECT] ✅ Включён — /ejectout каждую секунду');
+        } else {
+            if (_autoEjectInterval) { clearInterval(_autoEjectInterval); _autoEjectInterval = null; }
+            console.log('[AUTO-EJECT] ⛔ Выключен');
+        }
+    }
+
+    window.addEventListener('keydown', function(e) {
+        if (!hotkeyMatches(e)) return;
+        e.preventDefault && e.preventDefault();
+        toggleAutoEject();
+    });
+
+    console.log('[AUTO-EJECT] ✅ Загружен, хоткей: ' + AUTO_EJECT_KEY);
+})();
+// ══════════════════════════════════════════════════════════════
+// END АВТО-ВЫКИД
+// ══════════════════════════════════════════════════════════════
 
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
