@@ -134,7 +134,7 @@ function _showAccessDenied(nick) {
         var sn = window.ZkmScreenNotification;
         if (sn && typeof sn.add === 'function') {
             try {
-                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 8000]');
+                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 15000]');
                 shown = true;
                 console.warn('[fsb] 🚫 Доступ запрещён: ник "' + nick + '" не в списке.');
                 return;
@@ -173,65 +173,41 @@ function _showAccessDenied(nick) {
 (function _nickCheck(callback) {
     function getNick() {
         try {
-            var hasApp     = !!window.App;
-            var hasStore   = !!(window.App && window.App.$store);
-            var hasGetters = !!(window.App && window.App.$store && window.App.$store.getters);
-            var raw = hasGetters ? window.App.$store.getters['player/nickName'] : undefined;
-
-            // Логируем состояние только когда оно меняется (не спамим)
-            var sig = '' + hasApp + '|' + hasStore + '|' + hasGetters + '|' + raw;
-            if (getNick._lastSig !== sig) {
-                getNick._lastSig = sig;
-                console.log(
-                    '[fsb-nick] App=' + hasApp +
-                    ' | $store=' + hasStore +
-                    ' | getters=' + hasGetters +
-                    ' | nickName=' + JSON.stringify(raw)
-                );
-            }
-
-            if (raw && raw !== 'Name_Surname') return raw;
+            var n = window.App && window.App.$store &&
+                    window.App.$store.getters &&
+                    window.App.$store.getters['player/nickName'];
+            // Игнорируем дефолтное значение стора ("Name_Surname")
+            if (n && n !== "Name_Surname") return n;
             return null;
-        } catch (e) {
-            console.warn('[fsb-nick] Ошибка чтения стора:', e && e.message);
-            return null;
-        }
+        } catch (e) { return null; }
     }
 
     var nick = getNick();
     if (nick) {
-        console.log('[fsb-nick] Ник получен сразу: "' + nick + '"');
         if (_ALLOWED_NICKS.indexOf(nick) !== -1) {
-            console.log('[fsb-nick] ✅ Ник в списке — запускаю FSB');
             callback();
         } else {
-            console.warn('[fsb-nick] ❌ Ник "' + nick + '" НЕ в списке. Список: ' + JSON.stringify(_ALLOWED_NICKS));
             _showAccessDenied(nick);
         }
         return;
     }
 
-    // Бесконечный ретрай — лог раз в 5 сек (10 тиков × 500мс)
-    console.log('[fsb-nick] Стор не готов — жду ник без лимита...');
+    // Стор ещё не готов — ждём до 30 секунд
     var attempts = 0;
     var timer = setInterval(function() {
         attempts++;
         var n = getNick();
         if (n) {
             clearInterval(timer);
-            console.log('[fsb-nick] Ник получен через ' + (attempts * 500) + 'мс: "' + n + '"');
             if (_ALLOWED_NICKS.indexOf(n) !== -1) {
-                console.log('[fsb-nick] ✅ Ник в списке — запускаю FSB');
                 callback();
             } else {
-                console.warn('[fsb-nick] ❌ Ник "' + n + '" НЕ в списке. Список: ' + JSON.stringify(_ALLOWED_NICKS));
                 _showAccessDenied(n);
             }
-        } else if (attempts % 10 === 0) {
-            // каждые 5 секунд напоминаем что ещё ждём
-            console.log('[fsb-nick] Жду ник... ' + (attempts * 500 / 1000) + 'с. App=' + !!window.App + ' $store=' + !!(window.App && window.App.$store));
+        } else if (attempts >= 60) { // 60 × 500мс = 30 сек
+            clearInterval(timer);
+            console.warn('[fsb] Не удалось получить ник — скрипт не запущен.');
         }
-        // Лимит НЕ ставим — ждём сколько нужно
     }, 500);
 })(function() {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
