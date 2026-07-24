@@ -1,4 +1,4 @@
-// ═══════════════════════════════════════════════════════════════════════
+\// ═══════════════════════════════════════════════════════════════════════
 // ⚠️ ЧТО ЭТО ЗА ФАЙЛ
 // ═══════════════════════════════════════════════════════════════════════
 // LoadFsb.js — ЗАГРУЗЧИК ПОМОЩНИКА ДЛЯ ТЕСТИРОВАНИЯ ФСБ И ФУНКЦИЙ
@@ -66,7 +66,7 @@ const filename = 'fsb.js';
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     const path = folder ? `${folder.split('/').map(encodeURIComponent).join('/')}/` : '';
-    const url = `https://cdn.jsdelivr.net/gh/${username}/${repo}@main/${path}${filename}`;
+    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url + '?_=' + Date.now(), true);
     xhr.onload = function() {
