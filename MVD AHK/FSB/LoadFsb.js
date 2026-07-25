@@ -364,6 +364,80 @@ loadScriptFromGitHub(username, repo, folder, filename);
     console.log('[SWAP-KEY] Хоткей зарегистрирован: ' + SWAP_KEY);
 })();
 
+// ── Регистрация мыши/колеса для MENU_KEY ────────────────────
+// Клавиатурный обработчик MENU_KEY живёт внутри fsb.js (keydown).
+// Боковые кнопки мыши и колёсико fsb.js не слушает — добавляем здесь.
+(function() {
+    if (!MENU_KEY) return;
+
+    var parts = MENU_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+    var needAlt   = parts.indexOf('alt')   !== -1;
+    var needCtrl  = parts.indexOf('ctrl')  !== -1;
+    var needShift = parts.indexOf('shift') !== -1;
+    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+    var mainKey   = mainParts[0] || '';
+
+    var matchWheel = null;
+    var matchMouse = null;
+    if      (mainKey === 'wheelup')      { matchWheel = 'up'; }
+    else if (mainKey === 'wheeldown')    { matchWheel = 'down'; }
+    else if (mainKey === 'mousemiddle')  { matchMouse = 1; }
+    else if (mainKey === 'mouseback')    { matchMouse = 3; }
+    else if (mainKey === 'mouseforward') { matchMouse = 4; }
+    else { return; } // обычная клавиша — обрабатывается в fsb.js, выходим
+
+    function isModMatch(e) {
+        if (needAlt   && !e.altKey)   return false;
+        if (needCtrl  && !e.ctrlKey)  return false;
+        if (needShift && !e.shiftKey) return false;
+        return true;
+    }
+    function openMenuAction() {
+        // sendChatInput доступен после загрузки fsb.js (после eval в onload xhr)
+        if (typeof window.sendChatInput === 'function') {
+            window.sendChatInput('/dahk');
+        }
+    }
+
+    // Колёсико мыши
+    if (matchWheel) {
+        window.addEventListener('wheel', function(e) {
+            if (!isModMatch(e)) return;
+            var dir = e.deltaY < 0 ? 'up' : 'down';
+            if (dir !== matchWheel) return;
+            e.preventDefault && e.preventDefault();
+            openMenuAction();
+        }, { passive: false });
+        console.log('[MENU-KEY] Колесо зарегистрировано для открытия меню: ' + MENU_KEY);
+    }
+
+    // Боковые/средняя кнопки мыши
+    if (matchMouse !== null) {
+        var _menuBtnDownAt = 0;
+        var _menuBtnModsOk = false;
+        var CLICK_MAX_MS = 400; // удержание дольше = камера GTA, не меню
+
+        window.addEventListener('mousedown', function(e) {
+            if (e.button !== matchMouse) return;
+            _menuBtnDownAt = Date.now();
+            _menuBtnModsOk = isModMatch(e);
+        });
+        window.addEventListener('mouseup', function(e) {
+            if (e.button !== matchMouse) return;
+            if (!_menuBtnModsOk) return;
+            var held = Date.now() - _menuBtnDownAt;
+            _menuBtnDownAt = 0;
+            _menuBtnModsOk = false;
+            if (held > 0 && held <= CLICK_MAX_MS) {
+                e.preventDefault && e.preventDefault();
+                openMenuAction();
+            }
+        });
+        console.log('[MENU-KEY] Кнопка мыши зарегистрирована для открытия меню: button=' +
+                    matchMouse + ' (клик ≤ ' + CLICK_MAX_MS + 'мс)');
+    }
+})();
+
 // === HASSLE HUD COMPONENT PATCH (runs in index.js module context) ===
 // Oe = openBlock, Ao = createBlock, sr = createCommentVNode — available here
 // Mu (Hud component) — loaded via dynamic import
