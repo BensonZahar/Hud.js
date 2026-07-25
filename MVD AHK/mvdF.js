@@ -1159,49 +1159,6 @@ const setupChatHandler = () => {
             }
             // ==================== КОНЕЦ ОБНАРУЖЕНИЯ СООБЩЕНИЯ НАПАРНИКА ====================
 
-            // ==================== /WANTED: ОЖИДАНИЕ ПОДТВЕРЖДЕНИЯ МЕСТОПОЛОЖЕНИЯ ====================
-            // После выбора игрока из /wanted диалог UI закрылся штатно, но серверный OnDialogResponse
-            // заблокирован. Здесь ловим ответ сервера на /setmark:
-            //   ✅ "Отмечено приблизительное местоположение" → отправляем серверу сохранённый OnDialogResponse,
-            //      затем запускаем отслеживание
-            //   ❌ "Невозможно определить местоположение"   → уведомляем и сбрасываем pending
-            //      (меню уже закрыто — ничего не показываем, просто отменяем ожидание)
-            if (typeof message === 'string' && _pendingWantedPlayer) {
-                const isSuccess = message.includes('Отмечено приблизительное местоположение');
-                const isFail    = message.includes('Невозможно определить местоположение');
-
-                if (isSuccess) {
-                    const player = _pendingWantedPlayer;
-                    const pendingEv = _pendingWantedEvent;
-                    // Сброс до запуска асинхронных операций
-                    _pendingWantedPlayer = null;
-                    _pendingWantedEvent  = null;
-                    _pendingWantedDialogIdForClose = null;
-                    console.log(`[WANTED] ✅ Местоположение подтверждено — отправляем OnDialogResponse серверу, запускаем отслеживание ${player.nick}[${player.id}]`);
-                    // Отправляем сохранённый ответ диалога серверу напрямую (UI уже закрыт)
-                    if (pendingEv) {
-                        try {
-                            _origSendClientEventHandle.call(
-                                window,
-                                pendingEv.event,
-                                ...pendingEv.args
-                            );
-                        } catch(e) {
-                            console.warn('[WANTED] Ошибка пересылки OnDialogResponse:', e);
-                        }
-                    }
-                    // Запускаем отслеживание (ник уже известен — без лишнего /id)
-                    setTimeout(() => startTracking(player.id, player.nick), 150);
-                } else if (isFail) {
-                    console.log(`[WANTED] ❌ Невозможно определить местоположение — отменяем ожидание (меню уже закрыто)`);
-                    // Сбрасываем pending — больше ничего не ждём
-                    _pendingWantedPlayer = null;
-                    _pendingWantedEvent  = null;
-                    _pendingWantedDialogIdForClose = null;
-                }
-            }
-            // ==================== КОНЕЦ /WANTED: ОЖИДАНИЕ ПОДТВЕРЖДЕНИЯ ====================
-
             // ==================== АВТО-СТОП: НЕВОЗМОЖНО ОПРЕДЕЛИТЬ / ТАКОГО ИГРОКА НЕТ ====================
             if (typeof message === 'string' && currentScanId && !window._trackingStopPending) {
                 const isNoLocation = message.includes('Невозможно определить местоположение игрока');
@@ -2939,62 +2896,21 @@ window.sendClientEventCustom = (event, ...args) => {
         }
     } else if (args[0] === "OnDialogResponse" && _wantedDialogId !== null && args[1] === _wantedDialogId) {
         // ==================== /WANTED: ВЫБОР ИГРОКА → АВТО-ОТСЛЕЖИВАНИЕ ====================
-        // Меню НЕ закрывается сразу при выборе — ждём "Отмечено приблизительное местоположение".
-        // Если сервер ответит "Невозможно определить" — меню остаётся открытым, игрок может выбрать другого.
-        //
-        // ВАЖНО: Window.js после sendClientEvent() сразу вызывает window.closeLastDialog() —
-        // поэтому мы НЕ можем делать return и блокировать весь поток.
-        // Вместо этого: пропускаем событие через sendClientEventHandle (чтобы UI закрылся штатно),
-        // но временно подменяем _origSendClientEventHandle на заглушку — серверный ответ не уходит.
-        // Когда придёт подтверждение из чата — пересылаем сохранённый ответ реальному обработчику.
         if (args[2] === 1) {
             const listitem = parseInt(args[3]);
             const player = _wantedPlayers[listitem];
             if (player) {
-                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — ждём подтверждения местоположения`);
-                // Сохраняем данные игрока и аргументы для последующей реальной пересылки серверу
-                _pendingWantedPlayer = player;
-                _pendingWantedEvent  = { event, args: [...args] };
-                _pendingWantedDialogIdForClose = _wantedDialogId;
+                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание`);
                 _wantedDialogId = null;
-                // Временно подменяем _origSendClientEventHandle заглушкой —
-                // sendClientEventHandle дойдёт до неё и "отправит" ответ серверу вхолостую.
-                // UI закроется штатно (closeLastDialog сработает в Window.js), но сервер
-                // не получит OnDialogResponse и /wanted останется в "подвешенном" состоянии.
-                const _realOrig = _origSendClientEventHandle;
-                const _blocked = function(ev, ...a) {
-                    if (a[0] === 'OnDialogResponse' && String(a[1]) === String(_pendingWantedDialogIdForClose)) {
-                        console.log(`[WANTED] 🚫 Серверный ответ диалога заблокирован — ждём /setmark`);
-                        // Восстанавливаем оригинал сразу после перехвата
-                        // eslint-disable-next-line no-use-before-define
-                        window.sendClientEventHandle = _savedHandle;
-                        return;
-                    }
-                    return _realOrig.call(this, ev, ...a);
-                };
-                // Сохраняем текущий sendClientEventHandle чтобы восстановить
-                const _savedHandle = window.sendClientEventHandle;
-                window.sendClientEventHandle = _blocked;
-                // Через 200мс восстанавливаем на случай если перехват не сработал
-                setTimeout(() => { window.sendClientEventHandle = _savedHandle; }, 200);
-                // Пересылаем событие штатно — Window.js вызовет closeLastDialog(), диалог закроется
-                window.sendClientEventHandle(event, ...args);
-                // Отправляем /setmark чтобы сервер проверил местоположение
-                sendChatInput(`/setmark ${player.id}`);
-                console.log(`[WANTED] 📡 Отправлен /setmark ${player.id} — ожидаем ответ сервера`);
+                setTimeout(() => startTracking(player.id, player.nick), 100);
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
                 _wantedDialogId = null;
-                window.sendClientEventHandle(event, ...args);
             }
         } else {
-            // Отмена (ESC / кнопка "Закрыть") — закрываем штатно
             _wantedDialogId = null;
-            _pendingWantedPlayer = null;
-            _pendingWantedEvent  = null;
-            _pendingWantedDialogIdForClose = null;
-            window.sendClientEventHandle(event, ...args);
         }
+        window.sendClientEventHandle(event, ...args);
         // ==================== КОНЕЦ /WANTED ====================
     } else {
         window.sendClientEventHandle(event, ...args);
@@ -3132,12 +3048,6 @@ let _awaitingRoziskInput = false;
 // ── /wanted список: сохраняем ID игроков при открытии диалога ──
 let _wantedDialogId = null;      // ID серверного диалога /wanted
 let _wantedPlayers = [];         // [ { nick, id }, ... ] — в порядке строк
-// ── /wanted: ожидание подтверждения местоположения ──
-// Пока ждём ответа сервера на /setmark — диалог остаётся открытым.
-// Закрываем только при "Отмечено приблизительное местоположение".
-let _pendingWantedPlayer = null;             // { nick, id } — выбранный из /wanted, ждём подтверждения
-let _pendingWantedEvent  = null;             // { event, args } — ответ диалога, пересылаем серверу при успехе
-let _pendingWantedDialogIdForClose = null;   // ID диалога /wanted который закроем при успехе
 
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
