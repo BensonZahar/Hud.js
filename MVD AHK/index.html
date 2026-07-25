@@ -442,7 +442,7 @@ function buildBindsList(){
       var badge=document.createElement('span');
       badge.className='gdlg-bind-badge';
       badge.title='Изменить бинд';
-      badge.textContent=bind;
+      badge.textContent=_keyDisplayRu(bind);
       badge.onclick=function(){_showOverlay('bind:'+it.action);};
       right.appendChild(badge);
       var clearBtn=document.createElement('button');
@@ -569,8 +569,8 @@ window.addEventListener('pywebviewready',function(){
     if(s.auto_password){document.getElementById('f-password').value=s.auto_password;if(s.use_auto_password){autoPasswordOn=true;document.getElementById('chk-box-pwd').classList.add('on');document.getElementById('pwd-wrap').classList.add('show');}}
     if(s.auto_grab&&typeof s.auto_grab==='object'){savedAutoGrab=s.auto_grab;if(s.auto_grab.enabled){autoGrabOn=true;document.getElementById('chk-box-grab').classList.add('on');document.getElementById('grab-wrap').classList.add('show');setTimeout(initGrabScroll,300);}if(s.auto_grab.items){grabItems=Object.assign(grabItems,s.auto_grab.items);renderGrabItems(currentDepartment);}}
     if(typeof s.swap_enabled!=='undefined'){swapEnabled=!!s.swap_enabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
-    if(s.swap_key!==undefined){swapKey=s.swap_key||'Alt+Q';}document.getElementById('f-swap-key').value=swapKey;
-    if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=menuKey;
+    if(s.swap_key!==undefined){swapKey=s.swap_key||'Alt+Q';}document.getElementById('f-swap-key').value=_keyDisplayRu(swapKey);
+    if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=_keyDisplayRu(menuKey);
     if(s.menu_binds&&typeof s.menu_binds==='object'){
       Object.keys(s.menu_binds).forEach(function(a){if(s.menu_binds[a]){menuItemBinds[a]=s.menu_binds[a];}});
     }
@@ -658,6 +658,39 @@ function toggleCallsign(){callsignOn=!callsignOn;document.getElementById('chk-bo
 function toggleAutoPassword(){autoPasswordOn=!autoPasswordOn;document.getElementById('chk-box-pwd').classList.toggle('on',autoPasswordOn);document.getElementById('pwd-wrap').classList.toggle('show',autoPasswordOn);}
 function toggleSwap(){swapEnabled=!swapEnabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
 
+// ── Перевод названий кнопок на русский язык ──────────────────
+function _keyDisplayRu(combo){
+  if(!combo)return combo;
+  var map={
+    'MouseLeft':   'Мышь ЛКМ',
+    'MouseRight':  'Мышь ПКМ',
+    'MouseMiddle': 'Мышь Средняя',
+    'MouseBack':   'Мышь Назад',
+    'MouseForward':'Мышь Вперёд',
+    'WheelUp':     'Колесо ↑',
+    'WheelDown':   'Колесо ↓',
+    'Space':       'Пробел',
+    'Up':          '↑',
+    'Down':        '↓',
+    'Left':        '←',
+    'Right':       '→',
+    'Enter':       'Enter',
+    'Backspace':   'Backspace',
+    'Delete':      'Delete',
+    'Insert':      'Insert',
+    'Home':        'Home',
+    'End':         'End',
+    'PageUp':      'PageUp',
+    'PageDown':    'PageDown',
+    'CapsLock':    'CapsLock',
+    'Tab':         'Tab',
+  };
+  return combo.split('+').map(function(p){
+    var t=p.trim();
+    return map[t]||t;
+  }).join('+');
+}
+
 // ── Key-capture overlay logic ──────────────────────────────────
 var _captureTarget=null; // 'swap' | 'menu' | 'bind:action'
 
@@ -681,10 +714,10 @@ function _hideOverlay(){
 function _applyCapture(combo){
   if(_captureTarget==='swap'){
     swapKey=combo;
-    document.getElementById('f-swap-key').value=combo;
+    document.getElementById('f-swap-key').value=_keyDisplayRu(combo);
   } else if(_captureTarget==='menu'){
     menuKey=combo;
-    document.getElementById('f-menu-key').value=combo;
+    document.getElementById('f-menu-key').value=_keyDisplayRu(combo);
   } else if(_captureTarget&&_captureTarget.indexOf('bind:')===0){
     var action=_captureTarget.slice(5);
     menuItemBinds[action]=combo;
@@ -868,8 +901,8 @@ toggleAutoGrab=function(){_origToggleAutoGrab();if(autoGrabOn)setTimeout(initGra
 document.querySelectorAll('.page').forEach(function(p){if(!p.classList.contains('active'))p.style.display='none';});
 document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);
 document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);
-document.getElementById('f-swap-key').value=swapKey;
-document.getElementById('f-menu-key').value=menuKey;
+document.getElementById('f-swap-key').value=_keyDisplayRu(swapKey);
+document.getElementById('f-menu-key').value=_keyDisplayRu(menuKey);
 renderGrabItems(currentDepartment);
 buildBindsList();
 </script>
