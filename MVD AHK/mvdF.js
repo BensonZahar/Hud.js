@@ -234,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.2 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.3 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -2510,7 +2510,18 @@ window._mvdExecuteAction = function(action, id) {
     giveLicenseTo = (id !== undefined && id !== null && id !== -1) ? id : giveLicenseTo;
     currentAction = action;
     currentMenu = "povsednev";
-    executePovsednevAction(action, giveLicenseTo);
+    // FIX: если профиль ещё не загружен (бинд нажат раньше открытия меню) —
+    // сначала загружаем rank/firstName/lastName, потом выполняем действие.
+    var doExecute = function() { executePovsednevAction(action, giveLicenseTo); };
+    if (!window._mvdFirstName || !window._mvdLastName || !window._mvdRank) {
+        if (typeof window._mvdLoadPlayerProfile === 'function') {
+            window._mvdLoadPlayerProfile(doExecute);
+        } else {
+            doExecute();
+        }
+    } else {
+        doExecute();
+    }
 };
 // Публичный API для LawsHelper — передаёт статью КоАП и активирует авто-подстановку в серверный диалог /takelic
 window._mvdSetTakeLicReason = function(reason) {
