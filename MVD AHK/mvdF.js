@@ -234,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.5 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -2946,8 +2946,8 @@ window.sendClientEventCustom = (event, ...args) => {
                         // .window-text__item[listitem + 1] — нужная строка.
                         setTimeout(() => {
                             try {
+                                // Снимаем inline-подсветку со всех .window-text__item
                                 const rows = document.querySelectorAll('.window-text__item');
-                                // Снимаем подсветку со всех строк (на случай повторного выбора)
                                 rows.forEach(r => {
                                     r.style.background = '';
                                     r.style.outline = '';
@@ -2962,6 +2962,18 @@ window.sendClientEventCustom = (event, ...args) => {
                                     console.log(`[WANTED] 🎯 Подсветка строки ${listitem + 1} (${player.nick})`);
                                 } else {
                                     console.warn(`[WANTED] Строка ${listitem + 1} не найдена в DOM (всего строк: ${rows.length})`);
+                                }
+                                // Переносим класс .selected (жёлтая подсветка) с первого
+                                // .window-table__item на фактически выбранный элемент.
+                                // После переоткрытия Vue всегда выставляет selected на индекс 0,
+                                // поэтому перебиваем это вручную.
+                                const tableItems = document.querySelectorAll('.window-table__item');
+                                tableItems.forEach(el => el.classList.remove('selected'));
+                                if (tableItems[listitem]) {
+                                    tableItems[listitem].classList.add('selected');
+                                    console.log(`[WANTED] 🟡 .selected перенесён на tableItem[${listitem}] (${player.nick})`);
+                                } else {
+                                    console.warn(`[WANTED] tableItem[${listitem}] не найден (всего: ${tableItems.length})`);
                                 }
                             } catch(e) {
                                 console.warn('[WANTED] Ошибка подсветки строки:', e);
