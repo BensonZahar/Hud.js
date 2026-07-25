@@ -234,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.4 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.5 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -602,6 +602,8 @@ let idPgInterval = null;
 let trackingNotificationOpen = false;
 let chaseNotificationOpen = false;
 let trackingNickname = null;
+let trackingLevel = null;   // уровень отслеживаемого игрока (из списка онлайн)
+let trackingDevice = null;  // устройство: 'ПК' (RADMIR) или 'Телефон' (HASSLE)
 let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
 let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
 const FINE_CD_TIMER_ENABLED = false; // [ВЫКЛ] таймер КД штрафа временно отключён (убрали КД)
@@ -954,6 +956,33 @@ function getIdByNickFromList(nick) {
     } catch (e) { return null; }
 }
 
+// ── Полная инфо об игроке по ID из актуального списка онлайн ───────────────
+// Возвращает { nick, level, device } или null.
+// device: 'ПК' (RADMIR) / 'Телефон' (HASSLE) / raw-строка если другой клиент.
+function getPlayerInfoFromList(id) {
+    try {
+        const list = window._mvdPlayerList;
+        if (!list || id == null) return null;
+        const strId = String(id);
+        let player = null;
+        if (list.local && String(list.local.id) === strId) {
+            player = list.local;
+        } else if (Array.isArray(list.players)) {
+            player = list.players.find(p => String(p.id) === strId) || null;
+        }
+        if (!player) return null;
+        const dev = player.device ? String(player.device).toUpperCase() : null;
+        const deviceLabel = dev === 'HASSLE' ? 'Телефон'
+                          : dev === 'RADMIR' ? 'ПК'
+                          : dev || null;
+        return {
+            nick:   player.name  || null,
+            level:  player.level ?? null,
+            device: deviceLabel
+        };
+    } catch (e) { return null; }
+}
+
 let _mainChatHandlerReady = false;
 
 
@@ -1094,25 +1123,28 @@ const setupChatHandler = () => {
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ПОГОНИ ====================
 
-            // ==================== ПИК НИКА ИЗ /id ====================
-            // Ловим ответ сервера на /id: "Ник, ID: 43, уровень: 44, PING: 59, клиент: RADMIR (PC)"
-            // Поддержка CLEO-префикса времени: "[17:59:42:606]: Ник, ID: ..."
+            // ==================== ПИК НИКА ИЗ ЧАТА (запасной) ====================
+            // /id больше не отправляется скриптом — ник и данные берутся из списка онлайн.
+            // Этот блок оставлен как страховка: если ответ на /id всё же придёт
+            // (например, отправленный вручную или через CLEO), подхватываем ник.
             if (typeof message === 'string' && currentScanId) {
                 const idInfoMatch = message.match(/(?:^\[\d{2}:\d{2}:\d{2}(?::\d+)?\]:\s*)?([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
                 if (idInfoMatch && idInfoMatch[2] === String(currentScanId)) {
                     const nick = idInfoMatch[1];
                     if (nick !== trackingNickname) {
                         trackingNickname = nick;
-                        trackingName = `Отслеживание | {00FF00}${nick}[${currentScanId}]`;
-                        console.log(`[TRACKING] 👤 Ник получен: ${nick}`);
-                        // Если уведомление уже открыто без ника — обновляем
+                        const _flvl = trackingLevel  != null ? ` | Лвл ${trackingLevel}`  : '';
+                        const _fdev = trackingDevice          ? ` | ${trackingDevice}`     : '';
+                        trackingName = `Отслеживание | {00FF00}${nick}[${currentScanId}]${_flvl}${_fdev}`;
+                        console.log(`[TRACKING] 👤 Ник получен из чата: ${nick}${_flvl}${_fdev}`);
+                        // Если уведомление уже открыто — обновляем
                         if (trackingNotificationOpen || chaseNotificationOpen) {
                             openTrackingNotification(currentScanId);
                         }
                     }
                 }
             }
-            // ==================== КОНЕЦ ПИКА НИКА ====================
+            // ==================== КОНЕЦ ЗАПАСНОГО ПИКА НИКА ====================
 
             // ==================== ПИК НИКА НАПАРНИКА ИЗ /id ====================
             if (typeof message === 'string' && _awaitingPartnerId && window._pendingPartnerId) {
@@ -1180,8 +1212,14 @@ const setupChatHandler = () => {
                     const trackMatch = msgStr.match(/Отслеживаю жетон\s+(\d+)/);
                     if (trackMatch) {
                         const suspectId = trackMatch[1];
-                        console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] начал отслеживание ID: ${suspectId}`);
-                        snAdd(`[1, "Напарник", "${partnerNick}: отслеживает ID ${suspectId}", "00AAFF", 3000]`);
+                        // Автоматически берём ник, уровень и устройство из своего списка игроков
+                        const _sInfo  = getPlayerInfoFromList(suspectId);
+                        const _sNick  = (_sInfo && _sInfo.nick) || getNickByIdFromList(suspectId);
+                        const _sLvl   = (_sInfo && _sInfo.level != null) ? ` | Лвл ${_sInfo.level}` : '';
+                        const _sDev   = (_sInfo && _sInfo.device) ? ` | ${_sInfo.device}` : '';
+                        const _sDisp  = _sNick ? `${_sNick}[${suspectId}]` : `ID ${suspectId}`;
+                        console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] начал отслеживание: ${_sDisp}${_sLvl}${_sDev}`);
+                        snAdd(`[1, "Напарник", "${partnerNick}: ${_sDisp}${_sLvl}${_sDev}", "00AAFF", 5000]`);
                         // Если мы УЖЕ отслеживаем именно этого подозреваемого (например, сами
                         // выбрали его из /WANTED и ник уже известен) — НЕ перезапускаем
                         // startTracking(). Раньше перезапуск всегда сбрасывал trackingNickname
@@ -1528,11 +1566,13 @@ const showTrackingTimer = () => {
     if (!(trackingNotificationOpen || chaseNotificationOpen)) return;
     if (_cdTimerActive) return; // жёлтый КД-таймер активен — не перекрываем его
 
-    // Без <br>: одна строка с ником и ID + суффикс "через" чтобы
-    // ZkmScreenNotification выводил "Nickname [ID] — метка через MM:SS"
+    // Без <br>: одна строка с ником/ID + уровень + устройство + "через"
+    // ZkmScreenNotification: "Nickname [ID] | Лвл 44 | ПК — метка через MM:SS"
+    const _tlvl = trackingLevel  != null ? ` | Лвл ${trackingLevel}`  : '';
+    const _tdev = trackingDevice          ? ` | ${trackingDevice}`     : '';
     const label   = trackingNickname
-        ? `${trackingNickname} [${currentScanId}] — метка через`
-        : `[${currentScanId}] — метка через`;
+        ? `${trackingNickname} [${currentScanId}]${_tlvl}${_tdev} — метка через`
+        : `[${currentScanId}]${_tlvl}${_tdev} — метка через`;
     const isChase = chaseNotificationOpen;
     const title   = isChase ? 'Начата погоня' : 'Идет отслеживание';
     const accent  = isChase ? '0000FF' : 'FF0000';
@@ -1677,25 +1717,25 @@ const startTracking = (id, knownNick = null) => {
     }
  
     currentScanId = id;
-    // Ник: приоритет — явно переданный knownNick (из /WANTED-диалога и т.п.),
-    // затем быстрый поиск по списку игроков, и только потом /id как фолбэк.
-    // Раньше /id отправлялся всегда, что создавало гонку: уведомление открывалось
-    // через 800мс, а ответ /id мог прийти позже (или вообще прийти чужой строкой).
-    const nickFromList = knownNick || getNickByIdFromList(id);
-    trackingNickname = nickFromList || null;
+    // Ник / уровень / устройство — только из списка игроков онлайн, /id не нужен.
+    // Приоритет ника: явно переданный knownNick (из /WANTED и т.п.) > список онлайн.
+    const _plInfo     = getPlayerInfoFromList(id);
+    const nickFromList = knownNick || (_plInfo && _plInfo.nick) || null;
+    trackingNickname  = nickFromList || null;
+    trackingLevel     = (_plInfo && _plInfo.level != null) ? _plInfo.level : null;
+    trackingDevice    = (_plInfo && _plInfo.device) ? _plInfo.device : null;
+    const _lvlStr = trackingLevel  != null ? ` | Лвл ${trackingLevel}`  : '';
+    const _devStr = trackingDevice          ? ` | ${trackingDevice}`     : '';
     trackingName = nickFromList
-        ? `Отслеживание | {00FF00}${nickFromList}[${id}]`
-        : `Отслеживание | {00FF00}ID: ${id}`;
+        ? `Отслеживание | {00FF00}${nickFromList}[${id}]${_lvlStr}${_devStr}`
+        : `Отслеживание | {00FF00}ID: ${id}${_lvlStr}${_devStr}`;
     if (nickFromList) {
-        console.log(`[TRACKING] ✅ Ник из списка: ${nickFromList}`);
+        console.log(`[TRACKING] ✅ Данные из списка: ${nickFromList}[${id}]${_lvlStr}${_devStr}`);
+    } else {
+        console.log(`[TRACKING] ⚠️ Игрок ID ${id} не найден в списке онлайн (возможно список ещё не обновился)`);
     }
     isInActiveChase = false; // Сброс флага погони
     lastSetmarkSentAt = 0;
-
-    // /id нужен только если ник не нашёлся ни в knownNick, ни в списке игроков
-    if (!nickFromList) {
-        sendChatInput(`/id ${currentScanId}`);
-    }
     setTimeout(() => {
         openTrackingNotification(id);
     }, 800);
@@ -1767,6 +1807,8 @@ const stopTracking = () => {
  
     currentScanId = null;
     trackingNickname = null;
+    trackingLevel = null;
+    trackingDevice = null;
     trackingName = `Отслеживание | {FF0000}Выкл`;
     isInActiveChase = false;
     lastSetmarkSentAt = 0;
