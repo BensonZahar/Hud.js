@@ -234,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -2932,54 +2932,51 @@ window.sendClientEventCustom = (event, ...args) => {
                 _wantedLastSelected = listitem; // запоминаем выбранного для подсветки
                 setTimeout(() => startTracking(player.id, player.nick), 100);
 
-                // Переоткрываем диалог через 50мс (движок закрывает его после клика,
-                // мы сразу возвращаем обратно — задержка 50мс почти незаметна).
+                // Ставим диалог в очередь СИНХРОННО — до того как sendClientEventHandle
+                // передаст событие движку. Движок закроет текущий диалог и сразу откроет
+                // следующий из очереди — без видимого мигания/переоткрытия.
                 // Диалог остаётся на экране до "Отмечено приблизительное местоположение".
                 if (_wantedLastParams !== null) {
-                    setTimeout(() => {
-                        // Вызываем overridden addDialogInQueue — он снова выставит _wantedDialogId
-                        window.addDialogInQueue(_wantedLastParams, _wantedLastContent, _wantedLastPriority);
-                        console.log('[WANTED] 🔄 Диалог переоткрыт — ждём подтверждения от сервера');
+                    window.addDialogInQueue(_wantedLastParams, _wantedLastContent, _wantedLastPriority);
+                    console.log('[WANTED] 🔄 Диалог поставлен в очередь синхронно (до закрытия движком)');
 
-                        // После рендера Vue подсвечиваем выбранного игрока.
-                        // .window-text__item[0] — заголовок колонки,
-                        // .window-text__item[listitem + 1] — нужная строка.
-                        setTimeout(() => {
-                            try {
-                                // Снимаем inline-подсветку со всех .window-text__item
-                                const rows = document.querySelectorAll('.window-text__item');
-                                rows.forEach(r => {
-                                    r.style.background = '';
-                                    r.style.outline = '';
-                                    r.style.borderRadius = '';
-                                });
-                                const targetRow = rows[listitem + 1];
-                                if (targetRow) {
-                                    targetRow.style.background = 'rgba(0, 150, 255, 0.22)';
-                                    targetRow.style.outline = '1px solid rgba(0, 150, 255, 0.55)';
-                                    targetRow.style.borderRadius = '3px';
-                                    targetRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                                    console.log(`[WANTED] 🎯 Подсветка строки ${listitem + 1} (${player.nick})`);
-                                } else {
-                                    console.warn(`[WANTED] Строка ${listitem + 1} не найдена в DOM (всего строк: ${rows.length})`);
-                                }
-                                // Переносим класс .selected (жёлтая подсветка) с первого
-                                // .window-table__item на фактически выбранный элемент.
-                                // После переоткрытия Vue всегда выставляет selected на индекс 0,
-                                // поэтому перебиваем это вручную.
-                                const tableItems = document.querySelectorAll('.window-table__item');
-                                tableItems.forEach(el => el.classList.remove('selected'));
-                                if (tableItems[listitem]) {
-                                    tableItems[listitem].classList.add('selected');
-                                    console.log(`[WANTED] 🟡 .selected перенесён на tableItem[${listitem}] (${player.nick})`);
-                                } else {
-                                    console.warn(`[WANTED] tableItem[${listitem}] не найден (всего: ${tableItems.length})`);
-                                }
-                            } catch(e) {
-                                console.warn('[WANTED] Ошибка подсветки строки:', e);
+                    // Подсветка выбранного игрока после рендера Vue.
+                    // 150мс достаточно — нет внешнего 50мс setTimeout.
+                    setTimeout(() => {
+                        try {
+                            // Снимаем inline-подсветку со всех .window-text__item
+                            const rows = document.querySelectorAll('.window-text__item');
+                            rows.forEach(r => {
+                                r.style.background = '';
+                                r.style.outline = '';
+                                r.style.borderRadius = '';
+                            });
+                            // [0] — заголовок колонки, [listitem + 1] — нужная строка
+                            const targetRow = rows[listitem + 1];
+                            if (targetRow) {
+                                targetRow.style.background = 'rgba(0, 150, 255, 0.22)';
+                                targetRow.style.outline = '1px solid rgba(0, 150, 255, 0.55)';
+                                targetRow.style.borderRadius = '3px';
+                                targetRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                                console.log(`[WANTED] 🎯 Подсветка строки ${listitem + 1} (${player.nick})`);
+                            } else {
+                                console.warn(`[WANTED] Строка ${listitem + 1} не найдена в DOM (всего строк: ${rows.length})`);
                             }
-                        }, 200);
-                    }, 50);
+                            // Переносим класс .selected (жёлтая рамка #f9b701) с первого
+                            // .window-table__item на фактически выбранный элемент.
+                            // Vue при рендере всегда выставляет selected на индекс 0 — перебиваем.
+                            const tableItems = document.querySelectorAll('.window-table__item');
+                            tableItems.forEach(el => el.classList.remove('selected'));
+                            if (tableItems[listitem]) {
+                                tableItems[listitem].classList.add('selected');
+                                console.log(`[WANTED] 🟡 .selected перенесён на tableItem[${listitem}] (${player.nick})`);
+                            } else {
+                                console.warn(`[WANTED] tableItem[${listitem}] не найден (всего: ${tableItems.length})`);
+                            }
+                        } catch(e) {
+                            console.warn('[WANTED] Ошибка подсветки строки:', e);
+                        }
+                    }, 150);
                 }
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
