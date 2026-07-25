@@ -34,7 +34,8 @@ const _ALLOWED_NICKS = [
 	"Egor_Hlebov",
 	"Artemka_Hasanov",
 	"Lev_Bennet",
-	"Andrey_Pulya"
+	"Andrey_Pulya",
+	"Maksimka_DeMontana"
 ];
 
 // ── Показ уведомления о запрете доступа ──────────────────────
