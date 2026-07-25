@@ -261,6 +261,8 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 .grab-wrap.show{max-height:560px;opacity:1;margin-bottom:10px}
 #swap-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
 #swap-wrap.show{max-height:140px;opacity:1}
+#eject-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
+#eject-wrap.show{max-height:140px;opacity:1}
 #menu-key-wrap{overflow:visible}
 
 /* ══ Progress bar ══ */
