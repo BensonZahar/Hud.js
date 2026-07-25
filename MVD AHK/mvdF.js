@@ -234,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.3 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.4 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -1158,6 +1158,42 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== КОНЕЦ ОБНАРУЖЕНИЯ СООБЩЕНИЯ НАПАРНИКА ====================
+
+            // ==================== /WANTED: ОЖИДАНИЕ ПОДТВЕРЖДЕНИЯ МЕСТОПОЛОЖЕНИЯ ====================
+            // После выбора игрока из /wanted диалог остаётся открытым.
+            // Здесь ловим ответ сервера на /setmark:
+            //   ✅ "Отмечено приблизительное местоположение" → закрываем диалог, запускаем отслеживание
+            //   ❌ "Невозможно определить местоположение"   → оставляем диалог открытым, сбрасываем pending
+            if (typeof message === 'string' && _pendingWantedPlayer) {
+                const isSuccess = message.includes('Отмечено приблизительное местоположение');
+                const isFail    = message.includes('Невозможно определить местоположение');
+
+                if (isSuccess) {
+                    const player = _pendingWantedPlayer;
+                    const pendingEv = _pendingWantedEvent;
+                    // Сброс до запуска асинхронных операций
+                    _pendingWantedPlayer = null;
+                    _pendingWantedEvent  = null;
+                    _pendingWantedDialogIdForClose = null;
+                    _wantedDialogId = null;
+                    console.log(`[WANTED] ✅ Местоположение подтверждено — закрываем диалог, запускаем отслеживание ${player.nick}[${player.id}]`);
+                    // Пересылаем сохранённый ответ диалога серверу → он закроет /wanted меню
+                    if (pendingEv) {
+                        window.sendClientEventHandle(pendingEv.event, ...pendingEv.args);
+                    }
+                    // Запускаем отслеживание (ник уже известен — без лишнего /id)
+                    setTimeout(() => startTracking(player.id, player.nick), 150);
+                } else if (isFail) {
+                    console.log(`[WANTED] ❌ Невозможно определить местоположение — меню /wanted остаётся открытым`);
+                    // Сбрасываем pending, но оставляем _wantedDialogId чтобы следующий выбор работал
+                    _pendingWantedPlayer = null;
+                    _pendingWantedEvent  = null;
+                    // _pendingWantedDialogIdForClose и _wantedDialogId — НЕ сбрасываем:
+                    // они нужны чтобы следующий клик по игроку снова перехватился
+                    // Показываем уведомление — сервер и так покажет сообщение, просто логируем
+                }
+            }
+            // ==================== КОНЕЦ /WANTED: ОЖИДАНИЕ ПОДТВЕРЖДЕНИЯ ====================
 
             // ==================== АВТО-СТОП: НЕВОЗМОЖНО ОПРЕДЕЛИТЬ / ТАКОГО ИГРОКА НЕТ ====================
             if (typeof message === 'string' && currentScanId && !window._trackingStopPending) {
@@ -2896,21 +2932,37 @@ window.sendClientEventCustom = (event, ...args) => {
         }
     } else if (args[0] === "OnDialogResponse" && _wantedDialogId !== null && args[1] === _wantedDialogId) {
         // ==================== /WANTED: ВЫБОР ИГРОКА → АВТО-ОТСЛЕЖИВАНИЕ ====================
+        // Меню НЕ закрывается сразу при выборе — ждём "Отмечено приблизительное местоположение".
+        // Если сервер ответит "Невозможно определить" — меню остаётся открытым, игрок может выбрать другого.
         if (args[2] === 1) {
             const listitem = parseInt(args[3]);
             const player = _wantedPlayers[listitem];
             if (player) {
-                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание`);
-                _wantedDialogId = null;
-                setTimeout(() => startTracking(player.id, player.nick), 100);
+                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — ждём подтверждения местоположения`);
+                // Сохраняем данные выбранного игрока и параметры события для последующей пересылки
+                _pendingWantedPlayer = player;
+                _pendingWantedEvent  = { event, args: [...args] };
+                _pendingWantedDialogIdForClose = _wantedDialogId;
+                // Отправляем /setmark чтобы сервер проверил местоположение — НЕ пересылаем ответ диалога,
+                // диалог остаётся открытым на экране
+                sendChatInput(`/setmark ${player.id}`);
+                console.log(`[WANTED] 📡 Отправлен /setmark ${player.id} — ожидаем ответ сервера`);
+                // НЕ сбрасываем _wantedDialogId здесь — он нужен чтобы знать какой диалог закрыть позже
+                // НЕ вызываем window.sendClientEventHandle — не закрываем диалог
+                return; // блокируем пересылку ответа серверу
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
                 _wantedDialogId = null;
+                window.sendClientEventHandle(event, ...args);
             }
         } else {
+            // Отмена (ESC / кнопка "Закрыть") — закрываем штатно
             _wantedDialogId = null;
+            _pendingWantedPlayer = null;
+            _pendingWantedEvent  = null;
+            _pendingWantedDialogIdForClose = null;
+            window.sendClientEventHandle(event, ...args);
         }
-        window.sendClientEventHandle(event, ...args);
         // ==================== КОНЕЦ /WANTED ====================
     } else {
         window.sendClientEventHandle(event, ...args);
@@ -3048,6 +3100,12 @@ let _awaitingRoziskInput = false;
 // ── /wanted список: сохраняем ID игроков при открытии диалога ──
 let _wantedDialogId = null;      // ID серверного диалога /wanted
 let _wantedPlayers = [];         // [ { nick, id }, ... ] — в порядке строк
+// ── /wanted: ожидание подтверждения местоположения ──
+// Пока ждём ответа сервера на /setmark — диалог остаётся открытым.
+// Закрываем только при "Отмечено приблизительное местоположение".
+let _pendingWantedPlayer = null;             // { nick, id } — выбранный из /wanted, ждём подтверждения
+let _pendingWantedEvent  = null;             // { event, args } — ответ диалога, пересылаем серверу при успехе
+let _pendingWantedDialogIdForClose = null;   // ID диалога /wanted который закроем при успехе
 
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
