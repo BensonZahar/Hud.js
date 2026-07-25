@@ -234,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.3 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.4 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -656,6 +656,22 @@ let _partnerNickSearchTarget = null;  // ник, который ищём сей�
 function refreshPartnerNickSilent() {
     if (!partnerTrackingEnabled || !partnerNick) return; // нужен ник для поиска
     if (_partnerNickSearch) return; // уже ищем
+
+    // Сначала ищем актуальный ID напарника в списке игроков — без /id в чат
+    const foundId = getIdByNickFromList(partnerNick);
+    if (foundId !== null) {
+        if (String(foundId) !== String(partnerId)) {
+            const _oldId = partnerId;
+            partnerId = String(foundId);
+            console.log(`[PARTNER] 🔄 ID напарника обновлён из списка: ${_oldId} → ${partnerId} (${partnerNick})`);
+            snAdd(`[1, "Напарник", "${partnerNick}: ID ${_oldId}→${partnerId}", "00FF00", 3000]`);
+        } else {
+            console.log(`[PARTNER] ✅ Напарник в сети (список): ${partnerNick}[${partnerId}]`);
+        }
+        return;
+    }
+
+    // Не нашли в списке (возможно, список устарел или игрок вышел) — фолбэк через /id
     _partnerNickSearch = true;
     _partnerNickSearchTarget = partnerNick;
     sendChatInput(`/id ${partnerNick}`);
@@ -666,7 +682,7 @@ function refreshPartnerNickSilent() {
             _partnerNickSearchTarget = null;
         }
     }, 5000);
-    console.log(`[PARTNER] 🔍 Поиск напарника по нику: /id ${partnerNick}`);
+    console.log(`[PARTNER] 🔍 Поиск напарника: /id ${partnerNick} (не найден в списке онлайн)`);
 }
 // ── END обновление по нику ────────────────────────────────────────────────────
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
@@ -904,6 +920,39 @@ function escapeRegex(str) {
     return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 // ==================== END CHAT LOGGING HELPERS ====================
+
+// ── Поиск ника по ID из актуального списка игроков ────────────────────────
+// Возвращает строку-ник или null. Список живёт в window._mvdPlayerList и
+// обновляется движком через onUpdatePlayersList (каждые ~30с + по запросу).
+function getNickByIdFromList(id) {
+    try {
+        const list = window._mvdPlayerList;
+        if (!list) return null;
+        const strId = String(id);
+        if (list.local && String(list.local.id) === strId) return list.local.name;
+        if (Array.isArray(list.players)) {
+            const found = list.players.find(p => String(p.id) === strId);
+            return found ? found.name : null;
+        }
+        return null;
+    } catch (e) { return null; }
+}
+
+// ── Поиск ID по нику из актуального списка игроков ────────────────────────
+// Возвращает числовой/строковый ID или null. Используется там, где раньше
+// отправлялась команда /id <ник> ради получения ID через ответ чата.
+function getIdByNickFromList(nick) {
+    try {
+        const list = window._mvdPlayerList;
+        if (!list || !nick) return null;
+        if (list.local && list.local.name === nick) return list.local.id;
+        if (Array.isArray(list.players)) {
+            const found = list.players.find(p => p.name === nick);
+            return found ? found.id : null;
+        }
+        return null;
+    } catch (e) { return null; }
+}
 
 let _mainChatHandlerReady = false;
 
@@ -1272,11 +1321,20 @@ const setupChatHandler = () => {
                 const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
                 if (stunMatch) {
                     const nickname = stunMatch[1];
-                    setTimeout(() => {
-                        sendChatInput(`/id ${nickname}`);
-                    }, 500);
+                    // Ищем ID оглушённого напрямую из списка игроков
+                    const foundId = getIdByNickFromList(nickname);
+                    if (foundId !== null) {
+                        console.log(`[AUTO-CUFF] ✅ ID из списка: ${nickname} → ${foundId}`);
+                        setTimeout(() => {
+                            sendMessagesWithDelay([`/cuff ${foundId}`, `/escort ${foundId}`], [0, 700]);
+                        }, 1000);
+                    } else {
+                        // Фолбэк — запрашиваем через /id (ответ поймает блок ниже)
+                        setTimeout(() => { sendChatInput(`/id ${nickname}`); }, 500);
+                    }
                 }
          
+                // Фолбэк: разбираем ответ сервера на /id когда ID не нашёлся в списке
                 const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
                 if (idMatch && idMatch[2]) {
                     const id = idMatch[2];
@@ -1619,21 +1677,25 @@ const startTracking = (id, knownNick = null) => {
     }
  
     currentScanId = id;
-    // Если ник уже известен на момент вызова (например, выбран из /WANTED-списка,
-    // где ник был распарсен из самого диалога) — используем его сразу, без ожидания
-    // ответа на /id. Раньше trackingNickname всегда обнулялся здесь, и при выборе
-    // из /WANTED первое же открытие уведомления (через 800мс ниже) могло произойти
-    // ДО того, как успевал прийти и распарситься ответ сервера на /id — из-за этой
-    // гонки в уведомлении навсегда оставался только [ID] без ника подозреваемого.
-    trackingNickname = knownNick || null;
-    trackingName = knownNick
-        ? `Отслеживание | {00FF00}${knownNick}[${id}]`
+    // Ник: приоритет — явно переданный knownNick (из /WANTED-диалога и т.п.),
+    // затем быстрый поиск по списку игроков, и только потом /id как фолбэк.
+    // Раньше /id отправлялся всегда, что создавало гонку: уведомление открывалось
+    // через 800мс, а ответ /id мог прийти позже (или вообще прийти чужой строкой).
+    const nickFromList = knownNick || getNickByIdFromList(id);
+    trackingNickname = nickFromList || null;
+    trackingName = nickFromList
+        ? `Отслеживание | {00FF00}${nickFromList}[${id}]`
         : `Отслеживание | {00FF00}ID: ${id}`;
+    if (nickFromList) {
+        console.log(`[TRACKING] ✅ Ник из списка: ${nickFromList}`);
+    }
     isInActiveChase = false; // Сброс флага погони
     lastSetmarkSentAt = 0;
- 
-    // Сначала отправляем /id — ждём 800мс ответа, потом открываем уведомление с ником
-    sendChatInput(`/id ${currentScanId}`);
+
+    // /id нужен только если ник не нашёлся ни в knownNick, ни в списке игроков
+    if (!nickFromList) {
+        sendChatInput(`/id ${currentScanId}`);
+    }
     setTimeout(() => {
         openTrackingNotification(id);
     }, 800);
@@ -1653,7 +1715,7 @@ const startTracking = (id, knownNick = null) => {
     }
     // ==================== КОНЕЦ СООБЩЕНИЯ НАПАРНИКУ ====================
  
-    // Начальные команды (без /id — уже отправлен выше)
+    // Начальные команды (без /id — обработан выше)
     // /setmark идёт через sendSetmarkCommand, чтобы зафиксировать время отправки.
     // После отправки сразу запускаем цепочку scheduleSetmark — она сработает ровно
     // через 31с, когда таймер-уведомление дойдёт до нуля → мигания не будет.
@@ -1798,10 +1860,22 @@ window._mvdPartnerSetId = function(rawId) {
     partnerId = rawId;
     partnerNick = null;
     partnerTrackingEnabled = true;
-    _awaitingPartnerId = true;
-    window._pendingPartnerId = rawId;
-    snAdd(`[1, "Напарник", "Ищу игрока ID: ${rawId}...", "FFAA00", 3000]`);
-    sendChatInput(`/id ${rawId}`);
+
+    // Пробуем найти ник из актуального списка игроков — без /id в чат
+    const nickFromList = getNickByIdFromList(rawId);
+    if (nickFromList) {
+        partnerNick = nickFromList;
+        _awaitingPartnerId = false;
+        window._pendingPartnerId = null;
+        snAdd(`[1, "Напарник", "Напарник: ${nickFromList}[${rawId}]", "00FF00", 3000]`);
+        console.log(`[PARTNER] ✅ Напарник из списка: ${nickFromList}[${rawId}]`);
+    } else {
+        // Фолбэк — запрашиваем через /id (ник придёт через чат-хендлер)
+        _awaitingPartnerId = true;
+        window._pendingPartnerId = rawId;
+        snAdd(`[1, "Напарник", "Ищу игрока ID: ${rawId}...", "FFAA00", 3000]`);
+        sendChatInput(`/id ${rawId}`);
+    }
 };
 window._mvdPartnerSetMessage = function(val) {
     partnerMessageEnabled = val;
@@ -2866,15 +2940,26 @@ window.sendClientEventCustom = (event, ...args) => {
             const inputId = args[4];
             if (args[2] === 1 && inputId && inputId.trim()) {
                 const rawId = inputId.trim();
-                // Сохраняем ID предварительно и запускаем /id для получения ника
                 partnerId = rawId;
                 partnerNick = null;
                 partnerTrackingEnabled = true;
-                _awaitingPartnerId = true;
-                window._pendingPartnerId = rawId;
-                sendChatInput(`/id ${rawId}`);
-                snAdd(`[1, "Напарник", "Ищу игрока ID: ${rawId}...", "FFAA00", 3000]`);
-                console.log(`[PARTNER] Установка напарника: /id ${rawId}`);
+
+                // Пробуем найти ник из актуального списка игроков — без /id в чат
+                const nickFromList = getNickByIdFromList(rawId);
+                if (nickFromList) {
+                    partnerNick = nickFromList;
+                    _awaitingPartnerId = false;
+                    window._pendingPartnerId = null;
+                    snAdd(`[1, "Напарник", "Напарник: ${nickFromList}[${rawId}]", "00FF00", 3000]`);
+                    console.log(`[PARTNER] ✅ Напарник из списка: ${nickFromList}[${rawId}]`);
+                } else {
+                    // Фолбэк — запрашиваем через /id (ник придёт через чат-хендлер)
+                    _awaitingPartnerId = true;
+                    window._pendingPartnerId = rawId;
+                    sendChatInput(`/id ${rawId}`);
+                    snAdd(`[1, "Напарник", "Ищу игрока ID: ${rawId}...", "FFAA00", 3000]`);
+                    console.log(`[PARTNER] Установка напарника: /id ${rawId} (не найден в списке)`);
+                }
             } else {
                 // Отмена — возврат в меню напарника
                 setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
@@ -5342,6 +5427,7 @@ setInterval(function() {
     const originalOnUpdatePlayersList = window.onUpdatePlayersList;
     window.onUpdatePlayersList = function(e) {
         latestPlayerList = e;
+        window._mvdPlayerList = e; // пробрасываем наружу для getNickByIdFromList / getIdByNickFromList
         if (originalOnUpdatePlayersList) {
             originalOnUpdatePlayersList.apply(this, arguments);
         }
