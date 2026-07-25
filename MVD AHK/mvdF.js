@@ -671,6 +671,8 @@ function refreshPartnerNickSilent() {
 // ── END обновление по нику ────────────────────────────────────────────────────
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
+// Хоткей авто-выброса из авто — настраивается установщиком через EJECT_KEY
+var EJECT_KEY = "Alt+U";
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
 var MENU_HIDDEN_ITEMS = [];
 // Биндинги прямого вызова пунктов меню — настраивается установщиком
@@ -3912,6 +3914,68 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
     console.log('[АВТО-ТАЗЕР] v18 готов (sync + no-freeze)');
 })();
 // ==================== END АВТО-ТАЗЕР: СВОП ТАЗЕР ↔ ДИГЛ ====================
+// ==================== АВТО-ВЫБРОС ИЗ АВТО (Alt+U — /ejectout каждую секунду) ====================
+(function() {
+    var _ejectActive = false;   // флаг: выброс сейчас работает
+    var _ejectTimer  = null;    // setInterval id
+    var _ejectTick   = 0;       // счётчик тиков (для лога)
+
+    function startEject() {
+        if (_ejectActive) {
+            // Повторное нажатие — останавливаем
+            stopEject();
+            return;
+        }
+        _ejectActive = true;
+        _ejectTick   = 0;
+
+        // Уведомление: выброс начат
+        snAdd('[1, "АВТО-ВЫБРОС", "Выбрасываем из авто...", "FF8800", 2000]');
+        console.log('[АВТО-ВЫБРОС] запущен');
+
+        // Первый /ejectout немедленно
+        sendChatInput('/ejectout');
+        _ejectTick++;
+
+        // Далее каждую секунду
+        _ejectTimer = setInterval(function() {
+            if (!_ejectActive) {
+                clearInterval(_ejectTimer);
+                _ejectTimer = null;
+                return;
+            }
+            sendChatInput('/ejectout');
+            _ejectTick++;
+            console.log('[АВТО-ВЫБРОС] тик #' + _ejectTick);
+        }, 1000);
+    }
+
+    function stopEject() {
+        if (!_ejectActive) return;
+        _ejectActive = false;
+        if (_ejectTimer) {
+            clearInterval(_ejectTimer);
+            _ejectTimer = null;
+        }
+        snAdd('[1, "АВТО-ВЫБРОС", "Остановлен", "FF4444", 2000]');
+        console.log('[АВТО-ВЫБРОС] остановлен после ' + _ejectTick + ' тиков');
+    }
+
+    function toggleEject() {
+        if (_ejectActive) {
+            stopEject();
+        } else {
+            startEject();
+        }
+    }
+
+    // Экспортируем — LoadAhk.js вызывает через window._mvdAutoEject()
+    window._mvdAutoEject    = toggleEject;
+    window._mvdStopEject    = stopEject;   // на случай принудительной остановки снаружи
+
+    console.log('[АВТО-ВЫБРОС] v1 готов (Alt+U → /ejectout каждую секунду)');
+})();
+// ==================== END АВТО-ВЫБРОС ИЗ АВТО ====================
 // ==================== ПРОСМОТРЩИК ИНТЕРФЕЙСОВ (/int, доступ: Zahar_Loidov) ====================
 
 /* ============================================================
