@@ -22,6 +22,8 @@ const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
 const SWAP_ENABLED = true; // Включить свап тазер ↔ дигл (установщик может выключить)
 const SWAP_KEY = "Alt+Q"; // Хоткей свапа: "Alt+Q", "Numpad1", "F6", "Alt+F", и т.д. Пусто = отключено
+const EJECT_ENABLED = false; // Включить авто-выброс из авто (установщик может включить)
+const EJECT_KEY = "Alt+U"; // Хоткей авто-выброса: каждую секунду шлёт /ejectout. Пусто = отключено
 const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК (пусто = отключено)
 const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневная» которые скрыты: ["greeting","checkDocuments",...]
 const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
@@ -110,6 +112,8 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             }
             // ── Патчим MENU_KEY (var, не const) ──
             scriptText = scriptText.replace(/var MENU_KEY = "Alt\+0";/, `var MENU_KEY = "${MENU_KEY}";`);
+            // ── Патчим EJECT_KEY (var, не const) ──
+            scriptText = scriptText.replace(/var EJECT_KEY = "Alt\+U";/, `var EJECT_KEY = "${EJECT_KEY}";`);
             // ── Патчим MENU_HIDDEN_ITEMS (var, не const) ──
             if (MENU_HIDDEN_ITEMS.length > 0) {
                 const hiddenJson = JSON.stringify(MENU_HIDDEN_ITEMS);
@@ -243,6 +247,96 @@ if (AUTO_PASSWORD) {
 
 // Прямая загрузка скрипта без проверки ключей
 loadScriptFromGitHub(username, repo, folder, filename);
+
+// ── Регистрация хоткея авто-выброса из авто ─────────────────
+// EJECT_ENABLED=false или EJECT_KEY="" → слушатели не вешаются вообще
+(function() {
+    if (!EJECT_ENABLED || !EJECT_KEY) {
+        console.log('[EJECT-KEY] Авто-выброс отключён установщиком');
+        return;
+    }
+
+    var parts = EJECT_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+    var needAlt   = parts.indexOf('alt')   !== -1;
+    var needCtrl  = parts.indexOf('ctrl')  !== -1;
+    var needShift = parts.indexOf('shift') !== -1;
+    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+    var mainKey   = mainParts[0] || '';
+
+    var matchCode  = null;
+    var matchKey   = null;
+    var matchWheel = null;
+    var matchMouse = null;
+    if      (mainKey === 'wheelup')      { matchWheel = 'up'; }
+    else if (mainKey === 'wheeldown')    { matchWheel = 'down'; }
+    else if (mainKey === 'mousemiddle')  { matchMouse = 1; }
+    else if (mainKey === 'mouseback')    { matchMouse = 3; }
+    else if (mainKey === 'mouseforward') { matchMouse = 4; }
+    else if (/^numpad(\d)$/.test(mainKey)) {
+        matchCode = 'Numpad' + mainKey.replace('numpad','');
+    } else if (/^f\d+$/.test(mainKey)) {
+        matchCode = mainKey.charAt(0).toUpperCase() + mainKey.slice(1);
+    } else {
+        matchKey = mainKey;
+    }
+
+    function isModMatch(e) {
+        if (needAlt   && !e.altKey)   return false;
+        if (needCtrl  && !e.ctrlKey)  return false;
+        if (needShift && !e.shiftKey) return false;
+        return true;
+    }
+    function isMatch(e) {
+        if (!isModMatch(e)) return false;
+        if (matchCode) return e.code === matchCode;
+        if (matchKey)  return e.key.toLowerCase() === matchKey;
+        return false;
+    }
+
+    window.addEventListener('keydown', function(e) {
+        if (!isMatch(e)) return;
+        e.preventDefault && e.preventDefault();
+        window._mvdAutoEject && window._mvdAutoEject();
+    });
+
+    if (matchWheel) {
+        window.addEventListener('wheel', function(e) {
+            if (!isModMatch(e)) return;
+            var dir = e.deltaY < 0 ? 'up' : 'down';
+            if (dir !== matchWheel) return;
+            e.preventDefault && e.preventDefault();
+            window._mvdAutoEject && window._mvdAutoEject();
+        }, { passive: false });
+        console.log('[EJECT-KEY] Колёсико зарегистрировано: Wheel' + (matchWheel === 'up' ? 'Up' : 'Down'));
+    }
+
+    if (matchMouse !== null) {
+        var _ejectBtnDownAt = 0;
+        var _ejectBtnModsOk = false;
+        var CLICK_MAX_MS = 400;
+
+        window.addEventListener('mousedown', function(e) {
+            if (e.button !== matchMouse) return;
+            _ejectBtnDownAt = Date.now();
+            _ejectBtnModsOk = isModMatch(e);
+        });
+        window.addEventListener('mouseup', function(e) {
+            if (e.button !== matchMouse) return;
+            if (!_ejectBtnModsOk) return;
+            var held = Date.now() - _ejectBtnDownAt;
+            _ejectBtnDownAt = 0;
+            _ejectBtnModsOk = false;
+            if (held > 0 && held <= CLICK_MAX_MS) {
+                e.preventDefault && e.preventDefault();
+                window._mvdAutoEject && window._mvdAutoEject();
+            }
+        });
+        console.log('[EJECT-KEY] Кнопка мыши зарегистрирована: button=' + matchMouse +
+                    ' (клик ≤ ' + CLICK_MAX_MS + 'мс)');
+    }
+
+    console.log('[EJECT-KEY] Хоткей зарегистрирован: ' + EJECT_KEY);
+})();
 
 // ── Регистрация хоткея свапа ────────────────────────────────
 // SWAP_ENABLED=false или SWAP_KEY="" → слушатели не вешаются вообще
