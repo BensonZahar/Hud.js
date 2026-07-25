@@ -17,6 +17,125 @@
 // Это beta-версия (0.1) — возможны баги и незавершённые функции.
 // ═══════════════════════════════════════════════════════════════════════
 
+// ══════════════════════════════════════════════════════════════
+// ── ПРОВЕРКА НИКА ─────────────────────────────────────────────
+// Добавляй/убирай ники здесь. Если ника нет в списке —
+// mvdF полностью не запустится (весь код ниже не выполнится).
+//
+// 🔧 ФЛАГ ПРОВЕРКИ: true = включена, false = отключена (пускает всех)
+// ══════════════════════════════════════════════════════════════
+const NICK_CHECK_ENABLED = false; // ← поменяй на true чтобы включить проверку
+
+const _ALLOWED_NICKS = [
+	"Lev_Bennet",
+    "Zahar_Konstov",
+    "Maxim_Vortex",
+    "Denis_Galievskiy",
+    "Cosmos_Dissapointed",
+	"Egor_Hlebov",
+	"Artemka_Hasanov"
+];
+
+// ── Показ уведомления о запрете доступа ──────────────────────
+// Пытаемся показать фирменное ZKM-уведомление. Если интерфейс
+// ещё не загрузился (редко, но бывает на медленных ПК) — ждём
+// до 5 секунд. Если и за это время не появился — fallback в чат.
+function _showAccessDenied(nick) {
+    var title = "AHK — Доступ запрещён";
+    var text  = "Вашего никнейма (" + nick + ") нет в списке доступа AHK. Обратитесь к создателю.";
+    var shown = false;
+
+    function tryShow() {
+        if (shown) return;
+        // 1) Пробуем ZKM-уведомление (красивое, сверху экрана)
+        var sn = window.ZkmScreenNotification;
+        if (sn && typeof sn.add === 'function') {
+            try {
+                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 15000]');
+                shown = true;
+                console.warn('[mvdF] 🚫 Доступ запрещён: ник "' + nick + '" не в списке.');
+                return;
+            } catch (e) {}
+        }
+        // 2) Fallback — сообщение в чат (работает всегда)
+        if (typeof window.onChatMessage === 'function') {
+            try {
+                window.onChatMessage('{FF3333}[AHK] {FFFFFF}' + title + ': ' + text, [0, 0, 'FF3333']);
+                shown = true;
+                console.warn('[mvdF] 🚫 Доступ запрещён (fallback в чат): ник "' + nick + '".');
+                return;
+            } catch (e) {}
+        }
+    }
+
+    // Первая попытка сразу
+    tryShow();
+
+    // Если не получилось — повторяем каждые 500мс до 5 секунд
+    // (даём время загрузиться ZkmScreenNotification.js)
+    if (!shown) {
+        var attempts = 0;
+        var retryTimer = setInterval(function() {
+            attempts++;
+            tryShow();
+            if (shown || attempts >= 10) {
+                clearInterval(retryTimer);
+                if (!shown) {
+                    // Совсем крайний случай — просто в консоль
+                    console.warn('[mvdF] 🚫 Доступ запрещён: ник "' + nick + '" не в списке. (Уведомление показать не удалось)');
+                }
+            }
+        }, 500);
+    }
+}
+
+(function _nickCheck(callback) {
+    // Если проверка отключена — сразу запускаем скрипт для всех
+    if (!NICK_CHECK_ENABLED) {
+        console.log('[mvdF] ⚠️ Проверка ника ОТКЛЮЧЕНА (NICK_CHECK_ENABLED = false) — скрипт доступен всем.');
+        callback();
+        return;
+    }
+
+    function getNick() {
+        try {
+            var n = window.App && window.App.$store &&
+                    window.App.$store.getters &&
+                    window.App.$store.getters['player/nickName'];
+            // Игнорируем дефолтное значение стора ("Name_Surname")
+            if (n && n !== "Name_Surname") return n;
+            return null;
+        } catch (e) { return null; }
+    }
+
+    var nick = getNick();
+    if (nick) {
+        if (_ALLOWED_NICKS.indexOf(nick) !== -1) {
+            callback();
+        } else {
+            _showAccessDenied(nick);
+        }
+        return;
+    }
+
+    // Стор ещё не готов — ждём до 30 секунд
+    var attempts = 0;
+    var timer = setInterval(function() {
+        attempts++;
+        var n = getNick();
+        if (n) {
+            clearInterval(timer);
+            if (_ALLOWED_NICKS.indexOf(n) !== -1) {
+                callback();
+            } else {
+                _showAccessDenied(n);
+            }
+        } else if (attempts >= 60) { // 60 × 500мс = 30 сек
+            clearInterval(timer);
+            console.warn('[mvdF] Не удалось получить ник — скрипт не запущен.');
+        }
+    }, 500);
+})(function() {
 // ── ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB ──────────────────
 // Грузим 5 файлов параллельно при старте игры. Локальные загрузчики
 // (assets/MvdMenu.js, zkm.js, AdvMenu.js, ZkmScreenNotification.js)
@@ -110,118 +229,11 @@
 })();
 // ── конец загрузчика ──────────────────────────────────────────────────
 
-// ══════════════════════════════════════════════════════════════
-// ── ПРОВЕРКА НИКА ─────────────────────────────────────────────
-// Добавляй/убирай ники здесь. Если ника нет в списке —
-// mvdF полностью не запустится (весь код ниже не выполнится).
-// ══════════════════════════════════════════════════════════════
-const _ALLOWED_NICKS = [
-	"Lev_Bennet",
-    "Zahar_Konstov",
-    "Maxim_Vortex",
-    "Denis_Galievskiy",
-    "Cosmos_Dissapointed",
-	"Egor_Hlebov",
-	"Artemka_Hasanov"
-];
 
-// ── Показ уведомления о запрете доступа ──────────────────────
-// Пытаемся показать фирменное ZKM-уведомление. Если интерфейс
-// ещё не загрузился (редко, но бывает на медленных ПК) — ждём
-// до 5 секунд. Если и за это время не появился — fallback в чат.
-function _showAccessDenied(nick) {
-    var title = "AHK — Доступ запрещён";
-    var text  = "Вашего никнейма (" + nick + ") нет в списке доступа AHK. Обратитесь к создателю.";
-    var shown = false;
-
-    function tryShow() {
-        if (shown) return;
-        // 1) Пробуем ZKM-уведомление (красивое, сверху экрана)
-        var sn = window.ZkmScreenNotification;
-        if (sn && typeof sn.add === 'function') {
-            try {
-                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 15000]');
-                shown = true;
-                console.warn('[mvdF] 🚫 Доступ запрещён: ник "' + nick + '" не в списке.');
-                return;
-            } catch (e) {}
-        }
-        // 2) Fallback — сообщение в чат (работает всегда)
-        if (typeof window.onChatMessage === 'function') {
-            try {
-                window.onChatMessage('{FF3333}[AHK] {FFFFFF}' + title + ': ' + text, [0, 0, 'FF3333']);
-                shown = true;
-                console.warn('[mvdF] 🚫 Доступ запрещён (fallback в чат): ник "' + nick + '".');
-                return;
-            } catch (e) {}
-        }
-    }
-
-    // Первая попытка сразу
-    tryShow();
-
-    // Если не получилось — повторяем каждые 500мс до 5 секунд
-    // (даём время загрузиться ZkmScreenNotification.js)
-    if (!shown) {
-        var attempts = 0;
-        var retryTimer = setInterval(function() {
-            attempts++;
-            tryShow();
-            if (shown || attempts >= 10) {
-                clearInterval(retryTimer);
-                if (!shown) {
-                    // Совсем крайний случай — просто в консоль
-                    console.warn('[mvdF] 🚫 Доступ запрещён: ник "' + nick + '" не в списке. (Уведомление показать не удалось)');
-                }
-            }
-        }, 500);
-    }
-}
-
-(function _nickCheck(callback) {
-    function getNick() {
-        try {
-            var n = window.App && window.App.$store &&
-                    window.App.$store.getters &&
-                    window.App.$store.getters['player/nickName'];
-            // Игнорируем дефолтное значение стора ("Name_Surname")
-            if (n && n !== "Name_Surname") return n;
-            return null;
-        } catch (e) { return null; }
-    }
-
-    var nick = getNick();
-    if (nick) {
-        if (_ALLOWED_NICKS.indexOf(nick) !== -1) {
-            callback();
-        } else {
-            _showAccessDenied(nick);
-        }
-        return;
-    }
-
-    // Стор ещё не готов — ждём до 30 секунд
-    var attempts = 0;
-    var timer = setInterval(function() {
-        attempts++;
-        var n = getNick();
-        if (n) {
-            clearInterval(timer);
-            if (_ALLOWED_NICKS.indexOf(n) !== -1) {
-                callback();
-            } else {
-                _showAccessDenied(n);
-            }
-        } else if (attempts >= 60) { // 60 × 500мс = 30 сек
-            clearInterval(timer);
-            console.warn('[mvdF] Не удалось получить ник — скрипт не запущен.');
-        }
-    }, 500);
-})(function() {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v4.44 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v4.4 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
