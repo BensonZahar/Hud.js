@@ -24,16 +24,17 @@
 //
 // 🔧 ФЛАГ ПРОВЕРКИ: true = включена, false = отключена (пускает всех)
 // ══════════════════════════════════════════════════════════════
-const NICK_CHECK_ENABLED = false; // ← поменяй на true чтобы включить проверку
+const NICK_CHECK_ENABLED = true; // ← поменяй на true чтобы включить проверку
 
 const _ALLOWED_NICKS = [
-	"Lev_Bennet",
     "Zahar_Konstov",
     "Maxim_Vortex",
     "Denis_Galievskiy",
     "Cosmos_Dissapointed",
 	"Egor_Hlebov",
-	"Artemka_Hasanov"
+	"Artemka_Hasanov",
+	"Lev_Bennet",
+	"Andrey_Pulya"
 ];
 
 // ── Показ уведомления о запрете доступа ──────────────────────
@@ -233,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.1 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.2 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
