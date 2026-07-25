@@ -22,7 +22,7 @@ const CALLSIGN = "";
 const AUTO_PASSWORD = ""; // Авто-ввод пароля при входе (пусто = отключено)
 const SWAP_ENABLED = true; // Включить свап тазер ↔ дигл (установщик может выключить)
 const SWAP_KEY = "Alt+Q"; // Хоткей свапа: "Alt+Q", "Numpad1", "F6", "Alt+F", и т.д. Пусто = отключено
-const EJECT_ENABLED = true; // Включить авто-выброс из авто (установщик может выключить)
+const EJECT_ENABLED = false; // Включить авто-выброс из авто (установщик может включить)
 const EJECT_KEY = "Alt+U"; // Хоткей авто-выброса: каждую секунду шлёт /ejectout. Пусто = отключено
 const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК (пусто = отключено)
 const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневная» которые скрыты: ["greeting","checkDocuments",...]
