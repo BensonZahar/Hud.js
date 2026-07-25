@@ -62,7 +62,7 @@ const filename = 'mvdF.js';
 // Функция загрузчика с retry
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
     const path = folder ? `${encodeURIComponent(folder)}/` : '';
-    const url = `https://cdn.jsdelivr.net/gh/${username}/${repo}@main/${path}${filename}`;
+    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url + '?_=' + Date.now(), true);
     xhr.onload = function() {
