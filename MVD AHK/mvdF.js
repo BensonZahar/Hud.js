@@ -234,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.4 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.5 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -1213,6 +1213,15 @@ const setupChatHandler = () => {
                     _wantedAwaitingConfirm = false;
                     _wantedDialogId       = null;
                     _wantedLastParams     = null;
+                    _wantedLastSelected   = -1;
+                    // Снимаем подсветку перед закрытием
+                    try {
+                        document.querySelectorAll('.window-text__item').forEach(r => {
+                            r.style.background = '';
+                            r.style.outline = '';
+                            r.style.borderRadius = '';
+                        });
+                    } catch(e) {}
                     try {
                         window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog();
                     } catch(e) {}
@@ -2920,17 +2929,45 @@ window.sendClientEventCustom = (event, ...args) => {
                 console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание, ждём подтверждения`);
                 // НЕ обнуляем _wantedDialogId — он будет обновлён при переоткрытии
                 _wantedAwaitingConfirm = true;
+                _wantedLastSelected = listitem; // запоминаем выбранного для подсветки
                 setTimeout(() => startTracking(player.id, player.nick), 100);
 
-                // Переоткрываем диалог через 300мс (движок закроет его после клика,
-                // мы тут же возвращаем его обратно). Диалог останется на экране до тех
-                // пор, пока сервер не пришлёт "Отмечено приблизительное местоположение".
+                // Переоткрываем диалог через 50мс (движок закрывает его после клика,
+                // мы сразу возвращаем обратно — задержка 50мс почти незаметна).
+                // Диалог остаётся на экране до "Отмечено приблизительное местоположение".
                 if (_wantedLastParams !== null) {
                     setTimeout(() => {
                         // Вызываем overridden addDialogInQueue — он снова выставит _wantedDialogId
                         window.addDialogInQueue(_wantedLastParams, _wantedLastContent, _wantedLastPriority);
                         console.log('[WANTED] 🔄 Диалог переоткрыт — ждём подтверждения от сервера');
-                    }, 300);
+
+                        // После рендера Vue подсвечиваем выбранного игрока.
+                        // .window-text__item[0] — заголовок колонки,
+                        // .window-text__item[listitem + 1] — нужная строка.
+                        setTimeout(() => {
+                            try {
+                                const rows = document.querySelectorAll('.window-text__item');
+                                // Снимаем подсветку со всех строк (на случай повторного выбора)
+                                rows.forEach(r => {
+                                    r.style.background = '';
+                                    r.style.outline = '';
+                                    r.style.borderRadius = '';
+                                });
+                                const targetRow = rows[listitem + 1];
+                                if (targetRow) {
+                                    targetRow.style.background = 'rgba(0, 150, 255, 0.22)';
+                                    targetRow.style.outline = '1px solid rgba(0, 150, 255, 0.55)';
+                                    targetRow.style.borderRadius = '3px';
+                                    targetRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                                    console.log(`[WANTED] 🎯 Подсветка строки ${listitem + 1} (${player.nick})`);
+                                } else {
+                                    console.warn(`[WANTED] Строка ${listitem + 1} не найдена в DOM (всего строк: ${rows.length})`);
+                                }
+                            } catch(e) {
+                                console.warn('[WANTED] Ошибка подсветки строки:', e);
+                            }
+                        }, 200);
+                    }, 50);
                 }
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
@@ -2940,6 +2977,7 @@ window.sendClientEventCustom = (event, ...args) => {
             // Пользователь закрыл диалог кнопкой «Отмена» или Esc — разрешаем закрытие
             _wantedDialogId = null;
             _wantedAwaitingConfirm = false;
+            _wantedLastSelected = -1;
             _wantedLastParams = null;
         }
         window.sendClientEventHandle(event, ...args);
@@ -3086,6 +3124,7 @@ let _wantedAwaitingConfirm = false; // ждём "Отмечено приблиз
 let _wantedLastParams   = null;     // сохранённый dialogParams для переоткрытия
 let _wantedLastContent  = null;     // сохранённый content
 let _wantedLastPriority = null;     // сохранённый priority
+let _wantedLastSelected = -1;       // индекс последнего выбранного игрока (для подсветки строки)
 
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
