@@ -1214,14 +1214,8 @@ const setupChatHandler = () => {
                     _wantedDialogId       = null;
                     _wantedLastParams     = null;
                     _wantedLastSelected   = -1;
-                    // Снимаем подсветку перед закрытием
-                    try {
-                        document.querySelectorAll('.window-text__item').forEach(r => {
-                            r.style.background = '';
-                            r.style.outline = '';
-                            r.style.borderRadius = '';
-                        });
-                    } catch(e) {}
+                    // Убираем инжектированный стиль подсветки
+                    try { document.getElementById('_wantedHighlight')?.remove(); } catch(e) {}
                     try {
                         window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog();
                     } catch(e) {}
@@ -2932,51 +2926,55 @@ window.sendClientEventCustom = (event, ...args) => {
                 _wantedLastSelected = listitem; // запоминаем выбранного для подсветки
                 setTimeout(() => startTracking(player.id, player.nick), 100);
 
-                // Ставим диалог в очередь СИНХРОННО — до того как sendClientEventHandle
-                // передаст событие движку. Движок закроет текущий диалог и сразу откроет
-                // следующий из очереди — без видимого мигания/переоткрытия.
-                // Диалог остаётся на экране до "Отмечено приблизительное местоположение".
+                // Переоткрываем диалог через 50мс — движок закрывает его после клика,
+                // мы возвращаем обратно. Диалог остаётся на экране до
+                // "Отмечено приблизительное местоположение".
                 if (_wantedLastParams !== null) {
-                    window.addDialogInQueue(_wantedLastParams, _wantedLastContent, _wantedLastPriority);
-                    console.log('[WANTED] 🔄 Диалог поставлен в очередь синхронно (до закрытия движком)');
-
-                    // Подсветка выбранного игрока после рендера Vue.
-                    // 150мс достаточно — нет внешнего 50мс setTimeout.
                     setTimeout(() => {
-                        try {
-                            // Снимаем inline-подсветку со всех .window-text__item
-                            const rows = document.querySelectorAll('.window-text__item');
-                            rows.forEach(r => {
-                                r.style.background = '';
-                                r.style.outline = '';
-                                r.style.borderRadius = '';
-                            });
-                            // [0] — заголовок колонки, [listitem + 1] — нужная строка
-                            const targetRow = rows[listitem + 1];
-                            if (targetRow) {
-                                targetRow.style.background = 'rgba(0, 150, 255, 0.22)';
-                                targetRow.style.outline = '1px solid rgba(0, 150, 255, 0.55)';
-                                targetRow.style.borderRadius = '3px';
-                                targetRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                                console.log(`[WANTED] 🎯 Подсветка строки ${listitem + 1} (${player.nick})`);
-                            } else {
-                                console.warn(`[WANTED] Строка ${listitem + 1} не найдена в DOM (всего строк: ${rows.length})`);
+                        // Вызываем overridden addDialogInQueue — он снова выставит _wantedDialogId
+                        window.addDialogInQueue(_wantedLastParams, _wantedLastContent, _wantedLastPriority);
+                        console.log('[WANTED] 🔄 Диалог переоткрыт — ждём подтверждения от сервера');
+
+                        // После рендера Vue инжектируем <style> с !important — это единственный
+                        // способ перебить Vue-управляемый класс .selected, который движок всегда
+                        // выставляет на первый элемент при открытии диалога.
+                        setTimeout(() => {
+                            try {
+                                // Убираем старый стиль (если был предыдущий выбор)
+                                document.getElementById('_wantedHighlight')?.remove();
+
+                                // nth-child 1-indexed; все .window-table__item лежат
+                                // прямо внутри .window-table__items без других дочерних тегов
+                                const nthChild = listitem + 1;
+                                const st = document.createElement('style');
+                                st.id = '_wantedHighlight';
+                                st.textContent = [
+                                    // Убираем жёлтый с любого .selected, который Vue выставил сам
+                                    `.window-table__items>.window-table__item.selected{`,
+                                      `background:#ffffff0d!important;`,
+                                      `border-color:transparent transparent #ffffff1a transparent!important;`,
+                                      `box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d!important}`,
+                                    // Вешаем жёлтый на фактически выбранный элемент по позиции
+                                    `.window-table__items>.window-table__item:nth-child(${nthChild}){`,
+                                      `background:#f9b70133!important;`,
+                                      `border-color:#f9b701!important;`,
+                                      `box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d!important}`
+                                ].join('');
+                                document.head.appendChild(st);
+
+                                // Скроллим к выбранному — если он ниже видимой области
+                                const items = document.querySelectorAll('.window-table__item');
+                                if (items[listitem]) {
+                                    items[listitem].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                                    console.log(`[WANTED] 🎯 Подсветка + скролл: ${player.nick} (позиция ${nthChild})`);
+                                } else {
+                                    console.warn(`[WANTED] tableItem[${listitem}] не найден (всего: ${items.length})`);
+                                }
+                            } catch(e) {
+                                console.warn('[WANTED] Ошибка подсветки:', e);
                             }
-                            // Переносим класс .selected (жёлтая рамка #f9b701) с первого
-                            // .window-table__item на фактически выбранный элемент.
-                            // Vue при рендере всегда выставляет selected на индекс 0 — перебиваем.
-                            const tableItems = document.querySelectorAll('.window-table__item');
-                            tableItems.forEach(el => el.classList.remove('selected'));
-                            if (tableItems[listitem]) {
-                                tableItems[listitem].classList.add('selected');
-                                console.log(`[WANTED] 🟡 .selected перенесён на tableItem[${listitem}] (${player.nick})`);
-                            } else {
-                                console.warn(`[WANTED] tableItem[${listitem}] не найден (всего: ${tableItems.length})`);
-                            }
-                        } catch(e) {
-                            console.warn('[WANTED] Ошибка подсветки строки:', e);
-                        }
-                    }, 150);
+                        }, 200);
+                    }, 50);
                 }
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
@@ -2988,6 +2986,8 @@ window.sendClientEventCustom = (event, ...args) => {
             _wantedAwaitingConfirm = false;
             _wantedLastSelected = -1;
             _wantedLastParams = null;
+            // Убираем инжектированный стиль подсветки
+            try { document.getElementById('_wantedHighlight')?.remove(); } catch(e) {}
         }
         window.sendClientEventHandle(event, ...args);
         // ==================== КОНЕЦ /WANTED ====================
