@@ -234,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.3 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -1202,26 +1202,6 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== КОНЕЦ АВТО-СТОП ====================
-
-            // ==================== /WANTED: ЗАКРЫТИЕ ПОСЛЕ ПОДТВЕРЖДЕНИЯ СЕРВЕРА ====================
-            // Диалог /wanted переоткрывается после каждого выбора игрока и закрывается
-            // ТОЛЬКО когда сервер прислал "Отмечено приблизительное местоположение" —
-            // значит /setmark отработал и метка поставлена, можно убирать список.
-            if (typeof message === 'string' && _wantedAwaitingConfirm) {
-                if (message.includes('Отмечено приблизительное местоположение')) {
-                    console.log('[WANTED] ✅ Подтверждение от сервера — закрываем диалог /wanted');
-                    _wantedAwaitingConfirm = false;
-                    _wantedDialogId       = null;
-                    _wantedLastParams     = null;
-                    _wantedLastSelected   = -1;
-                    // Убираем инжектированный стиль подсветки
-                    try { document.getElementById('_wantedHighlight')?.remove(); } catch(e) {}
-                    try {
-                        window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog();
-                    } catch(e) {}
-                }
-            }
-            // ==================== КОНЕЦ /WANTED: ЗАКРЫТИЕ ПОСЛЕ ПОДТВЕРЖДЕНИЯ ====================
 
             // ==================== АВТО-СТОП: ИГРОК НЕ В РОЗЫСКЕ ====================
             // "Этот игрок не в розыске" с цветом #CECECE (CLOSE) — отменяем погоню и закрываем меню
@@ -2920,74 +2900,15 @@ window.sendClientEventCustom = (event, ...args) => {
             const listitem = parseInt(args[3]);
             const player = _wantedPlayers[listitem];
             if (player) {
-                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание, ждём подтверждения`);
-                // НЕ обнуляем _wantedDialogId — он будет обновлён при переоткрытии
-                _wantedAwaitingConfirm = true;
-                _wantedLastSelected = listitem; // запоминаем выбранного для подсветки
+                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание`);
+                _wantedDialogId = null;
                 setTimeout(() => startTracking(player.id, player.nick), 100);
-
-                // Переоткрываем диалог через 50мс — движок закрывает его после клика,
-                // мы возвращаем обратно. Диалог остаётся на экране до
-                // "Отмечено приблизительное местоположение".
-                if (_wantedLastParams !== null) {
-                    setTimeout(() => {
-                        // Вызываем overridden addDialogInQueue — он снова выставит _wantedDialogId
-                        window.addDialogInQueue(_wantedLastParams, _wantedLastContent, _wantedLastPriority);
-                        console.log('[WANTED] 🔄 Диалог переоткрыт — ждём подтверждения от сервера');
-
-                        // После рендера Vue инжектируем <style> с !important — это единственный
-                        // способ перебить Vue-управляемый класс .selected, который движок всегда
-                        // выставляет на первый элемент при открытии диалога.
-                        setTimeout(() => {
-                            try {
-                                // Убираем старый стиль (если был предыдущий выбор)
-                                document.getElementById('_wantedHighlight')?.remove();
-
-                                // nth-child 1-indexed; все .window-table__item лежат
-                                // прямо внутри .window-table__items без других дочерних тегов
-                                const nthChild = listitem + 1;
-                                const st = document.createElement('style');
-                                st.id = '_wantedHighlight';
-                                st.textContent = [
-                                    // Убираем жёлтый с любого .selected, который Vue выставил сам
-                                    `.window-table__items>.window-table__item.selected{`,
-                                      `background:#ffffff0d!important;`,
-                                      `border-color:transparent transparent #ffffff1a transparent!important;`,
-                                      `box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d!important}`,
-                                    // Вешаем жёлтый на фактически выбранный элемент по позиции
-                                    `.window-table__items>.window-table__item:nth-child(${nthChild}){`,
-                                      `background:#f9b70133!important;`,
-                                      `border-color:#f9b701!important;`,
-                                      `box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d!important}`
-                                ].join('');
-                                document.head.appendChild(st);
-
-                                // Скроллим к выбранному — если он ниже видимой области
-                                const items = document.querySelectorAll('.window-table__item');
-                                if (items[listitem]) {
-                                    items[listitem].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-                                    console.log(`[WANTED] 🎯 Подсветка + скролл: ${player.nick} (позиция ${nthChild})`);
-                                } else {
-                                    console.warn(`[WANTED] tableItem[${listitem}] не найден (всего: ${items.length})`);
-                                }
-                            } catch(e) {
-                                console.warn('[WANTED] Ошибка подсветки:', e);
-                            }
-                        }, 200);
-                    }, 50);
-                }
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
                 _wantedDialogId = null;
             }
         } else {
-            // Пользователь закрыл диалог кнопкой «Отмена» или Esc — разрешаем закрытие
             _wantedDialogId = null;
-            _wantedAwaitingConfirm = false;
-            _wantedLastSelected = -1;
-            _wantedLastParams = null;
-            // Убираем инжектированный стиль подсветки
-            try { document.getElementById('_wantedHighlight')?.remove(); } catch(e) {}
         }
         window.sendClientEventHandle(event, ...args);
         // ==================== КОНЕЦ /WANTED ====================
@@ -3128,13 +3049,6 @@ let _awaitingRoziskInput = false;
 let _wantedDialogId = null;      // ID серверного диалога /wanted
 let _wantedPlayers = [];         // [ { nick, id }, ... ] — в порядке строк
 
-// ── /wanted: держим диалог открытым до подтверждения от сервера ──
-let _wantedAwaitingConfirm = false; // ждём "Отмечено приблизительное местоположение"
-let _wantedLastParams   = null;     // сохранённый dialogParams для переоткрытия
-let _wantedLastContent  = null;     // сохранённый content
-let _wantedLastPriority = null;     // сохранённый priority
-let _wantedLastSelected = -1;       // индекс последнего выбранного игрока (для подсветки строки)
-
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
     try {
@@ -3203,10 +3117,6 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             // ── /wanted: TABLIST_HEADERS "Список разыскиваемых" — сохраняем игроков ──
             if ((style === 4 || style === 5) && title.includes('разыскиваемых')) {
                 _wantedDialogId = dialogId;
-                // Сохраняем параметры для переоткрытия после выбора игрока
-                _wantedLastParams   = dialogParams;
-                _wantedLastContent  = content;
-                _wantedLastPriority = priority;
                 _wantedPlayers = [];
                 if (content) {
                     const raw = Array.isArray(content) ? content.join('') : String(content);
