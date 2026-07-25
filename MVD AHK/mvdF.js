@@ -234,7 +234,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.3 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.4 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -1202,6 +1202,23 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== КОНЕЦ АВТО-СТОП ====================
+
+            // ==================== /WANTED: ЗАКРЫТИЕ ПОСЛЕ ПОДТВЕРЖДЕНИЯ СЕРВЕРА ====================
+            // Диалог /wanted переоткрывается после каждого выбора игрока и закрывается
+            // ТОЛЬКО когда сервер прислал "Отмечено приблизительное местоположение" —
+            // значит /setmark отработал и метка поставлена, можно убирать список.
+            if (typeof message === 'string' && _wantedAwaitingConfirm) {
+                if (message.includes('Отмечено приблизительное местоположение')) {
+                    console.log('[WANTED] ✅ Подтверждение от сервера — закрываем диалог /wanted');
+                    _wantedAwaitingConfirm = false;
+                    _wantedDialogId       = null;
+                    _wantedLastParams     = null;
+                    try {
+                        window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog();
+                    } catch(e) {}
+                }
+            }
+            // ==================== КОНЕЦ /WANTED: ЗАКРЫТИЕ ПОСЛЕ ПОДТВЕРЖДЕНИЯ ====================
 
             // ==================== АВТО-СТОП: ИГРОК НЕ В РОЗЫСКЕ ====================
             // "Этот игрок не в розыске" с цветом #CECECE (CLOSE) — отменяем погоню и закрываем меню
@@ -2900,15 +2917,30 @@ window.sendClientEventCustom = (event, ...args) => {
             const listitem = parseInt(args[3]);
             const player = _wantedPlayers[listitem];
             if (player) {
-                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание`);
-                _wantedDialogId = null;
+                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание, ждём подтверждения`);
+                // НЕ обнуляем _wantedDialogId — он будет обновлён при переоткрытии
+                _wantedAwaitingConfirm = true;
                 setTimeout(() => startTracking(player.id, player.nick), 100);
+
+                // Переоткрываем диалог через 300мс (движок закроет его после клика,
+                // мы тут же возвращаем его обратно). Диалог останется на экране до тех
+                // пор, пока сервер не пришлёт "Отмечено приблизительное местоположение".
+                if (_wantedLastParams !== null) {
+                    setTimeout(() => {
+                        // Вызываем overridden addDialogInQueue — он снова выставит _wantedDialogId
+                        window.addDialogInQueue(_wantedLastParams, _wantedLastContent, _wantedLastPriority);
+                        console.log('[WANTED] 🔄 Диалог переоткрыт — ждём подтверждения от сервера');
+                    }, 300);
+                }
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
                 _wantedDialogId = null;
             }
         } else {
+            // Пользователь закрыл диалог кнопкой «Отмена» или Esc — разрешаем закрытие
             _wantedDialogId = null;
+            _wantedAwaitingConfirm = false;
+            _wantedLastParams = null;
         }
         window.sendClientEventHandle(event, ...args);
         // ==================== КОНЕЦ /WANTED ====================
@@ -3049,6 +3081,12 @@ let _awaitingRoziskInput = false;
 let _wantedDialogId = null;      // ID серверного диалога /wanted
 let _wantedPlayers = [];         // [ { nick, id }, ... ] — в порядке строк
 
+// ── /wanted: держим диалог открытым до подтверждения от сервера ──
+let _wantedAwaitingConfirm = false; // ждём "Отмечено приблизительное местоположение"
+let _wantedLastParams   = null;     // сохранённый dialogParams для переоткрытия
+let _wantedLastContent  = null;     // сохранённый content
+let _wantedLastPriority = null;     // сохранённый priority
+
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
     try {
@@ -3117,6 +3155,10 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             // ── /wanted: TABLIST_HEADERS "Список разыскиваемых" — сохраняем игроков ──
             if ((style === 4 || style === 5) && title.includes('разыскиваемых')) {
                 _wantedDialogId = dialogId;
+                // Сохраняем параметры для переоткрытия после выбора игрока
+                _wantedLastParams   = dialogParams;
+                _wantedLastContent  = content;
+                _wantedLastPriority = priority;
                 _wantedPlayers = [];
                 if (content) {
                     const raw = Array.isArray(content) ? content.join('') : String(content);
