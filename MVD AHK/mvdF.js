@@ -116,13 +116,13 @@
 // mvdF полностью не запустится (весь код ниже не выполнится).
 // ══════════════════════════════════════════════════════════════
 const _ALLOWED_NICKS = [
+	"Lev_Bennet",
     "Zahar_Konstov",
     "Maxim_Vortex",
     "Denis_Galievskiy",
     "Cosmos_Dissapointed",
 	"Egor_Hlebov",
-	"Artemka_Hasanov",
-	"Lev_Bennet"
+	"Artemka_Hasanov"
 ];
 
 // ── Показ уведомления о запрете доступа ──────────────────────
