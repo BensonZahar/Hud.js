@@ -255,6 +255,29 @@
           </div>
         </div>
 
+        <!-- Auto-eject toggle -->
+        <div class="chk-row" onclick="toggleEject()">
+          <div class="chk-box" id="chk-box-eject"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <span class="chk-lbl">Авто-выброс из авто (/ejectout)</span>
+        </div>
+        <!-- Кнопка авто-выброса — показывается ТОЛЬКО когда включён -->
+        <div id="eject-wrap">
+          <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+              <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;flex-shrink:0"><polyline points="12 19 12 5"/><polyline points="5 12 12 5 19 12"/></svg>
+              <span style="font-size:10px;color:var(--accent);font-weight:500">Авто-выброс активен</span>
+            </div>
+            <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
+              <div style="flex:1">
+                <label class="inp-lbl">Кнопка авто-выброса (toggle)</label>
+                <input class="inp inp-hotkey" id="f-eject-key" placeholder="Нажмите кнопку..." readonly
+                  onfocus="startListeningEjectKey()" onblur="stopListeningEjectKey()">
+              </div>
+              <button class="btn btn-ghost" type="button" onclick="clearEjectKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
+            </div>
+          </div>
+        </div>
+
         <!-- Кнопка АХК-меню — всегда видна, стиль как у тазера -->
         <div id="menu-key-wrap">
           <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
@@ -366,6 +389,7 @@
 <script>
 var folderSelected=false,callsignOn=false,autoPasswordOn=false,autoGrabOn=false;
 var savedAutoGrab=null,swapEnabled=false,swapKey='Alt+Q';
+var ejectEnabled=false,ejectKey='Alt+U';
 var menuKey='Alt+0';
 var currentDepartment='mvd';
 
@@ -570,6 +594,8 @@ window.addEventListener('pywebviewready',function(){
     if(s.auto_grab&&typeof s.auto_grab==='object'){savedAutoGrab=s.auto_grab;if(s.auto_grab.enabled){autoGrabOn=true;document.getElementById('chk-box-grab').classList.add('on');document.getElementById('grab-wrap').classList.add('show');setTimeout(initGrabScroll,300);}if(s.auto_grab.items){grabItems=Object.assign(grabItems,s.auto_grab.items);renderGrabItems(currentDepartment);}}
     if(typeof s.swap_enabled!=='undefined'){swapEnabled=!!s.swap_enabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
     if(s.swap_key!==undefined){swapKey=s.swap_key||'Alt+Q';}document.getElementById('f-swap-key').value=_keyDisplayRu(swapKey);
+    if(typeof s.eject_enabled!=='undefined'){ejectEnabled=!!s.eject_enabled;document.getElementById('chk-box-eject').classList.toggle('on',ejectEnabled);document.getElementById('eject-wrap').classList.toggle('show',ejectEnabled);}
+    if(s.eject_key!==undefined){ejectKey=s.eject_key||'Alt+U';}document.getElementById('f-eject-key').value=_keyDisplayRu(ejectKey);
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=_keyDisplayRu(menuKey);
     if(s.menu_binds&&typeof s.menu_binds==='object'){
       Object.keys(s.menu_binds).forEach(function(a){if(s.menu_binds[a]){menuItemBinds[a]=s.menu_binds[a];}});
@@ -657,6 +683,7 @@ function applyFolder(fullPath){
 function toggleCallsign(){callsignOn=!callsignOn;document.getElementById('chk-box').classList.toggle('on',callsignOn);document.getElementById('cs-wrap').classList.toggle('show',callsignOn);}
 function toggleAutoPassword(){autoPasswordOn=!autoPasswordOn;document.getElementById('chk-box-pwd').classList.toggle('on',autoPasswordOn);document.getElementById('pwd-wrap').classList.toggle('show',autoPasswordOn);}
 function toggleSwap(){swapEnabled=!swapEnabled;document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);}
+function toggleEject(){ejectEnabled=!ejectEnabled;document.getElementById('chk-box-eject').classList.toggle('on',ejectEnabled);document.getElementById('eject-wrap').classList.toggle('show',ejectEnabled);}
 
 // ── Перевод названий кнопок на русский язык ──────────────────
 function _keyDisplayRu(combo){
@@ -699,6 +726,7 @@ function _showOverlay(target){
   var ov=document.getElementById('key-overlay');
   var title=document.getElementById('key-overlay-title');
   if(target==='swap') title.textContent='Кнопка свапа тазер ↔ дигл';
+  else if(target==='eject') title.textContent='Кнопка авто-выброса из авто';
   else if(target==='menu') title.textContent='Кнопка открытия меню АХК';
   else if(target.indexOf('bind:')=== 0){
     var action=target.slice(5);
@@ -715,6 +743,9 @@ function _applyCapture(combo){
   if(_captureTarget==='swap'){
     swapKey=combo;
     document.getElementById('f-swap-key').value=_keyDisplayRu(combo);
+  } else if(_captureTarget==='eject'){
+    ejectKey=combo;
+    document.getElementById('f-eject-key').value=_keyDisplayRu(combo);
   } else if(_captureTarget==='menu'){
     menuKey=combo;
     document.getElementById('f-menu-key').value=_keyDisplayRu(combo);
@@ -732,6 +763,9 @@ document.getElementById('key-overlay-cancel').addEventListener('mousedown',funct
 function startListeningSwapKey(){_showOverlay('swap');}
 function stopListeningSwapKey(){/* blur — оверлей управляет сам */}
 function clearSwapKey(){swapKey='';document.getElementById('f-swap-key').value='';}
+function startListeningEjectKey(){_showOverlay('eject');}
+function stopListeningEjectKey(){/* blur — оверлей управляет сам */}
+function clearEjectKey(){ejectKey='';document.getElementById('f-eject-key').value='';}
 function startListeningMenuKey(){_showOverlay('menu');}
 function stopListeningMenuKey(){/* blur — оверлей управляет сам */}
 function clearMenuKey(){menuKey='';document.getElementById('f-menu-key').value='';}
@@ -823,7 +857,7 @@ document.addEventListener('wheel',function(e){
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){if(!folderSelected){flash(false);setTab('home',null);return;}var btn=document.getElementById('btn-remove');btn.disabled=true;runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
@@ -902,6 +936,9 @@ document.querySelectorAll('.page').forEach(function(p){if(!p.classList.contains(
 document.getElementById('chk-box-swap').classList.toggle('on',swapEnabled);
 document.getElementById('swap-wrap').classList.toggle('show',swapEnabled);
 document.getElementById('f-swap-key').value=_keyDisplayRu(swapKey);
+document.getElementById('chk-box-eject').classList.toggle('on',ejectEnabled);
+document.getElementById('eject-wrap').classList.toggle('show',ejectEnabled);
+document.getElementById('f-eject-key').value=_keyDisplayRu(ejectKey);
 document.getElementById('f-menu-key').value=_keyDisplayRu(menuKey);
 renderGrabItems(currentDepartment);
 buildBindsList();

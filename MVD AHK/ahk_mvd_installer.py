@@ -674,7 +674,7 @@ class InstallerAPI:
         save_settings({'department': dept})
         return True
 
-    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd'):
+    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', eject_enabled=False, eject_key='Alt+U', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd'):
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
@@ -719,6 +719,13 @@ class InstallerAPI:
             else:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = true;')
                 code = code.replace('const SWAP_KEY = "Alt+Q";', f'const SWAP_KEY = "{safe_swap_key}";')
+            safe_eject_key = str(eject_key).replace('"', '').replace("'", '')[:30] if eject_key else ''
+            if not eject_enabled or not safe_eject_key:
+                # дефолт уже false — ничего не меняем, просто очищаем ключ
+                code = code.replace('const EJECT_KEY = "Alt+U";', 'const EJECT_KEY = "";')
+            else:
+                code = code.replace('const EJECT_ENABLED = false;', 'const EJECT_ENABLED = true;')
+                code = code.replace('const EJECT_KEY = "Alt+U";', f'const EJECT_KEY = "{safe_eject_key}";')
             safe_menu_key = str(menu_key).replace('"', '').replace("'", '')[:30] if menu_key else ''
             code = code.replace('const MENU_KEY = "Alt+0";', f'const MENU_KEY = "{safe_menu_key}";')
             hidden_list = menu_hidden if isinstance(menu_hidden, list) else []
@@ -812,6 +819,8 @@ class InstallerAPI:
                     'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {},
                     'swap_enabled': bool(swap_enabled),
                     'swap_key': safe_swap_key if swap_enabled else '',
+                    'eject_enabled': bool(eject_enabled),
+                    'eject_key': safe_eject_key if eject_enabled else '',
                     'menu_key': safe_menu_key,
                     'menu_hidden': hidden_list,
                     'menu_binds': binds_dict,
