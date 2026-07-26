@@ -236,7 +236,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.88 ЗАГРУЖЕН ===");
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
 // Гарантирует что hud.info.id всегда актуальный, даже без /has
 setInterval(function() {
@@ -1180,6 +1180,8 @@ const setupChatHandler = () => {
                         } else {
                             setTimeout(() => startTracking(_fmSid), 600);
                         }
+                        console.log('[FILTER] 🚫 /fm отслеживание — скрыто из чата семьи');
+                        return; // Скрываем "Отслеживаю жетон X" из семейного чата (спам)
                     }
 
                     const _fmStop = _fmBody.match(/Закончил отслеживание за жетоном\s+(\d+)/);
@@ -1190,6 +1192,8 @@ const setupChatHandler = () => {
                         if (currentScanId === _fmSid || currentScanId === String(_fmSid)) {
                             stopTracking();
                         }
+                        console.log('[FILTER] 🚫 /fm конец отслеживания — скрыто из чата семьи');
+                        return; // Скрываем "Закончил отслеживание за жетоном X" из семейного чата (спам)
                     }
                 }
             }
