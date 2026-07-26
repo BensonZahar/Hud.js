@@ -1134,6 +1134,70 @@ const setupChatHandler = () => {
             }
             // ==================== КОНЕЦ ПИКА НИКА НАПАРНИКА ====================
 
+            // ==================== ОБНАРУЖЕНИЕ FM-СООБЩЕНИЙ <Интерпол> ====================
+            // Ловим /fm от любого члена семьи <Интерпол>:
+            //   {FFCF00}<Интерпол> NickName [ID]: Отслеживаю жетон 232
+            // Ник и ID у напарника могут быть любыми — фильтруем только по <Интерпол>.
+            if (typeof message === 'string' && partnerTrackingEnabled) {
+                const _fmRaw = String(message);
+                const _fmM   = _fmRaw.match(/<Интерпол>\s+([A-Za-z0-9_]+)\s*\[(\d+)\]:\s*([\s\S]+)/);
+                if (_fmM) {
+                    const _fmNick = _fmM[1];
+                    const _fmId   = _fmM[2];
+                    const _fmBody = _fmM[3];
+
+                    // Тихая синхронизация ID напарника если ник совпадает с сохранённым
+                    if (partnerNick && _fmNick === partnerNick && String(_fmId) !== String(partnerId)) {
+                        const _oldFmId = partnerId;
+                        partnerId = _fmId;
+                        console.log(`[PARTNER-FM] ID обновлён из <Интерпол> /fm: ${_oldFmId} -> ${_fmId} (${_fmNick})`);
+                        snAdd(`[1, "Напарник", "${_fmNick}: ID ${_oldFmId ?? '?'}->${_fmId}", "00FF00", 3000]`);
+                    }
+
+                    const _fmTrack = _fmBody.match(/Отслеживаю жетон\s+(\d+)/);
+                    if (_fmTrack) {
+                        const _fmSid    = _fmTrack[1];
+                        const _fmSInfo  = getPlayerInfoFromList(_fmSid);
+                        const _fmSLabel = _fmSInfo.nick ? `${_fmSInfo.nick}[${_fmSid}]` : `ID ${_fmSid}`;
+                        const _fmSExtra = _fmSInfo.nick ? ` | Лвл ${_fmSInfo.level ?? '?'} | ${_fmSInfo.device}` : '';
+                        console.log(`[PARTNER-FM] <Интерпол> ${_fmNick}[${_fmId}] -> отслеживание ${_fmSLabel}${_fmSExtra}`);
+                        snAdd(`[1, "Напарник отслеживает", "${_fmSLabel}${_fmSExtra}", "00AAFF", 5000]`);
+                        if (currentScanId === _fmSid || currentScanId === String(_fmSid)) {
+                            console.log('[PARTNER-FM] Уже отслеживаем эту же цель — перезапуск пропущен');
+                        } else {
+                            setTimeout(() => startTracking(_fmSid), 600);
+                        }
+                        console.log('[FILTER] \uD83D\uDEAB /fm отслеживание — скрыто из чата семьи');
+                        return; // Скрываем "Отслеживаю жетон X" из семейного чата (спам)
+                    }
+
+                    const _fmStop = _fmBody.match(/Закончил отслеживание за жетоном\s+(\d+)/);
+                    if (_fmStop) {
+                        const _fmSid = _fmStop[1];
+                        console.log(`[PARTNER-FM] <Интерпол> ${_fmNick}[${_fmId}] закончил отслеживание ID: ${_fmSid}`);
+                        snAdd(`[1, "Напарник", "${_fmNick}[${_fmId}]: закончил отслеживание ${_fmSid}", "FF4444", 3000]`);
+                        if (currentScanId === _fmSid || currentScanId === String(_fmSid)) {
+                            stopTracking();
+                        }
+                        console.log('[FILTER] \uD83D\uDEAB /fm конец отслеживания — скрыто из чата семьи');
+                        return; // Скрываем "Закончил отслеживание за жетоном X" из семейного чата (спам)
+                    }
+                }
+            }
+            // ==================== КОНЕЦ FM-СООБЩЕНИЙ <Интерпол> ====================
+
+            // ==================== РЕЗЕРВНЫЙ ФИЛЬТР /FM ОТСЛЕЖИВАНИЯ ====================
+            // Если partnerTrackingEnabled=false (напарник не задан) — блок выше пропускается,
+            // но сообщения о жетоне всё равно надо скрыть из семейного чата (антиспам).
+            // Этот фильтр работает всегда, независимо от настроек напарника.
+            if (typeof message === 'string' && message.includes('<Интерпол>')) {
+                if (message.includes('Отслеживаю жетон') || message.includes('Закончил отслеживание за жетоном')) {
+                    console.log('[FILTER] \uD83D\uDEAB /fm \u043E\u0442\u0441\u043B\u0435\u0436\u0438\u0432\u0430\u043D\u0438\u0435 (\u0440\u0435\u0437\u0435\u0440\u0432) \u2014 \u0441\u043A\u0440\u044B\u0442\u043E \u0438\u0437 \u0447\u0430\u0442\u0430 \u0441\u0435\u043C\u044C\u0438');
+                    return;
+                }
+            }
+            // ==================== КОНЕЦ РЕЗЕРВНОГО ФИЛЬТРА ====================
+
             // ==================== ОБНАРУЖЕНИЕ СООБЩЕНИЯ НАПАРНИКА ====================
             // Реальный формат в консоли:
             // [CLOSE|#CECECE] - Отслеживаю 395 {0000FF}({v:Calvin_Miller})[294]
@@ -1149,7 +1213,7 @@ const setupChatHandler = () => {
             //   3) если ID в сообщении отличается от сохранённого partnerId — тихо
             //      синхронизируем partnerId на актуальный. Никакого /id и открытия
             //      меню ФСБ для этого больше не нужно.
-            if (typeof message === 'string' && partnerTrackingEnabled && partnerNick) {
+            if (typeof message === 'string' && partnerTrackingEnabled && partnerNick && !String(message).includes('<Интерпол>')) {
                 const msgStr = String(message);
                 const _escNick = escapeRegex(partnerNick);
 
@@ -1715,17 +1779,18 @@ const startTracking = (id, knownNick = null) => {
         openTrackingNotification(id);
     }, 800);
 
-    // ==================== СООБЩЕНИЕ НАПАРНИКУ ====================
-    // Если включено "Сообщение для напарника" — отправляем в радио чтобы напарник
-    // получил событие и тоже начал отслеживание этого же ID
+    // ==================== СООБЩЕНИЕ НАПАРНИКУ (через /fm — семейное радио) ====================
+    // Если включено "Сообщение для напарника" — шлём в семью (/fm), чтобы напарник
+    // получил событие и тоже начал отслеживание этого же жетона.
+    // Формат в чате напарника: <ФСБ> NickName [ID]: Отслеживаю жетон X
     if (partnerMessageEnabled) {
         setTimeout(() => {
             if (!currentScanId) {
                 console.log(`[PARTNER] ⛔ Сообщение не отправлено — отслеживание уже остановлено`);
                 return;
             }
-            sendChatInput(`Отслеживаю жетон ${id}`);
-            console.log(`[PARTNER] 📡 Отправлено сообщение напарнику: Отслеживаю жетон ${id}`);
+            sendChatInput(`/fm Отслеживаю жетон ${id}`);
+            console.log(`[PARTNER] 📡 Отправлено в /fm: Отслеживаю жетон ${id}`);
         }, 1200);
     }
     // ==================== КОНЕЦ СООБЩЕНИЯ НАПАРНИКУ ====================
@@ -1772,11 +1837,11 @@ const stopTracking = () => {
     // Закрываем все уведомления (включая таймер-уведомление и КД-таймер)
     closeTrackingNotifications();
 
-    // ==================== СООБЩЕНИЕ НАПАРНИКУ О КОНЦЕ ОТСЛЕЖИВАНИЯ ====================
+    // ==================== СООБЩЕНИЕ НАПАРНИКУ О КОНЦЕ ОТСЛЕЖИВАНИЯ (через /fm) ====================
     if (partnerMessageEnabled && currentScanId) {
         const stoppedId = currentScanId;
-        sendChatInput(`Закончил отслеживание за жетоном ${stoppedId}`);
-        console.log(`[PARTNER] 📡 Отправлено: Закончил отслеживание за жетоном ${stoppedId}`);
+        sendChatInput(`/fm Закончил отслеживание за жетоном ${stoppedId}`);
+        console.log(`[PARTNER] 📡 Отправлено в /fm: Закончил отслеживание за жетоном ${stoppedId}`);
     }
     // ==================== КОНЕЦ СООБЩЕНИЯ О КОНЦЕ ОТСЛЕЖИВАНИЯ ====================
  
