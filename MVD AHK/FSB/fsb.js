@@ -5641,10 +5641,11 @@ setInterval(function() {
             console.log(`[TEST] 👮 ${officer}[${officerIdDisplay}] задерживает ${criminal}${realCriminal ? ` (реальный игрок, ID ${realCriminal.id})` : ' (фолбэк-имя, список игроков ещё не получен)'}`);
 
             // Сообщения: арест + прокачка + премия (без семьи)
+            const destination = stars >= 4 ? 'тюрьму' : 'полицейский участок';
             const messages = [
                 {
                     delay: 500,
-                    text: `{DD90FF}{v:${officer}}[${officerIdDisplay}] передаёт преступника ${criminal} в полицейский участок`
+                    text: `{DD90FF}{v:${officer}}[${officerIdDisplay}] передаёт преступника ${criminal} в ${destination}`
                 },
                 {
                     delay: getRandomDelay(),
