@@ -226,17 +226,53 @@ function _showAccessDenied(nick) {
 
 // FSB AHK VERSION: 2.3 (NAPARNICK)
 console.log( "[INIT] === FSB AHK v4.444 ЗАГРУЖЕН === ");
+// ── Надёжное получение своего ID через список игроков ──────────────
+// window.updatePlayerList() дёргает движковое событие "UpdatePlayersList",
+// ответ на которое (window.onUpdatePlayersList) содержит e.local.id —
+// тот же самый ID, что показан в меню "Игроки онлайн". В отличие от
+// hud.info.id, этот путь не зависит от состояния HUD-компонента.
+let cachedMyId = 0;
+const _origOnUpdatePlayersList = window.onUpdatePlayersList;
+window.onUpdatePlayersList = function(e) {
+    try {
+        if (e && e.local && e.local.id !== undefined && e.local.id !== null) {
+            const id = parseInt(e.local.id, 10);
+            if (!isNaN(id) && id > 0) {
+                cachedMyId = id;
+            }
+        }
+    } catch(err) {
+        console.warn('[FSB] Ошибка чтения local.id из onUpdatePlayersList:', err);
+    }
+    if (typeof _origOnUpdatePlayersList === 'function') {
+        return _origOnUpdatePlayersList.apply(this, arguments);
+    }
+};
+
+// Получить свой ID: кэш из списка игроков, либо фолбэк на HUD
+function getMyId() {
+    if (cachedMyId > 0) return cachedMyId;
+    try {
+        const hud = window.interface && window.interface("Hud");
+        if (hud && hud.info && hud.info.id) {
+            return parseInt(hud.info.id, 10) || 0;
+        }
+    } catch(e) {
+        console.warn('[FSB] Ошибка получения ID из Hud:', e);
+    }
+    return 0;
+}
+
 // ── Авто-обновление собственного ID (каждые 30 секунд) ──
-// Гарантирует что hud.info.id всегда актуальный
 setInterval(function() {
     try {
         if (window.updatePlayerList) window.updatePlayerList();
     } catch(e) {}
 }, 30000);
-// Первый запрос — через 3 секунды после загрузки
+// Первый запрос — через 1 секунду после загрузки
 setTimeout(function() {
     try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
-}, 3000);
+}, 1000);
 // 1. СНАЧАЛА объявляем все константы и массивы
 const rankTags = {
     "Старший лейтенант": "[СТЛ]",
@@ -1938,16 +1974,8 @@ const executePovsednevAction = (action, targetId) => {
 		break;
       
      case "checkDocuments":
-         // ── Получаем свой ID (как в HASSLE HUD) ──
-         let myId = 0;
-         try {
-             const hud = window.interface && window.interface("Hud");
-             if (hud && hud.info && hud.info.id) {
-                 myId = parseInt(hud.info.id, 10) || 0;
-             }
-         } catch(e) {
-             console.warn('[FSB] Ошибка получения ID из Hud:', e);
-         }
+         // ── Получаем свой ID (список игроков, с фолбэком на HUD) ──
+         let myId = getMyId();
 
          // ── Единый сценарий проверки документов для ФСБ ──
          sendMessagesWithDelay([
