@@ -256,12 +256,6 @@ const rankSalaries = {
     "Полковник": 117890,
     "Генерал": 139835
 };
-// КоАП: данные перенесены в ZKM
-const dpsKoapLines = [];
-const ppsKoapLines = [];
-// УК РФ: данные перенесены в ZKM
-const ukLines = [];
-const ukStarsMap = {};
 
 let skinId = null;
 // 3. Функция получения скина
@@ -394,13 +388,6 @@ let fineTimerSnId = null;    // id текущего ZKM-таймера КД шт
 const FINE_CD_TIMER_ENABLED = false; // [ВЫКЛ] таймер КД штрафа временно отключён (убрали КД)
 let currentScanId = null;
 let autoCuffEnabled = false;
-let currentKoapType = null;
-let koapPage = 0;
-let currentKoapLines = [];
-// Розыск (wanted) state
-let wantedStars = null;
-let ukPage = 0;
-let currentUkLines = [...ukLines];
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
 let lastTakeLicCode = null;    // статья КоАП для авто-подстановки в серверный диалог изъятия прав
@@ -575,7 +562,6 @@ window.addEventListener('keydown', function(e) {
             } else if (_action === 'fine') {
                 setTimeout(function(){ showKoapTypeMenu(giveLicenseTo || -1); }, 50);
             } else if (_action === 'wantedFine') {
-                currentUkLines = [...ukLines]; ukPage = 0;
                 setTimeout(function(){ showUkInputDialog(giveLicenseTo || -1); }, 50);
             } else {
                 executePovsednevAction(_action, giveLicenseTo || -1);
@@ -1324,9 +1310,6 @@ const getPaginatedMenu = (options) => {
     });
     return menuList;
 };
-const getPaginatedKoap = () => {
-    return currentKoapLines.join("<n>");
-};
 // ==================== ФУНКЦИИ SCREENNOTIFICATION ====================
 // ВАЖНО: используем ТОЛЬКО изолированный window.ZkmScreenNotification
 // (см. ZkmScreenNotification.js), а НЕ window.interface('ScreenNotification').
@@ -1780,8 +1763,6 @@ const HandlePovsednevCommand = (optionIndex) => {
                 showKoapTypeMenu(giveLicenseTo);
             }, 50);
         } else if (option.action === "wantedFine") {
-            currentUkLines = [...ukLines];
-            ukPage = 0;
             setTimeout(() => {
                 showUkInputDialog(giveLicenseTo);
             }, 50);
@@ -1833,62 +1814,6 @@ const HandleMvdSubCommand = (index) => {
             window._duranOpenMode = 'laws';
             window.openInterface('Zkm');
             break;
-    }
-};
-const HandleKoapTypeCommand = (index) => {
-    if (index === 0) {
-        currentKoapType = 'pps';
-    } else if (index === 1) {
-        currentKoapType = 'dps';
-    }
-    currentKoapLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
-    koapPage = 0;
-    setTimeout(() => {
-        showKoapInputDialog(giveLicenseTo);
-    }, 50);
-};
-const HandleKoapInput = (input) => {
-    const lowerInput = input.toLowerCase().trim();
-    if (lowerInput === 'все' || lowerInput === 'all') {
-        currentKoapLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
-        setTimeout(() => { showKoapInputDialog(giveLicenseTo); }, 50);
-        return;
-    }
-    const parts = input.trim().split(/\s+/);
-    if (parts.length === 3) {
-        const [id, cost, code] = parts;
-        sendChatInput(`/ticket ${id} ${cost} ${code} КоАП`);
-    } else if (lowerInput) {
-        const originalLines = currentKoapType === 'dps' ? dpsKoapLines : ppsKoapLines;
-        currentKoapLines = originalLines.filter(l => l.toLowerCase().includes(lowerInput));
-        setTimeout(() => { showKoapInputDialog(giveLicenseTo); }, 50);
-    }
-};
-const HandleUkInput = (input) => {
-    const lowerInput = input.toLowerCase().trim();
-    if (lowerInput === 'все' || lowerInput === 'all') {
-        currentUkLines = [...ukLines];
-        setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
-        return;
-    }
-    const parts = input.trim().split(/\s+/);
-    if (parts.length === 2) {
-        const [id, code] = parts;
-        const stars = ukStarsMap[code];
-        if (stars !== undefined) {
-            lastWantedCode = `${code} УК`;
-            _autoWantedActive = true; // авто-причина только через наш диалог
-            sendChatInput(`/su ${id} ${stars}`);
-            // Страховочный сброс — если сервер не открыл диалог за 5 секунд
-            setTimeout(() => { _autoWantedActive = false; }, 5000);
-        } else {
-            // статья не найдена в маппинге — показываем снова
-            console.log(`[УК] Статья ${code} не найдена в маппинге`);
-            setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
-        }
-    } else if (lowerInput) {
-        currentUkLines = ukLines.filter(l => l.toLowerCase().includes(lowerInput));
-        setTimeout(() => { showUkInputDialog(giveLicenseTo); }, 50);
     }
 };
 // ==================== ПОДТВЕРЖДЕНИЕ ПРОВЕРКИ ДОКУМЕНТОВ (Alt x1 / Alt x2) ====================
@@ -2321,23 +2246,6 @@ window.showKoapTypeMenu = (e) => {
     window._duranFineTargetId = (e !== undefined && e !== null) ? e : -1;
     window.openInterface('LawsHelper');
 };
-window.showKoapInputDialog = (e) => {
-    giveLicenseTo = e;
-    const typeUpper = currentKoapType.toUpperCase();
-    let title = `${typeUpper === 'DPS' ? 'ДПС' : 'ППС'} КоАП`;
-    if (currentKoapLines.length < (currentKoapType === 'dps' ? dpsKoapLines.length : ppsKoapLines.length)) {
-        title += ' [Поиск]';
-    }
-    const text = getPaginatedKoap();
-    window.addDialogInQueue(`[679,1,"${title}","Ввод: ID статья сумма | Поиск: введи текст | Сброс: все","Подтвердить","Отмена",0,0]`, text, 0);
-};
-window.showWantedStarsInputDialog = (e) => {
-    giveLicenseTo = e;
-    window.addDialogInQueue(`[680,1,"Розыск — Кол-во звёзд","Введите количество звёзд (1-6):","Далее","Отмена",0,0]`, "", 0);
-};
-const getPaginatedUk = () => {
-    return currentUkLines.join('<n>');
-};
 window.showUkInputDialog = (e) => {
     giveLicenseTo = e;
     window._duranOpenMode = 'wanted';
@@ -2424,26 +2332,6 @@ window.sendClientEventCustom = (event, ...args) => {
             } else if (args[2] === 0) {
                 // Отмена / ESC — закрываем меню, восстанавливаем уведомление
                 restoreTrackingTimer();
-            }
-        }
-        else if (args[1] === 678) { // Выбор типа КоАП
-            const listitem = args[3];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleKoapTypeCommand(listitem);
-            }
-        }
-        else if (args[1] === 679) { // Input для КоАП
-            const input = args[4];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleKoapInput(input);
-            }
-        }
-        else if (args[1] === 681) { // Input для УК (розыск)
-            const input = args[4];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleUkInput(input);
-            } else {
-                wantedStars = null;
             }
         }
         // ==================== НАПАРНИК ДИАЛОГИ ====================
