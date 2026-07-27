@@ -236,24 +236,7 @@ setTimeout(function() {
     try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
 }, 1000);
 // 1. СНАЧАЛА объявляем все константы и массивы
-const rankTags = {
-    "Старший лейтенант": "[СТЛ]",
-    "Капитан": "[К]",
-    "Майор": "[М]",
-    "Подполковник": "[ПП]",
-    "Полковник": "[П]",
-    "Генерал": "[Г]"
-};
 const mvdSkins = [15346, 15349, 17034, 17035, 17036, 17037, 17082, 17083, 17084];
-// Зарплаты по званиям ФСБ (руб.)
-const rankSalaries = {
-    "Старший лейтенант": 72085,
-    "Капитан": 75665,
-    "Майор": 87775,
-    "Подполковник": 98915,
-    "Полковник": 117890,
-    "Генерал": 139835
-};
 
 let skinId = null;
 // 3. Функция получения скина
@@ -313,12 +296,6 @@ setTimeout(() => {
     }
     trackSkinId();
 }, 500);
-const licenseTypes = [
-    { name: "ФСБ", id: "fsb_main" }
-];
-const mvdSubTypes = [
-    { name: "Повседневная", id: "povsednev" }
-];
 let trackingName = `Отслеживание | {FF0000}Выкл`;
 let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
 let autoGrabEnabled = true;
@@ -346,7 +323,6 @@ const povsednevOptions = [
     { name: "20. Права Миранды", action: "miranda" }
 ];
 const ITEMS_PER_PAGE = 7;
-const KOAP_LINES_PER_PAGE = 50; // Для пагинации КоАП
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
 const messageFilters = [
     "* Игрок слишком далеко"
@@ -371,11 +347,9 @@ let targetId = null;
 let currentMenu = null;
 let currentSubMenu = null;
 let currentAction = null;
-let tempHour = null;
 let scanInterval = null;
 let setmarkInterval = null;
 let pgInterval = null;
-let idPgInterval = null;
 let trackingNotificationOpen = false;
 let chaseNotificationOpen = false;
 let trackingNickname = null;
@@ -621,38 +595,6 @@ function normalizeColor(color) {
     if (normalized.startsWith('#')) normalized = normalized.slice(1);
     if (normalized.length === 8) normalized = normalized.slice(0, 6);
     return '0x' + normalized;
-}
-const CHAT_RADIUS = { SELF: 0, CLOSE: 1, MEDIUM: 2, FAR: 3, RADIO: 4, UNKNOWN: -1 };
-function getChatRadius(color) {
-    switch (normalizeColor(color)) {
-        case '0xEEEEEE': return CHAT_RADIUS.SELF;
-        case '0xCECECE': return CHAT_RADIUS.CLOSE;
-        case '0x999999': return CHAT_RADIUS.MEDIUM;
-        case '0x6B6B6B': return CHAT_RADIUS.FAR;
-        case '0x33CC66': return CHAT_RADIUS.RADIO;
-        default:         return CHAT_RADIUS.UNKNOWN;
-    }
-}
-function normalizeToCyrillic(text) {
-    const map = {
-        'A':'А','a':'а','B':'В','b':'в','C':'С','c':'с','E':'Е','e':'е',
-        'H':'Н','h':'н','K':'К','k':'к','M':'М','m':'м','O':'О','o':'о',
-        'P':'Р','p':'р','T':'Т','x':'х','X':'Х','y':'у','Y':'У'
-    };
-    return String(text).replace(/[A-Za-z]/g, ch => map[ch] || ch);
-}
-const RADIUS_LABELS = {
-    [CHAT_RADIUS.SELF]:    { label: 'SELF',   color: '#EEEEEE' },
-    [CHAT_RADIUS.CLOSE]:   { label: 'CLOSE',  color: '#CECECE' },
-    [CHAT_RADIUS.MEDIUM]:  { label: 'MEDIUM', color: '#999999' },
-    [CHAT_RADIUS.FAR]:     { label: 'FAR',    color: '#6B6B6B' },
-    [CHAT_RADIUS.RADIO]:   { label: 'RADIO',  color: '#33CC66' },
-    [CHAT_RADIUS.UNKNOWN]: { label: '?',      color: '#AAAAAA' },
-};
-// Извлекает первый встроенный цветовой код {RRGGBB} из текста сообщения
-function getInlineColor(text) {
-    const m = String(text).match(/\{([0-9A-Fa-f]{6})\}/);
-    return m ? m[1].toUpperCase() : null;
 }
 // Экранирует спецсимволы regex (на случай нестандартных ников)
 function escapeRegex(str) {
@@ -1231,17 +1173,6 @@ setupChatHandler();
 })();
 // ==================== КОНЕЦ РАННЕГО ЛОГИРОВАНИЯ ====================
 
-const getPaginatedMenu = (options) => {
-    const start = currentPage * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    const pageItems = options.slice(start, end);
-    // TABLIST_HEADERS: первая строка — заголовок колонки
-    let menuList = "Действие<n>";
-    pageItems.forEach((option) => {
-        menuList += `${option.name}<n>`;
-    });
-    return menuList;
-};
 // ФУНКЦИИ SCREENNOTIFICATION ВАЖНО: используем ТОЛЬКО изолированный window.ZkmScreenNotification (см.
 const getZkmSN = () => window.ZkmScreenNotification || null;
 
@@ -1803,8 +1734,6 @@ const executePovsednevAction = (action, targetId) => {
     switch (action) {
 	case "greeting":
 		const _rank = window._mvdRank || '';
-		const _firstName = window._mvdFirstName || '';
-		const _lastName = window._mvdLastName || '';
 		const _callsign = CALLSIGN || window._mvdCallsign || '';
 
 		sendMessagesWithDelay([
@@ -2458,7 +2387,6 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             if (style === 0 && title.includes('Точное время') && _awaitingTimerDialog) {
                 _awaitingTimerDialog = false;
                 if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
-                const _timeDlgId = dialogId;
                 setTimeout(() => {
                     try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                     console.log('[AHK-TIMER] Диалог "Точное время" закрыт');
@@ -4155,16 +4083,6 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
     // Функция для генерации случайного времени (0.5-3 секунды) - оставлена для фолбэков
     function getRandomDelay() {
         return Math.floor(Math.random() * 2500) + 500;
-    }
-
-    // Небольшая случайная задержка внутри "пачки" сообщений, идущих почти одновременно (как в реальном логе)
-    function getBurstDelay() {
-        return Math.floor(Math.random() * 400) + 100; // 0.1-0.5 сек
-    }
-
-    // Задержка между "пачками" сообщений (в реальном логе между группами проходит 3-4 сек)
-    function getBetweenBurstsDelay() {
-        return Math.floor(Math.random() * 1200) + 3000; // 3-4.2 сек
     }
 
     // Фолбэк-список преступников на случай, если реальный список игроков ещё не пришёл
