@@ -247,7 +247,6 @@ const rankTags = {
     "Генерал": "[Г]"
 };
 const mvdSkins = [15346, 15349, 17034, 17035, 17036, 17037, 17082, 17083, 17084];
-const stroyRanks = ["Старший лейтенант", "Капитан", "Майор", "Подполковник", "Полковник", "Генерал"];
 // Зарплаты по званиям ФСБ (руб.)
 const rankSalaries = {
     "Старший лейтенант": 72085,
@@ -326,8 +325,7 @@ const licenseTypes = [
     { name: "ФСБ", id: "fsb_main" }
 ];
 const mvdSubTypes = [
-    { name: "Повседневная", id: "povsednev" },
-    { name: "Строй", id: "stroy" }
+    { name: "Повседневная", id: "povsednev" }
 ];
 let trackingName = `Отслеживание | {FF0000}Выкл`;
 let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
@@ -355,29 +353,6 @@ const povsednevOptions = [
     { name: "19. Изъятие прав", action: "takeLicense", needsId: true },
     { name: "20. Права Миранды", action: "miranda" }
 ];
-const stroyOptions = [
-    { name: "1. Объявление о строе (Основное)", action: "stroy1", needsInput: true },
-    { name: "2. Объявление о строе (Повтор)", action: "stroy2", needsInput: true },
-    { name: "3. Лекция", action: "lecture", sub: true },
-    { name: "4. Тренировка", action: "training", sub: true },
-    { name: "5. Спец.Задание", action: "special", sub: true }
-];
-const lectureOptions = [
-    { name: "1. Устав", action: "ust1" },
-    { name: "2. Субординация", action: "sub1" }
-];
-const trainingOptions = [
-    { name: "1. Начало тренировки", action: "trenya1" },
-    { name: "2. Разминка рук", action: "trenya2" },
-    { name: "3. Отжимания", action: "trenya3" },
-    { name: "4. Бег по плацу", action: "trenya4" },
-    { name: "4. Восточное единоборство", action: "trenya5" },
-    { name: "4. Завершение тренировки", action: "trenya6" }
-];
-const specialOptions = [
-    { name: "1. Начало задания", action: "rp1" },
-    { name: "2. Завершение задания", action: "rp2" }
-];
 const ITEMS_PER_PAGE = 7;
 const KOAP_LINES_PER_PAGE = 50; // Для пагинации КоАП
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
@@ -398,13 +373,12 @@ function shouldBlockMessage(message) {
 let currentPage = 0;
 let shownLicenseTypes = [];
 let shownMvdSubTypes = [];
-let lastMenuType = null; // "povsednev" or "stroy" or null
+let lastMenuType = null; // "povsednev" or null
 let giveLicenseTo = -1;
 let targetId = null;
 let currentMenu = null;
 let currentSubMenu = null;
 let currentAction = null;
-let currentStroyAction = null;
 let tempHour = null;
 let scanInterval = null;
 let setmarkInterval = null;
@@ -626,7 +600,7 @@ window.addEventListener('keydown', function(e) {
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
 // Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
 // и вызывает OnMultiDialogClickNavigButton при их нажатии
-const PAGINATED_DIALOG_IDS = [667, 671, 672, 673, 674];
+const PAGINATED_DIALOG_IDS = [667];
 let _lastPaginatedDialogId = null; // ID последнего открытого пагинированного диалога
 let _navPending = false; // флаг: A/D навигация обработана, блокируем следующий OnDialogResponse(response=0)
 
@@ -653,12 +627,6 @@ window.sendClientEventHandle = function(event, ...args) {
                     if (dlgId === 667) {
                         lastMenuType = null; currentMenu = null;
                         setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-                    } else if (dlgId === 671) {
-                        lastMenuType = null; currentMenu = null;
-                        setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-                    } else if (dlgId === 672 || dlgId === 673 || dlgId === 674) {
-                        currentSubMenu = null;
-                        setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
                     }
                     return;
                 }
@@ -666,10 +634,6 @@ window.sendClientEventHandle = function(event, ...args) {
             // Перезагружаем текущее меню с новой страницей
             setTimeout(() => {
                 if (dlgId === 667) showPovsednevMenuPage(giveLicenseTo);
-                else if (dlgId === 671) showStroyMenuPage(giveLicenseTo);
-                else if (dlgId === 672) showLectureMenuPage(giveLicenseTo);
-                else if (dlgId === 673) showTrainingMenuPage(giveLicenseTo);
-                else if (dlgId === 674) showSpecialMenuPage(giveLicenseTo);
             }, 50);
             return;
         }
@@ -1826,33 +1790,6 @@ const HandlePovsednevCommand = (optionIndex) => {
         }
     }
 };
-const HandleStroyCommand = (optionIndex) => {
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
-    if (adjustedIndex >= 0 && adjustedIndex < stroyOptions.length) {
-        const option = stroyOptions[adjustedIndex];
-        currentStroyAction = option.action;
-  
-        if (option.needsInput) {
-            setTimeout(() => {
-                showHourInputDialog(giveLicenseTo);
-            }, 50);
-        } else if (option.sub) {
-            currentSubMenu = option.action;
-            currentPage = 0;
-            setTimeout(() => {
-                if (option.action === "lecture") {
-                    showLectureMenuPage(giveLicenseTo);
-                } else if (option.action === "training") {
-                    showTrainingMenuPage(giveLicenseTo);
-                } else if (option.action === "special") {
-                    showSpecialMenuPage(giveLicenseTo);
-                }
-            }, 50);
-        } else {
-            executeStroyAction(option.action);
-        }
-    }
-};
 const HandleMvdSubCommand = (index) => {
     if (index < 0 || index >= shownMvdSubTypes.length)
         return;
@@ -1863,13 +1800,6 @@ const HandleMvdSubCommand = (index) => {
             currentPage = 0;
             setTimeout(() => {
                 showPovsednevMenuPage(giveLicenseTo);
-            }, 50);
-            break;
-        case "stroy":
-            lastMenuType = "stroy";
-            currentPage = 0;
-            setTimeout(() => {
-                showStroyMenuPage(giveLicenseTo);
             }, 50);
             break;
         case "tracking":
@@ -1903,27 +1833,6 @@ const HandleMvdSubCommand = (index) => {
             window._duranOpenMode = 'laws';
             window.openInterface('Zkm');
             break;
-    }
-};
-const HandleLectureCommand = (optionIndex) => {
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
-    if (adjustedIndex >= 0 && adjustedIndex < lectureOptions.length) {
-        const option = lectureOptions[adjustedIndex];
-        executeStroyAction(option.action);
-    }
-};
-const HandleTrainingCommand = (optionIndex) => {
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
-    if (adjustedIndex >= 0 && adjustedIndex < trainingOptions.length) {
-        const option = trainingOptions[adjustedIndex];
-        executeStroyAction(option.action);
-    }
-};
-const HandleSpecialCommand = (optionIndex) => {
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
-    if (adjustedIndex >= 0 && adjustedIndex < specialOptions.length) {
-        const option = specialOptions[adjustedIndex];
-        executeStroyAction(option.action);
     }
 };
 const HandleKoapTypeCommand = (index) => {
@@ -2307,114 +2216,6 @@ const executePovsednevAction = (action, targetId) => {
             break;
     }
 };
-const executeStroyAction = (action, hour = null, minute = null) => {
-    const _rank = window._mvdRank || '';
-    const _lastName = window._mvdLastName || '';
-    const tag = rankTags[_rank] || `[${_rank}]`;
-    
-    switch (action) {
-        case "stroy1":
-            sendMessagesWithDelay([
-                `/r ${tag} Внимание.`,
-                `/r ${tag} Прошу прийти на плац.`,
-                `/r ${tag} Напомню, строй начнется в ${hour}:${minute} по МСК.`,
-                `/r ${tag} Касается это всего младшего состава.`,
-                `/r ${tag} Спасибо за внимание.`
-            ], [0, 1700, 1700, 1700, 1700]);
-            break;
-        case "stroy2":
-            sendMessagesWithDelay([
-                `/r ${tag} Внимание.*Повторяя*`,
-                `/r ${tag} Прошу прийти на плац.*Повторяя*`,
-                `/r ${tag} Напомню, строй начнется в ${hour}:${minute} по МСК.*Повторяя*`,
-                `/r ${tag} Касается это всего младшего состава.*Повторяя*`,
-                `/r ${tag} Спасибо за внимание.*Повторяя*`
-            ], [0, 1500, 1500, 1500, 1500]);
-            break;
-        case "ust1":
-            sendMessagesWithDelay([
-                "/s Итак бойцы, сейчас я вам проведу лекцию на тему \"Устав\".",
-                "/s Устав устанавливает стандарты служебной деятельности.",
-                "/s Следование Уставу способствует дисциплине. Каждый сотрудник обязан знать свои права и обязанности",
-                "/s Знать устав - ваша обязанность. Незнание не освобождает от наказания.",
-                "/s Следование Уставу положительно сказывается на нашем имидже в глазах граждан",
-                "/s Соблюдение Устава — это не только ваша обязанность, но и залог успешной службы.",
-                "/s Лекция окончена.",
-                "/c 060"
-            ], [0, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
-            break;
-        case "sub1":
-            sendMessagesWithDelay([
-                "/s Коллеги,я хочу прочитать лекцию на тему \"Субординцация\"",
-                "/s В силовых структурах нет слов: \"можно\",\"да\",\"нет\",\"привет\"",
-                "/s Обращаться нужно так:",
-                "/s \"Разрешите\",\"Так точно\",\"Никак нет\",\"Здравия желаю\"",
-                "/s Ко всем обращаться строго по званию.К примеру:",
-                "Т.Полковник,т.Сержант,т.Подполковник и т.д",
-                "/s Обращаться ко всем сослуживцам без исключения только на \"Вы\"",
-                "/s Запрещенно перечить или огрызаться со старшими по званию.",
-                "/s Не соблюдение субординации, это прямое нарушение",
-                "/c 060"
-            ], [0, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000, 2000]);
-            break;
-	case "trenya1":
-		sendMessagesWithDelay([
-			`/s Здравия. Я ${_rank} ${_lastName}.`,
-			"/s Сегодня я проведу вам тренировку",
-			"/s Начнём с приседаний."
-		], [0, 1700, 1700]);
-		break;
-        case "trenya2":
-            sendMessagesWithDelay([
-                "/s Закончили.",
-                "/s Дальше разминка рук.",
-                "/n /anim 8 1",
-                "/c 60"
-            ], [0, 1700, 1700, 1700]);
-            break;
-        case "trenya3":
-            sendMessagesWithDelay([
-                "/s Закончили.",
-                "/s Отжимания.",
-                "/n /anim 6 23",
-                "/c 60"
-            ], [0, 1500, 1500, 1500]);
-            break;
-        case "trenya4":
-            sendMessagesWithDelay([
-                "/s Закончили.",
-                "/s Бег по плацу 3 круга.",
-                "/s Без прыжков."
-            ], [0, 1500, 1500]);
-            break;
-        case "trenya5":
-            sendMessagesWithDelay([
-                "/s Восточное единоборство.",
-                "/n /anim 8 2"
-            ], [0, 1500]);
-            break;
-        case "trenya6":
-            sendMessagesWithDelay([
-                "/s Закончили.",
-                "/s На этом наша тренировка закончена, но не расходимся."
-            ], [0, 1500]);
-            break;
-        case "rp1":
-            sendMessagesWithDelay([
-                "/s Хочу вам сказать.",
-                "/s У меня для вас есть задания."
-            ], [0, 1700]);
-            break;
-        case "rp2":
-            sendMessagesWithDelay([
-                "/s Всем спасибо за помощь.",
-                "/s Помогли очень сильно.",
-                "/s На этой ноте я хочу вам сказать...",
-                "/s Вы свободны, можете идти."
-            ], [0, 1500, 1500, 1500]);
-            break;
-    }
-};
 window.showGiveLicenseDialog = (e) => {
     giveLicenseTo = e;
     currentMenu = null;
@@ -2474,56 +2275,12 @@ window._mvdSetTakeLicReason = function(reason) {
     setTimeout(() => { _autoTakeLicActive = false; }, 10000);
     console.log(`[AUTO-TAKELIC] Причина установлена через LawsHelper: "${reason}"`);
 };
-window.showStroyMenuPage = (e) => {
-    giveLicenseTo = e;
-    currentMenu = "stroy";
-    const menuList = getPaginatedMenu(stroyOptions);
-    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < stroyOptions.length ? 1 : 0;
-    window.addDialogInQueue(
-        `[671,5,"Строй (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
-        menuList,
-        0
-    );
-};
-window.showLectureMenuPage = (e) => {
-    giveLicenseTo = e;
-    const menuList = getPaginatedMenu(lectureOptions);
-    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < lectureOptions.length ? 1 : 0;
-    window.addDialogInQueue(
-        `[672,5,"Лекция (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
-        menuList,
-        0
-    );
-};
-window.showTrainingMenuPage = (e) => {
-    giveLicenseTo = e;
-    const menuList = getPaginatedMenu(trainingOptions);
-    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < trainingOptions.length ? 1 : 0;
-    window.addDialogInQueue(
-        `[673,5,"Тренировка (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
-        menuList,
-        0
-    );
-};
-window.showSpecialMenuPage = (e) => {
-    giveLicenseTo = e;
-    const menuList = getPaginatedMenu(specialOptions);
-    const hasNext = (currentPage + 1) * ITEMS_PER_PAGE < specialOptions.length ? 1 : 0;
-    window.addDialogInQueue(
-        `[674,5,"Спец.Задание (Стр. ${currentPage + 1})","","Выбрать","Отмена",1,${hasNext}]`,
-        menuList,
-        0
-    );
-};
 window.showMvdSubMenu = (e) => {
     giveLicenseTo = e;
     currentMenu = "mvd_sub";
     let availableSub = [
         { name: "Повседневная", id: "povsednev" }
     ];
-    if (stroyRanks.includes(window._mvdRank)) {
-        availableSub.push({ name: "Строй", id: "stroy" });
-    }
     availableSub.push({ name: trackingName, id: "tracking" });
     availableSub.push({ name: autoCuffName, id: "autocuff" });
     if (window.AUTO_GRAB === true) {
@@ -2599,14 +2356,6 @@ window.showTrackingInputDialog = (e) => {
     giveLicenseTo = e;
     window.addDialogInQueue(`[669,1,"Отслеживание","Введите ID для отслеживания:","Начать","Отмена",0,0]`, "", 0);
 };
-window.showHourInputDialog = (e) => {
-    giveLicenseTo = e;
-    window.addDialogInQueue(`[675,1,"Ввод часа","Введите когда начнется строй (Час. по МСК):","Подтвердить","Отмена",0,0]`, "", 0);
-};
-window.showMinuteInputDialog = (e) => {
-    giveLicenseTo = e;
-    window.addDialogInQueue(`[676,1,"Ввод минуты","Введите когда начнется строй (Мин. по МСК):","Подтвердить","Отмена",0,0]`, "", 0);
-};
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`[EVENT] Событие: ${event}, Аргументы:`, args);
 
@@ -2667,83 +2416,6 @@ window.sendClientEventCustom = (event, ...args) => {
                     showMvdSubMenu(giveLicenseTo);
                 }, 50);
             }
-        }
-        else if (args[1] === 671) { // Меню Строй
-            const optionIndex = args[3];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleStroyCommand(optionIndex);
-            } else if (args[2] === 0 && _navPending) {
-                _navPending = false;
-                return;
-            } else if (args[2] === 0) {
-                currentPage = 0;
-                lastMenuType = null; currentMenu = null;
-                setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-                restoreTrackingTimer();
-                return;
-            }
-        }
-        else if (args[1] === 672) { // Меню Лекция
-            const optionIndex = args[3];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleLectureCommand(optionIndex);
-            } else if (args[2] === 0 && _navPending) {
-                _navPending = false;
-                return;
-            } else if (args[2] === 0) {
-                currentPage = 0;
-                currentSubMenu = null;
-                setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
-                return;
-            }
-        }
-        else if (args[1] === 673) { // Меню Тренировка
-            const optionIndex = args[3];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleTrainingCommand(optionIndex);
-            } else if (args[2] === 0 && _navPending) {
-                _navPending = false;
-                return;
-            } else if (args[2] === 0) {
-                currentPage = 0;
-                currentSubMenu = null;
-                setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
-                return;
-            }
-        }
-        else if (args[1] === 674) { // Меню Спец.Задание
-            const optionIndex = args[3];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                HandleSpecialCommand(optionIndex);
-            } else if (args[2] === 0 && _navPending) {
-                _navPending = false;
-                return;
-            } else if (args[2] === 0) {
-                currentPage = 0;
-                currentSubMenu = null;
-                setTimeout(() => showStroyMenuPage(giveLicenseTo), 50);
-                return;
-            }
-        }
-        else if (args[1] === 675) { // Ввод часа
-            const inputHour = args[4];
-            if (args[2] === 1 && giveLicenseTo !== -1 && currentStroyAction) {
-                tempHour = inputHour;
-                setTimeout(() => {
-                    showMinuteInputDialog(giveLicenseTo);
-                }, 50);
-            }
-            else {
-                currentStroyAction = null;
-            }
-        }
-        else if (args[1] === 676) { // Ввод минуты
-            const inputMinute = args[4];
-            if (args[2] === 1 && giveLicenseTo !== -1 && currentStroyAction && tempHour) {
-                executeStroyAction(currentStroyAction, tempHour, inputMinute);
-            }
-            currentStroyAction = null;
-            tempHour = null;
         }
         else if (args[1] === 677) { // Меню ФСБ sub
             const listitem = args[3];
@@ -2880,11 +2552,7 @@ window.sendChatInputCustom = e => {
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'ФСБ\'", "0000FF", 5000]');
             restoreTrackingTimer();
             refreshPartnerNickSilent();
-            if (lastMenuType === "stroy") {
-                showStroyMenuPage(args[1]);
-            } else {
-                showMvdMainMenuPage(args[1]);
-            }
+            showMvdMainMenuPage(args[1]);
         };
 
         // Если данные уже загружены — открываем меню МГНОВЕННО
@@ -2936,7 +2604,6 @@ window.sendChatInputCustom = e => {
         currentMenu = null;
         currentSubMenu = null;
         currentAction = null;
-        currentStroyAction = null;
         currentPage = 0;
         stopTracking();
         autoCuffEnabled = false;
