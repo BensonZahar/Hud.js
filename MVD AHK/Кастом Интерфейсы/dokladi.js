@@ -22,20 +22,34 @@ import{C as ControlsContaineredButton}from"./ContaineredButton.js";
 //
 //  ── Сессия доклада (window._dokladActive) ───────────────────────────────
 //  Как только название подтверждено и открыт экран "stage" — сессия
-//  считается активной: {type, name} сохраняются в window._dokladActive.
+//  считается активной: {type, name, timerStartAt} сохраняются в
+//  window._dokladActive. timerStartAt появляется там, как только отправлен
+//  хотя бы один доклад "Начало"/"Середина".
 //  Если меню закрыть и открыть заново, не отправив "Конец" — оно откроется
 //  сразу на экране "stage" с тем же постом/патрулём, минуя "type"/"name-input".
-//  Сессия сбрасывается только когда отправлен доклад "Конец".
+//  Сессия сбрасывается когда отправлен доклад "Конец" или нажата "Отмена"
+//  (последняя — чисто локально, без отправки чего-либо на сервер).
 //
-//  ── Таймер (window._dokladTimerState / window._dokladToastInterval) ────
-//  После отправки "Начало" или "Середина" запускается счётчик времени,
-//  прошедшего с этого доклада (секундомер на увеличение, без предела) —
-//  по тому же принципу, что таймер вызова адвоката в AdvMenu.js, только
-//  считает вверх, а не вниз. Если меню закрыть, пока секундомер идёт —
-//  он не останавливается: состояние сохраняется в window._dokladTimerState,
-//  и всплывающий тост (тот же приём, что и toast в AdvMenu.js) продолжает
-//  обновляться в фоне через window._dokladToastInterval. При повторном
-//  открытии меню секундомер в интерфейсе подхватывается с той же точки.
+//  ── Таймер (секундомер, считает ВВЕРХ, без предела) ─────────────────────
+//  Момент старта (timerStartAt) хранится ТОЛЬКО в window._dokladActive —
+//  это единственный источник правды, он пишется туда сразу же в момент
+//  отправки "Начало"/"Середина" и не меняется, пока сессия жива. Поэтому
+//  восстановление таймера при повторном открытии меню (mounted()) не
+//  зависит от того, успел ли предыдущий экземпляр компонента корректно
+//  отработать close()/unmounted() — раньше это было узким местом: если
+//  интерфейс закрывался не через кнопку/ESC самого компонента (например,
+//  внешним window.closeInterface('Dokladi') из другого места скрипта),
+//  снимок таймера мог не сохраниться, и таймер пропадал насовсем до
+//  следующего "Середина"/"Конец". Теперь такого разрыва просто не может
+//  быть: значение уже лежит в window._dokladActive до всякого закрытия.
+//
+//  Пока меню открыто — обратный отсчёт в интерфейсе обновляется локальным
+//  setInterval компонента (this.timerInterval), с прямым обновлением DOM
+//  (CEF-fix, как в AdvMenu.js). Когда меню закрыто — за всплывающий тост
+//  отвечает независимый от жизненного цикла компонента фоновый интервал
+//  (window._dokladToastInterval, см. _dokladEnsureBackgroundToast ниже):
+//  он читает timerStartAt из window._dokladActive напрямую, а не из
+//  состояния конкретного экземпляра Vue-компонента.
 // ══════════════════════════════════════════════════════════════════════════
 
 // ─── SVG иконка стрелки ─────────────────────────────────────────────────────
@@ -53,6 +67,53 @@ const STAGE_OPTIONS=[
     {id:"middle", label:"Середина"},
     {id:"end",    label:"Конец"},
 ];
+
+// ─── Фоновый тост (модульные функции — НЕ зависят от жизненного цикла
+//     конкретного экземпляра Vue-компонента, читают всё из window._dokladActive) ──
+function _dokladFormatTime(seconds){
+    const h=Math.floor(seconds/3600),m=Math.floor((seconds%3600)/60),s=seconds%60;
+    if(h>0) return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+    return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+}
+function _dokladRemoveToast(){
+    const el=document.getElementById("dokladi-toast");
+    if(el)el.remove();
+}
+function _dokladRenderToast(){
+    const active=window._dokladActive;
+    if(!active||!active.timerStartAt) return;
+    let el=document.getElementById("dokladi-toast");
+    if(!el){
+        el=document.createElement("div");
+        el.id="dokladi-toast";
+        el.style.cssText="position:fixed;bottom:3vh;right:2vh;background:#141419f2;border:0.15vh solid rgba(249,183,1,0.55);border-radius:0.56vh;padding:0.56vh 1.11vh;pointer-events:none;z-index:9999;font-family:'Open Sans',sans-serif;min-width:10vh;box-shadow:0 0.56vh 1.85vh rgba(0,0,0,0.6);";
+        document.body.appendChild(el);
+    }
+    const s=Math.max(0,Math.floor((Date.now()-active.timerStartAt)/1000));
+    const label=active.type==="post" ? "Пост" : "Патруль";
+    el.innerHTML=`<div style="color:#f9b701;font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[ДОКЛАД] ${label} - ${active.name}</div>`+
+                 `<div style="color:#f4f1e1;font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${_dokladFormatTime(s)}</div>`;
+}
+// Гарантирует, что фоновый интервал тоста запущен, если есть активная сессия
+// с идущим таймером. Идемпотентна — повторный вызов ничего не сломает.
+// Не зависит от того, смонтирован ли сейчас компонент Dokladi: единственное
+// условие — наличие window._dokladActive.timerStartAt.
+function _dokladEnsureBackgroundToast(){
+    if(window._dokladToastInterval) return;
+    window._dokladToastInterval=setInterval(()=>{
+        const active=window._dokladActive;
+        if(!active||!active.timerStartAt){
+            clearInterval(window._dokladToastInterval);
+            window._dokladToastInterval=null;
+            _dokladRemoveToast();
+            return;
+        }
+        // Пока меню открыто — таймер и так виден в самом интерфейсе,
+        // плавающий тост в этот момент не нужен.
+        if(window._dokladMenuMounted){ _dokladRemoveToast(); return; }
+        _dokladRenderToast();
+    },1000);
+}
 
 // ─── render ─────────────────────────────────────────────────────────────────
 function render(_ctx,_cache,$props,$setup,$data,$options){
@@ -178,7 +239,9 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                 ],10,["onClick"])
                             ))
                         ,128))
-                    ])
+                    ]),
+                    // ── Отмена доклада — локальный сброс сессии, без отправки на сервер ──
+                    createBaseVNode("div",{class:"dokladi__cancel-btn",onClick:$options.cancelReport},"Отменить доклад"),
                   ],64))
                 : createCommentVNode("",true),
 
@@ -249,11 +312,7 @@ const _sfc_main={
         },
         // Используется только для начального рендера; далее обновляется через DOM напрямую (как в AdvMenu.js)
         timerDisplay(){
-            const h=Math.floor(this.timerSeconds/3600);
-            const m=Math.floor((this.timerSeconds%3600)/60);
-            const s=this.timerSeconds%60;
-            if(h>0) return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
-            return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+            return _dokladFormatTime(this.timerSeconds);
         },
     },
     watch:{
@@ -315,8 +374,10 @@ const _sfc_main={
             else if(this.reportType==="patrol") window._mvdDokladPatrolName=name;
             // Помечаем сессию активной — при следующем открытии меню Доклады
             // сразу попадём на этот же экран stage с этим постом/патрулём,
-            // минуя выбор типа и ввод названия (пока не будет отправлен "Конец").
-            window._dokladActive={type:this.reportType,name:this.reportName};
+            // минуя выбор типа и ввод названия (пока не будет отправлен "Конец"
+            // или нажата "Отмена"). timerStartAt появится тут же, в
+            // selectStage(), как только будет отправлено "Начало"/"Середина".
+            window._dokladActive={type:this.reportType,name:this.reportName,timerStartAt:null};
             this.screen="stage";
         },
         onNameInputKeydown(e){
@@ -331,10 +392,7 @@ const _sfc_main={
             if(stage==="end"){
                 // Финальный доклад — сессия и таймер завершены, меню закрывается.
                 this._stopTimer();
-                window._dokladActive=null;
-                window._dokladTimerState=null;
-                if(window._dokladToastInterval){clearInterval(window._dokladToastInterval);window._dokladToastInterval=null;}
-                this._removeToast();
+                this._endSession();
                 this.close();
                 setTimeout(()=>{
                     if(typeof window._mvdExecuteDoklad==="function")
@@ -345,26 +403,33 @@ const _sfc_main={
                 // меню остаётся открытым на этом же экране (последняя страница).
                 if(typeof window._mvdExecuteDoklad==="function")
                     window._mvdExecuteDoklad(type,name,stage);
-                window._dokladActive={type,name};
-                this._startTimer();
+                // timerStartAt пишем СРАЗУ в window._dokladActive — это единственный
+                // источник правды для восстановления таймера при переоткрытии меню,
+                // он не зависит от того, отработает ли корректно close()/unmounted()
+                // следующего закрытия интерфейса.
+                const startAt=Date.now();
+                window._dokladActive={type,name,timerStartAt:startAt};
+                this._startTimer(startAt);
             }
         },
-        // ── Таймер: секундомер (считает вверх, без предела) ──────────────────
-        _startTimer(){
-            this._clearTimerInterval();
-            this.timerStartAt=Date.now();
-            this.timerSeconds=0;
-            this.timerRunning=true;
-            this._createToast();
-            setTimeout(()=>this._updateTimerDOM(),30);
-            this.timerInterval=setInterval(()=>{
-                this.timerSeconds=Math.max(0,Math.floor((Date.now()-this.timerStartAt)/1000));
-                this._updateTimerDOM();
-                this._updateToast();
-            },1000);
+        // ── Отмена доклада — локальный сброс без отправки чего-либо на сервер ──
+        cancelReport(){
+            this._stopTimer();
+            this._endSession();
+            this.reportType=null;
+            this.reportName="";
+            this.screen="type";
+            this.selectedIndex=0;
+            this.close();
         },
-        // Подхват уже идущего секундомера при переоткрытии меню (по сохранённому timerStartAt)
-        _resumeTimer(startAt){
+        // Сбрасывает сессию/таймер/тост — общая часть для "Конец" и "Отмена"
+        _endSession(){
+            window._dokladActive=null;
+            if(window._dokladToastInterval){clearInterval(window._dokladToastInterval);window._dokladToastInterval=null;}
+            _dokladRemoveToast();
+        },
+        // ── Таймер: секундомер (считает вверх, без предела) ──────────────────
+        _startTimer(startAt){
             this._clearTimerInterval();
             this.timerStartAt=startAt;
             this.timerSeconds=Math.max(0,Math.floor((Date.now()-startAt)/1000));
@@ -387,59 +452,6 @@ const _sfc_main={
         _updateTimerDOM(){
             const disp=document.getElementById("dokladi-timer-disp");
             if(disp) disp.textContent=this.timerDisplay;
-        },
-        // ── Toast — плавающее окно, чтобы таймер было видно и при закрытом меню ──
-        _createToast(){
-            this._removeToast();
-            const el=document.createElement("div");
-            el.id="dokladi-toast";
-            el.style.cssText="position:fixed;bottom:3vh;right:2vh;background:#141419f2;border:0.15vh solid rgba(249,183,1,0.55);border-radius:0.56vh;padding:0.56vh 1.11vh;pointer-events:none;z-index:9999;font-family:'Open Sans',sans-serif;min-width:10vh;box-shadow:0 0.56vh 1.85vh rgba(0,0,0,0.6);";
-            document.body.appendChild(el);
-            this._updateToast();
-        },
-        _removeToast(){
-            const el=document.getElementById("dokladi-toast");
-            if(el)el.remove();
-        },
-        _updateToast(){
-            const el=document.getElementById("dokladi-toast");
-            if(!el)return;
-            const label=this.reportType==="post" ? "Пост" : "Патруль";
-            el.innerHTML=`<div style="color:#f9b701;font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[ДОКЛАД] ${label} - ${this.reportName}</div>`+
-                         `<div style="color:#f4f1e1;font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${this.timerDisplay}</div>`;
-        },
-        // Сохранение состояния секундомера + запуск фонового тост-интервала.
-        // ВАЖНО: раньше это делалось только внутри close(), поэтому если интерфейс
-        // закрывался НЕ через этот метод (например, снаружи вызовом
-        // window.closeInterface('Dokladi') — так в проекте закрывают чужие
-        // интерфейсы из других частей скрипта, см. mvdF.js), состояние не
-        // сохранялось: при повторном открытии window._dokladActive был ещё жив
-        // (экран сразу "stage"), а window._dokladTimerState — пуст, поэтому
-        // таймер не восстанавливался и пропадал до следующего выбора
-        // "Середина"/"Конец". Теперь эта логика вызывается из unmounted(),
-        // которое срабатывает при ЛЮБОМ закрытии, а не только по клику X/ESC.
-        _persistTimerState(){
-            if(this.timerRunning){
-                window._dokladTimerState={
-                    type:this.reportType,
-                    name:this.reportName,
-                    timerStartAt:this.timerStartAt,
-                };
-                if(window._dokladToastInterval)clearInterval(window._dokladToastInterval);
-                window._dokladToastInterval=setInterval(()=>{
-                    const el=document.getElementById("dokladi-toast");
-                    if(!el){clearInterval(window._dokladToastInterval);window._dokladToastInterval=null;return;}
-                    const s=Math.max(0,Math.floor((Date.now()-this.timerStartAt)/1000));
-                    const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
-                    const t=h>0?(String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0"))
-                              :(String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0"));
-                    const label=this.reportType==="post" ? "Пост" : "Патруль";
-                    el.innerHTML=`<div style="color:#f9b701;font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[ДОКЛАД] ${label} - ${this.reportName}</div>`+
-                                 `<div style="color:#f4f1e1;font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${t}</div>`;
-                },1000);
-            } else {
-                this._removeToast();
-            }
         },
         close(){
             window.closeInterface("Dokladi");
@@ -489,6 +501,10 @@ const _sfc_main={
 .dokladi__phase-label{color:rgba(244,241,225,0.75);font-size:1.2vh;font-weight:600;padding:0 1.67vh;text-align:center;}
 .dokladi__timer-display{color:#f9b701;font-family:"Open Sans Condensed","Open Sans",monospace;font-size:4.44vh;font-style:italic;font-weight:700;letter-spacing:0.19vh;line-height:1;padding:0.56vh 0 1.11vh;text-align:center;}
 
+/* Отмена доклада */
+.dokladi__cancel-btn{color:#e2554499;cursor:pointer;font-size:1.11vh;font-weight:700;padding:0.93vh 1.67vh 0;text-align:center;text-decoration:underline;text-underline-offset:0.19vh;transition:color 0.15s ease;}
+@media (platform:pc){.dokladi__cancel-btn:hover{color:#e25544;}}
+
 /* Name input screen */
 .dokladi__name-input-wrap{display:flex;flex-direction:column;gap:1.3vh;padding:2vh 1.85vh 1.85vh;position:relative;z-index:1;}
 .dokladi__name-input-label{color:#f4f1e1cc;font-size:1.3vh;font-weight:600;line-height:1.4;}
@@ -504,21 +520,22 @@ const _sfc_main={
         `;
         document.head.appendChild(s);
 
-        // ── Восстановление активной сессии/таймера ───────────────────────────
-        // Если тост-интервал ещё жил (меню было закрыто с идущим секундомером) —
-        // останавливаем его: теперь секундомером снова управляет сам компонент.
-        if(window._dokladToastInterval){clearInterval(window._dokladToastInterval);window._dokladToastInterval=null;}
-        this._removeToast();
+        // Компонент сейчас смонтирован — фоновый тост (если он крутился, пока
+        // меню было закрыто) больше не нужен, свой таймер покажет сам интерфейс.
+        window._dokladMenuMounted=true;
+        _dokladRemoveToast();
 
-        const savedTimer=window._dokladTimerState;
-        window._dokladTimerState=null;
+        // ── Восстановление активной сессии/таймера ───────────────────────────
+        // timerStartAt читаем напрямую из window._dokladActive — она пишется
+        // туда в момент отправки "Начало"/"Середина" и не зависит от того,
+        // как именно был закрыт предыдущий экземпляр интерфейса.
         const active=window._dokladActive;
         if(active){
             this.reportType=active.type;
             this.reportName=active.name;
             this.screen="stage";
-            if(savedTimer&&savedTimer.timerStartAt){
-                this._resumeTimer(savedTimer.timerStartAt);
+            if(active.timerStartAt){
+                this._startTimer(active.timerStartAt);
             }
         }
 
@@ -541,14 +558,17 @@ const _sfc_main={
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
         const s=document.getElementById("dokladi-style");
         if(s)s.remove();
-        // Сохраняем состояние секундомера ЗДЕСЬ, а не в close() — unmounted()
-        // срабатывает при любом закрытии интерфейса (через X/overlay/ESC этого
-        // компонента, и через внешний window.closeInterface('Dokladi') из
-        // других частей скрипта). Дальше за таймер отвечает window._dokladToastInterval.
-        this._persistTimerState();
-        // Сам таймер интервала внутри компонента останавливаем — если сессия
-        // осталась активной, за неё уже отвечает window._dokladToastInterval,
-        // выставленный выше.
+        // Компонент больше не смонтирован — если сессия с таймером всё ещё
+        // активна, включаем независимый фоновый тост (см. _dokladEnsureBackgroundToast
+        // выше). Он сам читает timerStartAt из window._dokladActive, поэтому
+        // корректно работает даже если этот unmounted() почему-либо не успел
+        // отработать полностью — ключевые данные уже лежат в window, а не здесь.
+        window._dokladMenuMounted=false;
+        if(window._dokladActive&&window._dokladActive.timerStartAt){
+            _dokladEnsureBackgroundToast();
+        } else {
+            _dokladRemoveToast();
+        }
         this._clearTimerInterval();
     }
 };
