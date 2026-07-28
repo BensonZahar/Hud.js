@@ -312,6 +312,7 @@ const _sfc_main={
             items.push({id:"naparnick", label: partnerLabel, arrow:true});
             items.push({id:"laws", label:"Законы", arrow:true});
             items.push({id:"advokat", label:"Вызов адвоката", arrow:true});
+            items.push({id:"doklady", label:"Доклады", arrow:true});
             return items;
         },
         visibleOptions(){
@@ -478,6 +479,11 @@ const _sfc_main={
                 this.close();
                 setTimeout(()=>{
                     window.openInterface("AdvMenu");
+                },80);
+            } else if(item.id==="doklady"){
+                this.close();
+                setTimeout(()=>{
+                    window.openInterface("Dokladi");
                 },80);
             }
         },

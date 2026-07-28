@@ -1,0 +1,59 @@
+/* ══════════════════════════════════════════════════════════════════════
+   dokladi.css — стили меню "Доклады"
+   Репозиторий: BensonZahar/Hud.js
+   Папка:       MVD AHK/Кастом Интерфейсы/
+
+   ПРИМЕЧАНИЕ: dokladi.js сам инжектирует эти же стили через
+   document.createElement('style') в mounted() (как MvdMenu.js/zkm.js),
+   поэтому загрузка этого файла отдельным <link> не обязательна —
+   он присутствует для полноты набора файлов интерфейса ("dokladi.js" +
+   "dokladi.css") и как читаемый эталон стилей вне JS-строки.
+   ══════════════════════════════════════════════════════════════════════ */
+
+.dokladi{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:absolute;text-transform:none;top:0;width:100vw;z-index:11;}
+.dokladi__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
+.dokladi__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(249,183,1,0.2),0 1.5vh 5vh rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:36vh;z-index:1;}
+.dokladi__top-accent{background:#f9b701;height:0.19vh;left:0;position:absolute;right:0;top:0;}
+
+/* Header */
+.dokladi__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.dokladi__title{align-items:baseline;display:flex;font-family:"Open Sans Condensed",var(--fallback-font);font-style:italic;font-weight:700;gap:0.56vh;text-transform:uppercase;}
+.dokladi__title-main{color:#f4f1e1;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
+.dokladi__title-ahk{color:#f9b701;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
+.dokladi__title-sub{color:#f4f1e166;font-size:1.11vh;font-style:normal;font-weight:400;margin-left:0.74vh;text-transform:none;}
+.dokladi__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.48vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s ease;width:2.96vh;}
+@media (platform:pc){.dokladi__close-btn:hover{background:#e25544;border-color:#e25544;color:#fff;}}
+
+/* List */
+.dokladi__list{display:flex;flex-direction:column;max-height:48vh;overflow-y:auto;position:relative;z-index:1;}
+.dokladi__list::-webkit-scrollbar{width:1.11vh;}
+.dokladi__list::-webkit-scrollbar-thumb{background:linear-gradient(0deg,#bcbcbd,#fff 75%);border-radius:0.19vh;}
+.dokladi__list::-webkit-scrollbar-track{background:#ffffff1a;border-radius:0.19vh;}
+
+/* Items */
+.dokladi__item{align-items:center;border-bottom:0.09vh solid #f4f1e10d;cursor:pointer;display:flex;gap:1.11vh;padding:0.93vh 1.48vh;transition:background 0.1s ease;}
+@media (platform:pc){.dokladi__item:hover{background:rgba(255,255,255,.04);}}
+.dokladi__item_selected{background:rgba(249,183,1,.1);border-left:0.19vh solid #f9b701;}
+.dokladi__item_selected .dokladi__item-label{color:#f4f1e1;}
+.dokladi__item-num{color:#f4f1e166;flex-shrink:0;font-size:1.11vh;font-weight:700;min-width:2.4vh;}
+.dokladi__item-label{color:#f4f1e1cc;flex:1 1 auto;font-size:1.3vh;font-weight:600;line-height:1.4;}
+.dokladi__item-arrow{align-items:center;display:flex;flex-shrink:0;opacity:0.5;}
+.dokladi__item-arrow svg{height:1.11vh;width:1.11vh;}
+
+/* Текущий пост/патруль на экране stage */
+.dokladi__stage-current{align-items:baseline;display:flex;gap:0.56vh;padding:1.2vh 1.67vh 0.56vh;position:relative;z-index:1;}
+.dokladi__stage-current-type{color:#f4f1e166;font-size:1.11vh;font-weight:700;text-transform:uppercase;}
+.dokladi__stage-current-name{color:#f9b701;font-size:1.3vh;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* Name input screen */
+.dokladi__name-input-wrap{display:flex;flex-direction:column;gap:1.3vh;padding:2vh 1.85vh 1.85vh;position:relative;z-index:1;}
+.dokladi__name-input-label{color:#f4f1e1cc;font-size:1.3vh;font-weight:600;line-height:1.4;}
+.dokladi__name-input-row{display:flex;gap:0.74vh;}
+.dokladi__name-input-field{-webkit-appearance:none;appearance:none;background:#ffffff08;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;padding:0.74vh 1.11vh;transition:border-color 0.15s;}
+.dokladi__name-input-field:focus{border-color:rgba(249,183,1,0.5);}
+.dokladi__name-input-field::placeholder{color:#f4f1e144;font-weight:400;}
+
+/* Footer */
+.dokladi__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.dokladi__footer .controls-button__container{margin-right:1.48vh;}
+.dokladi__footer .controls-button__container:last-child{margin-right:0;}
