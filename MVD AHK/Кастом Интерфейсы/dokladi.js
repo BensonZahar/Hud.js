@@ -408,10 +408,17 @@ const _sfc_main={
             el.innerHTML=`<div style="color:#f9b701;font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[ДОКЛАД] ${label} - ${this.reportName}</div>`+
                          `<div style="color:#f4f1e1;font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${this.timerDisplay}</div>`;
         },
-        close(){
-            // Если секундомер активен — сохраняем состояние и продолжаем обновлять
-            // тост в фоне через глобальный interval, как это делает AdvMenu.js
-            // для таймера вызова адвоката.
+        // Сохранение состояния секундомера + запуск фонового тост-интервала.
+        // ВАЖНО: раньше это делалось только внутри close(), поэтому если интерфейс
+        // закрывался НЕ через этот метод (например, снаружи вызовом
+        // window.closeInterface('Dokladi') — так в проекте закрывают чужие
+        // интерфейсы из других частей скрипта, см. mvdF.js), состояние не
+        // сохранялось: при повторном открытии window._dokladActive был ещё жив
+        // (экран сразу "stage"), а window._dokladTimerState — пуст, поэтому
+        // таймер не восстанавливался и пропадал до следующего выбора
+        // "Середина"/"Конец". Теперь эта логика вызывается из unmounted(),
+        // которое срабатывает при ЛЮБОМ закрытии, а не только по клику X/ESC.
+        _persistTimerState(){
             if(this.timerRunning){
                 window._dokladTimerState={
                     type:this.reportType,
@@ -433,6 +440,8 @@ const _sfc_main={
             } else {
                 this._removeToast();
             }
+        },
+        close(){
             window.closeInterface("Dokladi");
         }
     },
@@ -532,9 +541,14 @@ const _sfc_main={
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
         const s=document.getElementById("dokladi-style");
         if(s)s.remove();
+        // Сохраняем состояние секундомера ЗДЕСЬ, а не в close() — unmounted()
+        // срабатывает при любом закрытии интерфейса (через X/overlay/ESC этого
+        // компонента, и через внешний window.closeInterface('Dokladi') из
+        // других частей скрипта). Дальше за таймер отвечает window._dokladToastInterval.
+        this._persistTimerState();
         // Сам таймер интервала внутри компонента останавливаем — если сессия
         // осталась активной, за неё уже отвечает window._dokladToastInterval,
-        // выставленный в close() перед вызовом closeInterface().
+        // выставленный выше.
         this._clearTimerInterval();
     }
 };
