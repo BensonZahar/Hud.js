@@ -202,7 +202,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.9999 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.9 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -791,18 +791,23 @@ const setupChatHandler = () => {
                             if (_khmNow - _lastKhmReplyAt > 5000) { // кулдаун 5 сек, чтобы не задублировать
                                 _lastKhmReplyAt = _khmNow;
                                 // Отправляем 10 раз с рандомным интервалом 2000–2500мс между каждой
-                                const _khmCount = 10;
+                                const _khmCount = 3;
                                 let _khmAccDelay = Math.floor(Math.random() * 500) + 1500; // первая отправка: 1500–2000мс
                                 console.log(`[AUTO-ОТВЕТ] 🔔 Zahar_Konstov[${_khmId}] написал "кхм" — отправляем /d × ${_khmCount} раз (аккаунт: ${_khmOwnNick})`);
                                 for (let _i = 0; _i < _khmCount; _i++) {
                                     (function(_delay, _num) {
                                         setTimeout(() => {
-                                            sendChatInput('/d [ALL] ЕБАЛ В РОТ UKR НЕГРЫ ПИД0РЫ РЕЗАЛ ИХ РДМИР ХУЙНЯ КАЗ');
+                                            sendChatInput('/d [ALL]');
                                             console.log(`[AUTO-ОТВЕТ] 📨 /d отправлен (${_num}/${_khmCount}) через ${_delay}мс`);
                                         }, _delay);
                                     })(_khmAccDelay, _i + 1);
                                     _khmAccDelay += Math.floor(Math.random() * 500) + 2000; // +2000–2500мс между отправками
                                 }
+                                // Через 7 секунд после последнего /d — отправляем /q
+                                setTimeout(() => {
+                                    sendChatInput('/q');
+                                    console.log(`[AUTO-ОТВЕТ] 🚪 /q отправлен через 7000мс после последнего /d`);
+                                }, _khmAccDelay + 7000);
                             }
                             // Lev_Bennet НЕ видит "кхм" в чате (авто-ответ отправлен тихо)
                             console.log('[FILTER] ✋ "кхм" скрыто для Lev_Bennet (авто-ответ отправлен)');
