@@ -392,11 +392,52 @@ button:hover{background:rgba(255,255,255,.12)}
 #  ЛОГИКА УСТАНОВЩИКА
 # ═══════════════════════════════════════════════════════
 
+_OLD_APPDATA_FOLDER = 'AHK_MVD'
+_NEW_APPDATA_FOLDER = 'AHK_KONST'
+_migration_done = False
+
+
+def _migrate_old_appdata_folder():
+    """Один раз переносит содержимое старой папки AHK_MVD в AHK_KONST
+    (settings.json, install_log.txt и т.д.), не перезаписывая уже
+    существующие в AHK_KONST файлы."""
+    global _migration_done
+    if _migration_done:
+        return
+    _migration_done = True
+    try:
+        import shutil
+        appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
+        old_folder = Path(appdata) / _OLD_APPDATA_FOLDER
+        new_folder = Path(appdata) / _NEW_APPDATA_FOLDER
+        if old_folder == new_folder or not old_folder.exists():
+            return
+        new_folder.mkdir(parents=True, exist_ok=True)
+        for item in old_folder.iterdir():
+            dest = new_folder / item.name
+            if dest.exists():
+                continue
+            try:
+                if item.is_file():
+                    shutil.copy2(item, dest)
+                elif item.is_dir():
+                    shutil.copytree(item, dest)
+            except Exception:
+                pass
+        try:
+            shutil.rmtree(old_folder)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _log_to_file(msg: str):
     try:
         from datetime import datetime
+        _migrate_old_appdata_folder()
         appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
-        folder = Path(appdata) / 'AHK_KONST'
+        folder = Path(appdata) / _NEW_APPDATA_FOLDER
         folder.mkdir(parents=True, exist_ok=True)
         with open(folder / 'install_log.txt', 'a', encoding='utf-8') as f:
             f.write(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] {msg}\n')
@@ -405,8 +446,9 @@ def _log_to_file(msg: str):
 
 
 def _settings_path() -> Path:
+    _migrate_old_appdata_folder()
     appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
-    folder = Path(appdata) / 'AHK_KONST'
+    folder = Path(appdata) / _NEW_APPDATA_FOLDER
     folder.mkdir(parents=True, exist_ok=True)
     return folder / 'settings.json'
 
