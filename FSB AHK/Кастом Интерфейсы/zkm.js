@@ -124,63 +124,63 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 				placeholder: currentTabKey === "fines" ? "Поиск статьи КоАП..." : currentTabKey === "laws" ? "Поиск по статьям и документам..." : "Поиск нарушения...",
 				value: $data.search,
 				onInput: $event => { $data.search = $event.target.value }
-			}, null, 40, ["value","onInput","placeholder"])
+			}, null, 40, ["value","onInput","placeholder"]),
+			// Фильтр по документу (Все/КоАП/УК/...) — справа от поиска, только для таба ЗАКОНЫ
+			currentTabKey === "laws"
+				? (openBlock(), createElementBlock("div", {key:"law-filters", class:"laws-helper__search-filters"}, [
+					createBaseVNode("div", {
+						class: normalizeClass(["laws-helper__fine-filter-btn", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "all"}]),
+						onClick: $event => { $data.lawDocType = "all"; }
+					}, "Все", 10, ["onClick"]),
+					createBaseVNode("div", {
+						class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_koap", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "koap"}]),
+						onClick: $event => { $data.lawDocType = "koap"; }
+					}, "КоАП", 10, ["onClick"]),
+					createBaseVNode("div", {
+						class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_uk", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "uk"}]),
+						onClick: $event => { $data.lawDocType = "uk"; }
+					}, "УК", 10, ["onClick"]),
+					createBaseVNode("div", {
+						class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_proc", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "proc"}]),
+						onClick: $event => { $data.lawDocType = "proc"; }
+					}, "Проц.", 10, ["onClick"]),
+					createBaseVNode("div", {
+						class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_kto", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "kto"}]),
+						onClick: $event => { $data.lawDocType = "kto"; }
+					}, "КТО", 10, ["onClick"]),
+					createBaseVNode("div", {
+						class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_euss", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "euss"}]),
+						onClick: $event => { $data.lawDocType = "euss"; }
+					}, "ЕУСС", 10, ["onClick"]),
+					createBaseVNode("div", {
+						class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_zot", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "zot"}]),
+						onClick: $event => { $data.lawDocType = "zot"; }
+					}, "ЗОТ", 10, ["onClick"])
+				]))
+				: createCommentVNode("", true)
 		]),
 		createBaseVNode("div", _hoisted_8, [
 			// ─── ТАБ: ЗАКОНЫ ──────────────────────────────────────────────
 			currentTabKey === "laws"
 				? (openBlock(), createElementBlock("div", {key:"laws", class:"laws-helper__laws-layout"}, [
 					createBaseVNode("div", {class:"laws-helper__laws-list laws-helper__laws-flat"}, [
-						createBaseVNode("div", {class:"laws-helper__fine-filter laws-helper__law-filter"}, [
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "all"}]),
-								onClick: $event => { $data.lawDocType = "all"; }
-							}, "Все", 10, ["onClick"]),
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_koap", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "koap"}]),
-								onClick: $event => { $data.lawDocType = "koap"; }
-							}, "КоАП", 10, ["onClick"]),
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_uk", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "uk"}]),
-								onClick: $event => { $data.lawDocType = "uk"; }
-							}, "УК", 10, ["onClick"]),
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_proc", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "proc"}]),
-								onClick: $event => { $data.lawDocType = "proc"; }
-							}, "Проц.", 10, ["onClick"]),
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_kto", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "kto"}]),
-								onClick: $event => { $data.lawDocType = "kto"; }
-							}, "КТО", 10, ["onClick"]),
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_euss", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "euss"}]),
-								onClick: $event => { $data.lawDocType = "euss"; }
-							}, "ЕУСС", 10, ["onClick"]),
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__law-filter-btn_zot", {"laws-helper__fine-filter-btn_active": $data.lawDocType === "zot"}]),
-								onClick: $event => { $data.lawDocType = "zot"; }
-							}, "ЗОТ", 10, ["onClick"])
-						]),
-						(openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredLawDocuments, (doc) => (
-							openBlock(), createElementBlock("div", {key:doc.id, class:"laws-helper__laws-section"}, [
-								createBaseVNode("div", {class:"laws-helper__laws-section-hdr"}, [
-									createBaseVNode("span", {class:"laws-helper__laws-section-icon", innerHTML: SVG_DOC}),
-									createBaseVNode("span", {class:"laws-helper__laws-section-title"}, toDisplayString(doc.title), 1)
-								]),
-								(openBlock(true), createElementBlock(Fragment, null, renderList(doc.articles, (art) => (
-									openBlock(), createElementBlock("div", {
-										key: art.id,
-										class: normalizeClass(["laws-helper__article-row", {"laws-helper__article-row_checked": $data.selectedLawArticleId === art.id}]),
-										onClick: $event => $options.selectLawArticle(art.id)
-									}, [
-										createBaseVNode("div", {class:"laws-helper__article-num"}, toDisplayString(art.num), 1),
-										createBaseVNode("div", {class:"laws-helper__article-info"}, [
-											createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1)
-										])
-									], 10, ["onClick"])
-								)), 128))
-							])
-						)), 128))
+						$options.flatLawArticles.length === 0
+							? (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__reader-empty-text"}, "Ничего не найдено."))
+							: (openBlock(true), createElementBlock(Fragment, null, renderList($options.flatLawArticles, (art) => (
+								openBlock(), createElementBlock("div", {
+									key: art.id,
+									class: normalizeClass(["laws-helper__article-row", {"laws-helper__article-row_checked": $data.selectedLawArticleId === art.id}]),
+									onClick: $event => $options.selectLawArticle(art.id)
+								}, [
+									createBaseVNode("div", {class:"laws-helper__article-num"}, toDisplayString(art.num), 1),
+									createBaseVNode("div", {class:"laws-helper__article-info"}, [
+										createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1)
+									]),
+									createBaseVNode("div", {
+										class: normalizeClass(["laws-helper__article-doc-tag", "laws-helper__article-doc-tag_"+art.docId])
+									}, toDisplayString(art.docTitle), 3)
+								], 10, ["onClick"])
+							)), 128))
 					]),
 					createBaseVNode("div", {class:"laws-helper__reader"}, [
 						$options.selectedLawArticle
@@ -778,6 +778,17 @@ const _sfc_main={
 			.filter(Boolean);
 		},
 		
+		// ── ЗАКОНЫ: плоский список статей (без деления на блоки по документам) ──
+		flatLawArticles(){
+			const arr = [];
+			for(const doc of this.filteredLawDocuments){
+				for(const a of doc.articles){
+					arr.push({...a, docId:doc.id, docTitle:doc.title});
+				}
+			}
+			return arr;
+		},
+		
 		selectedLawArticle(){
 			if(!this.selectedLawArticleId) return null;
 			const sepIdx = this.selectedLawArticleId.indexOf("__");
@@ -948,14 +959,20 @@ const _sfc_main={
 .laws-helper__reader-empty-icon{opacity:0.5;}
 .laws-helper__reader-empty-text-block{color:#f4f1e166;display:flex;flex-direction:column;font-family:"Open Sans",var(--fallback-font);font-size:1.11vh;line-height:1.5;text-align:center;}
 
-/* ══ ЗАКОНЫ flat list (hints style) ════════════════════════════ */
+/* ══ ЗАКОНЫ flat list (просто текст, без блоков по документам) ══ */
 .laws-helper__laws-flat{border-right:0.19vh solid #f4f1e11a;flex:0 0 40%!important;max-width:40%!important;}
-.laws-helper__laws-section-hdr{align-items:center;background:#141419;border-bottom:0.09vh solid #f4f1e11a;border-top:0.19vh solid #f4f1e10d;display:flex;gap:0.56vh;padding:0.65vh 1.11vh;position:sticky;top:0;z-index:1;}
-.laws-helper__laws-section:first-child .laws-helper__laws-section-hdr{border-top:none;}
-.laws-helper__laws-section-icon{align-items:center;display:flex;flex-shrink:0;}
-.laws-helper__laws-section-title{color:#f9b701cc;font-family:"Open Sans",var(--fallback-font);font-size:1.11vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;}
+/* ── Бейдж документа в строке статьи (КоАП/УК/ЕУСС и т.д.) ──── */
+.laws-helper__article-doc-tag{border-radius:0.22vh;flex-shrink:0;font-family:"Open Sans",var(--fallback-font);font-size:1.02vh;font-weight:700;letter-spacing:0.02vh;margin-top:0.15vh;padding:0.19vh 0.56vh;text-transform:uppercase;white-space:nowrap;}
+.laws-helper__article-doc-tag_koap{background:rgba(10,153,71,.15);color:#0a9947;}
+.laws-helper__article-doc-tag_uk{background:rgba(226,85,68,.15);color:#e25544;}
+.laws-helper__article-doc-tag_proc{background:rgba(100,149,237,.15);color:#6495ed;}
+.laws-helper__article-doc-tag_kto{background:rgba(255,140,0,.15);color:#ff8c00;}
+.laws-helper__article-doc-tag_euss{background:rgba(153,50,204,.15);color:#9932cc;}
+.laws-helper__article-doc-tag_zot{background:rgba(217,164,6,.15);color:#d9a406;}
+/* ── Фильтр документов в строке поиска (справа от инпута) ───── */
+.laws-helper__search-filters{display:flex;flex-shrink:0;gap:0.37vh;overflow-x:auto;scrollbar-width:none;}
+.laws-helper__search-filters::-webkit-scrollbar{display:none;}
 /* ── Цвета кнопок фильтра документов ────────────────────────── */
-.laws-helper__law-filter{flex-wrap:wrap;gap:0.37vh;}
 .laws-helper__law-filter-btn_koap.laws-helper__fine-filter-btn_active{background:rgba(10,153,71,.1);border-color:rgba(10,153,71,.4);color:#0a9947;}
 .laws-helper__law-filter-btn_uk.laws-helper__fine-filter-btn_active{background:rgba(226,85,68,.1);border-color:rgba(226,85,68,.4);color:#e25544;}
 .laws-helper__law-filter-btn_proc.laws-helper__fine-filter-btn_active{background:rgba(100,149,237,.1);border-color:rgba(100,149,237,.4);color:#6495ed;}
