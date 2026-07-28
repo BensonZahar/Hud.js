@@ -62,7 +62,7 @@ const AUTO_GRAB_SKIP = []; // Список предметов которые Н�
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
-const folder = 'MVD AHK/FSB';
+const folder = 'FSB AHK';
 const filename = 'fsb.js';
 
 // Функция загрузчика с retry

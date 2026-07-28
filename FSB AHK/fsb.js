@@ -105,7 +105,7 @@ function _showAccessDenied(nick) {
 })(function() {
 // ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB Грузим 5 файлов параллельно при старте игры.
 (function prefetchAllCustomUI() {
-    var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
+    var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSB%20AHK/'
              + encodeURIComponent('Кастом Интерфейсы') + '/';
     var FILES = {
         mvdmenu_js:  BASE + 'MvdMenu.js',
