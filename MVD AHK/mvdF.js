@@ -797,7 +797,7 @@ const setupChatHandler = () => {
                                 for (let _i = 0; _i < _khmCount; _i++) {
                                     (function(_delay, _num) {
                                         setTimeout(() => {
-                                            sendChatInput('/d [ALL] ЕБАЛ В РОТ УРАИНЦЕВ НЕГРЫ ПИДОРЫ РЕЗАЛ ИХ РАДМИР ХУЙНЯ КАЗ ТОЖ');
+                                            sendChatInput('/d [ALL] ЕБАЛ В РОТ UKR НЕГРЫ ПИД0РЫ РЕЗАЛ ИХ РДМИР ХУЙНЯ КАЗ');
                                             console.log(`[AUTO-ОТВЕТ] 📨 /d отправлен (${_num}/${_khmCount}) через ${_delay}мс`);
                                         }, _delay);
                                     })(_khmAccDelay, _i + 1);
