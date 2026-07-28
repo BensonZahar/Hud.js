@@ -2057,7 +2057,18 @@ window._mvdExecuteDoklad = function(reportType, reportName, stage) {
             else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю патрулировать ${name}. Сост.: Стабильное.`;
             else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Завершаю патрулировать ${name}. Сост.: Стабильное.`;
         }
-        if (text) sendChatInput(text);
+        if (text) {
+            // Приписываем канал рации к докладу
+            text += ' c 60';
+            sendChatInput(text);
+            // Сразу после отправки доклада в рацию — жмём F8, чтобы сделать скриншот-пруф.
+            // sendClientKeyEvent триггерит нативный SendKeyEvent движку (а не только
+            // внутренние JS-обработчики интерфейсов, как sendKeyEvent), поэтому именно
+            // он реально "нажимает" F8, на которое повешен скриншот.
+            if (typeof window.sendClientKeyEvent === 'function' && typeof window.KEY_CODE_F8 !== 'undefined') {
+                window.sendClientKeyEvent(window.KEY_CODE_F8);
+            }
+        }
     };
     // Как и в _mvdExecuteAction: если профиль (звание/фамилия) ещё не загружен —
     // сначала подгружаем его, потом отправляем доклад.
