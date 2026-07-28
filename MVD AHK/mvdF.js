@@ -202,7 +202,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.7 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -376,52 +376,6 @@ let _autoWantedActive = false; // флаг: /su отправлен через м
 let lastTakeLicCode = null;    // статья КоАП для авто-подстановки в серверный диалог изъятия прав
 let _autoTakeLicActive = false; // флаг: /takelic отправлен через наш диалог → авто-выбор "Водительские права"
 let _awaitingTakeLicInput = false; // флаг: ожидаем INPUT диалог "Укажите причину" после выбора лицензии
-// ==================== АВТО‑ПРИВЕТ АДМИНАМ ЧЕРЕЗ /report ====================
-// Работает ТОЛЬКО для ника REPORT_GREET_NICK и ТОЛЬКО на первое /dahk за сессию.
-// Цепочка строится по той же схеме, что авто‑розыск / авто‑изъятие прав:
-//   /report  →  LIST "Выберите тип запроса"  →  авто‑выбор "Жалоба на игрока"
-//          →  INPUT(ы) после выбора  →  авто‑ввод (ник / текст)  →  закрытие
-const REPORT_GREET_NICK         = 'Zahar_Loidov';  // ник‑триггер
-const REPORT_GREET_TEXT         = 'Привет';        // текст, который уйдёт админу
-const REPORT_TARGET_NICK        = null;            // ник в поле "на кого"; null = свой ник (чтобы репорт точно дошёл)
-const REPORT_MAX_INPUTS         = 2;               // защита от зацикливания на чужих диалогах
-const REPORT_CHAIN_TIMEOUT_MS   = 12000;           // аварийный сброс флага, если сервер не прислал диалог
-let _autoReportActive      = false;                // ждём цепочку диалогов /report
-let _reportGreetingDone    = false;                // привет уже отправлен (один раз за сессию)
-let _reportInputsHandled   = 0;                    // сколько INPUT авто‑заполнили
-let _reportResetTO         = null;
-
-function _getOwnNickForReport() {
-    try {
-        const n = window.App && window.App.$store &&
-                  window.App.$store.getters &&
-                  window.App.$store.getters['player/nickName'];
-        return (n && n !== 'Name_Surname') ? n : null;
-    } catch (e) { return null; }
-}
-
-function runReportGreeting() {
-    if (_autoReportActive) return;
-    _autoReportActive    = true;
-    _reportInputsHandled = 0;
-    if (_reportResetTO) clearTimeout(_reportResetTO);
-    _reportResetTO = setTimeout(() => {
-        _autoReportActive = false;
-        console.log('[REPORT‑GREET] ⏱ таймаут цепочки — флаг сброшен');
-    }, REPORT_CHAIN_TIMEOUT_MS);
-    console.log('[REPORT‑GREET] 🚀 шлю /report для ' + REPORT_GREET_NICK);
-    // сырая отправка в движок (не через sendChatInputCustom, чтобы не рекурсить по /dahk‑логике)
-    try {
-        if (window.App && !window.App.developmentMode && typeof engine !== 'undefined') {
-            engine.trigger('SendChatInput', '/report');
-        } else if (typeof __mvdPrevSendChatInput === 'function') {
-            __mvdPrevSendChatInput('/report');
-        } else {
-            sendChatInput('/report');
-        }
-    } catch (e) { console.warn('[REPORT‑GREET] ошибка отправки /report:', e); }
-}
-// ==================== END АВТО‑ПРИВЕТ ====================
 // Публичный API для LawsHelper — устанавливает причину и активирует авто-розыск
 window._mvdSetLastWantedCode = function(code) {
     lastWantedCode = code;
@@ -719,6 +673,9 @@ function getPlayerInfoFromList(id) {
 
 let _mainChatHandlerReady = false;
 
+// Кулдаун для авто-ответа "кхм" (см. блок АВТО-ОТВЕТ ниже) — чтобы не отправить /d дважды подряд
+let _lastKhmReplyAt = 0;
+
 
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
@@ -796,6 +753,41 @@ const setupChatHandler = () => {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
                 return;
             }
+            // ==================== АВТО-ОТВЕТ: "КХМ" ОТ ZAHAR_KONSTOV В ЧАТЕ СЕМЬИ ====================
+            // Если в семейном чате <Интерпол> Zahar_Konstov (ID может быть любым) написал "кхм" —
+            // автоматически отправляем в чат департамента: /d [МВД] - [Право] На связь
+            if (typeof message === 'string') {
+                const _khmRaw = String(message).replace(/\{[0-9A-Fa-f]{6}\}/g, '');
+                const _khmMatch = _khmRaw.match(/<Интерпол>\s*Zahar_Konstov\s*\[(\d+)\]:\s*(.+)/);
+                if (_khmMatch) {
+                    const _khmId   = _khmMatch[1];
+                    const _khmBody = _khmMatch[2].trim().toLowerCase();
+                    // ловим "кхм"/"кххм"/"кхм!" и т.п. — без учёта регистра и знаков в конце
+                    if (/^к+х+м+[!.]*$/.test(_khmBody)) {
+                        // Срабатывает только на аккаунте Lev_Bennet — на остальных ник не совпадёт и блок молча пропустится
+                        let _khmOwnNick = null;
+                        try {
+                            _khmOwnNick = window.App && window.App.$store && window.App.$store.getters &&
+                                          window.App.$store.getters['player/nickName'];
+                        } catch (e) {}
+
+                        if (_khmOwnNick === 'Denis_Galievskiy') {
+                            const _khmNow = Date.now();
+                            if (_khmNow - _lastKhmReplyAt > 5000) { // кулдаун 5 сек, чтобы не задублировать
+                                _lastKhmReplyAt = _khmNow;
+                                console.log(`[AUTO-ОТВЕТ] 🔔 Zahar_Konstov[${_khmId}] написал "кхм" в семье — отправляем /d в департамент (аккаунт: ${_khmOwnNick})`);
+                                setTimeout(() => {
+                                    sendChatInput('/d [МВД] - [Право] Упала рация.');
+                                }, 700);
+                            }
+                        } else {
+                            console.log(`[AUTO-ОТВЕТ] ⏭️ "кхм" от Zahar_Konstov замечен, но аккаунт не Lev_Bennet (текущий ник: ${_khmOwnNick}) — пропуск`);
+                        }
+                    }
+                }
+            }
+            // ==================== КОНЕЦ АВТО-ОТВЕТА "КХМ" ====================
+
             // ==================== ОТСЛЕЖИВАНИЕ ПОГОНИ ====================
             if (typeof message === 'string' && currentScanId) {
                 // Погоня началась или присоединились
