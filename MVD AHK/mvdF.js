@@ -2049,13 +2049,13 @@ window._mvdExecuteDoklad = function(reportType, reportName, stage) {
         const name = reportName || '';
         let text = '';
         if (reportType === 'post') {
-            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Занял пост "${name}". Сост.: Стабильное.`;
-            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю стоять на посту "${name}". Сост.: Стабильное.`;
-            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Закончил стоять на посту "${name}". Сост.: Стабильное.`;
+            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Занял пост ${name}. Сост.: Стабильное.`;
+            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю стоять на посту ${name}. Сост.: Стабильное.`;
+            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Закончил стоять на посту ${name}. Сост.: Стабильное.`;
         } else if (reportType === 'patrol') {
-            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Выехал в патруль "${name}". Сост.: Стабильное.`;
-            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю патрулировать "${name}". Сост.: Стабильное.`;
-            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Завершаю патрулировать "${name}". Сост.: Стабильное.`;
+            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Выехал в патруль ${name}. Сост.: Стабильное.`;
+            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю патрулировать ${name}. Сост.: Стабильное.`;
+            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Завершаю патрулировать ${name}. Сост.: Стабильное.`;
         }
         if (text) sendChatInput(text);
     };
