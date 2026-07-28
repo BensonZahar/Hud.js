@@ -1,0 +1,357 @@
+/* ══════════════════════════════════════════════════════════════
+   ZKM Screen Notification — v5.1 "App Match"
+   Палитра и приёмы — из zkm.js / laws-helper.css:
+   #141419 фон · #f4f1e1 текст · золото #f9b701 · тонкие рамки
+   rgba(244,241,225,.1). Цвет акцента приходит инлайн-стилями из
+   JS (см. комментарий в ZkmScreenNotification.js) — здесь только
+   структурные правила, которые от акцента не зависят.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Позиции ─────────────────────────────────────────────────── */
+/* Базовые "точки привязки". Когда в одной точке оказывается несколько
+   уведомлений (напр. таймер отслеживания + мелкий тост), их взаимный
+   сдвиг ("стекинг") считает и подставляет JS напрямую в el.style.top /
+   el.style.bottom (см. restack() в ZkmScreenNotification.js) — ОБЫЧНЫМ
+   инлайн-стилем, а НЕ через CSS custom property/var(). В этом CEF-
+   движке var(), выставленный из JS через style.setProperty, ведёт себя
+   ненадёжно (см. комментарий в начале .js-файла) — ровно поэтому весь
+   акцент в этом проекте тоже идёт через инлайн style="", а не var().
+   Здесь — только исходные (немодифицированные) значения на случай,
+   когда JS ещё не успел проставить инлайн-оффсет. */
+.zkm-sn--top    { top: 8.8vh;     left: 50%;  transform: translate(-50%, 0)      scale(1); }
+.zkm-sn--bottom { bottom: 5.93vh; left: 50%;  transform: translate(-50%, 0)      scale(1); }
+.zkm-sn--left   { left: 4.26vh;   top: 54vh;  transform: translate(0, 0)         scale(1); }
+
+/* Enter — лёгкий "pop": едет + слегка увеличивается из 0.94 */
+.zkm-sn--top.zkm-sn--enter    { opacity: 0; transform: translate(-50%, -2vh)  scale(0.94); }
+.zkm-sn--bottom.zkm-sn--enter { opacity: 0; transform: translate(-50%,  2vh)  scale(0.94); }
+.zkm-sn--left.zkm-sn--enter   { opacity: 0; transform: translate(-2vh, 0)     scale(0.94); }
+
+/* Leave */
+.zkm-sn--top.zkm-sn--leave    { opacity: 0; transform: translate(-50%, -1vh)  scale(0.97); }
+.zkm-sn--bottom.zkm-sn--leave { opacity: 0; transform: translate(-50%,  1vh)  scale(0.97); }
+.zkm-sn--left.zkm-sn--leave   { opacity: 0; transform: translate(-1vh, 0)     scale(0.97); }
+
+/* ── Основная обёртка ────────────────────────────────────────── */
+.zkm-sn {
+    position: fixed;
+    z-index: 99999;
+    pointer-events: none;
+    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-style: normal;
+
+    /* Лёгкий градиент вместо плоской заливки — больше глубины */
+    background: linear-gradient(165deg, rgba(26, 26, 32, 0.94), rgba(15, 15, 19, 0.96));
+    backdrop-filter: blur(16px) saturate(160%);
+    -webkit-backdrop-filter: blur(16px) saturate(160%);
+
+    border: 0.19vh solid rgba(244, 241, 225, 0.1);
+    border-radius: 0.65vh;
+    min-width: 27vh;
+    max-width: 46vh;
+
+    /* box-shadow (включая цветное свечение) подставляется инлайн из JS —
+       здесь только transition/overflow, чтобы не перезаписывать его */
+    transition: opacity 0.28s cubic-bezier(.22,1,.36,1), transform 0.28s cubic-bezier(.22,1,.36,1),
+                box-shadow 0.3s ease, top 0.3s ease, bottom 0.3s ease;
+    overflow: hidden;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ГРАДИЕНТНАЯ ПОЛОСА-АКЦЕНТ — современная замена плоскому border-top
+   ══════════════════════════════════════════════════════════════ */
+.zkm-sn__accent-line {
+    width: 100%;
+    height: 0.22vh;
+    position: relative;
+    z-index: 2;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   LIGHTBAR — только для сирены (6 сегментов, каскадная анимация)
+   ══════════════════════════════════════════════════════════════ */
+.zkm-sn__lightbar {
+    width: 100%;
+    height: 0.46vh;
+    display: flex;
+    border-radius: 0.5vh 0.5vh 0 0;
+    overflow: hidden;
+    position: relative;
+    z-index: 2;
+}
+
+.zkm-sn__lightbar::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 0.12vh;
+    background: rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+}
+
+.zkm-sn__lb-s1, .zkm-sn__lb-s2, .zkm-sn__lb-s3,
+.zkm-sn__lb-s4, .zkm-sn__lb-s5, .zkm-sn__lb-s6 {
+    flex: 1;
+    position: relative;
+}
+
+.zkm-sn__lb-s1::after, .zkm-sn__lb-s2::after,
+.zkm-sn__lb-s3::after, .zkm-sn__lb-s4::after, .zkm-sn__lb-s5::after {
+    content: '';
+    position: absolute;
+    right: 0; top: 0; bottom: 0;
+    width: 0.09vh;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 1;
+}
+
+/* ── Тело уведомления ────────────────────────────────────────── */
+.zkm-sn__body {
+    position: relative;
+    z-index: 1;
+    padding: 1.05vh 1.35vh 1.15vh;
+}
+
+/* ── Шапка ───────────────────────────────────────────────────── */
+.zkm-sn__header {
+    display: flex;
+    align-items: center;
+    gap: 0.62vh;
+    margin-bottom: 0.52vh;
+    padding-bottom: 0.44vh;
+    border-bottom: 0.19vh solid rgba(244, 241, 225, 0.08);
+}
+
+/* Маркер-акцент — маленькая светящаяся точка */
+.zkm-sn__dot {
+    width: 0.56vh;
+    height: 0.56vh;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Заголовок — Open Sans Condensed italic bold uppercase, как
+   .laws-helper__title / .laws-helper__wanted-title в приложении */
+.zkm-sn__title {
+    font-family: "Open Sans Condensed", "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 1.3vh;
+    letter-spacing: 0.09vh;
+    text-transform: uppercase;
+    line-height: 1;
+    flex: 1;
+    transition: color 0.3s ease, opacity 0.12s ease;
+}
+
+/* Текст уведомления */
+.zkm-sn__text {
+    color: rgba(244, 241, 225, 0.85);
+    font-size: 1.2vh;
+    font-weight: 500;
+    line-height: 1.62;
+}
+.zkm-sn__text-line { display: block; transition: opacity 0.12s ease; }
+
+
+/* ══════════════════════════════════════════════════════════════
+   СИРЕНА — .zkm-sn--siren
+   Красные блоки гаснут → синие вспыхивают, со сдвигом (cascade)
+   ══════════════════════════════════════════════════════════════ */
+
+.zkm-sn--siren .zkm-sn__lb-s3 { animation: zkm5-r 0.55s steps(1) 0.00s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s2 { animation: zkm5-r 0.55s steps(1) 0.05s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s1 { animation: zkm5-r 0.55s steps(1) 0.10s infinite; }
+
+.zkm-sn--siren .zkm-sn__lb-s4 { animation: zkm5-b 0.55s steps(1) 0.00s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s5 { animation: zkm5-b 0.55s steps(1) 0.05s infinite; }
+.zkm-sn--siren .zkm-sn__lb-s6 { animation: zkm5-b 0.55s steps(1) 0.10s infinite; }
+
+@keyframes zkm5-r {
+    0%,  49% { background: #e25544; filter: brightness(1.5) saturate(1.2); }
+    50%, 100% { background: rgba(226, 85, 68, 0.13); filter: brightness(1); }
+}
+
+@keyframes zkm5-b {
+    0%,  49% { background: rgba(45, 125, 210, 0.13); filter: brightness(1); }
+    50%, 100% { background: #2d7dd2; filter: brightness(1.5) saturate(1.2); }
+}
+
+.zkm-sn--siren {
+    animation: zkm5-outer 0.55s steps(1) infinite;
+}
+
+@keyframes zkm5-outer {
+    0%,  49% {
+        box-shadow:
+            0 1.6vh 3.9vh rgba(0, 0, 0, 0.52),
+            0 0.5vh 1.3vh rgba(0, 0, 0, 0.3),
+            0 0    2.4vh 0.42vh rgba(226, 85,  68, 0.28);
+    }
+    50%, 100% {
+        box-shadow:
+            0 1.6vh 3.9vh rgba(0, 0, 0, 0.52),
+            0 0.5vh 1.3vh rgba(0, 0, 0, 0.3),
+            0 0    2.4vh 0.42vh rgba( 45, 125, 210, 0.28);
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ТАЙМЕР-СТРОКА — общая для addTimer() и addChoice()
+   ══════════════════════════════════════════════════════════════ */
+
+.zkm-sn__timer-row {
+    display: flex;
+    align-items: center;
+    gap: 0.56vh;
+    margin-top: 0.56vh;
+    padding-top: 0.46vh;
+    border-top: 0.19vh solid rgba(244, 241, 225, 0.08);
+}
+
+.zkm-sn__timer-icon {
+    width: 1.2vh;
+    height: 1.2vh;
+    color: rgba(244, 241, 225, 0.5);
+    flex-shrink: 0;
+}
+
+.zkm-sn__timer-time {
+    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-size: 1.2vh;
+    font-weight: 700;
+    color: #f4f1e1;
+    letter-spacing: 0.04vh;
+    font-variant-numeric: tabular-nums;
+    min-width: 3.6vh;
+}
+
+.zkm-sn__timer-bar-wrap {
+    flex: 1;
+    height: 0.28vh;
+    background: rgba(244, 241, 225, 0.08);
+    border-radius: 0.14vh;
+    overflow: hidden;
+}
+
+.zkm-sn__timer-bar-fill {
+    height: 100%;
+    border-radius: 0.14vh;
+    transition: width 1s linear, background 0.25s ease;
+}
+
+@keyframes zkm-urgent-pulse {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1;   }
+}
+.zkm-sn__timer-bar-fill--urgent {
+    background: #e25544 !important;
+    opacity: 1;
+    animation: zkm-urgent-pulse 0.5s ease-in-out infinite;
+}
+.zkm-sn__timer-time--urgent {
+    color: #ff8a7a;
+    animation: zkm-urgent-pulse 0.5s ease-in-out infinite;
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   УВЕДОМЛЕНИЕ-ВЫБОР — .zkm-sn--choice  (addChoice)
+   Две кнопки-карточки в стиле .laws-helper__wanted-btn
+   ══════════════════════════════════════════════════════════════ */
+
+.zkm-sn--choice {
+    min-width: 36vh;
+}
+
+.zkm-sn__choice-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0.5vh;
+    margin: 0.55vh 0 0.6vh;
+}
+
+/* Карточка-строка: иконка слева, подпись + keycap-хинт справа —
+   горизонтальный "list row", а не квадратная кнопка со штампом сверху */
+.zkm-sn__choice-opt {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.56vh;
+    padding: 0.5vh 0.62vh;
+    border-radius: 0.46vh;
+    background: rgba(255, 255, 255, 0.025);
+    border: 0.15vh solid rgba(244, 241, 225, 0.08);
+}
+
+/* Круглая иконка-бейдж вместо цветного текстового штампа */
+.zkm-sn__choice-icon {
+    flex-shrink: 0;
+    width: 2.05vh;
+    height: 2.05vh;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.zkm-sn__choice-icon svg {
+    width: 1.05vh;
+    height: 1.05vh;
+}
+
+.zkm-sn__choice-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2vh;
+}
+
+/* Подпись — как в остальном приложении: спокойный вес, без "крика" капсом */
+.zkm-sn__choice-label {
+    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-size: 0.98vh;
+    font-weight: 600;
+    letter-spacing: 0.01vh;
+    color: #f4f1e1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Keycap-хинт клавиши — компактная подпись под лейблом, не отдельная кнопка */
+.zkm-sn__choice-key {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.16vh;
+    font-family: "Open Sans", var(--fallback-font), Arial, sans-serif;
+    font-size: 0.68vh;
+    font-weight: 700;
+    letter-spacing: 0.04vh;
+    text-transform: uppercase;
+    color: rgba(244, 241, 225, 0.4);
+}
+.zkm-sn__choice-key b {
+    font-weight: 800;
+    color: rgba(244, 241, 225, 0.65);
+}
+
+/* «Нет» — красный акцент приложения, только в иконке и тонкой рамке */
+.zkm-sn__choice-opt--no {
+    border-color: rgba(226, 85, 68, 0.22);
+}
+.zkm-sn__choice-opt--no .zkm-sn__choice-icon {
+    background: rgba(226, 85, 68, 0.14);
+    color: #ff8a7a;
+}
+
+/* «Да» — зелёный акцент приложения, только в иконке и тонкой рамке */
+.zkm-sn__choice-opt--yes {
+    border-color: rgba(10, 153, 71, 0.28);
+}
+.zkm-sn__choice-opt--yes .zkm-sn__choice-icon {
+    background: rgba(10, 153, 71, 0.16);
+    color: #6fe0a0;
+}
