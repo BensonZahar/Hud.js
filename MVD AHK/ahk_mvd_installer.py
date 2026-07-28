@@ -32,20 +32,37 @@ from PIL import Image
 # ═══════════════════════════════════════════════════════
 #  НАСТРОЙКИ
 # ═══════════════════════════════════════════════════════
-GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSB%20AHK"
+GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
 KEYS_URL      = f"{GITHUB_RAW}/keys.json"
 AHK_URL       = f"{GITHUB_RAW}/LoadAhk.js"
-FSB_RAW       = GITHUB_RAW
+
+FSB_RAW       = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSB%20AHK"
 FSB_AHK_URL   = f"{FSB_RAW}/LoadFsb.js"
-INTLOAD_URL   = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
-CUSTOM_UI_URL = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
-LOADERS_URL   = f"{CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
+
+# ── Кастом-интерфейсы МВД (остаются в MVD AHK) ──
+MVD_INTLOAD_URL   = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
+MVD_CUSTOM_UI_URL = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
+MVD_LOADERS_URL   = f"{MVD_CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
+
+# ── Кастом-интерфейсы ФСБ (теперь в FSB AHK) ──
+FSB_INTLOAD_URL   = f"{FSB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
+FSB_CUSTOM_UI_URL = f"{FSB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
+FSB_LOADERS_URL   = f"{FSB_CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
 
 RETRY_COUNT = 5
 RETRY_DELAY = 4
 
 USE_LOADERS   = True
-DEPLOY_UI_URL = LOADERS_URL if USE_LOADERS else CUSTOM_UI_URL
+
+
+def _intload_url(department: str) -> str:
+    return FSB_INTLOAD_URL if department == 'fsb' else MVD_INTLOAD_URL
+
+
+def _deploy_ui_url(department: str) -> str:
+    custom_url  = FSB_CUSTOM_UI_URL if department == 'fsb' else MVD_CUSTOM_UI_URL
+    loaders_url = FSB_LOADERS_URL if department == 'fsb' else MVD_LOADERS_URL
+    return loaders_url if USE_LOADERS else custom_url
 
 NATIVE_INTERFACE_NAMES = {
     "ScreenNotification", "Menu", "Hud", "Dialog", "InventoryNew",
@@ -561,11 +578,12 @@ class InstallerAPI:
         return result
 
     @staticmethod
-    def _fetch_custom_interfaces() -> list:
+    def _fetch_custom_interfaces(department: str = 'mvd') -> list:
         import re, json, traceback
+        intload_url = _intload_url(department)
         try:
-            print(f'[Installer] Загружаю IntLoad.js: {INTLOAD_URL}')
-            resp = requests.get(INTLOAD_URL, timeout=15)
+            print(f'[Installer] Загружаю IntLoad.js: {intload_url}')
+            resp = requests.get(intload_url, timeout=15)
             resp.raise_for_status()
             print(f'[Installer] HTTP {resp.status_code}, длина {len(resp.text)} байт')
             text = resp.text
@@ -636,16 +654,17 @@ class InstallerAPI:
         parts.extend(side_effects)
         return "".join(parts)
 
-    def _deploy_custom_ui_files(self, ifaces: list):
+    def _deploy_custom_ui_files(self, ifaces: list, department: str = 'mvd'):
         if not self.radmir_path:
             return
         assets_dir = self.radmir_path / "uiresources" / "assets"
         if not assets_dir.exists():
             return
+        deploy_ui_url = _deploy_ui_url(department)
         all_files = [f for iface in ifaces for f in iface.get("files", [])]
         kind = "загрузчик" if USE_LOADERS else "файл"
         for filename in all_files:
-            url = f"{DEPLOY_UI_URL}/{filename}"
+            url = f"{deploy_ui_url}/{filename}"
             try:
                 resp = requests.get(url, timeout=20)
                 resp.raise_for_status()
@@ -684,8 +703,8 @@ class InstallerAPI:
                 if not self._check_dirs():
                     result_data["message"] = "Папка RADMIR CRMP не выбрана или некорректна."
                     return
-                ifaces = self._fetch_custom_interfaces()
-                self._deploy_custom_ui_files(ifaces)
+                ifaces = self._fetch_custom_interfaces(department)
+                self._deploy_custom_ui_files(ifaces, department)
                 
                 loader_url = FSB_AHK_URL if department == 'fsb' else AHK_URL
                 code = None
