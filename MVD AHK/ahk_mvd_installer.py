@@ -32,10 +32,10 @@ from PIL import Image
 # ═══════════════════════════════════════════════════════
 #  НАСТРОЙКИ
 # ═══════════════════════════════════════════════════════
-GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK"
+GITHUB_RAW    = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSB%20AHK"
 KEYS_URL      = f"{GITHUB_RAW}/keys.json"
 AHK_URL       = f"{GITHUB_RAW}/LoadAhk.js"
-FSB_RAW       = f"{GITHUB_RAW}/FSB"
+FSB_RAW       = GITHUB_RAW
 FSB_AHK_URL   = f"{FSB_RAW}/LoadFsb.js"
 INTLOAD_URL   = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
 CUSTOM_UI_URL = f"{GITHUB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
@@ -379,7 +379,7 @@ def _log_to_file(msg: str):
     try:
         from datetime import datetime
         appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
-        folder = Path(appdata) / 'AHK_MVD'
+        folder = Path(appdata) / 'AHK_KONST'
         folder.mkdir(parents=True, exist_ok=True)
         with open(folder / 'install_log.txt', 'a', encoding='utf-8') as f:
             f.write(f'[{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] {msg}\n')
@@ -389,7 +389,7 @@ def _log_to_file(msg: str):
 
 def _settings_path() -> Path:
     appdata = os.environ.get('APPDATA') or os.path.expanduser('~')
-    folder = Path(appdata) / 'AHK_MVD'
+    folder = Path(appdata) / 'AHK_KONST'
     folder.mkdir(parents=True, exist_ok=True)
     return folder / 'settings.json'
 
