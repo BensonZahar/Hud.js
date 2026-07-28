@@ -197,6 +197,46 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: duration-input — Указание времени доклада (мин, шаг 10, мин. 30)
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="duration-input"
+                ? (openBlock(),createElementBlock(Fragment,{key:"duration-input"},[
+                    createBaseVNode("div",{class:"dokladi__name-input-wrap"},[
+                        createBaseVNode("div",{class:"dokladi__name-input-label"},
+                            "Укажите время доклада (мин), не менее 30, шагом 10"
+                        ),
+                        createBaseVNode("div",{class:"dokladi__name-input-row"},[
+                            createBaseVNode("input",{
+                                class:"dokladi__name-input-field",
+                                id:"dokladi-duration-field",
+                                type:"number",
+                                min:"30",
+                                step:"10",
+                                inputmode:"numeric",
+                                placeholder:"30, 40, 50...",
+                                value:$data.reportDuration,
+                                onInput:$event=>{
+                                    $data.reportDuration=$event.target.value.replace(/[^0-9]/g,"");
+                                    $data.durationError="";
+                                },
+                                onKeydown:$options.onDurationInputKeydown,
+                            },null,40,["value","onInput","onKeydown"])
+                        ]),
+                        $data.durationError
+                            ? (openBlock(),createElementBlock("div",{key:"err",class:"dokladi__duration-error"},
+                                toDisplayString($data.durationError), 1 /* TEXT */
+                              ))
+                            : createCommentVNode("",true),
+                        $options.durationValid
+                            ? (openBlock(),createElementBlock("div",{key:"preview",class:"dokladi__duration-preview"},
+                                toDisplayString($options.scheduleDescription), 1 /* TEXT */
+                              ))
+                            : createCommentVNode("",true),
+                    ])
+                  ],64))
+                : createCommentVNode("",true),
+
+            // ══════════════════════════════════════════════════════════════════
             // ЭКРАН: stage — выбор Начало / Середина / Конец + таймер
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="stage"
@@ -209,6 +249,11 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             toDisplayString($data.reportName), 1 /* TEXT */
                         )
                     ]),
+                    // Расчётный график докладов, посчитанный из указанного времени
+                    // (Начало → 10 мин → Середина × N → 10 мин → Конец)
+                    createBaseVNode("div",{class:"dokladi__stage-schedule"},
+                        toDisplayString($options.scheduleDescription), 1 /* TEXT */
+                    ),
                     // Таймер — показывается только если уже был отправлен хотя бы один доклад
                     // (Начало/Середина) в этой сессии; до этого timerRunning===false.
                     $data.timerRunning
@@ -280,6 +325,9 @@ const _sfc_main={
             selectedIndex:0,
             reportType:null,   // "post" | "patrol"
             reportName:"",
+            // ── Указанное пользователем время доклада (мин, шаг 10, минимум 30) ──
+            reportDuration:"",
+            durationError:"",
             // ── Таймер (секундомер, считает ВВЕРХ — как долго прошло с доклада) ──
             timerRunning:false,
             timerSeconds:0,
@@ -290,8 +338,9 @@ const _sfc_main={
     computed:{
         headerSubtitle(){
             if(this.screen==="type")       return "ДОКЛАДЫ";
-            if(this.screen==="name-input") return this.reportType==="post" ? "ПОСТ" : "ПАТРУЛЬ";
-            if(this.screen==="stage")      return this.reportType==="post" ? "ПОСТ" : "ПАТРУЛЬ";
+            if(this.screen==="name-input")     return this.reportType==="post" ? "ПОСТ" : "ПАТРУЛЬ";
+            if(this.screen==="duration-input") return this.reportType==="post" ? "ПОСТ" : "ПАТРУЛЬ";
+            if(this.screen==="stage")          return this.reportType==="post" ? "ПОСТ" : "ПАТРУЛЬ";
             return "ДОКЛАДЫ";
         },
         currentListItems(){
@@ -300,19 +349,46 @@ const _sfc_main={
             return [];
         },
         footerConfirmText(){
-            return this.screen==="name-input" ? "Подтвердить" : "Выбрать";
+            return (this.screen==="name-input"||this.screen==="duration-input") ? "Подтвердить" : "Выбрать";
         },
         footerBackText(){
             if(this.screen==="type") return "Закрыть";
             return "Назад";
         },
         footerConfirmDisabled(){
-            if(this.screen==="name-input") return this.reportName.trim().length===0;
+            if(this.screen==="name-input")     return this.reportName.trim().length===0;
+            if(this.screen==="duration-input") return !this.durationValid;
             return this.currentListItems.length===0;
         },
         // Используется только для начального рендера; далее обновляется через DOM напрямую (как в AdvMenu.js)
         timerDisplay(){
             return _dokladFormatTime(this.timerSeconds);
+        },
+        // ── Валидация указанного времени доклада: целое число, не меньше 30, шаг 10 ──
+        durationValid(){
+            const val=parseInt(this.reportDuration,10);
+            return Number.isFinite(val)&&val>=30&&val%10===0;
+        },
+        // ── Сколько раз нужно доложить "Середина" при указанном времени ─────────
+        // Правило: 30 → Начало, 10 мин, Середина, 10 мин, Конец (1 середина).
+        //          40 → Начало, 10 мин, Середина, 10 мин, Середина, 10 мин, Конец (2 середины).
+        //          Т.е. на каждые +10 к 30 добавляется ещё одна "Середина".
+        middleTotal(){
+            const val=parseInt(this.reportDuration,10);
+            if(!Number.isFinite(val)||val<30) return 0;
+            return 1+Math.floor((val-30)/10);
+        },
+        // ── Человекочитаемое описание графика докладов для текущего времени ─────
+        scheduleDescription(){
+            const n=this.middleTotal;
+            if(!n) return "";
+            // Склонение "раз/раза/раз" по стандартным правилам русского языка
+            const mod10=n%10,mod100=n%100;
+            let times;
+            if(mod10===1&&mod100!==11) times="раз";
+            else if(mod10>=2&&mod10<=4&&(mod100<10||mod100>=20)) times="раза";
+            else times="раз";
+            return `Начало → 10 мин → Середина (${n} ${times}, каждые 10 мин) → 10 мин → Конец`;
         },
     },
     watch:{
@@ -333,6 +409,8 @@ const _sfc_main={
                 this.selectType(items[idx]);
             } else if(this.screen==="name-input"){
                 this.confirmNameInput();
+            } else if(this.screen==="duration-input"){
+                this.confirmDurationInput();
             } else if(this.screen==="stage"){
                 const items=STAGE_OPTIONS;
                 const idx=Math.min(Math.max(this.selectedIndex,0),items.length-1);
@@ -344,8 +422,11 @@ const _sfc_main={
         },
         goBack(){
             if(this.screen==="stage"){
-                // Возврат к вводу названия не трогает уже идущий таймер/сессию —
+                // Возврат к указанию времени не трогает уже идущий таймер/сессию —
                 // они не сбрасываются, просто перевыбор экрана.
+                this.screen="duration-input";
+                this.$nextTick(()=>{ const f=document.getElementById("dokladi-duration-field");if(f)f.focus(); });
+            } else if(this.screen==="duration-input"){
                 this.screen="name-input";
                 this.$nextTick(()=>{ const f=document.getElementById("dokladi-name-field");if(f)f.focus(); });
             } else if(this.screen==="name-input"){
@@ -373,16 +454,44 @@ const _sfc_main={
             if(this.reportType==="post") window._mvdDokladPostName=name;
             else if(this.reportType==="patrol") window._mvdDokladPatrolName=name;
             // Помечаем сессию активной — при следующем открытии меню Доклады
-            // сразу попадём на этот же экран stage с этим постом/патрулём,
-            // минуя выбор типа и ввод названия (пока не будет отправлен "Конец"
-            // или нажата "Отмена"). timerStartAt появится тут же, в
-            // selectStage(), как только будет отправлено "Начало"/"Середина".
-            window._dokladActive={type:this.reportType,name:this.reportName,timerStartAt:null};
-            this.screen="stage";
+            // сразу попадём на этот же экран (duration-input, пока время не указано,
+            // либо stage, если оно уже было указано) с этим постом/патрулём, минуя
+            // выбор типа и ввод названия (пока не будет отправлен "Конец" или нажата
+            // "Отмена"). timerStartAt появится тут же, в selectStage(), как только
+            // будет отправлено "Начало"/"Середина".
+            window._dokladActive={type:this.reportType,name:this.reportName,duration:null,timerStartAt:null};
+            this.durationError="";
+            this.screen="duration-input";
+            this.$nextTick(()=>{ const f=document.getElementById("dokladi-duration-field");if(f)f.focus(); });
         },
         onNameInputKeydown(e){
             if(e.key==="Escape"){ this.goBack(); return; }
             if(e.key==="Enter"){ this.confirmNameInput(); }
+        },
+        // ── Экран duration-input — подтверждение времени доклада ────────────
+        // Правило пересчёта (шаг 10 минут, минимум 30):
+        //   30 → Начало · 10 мин · Середина · 10 мин · Конец            (1 середина)
+        //   40 → Начало · 10 мин · Середина · 10 мин · Середина · 10 мин · Конец (2 середины)
+        //   50, 60, ... — по той же схеме, +1 "Середина" на каждые +10 минут.
+        // Меньше 30 указать нельзя — подтверждение блокируется.
+        confirmDurationInput(){
+            const val=parseInt(this.reportDuration,10);
+            if(!Number.isFinite(val)||val<30){
+                this.durationError="Время не может быть меньше 30 минут";
+                return;
+            }
+            if(val%10!==0){
+                this.durationError="Время нужно указывать шагом 10 (30, 40, 50...)";
+                return;
+            }
+            this.durationError="";
+            this.reportDuration=val;
+            if(window._dokladActive) window._dokladActive.duration=val;
+            this.screen="stage";
+        },
+        onDurationInputKeydown(e){
+            if(e.key==="Escape"){ this.goBack(); return; }
+            if(e.key==="Enter"){ this.confirmDurationInput(); }
         },
         // ── Экран stage — выбор Начало/Середина/Конец → отправка доклада ────
         selectStage(item){
@@ -406,7 +515,7 @@ const _sfc_main={
                 // переоткрытии меню, он не зависит от того, отработает ли
                 // корректно close()/unmounted() следующего закрытия интерфейса.
                 const startAt=Date.now();
-                window._dokladActive={type,name,timerStartAt:startAt};
+                window._dokladActive={type,name,duration:this.reportDuration,timerStartAt:startAt};
                 this._startTimer(startAt);
             }
             // Точное время (1.5с) держим меню открытым, чтобы скриншот по F8 успел
@@ -421,6 +530,8 @@ const _sfc_main={
             this._endSession();
             this.reportType=null;
             this.reportName="";
+            this.reportDuration="";
+            this.durationError="";
             this.screen="type";
             this.selectedIndex=0;
             this.close();
@@ -515,6 +626,11 @@ const _sfc_main={
 .dokladi__name-input-field{-webkit-appearance:none;appearance:none;background:#ffffff08;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;padding:0.74vh 1.11vh;transition:border-color 0.15s;}
 .dokladi__name-input-field:focus{border-color:rgba(249,183,1,0.5);}
 .dokladi__name-input-field::placeholder{color:#f4f1e144;font-weight:400;}
+.dokladi__duration-error{color:#e25544;font-size:1.11vh;font-weight:600;line-height:1.4;}
+.dokladi__duration-preview{color:#f9b701cc;font-size:1.11vh;font-weight:600;line-height:1.4;}
+
+/* Расчётный график докладов на экране stage */
+.dokladi__stage-schedule{color:#f4f1e166;font-size:1.02vh;font-weight:600;line-height:1.4;padding:0 1.67vh 0.74vh;}
 
 /* Footer */
 .dokladi__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
@@ -536,9 +652,18 @@ const _sfc_main={
         if(active){
             this.reportType=active.type;
             this.reportName=active.name;
-            this.screen="stage";
-            if(active.timerStartAt){
-                this._startTimer(active.timerStartAt);
+            this.reportDuration=active.duration||"";
+            if(active.duration){
+                // Время уже было указано ранее — сразу продолжаем с экрана stage.
+                this.screen="stage";
+                if(active.timerStartAt){
+                    this._startTimer(active.timerStartAt);
+                }
+            } else {
+                // Название подтверждено, но время доклада ещё не указано —
+                // продолжаем с того места, где остановились.
+                this.screen="duration-input";
+                this.$nextTick(()=>{ const f=document.getElementById("dokladi-duration-field");if(f)f.focus(); });
             }
         }
 
