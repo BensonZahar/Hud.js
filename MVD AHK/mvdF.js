@@ -124,7 +124,9 @@ function _showAccessDenied(nick) {
         zkm_js:      BASE + 'zkm.js',
         zkm_css:     BASE + 'zkm.css',
         zkmsn_js:    BASE + 'ZkmScreenNotification.js',
-        zkmsn_css:   BASE + 'ZkmScreenNotification.css'
+        zkmsn_css:   BASE + 'ZkmScreenNotification.css',
+        dokladi_js:  BASE + 'dokladi.js',
+        dokladi_css: BASE + 'dokladi.css'
     };
     var RETRIES = 5, BASE_DELAY = 1000;
 
