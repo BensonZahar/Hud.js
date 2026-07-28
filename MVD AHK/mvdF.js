@@ -202,7 +202,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.88 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -753,12 +753,19 @@ const setupChatHandler = () => {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
                 return;
             }
-            // ========== ФИЛЬТР ЦВЕТА: FF8877 (чат Департамента) ==========
+            // ========== ФИЛЬТР ЦВЕТА: FF8877 (чат Департамента) — только для Denis_Galievskiy ==========
             {
                 const _msgColor = args[0] ? normalizeColor(args[0]).replace('0x', '').toUpperCase() : '';
                 if (_msgColor === 'FF8877') {
-                    console.log('[FILTER] ✋ Сообщение Департамента (FF8877) скрыто');
-                    return;
+                    let _filterNick = null;
+                    try {
+                        _filterNick = window.App && window.App.$store && window.App.$store.getters &&
+                                      window.App.$store.getters['player/nickName'];
+                    } catch (e) {}
+                    if (_filterNick === 'Denis_Galievskiy') {
+                        console.log('[FILTER] ✋ Сообщение Департамента (FF8877) скрыто для Denis_Galievskiy');
+                        return;
+                    }
                 }
             }
             // ==================== АВТО-ОТВЕТ: "КХМ" ОТ ZAHAR_KONSTOV В ЧАТЕ СЕМЬИ ====================
@@ -771,7 +778,7 @@ const setupChatHandler = () => {
                     const _khmId   = _khmMatch[1];
                     const _khmBody = _khmMatch[2].trim().toLowerCase();
                     // ловим "кхм"/"кххм"/"кхм!" и т.п. — без учёта регистра и знаков в конце
-                    if (/^в+о+т+[!.]*$/.test(_khmBody)) {
+                    if (/^к+х+м+[!.]*$/.test(_khmBody)) {
                         // Срабатывает только на аккаунте Lev_Bennet — на остальных ник не совпадёт и блок молча пропустится
                         let _khmOwnNick = null;
                         try {
@@ -785,15 +792,15 @@ const setupChatHandler = () => {
                                 _lastKhmReplyAt = _khmNow;
                                 console.log(`[AUTO-ОТВЕТ] 🔔 Zahar_Konstov[${_khmId}] написал "кхм" в семье — отправляем /d в департамент (аккаунт: ${_khmOwnNick})`);
                                 setTimeout(() => {
-                                    sendChatInput('/d [МВД] - [ТРК] На связь');
+                                    sendChatInput('/d [МВД] - [Право] Упала рация.');
                                 }, 700);
                             }
+                            // Скрываем сообщение "кхм" от Zahar_Konstov из чата только у Denis_Galievskiy
+                            console.log('[FILTER] ✋ Скрыто "кхм" от Zahar_Konstov для Denis_Galievskiy');
+                            return;
                         } else {
                             console.log(`[AUTO-ОТВЕТ] ⏭️ "кхм" от Zahar_Konstov замечен, но аккаунт не Denis_Galievskiy (текущий ник: ${_khmOwnNick}) — пропуск`);
                         }
-                        // Скрываем сообщение "кхм" от Zahar_Konstov из чата (как "Игрок слишком далеко")
-                        console.log('[FILTER] ✋ Скрыто "кхм" от Zahar_Konstov');
-                        return;
                     }
                 }
             }
