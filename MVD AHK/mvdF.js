@@ -2038,6 +2038,37 @@ window._mvdExecuteAction = function(action, id) {
         doExecute();
     }
 };
+// Публичный API для Dokladi — отправить доклад по посту/патрулю (стадия: start/middle/end)
+// reportType: "post" | "patrol", stage: "start" | "middle" | "end"
+window._mvdExecuteDoklad = function(reportType, reportName, stage) {
+    var doSend = function() {
+        const _rank = window._mvdRank || '';
+        const _lastName = window._mvdLastName || '';
+        const name = reportName || '';
+        let text = '';
+        if (reportType === 'post') {
+            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Занял пост "${name}". Сост.: Стабильное.`;
+            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю стоять на посту "${name}". Сост.: Стабильное.`;
+            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Закончил стоять на посту "${name}". Сост.: Стабильное.`;
+        } else if (reportType === 'patrol') {
+            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Выехал в патруль "${name}". Сост.: Стабильное.`;
+            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю патрулировать "${name}". Сост.: Стабильное.`;
+            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Завершаю патрулировать "${name}". Сост.: Стабильное.`;
+        }
+        if (text) sendChatInput(text);
+    };
+    // Как и в _mvdExecuteAction: если профиль (звание/фамилия) ещё не загружен —
+    // сначала подгружаем его, потом отправляем доклад.
+    if (!window._mvdLastName || !window._mvdRank) {
+        if (typeof window._mvdLoadPlayerProfile === 'function') {
+            window._mvdLoadPlayerProfile(doSend);
+        } else {
+            doSend();
+        }
+    } else {
+        doSend();
+    }
+};
 // Публичный API для LawsHelper — передаёт статью КоАП и активирует авто-подстановку в серверный диалог /takelic
 window._mvdSetTakeLicReason = function(reason) {
     lastTakeLicCode = reason;
