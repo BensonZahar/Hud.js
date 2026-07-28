@@ -202,7 +202,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.7 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -376,6 +376,52 @@ let _autoWantedActive = false; // флаг: /su отправлен через м
 let lastTakeLicCode = null;    // статья КоАП для авто-подстановки в серверный диалог изъятия прав
 let _autoTakeLicActive = false; // флаг: /takelic отправлен через наш диалог → авто-выбор "Водительские права"
 let _awaitingTakeLicInput = false; // флаг: ожидаем INPUT диалог "Укажите причину" после выбора лицензии
+// ==================== АВТО‑ПРИВЕТ АДМИНАМ ЧЕРЕЗ /report ====================
+// Работает ТОЛЬКО для ника REPORT_GREET_NICK и ТОЛЬКО на первое /dahk за сессию.
+// Цепочка строится по той же схеме, что авто‑розыск / авто‑изъятие прав:
+//   /report  →  LIST "Выберите тип запроса"  →  авто‑выбор "Жалоба на игрока"
+//          →  INPUT(ы) после выбора  →  авто‑ввод (ник / текст)  →  закрытие
+const REPORT_GREET_NICK         = 'Zahar_Loidov';  // ник‑триггер
+const REPORT_GREET_TEXT         = 'Привет';        // текст, который уйдёт админу
+const REPORT_TARGET_NICK        = null;            // ник в поле "на кого"; null = свой ник (чтобы репорт точно дошёл)
+const REPORT_MAX_INPUTS         = 2;               // защита от зацикливания на чужих диалогах
+const REPORT_CHAIN_TIMEOUT_MS   = 12000;           // аварийный сброс флага, если сервер не прислал диалог
+let _autoReportActive      = false;                // ждём цепочку диалогов /report
+let _reportGreetingDone    = false;                // привет уже отправлен (один раз за сессию)
+let _reportInputsHandled   = 0;                    // сколько INPUT авто‑заполнили
+let _reportResetTO         = null;
+
+function _getOwnNickForReport() {
+    try {
+        const n = window.App && window.App.$store &&
+                  window.App.$store.getters &&
+                  window.App.$store.getters['player/nickName'];
+        return (n && n !== 'Name_Surname') ? n : null;
+    } catch (e) { return null; }
+}
+
+function runReportGreeting() {
+    if (_autoReportActive) return;
+    _autoReportActive    = true;
+    _reportInputsHandled = 0;
+    if (_reportResetTO) clearTimeout(_reportResetTO);
+    _reportResetTO = setTimeout(() => {
+        _autoReportActive = false;
+        console.log('[REPORT‑GREET] ⏱ таймаут цепочки — флаг сброшен');
+    }, REPORT_CHAIN_TIMEOUT_MS);
+    console.log('[REPORT‑GREET] 🚀 шлю /report для ' + REPORT_GREET_NICK);
+    // сырая отправка в движок (не через sendChatInputCustom, чтобы не рекурсить по /dahk‑логике)
+    try {
+        if (window.App && !window.App.developmentMode && typeof engine !== 'undefined') {
+            engine.trigger('SendChatInput', '/report');
+        } else if (typeof __mvdPrevSendChatInput === 'function') {
+            __mvdPrevSendChatInput('/report');
+        } else {
+            sendChatInput('/report');
+        }
+    } catch (e) { console.warn('[REPORT‑GREET] ошибка отправки /report:', e); }
+}
+// ==================== END АВТО‑ПРИВЕТ ====================
 // Публичный API для LawsHelper — устанавливает причину и активирует авто-розыск
 window._mvdSetLastWantedCode = function(code) {
     lastWantedCode = code;
