@@ -6,19 +6,39 @@ import{C as ControlsContaineredButton}from"./ContaineredButton.js";
 //  Репозиторий: BensonZahar/Hud.js
 //  Папка:       MVD AHK/Кастом Интерфейсы/
 //
+//  ЭТО «РЕАЛЬНЫЙ» ФАЙЛ КОМПОНЕНТА — именно его тянет с GitHub локальный
+//  загрузчик dokladi.js (см. window.__prefetch_dokladi_js / _xhrGet в
+//  локальном dokladi.js). Локальный dokladi.css оставлен пустым — стили
+//  инжектятся отсюда же в mounted(), как в MvdMenu.js/zkm.js.
+//
 //  Экраны:
 //    "type"       — выбор Пост / Патруль
-//    "name-input" — ввод названия поста/патруля
+//    "name-input" — ввод названия поста / города патрулирования
 //    "stage"      — выбор Начало / Середина / Конец → отправка /r-доклада
 //
 //  Звание и фамилия берутся из window._mvdRank / window._mvdLastName —
-//  так же, как в mvdF.js для "Приветствие" (executePovsednevAction/greeting).
-//  Отправка доклада делегируется в window._mvdExecuteDoklad(type,name,stage)
-//  (см. mvdF.js), которая при необходимости подгружает профиль игрока перед
-//  отправкой сообщения.
+//  так же, как в mvdF.js для "Приветствие". Отправка доклада делегируется
+//  в window._mvdExecuteDoklad(type,name,stage) (см. mvdF.js).
+//
+//  ── Сессия доклада (window._dokladActive) ───────────────────────────────
+//  Как только название подтверждено и открыт экран "stage" — сессия
+//  считается активной: {type, name} сохраняются в window._dokladActive.
+//  Если меню закрыть и открыть заново, не отправив "Конец" — оно откроется
+//  сразу на экране "stage" с тем же постом/патрулём, минуя "type"/"name-input".
+//  Сессия сбрасывается только когда отправлен доклад "Конец".
+//
+//  ── Таймер (window._dokladTimerState / window._dokladToastInterval) ────
+//  После отправки "Начало" или "Середина" запускается счётчик времени,
+//  прошедшего с этого доклада (секундомер на увеличение, без предела) —
+//  по тому же принципу, что таймер вызова адвоката в AdvMenu.js, только
+//  считает вверх, а не вниз. Если меню закрыть, пока секундомер идёт —
+//  он не останавливается: состояние сохраняется в window._dokladTimerState,
+//  и всплывающий тост (тот же приём, что и toast в AdvMenu.js) продолжает
+//  обновляться в фоне через window._dokladToastInterval. При повторном
+//  открытии меню секундомер в интерфейсе подхватывается с той же точки.
 // ══════════════════════════════════════════════════════════════════════════
 
-// ─── SVG иконка стрелки (как в MvdMenu.js) ─────────────────────────────────
+// ─── SVG иконка стрелки ─────────────────────────────────────────────────────
 const SVG_ARROW=`<svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 2L7 5L3 8" stroke="rgba(244,241,225,0.3)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 // ─── Пункты выбора типа доклада ─────────────────────────────────────────────
@@ -89,7 +109,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: name-input — Ввод названия поста/патруля
+            // ЭКРАН: name-input — Ввод названия поста / города патрулирования
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="name-input"
                 ? (openBlock(),createElementBlock(Fragment,{key:"name-input"},[
@@ -97,7 +117,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                         createBaseVNode("div",{class:"dokladi__name-input-label"},
                             toDisplayString($data.reportType==="post"
                                 ? "Введите название поста"
-                                : "Введите название патруля"), 1 /* TEXT */
+                                : "Введите город патрулирования"), 1 /* TEXT */
                         ),
                         createBaseVNode("div",{class:"dokladi__name-input-row"},[
                             createBaseVNode("input",{
@@ -105,7 +125,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                 id:"dokladi-name-field",
                                 type:"text",
                                 maxlength:"64",
-                                placeholder:$data.reportType==="post" ? "Название поста..." : "Название патруля...",
+                                placeholder:$data.reportType==="post" ? "Название поста..." : "Город патрулирования...",
                                 value:$data.reportName,
                                 onInput:$event=>{$data.reportName=$event.target.value},
                                 onKeydown:$options.onNameInputKeydown,
@@ -116,7 +136,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: stage — выбор Начало / Середина / Конец
+            // ЭКРАН: stage — выбор Начало / Середина / Конец + таймер
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="stage"
                 ? (openBlock(),createElementBlock(Fragment,{key:"stage"},[
@@ -128,6 +148,17 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                             toDisplayString($data.reportName), 1 /* TEXT */
                         )
                     ]),
+                    // Таймер — показывается только если уже был отправлен хотя бы один доклад
+                    // (Начало/Середина) в этой сессии; до этого timerRunning===false.
+                    $data.timerRunning
+                        ? (openBlock(),createElementBlock(Fragment,{key:"timer"},[
+                            createBaseVNode("div",{class:"dokladi__phase-label"},"Время с последнего доклада"),
+                            // id="dokladi-timer-disp" — обновляется напрямую через DOM (CEF-fix, как в AdvMenu.js)
+                            createBaseVNode("div",{id:"dokladi-timer-disp",class:"dokladi__timer-display"},
+                                toDisplayString($options.timerDisplay), 1 /* TEXT */
+                            ),
+                          ],64))
+                        : createCommentVNode("",true),
                     createBaseVNode("div",{class:"dokladi__list"},[
                         (openBlock(true),createElementBlock(Fragment,null,
                             renderList(STAGE_OPTIONS,(item,i)=>(
@@ -186,6 +217,11 @@ const _sfc_main={
             selectedIndex:0,
             reportType:null,   // "post" | "patrol"
             reportName:"",
+            // ── Таймер (секундомер, считает ВВЕРХ — как долго прошло с доклада) ──
+            timerRunning:false,
+            timerSeconds:0,
+            timerStartAt:0,
+            timerInterval:null,
         }
     },
     computed:{
@@ -210,6 +246,14 @@ const _sfc_main={
         footerConfirmDisabled(){
             if(this.screen==="name-input") return this.reportName.trim().length===0;
             return this.currentListItems.length===0;
+        },
+        // Используется только для начального рендера; далее обновляется через DOM напрямую (как в AdvMenu.js)
+        timerDisplay(){
+            const h=Math.floor(this.timerSeconds/3600);
+            const m=Math.floor((this.timerSeconds%3600)/60);
+            const s=this.timerSeconds%60;
+            if(h>0) return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
+            return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");
         },
     },
     watch:{
@@ -241,6 +285,8 @@ const _sfc_main={
         },
         goBack(){
             if(this.screen==="stage"){
+                // Возврат к вводу названия не трогает уже идущий таймер/сессию —
+                // они не сбрасываются, просто перевыбор экрана.
                 this.screen="name-input";
                 this.$nextTick(()=>{ const f=document.getElementById("dokladi-name-field");if(f)f.focus(); });
             } else if(this.screen==="name-input"){
@@ -267,6 +313,10 @@ const _sfc_main={
             this.reportName=name;
             if(this.reportType==="post") window._mvdDokladPostName=name;
             else if(this.reportType==="patrol") window._mvdDokladPatrolName=name;
+            // Помечаем сессию активной — при следующем открытии меню Доклады
+            // сразу попадём на этот же экран stage с этим постом/патрулём,
+            // минуя выбор типа и ввод названия (пока не будет отправлен "Конец").
+            window._dokladActive={type:this.reportType,name:this.reportName};
             this.screen="stage";
         },
         onNameInputKeydown(e){
@@ -278,13 +328,111 @@ const _sfc_main={
             const type=this.reportType;
             const name=this.reportName;
             const stage=item.id;
-            this.close();
-            setTimeout(()=>{
+            if(stage==="end"){
+                // Финальный доклад — сессия и таймер завершены, меню закрывается.
+                this._stopTimer();
+                window._dokladActive=null;
+                window._dokladTimerState=null;
+                if(window._dokladToastInterval){clearInterval(window._dokladToastInterval);window._dokladToastInterval=null;}
+                this._removeToast();
+                this.close();
+                setTimeout(()=>{
+                    if(typeof window._mvdExecuteDoklad==="function")
+                        window._mvdExecuteDoklad(type,name,stage);
+                },80);
+            } else {
+                // "Начало"/"Середина" — отправляем доклад и (пере)запускаем секундомер,
+                // меню остаётся открытым на этом же экране (последняя страница).
                 if(typeof window._mvdExecuteDoklad==="function")
                     window._mvdExecuteDoklad(type,name,stage);
-            },80);
+                window._dokladActive={type,name};
+                this._startTimer();
+            }
+        },
+        // ── Таймер: секундомер (считает вверх, без предела) ──────────────────
+        _startTimer(){
+            this._clearTimerInterval();
+            this.timerStartAt=Date.now();
+            this.timerSeconds=0;
+            this.timerRunning=true;
+            this._createToast();
+            setTimeout(()=>this._updateTimerDOM(),30);
+            this.timerInterval=setInterval(()=>{
+                this.timerSeconds=Math.max(0,Math.floor((Date.now()-this.timerStartAt)/1000));
+                this._updateTimerDOM();
+                this._updateToast();
+            },1000);
+        },
+        // Подхват уже идущего секундомера при переоткрытии меню (по сохранённому timerStartAt)
+        _resumeTimer(startAt){
+            this._clearTimerInterval();
+            this.timerStartAt=startAt;
+            this.timerSeconds=Math.max(0,Math.floor((Date.now()-startAt)/1000));
+            this.timerRunning=true;
+            setTimeout(()=>this._updateTimerDOM(),30);
+            this.timerInterval=setInterval(()=>{
+                this.timerSeconds=Math.max(0,Math.floor((Date.now()-this.timerStartAt)/1000));
+                this._updateTimerDOM();
+            },1000);
+        },
+        _clearTimerInterval(){
+            if(this.timerInterval){clearInterval(this.timerInterval);this.timerInterval=null;}
+        },
+        _stopTimer(){
+            this._clearTimerInterval();
+            this.timerRunning=false;
+            this.timerSeconds=0;
+        },
+        // ── Прямое обновление DOM таймера (обход Vue reactivity в CEF, как в AdvMenu.js) ──
+        _updateTimerDOM(){
+            const disp=document.getElementById("dokladi-timer-disp");
+            if(disp) disp.textContent=this.timerDisplay;
+        },
+        // ── Toast — плавающее окно, чтобы таймер было видно и при закрытом меню ──
+        _createToast(){
+            this._removeToast();
+            const el=document.createElement("div");
+            el.id="dokladi-toast";
+            el.style.cssText="position:fixed;bottom:3vh;right:2vh;background:#141419f2;border:0.15vh solid rgba(249,183,1,0.55);border-radius:0.56vh;padding:0.56vh 1.11vh;pointer-events:none;z-index:9999;font-family:'Open Sans',sans-serif;min-width:10vh;box-shadow:0 0.56vh 1.85vh rgba(0,0,0,0.6);";
+            document.body.appendChild(el);
+            this._updateToast();
+        },
+        _removeToast(){
+            const el=document.getElementById("dokladi-toast");
+            if(el)el.remove();
+        },
+        _updateToast(){
+            const el=document.getElementById("dokladi-toast");
+            if(!el)return;
+            const label=this.reportType==="post" ? "Пост" : "Патруль";
+            el.innerHTML=`<div style="color:#f9b701;font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[ДОКЛАД] ${label} - ${this.reportName}</div>`+
+                         `<div style="color:#f4f1e1;font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${this.timerDisplay}</div>`;
         },
         close(){
+            // Если секундомер активен — сохраняем состояние и продолжаем обновлять
+            // тост в фоне через глобальный interval, как это делает AdvMenu.js
+            // для таймера вызова адвоката.
+            if(this.timerRunning){
+                window._dokladTimerState={
+                    type:this.reportType,
+                    name:this.reportName,
+                    timerStartAt:this.timerStartAt,
+                };
+                if(window._dokladToastInterval)clearInterval(window._dokladToastInterval);
+                window._dokladToastInterval=setInterval(()=>{
+                    const el=document.getElementById("dokladi-toast");
+                    if(!el){clearInterval(window._dokladToastInterval);window._dokladToastInterval=null;return;}
+                    const s=Math.max(0,Math.floor((Date.now()-this.timerStartAt)/1000));
+                    const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+                    const t=h>0?(String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0"))
+                              :(String(m).padStart(2,"0")+":"+String(sec).padStart(2,"0"));
+                    const label=this.reportType==="post" ? "Пост" : "Патруль";
+                    el.innerHTML=`<div style="color:#f9b701;font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[ДОКЛАД] ${label} - ${this.reportName}</div>`+
+                                 `<div style="color:#f4f1e1;font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${t}</div>`;
+                },1000);
+            } else {
+                this._removeToast();
+            }
             window.closeInterface("Dokladi");
         }
     },
@@ -328,6 +476,10 @@ const _sfc_main={
 .dokladi__stage-current-type{color:#f4f1e166;font-size:1.11vh;font-weight:700;text-transform:uppercase;}
 .dokladi__stage-current-name{color:#f9b701;font-size:1.3vh;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 
+/* Таймер (секундомер с последнего доклада) */
+.dokladi__phase-label{color:rgba(244,241,225,0.75);font-size:1.2vh;font-weight:600;padding:0 1.67vh;text-align:center;}
+.dokladi__timer-display{color:#f9b701;font-family:"Open Sans Condensed","Open Sans",monospace;font-size:4.44vh;font-style:italic;font-weight:700;letter-spacing:0.19vh;line-height:1;padding:0.56vh 0 1.11vh;text-align:center;}
+
 /* Name input screen */
 .dokladi__name-input-wrap{display:flex;flex-direction:column;gap:1.3vh;padding:2vh 1.85vh 1.85vh;position:relative;z-index:1;}
 .dokladi__name-input-label{color:#f4f1e1cc;font-size:1.3vh;font-weight:600;line-height:1.4;}
@@ -342,6 +494,24 @@ const _sfc_main={
 .dokladi__footer .controls-button__container:last-child{margin-right:0;}
         `;
         document.head.appendChild(s);
+
+        // ── Восстановление активной сессии/таймера ───────────────────────────
+        // Если тост-интервал ещё жил (меню было закрыто с идущим секундомером) —
+        // останавливаем его: теперь секундомером снова управляет сам компонент.
+        if(window._dokladToastInterval){clearInterval(window._dokladToastInterval);window._dokladToastInterval=null;}
+        this._removeToast();
+
+        const savedTimer=window._dokladTimerState;
+        window._dokladTimerState=null;
+        const active=window._dokladActive;
+        if(active){
+            this.reportType=active.type;
+            this.reportName=active.name;
+            this.screen="stage";
+            if(savedTimer&&savedTimer.timerStartAt){
+                this._resumeTimer(savedTimer.timerStartAt);
+            }
+        }
 
         // Навигация по списку стрелками (keydown — с автоповтором, как в MvdMenu.js)
         this._onArrowKeyDown=(e)=>{
@@ -362,6 +532,10 @@ const _sfc_main={
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
         const s=document.getElementById("dokladi-style");
         if(s)s.remove();
+        // Сам таймер интервала внутри компонента останавливаем — если сессия
+        // осталась активной, за неё уже отвечает window._dokladToastInterval,
+        // выставленный в close() перед вызовом closeInterface().
+        this._clearTimerInterval();
     }
 };
 
