@@ -203,7 +203,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.9 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -3947,28 +3947,12 @@ function restoreMainMenuOptions() {
 // задаче сразу после добавления элемента в DOM, ДО перерисовки браузера.
 // Это полностью исключает мерцание (setInterval с 50мс давал 0-50мс окно,
 // за которое браузер успевал нарисовать кадр с видимым меню).
-// ── стало ──
 var _profileObserver = null;
-var _profileStyleEl  = null;
 
 function applyProfileStyles(skipHiding) {
     removeProfileStyles();
-    if (skipHiding) return;
+    if (skipHiding) return; // Меню уже открыто игроком — не трогаем его
 
-    // Инжектируем <style> ДО openInterface() — браузер применит правило
-    // раньше, чем нарисует первый кадр с .main-menu.
-    // transition:none блокирует Vue enter-анимацию (иначе 1-2 кадра opacity>0).
-    // Тег убираем в removeProfileStyles(), которая вызывается ПОСЛЕ
-    // closeInterface() — к тому моменту DOM-узел уже уничтожен,
-    // поэтому Vue-переходы при закрытии не страдают.
-    _profileStyleEl = document.createElement('style');
-    _profileStyleEl.id = '__mvd-profile-hide';
-    _profileStyleEl.textContent =
-        '.main-menu{opacity:0!important;pointer-events:none!important;transition:none!important;}';
-    document.head.appendChild(_profileStyleEl);
-
-    // MutationObserver как запасной слой: если <style> по какой-то причине
-    // не успел примениться — инлайн перехватит элемент как только он появится.
     _profileObserver = new MutationObserver(function() {
         var el = document.querySelector('.main-menu');
         if (el) {
@@ -3978,6 +3962,7 @@ function applyProfileStyles(skipHiding) {
             _profileObserver = null;
         }
     });
+    // subtree:true — ловим вложенные добавления; childList:true — добавление узлов
     _profileObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
 
@@ -3986,12 +3971,9 @@ function removeProfileStyles() {
         _profileObserver.disconnect();
         _profileObserver = null;
     }
-    // Убираем <style>-тег; к этому моменту closeInterface() уже вызван
-    // и .main-menu в DOM нет — Vue-переходы не затронуты.
-    if (_profileStyleEl) {
-        _profileStyleEl.remove();
-        _profileStyleEl = null;
-    }
+    // ВАЖНО: инлайн-стили НЕ убираем намеренно!
+    // closeInterface() удалит DOM-элемент вместе с ними.
+    // Следующее openInterface() создаст чистый элемент без инлайн-стилей.
 }
 
 // ── Извлечение данных из профиля ──
