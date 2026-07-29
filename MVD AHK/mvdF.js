@@ -203,7 +203,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.8 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -1168,8 +1168,7 @@ const setupChatHandler = () => {
                         console.log('[AHK-TIMER] Диалог "Точное время" закрыт — скриншот подтверждён');
                         // Восстанавливаем тост таймера
                         try {
-                            const _toast = document.getElementById('dokladi-toast');
-                            if (_toast) _toast.style.display = '';
+                            window._dokladToastSuppressed = false;
                         } catch(e) {}
                         // Возвращаем Dokladi если он был открыт до доклада
                         if (_timerDokladiWasOpen) {
@@ -2110,8 +2109,9 @@ window._mvdExecuteDoklad = function(reportType, reportName, stage) {
             }
             // Скрываем плавающий тост с таймером, чтоб он не попал на скрин
             try {
+                window._dokladToastSuppressed = true;
                 const _toast = document.getElementById('dokladi-toast');
-                if (_toast) _toast.style.display = 'none';
+                if (_toast) _toast.remove();
             } catch(e) {}
         }
     };
@@ -2531,7 +2531,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                         try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                         console.log('[AHK-TIMER] Диалог "Точное время" закрыт по таймауту (30с)');
                         // Восстанавливаем тост и Dokladi
-                        try { const _t = document.getElementById('dokladi-toast'); if (_t) _t.style.display = ''; } catch(e) {}
+                        try { window._dokladToastSuppressed = false; } catch(e) {}
                         if (_timerDokladiWasOpen) { _timerDokladiWasOpen = false; try { window.openInterface('Dokladi'); } catch(e) {} }
                     }
                 }, 30000);
