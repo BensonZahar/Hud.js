@@ -3756,6 +3756,7 @@ try {
 
 // ── Сохраняем оригиналы системных функций ──
 var _origSetCursorStatus = window.setCursorStatus;
+var _origSetDrawLabelStatus = window.setDrawLabelStatus;
 var _patchesActive = false;
 function applyCursorPatch() {
     _patchesActive = true;
@@ -3770,10 +3771,23 @@ function applyCursorPatch() {
         }
         return _origSetCursorStatus.apply(this, arguments);
     };
+    // Блокируем скрытие ников (setDrawLabelStatus(false)) пока грузим профиль.
+    // MainMenu при открытии вызывает setCursorStatus → движок вызывает setDrawLabelStatus(false) →
+    // ники над головами пропадают. Подменяем функцию: false — игнорируем, true — пропускаем как есть.
+    window.setDrawLabelStatus = function(status) {
+        if (_patchesActive && !status) {
+            console.log('[Profile] 🔒 setDrawLabelStatus(false) заблокировано — ники остаются видны');
+            return;
+        }
+        return _origSetDrawLabelStatus && _origSetDrawLabelStatus.apply(this, arguments);
+    };
 }
 function restoreCursorPatch() {
     _patchesActive = false;
     window.setCursorStatus = _origSetCursorStatus;
+    window.setDrawLabelStatus = _origSetDrawLabelStatus;
+    // Явно восстанавливаем ники на случай если до патча они были видны
+    try { _origSetDrawLabelStatus && _origSetDrawLabelStatus.call(window, true); } catch(e) {}
 }
 
 // ── Подмена опций интерфейса для корректной работы загрузки ──
@@ -4038,6 +4052,22 @@ waitForApp(function() {
         return _origSendChatInput.apply(this, arguments);
     };
     console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
+
+    // ── Фоновая предзагрузка профиля при старте ──────────────────────────────
+    // Запускаем loadPlayerProfile сразу после готовности App — невидимо для
+    // игрока — чтобы к первому /dahk данные уже лежали в window._mvdRank /
+    // _mvdFirstName / _mvdLastName и MvdMenu открывалось мгновенно.
+    setTimeout(function() {
+        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
+        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+        loadPlayerProfile(function(data) {
+            if (data && data.orgRangName) {
+                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
+            } else {
+                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+            }
+        });
+    }, 1500);
 });
 
 window._mvdLoadPlayerProfile = loadPlayerProfile;
