@@ -89,6 +89,8 @@ function _dokladRemoveToast(){
 // Показывает время, ОСТАВШЕЕСЯ до следующего автоматического доклада
 // (а не время, прошедшее с последнего) — берётся из active.schedule[active.nextIndex].
 function _dokladRenderToast(){
+    // Подавление тоста пока идёт скриншот / открыто "Точное время"
+    if(window._dokladToastSuppressed) return;
     const active=window._dokladActive;
     const next=active&&active.schedule&&active.schedule[active.nextIndex];
     if(!active||!next) return;
@@ -119,6 +121,8 @@ function _dokladEnsureBackgroundToast(){
         // Пока меню открыто — обратный отсчёт и так виден в самом интерфейсе,
         // плавающий тост в этот момент не нужен.
         if(window._dokladMenuMounted){ _dokladRemoveToast(); return; }
+        // Тост подавлен (скриншот / "Точное время") — убираем и не рисуем
+        if(window._dokladToastSuppressed){ _dokladRemoveToast(); return; }
         _dokladRenderToast();
     },1000);
 }
