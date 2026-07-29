@@ -1166,6 +1166,11 @@ const setupChatHandler = () => {
                     setTimeout(() => {
                         try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                         console.log('[AHK-TIMER] Диалог "Точное время" закрыт — скриншот подтверждён');
+                        // Восстанавливаем тост таймера
+                        try {
+                            const _toast = document.getElementById('dokladi-toast');
+                            if (_toast) _toast.style.display = '';
+                        } catch(e) {}
                         // Возвращаем Dokladi если он был открыт до доклада
                         if (_timerDokladiWasOpen) {
                             _timerDokladiWasOpen = false;
@@ -2091,6 +2096,11 @@ window._mvdExecuteDoklad = function(reportType, reportName, stage) {
             // Отдельной командой (не частью текста доклада) — переключение на канал
             // 60. Важно: слитно "/c", без пробела между слэшем и "c".
             sendChatInput('/c 60');
+            // Взводим флаг ожидания диалога "Точное время" — без него onShowDialog
+            // не выставит _timerDialogOpen, и chat.add не закроет диалог после скрина.
+            _awaitingTimerDialog = true;
+            if (_timerDialogResetTO) clearTimeout(_timerDialogResetTO);
+            _timerDialogResetTO = setTimeout(() => { _awaitingTimerDialog = false; }, 8000);
             // Если Dokladi открыт — скрываем его до получения скриншота,
             // откроем заново после того как диалог "Точное время" закроется.
             _timerDokladiWasOpen = !!window._dokladMenuMounted;
@@ -2098,6 +2108,11 @@ window._mvdExecuteDoklad = function(reportType, reportName, stage) {
                 try { window.closeInterface('Dokladi'); } catch(e) {}
                 console.log('[AHK-TIMER] Dokladi скрыт — жду скриншот');
             }
+            // Скрываем плавающий тост с таймером, чтоб он не попал на скрин
+            try {
+                const _toast = document.getElementById('dokladi-toast');
+                if (_toast) _toast.style.display = 'none';
+            } catch(e) {}
         }
     };
     // Как и в _mvdExecuteAction: если профиль (звание/фамилия) ещё не загружен —
@@ -2515,6 +2530,9 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                         _timerDialogOpen = false;
                         try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                         console.log('[AHK-TIMER] Диалог "Точное время" закрыт по таймауту (30с)');
+                        // Восстанавливаем тост и Dokladi
+                        try { const _t = document.getElementById('dokladi-toast'); if (_t) _t.style.display = ''; } catch(e) {}
+                        if (_timerDokladiWasOpen) { _timerDokladiWasOpen = false; try { window.openInterface('Dokladi'); } catch(e) {} }
                     }
                 }, 30000);
             }
