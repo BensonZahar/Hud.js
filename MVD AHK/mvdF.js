@@ -4166,6 +4166,22 @@ waitForApp(function() {
         return _origSendChatInput.apply(this, arguments);
     };
     console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
+
+    // ── Фоновая предзагрузка профиля при старте ──────────────────────────────
+    // Запускаем loadPlayerProfile сразу после готовности App — невидимо для
+    // игрока — чтобы к первому /dahk данные уже лежали в window._mvdRank /
+    // _mvdFirstName / _mvdLastName и MvdMenu открывалось мгновенно.
+    setTimeout(function() {
+        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
+        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+        loadPlayerProfile(function(data) {
+            if (data && data.orgRangName) {
+                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
+            } else {
+                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+            }
+        });
+    }, 1500);
 });
 
 window._mvdLoadPlayerProfile = loadPlayerProfile;
