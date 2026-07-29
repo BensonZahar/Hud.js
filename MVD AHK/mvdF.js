@@ -203,7 +203,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.7 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -4346,3 +4346,121 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
 
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
+
+// ==================== ТЕСТ СКРИНШОТА (F8) — команда /ff ====================
+// Проблема: window.sendClientKeyEvent(window.KEY_CODE_F8), который используется в
+// доклада (см. window._mvdExecuteDoklad выше), не даёт скриншот в SA:MP.
+// /ff по очереди пробует ВСЕ известные способы "нажать" F8 — раз в 700мс, чтобы
+// по логам в консоли (F12) и по тому, ПОСЛЕ какого именно шага реально появился
+// скриншот, можно было понять, какой способ доходит до движка на этом клиенте.
+(function() {
+    const _ffOriginalSendChatInput = window.sendChatInput;
+
+    // window.KEY_CODE_F8 берётся из движка (как и остальные KEY_CODE_* в этом
+    // файле); если он ещё не пробросен — используем стандартный браузерный
+    // keyCode для F8 (119) как разумный дефолт.
+    function getF8Code() {
+        return (typeof window.KEY_CODE_F8 !== 'undefined') ? window.KEY_CODE_F8 : 119;
+    }
+
+    function ffLog(step, ok, extra) {
+        const msg = `[F8-TEST] ${step}: ${ok ? 'вызван' : 'недоступен, пропущен'}${extra ? ' — ' + extra : ''}`;
+        console.log(msg);
+        try { snAdd(`[1, "Тест F8 (${step.split(')')[0]})", "${ok ? 'вызван' : 'недоступен'}", "${ok ? '00CC44' : '888888'}", 1000]`); } catch (e) {}
+    }
+
+    // Нативный браузерный KeyboardEvent — на случай, если движок слушает обычный
+    // DOM keydown/keyup, а не только свой CEF-мост. keyCode/which у KeyboardEvent
+    // в норме read-only через геттер конструктора, поэтому переопределяем явно.
+    function dispatchNativeKeyEvent(type, code) {
+        try {
+            const ev = new KeyboardEvent(type, {
+                key: 'F8', code: 'F8', keyCode: code, which: code,
+                bubbles: true, cancelable: true
+            });
+            try {
+                Object.defineProperty(ev, 'keyCode', { get: () => code });
+                Object.defineProperty(ev, 'which', { get: () => code });
+            } catch (e) {}
+            document.dispatchEvent(ev);
+            window.dispatchEvent(ev);
+            return true;
+        } catch (e) {
+            console.warn('[F8-TEST] Ошибка при создании KeyboardEvent:', e);
+            return false;
+        }
+    }
+
+    function runF8Test() {
+        const F8 = getF8Code();
+        console.log(`[F8-TEST] ══ Старт /ff — перебираем способы нажать F8 (код ${F8}) ══`);
+
+        const attempts = [
+            // 1) Тот же способ, что уже используется в докладах (не срабатывает — тестируем остальные)
+            () => {
+                const ok = typeof window.sendClientKeyEvent === 'function';
+                if (ok) window.sendClientKeyEvent(F8);
+                ffLog('1) window.sendClientKeyEvent(F8)', ok);
+            },
+            // 2) window.sendKeyEvent — встречается в некоторых версиях CEF-биндинга клиента
+            () => {
+                const ok = typeof window.sendKeyEvent === 'function';
+                if (ok) window.sendKeyEvent(F8);
+                ffLog('2) window.sendKeyEvent(F8)', ok);
+            },
+            // 3) engine.trigger — тот же мост, которым уходит "SendChatInput" (см. sendChatInputCustom выше)
+            () => {
+                const has = typeof engine !== 'undefined' && typeof engine.trigger === 'function';
+                if (has) engine.trigger('SendKeyEvent', F8);
+                ffLog('3) engine.trigger("SendKeyEvent", F8)', has);
+            },
+            () => {
+                const has = typeof engine !== 'undefined' && typeof engine.trigger === 'function';
+                if (has) engine.trigger('KeyPress', F8);
+                ffLog('4) engine.trigger("KeyPress", F8)', has);
+            },
+            () => {
+                const has = typeof engine !== 'undefined' && typeof engine.trigger === 'function';
+                if (has) { engine.trigger('KeyDown', F8); setTimeout(() => engine.trigger('KeyUp', F8), 50); }
+                ffLog('5) engine.trigger("KeyDown"/"KeyUp", F8)', has);
+            },
+            // 6) Обычный браузерный keydown+keyup на document/window
+            () => {
+                const ok = dispatchNativeKeyEvent('keydown', F8) && dispatchNativeKeyEvent('keyup', F8);
+                ffLog('6) KeyboardEvent keydown+keyup (F8)', ok);
+            },
+            // 7) window.onKeyDown — тот же канал, которым в интерфейсах ловятся стрелки/ESC/Enter
+            () => {
+                const ok = typeof window.onKeyDown === 'function';
+                if (ok) window.onKeyDown({ keyCode: F8 });
+                ffLog('7) window.onKeyDown({keyCode:F8})', ok);
+            },
+        ];
+
+        let step = 0;
+        function runNext() {
+            if (step >= attempts.length) {
+                console.log('[F8-TEST] ══ Готово. Смотри выше в консоли, после какого шага реально сделался скриншот. ══');
+                try { snAdd('[1, "Тест F8", "Все способы перебраны — см. консоль (F12)", "FFAA00", 3000]'); } catch (e) {}
+                return;
+            }
+            attempts[step]();
+            step++;
+            setTimeout(runNext, 700);
+        }
+        runNext();
+    }
+
+    window.sendChatInput = function(text) {
+        if (text && text.trim().toLowerCase() === '/ff') {
+            runF8Test();
+            return;
+        }
+        if (_ffOriginalSendChatInput) {
+            return _ffOriginalSendChatInput.apply(this, arguments);
+        }
+    };
+
+    console.log('[F8-TEST] Команда /ff готова — перебирает все известные способы "нажать" F8 (скриншот), по одному раз в 700мс.');
+})();
+// ==================== КОНЕЦ ТЕСТА СКРИНШОТА (F8) ====================
