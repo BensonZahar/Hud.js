@@ -449,6 +449,8 @@ var MENU_TIMER_ITEMS = [];
 // Флаг: ждём диалог "Точное время" именно как ОТВЕТ на нашу команду "/c 60" после отыгровки.
 let _awaitingTimerDialog = false;
 let _timerDialogResetTO = null;
+// Флаг: диалог "Точное время" сейчас открыт — ждём зелёного сообщения "Снимок экрана сохранен" для закрытия
+let _timerDialogOpen = false;
 
 // Таймер после отыгровки: "/c 60" (латинская C, слитно) + автозакрытие диалога "Точное время" Если для конкретного пункта включено в устано...
 function runPostActionTimer(actionKey) {
@@ -1182,6 +1184,24 @@ setupChatHandler();
                 console.log(`[${_ts}]${_colorTag} ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
         }
+        // Закрытие диалога "Точное время" при появлении зелёного сообщения "Снимок экрана сохранен"
+        // Цвет сообщения: #3EB936 (зелёный), текст содержит "Снимок экрана сохранен"
+        try {
+            if (_timerDialogOpen) {
+                const _msgStr = String(message);
+                // Проверяем и по тексту сообщения, и по цвету (3EB936 — зелёный скриншот-нотис)
+                const _isScreenshot = _msgStr.includes('Снимок экрана сохранен') ||
+                                      (_msgStr.includes('3EB936') && _msgStr.toLowerCase().includes('снимок'));
+                if (_isScreenshot) {
+                    _timerDialogOpen = false;
+                    if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
+                    setTimeout(() => {
+                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт — обнаружено сообщение "Снимок экрана сохранен"');
+                    }, 200);
+                }
+            }
+        } catch (_e) { /* тихо игнорируем */ }
         return originalOnChatMessage.apply(this, arguments);
     };
     console.log('[MVD-CHAT] Раннее логирование чата установлено (onChatMessage)');
@@ -2063,13 +2083,6 @@ window._mvdExecuteDoklad = function(reportType, reportName, stage) {
             // Отдельной командой (не частью текста доклада) — переключение на канал
             // 60. Важно: слитно "/c", без пробела между слэшем и "c".
             sendChatInput('/c 60');
-            // Сразу после отправки доклада в рацию — жмём F8, чтобы сделать скриншот-пруф.
-            // sendClientKeyEvent триггерит нативный SendKeyEvent движку (а не только
-            // внутренние JS-обработчики интерфейсов, как sendKeyEvent), поэтому именно
-            // он реально "нажимает" F8, на которое повешен скриншот.
-            if (typeof window.sendClientKeyEvent === 'function' && typeof window.KEY_CODE_F8 !== 'undefined') {
-                window.sendClientKeyEvent(window.KEY_CODE_F8);
-            }
         }
     };
     // Как и в _mvdExecuteAction: если профиль (звание/фамилия) ещё не загружен —
@@ -2473,14 +2486,22 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 `  Кнопки: [${button1}] [${button2}]`
             );
 
-            // Авто-закрытие диалога "Точное время" (открывается после команды /c 60) Закрываем ТОЛЬКО если этот диалог пришёл в ответ на НАШУ команду /...
+            // Авто-закрытие диалога "Точное время" (открывается после команды /c 60)
+            // Закрываем ТОЛЬКО если этот диалог пришёл в ответ на НАШУ команду /c 60,
+            // и ТОЛЬКО после появления зелёного сообщения "Снимок экрана сохранен" в чате.
             if (style === 0 && title.includes('Точное время') && _awaitingTimerDialog) {
                 _awaitingTimerDialog = false;
                 if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
-                setTimeout(() => {
-                    try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
-                    console.log('[AHK-TIMER] Диалог "Точное время" закрыт');
-                }, 1500);
+                _timerDialogOpen = true;
+                console.log('[AHK-TIMER] Диалог "Точное время" открыт — жду сообщение "Снимок экрана сохранен" в чате');
+                // Защитный таймаут: если скриншот так и не появился за 30 секунд — всё равно закрываем
+                _timerDialogResetTO = setTimeout(() => {
+                    if (_timerDialogOpen) {
+                        _timerDialogOpen = false;
+                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт по таймауту (30с)');
+                    }
+                }, 30000);
             }
 
             // ── Трекинг пагинированных диалогов для Q/E перелистывания ──
