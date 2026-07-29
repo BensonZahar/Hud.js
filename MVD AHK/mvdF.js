@@ -12,9 +12,10 @@ const _ALLOWED_NICKS = [
 	"Artemka_Hasanov",
 	"Lev_Bennet",
 	"Andrey_Pulya",
+//  "Maksimka_DeMontana",
 	"Kirill_Dogadin",
 	"Cooper_Lorenzo",
-    "Egor_Pudgh"
+	"Egor_Pudgh"
 ];
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
@@ -202,7 +203,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.999 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -673,9 +674,6 @@ function getPlayerInfoFromList(id) {
 
 let _mainChatHandlerReady = false;
 
-// Кулдаун для авто-ответа "кхм" (см. блок АВТО-ОТВЕТ ниже) — чтобы не отправить /d дважды подряд
-let _lastKhmReplyAt = 0;
-
 
 const setupChatHandler = () => {
     if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
@@ -753,77 +751,6 @@ const setupChatHandler = () => {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
                 return;
             }
-            // ========== ФИЛЬТР ЦВЕТА: FF8877 (чат Департамента) — только для Lev_Bennet ==========
-            {
-                const _msgColor = args[0] ? normalizeColor(args[0]).replace('0x', '').toUpperCase() : '';
-                if (_msgColor === 'FF8877') {
-                    let _filterNick = null;
-                    try {
-                        _filterNick = window.App && window.App.$store && window.App.$store.getters &&
-                                      window.App.$store.getters['player/nickName'];
-                    } catch (e) {}
-                    if (_filterNick === 'Lev_Bennet') {
-                        console.log('[FILTER] ✋ Сообщение Департамента (FF8877) скрыто для Lev_Bennet');
-                        return;
-                    }
-                }
-            }
-            // ==================== АВТО-ОТВЕТ: "КХМ" ОТ ZAHAR_KONSTOV В ЧАТЕ СЕМЬИ ====================
-            // Если в семейном чате <Интерпол> Zahar_Konstov (ID может быть любым) написал "кхм" —
-            // автоматически отправляем в чат департамента: /d [МВД] - [Право] На связь
-            if (typeof message === 'string') {
-                const _khmRaw = String(message).replace(/\{[0-9A-Fa-f]{6}\}/g, '');
-                const _khmMatch = _khmRaw.match(/<Интерпол>\s*Zahar_Konstov\s*\[(\d+)\]:\s*(.+)/);
-                if (_khmMatch) {
-                    const _khmId   = _khmMatch[1];
-                    const _khmBody = _khmMatch[2].trim().toLowerCase();
-                    // ловим "кхм"/"кххм"/"кхм!" и т.п. — без учёта регистра и знаков в конце
-                    if (/^к+х+м+[!.]*$/.test(_khmBody)) {
-                        // Срабатывает только на аккаунте Lev_Bennet — на остальных ник не совпадёт и блок молча пропустится
-                        let _khmOwnNick = null;
-                        try {
-                            _khmOwnNick = window.App && window.App.$store && window.App.$store.getters &&
-                                          window.App.$store.getters['player/nickName'];
-                        } catch (e) {}
-
-                        if (_khmOwnNick === 'Lev_Bennet') {
-                            const _khmNow = Date.now();
-                            if (_khmNow - _lastKhmReplyAt > 5000) { // кулдаун 5 сек, чтобы не задублировать
-                                _lastKhmReplyAt = _khmNow;
-                                // Отправляем 10 раз с рандомным интервалом 2000–2500мс между каждой
-                                const _khmCount = 3;
-                                let _khmAccDelay = Math.floor(Math.random() * 500) + 1500; // первая отправка: 1500–2000мс
-                                console.log(`[AUTO-ОТВЕТ] 🔔 Zahar_Konstov[${_khmId}] написал "кхм" — отправляем /d × ${_khmCount} раз (аккаунт: ${_khmOwnNick})`);
-                                for (let _i = 0; _i < _khmCount; _i++) {
-                                    (function(_delay, _num) {
-                                        setTimeout(() => {
-                                            sendChatInput('/d [ALL]  ЕБАЛ В РОТ UKR НЕГРЫ ПИД0РЫ РЕЗАЛ ИХ РДМИР ХУЙНЯ КАЗ');
-                                            console.log(`[AUTO-ОТВЕТ] 📨 /d отправлен (${_num}/${_khmCount}) через ${_delay}мс`);
-                                        }, _delay);
-                                    })(_khmAccDelay, _i + 1);
-                                    _khmAccDelay += Math.floor(Math.random() * 500) + 2000; // +2000–2500мс между отправками
-                                }
-                                // Через 7 секунд после последнего /d — отправляем /q
-                                setTimeout(() => {
-                                    sendChatInput('/q');
-                                    console.log(`[AUTO-ОТВЕТ] 🚪 /q отправлен через 7000мс после последнего /d`);
-                                }, _khmAccDelay + 7000);
-                            }
-                            // Lev_Bennet НЕ видит "кхм" в чате (авто-ответ отправлен тихо)
-                            console.log('[FILTER] ✋ "кхм" скрыто для Lev_Bennet (авто-ответ отправлен)');
-                            return;
-                        } else if (_khmOwnNick !== 'Zahar_Konstov') {
-                            // Все остальные кроме Zahar_Konstov — скрываем "кхм"
-                            console.log(`[FILTER] ✋ "кхм" от Zahar_Konstov скрыто для ${_khmOwnNick}`);
-                            return;
-                        }
-                        // Zahar_Konstov — видит своё "кхм" как обычно
-                        console.log('[AUTO-ОТВЕТ] ✅ "кхм" показано только Zahar_Konstov');
-                    }
-                }
-            }
-            // ==================== КОНЕЦ АВТО-ОТВЕТА "КХМ" ====================
-
             // ==================== ОТСЛЕЖИВАНИЕ ПОГОНИ ====================
             if (typeof message === 'string' && currentScanId) {
                 // Погоня началась или присоединились
