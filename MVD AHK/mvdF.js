@@ -203,7 +203,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -3943,27 +3943,33 @@ function restoreMainMenuOptions() {
 }
 
 // Безопасное скрытие меню через ИНЛАЙН-СТИЛИ (не ломает Vue Transition) Почему инлайн, а не CSS-тег <style>? MainMenu.js использует Vue Tra...
-var _profileCheckInterval = null;
+// Используем MutationObserver вместо setInterval — он срабатывает в той же
+// задаче сразу после добавления элемента в DOM, ДО перерисовки браузера.
+// Это полностью исключает мерцание (setInterval с 50мс давал 0-50мс окно,
+// за которое браузер успевал нарисовать кадр с видимым меню).
+var _profileObserver = null;
 
 function applyProfileStyles(skipHiding) {
     removeProfileStyles();
     if (skipHiding) return; // Меню уже открыто игроком — не трогаем его
-    
-    _profileCheckInterval = setInterval(function() {
+
+    _profileObserver = new MutationObserver(function() {
         var el = document.querySelector('.main-menu');
         if (el) {
-            clearInterval(_profileCheckInterval);
-            _profileCheckInterval = null;
             el.style.opacity = '0';
             el.style.pointerEvents = 'none';
+            _profileObserver.disconnect();
+            _profileObserver = null;
         }
-    }, 50);
+    });
+    // subtree:true — ловим вложенные добавления; childList:true — добавление узлов
+    _profileObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
 
 function removeProfileStyles() {
-    if (_profileCheckInterval) {
-        clearInterval(_profileCheckInterval);
-        _profileCheckInterval = null;
+    if (_profileObserver) {
+        _profileObserver.disconnect();
+        _profileObserver = null;
     }
     // ВАЖНО: инлайн-стили НЕ убираем намеренно!
     // closeInterface() удалит DOM-элемент вместе с ними.
