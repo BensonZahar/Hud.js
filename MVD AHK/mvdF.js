@@ -203,7 +203,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.99 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -3942,43 +3942,38 @@ function restoreMainMenuOptions() {
     } catch(e) {}
 }
 
-// Скрытие MainMenu во время фоновой загрузки профиля.
-//
-// Почему <style> с opacity:0, а не инлайн-стили или MutationObserver?
-//
-// openInterface() — async-функция: n.open.status=true выставляется СИНХРОННО,
-// а showInterface() вызывается только ПОСЛЕ await загрузки стора. Vue ставит
-// рендер компонента в очередь микротасков сразу после open.status=true, то есть
-// ДО возврата из openInterface. В CEF-движке браузер может успеть нарисовать
-// кадр между микротасками — поэтому MutationObserver (тоже microtask) не даёт
-// гарантии нулевого мерцания.
-//
-// CSS-правило, инжектированное ДО вызова openInterface, гарантированно
-// применяется к первому же отрисованному кадру: Vue рендерит .main-menu уже
-// с opacity:0 через таблицу стилей, до любого JavaScript.
-//
-// opacity:0 (не display:none и не visibility:hidden) намеренно — именно эти
-// два значения ломают enter-фазу Vue Transition (компонент не проходит
-// pending→enter→done). opacity:0 не влияет на геометрию и layout,
-// Vue Transition отрабатывает нормально, просто невидимо.
-var _profileHideStyleId = 'mvd-profile-hide-style';
+// Безопасное скрытие меню через ИНЛАЙН-СТИЛИ (не ломает Vue Transition) Почему инлайн, а не CSS-тег <style>? MainMenu.js использует Vue Tra...
+// Используем MutationObserver вместо setInterval — он срабатывает в той же
+// задаче сразу после добавления элемента в DOM, ДО перерисовки браузера.
+// Это полностью исключает мерцание (setInterval с 50мс давал 0-50мс окно,
+// за которое браузер успевал нарисовать кадр с видимым меню).
+var _profileObserver = null;
 
 function applyProfileStyles(skipHiding) {
     removeProfileStyles();
     if (skipHiding) return; // Меню уже открыто игроком — не трогаем его
 
-    // Инжектируем ДО openInterface — .main-menu рендерится сразу невидимым
-    var s = document.createElement('style');
-    s.id = _profileHideStyleId;
-    s.textContent = '.main-menu{opacity:0!important;pointer-events:none!important}';
-    document.head.appendChild(s);
+    _profileObserver = new MutationObserver(function() {
+        var el = document.querySelector('.main-menu');
+        if (el) {
+            el.style.opacity = '0';
+            el.style.pointerEvents = 'none';
+            _profileObserver.disconnect();
+            _profileObserver = null;
+        }
+    });
+    // subtree:true — ловим вложенные добавления; childList:true — добавление узлов
+    _profileObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
 
 function removeProfileStyles() {
-    var s = document.getElementById(_profileHideStyleId);
-    if (s && s.parentNode) s.parentNode.removeChild(s);
-    // closeInterface() удаляет DOM-элемент целиком, поэтому CSS-правило
-    // выше не нужно убирать раньше — оно просто не на что влияет после закрытия.
+    if (_profileObserver) {
+        _profileObserver.disconnect();
+        _profileObserver = null;
+    }
+    // ВАЖНО: инлайн-стили НЕ убираем намеренно!
+    // closeInterface() удалит DOM-элемент вместе с ними.
+    // Следующее openInterface() создаст чистый элемент без инлайн-стилей.
 }
 
 // ── Извлечение данных из профиля ──
