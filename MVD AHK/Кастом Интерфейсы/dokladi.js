@@ -12,44 +12,43 @@ import{C as ControlsContaineredButton}from"./ContaineredButton.js";
 //  инжектятся отсюда же в mounted(), как в MvdMenu.js/zkm.js.
 //
 //  Экраны:
-//    "type"       — выбор Пост / Патруль
-//    "name-input" — ввод названия поста / города патрулирования
-//    "stage"      — выбор Начало / Середина / Конец → отправка /r-доклада
+//    "type"           — выбор Пост / Патруль
+//    "name-input"     — ввод названия поста / города патрулирования
+//    "duration-input" — время доклада (мин, шаг 10, мин. 30) → строит расписание
+//    "stage"          — доклады отправляются САМИ по расписанию, ручного выбора
+//                        стадии больше нет; экран лишь показывает обратный
+//                        отсчёт до следующего доклада и кнопку отмены
 //
 //  Звание и фамилия берутся из window._mvdRank / window._mvdLastName —
 //  так же, как в mvdF.js для "Приветствие". Отправка доклада делегируется
 //  в window._mvdExecuteDoklad(type,name,stage) (см. mvdF.js).
 //
 //  ── Сессия доклада (window._dokladActive) ───────────────────────────────
-//  Как только название подтверждено и открыт экран "stage" — сессия
-//  считается активной: {type, name, timerStartAt} сохраняются в
-//  window._dokladActive. timerStartAt появляется там, как только отправлен
-//  хотя бы один доклад "Начало"/"Середина".
-//  Если меню закрыть и открыть заново, не отправив "Конец" — оно откроется
-//  сразу на экране "stage" с тем же постом/патрулём, минуя "type"/"name-input".
-//  Сессия сбрасывается когда отправлен доклад "Конец" или нажата "Отмена"
-//  (последняя — чисто локально, без отправки чего-либо на сервер).
+//  Как только указано время доклада — сразу строится расписание отправки
+//  (_dokladBuildSchedule: Начало сейчас же → Середина каждые 10 мин × N →
+//  Конец) и "Начало" отправляется немедленно. window._dokladActive хранит
+//  {type, name, duration, schedule:[{stage,at}], nextIndex} — nextIndex это
+//  индекс следующей ещё не отправленной стадии в schedule.
+//  Если меню закрыть и открыть заново, не отправив "Конец" и не нажав
+//  "Отмена" — оно откроется сразу на экране "stage" с тем же постом/патрулём.
+//  Сессия сбрасывается, когда планировщик сам отправляет "Конец", либо когда
+//  нажата "Отмена" (последняя — чисто локально, без отправки на сервер).
 //
-//  ── Таймер (секундомер, считает ВВЕРХ, без предела) ─────────────────────
-//  Момент старта (timerStartAt) хранится ТОЛЬКО в window._dokladActive —
-//  это единственный источник правды, он пишется туда сразу же в момент
-//  отправки "Начало"/"Середина" и не меняется, пока сессия жива. Поэтому
-//  восстановление таймера при повторном открытии меню (mounted()) не
-//  зависит от того, успел ли предыдущий экземпляр компонента корректно
-//  отработать close()/unmounted() — раньше это было узким местом: если
-//  интерфейс закрывался не через кнопку/ESC самого компонента (например,
-//  внешним window.closeInterface('Dokladi') из другого места скрипта),
-//  снимок таймера мог не сохраниться, и таймер пропадал насовсем до
-//  следующего "Середина"/"Конец". Теперь такого разрыва просто не может
-//  быть: значение уже лежит в window._dokladActive до всякого закрытия.
+//  ── Автоотправка (планировщик, НЕ зависит от того, открыто ли меню) ─────
+//  window._dokladSendInterval (см. _dokladEnsureSendScheduler ниже) каждую
+//  секунду сверяет Date.now() с schedule[nextIndex].at и, если время настало,
+//  сам вызывает window._mvdExecuteDoklad(type,name,stage) — пользователю
+//  ничего нажимать не нужно. Планировщик запускается сразу при подтверждении
+//  времени и/или при повторном открытии меню (идемпотентно) и живёт до тех
+//  пор, пока не отправлен "Конец" или не нажата "Отмена".
 //
-//  Пока меню открыто — обратный отсчёт в интерфейсе обновляется локальным
-//  setInterval компонента (this.timerInterval), с прямым обновлением DOM
-//  (CEF-fix, как в AdvMenu.js). Когда меню закрыто — за всплывающий тост
-//  отвечает независимый от жизненного цикла компонента фоновый интервал
-//  (window._dokladToastInterval, см. _dokladEnsureBackgroundToast ниже):
-//  он читает timerStartAt из window._dokladActive напрямую, а не из
-//  состояния конкретного экземпляра Vue-компонента.
+//  ── Обратный отсчёт (countdown ДО следующего доклада, не секундомер) ────
+//  Пока меню открыто — отсчёт в интерфейсе обновляется локальным setInterval
+//  компонента (this.timerInterval), с прямым обновлением DOM (CEF-fix, как
+//  в AdvMenu.js), значение берётся из schedule[nextIndex].at - Date.now().
+//  Когда меню закрыто — за всплывающий тост с тем же отсчётом отвечает
+//  независимый фоновый интервал (window._dokladToastInterval, см.
+//  _dokladEnsureBackgroundToast ниже).
 // ══════════════════════════════════════════════════════════════════════════
 
 // ─── SVG иконка стрелки ─────────────────────────────────────────────────────
@@ -61,12 +60,20 @@ const TYPE_OPTIONS=[
     {id:"patrol", label:"Патруль"},
 ];
 
-// ─── Пункты выбора стадии доклада ───────────────────────────────────────────
-const STAGE_OPTIONS=[
-    {id:"start",  label:"Начало"},
-    {id:"middle", label:"Середина"},
-    {id:"end",    label:"Конец"},
-];
+// ─── Подписи стадий доклада (используются только для текста, доклады теперь
+//     отправляются сами по расписанию — никакого ручного выбора стадии нет) ──
+const STAGE_LABELS={start:"Начало",middle:"Середина",end:"Конец"};
+
+// ─── Строит расписание отправки для указанного времени (мин, шаг 10, мин. 30) ──
+// Начало → 10 мин → Середина ×N → 10 мин → Конец, где N = 1 + (duration-30)/10.
+// Возвращает массив [{stage,at}], at — abs. unix ms относительно startAt.
+function _dokladBuildSchedule(startAt,durationMin){
+    const n=1+Math.floor((durationMin-30)/10);
+    const schedule=[{stage:"start",at:startAt}];
+    for(let i=1;i<=n;i++) schedule.push({stage:"middle",at:startAt+i*10*60*1000});
+    schedule.push({stage:"end",at:startAt+(n+1)*10*60*1000});
+    return schedule;
+}
 
 // ─── Фоновый тост (модульные функции — НЕ зависят от жизненного цикла
 //     конкретного экземпляра Vue-компонента, читают всё из window._dokladActive) ──
@@ -79,9 +86,12 @@ function _dokladRemoveToast(){
     const el=document.getElementById("dokladi-toast");
     if(el)el.remove();
 }
+// Показывает время, ОСТАВШЕЕСЯ до следующего автоматического доклада
+// (а не время, прошедшее с последнего) — берётся из active.schedule[active.nextIndex].
 function _dokladRenderToast(){
     const active=window._dokladActive;
-    if(!active||!active.timerStartAt) return;
+    const next=active&&active.schedule&&active.schedule[active.nextIndex];
+    if(!active||!next) return;
     let el=document.getElementById("dokladi-toast");
     if(!el){
         el=document.createElement("div");
@@ -89,29 +99,58 @@ function _dokladRenderToast(){
         el.style.cssText="position:fixed;bottom:3vh;right:2vh;background:#141419f2;border:0.15vh solid rgba(249,183,1,0.55);border-radius:0.56vh;padding:0.56vh 1.11vh;pointer-events:none;z-index:9999;font-family:'Open Sans',sans-serif;min-width:10vh;box-shadow:0 0.56vh 1.85vh rgba(0,0,0,0.6);";
         document.body.appendChild(el);
     }
-    const s=Math.max(0,Math.floor((Date.now()-active.timerStartAt)/1000));
+    const s=Math.max(0,Math.ceil((next.at-Date.now())/1000));
     const label=active.type==="post" ? "Пост" : "Патруль";
-    el.innerHTML=`<div style="color:#f9b701;font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[ДОКЛАД] ${label} - ${active.name}</div>`+
+    el.innerHTML=`<div style="color:#f9b701;font-size:0.87vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;">[ДОКЛАД] ${label} - ${active.name} · до "${STAGE_LABELS[next.stage]}"</div>`+
                  `<div style="color:#f4f1e1;font-family:'Open Sans Condensed',monospace;font-size:1.85vh;font-style:italic;font-weight:700;">${_dokladFormatTime(s)}</div>`;
 }
-// Гарантирует, что фоновый интервал тоста запущен, если есть активная сессия
-// с идущим таймером. Идемпотентна — повторный вызов ничего не сломает.
-// Не зависит от того, смонтирован ли сейчас компонент Dokladi: единственное
-// условие — наличие window._dokladActive.timerStartAt.
+// Гарантирует, что фоновый интервал тоста (визуальный, только пока меню закрыто)
+// запущен, если есть активная сессия. Идемпотентна.
 function _dokladEnsureBackgroundToast(){
     if(window._dokladToastInterval) return;
     window._dokladToastInterval=setInterval(()=>{
         const active=window._dokladActive;
-        if(!active||!active.timerStartAt){
+        if(!active){
             clearInterval(window._dokladToastInterval);
             window._dokladToastInterval=null;
             _dokladRemoveToast();
             return;
         }
-        // Пока меню открыто — таймер и так виден в самом интерфейсе,
+        // Пока меню открыто — обратный отсчёт и так виден в самом интерфейсе,
         // плавающий тост в этот момент не нужен.
         if(window._dokladMenuMounted){ _dokladRemoveToast(); return; }
         _dokladRenderToast();
+    },1000);
+}
+
+// ── Планировщик автоотправки докладов ───────────────────────────────────────
+// ПОЛНОСТЬЮ независим от жизненного цикла Vue-компонента и от того, открыто
+// ли меню — иначе доклады не будут "отправляться сами", когда игрок закрыл
+// интерфейс. Единственный источник правды — window._dokladActive.schedule /
+// .nextIndex. Идемпотентен: повторный вызов не создаёт второй интервал.
+function _dokladEnsureSendScheduler(){
+    if(window._dokladSendInterval) return;
+    window._dokladSendInterval=setInterval(()=>{
+        const active=window._dokladActive;
+        if(!active||!active.schedule){
+            clearInterval(window._dokladSendInterval);
+            window._dokladSendInterval=null;
+            return;
+        }
+        const next=active.schedule[active.nextIndex];
+        if(!next) return; // всё уже отправлено, ждём _endSession
+        if(Date.now()<next.at) return;
+        if(typeof window._mvdExecuteDoklad==="function")
+            window._mvdExecuteDoklad(active.type,active.name,next.stage);
+        active.nextIndex+=1;
+        if(next.stage==="end"){
+            // Сессия завершена — сбрасываем всё и глушим планировщик/тост.
+            window._dokladActive=null;
+            clearInterval(window._dokladSendInterval);
+            window._dokladSendInterval=null;
+            if(window._dokladToastInterval){clearInterval(window._dokladToastInterval);window._dokladToastInterval=null;}
+            _dokladRemoveToast();
+        }
     },1000);
 }
 
@@ -237,7 +276,8 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 : createCommentVNode("",true),
 
             // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: stage — выбор Начало / Середина / Конец + таймер
+            // ЭКРАН: stage — доклады отправляются САМИ по расписанию, никакого
+            // ручного выбора стадии здесь больше нет — только статус/отсчёт.
             // ══════════════════════════════════════════════════════════════════
             $data.screen==="stage"
                 ? (openBlock(),createElementBlock(Fragment,{key:"stage"},[
@@ -254,39 +294,24 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                     createBaseVNode("div",{class:"dokladi__stage-schedule"},
                         toDisplayString($options.scheduleDescription), 1 /* TEXT */
                     ),
-                    // Таймер — показывается только если уже был отправлен хотя бы один доклад
-                    // (Начало/Середина) в этой сессии; до этого timerRunning===false.
-                    $data.timerRunning
+                    // Обратный отсчёт до СЛЕДУЮЩЕГО доклада (а не "сколько прошло с последнего") —
+                    // показывается, пока в расписании есть неотправленные стадии.
+                    $options.nextStageLabel
                         ? (openBlock(),createElementBlock(Fragment,{key:"timer"},[
-                            createBaseVNode("div",{class:"dokladi__phase-label"},"Время с последнего доклада"),
+                            createBaseVNode("div",{class:"dokladi__phase-label"},
+                                toDisplayString(`До доклада «${$options.nextStageLabel}»`), 1 /* TEXT */
+                            ),
                             // id="dokladi-timer-disp" — обновляется напрямую через DOM (CEF-fix, как в AdvMenu.js)
                             createBaseVNode("div",{id:"dokladi-timer-disp",class:"dokladi__timer-display"},
                                 toDisplayString($options.timerDisplay), 1 /* TEXT */
                             ),
                           ],64))
-                        : createCommentVNode("",true),
-                    createBaseVNode("div",{class:"dokladi__list"},[
-                        (openBlock(true),createElementBlock(Fragment,null,
-                            renderList(STAGE_OPTIONS,(item,i)=>(
-                                openBlock(),createElementBlock("div",{
-                                    key:item.id,
-                                    class:normalizeClass(["dokladi__item",{
-                                        "dokladi__item_selected": $data.selectedIndex===i,
-                                    }]),
-                                    onClick:$event=>{$data.selectedIndex=i;$options.selectStage(item);}
-                                },[
-                                    createBaseVNode("div",{class:"dokladi__item-num"},
-                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
-                                    ),
-                                    createBaseVNode("div",{class:"dokladi__item-label"},
-                                        toDisplayString(item.label), 1 /* TEXT */
-                                    ),
-                                ],10,["onClick"])
-                            ))
-                        ,128))
-                    ]),
-                    // ── Отмена доклада — локальный сброс сессии, без отправки на сервер ──
-                    createBaseVNode("div",{class:"dokladi__cancel-btn",onClick:$options.cancelReport},"Отменить доклад"),
+                        : (openBlock(),createElementBlock("div",{key:"done",class:"dokladi__phase-label"},
+                            "Все доклады отправлены"
+                          )),
+                    createBaseVNode("div",{class:"dokladi__stage-schedule"},
+                        "Доклады отправляются автоматически — ничего нажимать не нужно."
+                    ),
                   ],64))
                 : createCommentVNode("",true),
 
@@ -328,10 +353,9 @@ const _sfc_main={
             // ── Указанное пользователем время доклада (мин, шаг 10, минимум 30) ──
             reportDuration:"",
             durationError:"",
-            // ── Таймер (секундомер, считает ВВЕРХ — как долго прошло с доклада) ──
-            timerRunning:false,
-            timerSeconds:0,
-            timerStartAt:0,
+            // ── Отсчёт ДО следующего автодоклада (в секундах, ≥0). Источник правды —
+            // window._dokladActive.schedule/.nextIndex, это только для отрисовки.
+            secondsToNext:0,
             timerInterval:null,
         }
     },
@@ -343,26 +367,37 @@ const _sfc_main={
             if(this.screen==="stage")          return this.reportType==="post" ? "ПОСТ" : "ПАТРУЛЬ";
             return "ДОКЛАДЫ";
         },
+        // Только экран "type" остаётся кликабельным списком — на "stage" доклады
+        // отправляются сами, там нечего выбирать.
         currentListItems(){
             if(this.screen==="type")  return TYPE_OPTIONS;
-            if(this.screen==="stage") return STAGE_OPTIONS;
             return [];
         },
         footerConfirmText(){
-            return (this.screen==="name-input"||this.screen==="duration-input") ? "Подтвердить" : "Выбрать";
+            if(this.screen==="name-input"||this.screen==="duration-input") return "Подтвердить";
+            if(this.screen==="stage") return "Отменить доклад";
+            return "Выбрать";
         },
         footerBackText(){
             if(this.screen==="type") return "Закрыть";
+            if(this.screen==="stage") return "Скрыть";
             return "Назад";
         },
         footerConfirmDisabled(){
             if(this.screen==="name-input")     return this.reportName.trim().length===0;
             if(this.screen==="duration-input") return !this.durationValid;
+            if(this.screen==="stage")          return false; // Enter = "Отменить доклад"
             return this.currentListItems.length===0;
+        },
+        // Метка стадии, которая будет отправлена следующей (или "" если всё уже отправлено)
+        nextStageLabel(){
+            const active=window._dokladActive;
+            const next=active&&active.schedule&&active.schedule[active.nextIndex];
+            return next ? STAGE_LABELS[next.stage] : "";
         },
         // Используется только для начального рендера; далее обновляется через DOM напрямую (как в AdvMenu.js)
         timerDisplay(){
-            return _dokladFormatTime(this.timerSeconds);
+            return _dokladFormatTime(this.secondsToNext);
         },
         // ── Валидация указанного времени доклада: целое число, не меньше 30, шаг 10 ──
         durationValid(){
@@ -412,9 +447,9 @@ const _sfc_main={
             } else if(this.screen==="duration-input"){
                 this.confirmDurationInput();
             } else if(this.screen==="stage"){
-                const items=STAGE_OPTIONS;
-                const idx=Math.min(Math.max(this.selectedIndex,0),items.length-1);
-                this.selectStage(items[idx]);
+                // На "stage" отправлять/выбирать нечего — доклады уходят сами по
+                // расписанию, Enter здесь переиспользован под кнопку "Отменить доклад".
+                this.cancelReport();
             }
         },
         footerConfirm(){
@@ -422,10 +457,10 @@ const _sfc_main={
         },
         goBack(){
             if(this.screen==="stage"){
-                // Возврат к указанию времени не трогает уже идущий таймер/сессию —
-                // они не сбрасываются, просто перевыбор экрана.
-                this.screen="duration-input";
-                this.$nextTick(()=>{ const f=document.getElementById("dokladi-duration-field");if(f)f.focus(); });
+                // Доклад "Начало" уже ушёл автоматически, менять время задним числом
+                // нельзя — просто прячем меню, сессия и авторассылка продолжаются
+                // в фоне (см. _dokladEnsureSendScheduler).
+                this.close();
             } else if(this.screen==="duration-input"){
                 this.screen="name-input";
                 this.$nextTick(()=>{ const f=document.getElementById("dokladi-name-field");if(f)f.focus(); });
@@ -456,10 +491,9 @@ const _sfc_main={
             // Помечаем сессию активной — при следующем открытии меню Доклады
             // сразу попадём на этот же экран (duration-input, пока время не указано,
             // либо stage, если оно уже было указано) с этим постом/патрулём, минуя
-            // выбор типа и ввод названия (пока не будет отправлен "Конец" или нажата
-            // "Отмена"). timerStartAt появится тут же, в selectStage(), как только
-            // будет отправлено "Начало"/"Середина".
-            window._dokladActive={type:this.reportType,name:this.reportName,duration:null,timerStartAt:null};
+            // выбор типа и ввод названия (пока не отправится "Конец" или не нажата
+            // "Отмена"). schedule/nextIndex появятся тут же, в confirmDurationInput().
+            window._dokladActive={type:this.reportType,name:this.reportName,duration:null,schedule:null,nextIndex:0};
             this.durationError="";
             this.screen="duration-input";
             this.$nextTick(()=>{ const f=document.getElementById("dokladi-duration-field");if(f)f.focus(); });
@@ -486,47 +520,25 @@ const _sfc_main={
             }
             this.durationError="";
             this.reportDuration=val;
-            if(window._dokladActive) window._dokladActive.duration=val;
+            // Строим расписание и СРАЗУ отправляем "Начало" — дальше всё уходит
+            // само по таймеру, никаких дополнительных действий пользователя.
+            const startAt=Date.now();
+            const schedule=_dokladBuildSchedule(startAt,val);
+            window._dokladActive={type:this.reportType,name:this.reportName,duration:val,schedule,nextIndex:0};
+            if(typeof window._mvdExecuteDoklad==="function")
+                window._mvdExecuteDoklad(this.reportType,this.reportName,"start");
+            window._dokladActive.nextIndex=1;
+            _dokladEnsureSendScheduler();
             this.screen="stage";
+            this._startCountdown();
         },
         onDurationInputKeydown(e){
             if(e.key==="Escape"){ this.goBack(); return; }
             if(e.key==="Enter"){ this.confirmDurationInput(); }
         },
-        // ── Экран stage — выбор Начало/Середина/Конец → отправка доклада ────
-        selectStage(item){
-            const type=this.reportType;
-            const name=this.reportName;
-            const stage=item.id;
-            // Меню остаётся открытым: сразу отправляем доклад в рацию (там же —
-            // отдельной командой "/c 60" и нажатием F8 для скриншота-пруфа), пока
-            // интерфейс ещё виден на экране — скрин точное время делаем именно с
-            // открытым меню, — и только через 1.5с после этого закрываем его.
-            if(typeof window._mvdExecuteDoklad==="function")
-                window._mvdExecuteDoklad(type,name,stage);
-            if(stage==="end"){
-                // Финальный доклад — сессия и таймер завершены сразу.
-                this._stopTimer();
-                this._endSession();
-            } else {
-                // "Начало"/"Середина" — (пере)запускаем секундомер.
-                // timerStartAt пишем СРАЗУ в window._dokladActive — это
-                // единственный источник правды для восстановления таймера при
-                // переоткрытии меню, он не зависит от того, отработает ли
-                // корректно close()/unmounted() следующего закрытия интерфейса.
-                const startAt=Date.now();
-                window._dokladActive={type,name,duration:this.reportDuration,timerStartAt:startAt};
-                this._startTimer(startAt);
-            }
-            // Точное время (1.5с) держим меню открытым, чтобы скриншот по F8 успел
-            // захватить его вместе с диалогом, и только потом закрываем.
-            setTimeout(()=>{
-                this.close();
-            },1500);
-        },
         // ── Отмена доклада — локальный сброс без отправки чего-либо на сервер ──
         cancelReport(){
-            this._stopTimer();
+            this._stopCountdown();
             this._endSession();
             this.reportType=null;
             this.reportName="";
@@ -536,31 +548,41 @@ const _sfc_main={
             this.selectedIndex=0;
             this.close();
         },
-        // Сбрасывает сессию/таймер/тост — общая часть для "Конец" и "Отмена"
+        // Сбрасывает сессию/планировщик/тост — общая часть для "Отмена"
+        // (штатное завершение "Конец" сбрасывается самим планировщиком, см. _dokladEnsureSendScheduler)
         _endSession(){
             window._dokladActive=null;
+            if(window._dokladSendInterval){clearInterval(window._dokladSendInterval);window._dokladSendInterval=null;}
             if(window._dokladToastInterval){clearInterval(window._dokladToastInterval);window._dokladToastInterval=null;}
             _dokladRemoveToast();
         },
-        // ── Таймер: секундомер (считает вверх, без предела) ──────────────────
-        _startTimer(startAt){
+        // ── Обратный отсчёт до следующего автодоклада (только отображение —
+        //    сама отправка идёт в фоновом _dokladEnsureSendScheduler) ───────────
+        _startCountdown(){
             this._clearTimerInterval();
-            this.timerStartAt=startAt;
-            this.timerSeconds=Math.max(0,Math.floor((Date.now()-startAt)/1000));
-            this.timerRunning=true;
+            this._tickCountdown();
             setTimeout(()=>this._updateTimerDOM(),30);
             this.timerInterval=setInterval(()=>{
-                this.timerSeconds=Math.max(0,Math.floor((Date.now()-this.timerStartAt)/1000));
+                this._tickCountdown();
                 this._updateTimerDOM();
+                // Сессия закончилась (планировщик отправил "Конец" и обнулил active) —
+                // закрываем экран отсчёта сам собой.
+                if(!window._dokladActive&&this.screen==="stage"){
+                    this._stopCountdown();
+                }
             },1000);
+        },
+        _tickCountdown(){
+            const active=window._dokladActive;
+            const next=active&&active.schedule&&active.schedule[active.nextIndex];
+            this.secondsToNext=next ? Math.max(0,Math.ceil((next.at-Date.now())/1000)) : 0;
         },
         _clearTimerInterval(){
             if(this.timerInterval){clearInterval(this.timerInterval);this.timerInterval=null;}
         },
-        _stopTimer(){
+        _stopCountdown(){
             this._clearTimerInterval();
-            this.timerRunning=false;
-            this.timerSeconds=0;
+            this.secondsToNext=0;
         },
         // ── Прямое обновление DOM таймера (обход Vue reactivity в CEF, как в AdvMenu.js) ──
         _updateTimerDOM(){
@@ -644,21 +666,21 @@ const _sfc_main={
         window._dokladMenuMounted=true;
         _dokladRemoveToast();
 
-        // ── Восстановление активной сессии/таймера ───────────────────────────
-        // timerStartAt читаем напрямую из window._dokladActive — она пишется
-        // туда в момент отправки "Начало"/"Середина" и не зависит от того,
-        // как именно был закрыт предыдущий экземпляр интерфейса.
+        // ── Восстановление активной сессии ────────────────────────────────────
+        // schedule/nextIndex читаем напрямую из window._dokladActive — фоновый
+        // планировщик (_dokladEnsureSendScheduler) продолжает слать доклады
+        // независимо от того, было ли открыто меню всё это время.
         const active=window._dokladActive;
         if(active){
             this.reportType=active.type;
             this.reportName=active.name;
             this.reportDuration=active.duration||"";
-            if(active.duration){
-                // Время уже было указано ранее — сразу продолжаем с экрана stage.
+            if(active.duration&&active.schedule){
+                // Время уже было указано ранее — сразу продолжаем с экрана stage,
+                // авторассылка уже (или ещё) идёт в фоне.
                 this.screen="stage";
-                if(active.timerStartAt){
-                    this._startTimer(active.timerStartAt);
-                }
+                _dokladEnsureSendScheduler();
+                this._startCountdown();
             } else {
                 // Название подтверждено, но время доклада ещё не указано —
                 // продолжаем с того места, где остановились.
@@ -686,13 +708,11 @@ const _sfc_main={
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
         const s=document.getElementById("dokladi-style");
         if(s)s.remove();
-        // Компонент больше не смонтирован — если сессия с таймером всё ещё
-        // активна, включаем независимый фоновый тост (см. _dokladEnsureBackgroundToast
-        // выше). Он сам читает timerStartAt из window._dokladActive, поэтому
-        // корректно работает даже если этот unmounted() почему-либо не успел
-        // отработать полностью — ключевые данные уже лежат в window, а не здесь.
+        // Компонент больше не смонтирован — доклады продолжают уходить сами
+        // (планировщик независим и не останавливается здесь), но нужно включить
+        // всплывающий тост с обратным отсчётом, раз меню больше не показывает его.
         window._dokladMenuMounted=false;
-        if(window._dokladActive&&window._dokladActive.timerStartAt){
+        if(window._dokladActive){
             _dokladEnsureBackgroundToast();
         } else {
             _dokladRemoveToast();
