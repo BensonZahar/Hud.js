@@ -203,7 +203,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.6 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.8 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -451,6 +451,8 @@ let _awaitingTimerDialog = false;
 let _timerDialogResetTO = null;
 // Флаг: диалог "Точное время" сейчас открыт — ждём зелёного сообщения "Снимок экрана сохранен" для закрытия
 let _timerDialogOpen = false;
+// Флаг: Dokladi был открыт до доклада — восстановить его после закрытия "Точное время"
+let _timerDokladiWasOpen = false;
 
 // Таймер после отыгровки: "/c 60" (латинская C, слитно) + автозакрытие диалога "Точное время" Если для конкретного пункта включено в устано...
 function runPostActionTimer(actionKey) {
@@ -1151,7 +1153,31 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
-     
+
+            // ── Закрытие "Точное время" и восстановление Dokladi по скриншоту ──
+            // Движок шлёт сообщение {3EB936}Снимок экрана сохранен {FFFFFF}radmir-....jpg
+            // именно через chat.add (основной обработчик), а не через onChatMessage.
+            try {
+                if (_timerDialogOpen && typeof message === 'string' &&
+                    (message.includes('Снимок экрана сохранен') ||
+                     (message.includes('3EB936') && message.toLowerCase().includes('снимок')))) {
+                    _timerDialogOpen = false;
+                    if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
+                    setTimeout(() => {
+                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт — скриншот подтверждён');
+                        // Возвращаем Dokladi если он был открыт до доклада
+                        if (_timerDokladiWasOpen) {
+                            _timerDokladiWasOpen = false;
+                            setTimeout(() => {
+                                try { window.openInterface('Dokladi'); } catch(e) {}
+                                console.log('[AHK-TIMER] Dokladi восстановлен');
+                            }, 200);
+                        }
+                    }, 200);
+                }
+            } catch (_e) { /* тихо игнорируем */ }
+
             return originalAddFunction.apply(this, [message, ...args]);
         };
         console.log('[Auto-cuff] Обработчик чата успешно установлен');
@@ -1184,24 +1210,6 @@ setupChatHandler();
                 console.log(`[${_ts}]${_colorTag} ${_msg}`);
             } catch (_e) { /* тихо игнорируем */ }
         }
-        // Закрытие диалога "Точное время" при появлении зелёного сообщения "Снимок экрана сохранен"
-        // Цвет сообщения: #3EB936 (зелёный), текст содержит "Снимок экрана сохранен"
-        try {
-            if (_timerDialogOpen) {
-                const _msgStr = String(message);
-                // Проверяем и по тексту сообщения, и по цвету (3EB936 — зелёный скриншот-нотис)
-                const _isScreenshot = _msgStr.includes('Снимок экрана сохранен') ||
-                                      (_msgStr.includes('3EB936') && _msgStr.toLowerCase().includes('снимок'));
-                if (_isScreenshot) {
-                    _timerDialogOpen = false;
-                    if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
-                    setTimeout(() => {
-                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
-                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт — обнаружено сообщение "Снимок экрана сохранен"');
-                    }, 200);
-                }
-            }
-        } catch (_e) { /* тихо игнорируем */ }
         return originalOnChatMessage.apply(this, arguments);
     };
     console.log('[MVD-CHAT] Раннее логирование чата установлено (onChatMessage)');
@@ -2083,6 +2091,13 @@ window._mvdExecuteDoklad = function(reportType, reportName, stage) {
             // Отдельной командой (не частью текста доклада) — переключение на канал
             // 60. Важно: слитно "/c", без пробела между слэшем и "c".
             sendChatInput('/c 60');
+            // Если Dokladi открыт — скрываем его до получения скриншота,
+            // откроем заново после того как диалог "Точное время" закроется.
+            _timerDokladiWasOpen = !!window._dokladMenuMounted;
+            if (_timerDokladiWasOpen) {
+                try { window.closeInterface('Dokladi'); } catch(e) {}
+                console.log('[AHK-TIMER] Dokladi скрыт — жду скриншот');
+            }
         }
     };
     // Как и в _mvdExecuteAction: если профиль (звание/фамилия) ещё не загружен —
