@@ -12,7 +12,6 @@ const _ALLOWED_NICKS = [
 	"Artemka_Hasanov",
 	"Lev_Bennet",
 	"Andrey_Pulya",
-//  "Maksimka_DeMontana",
 	"Kirill_Dogadin",
 	"Cooper_Lorenzo",
     "Egor_Pudgh"
