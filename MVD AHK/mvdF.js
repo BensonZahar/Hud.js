@@ -3884,6 +3884,7 @@ try {
 
 // ── Сохраняем оригиналы системных функций ──
 var _origSetCursorStatus = window.setCursorStatus;
+var _origSetDrawLabelStatus = window.setDrawLabelStatus;
 var _patchesActive = false;
 function applyCursorPatch() {
     _patchesActive = true;
@@ -3898,10 +3899,23 @@ function applyCursorPatch() {
         }
         return _origSetCursorStatus.apply(this, arguments);
     };
+    // Блокируем скрытие ников (setDrawLabelStatus(false)) пока грузим профиль.
+    // MainMenu при открытии вызывает setCursorStatus → движок вызывает setDrawLabelStatus(false) →
+    // ники над головами пропадают. Подменяем функцию: false — игнорируем, true — пропускаем как есть.
+    window.setDrawLabelStatus = function(status) {
+        if (_patchesActive && !status) {
+            console.log('[Profile] 🔒 setDrawLabelStatus(false) заблокировано — ники остаются видны');
+            return;
+        }
+        return _origSetDrawLabelStatus && _origSetDrawLabelStatus.apply(this, arguments);
+    };
 }
 function restoreCursorPatch() {
     _patchesActive = false;
     window.setCursorStatus = _origSetCursorStatus;
+    window.setDrawLabelStatus = _origSetDrawLabelStatus;
+    // Явно восстанавливаем ники на случай если до патча они были видны
+    try { _origSetDrawLabelStatus && _origSetDrawLabelStatus.call(window, true); } catch(e) {}
 }
 
 // ── Подмена опций интерфейса для корректной работы загрузки ──
