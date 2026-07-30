@@ -1111,6 +1111,38 @@ const setupChatHandler = () => {
                                 } else {
                                     console.log('[FINE-LOG] ⏭ Таймер КД штрафа отключён (FINE_CD_TIMER_ENABLED=false)');
                                 }
+                                // ── Разъяснение причин штрафа после успешного подтверждения сервером ──
+                                // Данные сохранены в zkm.js → window._mvdLastFineArts / _mvdLastFineTotal
+                                try {
+                                    const _fineArts  = window._mvdLastFineArts;
+                                    const _fineTotal = window._mvdLastFineTotal;
+                                    if (_fineArts && _fineArts.length) {
+                                        // Каждая статья — 2 отдельных сообщения чтобы не упираться в лимит длины
+                                        const _msgs   = [];
+                                        const _delays = [];
+                                        let _d = 600; // пауза после подтверждения сервера
+                                        _fineArts.forEach((art) => {
+                                            _msgs.push(`Статья ${art.num} КоАП — ${art.title}.`);
+                                            _delays.push(_d);
+                                            _d += 1000;
+                                            _msgs.push(`Стоимость штрафа: ${art.fine.toLocaleString()} руб.`);
+                                            _delays.push(_d);
+                                            _d += 800;
+                                        });
+                                        // Итог только если статей несколько
+                                        if (_fineArts.length > 1) {
+                                            _msgs.push(`Итого к оплате: ${_fineTotal.toLocaleString()} руб.`);
+                                            _delays.push(_d);
+                                        }
+                                        sendMessagesWithDelay(_msgs, _delays);
+                                        console.log(`[FINE-LOG] 💬 Разъяснение: ${_fineArts.length} ст., ${_msgs.length} сообщений`);
+                                    }
+                                    // Очищаем — не повторять при радио-дубле
+                                    window._mvdLastFineArts  = null;
+                                    window._mvdLastFineTotal = null;
+                                } catch (_fe) {
+                                    console.warn('[FINE-LOG] Ошибка разъяснения штрафа:', _fe);
+                                }
                             }
                             // ── Авто-изъятие прав: если ZKM выставил pending ID — запускаем /takelic
                             // сразу после подтверждения штрафа (диалог уже закрыт)
