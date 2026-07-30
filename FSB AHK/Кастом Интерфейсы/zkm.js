@@ -1110,6 +1110,10 @@ const _sfc_main={
 			const cmd=`/ticket ${id} ${totalFine} ${codes} КоАП`;
 			if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
 			else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
+			// ── Сохраняем данные штрафа в глобал — mvdF.js отправит разъяснение ТОЛЬКО
+			//    при успешном подтверждении сервером ("выписал штраф" в чате) ──
+			window._mvdLastFineArts = arts.map(a=>({num:a.num, title:a.title, fine:a.fine}));
+			window._mvdLastFineTotal = totalFine;
 			// Если отмечена галочка изъятия — небольшая задержка после команды штрафа
 			if(withRevoke){
 				// В причину изъятия идут ТОЛЬКО статьи, которые реально дают основание для изъятия (revoke===true),
