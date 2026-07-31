@@ -1204,7 +1204,12 @@ const setupChatHandler = () => {
                                             _msgs.push(`Объявлены в розыск по: ${art.num} УК`);
                                             _delays.push(_d);
                                             _d += 800;
-                                            _msgs.push(`${art.num} УК - ${art.title} - ${_yearLabel(art.term)}.`);
+                                            // Разбиваем на два сообщения — название и срок отдельно,
+                                            // чтобы не упираться в лимит длины чата (~120 символов)
+                                            _msgs.push(`${art.num} УК - ${art.title}.`);
+                                            _delays.push(_d);
+                                            _d += 800;
+                                            _msgs.push(`${art.num} УК - ${_yearLabel(art.term)}.`);
                                             _delays.push(_d);
                                             _d += 800;
                                             _totalTerm += (art.term || 0);
@@ -2544,11 +2549,36 @@ window.sendChatInputCustom = e => {
         window.App.developmentMode || engine.trigger("SendChatInput", e);
     }
 };
+const _CHAT_MAX_LEN = 120;
+
+// Разбивает длинный текст на части по границам слов
+function _splitChatMessage(text) {
+    if (!text || text.length <= _CHAT_MAX_LEN) return [text];
+    const parts = [];
+    let s = text;
+    while (s.length > _CHAT_MAX_LEN) {
+        let cut = s.lastIndexOf(' ', _CHAT_MAX_LEN);
+        if (cut <= 0) cut = _CHAT_MAX_LEN; // нет пробела — жёсткий обрез
+        parts.push(s.slice(0, cut));
+        s = s.slice(cut).replace(/^\s+/, '');
+    }
+    if (s) parts.push(s);
+    return parts;
+}
+
 function sendMessagesWithDelay(messages, delays, index = 0) {
     if (index >= messages.length) return;
     setTimeout(() => {
-        sendChatInput(messages[index]);
-        sendMessagesWithDelay(messages, delays, index + 1);
+        const parts = _splitChatMessage(messages[index]);
+        sendChatInput(parts[0]);
+        // Если сообщение разбилось — шлём хвосты с паузой 700мс, потом идём дальше
+        let extraWait = 0;
+        for (let i = 1; i < parts.length; i++) {
+            extraWait += 700;
+            const _p = parts[i];
+            setTimeout(() => sendChatInput(_p), extraWait);
+        }
+        setTimeout(() => sendMessagesWithDelay(messages, delays, index + 1), extraWait);
     }, delays[index]);
 }
 
