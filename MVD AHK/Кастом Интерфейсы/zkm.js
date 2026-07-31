@@ -1075,6 +1075,9 @@ const _sfc_main={
 			const totalStars=this.cappedTerm;
 			const lastCode=this.selectedArticleObjects.map(a=>a.num+" УК").join(", ");
 			if(window._mvdSetLastWantedCode)window._mvdSetLastWantedCode(lastCode);
+			// ── Сохраняем данные розыска в глобал — mvdF.js отправит цитирование ТОЛЬКО
+			//    при успешном подтверждении сервером ("объявил в розыск" в чате) ──
+			window._mvdLastWantedArts = this.selectedArticleObjects.map(a=>({num:a.num, title:a.title, term:a.term}));
 			const cmd=`/su ${id} ${totalStars}`;
 			if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
 			else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
