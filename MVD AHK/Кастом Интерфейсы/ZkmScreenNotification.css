@@ -355,3 +355,40 @@
     background: rgba(10, 153, 71, 0.16);
     color: #6fe0a0;
 }
+
+
+/* ══════════════════════════════════════════════════════════════
+   OFFER-УВЕДОМЛЕНИЕ — .offer / .zkm-sn-offer  (addOfferChoice)
+   Скопировано 1-в-1 из Offer.css игрового интерфейса: тот же скоуп
+   data-v-b87ae6b4, те же классы .offer / .offer__container / .offer__btn
+   и т.д. Это позволяет уведомлению "Проверка документов" выглядеть
+   идентично оригинальному Offer, оставаясь при этом обычным DOM-узлом
+   ZKM (см. addOfferChoice() в ZkmScreenNotification.js), без Vue.
+
+   ВАЖНО: background-image ниже (.offer__content-background) ссылается
+   на ./bg21.png тем же относительным путём, что и в оригинальном
+   Offer.css — файл должен лежать в той же папке, где взят этот bg21.png
+   для интерфейса Offer.
+   ══════════════════════════════════════════════════════════════ */
+.offer[data-v-b87ae6b4]{align-items:flex-end;height:100vh;pointer-events:none}
+.offer[data-v-b87ae6b4],.offer__container[data-v-b87ae6b4]{display:flex;justify-content:center;position:relative}
+.offer__container[data-v-b87ae6b4]{align-items:center;margin-bottom:5.93vh}
+.offer__container__before[data-v-b87ae6b4]{background:radial-gradient(66.26% 66.26% at 50% 50%,#141414d1 11.4%,#14141400 68.04%);content:"";height:482%;position:absolute;width:126.8%}
+.offer__content[data-v-b87ae6b4]{align-items:center;background:linear-gradient(136.3deg,#f4f1e11a -0.6%,#f4f1e100 75.57%);border:0.19vh solid #f4f1e11a;border-radius:11.11vh;display:flex;height:11.11vh;overflow:hidden;padding:0 1.11vh;pointer-events:auto;position:relative}
+.offer__content-background[data-v-b87ae6b4]{background-image:url(./bg21.png);background-position:0;background-size:100%;height:100%;left:0;pointer-events:none;position:absolute;top:0;width:100%}
+.offer__btn[data-v-b87ae6b4]{align-items:center;background:#f4f1e140;border-radius:50%;color:#f4f1e1;cursor:pointer;display:flex;font-size:3.33vh;font-weight:700;height:7.22vh;justify-content:center;line-height:5vh;transition:all 0.25s ease;width:7.22vh}
+.offer__btn__text[data-v-b87ae6b4]{margin-top:0.65vh}
+.offer__btn[data-v-b87ae6b4]:last-child{background:#65c466;color:#141414}
+.offer__btn[data-v-b87ae6b4]:hover,.offer__btn_active[data-v-b87ae6b4]{background:#f4f1e1!important;color:#141414!important}
+.offer__data[data-v-b87ae6b4]{padding:0 1.48vh;text-align:center}
+.offer__title[data-v-b87ae6b4]{font-size:3.33vh;font-weight:600;line-height:5vh;margin-top:-1.2vh}
+.offer__text[data-v-b87ae6b4],.offer__title[data-v-b87ae6b4]{color:#f4f1e1;text-shadow:0vh 0.09vh 0.19vh #000000b3}
+.offer__text[data-v-b87ae6b4]{display:flex;font-size:2.22vh;font-style:italic;font-weight:500;line-height:3.33vh;opacity:0.8}
+.offer .slide-enter-active[data-v-b87ae6b4],.offer .slide-leave-active[data-v-b87ae6b4]{transition:all 0.25s ease}
+.offer .slide-enter-from[data-v-b87ae6b4],.offer .slide-leave-to[data-v-b87ae6b4]{opacity:0;transform:translateY(11.85vh)}
+
+/* .offer в игре получает position:fixed/inset:0 от глобального класса
+   .iface-container общей вёрстки интерфейсов. Здесь этого глобального
+   класса нет — фиксируем позиционирование явно, чтобы оверлей всегда
+   растягивался на весь экран и был поверх остального контента. */
+.offer.zkm-sn-offer[data-v-b87ae6b4]{position:fixed;inset:0;z-index:99999}

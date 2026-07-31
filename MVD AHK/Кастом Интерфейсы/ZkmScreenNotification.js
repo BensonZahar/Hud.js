@@ -89,6 +89,7 @@
     var last       = 0;
     var queue      = new Map();   // обычные уведомления
     var timerQueue = new Map();   // таймер-уведомления (не убиваются hideAll)
+    var offerQueue = new Map();   // уведомления-оффер в дизайне Offer.js/Offer.css (addOfferChoice)
 
     /* ── Стекинг уведомлений в одной точке экрана ────────────────────
        Раньше если в одной позиции ("left" и т.п.) оказывались два
@@ -484,6 +485,132 @@
             }
         },
 
+        /* ══════════════════════════════════════════════════════════════
+           OFFER-УВЕДОМЛЕНИЕ — addOfferChoice()
+           Дизайн один-в-один скопирован из Offer.js/Offer.css игрового
+           интерфейса (тот же скоуп data-v-b87ae6b4, те же классы .offer /
+           .offer__container / .offer__btn и т.д., тот же slide-enter/leave)
+           — но это НЕ Vue-компонент, а ванильный DOM-узел, потому что
+           открывается прямо здесь, в ZKM, а не через window.openInterface.
+
+           Круглые кнопки "N"/"Y" кликабельны мышью (как в оригинальном
+           Offer), а снаружи (напр. mvdF.js) можно управлять тем же
+           уведомлением программно — напр. чтобы завязать подтверждение
+           на двойное нажатие Alt вместо клика:
+             var id = sn.addOfferChoice(
+                 '["Проверка документов","Alt ×1 — отмена, Alt ×2 — подтвердить",10]',
+                 function (id, result) { ... } // result: 'yes' | 'no' | 'expire'
+             );
+             sn.highlightOfferChoice(id, 'no', true);   // подсветить N (как при удержании клавиши)
+             sn.resolveOfferChoice(id, 'yes');           // закрыть как будто нажали Y
+             sn.hideOfferChoice(id);                     // закрыть молча, без onFinish
+
+           Payload: ["title", "textHtml", seconds]
+        ─────────────────────────────────────────────────────────────── */
+        addOfferChoice: function (payload, onFinish) {
+            try {
+                var d     = JSON.parse(payload);
+                var title = strip(d[0]);
+                var text  = d[1] || ''; // идёт как innerHTML — как t.text в Offer.js
+                var secs  = Number(d[2]) || 10;
+                var id    = ++last;
+
+                var el = document.createElement('div');
+                el.className = 'offer iface-container zkm-sn-offer';
+                el.setAttribute('data-v-b87ae6b4', '');
+                el.innerHTML =
+                    '<div class="offer__container slide-enter-from slide-enter-active" data-v-b87ae6b4>' +
+                        '<div class="offer__container__before" data-v-b87ae6b4></div>' +
+                        '<div class="offer__content" data-v-b87ae6b4>' +
+                            '<div class="offer__content-background" data-v-b87ae6b4></div>' +
+                            '<div class="offer__btn zkm-sn-offer__no" data-v-b87ae6b4>' +
+                                '<div class="offer__btn__text" data-v-b87ae6b4>N</div>' +
+                            '</div>' +
+                            '<div class="offer__data" data-v-b87ae6b4>' +
+                                '<div class="offer__title" data-v-b87ae6b4></div>' +
+                                '<div class="offer__text" data-v-b87ae6b4></div>' +
+                            '</div>' +
+                            '<div class="offer__btn zkm-sn-offer__yes" data-v-b87ae6b4>' +
+                                '<div class="offer__btn__text" data-v-b87ae6b4>Y</div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>';
+
+                el.querySelector('.offer__title').textContent = title;
+                el.querySelector('.offer__text').innerHTML    = text;
+
+                document.body.appendChild(el);
+
+                var box    = el.querySelector('.offer__container');
+                var noBtn  = el.querySelector('.zkm-sn-offer__no');
+                var yesBtn = el.querySelector('.zkm-sn-offer__yes');
+
+                requestAnimationFrame(function () {
+                    requestAnimationFrame(function () { box.classList.remove('slide-enter-from'); });
+                });
+
+                var resolved = false;
+                function finish(result) {
+                    if (resolved) return;
+                    resolved = true;
+                    var item = offerQueue.get(id);
+                    if (item) clearTimeout(item.t);
+                    offerQueue.delete(id);
+
+                    box.classList.remove('slide-enter-from', 'slide-enter-active');
+                    box.classList.add('slide-leave-active', 'slide-leave-to');
+                    setTimeout(function () { try { el.remove(); } catch (_) {} }, 280);
+
+                    if (typeof onFinish === 'function') {
+                        try { onFinish(id, result); } catch (e) {}
+                    }
+                }
+
+                noBtn.addEventListener('click', function () { finish('no'); });
+                yesBtn.addEventListener('click', function () { finish('yes'); });
+
+                var t = setTimeout(function () { finish('expire'); }, secs * 1000);
+                offerQueue.set(id, { el: el, box: box, noBtn: noBtn, yesBtn: yesBtn, finish: finish, t: t });
+
+                return id;
+            } catch (e) {
+                console.error('[ZKM-SN] addOfferChoice:', e);
+            }
+        },
+
+        /* Подсветка кнопки N/Y — аналог isActiveNoBtn/isActiveYesBtn из
+           Offer.js (там переключались по удержанию клавиш Y/N; здесь
+           вызывающий код сам решает, когда подсвечивать — напр. по Alt) */
+        highlightOfferChoice: function (id, which, on) {
+            var item = offerQueue.get(id);
+            if (!item) return;
+            var btn = which === 'yes' ? item.yesBtn : item.noBtn;
+            if (btn) btn.classList.toggle('offer__btn_active', !!on);
+        },
+
+        /* Закрывает уведомление программно с результатом 'yes'/'no' —
+           так, как будто пользователь кликнул по соответствующей кнопке.
+           Используется, когда решение принято не кликом, а иначе
+           (напр. двойным нажатием Alt снаружи в mvdF.js) */
+        resolveOfferChoice: function (id, which) {
+            var item = offerQueue.get(id);
+            if (!item) return;
+            item.finish(which === 'yes' ? 'yes' : 'no');
+        },
+
+        /* Закрывает уведомление молча, БЕЗ вызова onFinish — для случаев
+           отмены "снаружи" (напр. ответ сервера обогнал закрытие) */
+        hideOfferChoice: function (id) {
+            var item = offerQueue.get(id);
+            if (!item) return;
+            var t = item.t;
+            clearTimeout(t);
+            offerQueue.delete(id);
+            item.box.classList.remove('slide-enter-from', 'slide-enter-active');
+            item.box.classList.add('slide-leave-active', 'slide-leave-to');
+            setTimeout(function () { try { item.el.remove(); } catch (_) {} }, 280);
+        },
+
         /* ── Обновление уже открытого таймер-уведомления БЕЗ пересоздания
            DOM-узла (а значит без leave/enter анимации). Используется,
            когда снаружи (mvdF.js) нужно просто освежить текст/оставшееся
@@ -576,6 +703,13 @@
 
         hideAllTimers: function () {
             Array.from(timerQueue.keys()).forEach(removeTimer);
+        },
+
+        hideAllOffers: function () {
+            Array.from(offerQueue.keys()).forEach(function (id) {
+                var item = offerQueue.get(id);
+                if (item) item.finish('expire');
+            });
         }
     };
 
