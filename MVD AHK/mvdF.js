@@ -1378,19 +1378,22 @@ if (typeof message === 'string' && _MSG_REPLACE_RULES.length) {
 }
 // ==================== КОНЕЦ ЗАМЕНЫ СООБЩЕНИЙ ====================
 
-// ── Фиксируем уровень стиля одежды: всегда 100 из 600 ───────────
+// ── Уровень стиля одежды (управляется /are_s, синхронизируется с /are) ──
 // Серверное сообщение вида: "...прокачали новый () стиль одежды {FFFFFF}29{75A3D2} из {FFFFFF}600..."
-// Скобки () могут быть разными или отсутствовать — матчим по "стиль одежды"
 if (typeof message === 'string' && message.includes('стиль одежды')) {
     try {
         const _before = message;
-        // Заменяем любое число перед "из {FFFFFF}600" на 100
-        message = message.replace(
-            /(\{FFFFFF\})\d+(\{75A3D2\} из \{FFFFFF\}600)/g,
-            '$1100$2'
-        );
-        if (message !== _before) {
-            console.log('[STYLE-FIX] Уровень стиля одежды зафиксирован: 100 / 600');
+        if (window._mvdClothingStyleLevel !== null && window._mvdClothingStyleLevel !== undefined) {
+            // Заменяем серверное число на наш счётчик и сразу инкрементируем на следующий раз
+            const _lvl = window._mvdClothingStyleLevel;
+            message = message.replace(
+                /(\{FFFFFF\})\d+(\{75A3D2\} из \{FFFFFF\}600)/g,
+                '$1' + _lvl + '$2'
+            );
+            if (message !== _before) {
+                window._mvdClothingStyleLevel = _lvl + 1;
+                console.log('[STYLE] Уровень стиля: ' + _lvl + ' / 600 → следующий: ' + window._mvdClothingStyleLevel);
+            }
         }
     } catch (_e) {
         console.warn('[STYLE-FIX] Ошибка замены стиля:', _e);
@@ -4522,10 +4525,11 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
 (function() {
     const originalSendChatInput = window.sendChatInput;
 
-    // Уровень стиля одежды: живёт, пока не перезагрузится страница/скрипт.
-    // При первом вызове /are - случайное небольшое число, дальше +1 за каждое использование.
-    // Выставить конкретное число вручную можно командой /are_s <число>.
-    let clothingStyleLevel = null;
+    // Уровень стиля одежды: глобальный (window._mvdClothingStyleLevel), живёт пока не перезагрузится страница.
+    // /are_s <число> — установить уровень для СЛЕДУЮЩЕГО ареста.
+    // При первом /are без /are_s — случайное небольшое число (1-20).
+    // Сокращение к глобальной переменной для удобства:
+    if (window._mvdClothingStyleLevel === undefined) window._mvdClothingStyleLevel = null;
 
     // Последний полученный от движка список игроков онлайн: {count, local:{id,name,ping}, players:[{id,name,ping},...]}
     let latestPlayerList = null;
@@ -4623,9 +4627,9 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
                 return;
             }
 
-            clothingStyleLevel = num;
-            snAdd(`[1, "Стиль одежды", "Уровень выставлен вручную: ${clothingStyleLevel} / 600", "00FF00", 1500]`);
-            console.log(`[TEST] 👕 Уровень стиля одежды выставлен вручную: ${clothingStyleLevel} / 600`);
+            window._mvdClothingStyleLevel = num;
+            snAdd(`[1, "Стиль одежды", "Уровень выставлен: ${num} / 600. Следующий арест покажет ${num}", "00FF00", 2500]`);
+            console.log(`[TEST] 👕 Уровень стиля одежды выставлен: ${num} / 600 (следующий арест → ${num})`);
             return;
         }
 
@@ -4664,14 +4668,14 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
             const officerId = getOwnId();
             const officerIdDisplay = (officerId !== null && officerId !== undefined) ? officerId : 529;
 
-            // Прокачка стиля одежды: первый раз - случайное небольшое число, дальше +1
-            if (clothingStyleLevel === null) {
-                clothingStyleLevel = Math.floor(Math.random() * 20) + 1; // 1-20
-            } else {
-                clothingStyleLevel += 1;
+            // Прокачка стиля одежды: первый раз без /are_s — случайное небольшое число (1-20)
+            // После /are_s <N>: первый арест → N, второй → N+1, и т.д.
+            if (window._mvdClothingStyleLevel === null || window._mvdClothingStyleLevel === undefined) {
+                window._mvdClothingStyleLevel = Math.floor(Math.random() * 20) + 1; // 1-20
             }
-            const previousLevel = clothingStyleLevel - 1;
-            const newLevel = clothingStyleLevel;
+            const newLevel = window._mvdClothingStyleLevel;     // показываем текущее значение
+            window._mvdClothingStyleLevel = newLevel + 1;       // следующий арест → +1
+            const previousLevel = newLevel - 1;
             const maxLevel = 600;
 
             console.log(`[TEST] ⭐ ${stars} звезд | ⏱ ${config.minutes} мин | 💰 ${config.bonus} руб | ✨ +${config.exp} опыта`);
@@ -4686,7 +4690,7 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
                 },
                 {
                     delay: getRandomDelay(),
-                    text: `{75A3D2}Вы успешно {FFFFFF}провели задержание{75A3D2} и прокачали новый стиль одежды {FFFFFF}${newLevel}{75A3D2} из {FFFFFF}${maxLevel}{75A3D2}.`
+                    text: `{75A3D2}Вы успешно {FFFFFF}провели задержание{75A3D2} и прокачали новый () стиль одежды {FFFFFF}${newLevel}{75A3D2} из {FFFFFF}${maxLevel}{75A3D2}.`
                 },
                 // { delay: getRandomDelay(), text: `{FF7100}<...:KIRIESHKI:...> Вашей семье добавлено ${config.exp} очков опыта.
                 {
