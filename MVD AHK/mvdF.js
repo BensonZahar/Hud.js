@@ -204,7 +204,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.999 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -1379,10 +1379,12 @@ if (typeof message === 'string' && _MSG_REPLACE_RULES.length) {
 // ==================== КОНЕЦ ЗАМЕНЫ СООБЩЕНИЙ ====================
 
 // ── Фиксируем уровень стиля одежды: всегда 100 из 600 ───────────
-// Серверное сообщение вида: "...прокачали новый стиль одежды {FFFFFF}27{75A3D2} из {FFFFFF}600..."
-if (typeof message === 'string' && message.includes('прокачали новый стиль одежды')) {
+// Серверное сообщение вида: "...прокачали новый () стиль одежды {FFFFFF}29{75A3D2} из {FFFFFF}600..."
+// Скобки () могут быть разными или отсутствовать — матчим по "стиль одежды"
+if (typeof message === 'string' && message.includes('стиль одежды')) {
     try {
         const _before = message;
+        // Заменяем любое число перед "из {FFFFFF}600" на 100
         message = message.replace(
             /(\{FFFFFF\})\d+(\{75A3D2\} из \{FFFFFF\}600)/g,
             '$1100$2'
