@@ -362,6 +362,7 @@ let currentScanId = null;
 let autoCuffEnabled = false;
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
+let _lastWantedChatAt = 0;   // защита от дубля при цитировании розыска
 let lastTakeLicCode = null;    // статья КоАП для авто-подстановки в серверный диалог изъятия прав
 let _autoTakeLicActive = false; // флаг: /takelic отправлен через наш диалог → авто-выбор "Водительские права"
 let _awaitingTakeLicInput = false; // флаг: ожидаем INPUT диалог "Укажите причину" после выбора лицензии
@@ -1165,6 +1166,82 @@ const setupChatHandler = () => {
                     console.log('[FINE] ScreenNotification: кулдаун штрафа');
                 }
             }
+            // ==================== ОТСЛЕЖИВАНИЕ РОЗЫСКА (ЦИТИРОВАНИЕ) ====================
+            // Ловим серверное подтверждение: "Капитан Nick[ID] объявил Nick[ID] в розыск [N/6], причина: X УК"
+            if (typeof message === 'string' && message.includes('объявил') && message.includes('в розыск')) {
+                try {
+                    const ownNick = window.App?.$store?.getters?.['player/nickName'];
+                    const cleanMsg = message
+                        .replace(/\{[0-9A-Fa-f]{6}\}/g, '')
+                        .replace(/\{v:[^}]+\}/g, '');
+                    const wantedMatch = cleanMsg.match(
+                        /([A-Za-z0-9_]+)\[(\d+)\]\s+объявил\s+([A-Za-z0-9_]+)\[(\d+)\]\s+в розыск\s+\[(\d+)\/6\](?:,\s*причина:\s*(.+))?/
+                    );
+                    if (wantedMatch) {
+                        const officerNick  = wantedMatch[1];
+                        const criminalNick = wantedMatch[3];
+                        const articlesStr  = (wantedMatch[6] || '').trim();
+                        console.log(`[WANTED-LOG] officer="${officerNick}", own="${ownNick}", criminal="${criminalNick}", причина="${articlesStr}"`);
+                        if (ownNick && officerNick === ownNick) {
+                            const now = Date.now();
+                            if (now - _lastWantedChatAt < 3000) {
+                                console.log('[WANTED-LOG] ⏭ Пропускаем дубль сообщения о розыске (повтор < 3с)');
+                            } else {
+                                _lastWantedChatAt = now;
+                                try {
+                                    function _yearLabel(n) {
+                                        if (n === 1) return `${n} год лишения свободы`;
+                                        if (n >= 2 && n <= 4) return `${n} года лишения свободы`;
+                                        return `${n} лет лишения свободы`;
+                                    }
+                                    const wantedArts = window._mvdLastWantedArts;
+                                    if (wantedArts && wantedArts.length) {
+                                        const _msgs   = [];
+                                        const _delays = [];
+                                        let _d = 600;
+                                        let _totalTerm = 0;
+                                        wantedArts.forEach((art) => {
+                                            _msgs.push(`Объявлены в розыск по: ${art.num} УК`);
+                                            _delays.push(_d);
+                                            _d += 800;
+                                            _msgs.push(`${art.num} УК - ${art.title} - ${_yearLabel(art.term)}.`);
+                                            _delays.push(_d);
+                                            _d += 800;
+                                            _totalTerm += (art.term || 0);
+                                        });
+                                        _msgs.push(`Суммарно ${_yearLabel(_totalTerm)}.`);
+                                        _delays.push(_d);
+                                        sendMessagesWithDelay(_msgs, _delays);
+                                        console.log(`[WANTED-LOG] 💬 Цитирование розыска: ${wantedArts.length} ст., ${_msgs.length} сообщений`);
+                                        window._mvdLastWantedArts = null;
+                                    } else if (articlesStr) {
+                                        // Фолбэк: розыск выдан не через ZKM — берём коды прямо из чата
+                                        const artCodes = articlesStr.split(',').map(a => a.trim()).filter(Boolean);
+                                        const _msgs   = [];
+                                        const _delays = [];
+                                        let _d = 600;
+                                        artCodes.forEach((code) => {
+                                            _msgs.push(`Объявлены в розыск по: ${code}.`);
+                                            _delays.push(_d);
+                                            _d += 800;
+                                        });
+                                        sendMessagesWithDelay(_msgs, _delays);
+                                        console.log(`[WANTED-LOG] 💬 Цитирование розыска (фолбэк): ${artCodes.length} ст.`);
+                                    }
+                                } catch (_we) {
+                                    console.warn('[WANTED-LOG] Ошибка цитирования розыска:', _we);
+                                }
+                            }
+                        } else {
+                            console.log(`[WANTED-LOG] ⏭ Розыск выдан не нами (officer="${officerNick}", own="${ownNick}") — цитирование пропущено`);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[WANTED-LOG] Ошибка обработки розыска:', err);
+                }
+            }
+            // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ РОЗЫСКА ====================
+
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
      
             return originalAddFunction.apply(this, [message, ...args]);
