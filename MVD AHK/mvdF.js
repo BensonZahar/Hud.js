@@ -4660,16 +4660,23 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
         }
         const myId = getOwnId();
 
-        // Исключаем: себя + фракционных игроков (по цвету ника)
-        const civils = latestPlayerList.players.filter(p => p.id !== myId && !isFactionPlayer(p));
+        // Исключаем: себя + фракционных игроков (по цвету ника) + NPC с ником Mask_
+        const civils = latestPlayerList.players.filter(p =>
+            p.id !== myId &&
+            !isFactionPlayer(p) &&
+            !(p.name && p.name.startsWith('Mask_'))
+        );
 
         if (civils.length > 0) {
             console.log(`[ARE] ✅ Пул гражданских: ${civils.length} чел. (из ${latestPlayerList.players.length} онлайн)`);
             return civils[Math.floor(Math.random() * civils.length)];
         }
 
-        // Fallback: нет цветовых данных или все оказались фракционными — берём кого угодно кроме себя
-        const others = latestPlayerList.players.filter(p => p.id !== myId);
+        // Fallback: нет цветовых данных или все оказались фракционными — берём кого угодно кроме себя и Mask_
+        const others = latestPlayerList.players.filter(p =>
+            p.id !== myId &&
+            !(p.name && p.name.startsWith('Mask_'))
+        );
         const pool = others.length ? others : latestPlayerList.players;
         console.log(`[ARE] ⚠️ Фракционный фильтр не сработал (нет color-данных?), берём случайного из ${pool.length}`);
         return pool[Math.floor(Math.random() * pool.length)];
