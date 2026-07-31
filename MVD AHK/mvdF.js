@@ -204,7 +204,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.999 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -4650,5 +4650,43 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
     console.log('[TEST] 📋 /are_s <0-600> - вручную выставить уровень стиля одежды');
 })();
 
+
+// =============================================================================
+// МОДУЛЬ: ПОДМЕНА ЧИСЛА СТИЛЯ ОДЕЖДЫ ПОСЛЕ /arrest
+// Серверное сообщение всегда покажет "100 из 600" вместо реального числа.
+// =============================================================================
+
+(function patchClothingStyleNumber() {
+
+    const REPLACE_CURRENT = '100';
+    const REPLACE_TOTAL   = '600';
+
+    const STYLE_RE = /(\{FFFFFF\})\d+(\{75A3D2\} из \{FFFFFF\})\d+/i;
+
+    function installHook() {
+        const prev = window.onChatMessage;
+        if (typeof prev !== 'function') {
+            setTimeout(installHook, 300);
+            return;
+        }
+
+        window.onChatMessage = function ahkStylePatch(message, args) {
+            if (typeof message === 'string' && STYLE_RE.test(message)) {
+                message = message.replace(
+                    STYLE_RE,
+                    '$1' + REPLACE_CURRENT + '$2' + REPLACE_TOTAL
+                );
+                console.log('[STYLE-PATCH] стиль одежды подменён на ' + REPLACE_CURRENT + ' из ' + REPLACE_TOTAL);
+            }
+            return prev.apply(this, arguments);
+        };
+
+        console.log('[STYLE-PATCH] хук установлен');
+    }
+
+    setTimeout(installHook, 800);
+
+})();
+// =============================================================================
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
