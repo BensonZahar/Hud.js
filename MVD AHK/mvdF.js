@@ -371,6 +371,7 @@ let trackingDevice = null;   // 'Radmir' (ПК) или 'Hassle' (телефон)
 let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
 let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
 const FINE_CD_TIMER_ENABLED = false; // [ВЫКЛ] таймер КД штрафа временно отключён (убрали КД)
+let _lastWantedChatAt = 0;   // защита от дубля при цитировании розыска (аналог lastFineTimerOpenAt)
 let currentScanId = null;
 let autoCuffEnabled = false;
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
@@ -1186,6 +1187,85 @@ const setupChatHandler = () => {
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
+
+            // ==================== ОТСЛЕЖИВАНИЕ РОЗЫСКА (ЦИТИРОВАНИЕ) ====================
+            // Ловим серверное подтверждение: "Капитан Nick[ID] объявил Nick[ID] в розыск [N/6], причина: X УК"
+            // Работает аналогично блоку "выписал штраф" — проверяем что это МЫ выдали розыск.
+            if (typeof message === 'string' && message.includes('объявил') && message.includes('в розыск')) {
+                try {
+                    const ownNick = window.App?.$store?.getters?.['player/nickName'];
+                    // Снимаем цветовые теги (вида {RRGGBB} и {v:Nick}) перед разбором
+                    const cleanMsg = message
+                        .replace(/\{[0-9A-Fa-f]{6}\}/g, '')
+                        .replace(/\{v:[^}]+\}/g, '');
+                    // Формат: "Звание OfficerNick[OfficerID] объявил CriminalNick[CriminalID] в розыск [N/6], причина: X.X УК, ..."
+                    const wantedMatch = cleanMsg.match(
+                        /([A-Za-z0-9_]+)\[(\d+)\]\s+объявил\s+([A-Za-z0-9_]+)\[(\d+)\]\s+в розыск\s+\[(\d+)\/6\](?:,\s*причина:\s*(.+))?/
+                    );
+                    if (wantedMatch) {
+                        const officerNick  = wantedMatch[1];
+                        const criminalNick = wantedMatch[3];
+                        const wantedLevel  = wantedMatch[5];
+                        const articlesStr  = (wantedMatch[6] || '').trim();
+
+                        console.log(`[WANTED-LOG] officer="${officerNick}", own="${ownNick}", criminal="${criminalNick}", level=${wantedLevel}, причина="${articlesStr}"`);
+
+                        if (ownNick && officerNick === ownNick) {
+                            const now = Date.now();
+                            if (now - _lastWantedChatAt < 3000) {
+                                // Дубль того же события (радио-эхо) — пропускаем
+                                console.log('[WANTED-LOG] ⏭ Пропускаем дубль сообщения о розыске (повтор < 3с)');
+                            } else {
+                                _lastWantedChatAt = now;
+                                // ── Цитирование причин розыска после подтверждения сервером ──
+                                // Данные сохранены в zkm.js → window._mvdLastWantedArts (num, title, term)
+                                try {
+                                    const wantedArts = window._mvdLastWantedArts;
+                                    if (wantedArts && wantedArts.length) {
+                                        // Богатое цитирование: статья + название + срок (как у штрафов)
+                                        const _msgs   = [];
+                                        const _delays = [];
+                                        let _d = 600;
+                                        wantedArts.forEach((art) => {
+                                            _msgs.push(`Статья ${art.num} УК — ${art.title}.`);
+                                            _delays.push(_d);
+                                            _d += 1000;
+                                            _msgs.push(`Срок: ${art.term} ч.`);
+                                            _delays.push(_d);
+                                            _d += 800;
+                                        });
+                                        sendMessagesWithDelay(_msgs, _delays);
+                                        console.log(`[WANTED-LOG] 💬 Цитирование розыска: ${wantedArts.length} ст., ${_msgs.length} сообщений`);
+                                        // Очищаем — не повторять при радио-дубле
+                                        window._mvdLastWantedArts = null;
+                                    } else if (articlesStr) {
+                                        // Фолбэк: розыск выдан не через ZKM (напр. ручной /su) —
+                                        // берём коды прямо из чата, без названий
+                                        const artCodes = articlesStr.split(',').map(a => a.trim()).filter(Boolean);
+                                        const _msgs   = [];
+                                        const _delays = [];
+                                        let _d = 600;
+                                        artCodes.forEach((code) => {
+                                            _msgs.push(`Объявлен в розыск по: ${code}.`);
+                                            _delays.push(_d);
+                                            _d += 800;
+                                        });
+                                        sendMessagesWithDelay(_msgs, _delays);
+                                        console.log(`[WANTED-LOG] 💬 Цитирование розыска (фолбэк): ${artCodes.length} ст.`);
+                                    }
+                                } catch (_we) {
+                                    console.warn('[WANTED-LOG] Ошибка цитирования розыска:', _we);
+                                }
+                            }
+                        } else {
+                            console.log(`[WANTED-LOG] ⏭ Розыск выдан не нами (officer="${officerNick}", own="${ownNick}") — цитирование пропущено`);
+                        }
+                    }
+                } catch (err) {
+                    console.error('[WANTED-LOG] Ошибка обработки розыска:', err);
+                }
+            }
+            // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ РОЗЫСКА ====================
 
             // ── Закрытие "Точное время" и восстановление Dokladi по скриншоту ──
             // Движок шлёт сообщение {3EB936}Снимок экрана сохранен {FFFFFF}radmir-....jpg
