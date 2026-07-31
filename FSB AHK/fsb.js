@@ -1135,8 +1135,8 @@ const setupChatHandler = () => {
                                             _msgs.push(`Итого к оплате: ${_fineTotal.toLocaleString()} руб.`);
                                             _delays.push(_d);
                                         }
-                                        sendMessagesWithDelay(_msgs, _delays);
-                                        console.log(`[FINE-LOG] 💬 Разъяснение: ${_fineArts.length} ст., ${_msgs.length} сообщений`);
+                                        showCiteOffer('Цитировать штраф?', _msgs, _delays);
+                                        console.log(`[FINE-LOG] 💬 Предложение цитирования штрафа: ${_fineArts.length} ст.`);
                                     }
                                     // Очищаем — не повторять при радио-дубле
                                     window._mvdLastFineArts  = null;
@@ -1211,8 +1211,8 @@ const setupChatHandler = () => {
                                         });
                                         _msgs.push(`Суммарно ${_yearLabel(_totalTerm)}.`);
                                         _delays.push(_d);
-                                        sendMessagesWithDelay(_msgs, _delays);
-                                        console.log(`[WANTED-LOG] 💬 Цитирование розыска: ${wantedArts.length} ст., ${_msgs.length} сообщений`);
+                                        showCiteOffer('Цитировать розыск?', _msgs, _delays);
+                                        console.log(`[WANTED-LOG] 💬 Предложение цитирования розыска: ${wantedArts.length} ст.`);
                                         window._mvdLastWantedArts = null;
                                     } else if (articlesStr) {
                                         // Фолбэк: розыск выдан не через ZKM — берём коды прямо из чата
@@ -1225,8 +1225,8 @@ const setupChatHandler = () => {
                                             _delays.push(_d);
                                             _d += 800;
                                         });
-                                        sendMessagesWithDelay(_msgs, _delays);
-                                        console.log(`[WANTED-LOG] 💬 Цитирование розыска (фолбэк): ${artCodes.length} ст.`);
+                                        showCiteOffer('Цитировать розыск?', _msgs, _delays);
+                                        console.log(`[WANTED-LOG] 💬 Предложение цитирования розыска (фолбэк): ${artCodes.length} ст.`);
                                     }
                                 } catch (_we) {
                                     console.warn('[WANTED-LOG] Ошибка цитирования розыска:', _we);
@@ -1857,6 +1857,75 @@ window.addEventListener('keydown', function (e) {
     }, DOC_CHECK_DBLTAP_MS);
 });
 // ==================== КОНЕЦ ПОДТВЕРЖДЕНИЯ ПРОВЕРКИ ДОКУМЕНТОВ ====================
+
+// ==================== ЦИТИРОВАНИЕ ШТРАФА / РОЗЫСКА (Alt×1 — отмена, Alt×2 — цитировать) ====================
+let _citeOfferSnId         = null;
+let _citeOfferActive       = false;
+let _citeOfferAltPressedAt = 0;
+let _citeOfferSingleTimer  = null;
+let _pendingCiteMsgs       = null;
+
+function showCiteOffer(title, msgs, delays) {
+    if (_citeOfferSnId !== null) {
+        try { getZkmSN()?.hideOfferChoice(_citeOfferSnId); } catch(e) {}
+        _citeOfferSnId = null;
+    }
+    if (_citeOfferSingleTimer) { clearTimeout(_citeOfferSingleTimer); _citeOfferSingleTimer = null; }
+
+    _citeOfferActive       = true;
+    _citeOfferAltPressedAt = 0;
+    _pendingCiteMsgs       = { msgs, delays };
+
+    const sn = getZkmSN();
+    if (sn && typeof sn.addOfferChoice === 'function') {
+        _citeOfferSnId = sn.addOfferChoice(
+            JSON.stringify([title, 'Alt ×1 — отмена, Alt ×2 — процитировать', 10]),
+            function(id, result) {
+                _citeOfferSnId   = null;
+                _citeOfferActive = false;
+                if (result === 'yes' && _pendingCiteMsgs) {
+                    sendMessagesWithDelay(_pendingCiteMsgs.msgs, _pendingCiteMsgs.delays);
+                }
+                _pendingCiteMsgs = null;
+            }
+        );
+    } else {
+        snAdd(`[2, "${title}", "Alt (1 раз) — Нет<br>Alt (2 раза) — Цитировать", "f9b701", 10000]`);
+        _citeOfferActive = false;
+        _pendingCiteMsgs = null;
+    }
+}
+
+window.addEventListener('keydown', function(e) {
+    if (!_citeOfferActive) return;
+    if (e.keyCode !== window.KEY_CODE_ALT) return;
+
+    const sn  = getZkmSN();
+    const now = Date.now();
+
+    if (_citeOfferAltPressedAt && (now - _citeOfferAltPressedAt) <= DOC_CHECK_DBLTAP_MS) {
+        if (_citeOfferSingleTimer) { clearTimeout(_citeOfferSingleTimer); _citeOfferSingleTimer = null; }
+        if (sn && _citeOfferSnId !== null) sn.highlightOfferChoice(_citeOfferSnId, 'yes', true);
+        setTimeout(function() {
+            if (sn && _citeOfferSnId !== null) sn.resolveOfferChoice(_citeOfferSnId, 'yes');
+        }, 90);
+        return;
+    }
+
+    _citeOfferAltPressedAt = now;
+    if (sn && _citeOfferSnId !== null) sn.highlightOfferChoice(_citeOfferSnId, 'no', true);
+    if (_citeOfferSingleTimer) clearTimeout(_citeOfferSingleTimer);
+    _citeOfferSingleTimer = setTimeout(function() {
+        if (sn && _citeOfferSnId !== null) {
+            sn.highlightOfferChoice(_citeOfferSnId, 'no', false);
+            sn.resolveOfferChoice(_citeOfferSnId, 'no');
+        }
+        _citeOfferActive       = false;
+        _citeOfferAltPressedAt = 0;
+        _pendingCiteMsgs       = null;
+    }, DOC_CHECK_DBLTAP_MS);
+});
+// ==================== КОНЕЦ ЦИТИРОВАНИЯ (Alt-оффер) ====================
 
 const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
