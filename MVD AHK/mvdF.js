@@ -1222,18 +1222,27 @@ const setupChatHandler = () => {
                                 try {
                                     const wantedArts = window._mvdLastWantedArts;
                                     if (wantedArts && wantedArts.length) {
-                                        // Богатое цитирование: статья + название + срок (как у штрафов)
+                                        // Богатое цитирование: статья + название + срок (как у Hiro)
+                                        function _yearLabel(n) {
+                                            if (n === 1) return `${n} год лишения свободы`;
+                                            if (n >= 2 && n <= 4) return `${n} года лишения свободы`;
+                                            return `${n} лет лишения свободы`;
+                                        }
                                         const _msgs   = [];
                                         const _delays = [];
                                         let _d = 600;
+                                        let _totalTerm = 0;
                                         wantedArts.forEach((art) => {
-                                            _msgs.push(`Статья ${art.num} УК — ${art.title}.`);
-                                            _delays.push(_d);
-                                            _d += 1000;
-                                            _msgs.push(`Срок: ${art.term} ч.`);
+                                            _msgs.push(`Объявлены в розыск по: ${art.num} УК`);
                                             _delays.push(_d);
                                             _d += 800;
+                                            _msgs.push(`${art.num} УК - ${art.title} - ${_yearLabel(art.term)}.`);
+                                            _delays.push(_d);
+                                            _d += 800;
+                                            _totalTerm += (art.term || 0);
                                         });
+                                        _msgs.push(`Суммарно ${_yearLabel(_totalTerm)}.`);
+                                        _delays.push(_d);
                                         sendMessagesWithDelay(_msgs, _delays);
                                         console.log(`[WANTED-LOG] 💬 Цитирование розыска: ${wantedArts.length} ст., ${_msgs.length} сообщений`);
                                         // Очищаем — не повторять при радио-дубле
