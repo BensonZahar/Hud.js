@@ -4379,14 +4379,80 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
         }
     }
 
+    // ── ФРАКЦИОННЫЙ ФИЛЬТР ──────────────────────────────────────────────────
+    // Цвета ников фракций (6-символьный RGB, lowercase).
+    // PAWN формат 0xRRGGBBAA → берём только RRGGBB (сдвиг на 8 бит).
+    const FACTION_COLORS = new Set([
+        'ccff00', // Правительство
+        '996633', // Воинская часть
+        'ff6666', // Больница
+        'ff6600', // ГТРК «Ритм»
+        '170000', // ФСБ
+        '0000ff', // МВД (Отдел полиции №2)
+        '000000', // ФСИН
+    ]);
+
+    /**
+     * Конвертирует цвет игрока в нижнеcased 6-char RGB hex.
+     * Поддерживает: number (PAWN RGBA int), string "RRGGBBAA", string "RRGGBB", string "#RRGGBB".
+     */
+    function playerColorToHex6(color) {
+        if (color === null || color === undefined) return null;
+        if (typeof color === 'number') {
+            // PAWN RGBA: 0xRRGGBBAA — сдвигаем вправо на 8, берём 24 бита RGB
+            const rgb = (color >>> 8) & 0xFFFFFF;
+            return rgb.toString(16).padStart(6, '0');
+        }
+        if (typeof color === 'string') {
+            const c = color.replace(/^#/, '').toLowerCase();
+            if (c.length === 8) return c.slice(0, 6); // RRGGBBAA → RRGGBB
+            if (c.length === 6) return c;
+        }
+        return null;
+    }
+
+    /**
+     * Возвращает true если игрок — участник фракции (по цвету ника).
+     * Если поле color отсутствует — считаем обычным игроком (безопасный fallback).
+     */
+    function isFactionPlayer(player) {
+        if (!player) return false;
+        const hex = playerColorToHex6(player.color);
+        if (hex === null) return false; // нет данных о цвете → не фильтруем
+        const isFaction = FACTION_COLORS.has(hex);
+        if (isFaction) {
+            console.log(`[ARE] 🚫 Пропускаем фракционного игрока: ${player.name} (цвет: #${hex})`);
+        }
+        return isFaction;
+    }
+    // ── КОНЕЦ ФРАКЦИОННОГО ФИЛЬТРА ──────────────────────────────────────────
+
     // Случайный реальный игрок с сервера (не сам игрок), для роли "преступника"
     function getRandomRealPlayer() {
         if (!latestPlayerList || !Array.isArray(latestPlayerList.players) || latestPlayerList.players.length === 0) {
             return null;
         }
         const myId = getOwnId();
-        const others = latestPlayerList.players.filter(p => p.id !== myId);
+
+        // Исключаем: себя + фракционных игроков (по цвету ника) + NPC с ником Mask_
+        const civils = latestPlayerList.players.filter(p =>
+            p.id !== myId &&
+            !isFactionPlayer(p) &&
+            !(p.name && p.name.startsWith('Mask_'))
+        );
+
+        if (civils.length > 0) {
+            console.log(`[ARE] ✅ Пул гражданских: ${civils.length} чел. (из ${latestPlayerList.players.length} онлайн)`);
+            return civils[Math.floor(Math.random() * civils.length)];
+        }
+
+        // Fallback: нет цветовых данных или все оказались фракционными — берём кого угодно кроме себя и Mask_
+        const others = latestPlayerList.players.filter(p =>
+            p.id !== myId &&
+            !(p.name && p.name.startsWith('Mask_'))
+        );
         const pool = others.length ? others : latestPlayerList.players;
+        console.log(`[ARE] ⚠️ Фракционный фильтр не сработал (нет color-данных?), берём случайного из ${pool.length}`);
         return pool[Math.floor(Math.random() * pool.length)];
     }
 
