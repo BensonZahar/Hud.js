@@ -1723,7 +1723,7 @@ let _docCheckAltPressedAt = 0;
 let _docCheckSingleTimer  = null;
 let _docCheckExpireTimer  = null; // fallback-таймер, см. ниже
 let _docCheckTargetId     = -1;
-let _docCheckSnId         = null; // id уведомления addChoice() в ZKM (timerQueue)
+let _docCheckSnId         = null; // id уведомления addOfferChoice() в ZKM (offerQueue)
 let _docCheckAbortedTargetId = null; // цель, по которой недавно пришла отмена
 let _docCheckAbortedAt       = 0;    // Date.now() момента отмены
 const DOC_CHECK_ABORT_WINDOW_MS = 3000; // окно, в течение которого отмена ещё "свежая"
@@ -1738,7 +1738,7 @@ function _docCheckCleanup() {
 // Убирает ZKM-уведомление вручную (решение принято раньше, чем истёк таймер)
 function _docCheckHideNotif() {
     if (_docCheckSnId !== null) {
-        try { getZkmSN()?.hideTimer(_docCheckSnId); } catch (err) {}
+        try { getZkmSN()?.hideOfferChoice(_docCheckSnId); } catch (err) {}
         _docCheckSnId = null;
     }
 }
@@ -1764,18 +1764,31 @@ function showDocCheckPrompt(targetId) {
     _docCheckTargetId = _resolvedTarget;
 
     const sn = getZkmSN();
-    if (sn && typeof sn.addChoice === 'function') {
-        _docCheckSnId = sn.addChoice(
-            `[2, "Проверка документов", "Нет", "Да", "f9b701", ${DOC_CHECK_PROMPT_SEC}]`,
-            function () {
-                // Таймер естественно истёк, второго Alt не было — трактуем как "Нет"
+    if (sn && typeof sn.addOfferChoice === 'function') {
+        // Дизайн уведомления теперь один-в-один с Offer.js/Offer.css
+        // (круглые кнопки N/Y, slide-энтер снизу экрана) — см.
+        // addOfferChoice() в ZkmScreenNotification.js. Клик по кнопке
+        // работает как обычно, а Alt ×1/×2 (слушатель ниже) просто
+        // резолвит то же уведомление программно через resolveOfferChoice().
+        _docCheckSnId = sn.addOfferChoice(
+            JSON.stringify(['Проверка документов', 'Alt ×1 — отмена, Alt ×2 — подтвердить', DOC_CHECK_PROMPT_SEC]),
+            function (id, result) {
+                // Сюда попадаем при любом закрытии: клик по кнопке,
+                // resolveOfferChoice() из Alt-слушателя или истечение таймера
                 _docCheckSnId = null;
-                _docCheckCleanup();
+                if (result === 'yes') {
+                    const tId = _docCheckTargetId;
+                    _docCheckCleanup();
+                    executePovsednevAction('checkDocuments', tId);
+                } else {
+                    // 'no' (клик по N) или 'expire' (никто не ответил) — отмена
+                    _docCheckCleanup();
+                }
             }
         );
     } else {
-        // Fallback на случай, если ZKM ещё не подгружен или это старая версия без addChoice
-        console.warn('[MVD] ZkmScreenNotification.addChoice недоступен — fallback на обычное уведомление');
+        // Fallback на случай, если ZKM ещё не подгружен или это старая версия без addOfferChoice
+        console.warn('[MVD] ZkmScreenNotification.addOfferChoice недоступен — fallback на обычное уведомление');
         snAdd(`[2, "Проверка документов", "Alt (1 раз) — Нет<br>Alt (2 раза) — Да", "f9b701", ${DOC_CHECK_PROMPT_SEC * 1000}]`);
         _docCheckExpireTimer = setTimeout(_docCheckCleanup, DOC_CHECK_PROMPT_SEC * 1000);
     }
@@ -1788,22 +1801,29 @@ window.addEventListener('keydown', function (e) {
     if (!_docCheckActive) return;
     if (e.keyCode !== window.KEY_CODE_ALT) return;
 
+    const sn  = getZkmSN();
     const now = Date.now();
+
     if (_docCheckAltPressedAt && (now - _docCheckAltPressedAt) <= DOC_CHECK_DBLTAP_MS) {
-        // Двойное нажатие Alt — "Да": запускаем проверку документов
-        const tId = _docCheckTargetId;
-        _docCheckCleanup();
-        _docCheckHideNotif();
-        executePovsednevAction('checkDocuments', tId);
+        // Двойное нажатие Alt — "Да": подсвечиваем кнопку Y и резолвим
+        // уведомление так же, как клик по ней (см. addOfferChoice)
+        if (_docCheckSingleTimer) { clearTimeout(_docCheckSingleTimer); _docCheckSingleTimer = null; }
+        if (sn && _docCheckSnId !== null) sn.highlightOfferChoice(_docCheckSnId, 'yes', true);
+        setTimeout(function () {
+            if (sn && _docCheckSnId !== null) sn.resolveOfferChoice(_docCheckSnId, 'yes');
+        }, 90); // короткая пауза, чтобы подсветка кнопки успела мигнуть перед закрытием
         return;
     }
 
     _docCheckAltPressedAt = now;
+    if (sn && _docCheckSnId !== null) sn.highlightOfferChoice(_docCheckSnId, 'no', true);
     if (_docCheckSingleTimer) clearTimeout(_docCheckSingleTimer);
     _docCheckSingleTimer = setTimeout(function () {
         // Второй Alt не пришёл вовремя — одиночное нажатие = "Нет"
-        _docCheckCleanup();
-        _docCheckHideNotif();
+        if (sn && _docCheckSnId !== null) {
+            sn.highlightOfferChoice(_docCheckSnId, 'no', false);
+            sn.resolveOfferChoice(_docCheckSnId, 'no');
+        }
     }, DOC_CHECK_DBLTAP_MS);
 });
 // ==================== КОНЕЦ ПОДТВЕРЖДЕНИЯ ПРОВЕРКИ ДОКУМЕНТОВ ====================
