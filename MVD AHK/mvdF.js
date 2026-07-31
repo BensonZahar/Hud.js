@@ -204,7 +204,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.77 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.99 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -1304,6 +1304,79 @@ const setupChatHandler = () => {
                 }
             } catch (_e) { /* тихо игнорируем */ }
 
+// ==================== ЗАМЕНА СООБЩЕНИЙ В ЧАТЕ ====================
+// Вставить ПЕРЕД строкой:
+//   return originalAddFunction.apply(this, [message, ...args]);
+// внутри setupChatHandler → window.interface('Hud').$refs.chat.add = function(message, ...args)
+
+// ──────────────────────────────────────────────────────────────────
+// НАСТРОЙКА: добавляй/убирай правила замены здесь.
+//
+// Каждое правило — объект с полями:
+//   nick    (необязательно) — ник отправителя вида {v:Nick_Name} или Mask_ в сообщении
+//   id      (необязательно) — ID отправителя в квадратных скобках [172] в сообщении
+//   find    — текст/подстрока которую ищем в сообщении (регистр не важен)
+//   replace — на что заменяем
+//
+// Если указаны и nick и id — оба должны совпасть.
+// Если указан только find — работает для ВСЕХ отправителей.
+// ──────────────────────────────────────────────────────────────────
+const _MSG_REPLACE_RULES = [
+    // Пример 1: Захар пишет "кхм" — показываем "привет"
+    // ID Захара меняется, поэтому матчим по нику {v:Zahar_Konstov}
+    {
+        nick:    'Zahar_Konstov',
+        find:    'кхм',
+        replace: 'привет'
+    },
+
+    // Пример 2: любой игрок пишет "тест" — показываем "[ТЕСТ]"
+    // {
+    //     find:    'тест',
+    //     replace: '[ТЕСТ]'
+    // },
+
+    // Пример 3: только ID 172, текст "ок" → "понял"
+    // {
+    //     id:      '172',
+    //     find:    'ок',
+    //     replace: 'понял'
+    // },
+];
+
+// ── Движок замены — трогать не нужно ────────────────────────────
+if (typeof message === 'string' && _MSG_REPLACE_RULES.length) {
+    try {
+        for (const _rule of _MSG_REPLACE_RULES) {
+            // Проверяем совпадение по нику (тег {v:Nick} или просто Nick[ID])
+            if (_rule.nick) {
+                const _nickRe = new RegExp(
+                    `(?:\\{v:${_rule.nick.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\}|\\b${_rule.nick.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b)`,
+                    'i'
+                );
+                if (!_nickRe.test(message)) continue; // ник не совпал — пропускаем правило
+            }
+            // Проверяем совпадение по ID в [ID]
+            if (_rule.id) {
+                const _idRe = new RegExp(`\\[${String(_rule.id).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\]`);
+                if (!_idRe.test(message)) continue; // ID не совпал — пропускаем правило
+            }
+            // Подстрока find должна присутствовать в сообщении
+            if (_rule.find && message.toLowerCase().includes(_rule.find.toLowerCase())) {
+                // Заменяем все вхождения find на replace (регистр оригинала)
+                const _findRe = new RegExp(_rule.find.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi');
+                const _msgBefore = message;
+                message = message.replace(_findRe, _rule.replace);
+                if (message !== _msgBefore) {
+                    console.log(`[MSG-REPLACE] Заменено: "${_rule.find}" → "${_rule.replace}" (ник: ${_rule.nick||'any'}, id: ${_rule.id||'any'})`);
+                }
+            }
+        }
+    } catch (_replErr) {
+        console.warn('[MSG-REPLACE] Ошибка замены:', _replErr);
+    }
+}
+// ==================== КОНЕЦ ЗАМЕНЫ СООБЩЕНИЙ ====================
             return originalAddFunction.apply(this, [message, ...args]);
         };
         console.log('[Auto-cuff] Обработчик чата успешно установлен');
