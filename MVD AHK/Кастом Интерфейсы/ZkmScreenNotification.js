@@ -505,15 +505,22 @@
              sn.resolveOfferChoice(id, 'yes');           // закрыть как будто нажали Y
              sn.hideOfferChoice(id);                     // закрыть молча, без onFinish
 
-           Payload: ["title", "textHtml", seconds]
+           Payload: ["title", "textHtml", seconds, noBtnText?, yesBtnText?]
+           noBtnText/yesBtnText — необязательные подписи на круглых кнопках
+           (по умолчанию "1"/"2" — под реальный способ ответа: Alt ×1/×2).
+           В оригинальном Offer.js там стояли буквы N/Y — подписи под
+           клавиши Y/N, которых в этом уведомлении нет физически, поэтому
+           здесь по умолчанию подписи заменены на цифры кол-ва нажатий Alt.
         ─────────────────────────────────────────────────────────────── */
         addOfferChoice: function (payload, onFinish) {
             try {
-                var d     = JSON.parse(payload);
-                var title = strip(d[0]);
-                var text  = d[1] || ''; // идёт как innerHTML — как t.text в Offer.js
-                var secs  = Number(d[2]) || 10;
-                var id    = ++last;
+                var d       = JSON.parse(payload);
+                var title   = strip(d[0]);
+                var text    = d[1] || ''; // идёт как innerHTML — как t.text в Offer.js
+                var secs    = Number(d[2]) || 10;
+                var noText  = d[3] != null && d[3] !== '' ? strip(d[3]) : '1';
+                var yesText = d[4] != null && d[4] !== '' ? strip(d[4]) : '2';
+                var id      = ++last;
 
                 var el = document.createElement('div');
                 el.className = 'offer iface-container zkm-sn-offer';
@@ -524,14 +531,14 @@
                         '<div class="offer__content" data-v-b87ae6b4>' +
                             '<div class="offer__content-background" data-v-b87ae6b4></div>' +
                             '<div class="offer__btn zkm-sn-offer__no" data-v-b87ae6b4>' +
-                                '<div class="offer__btn__text" data-v-b87ae6b4>N</div>' +
+                                '<div class="offer__btn__text" data-v-b87ae6b4>' + noText + '</div>' +
                             '</div>' +
                             '<div class="offer__data" data-v-b87ae6b4>' +
                                 '<div class="offer__title" data-v-b87ae6b4></div>' +
                                 '<div class="offer__text" data-v-b87ae6b4></div>' +
                             '</div>' +
                             '<div class="offer__btn zkm-sn-offer__yes" data-v-b87ae6b4>' +
-                                '<div class="offer__btn__text" data-v-b87ae6b4>Y</div>' +
+                                '<div class="offer__btn__text" data-v-b87ae6b4>' + yesText + '</div>' +
                             '</div>' +
                         '</div>' +
                     '</div>';
