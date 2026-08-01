@@ -1,7 +1,7 @@
 // ⚠️ ЧТО ЭТО ЗА ФАЙЛ mvdF.js — ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ МВД И ФУНКЦИЙ ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ.
 
 // ПРОВЕРКА НИКА Добавляй/убирай ники здесь.
-const NICK_CHECK_ENABLED = true; // ← поменяй на false чтобы отключить проверку
+const NICK_CHECK_ENABLED = true; // ← поменяй на true чтобы включить проверку
 
 const _ALLOWED_NICKS = [
     "Zahar_Konstov",
@@ -20,7 +20,7 @@ const _ALLOWED_NICKS = [
     "Murad_Sixseven"
 ];
 
-// Показ уведомления о запрете доступа. Пытаемся показать фирменное ZKM-уведомление.
+// Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
 function _showAccessDenied(nick) {
     var title = "AHK — Доступ запрещён";
     var text  = "Вашего никнейма (" + nick + ") нет в списке доступа AHK. Обратитесь к создателю.";
@@ -62,6 +62,7 @@ function _showAccessDenied(nick) {
             if (shown || attempts >= 10) {
                 clearInterval(retryTimer);
                 if (!shown) {
+                    // Совсем крайний случай — просто в консоль
                     console.warn('[mvdF] 🚫 Доступ запрещён: ник "' + nick + '" не в списке. (Уведомление показать не удалось)');
                 }
             }
@@ -77,118 +78,44 @@ function _showAccessDenied(nick) {
         return;
     }
 
-    // ─── ПОЛУЧЕНИЕ НИКА: 3 источника ────────────────────────────────────────
     function getNick() {
         try {
-            // Метод 1: геттер Vuex (основной, заполняется после MainMenu_OnPlayerOpen)
             var n = window.App && window.App.$store &&
                     window.App.$store.getters &&
                     window.App.$store.getters['player/nickName'];
+            // Игнорируем дефолтное значение стора ("Name_Surname")
             if (n && n !== "Name_Surname") return n;
-
-            // Метод 2: прямой доступ к Vuex state (иногда быстрее геттера)
-            var state = window.App && window.App.$store && window.App.$store.state;
-            if (state && state.player) {
-                var sn = state.player.nickName || state.player.nick || state.player.name;
-                if (sn && sn !== "Name_Surname") return sn;
-            }
-
-            // Метод 3: глобальные переменные игры (доступны ДО открытия меню)
-            if (window.playerName && window.playerName !== "Name_Surname") return window.playerName;
-            if (window.localPlayer && window.localPlayer.name && window.localPlayer.name !== "Name_Surname") return window.localPlayer.name;
-
             return null;
         } catch (e) { return null; }
     }
-    // ────────────────────────────────────────────────────────────────────────
 
-    function onNickFound(nick) {
+    var nick = getNick();
+    if (nick) {
         if (_ALLOWED_NICKS.indexOf(nick) !== -1) {
-            console.log('[mvdF] ✅ Ник "' + nick + '" разрешён — скрипт запущен.');
             callback();
         } else {
             _showAccessDenied(nick);
         }
+        return;
     }
 
-    // Пробуем получить ник сразу (Метод 3 может сработать моментально)
-    var nick = getNick();
-    if (nick) { onNickFound(nick); return; }
-
-    console.log('[mvdF] ⏳ Ник не найден сразу — запускаем ускоренную загрузку...');
-
-    var fallbackDone = false;
-
-    // ─── МЕТОД A: Vue $store.watch — мгновенно реагирует на изменение стора ─
-    function tryWatchStore() {
-        try {
-            if (!window.App || !window.App.$store) return false;
-            var unwatch = window.App.$store.watch(
-                function(state, getters) { return getters['player/nickName']; },
-                function(newNick) {
-                    if (newNick && newNick !== "Name_Surname" && !fallbackDone) {
-                        fallbackDone = true;
-                        unwatch();
-                        clearInterval(pollTimer);
-                        console.log('[mvdF] ⚡ Ник получен через watcher: "' + newNick + '"');
-                        onNickFound(newNick);
-                    }
-                }
-            );
-            console.log('[mvdF] 👁 Vue watcher на ник установлен');
-            return true;
-        } catch(e) { return false; }
-    }
-
-    // ─── МЕТОД B: принудительное открытие статистики/персонажа ─────────────
-    // Открываем MainMenu на ~200мс — сервер шлёт MainMenu_OnPlayerOpen
-    // и заполняет стор ником. Пользователь практически не видит вспышку.
-    var forceLoadDone = false;
-    function forceLoadPlayerData() {
-        if (forceLoadDone) return;
-        forceLoadDone = true;
-        try {
-            if (typeof window.openInterface === 'function') {
-                console.log('[mvdF] 🔄 Принудительно открываем интерфейс для загрузки ника...');
-                window.openInterface('MainMenu');
-                setTimeout(function() {
-                    // Данные с сервера уже пришли — можно закрывать
-                    if (typeof window.closeInterface === 'function') {
-                        window.closeInterface('MainMenu');
-                        console.log('[mvdF] 🔄 Интерфейс закрыт, ждём ник из стора...');
-                    }
-                }, 200);
-            }
-        } catch(e) {}
-    }
-
-    // Пробуем поставить watcher сразу
-    var watcherSet = tryWatchStore();
-
-    // ─── Резервный опрос: каждые 250мс (быстрее чем раньше) ─────────────────
+    // Стор ещё не готов — ждём до 30 секунд
     var attempts = 0;
-    var pollTimer = setInterval(function() {
-        if (fallbackDone) { clearInterval(pollTimer); return; }
+    var timer = setInterval(function() {
         attempts++;
-
-        // App появился — ставим watcher если ещё не стоит
-        if (!watcherSet) watcherSet = tryWatchStore();
-
-        // Попытка 3 (~750мс) — открываем статистику/персонажа для принудительной загрузки
-        if (attempts === 3) forceLoadPlayerData();
-
         var n = getNick();
         if (n) {
-            fallbackDone = true;
-            clearInterval(pollTimer);
-            console.log('[mvdF] ✅ Ник получен через опрос за ' + (attempts * 250) + 'мс: "' + n + '"');
-            onNickFound(n);
-        } else if (attempts >= 120) { // 120 × 250мс = 30 сек
-            clearInterval(pollTimer);
-            console.warn('[mvdF] ❌ Не удалось получить ник за 30 сек — скрипт не запущен.');
+            clearInterval(timer);
+            if (_ALLOWED_NICKS.indexOf(n) !== -1) {
+                callback();
+            } else {
+                _showAccessDenied(n);
+            }
+        } else if (attempts >= 60) { // 60 × 500мс = 30 сек
+            clearInterval(timer);
+            console.warn('[mvdF] Не удалось получить ник — скрипт не запущен.');
         }
-    }, 250);
-
+    }, 500);
 })(function() {
 // ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB Грузим 5 файлов параллельно при старте игры.
 (function prefetchAllCustomUI() {
@@ -278,7 +205,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.9999 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.8 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
