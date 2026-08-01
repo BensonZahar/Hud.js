@@ -43,19 +43,16 @@ if (_cssText && !document.getElementById('zkm-style-remote')) {
 }
 
 
-// ЕУВС JSON — опционален, грузится параллельно с CSS
-let _euvsText = window.__prefetch_zkm_euvs;
-if (!_euvsText && !window.__prefetch_zkm_euvs_failed) {
-    if (window.__prefetch_promise) { await window.__prefetch_promise; _euvsText = window.__prefetch_zkm_euvs; }
-    if (!_euvsText) {
-        try { _euvsText = await _xhrGet(_GH_BASE + 'euvs.json', 0); }
-        catch (e) { console.warn('[zkm] ЕУВС не загрузился:', e.message); }
+// Данные документов — грузим все параллельно
+await Promise.all(['koap','uk','proc','kto','euss','euvs','zot','law_koap','law_uk'].map(async function(name) {
+    let text = window['__prefetch_zkm_' + name];
+    if (!text) {
+        try { text = await _xhrGet(_GH_BASE + name + '.json', 0); }
+        catch(e) { console.warn('[zkm] ' + name + '.json не загрузился:', e.message); return; }
     }
-}
-if (_euvsText) {
-    try { window.__zkm_euvs = JSON.parse(_euvsText); console.log('[zkm] ✅ ЕУВС:', window.__zkm_euvs.length, 'статей'); }
-    catch (e) { console.warn('[zkm] ЕУВС parse error:', e); }
-}
+    try { window['__zkm_' + name] = JSON.parse(text); console.log('[zkm] ✅ ' + name + ':', window['__zkm_' + name].length, 'эл.'); }
+    catch(e) { console.warn('[zkm] parse error ' + name + ':', e); }
+}));
 
 _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
