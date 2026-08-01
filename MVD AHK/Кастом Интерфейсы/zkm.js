@@ -1122,6 +1122,8 @@ const _sfc_main={
 				// В причину изъятия идут ТОЛЬКО статьи, которые реально дают основание для изъятия (revoke===true),
 				// а не все выбранные статьи штрафа
 				const revokeCodes=arts.filter(a=>a.revoke===true).map(a=>a.num).join(", ");
+				// Сохраняем для цитирования в mvdF.js — строка «Аннулирование ВУ по: ...»
+				window._mvdLastFineRevokeCodes = revokeCodes ? revokeCodes + " КоАП" : null;
 				setTimeout(()=>{
 					// Передаём статьи КоАП как причину изъятия — авто-подстановка в серверный диалог /takelic
 					if(typeof window._mvdSetTakeLicReason==="function")window._mvdSetTakeLicReason(revokeCodes+" КоАП");
@@ -1130,6 +1132,9 @@ const _sfc_main={
 					window._mvdPendingTakeLicId = id;
 					console.log("[ZKM] _mvdPendingTakeLicId = "+id+" — ждём подтверждения штрафа");
 				},100);
+			} else {
+				// Лишение не включено — очищаем, чтобы цитата не добавляла строку ВУ
+				window._mvdLastFineRevokeCodes = null;
 			}
 			this.close()
 		},
