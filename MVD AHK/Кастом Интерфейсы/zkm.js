@@ -404,8 +404,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 		])
 	]));
 }
-let this.koapArticles = [];
-let this.ukArticles = [];
 
 // ══════════════════════════════════════════════════════════════════
 //  ЗАКОНЫ — дерево документов (заглушка структуры, текст добавляется позже)
