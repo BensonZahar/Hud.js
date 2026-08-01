@@ -666,7 +666,7 @@ const _sfc_main={
 .mvdmenu__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
 
 /* .mvdmenu__wrapper = .modal-container-wrapper + .modal_orange .modal-container-wrapper (значения 1:1) */
-.mvdmenu__wrapper{background:#141419eb;border:0.19vh solid #ffffff0d;border-radius:0.74vh;box-shadow:inset 0vh 3.89vh 4.81vh -2.96vh #f9b70133;padding:0.37vh;pointer-events:auto;position:relative;width:36vh;z-index:1;}
+.mvdmenu__wrapper{background:#141419eb;border:0.19vh solid #ffffff0d;border-radius:0.74vh;box-shadow:inset 0vh 3.89vh 4.81vh -2.96vh #f9b70133;padding:0.37vh;pointer-events:auto;position:relative;width:44vh;z-index:1;}
 @media (platform:mobile){.mvdmenu__wrapper{border-radius:1.4815vh;border-width:0.3704vh;box-shadow:inset 0vh 3.89vh 2vh -2vh #f9b70133;}}
 
 /* .mvdmenu__container = .modal-container + .modal_orange .modal-container (значения 1:1) */
@@ -678,30 +678,30 @@ const _sfc_main={
 
 /* Header: заголовок = типографика .modal__title (font-size/weight/style/color/uppercase — 1:1),
    вторая часть текста ("AHK") оставлена цветным <span> внутри — как title-строка с HTML в Window.js (titleIsHtml) */
-.mvdmenu__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.mvdmenu__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.48vh 1.85vh;position:relative;z-index:1;}
 .mvdmenu__title{align-items:baseline;color:#fff;display:flex;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;gap:0.56vh;line-height:normal;text-transform:uppercase;}
 @media (platform:mobile){.mvdmenu__title{font-size:4.44vh;}}
 .mvdmenu__title-main{color:inherit;letter-spacing:0.1vh;line-height:inherit;}
 .mvdmenu__title-ahk{color:#f9b701;letter-spacing:0.1vh;line-height:inherit;}
 .mvdmenu__title-sub{color:#f4f1e166;font-size:0.43em;font-style:normal;font-weight:400;margin-left:0.74vh;text-transform:none;}
-.mvdmenu__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.48vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s ease;width:2.96vh;}
+.mvdmenu__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.67vh;font-weight:700;height:3.33vh;justify-content:center;transition:all 0.15s ease;width:3.33vh;}
 @media (platform:pc){.mvdmenu__close-btn:hover{background:#e25544;border-color:#e25544;color:#fff;}}
 
 /* Search */
-.mvdmenu__search{align-items:center;background:#ffffff05;border-bottom:0.19vh solid #f4f1e11a;display:flex;gap:0.93vh;padding:0.93vh 1.67vh;position:relative;z-index:1;}
-.mvdmenu__search-icon{align-items:center;display:flex;flex-shrink:0;height:1.48vh;justify-content:center;width:1.48vh;}
+.mvdmenu__search{align-items:center;background:#ffffff05;border-bottom:0.19vh solid #f4f1e11a;display:flex;gap:0.93vh;padding:1.11vh 1.85vh;position:relative;z-index:1;}
+.mvdmenu__search-icon{align-items:center;display:flex;flex-shrink:0;height:1.67vh;justify-content:center;width:1.67vh;}
 .mvdmenu__search-icon svg{height:100%;width:100%;}
 .mvdmenu__search input{-webkit-appearance:none;background:transparent;border:none;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;}
 .mvdmenu__search input::placeholder{color:#f4f1e166;font-weight:400;}
 
 /* List */
-.mvdmenu__list{display:flex;flex-direction:column;max-height:48vh;overflow-y:auto;position:relative;z-index:1;}
+.mvdmenu__list{display:flex;flex-direction:column;max-height:52vh;overflow-y:auto;position:relative;z-index:1;}
 .mvdmenu__list::-webkit-scrollbar{width:1.11vh;}
 .mvdmenu__list::-webkit-scrollbar-thumb{background:linear-gradient(0deg,#bcbcbd,#fff 75%);border-radius:0.19vh;}
 .mvdmenu__list::-webkit-scrollbar-track{background:#ffffff1a;border-radius:0.19vh;}
 
 /* Items */
-.mvdmenu__item{align-items:center;border-bottom:0.09vh solid #f4f1e10d;cursor:pointer;display:flex;gap:1.11vh;padding:0.93vh 1.48vh;transition:background 0.1s ease;}
+.mvdmenu__item{align-items:center;border-bottom:0.09vh solid #f4f1e10d;cursor:pointer;display:flex;gap:1.3vh;padding:1.3vh 1.85vh;transition:background 0.1s ease;}
 @media (platform:pc){.mvdmenu__item:hover{background:rgba(255,255,255,.04);}}
 .mvdmenu__item_fine{border-left:0.19vh solid rgba(61,186,122,.4);}
 @media (platform:pc){.mvdmenu__item_fine:hover{background:rgba(61,186,122,.05);}}
@@ -712,29 +712,29 @@ const _sfc_main={
 .mvdmenu__item_toggle_off{border-left:0.19vh solid rgba(224,85,85,.3);}
 .mvdmenu__item_selected{background:rgba(249,183,1,.1);border-left:0.19vh solid #f9b701;}
 .mvdmenu__item_selected .mvdmenu__item-label{color:#f4f1e1;}
-.mvdmenu__item-num{color:#f4f1e166;flex-shrink:0;font-size:1.11vh;font-weight:700;min-width:2.4vh;}
-.mvdmenu__item-label{color:#f4f1e1cc;flex:1 1 auto;font-size:1.3vh;font-weight:600;line-height:1.4;}
-.mvdmenu__item-tag{border-radius:0.22vh;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.04vh;padding:0.15vh 0.5vh;}
-.mvdmenu__item-id-badge{background:rgba(249,183,1,.1);border-radius:0.22vh;color:rgba(249,183,1,.7);flex-shrink:0;font-size:0.93vh;font-weight:700;letter-spacing:0.04vh;padding:0.15vh 0.46vh;}
+.mvdmenu__item-num{color:#f4f1e166;flex-shrink:0;font-size:1.3vh;font-weight:700;min-width:2.78vh;}
+.mvdmenu__item-label{color:#f4f1e1cc;flex:1 1 auto;font-size:1.65vh;font-weight:600;line-height:1.4;}
+.mvdmenu__item-tag{border-radius:0.22vh;flex-shrink:0;font-size:1.11vh;font-weight:700;letter-spacing:0.04vh;padding:0.19vh 0.56vh;}
+.mvdmenu__item-id-badge{background:rgba(249,183,1,.1);border-radius:0.22vh;color:rgba(249,183,1,.7);flex-shrink:0;font-size:1.02vh;font-weight:700;letter-spacing:0.04vh;padding:0.19vh 0.5vh;}
 .mvdmenu__item-arrow{align-items:center;display:flex;flex-shrink:0;opacity:0.5;}
-.mvdmenu__item-arrow svg{height:1.11vh;width:1.11vh;}
-.mvdmenu__item-status{border-radius:0.22vh;flex-shrink:0;font-size:0.93vh;font-weight:700;padding:0.15vh 0.56vh;}
+.mvdmenu__item-arrow svg{height:1.3vh;width:1.3vh;}
+.mvdmenu__item-status{border-radius:0.22vh;flex-shrink:0;font-size:1.02vh;font-weight:700;padding:0.19vh 0.65vh;}
 .mvdmenu__item-status_on{background:rgba(61,186,122,.15);color:rgba(61,186,122,1);}
 .mvdmenu__item-status_off{background:rgba(224,85,85,.12);color:rgba(224,85,85,0.9);}
-.mvdmenu__empty{color:#f4f1e166;font-size:1.3vh;font-style:italic;padding:2.22vh;text-align:center;}
+.mvdmenu__empty{color:#f4f1e166;font-size:1.48vh;font-style:italic;padding:2.22vh;text-align:center;}
 
 
 /* ID Input screen */
-.mvdmenu__id-input-wrap{display:flex;flex-direction:column;gap:1.3vh;padding:2vh 1.85vh 1.85vh;position:relative;z-index:1;}
-.mvdmenu__id-input-label{color:#f4f1e1cc;font-size:1.3vh;font-weight:600;line-height:1.4;}
-.mvdmenu__id-input-row{display:flex;gap:0.74vh;}
-.mvdmenu__id-input-field{-webkit-appearance:none;appearance:none;background:#ffffff08;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;padding:0.74vh 1.11vh;transition:border-color 0.15s;}
+.mvdmenu__id-input-wrap{display:flex;flex-direction:column;gap:1.48vh;padding:2.22vh 1.85vh 1.85vh;position:relative;z-index:1;}
+.mvdmenu__id-input-label{color:#f4f1e1cc;font-size:1.48vh;font-weight:600;line-height:1.4;}
+.mvdmenu__id-input-row{display:flex;gap:0.93vh;}
+.mvdmenu__id-input-field{-webkit-appearance:none;appearance:none;background:#ffffff08;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.65vh;font-weight:600;outline:none;padding:0.93vh 1.3vh;transition:border-color 0.15s;}
 .mvdmenu__id-input-field:focus{border-color:rgba(249,183,1,0.5);}
 .mvdmenu__id-input-field::placeholder{color:#f4f1e144;font-weight:400;}
 .mvdmenu__id-input-field::-webkit-inner-spin-button,.mvdmenu__id-input-field::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 
 /* Footer (Подтвердить/Назад — как window__buttons в Window.js) */
-.mvdmenu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.mvdmenu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.48vh 1.85vh;position:relative;z-index:1;}
 .mvdmenu__footer .controls-button__container{margin-right:1.48vh;}
 .mvdmenu__footer .controls-button__container:last-child{margin-right:0;}
         `;
