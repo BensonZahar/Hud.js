@@ -42,18 +42,6 @@ if (_cssText && !document.getElementById('zkm-style-remote')) {
     document.head.appendChild(s);
 }
 
-
-// Данные документов — грузим все параллельно
-await Promise.all(['koap','uk','proc','kto','euss','euvs','zot','law_koap','law_uk'].map(async function(name) {
-    let text = window['__prefetch_zkm_' + name];
-    if (!text) {
-        try { text = await _xhrGet(_GH_BASE + name + '.json', 0); }
-        catch(e) { console.warn('[zkm] ' + name + '.json не загрузился:', e.message); return; }
-    }
-    try { window['__zkm_' + name] = JSON.parse(text); console.log('[zkm] ✅ ' + name + ':', window['__zkm_' + name].length, 'эл.'); }
-    catch(e) { console.warn('[zkm] parse error ' + name + ':', e); }
-}));
-
 _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     return 'window.__zkmComp = ' + exp.split(' as ')[0].trim() + ';';
