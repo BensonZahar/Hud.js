@@ -652,9 +652,11 @@ const _sfc_main={
 		// ── Данные из загрузчика ────────────────────────────────────
 		if(window.__zkm_koap){this.koapArticles=window.__zkm_koap;delete window.__zkm_koap;}
 		if(window.__zkm_uk){this.ukArticles=window.__zkm_uk;delete window.__zkm_uk;}
+		// law_koap/law_uk — отдельные файлы для таба ЗАКОНЫ, но id документов — koap/uk
+		const _lawDocIdMap={'law_koap':'koap','law_uk':'uk'};
 		for(const _id of ['proc','kto','euss','euvs','zot','law_koap','law_uk']){
 			const _k='__zkm_'+_id;
-			if(window[_k]){const _d=this.lawDocuments.find(x=>x.id===_id);if(_d)_d.articles=window[_k];delete window[_k];}
+			if(window[_k]){const _docId=_lawDocIdMap[_id]||_id;const _d=this.lawDocuments.find(x=>x.id===_docId);if(_d)_d.articles=window[_k];delete window[_k];}
 		}
 		// ─────────────────────────────────────────────────────────────
 		const _style=document.createElement("style");
