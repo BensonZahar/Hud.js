@@ -52,11 +52,13 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
         // Overlay
         createBaseVNode("div",{class:"mvdmenu__overlay",onClick:$options.close}),
 
-        // Wrapper
+        // Wrapper (= modal-container-wrapper в Modal.js/Window.js)
         createBaseVNode("div",{class:"mvdmenu__wrapper"},[
 
+          // Container (= modal-container с border-top orange, как modal_orange)
+          createBaseVNode("div",{class:"mvdmenu__container"},[
+
             createBaseVNode("div",{class:"mvdmenu__pattern",innerHTML:GRAFFITI_SVG}),
-            createBaseVNode("div",{class:"mvdmenu__top-accent"}),
 
             // ── Header ───────────────────────────────────────────────────────
             createBaseVNode("div",{class:"mvdmenu__header"},[
@@ -244,6 +246,8 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                 },null,8,["containerText","keyCode","onPressed"]))
             ]),
 
+          ]) // /mvdmenu__container
+
         ])
     ]));
 }
@@ -312,6 +316,7 @@ const _sfc_main={
             items.push({id:"naparnick", label: partnerLabel, arrow:true});
             items.push({id:"laws", label:"Законы", arrow:true});
             items.push({id:"advokat", label:"Вызов адвоката", arrow:true});
+            items.push({id:"doklady", label:"Доклады", arrow:true});
             return items;
         },
         visibleOptions(){
@@ -478,6 +483,11 @@ const _sfc_main={
                 this.close();
                 setTimeout(()=>{
                     window.openInterface("AdvMenu");
+                },80);
+            } else if(item.id==="doklady"){
+                this.close();
+                setTimeout(()=>{
+                    window.openInterface("Dokladi");
                 },80);
             }
         },
@@ -650,18 +660,30 @@ const _sfc_main={
         const s=document.createElement("style");
         s.id="mvdmenu-style";
         s.textContent=`
-.mvdmenu{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:absolute;text-transform:none;top:0;width:100vw;z-index:11;}
+/* .mvdmenu = .modal (position:fixed, те же значения) */
+.mvdmenu{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:fixed;text-transform:none;top:0;width:100vw;z-index:11;}
+/* .mvdmenu__overlay = .modal-overlay, но без background — как у Window.js (MODAL_TYPES.NO_OVERLAY скрывает .modal-overlay целиком) */
 .mvdmenu__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
-.mvdmenu__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(249,183,1,0.2),0 1.5vh 5vh rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:36vh;z-index:1;}
-.mvdmenu__top-accent{background:#f9b701;height:0.19vh;left:0;position:absolute;right:0;top:0;}
-.mvdmenu__pattern{height:23.61vh;left:0;mask-image:linear-gradient(180deg,#d9d9d9,rgba(115,115,115,0) 70%);overflow:hidden;pointer-events:none;position:absolute;top:0;width:100%;}
 
-/* Header */
+/* .mvdmenu__wrapper = .modal-container-wrapper + .modal_orange .modal-container-wrapper (значения 1:1) */
+.mvdmenu__wrapper{background:#141419eb;border:0.19vh solid #ffffff0d;border-radius:0.74vh;box-shadow:inset 0vh 3.89vh 4.81vh -2.96vh #f9b70133;padding:0.37vh;pointer-events:auto;position:relative;width:36vh;z-index:1;}
+@media (platform:mobile){.mvdmenu__wrapper{border-radius:1.4815vh;border-width:0.3704vh;box-shadow:inset 0vh 3.89vh 2vh -2vh #f9b70133;}}
+
+/* .mvdmenu__container = .modal-container + .modal_orange .modal-container (значения 1:1) */
+.mvdmenu__container{border:0.19vh solid #fff0;border-top:0.19vh solid #f9b701;border-radius:0.7vh;display:flex;flex-direction:column;overflow:hidden;position:relative;}
+@media (platform:mobile){.mvdmenu__container{border-radius:1.4815vh;border-width:0.3704vh;}}
+
+/* .mvdmenu__pattern = .modal__pattern-wrapper (значения 1:1) */
+.mvdmenu__pattern{height:23.61vh;left:0;mask-image:linear-gradient(180deg,#d9d9d9,#73737300 70%);overflow:hidden;pointer-events:none;position:absolute;top:0;width:100%;z-index:0;}
+
+/* Header: заголовок = типографика .modal__title (font-size/weight/style/color/uppercase — 1:1),
+   вторая часть текста ("AHK") оставлена цветным <span> внутри — как title-строка с HTML в Window.js (titleIsHtml) */
 .mvdmenu__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
-.mvdmenu__title{align-items:baseline;display:flex;font-family:"Open Sans Condensed",var(--fallback-font);font-style:italic;font-weight:700;gap:0.56vh;text-transform:uppercase;}
-.mvdmenu__title-main{color:#f4f1e1;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
-.mvdmenu__title-ahk{color:#f9b701;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
-.mvdmenu__title-sub{color:#f4f1e166;font-size:1.11vh;font-style:normal;font-weight:400;margin-left:0.74vh;text-transform:none;}
+.mvdmenu__title{align-items:baseline;color:#fff;display:flex;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;gap:0.56vh;line-height:normal;text-transform:uppercase;}
+@media (platform:mobile){.mvdmenu__title{font-size:4.44vh;}}
+.mvdmenu__title-main{color:inherit;letter-spacing:0.1vh;line-height:inherit;}
+.mvdmenu__title-ahk{color:#f9b701;letter-spacing:0.1vh;line-height:inherit;}
+.mvdmenu__title-sub{color:#f4f1e166;font-size:0.43em;font-style:normal;font-weight:400;margin-left:0.74vh;text-transform:none;}
 .mvdmenu__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.48vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s ease;width:2.96vh;}
 @media (platform:pc){.mvdmenu__close-btn:hover{background:#e25544;border-color:#e25544;color:#fff;}}
 
