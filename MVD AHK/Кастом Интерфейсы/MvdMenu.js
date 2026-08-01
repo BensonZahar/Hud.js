@@ -49,216 +49,206 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
     const _component_ControlsContaineredButton=resolveComponent("ControlsContaineredButton");
     return (openBlock(), createElementBlock("div",{class:"mvdmenu iface-container"},[
 
-        // Overlay (= modal-overlay, без background — как у Window.js, где type:MODAL_TYPES.NO_OVERLAY
-        // полностью скрывает .modal-overlay через .modal_no-overlay .modal-overlay{display:none})
+        // Overlay
         createBaseVNode("div",{class:"mvdmenu__overlay",onClick:$options.close}),
 
-        // = modal-wrapper (position:relative)
+        // Wrapper (= modal-container-wrapper в Modal.js/Window.js)
         createBaseVNode("div",{class:"mvdmenu__wrapper"},[
 
-          // = modal-container-wrapper
-          createBaseVNode("div",{class:"mvdmenu__container-wrapper"},[
+          // Container (= modal-container с border-top orange, как modal_orange)
+          createBaseVNode("div",{class:"mvdmenu__container"},[
 
-            // = modal-container + modal_orange .modal-container (border-top gold)
-            createBaseVNode("div",{class:"mvdmenu__container"},[
+            createBaseVNode("div",{class:"mvdmenu__pattern",innerHTML:GRAFFITI_SVG}),
 
-                // = modal__pattern-wrapper
-                createBaseVNode("div",{class:"mvdmenu__pattern-wrapper"},[
-                    createBaseVNode("div",{class:"mvdmenu__pattern",innerHTML:GRAFFITI_SVG})
-                ]),
-
-                // = modal__content
-                createBaseVNode("div",{class:"mvdmenu__content"},[
-
-                    // = modal__title (без крестика — в Window.js закрытия по X нет, только футер/ESC)
-                    createBaseVNode("div",{class:"mvdmenu__title"},[
-                        "KONST",
-                        createBaseVNode("span",{class:"mvdmenu__title-ahk"},"AHK")
-                    ]),
-
-                    // = window__subtitle
+            // ── Header ───────────────────────────────────────────────────────
+            createBaseVNode("div",{class:"mvdmenu__header"},[
+                createBaseVNode("div",{class:"mvdmenu__title"},[
+                    createBaseVNode("span",{class:"mvdmenu__title-main"},"KONST"),
+                    createBaseVNode("span",{class:"mvdmenu__title-ahk"},"AHK"),
                     $options.headerSubtitle
-                        ? createBaseVNode("div",{class:"mvdmenu__subtitle"},
+                        ? createBaseVNode("span",{class:"mvdmenu__title-sub"},
                             toDisplayString($options.headerSubtitle), 1 /* TEXT */
                           )
-                        : createCommentVNode("",true),
+                        : createCommentVNode("",true)
+                ]),
+                createBaseVNode("div",{class:"mvdmenu__close-btn",onClick:$options.close},"X")
+            ]),
 
-                    // = window__container
-                    createBaseVNode("div",{class:"mvdmenu__window-container"},[
-
-                        // Поиск (только на экране "Повседневная") — оформлен как обычное поле ввода,
-                        // без отдельной панели с границами на всю ширину
-                        $data.screen==="povsednev"
-                            ? createBaseVNode("div",{class:"mvdmenu__search"},[
-                                createBaseVNode("span",{class:"mvdmenu__search-icon",innerHTML:SVG_SEARCH}),
-                                createBaseVNode("input",{
-                                    type:"text",
-                                    placeholder:"Поиск действия...",
-                                    value:$data.search,
-                                    onInput:$event=>{$data.search=$event.target.value}
-                                },null,40,["value","onInput"])
-                              ])
-                            : createCommentVNode("",true),
-
-                        // = window__content-container (скроллируемая область, как в Window.js)
-                        createBaseVNode("div",{class:"mvdmenu__content-container"},[
-
-                            // ── main ──────────────────────────────────────────────
-                            $data.screen==="main"
-                                ? (openBlock(),createElementBlock("div",{key:"main",class:"mvdmenu__list"},[
-                                    (openBlock(true),createElementBlock(Fragment,null,
-                                        renderList($options.mainMenuItems,(item,i)=>(
-                                            openBlock(),createElementBlock("div",{
-                                                key:item.id,
-                                                class:normalizeClass(["mvdmenu__item",{
-                                                    "mvdmenu__item_toggle_on": item.toggleOn===true,
-                                                    "mvdmenu__item_toggle_off": item.toggleOn===false,
-                                                    "mvdmenu__item_selected": $data.selectedIndex===i,
-                                                }]),
-                                                onClick:$event=>{$data.selectedIndex=i;$options.selectMain(item);}
-                                            },[
-                                                createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                                    toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
-                                                ),
-                                                createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                                    toDisplayString(item.label), 1 /* TEXT */
-                                                ),
-                                                item.arrow
-                                                    ? createBaseVNode("div",{class:"mvdmenu__item-arrow",innerHTML:SVG_ARROW})
-                                                    : createCommentVNode("",true),
-                                                item.toggleOn!==undefined
-                                                    ? createBaseVNode("div",{
-                                                        class:normalizeClass(["mvdmenu__item-status",
-                                                            item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                                        ])
-                                                      }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
-                                                    : createCommentVNode("",true),
-                                            ],10,["onClick"])
-                                        ))
-                                    ,128))
-                                  ]))
-                                : createCommentVNode("",true),
-
-                            // ── povsednev ─────────────────────────────────────────
-                            $data.screen==="povsednev"
-                                ? (openBlock(),createElementBlock("div",{key:"povsednev",class:"mvdmenu__list"},[
-                                    (openBlock(true),createElementBlock(Fragment,null,
-                                        renderList($options.filteredOptions,(opt,i)=>(
-                                            openBlock(),createElementBlock("div",{
-                                                key:opt.action,
-                                                class:normalizeClass(["mvdmenu__item",{
-                                                    "mvdmenu__item_fine":    opt.special==="fine",
-                                                    "mvdmenu__item_wanted":  opt.special==="wanted",
-                                                    "mvdmenu__item_selected": $data.selectedIndex===i,
-                                                }]),
-                                                onClick:$event=>{$data.selectedIndex=i;$options.selectOption(opt);}
-                                            },[
-                                                createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                                    toDisplayString(String($options.globalIndex(opt)+1).padStart(2,"0")), 1 /* TEXT */
-                                                ),
-                                                createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                                    toDisplayString(opt.label), 1 /* TEXT */
-                                                ),
-                                                ACTION_TAGS[opt.action]
-                                                    ? createBaseVNode("div",{
-                                                        class:"mvdmenu__item-tag",
-                                                        style:`background:${ACTION_TAGS[opt.action].color}0.13);color:${ACTION_TAGS[opt.action].color}1)`
-                                                      },toDisplayString(ACTION_TAGS[opt.action].label), 1 /* TEXT */)
-                                                    : createCommentVNode("",true),
-                                                $options.optNeedsId(opt)
-                                                    ? createBaseVNode("div",{class:"mvdmenu__item-id-badge"},"ID")
-                                                    : createCommentVNode("",true),
-                                            ],10,["onClick"])
-                                        ))
-                                    ,128)),
-                                    $options.filteredOptions.length===0
-                                        ? createBaseVNode("div",{class:"mvdmenu__empty"},"Ничего не найдено")
-                                        : createCommentVNode("",true)
-                                  ]))
-                                : createCommentVNode("",true),
-
-                            // ── id-input ──────────────────────────────────────────
-                            $data.screen==="id-input"
-                                ? (openBlock(),createElementBlock("div",{key:"id-input",class:"mvdmenu__id-input-wrap"},[
-                                    createBaseVNode("div",{class:"mvdmenu__id-input-label"},
-                                        toDisplayString($data.idInputLabel||"Введите ID игрока"), 1 /* TEXT */
+            // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: main — МВД меню
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="main"
+                ? (openBlock(),createElementBlock(Fragment,{key:"main"},[
+                    createBaseVNode("div",{class:"mvdmenu__list"},[
+                        (openBlock(true),createElementBlock(Fragment,null,
+                            renderList($options.mainMenuItems,(item,i)=>(
+                                openBlock(),createElementBlock("div",{
+                                    key:item.id,
+                                    class:normalizeClass(["mvdmenu__item",{
+                                        "mvdmenu__item_toggle_on": item.toggleOn===true,
+                                        "mvdmenu__item_toggle_off": item.toggleOn===false,
+                                        "mvdmenu__item_selected": $data.selectedIndex===i,
+                                    }]),
+                                    onClick:$event=>{$data.selectedIndex=i;$options.selectMain(item);}
+                                },[
+                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
+                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
                                     ),
-                                    createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
-                                        createBaseVNode("input",{
-                                            class:"mvdmenu__id-input-field",
-                                            id:"mvdmenu-id-field",
-                                            type:"number",
-                                            min:"1",
-                                            placeholder:"ID игрока...",
-                                            value:$data.idInputValue,
-                                            onInput:$event=>{$data.idInputValue=$event.target.value},
-                                            onKeydown:$options.onIdInputKeydown,
-                                        },null,40,["value","onInput","onKeydown"])
-                                    ]),
-                                  ]))
-                                : createCommentVNode("",true),
+                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
+                                        toDisplayString(item.label), 1 /* TEXT */
+                                    ),
+                                    // Стрелка → для пунктов-переходов
+                                    item.arrow
+                                        ? createBaseVNode("div",{class:"mvdmenu__item-arrow",innerHTML:SVG_ARROW})
+                                        : createCommentVNode("",true),
+                                    // Статус toggle
+                                    item.toggleOn!==undefined
+                                        ? createBaseVNode("div",{
+                                            class:normalizeClass(["mvdmenu__item-status",
+                                                item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
+                                            ])
+                                          }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
+                                        : createCommentVNode("",true),
+                                ],10,["onClick"])
+                            ))
+                        ,128))
+                    ])
+                  ],64))
+                : createCommentVNode("",true),
 
-                            // ── partner ───────────────────────────────────────────
-                            $data.screen==="partner"
-                                ? (openBlock(),createElementBlock("div",{key:"partner",class:"mvdmenu__list"},[
-                                    (openBlock(true),createElementBlock(Fragment,null,
-                                        renderList($options.partnerMenuItems,(item,i)=>(
-                                            openBlock(),createElementBlock("div",{
-                                                key:item.id,
-                                                class:normalizeClass(["mvdmenu__item",{
-                                                    "mvdmenu__item_toggle_on": item.toggleOn===true,
-                                                    "mvdmenu__item_toggle_off": item.toggleOn===false,
-                                                    "mvdmenu__item_selected": $data.selectedIndex===i,
-                                                }]),
-                                                onClick:$event=>{$data.selectedIndex=i;$options[item.onClick]();}
-                                            },[
-                                                createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                                    toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
-                                                ),
-                                                createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                                    toDisplayString(item.label), 1 /* TEXT */
-                                                ),
-                                                createBaseVNode("div",{
-                                                    class:normalizeClass(["mvdmenu__item-status",
-                                                        item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                                    ])
-                                                }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
-                                            ],10,["onClick"])
-                                        ))
-                                    ,128))
-                                  ]))
-                                : createCommentVNode("",true),
+            // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: povsednev — Список повседневных действий
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="povsednev"
+                ? (openBlock(),createElementBlock(Fragment,{key:"povsednev"},[
+                    // Поиск
+                    createBaseVNode("div",{class:"mvdmenu__search"},[
+                        createBaseVNode("span",{class:"mvdmenu__search-icon",innerHTML:SVG_SEARCH}),
+                        createBaseVNode("input",{
+                            type:"text",
+                            placeholder:"Поиск действия...",
+                            value:$data.search,
+                            onInput:$event=>{$data.search=$event.target.value}
+                        },null,40,["value","onInput"])
+                    ]),
+                    createBaseVNode("div",{class:"mvdmenu__list"},[
+                        (openBlock(true),createElementBlock(Fragment,null,
+                            renderList($options.filteredOptions,(opt,i)=>(
+                                openBlock(),createElementBlock("div",{
+                                    key:opt.action,
+                                    class:normalizeClass(["mvdmenu__item",{
+                                        "mvdmenu__item_fine":    opt.special==="fine",
+                                        "mvdmenu__item_wanted":  opt.special==="wanted",
+                                        "mvdmenu__item_selected": $data.selectedIndex===i,
+                                    }]),
+                                    onClick:$event=>{$data.selectedIndex=i;$options.selectOption(opt);}
+                                },[
+                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
+                                        toDisplayString(String($options.globalIndex(opt)+1).padStart(2,"0")), 1 /* TEXT */
+                                    ),
+                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
+                                        toDisplayString(opt.label), 1 /* TEXT */
+                                    ),
+                                    ACTION_TAGS[opt.action]
+                                        ? createBaseVNode("div",{
+                                            class:"mvdmenu__item-tag",
+                                            style:`background:${ACTION_TAGS[opt.action].color}0.13);color:${ACTION_TAGS[opt.action].color}1)`
+                                          },toDisplayString(ACTION_TAGS[opt.action].label), 1 /* TEXT */)
+                                        : createCommentVNode("",true),
+                                    $options.optNeedsId(opt)
+                                        ? createBaseVNode("div",{class:"mvdmenu__item-id-badge"},"ID")
+                                        : createCommentVNode("",true),
+                                ],10,["onClick"])
+                            ))
+                        ,128)),
+                        $options.filteredOptions.length===0
+                            ? createBaseVNode("div",{class:"mvdmenu__empty"},"Ничего не найдено")
+                            : createCommentVNode("",true)
+                    ])
+                  ],64))
+                : createCommentVNode("",true),
 
+            // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: id-input — Ввод ID
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="id-input"
+                ? (openBlock(),createElementBlock(Fragment,{key:"id-input"},[
+                    createBaseVNode("div",{class:"mvdmenu__id-input-wrap"},[
+                        createBaseVNode("div",{class:"mvdmenu__id-input-label"},
+                            toDisplayString($data.idInputLabel||"Введите ID игрока"), 1 /* TEXT */
+                        ),
+                        createBaseVNode("div",{class:"mvdmenu__id-input-row"},[
+                            createBaseVNode("input",{
+                                class:"mvdmenu__id-input-field",
+                                id:"mvdmenu-id-field",
+                                type:"number",
+                                min:"1",
+                                placeholder:"ID игрока...",
+                                value:$data.idInputValue,
+                                onInput:$event=>{$data.idInputValue=$event.target.value},
+                                onKeydown:$options.onIdInputKeydown,
+                            },null,40,["value","onInput","onKeydown"])
                         ]),
+                    ])
+                  ],64))
+                : createCommentVNode("",true),
 
-                        // = window__buttons (footер: Enter = подтвердить, ESC = назад/закрыть)
-                        createBaseVNode("div",{class:"mvdmenu__buttons"},[
-                            (openBlock(),createBlock(_component_ControlsContaineredButton,{
-                                key:0,
-                                containerText:$options.footerConfirmText,
-                                text:"Enter",
-                                keyCode:$data.KEY_CODE_ENTER,
-                                disabled:$options.footerConfirmDisabled,
-                                onPressed:$options.footerConfirm
-                            },null,8,["containerText","keyCode","disabled","onPressed"])),
-                            (openBlock(),createBlock(_component_ControlsContaineredButton,{
-                                key:1,
-                                containerText:$options.footerBackText,
-                                keyCode:$data.KEY_CODE_ESC,
-                                onPressed:$options.goBack
-                            },null,8,["containerText","keyCode","onPressed"]))
-                        ]),
+            // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: partner — Меню напарника (кастомный, без старого диалога)
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="partner"
+                ? (openBlock(),createElementBlock(Fragment,{key:"partner"},[
+                    createBaseVNode("div",{class:"mvdmenu__list"},[
+                        (openBlock(true),createElementBlock(Fragment,null,
+                            renderList($options.partnerMenuItems,(item,i)=>(
+                                openBlock(),createElementBlock("div",{
+                                    key:item.id,
+                                    class:normalizeClass(["mvdmenu__item",{
+                                        "mvdmenu__item_toggle_on": item.toggleOn===true,
+                                        "mvdmenu__item_toggle_off": item.toggleOn===false,
+                                        "mvdmenu__item_selected": $data.selectedIndex===i,
+                                    }]),
+                                    onClick:$event=>{$data.selectedIndex=i;$options[item.onClick]();}
+                                },[
+                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
+                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
+                                    ),
+                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
+                                        toDisplayString(item.label), 1 /* TEXT */
+                                    ),
+                                    createBaseVNode("div",{
+                                        class:normalizeClass(["mvdmenu__item-status",
+                                            item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
+                                        ])
+                                    }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
+                                ],10,["onClick"])
+                            ))
+                        ,128))
+                    ]),
+                  ],64))
+                : createCommentVNode("",true),
 
-                    ]) // /mvdmenu__window-container
+            // ── Footer: Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
+            createBaseVNode("div",{class:"mvdmenu__footer"},[
+                (openBlock(),createBlock(_component_ControlsContaineredButton,{
+                    key:0,
+                    containerText:$options.footerConfirmText,
+                    text:"Enter",
+                    keyCode:$data.KEY_CODE_ENTER,
+                    disabled:$options.footerConfirmDisabled,
+                    onPressed:$options.footerConfirm
+                },null,8,["containerText","keyCode","disabled","onPressed"])),
+                (openBlock(),createBlock(_component_ControlsContaineredButton,{
+                    key:1,
+                    containerText:$options.footerBackText,
+                    keyCode:$data.KEY_CODE_ESC,
+                    onPressed:$options.goBack
+                },null,8,["containerText","keyCode","onPressed"]))
+            ]),
 
-                ]) // /mvdmenu__content
+          ]) // /mvdmenu__container
 
-            ]) // /mvdmenu__container
-
-          ]) // /mvdmenu__container-wrapper
-
-        ]) // /mvdmenu__wrapper
-
+        ])
     ]));
 }
 
@@ -670,93 +660,83 @@ const _sfc_main={
         const s=document.createElement("style");
         s.id="mvdmenu-style";
         s.textContent=`
-/* .mvdmenu = .modal (1:1) */
+/* .mvdmenu = .modal (position:fixed, те же значения) */
 .mvdmenu{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:fixed;text-transform:none;top:0;width:100vw;z-index:11;}
 /* .mvdmenu__overlay = .modal-overlay, но без background — как у Window.js (MODAL_TYPES.NO_OVERLAY скрывает .modal-overlay целиком) */
 .mvdmenu__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
 
-/* .mvdmenu__wrapper = .modal-wrapper (1:1) */
-.mvdmenu__wrapper{position:relative;}
+/* .mvdmenu__wrapper = .modal-container-wrapper + .modal_orange .modal-container-wrapper (значения 1:1) */
+.mvdmenu__wrapper{background:#141419eb;border:0.19vh solid #ffffff0d;border-radius:0.74vh;box-shadow:inset 0vh 3.89vh 4.81vh -2.96vh #f9b70133;padding:0.37vh;pointer-events:auto;position:relative;width:36vh;z-index:1;}
+@media (platform:mobile){.mvdmenu__wrapper{border-radius:1.4815vh;border-width:0.3704vh;box-shadow:inset 0vh 3.89vh 2vh -2vh #f9b70133;}}
 
-/* .mvdmenu__container-wrapper = .modal-container-wrapper + .modal_orange .modal-container-wrapper (1:1) */
-.mvdmenu__container-wrapper{background:#141419eb;border:0.19vh solid #ffffff0d;border-radius:0.74vh;box-shadow:inset 0vh 3.89vh 4.81vh -2.96vh #f9b70133;padding:0.37vh;pointer-events:auto;position:relative;width:44vh;}
-@media (platform:mobile){.mvdmenu__container-wrapper{border-radius:1.4815vh;border-width:0.3704vh;box-shadow:inset 0vh 3.89vh 2vh -2vh #f9b70133;}}
+/* .mvdmenu__container = .modal-container + .modal_orange .modal-container (значения 1:1) */
+.mvdmenu__container{border:0.19vh solid #fff0;border-top:0.19vh solid #f9b701;border-radius:0.7vh;display:flex;flex-direction:column;overflow:hidden;position:relative;}
+@media (platform:mobile){.mvdmenu__container{border-radius:1.4815vh;border-width:0.3704vh;}}
 
-/* .mvdmenu__container = .modal-container + .modal_orange .modal-container (1:1; ширины modal-container сам по себе не задаёт — она берётся из контента/родителя) */
-.mvdmenu__container{border:0.19vh solid #fff0;border-top:0.19vh solid #f9b701;border-radius:0.7vh;padding:2.22vh;position:relative;}
-@media (platform:mobile){.mvdmenu__container{border-radius:1.4815vh;border-width:0.3704vh;padding:1.48vh;}}
+/* .mvdmenu__pattern = .modal__pattern-wrapper (значения 1:1) */
+.mvdmenu__pattern{height:23.61vh;left:0;mask-image:linear-gradient(180deg,#d9d9d9,#73737300 70%);overflow:hidden;pointer-events:none;position:absolute;top:0;width:100%;z-index:0;}
 
-/* .mvdmenu__pattern-wrapper = .modal__pattern-wrapper (1:1) */
-.mvdmenu__pattern-wrapper{height:23.61vh;left:0;mask-image:linear-gradient(180deg,#d9d9d9,#73737300 70%);overflow:hidden;position:absolute;top:0;width:100%;}
-/* .mvdmenu__pattern = .modal__pattern (1:1) */
-.mvdmenu__pattern{height:100%;width:48.52vh;}
-
-/* .mvdmenu__content = .modal__content (1:1) */
-.mvdmenu__content{position:relative;z-index:1;}
-
-/* .mvdmenu__title = .modal__title (1:1). "AHK" — цветной <span> внутри, как поддерживает
-   titleIsHtml у Window.js (title можно передавать HTML-строкой) */
-.mvdmenu__title{color:#fff;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;line-height:normal;text-transform:uppercase;}
+/* Header: заголовок = типографика .modal__title (font-size/weight/style/color/uppercase — 1:1),
+   вторая часть текста ("AHK") оставлена цветным <span> внутри — как title-строка с HTML в Window.js (titleIsHtml) */
+.mvdmenu__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.mvdmenu__title{align-items:baseline;color:#fff;display:flex;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;gap:0.56vh;line-height:normal;text-transform:uppercase;}
 @media (platform:mobile){.mvdmenu__title{font-size:4.44vh;}}
-.mvdmenu__title-ahk{color:#f9b701;}
+.mvdmenu__title-main{color:inherit;letter-spacing:0.1vh;line-height:inherit;}
+.mvdmenu__title-ahk{color:#f9b701;letter-spacing:0.1vh;line-height:inherit;}
+.mvdmenu__title-sub{color:#f4f1e166;font-size:0.43em;font-style:normal;font-weight:400;margin-left:0.74vh;text-transform:none;}
+.mvdmenu__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.48vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s ease;width:2.96vh;}
+@media (platform:pc){.mvdmenu__close-btn:hover{background:#e25544;border-color:#e25544;color:#fff;}}
 
-/* .mvdmenu__subtitle = .window__subtitle (1:1) */
-.mvdmenu__subtitle{color:#fff9;font-family:Open Sans;font-size:1.67vh;font-weight:600;margin-bottom:1.37vh;margin-top:0.37vh;}
-@media (platform:mobile){.mvdmenu__subtitle{font-size:2.04vh;}}
-
-/* .mvdmenu__window-container = .window__container (1:1) */
-.mvdmenu__window-container{margin-top:2.22vh;}
-
-/* Поиск — не из стокового Window (там его нет), оформлен в тех же токенах:
-   как обычное поле ввода без отдельной панели во всю ширину */
-.mvdmenu__search{align-items:center;display:flex;gap:0.93vh;margin-bottom:1.11vh;}
+/* Search */
+.mvdmenu__search{align-items:center;background:#ffffff05;border-bottom:0.19vh solid #f4f1e11a;display:flex;gap:0.93vh;padding:0.93vh 1.67vh;position:relative;z-index:1;}
 .mvdmenu__search-icon{align-items:center;display:flex;flex-shrink:0;height:1.48vh;justify-content:center;width:1.48vh;}
 .mvdmenu__search-icon svg{height:100%;width:100%;}
-.mvdmenu__search input{-webkit-appearance:none;background:#ffffff08;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;padding:0.74vh 1.11vh;}
+.mvdmenu__search input{-webkit-appearance:none;background:transparent;border:none;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;}
 .mvdmenu__search input::placeholder{color:#f4f1e166;font-weight:400;}
 
-/* .mvdmenu__content-container = .window__content-container (1:1, + сам скролл-контейнер) */
-.mvdmenu__content-container{margin-top:2.22vh;}
-.mvdmenu__list{display:flex;flex-direction:column;height:29.63vh;overflow-y:auto;}
+/* List */
+.mvdmenu__list{display:flex;flex-direction:column;max-height:48vh;overflow-y:auto;position:relative;z-index:1;}
 .mvdmenu__list::-webkit-scrollbar{width:1.11vh;}
 .mvdmenu__list::-webkit-scrollbar-thumb{background:linear-gradient(0deg,#bcbcbd,#fff 75%);border-radius:0.19vh;}
 .mvdmenu__list::-webkit-scrollbar-track{background:#ffffff1a;border-radius:0.19vh;}
 
-/* Пункты меню = .window-table__item + .window-table__item.selected (1:1) */
-.mvdmenu__item{align-items:center;background:#ffffff0d;border:0.19vh solid;border-color:#0000 #0000 #ffffff1a;border-radius:0.37vh;box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d;color:#fff;cursor:pointer;display:flex;gap:1.11vh;height:4.81vh;margin-top:0.74vh;overflow:hidden;padding:0 1.48vh;position:relative;}
-.mvdmenu__item:first-child{margin-top:0;}
-@media (platform:mobile){.mvdmenu__item{border-radius:0.74vh;border-width:0.37vh;height:5.74vh;}}
-@media (platform:pc){.mvdmenu__item:hover{background:#ffffff14;}}
-.mvdmenu__item_selected{background:#f9b70133;border-color:#f9b701;box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d;}
-.mvdmenu__item_selected .mvdmenu__item-label{color:#fff;}
-.mvdmenu__item_fine{border-color:#3dba7a99 #0000 #3dba7a99 #3dba7a99;}
-.mvdmenu__item_wanted{border-color:#e2554499 #0000 #e2554499 #e2554499;}
-.mvdmenu__item_toggle_on{border-color:#3dba7a80 #0000 #3dba7a80 #3dba7a80;}
-.mvdmenu__item_toggle_off{border-color:#e2554450 #0000 #e2554450 #e2554450;}
-.mvdmenu__item-num{color:#f4f1e166;flex-shrink:0;font-size:var(--wd-font-size, 1.67vh);font-weight:700;}
-.mvdmenu__item-label{color:#f4f1e1cc;flex:1 1 auto;font-size:var(--wd-font-size, 1.67vh);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.mvdmenu__item-tag{border-radius:0.22vh;flex-shrink:0;font-size:1.11vh;font-weight:700;letter-spacing:0.04vh;padding:0.19vh 0.56vh;}
-.mvdmenu__item-id-badge{background:rgba(249,183,1,.1);border-radius:0.22vh;color:rgba(249,183,1,.7);flex-shrink:0;font-size:1.02vh;font-weight:700;letter-spacing:0.04vh;padding:0.19vh 0.5vh;}
+/* Items */
+.mvdmenu__item{align-items:center;border-bottom:0.09vh solid #f4f1e10d;cursor:pointer;display:flex;gap:1.11vh;padding:0.93vh 1.48vh;transition:background 0.1s ease;}
+@media (platform:pc){.mvdmenu__item:hover{background:rgba(255,255,255,.04);}}
+.mvdmenu__item_fine{border-left:0.19vh solid rgba(61,186,122,.4);}
+@media (platform:pc){.mvdmenu__item_fine:hover{background:rgba(61,186,122,.05);}}
+.mvdmenu__item_wanted{border-left:0.19vh solid rgba(224,85,85,.4);}
+@media (platform:pc){.mvdmenu__item_wanted:hover{background:rgba(224,85,85,.05);}}
+.mvdmenu__item_toggle_on{border-left:0.19vh solid rgba(61,186,122,.5);}
+@media (platform:pc){.mvdmenu__item_toggle_on:hover{background:rgba(61,186,122,.05);}}
+.mvdmenu__item_toggle_off{border-left:0.19vh solid rgba(224,85,85,.3);}
+.mvdmenu__item_selected{background:rgba(249,183,1,.1);border-left:0.19vh solid #f9b701;}
+.mvdmenu__item_selected .mvdmenu__item-label{color:#f4f1e1;}
+.mvdmenu__item-num{color:#f4f1e166;flex-shrink:0;font-size:1.11vh;font-weight:700;min-width:2.4vh;}
+.mvdmenu__item-label{color:#f4f1e1cc;flex:1 1 auto;font-size:1.3vh;font-weight:600;line-height:1.4;}
+.mvdmenu__item-tag{border-radius:0.22vh;flex-shrink:0;font-size:1.0vh;font-weight:700;letter-spacing:0.04vh;padding:0.15vh 0.5vh;}
+.mvdmenu__item-id-badge{background:rgba(249,183,1,.1);border-radius:0.22vh;color:rgba(249,183,1,.7);flex-shrink:0;font-size:0.93vh;font-weight:700;letter-spacing:0.04vh;padding:0.15vh 0.46vh;}
 .mvdmenu__item-arrow{align-items:center;display:flex;flex-shrink:0;opacity:0.5;}
 .mvdmenu__item-arrow svg{height:1.11vh;width:1.11vh;}
-.mvdmenu__item-status{border-radius:0.22vh;flex-shrink:0;font-size:1.02vh;font-weight:700;padding:0.19vh 0.65vh;}
+.mvdmenu__item-status{border-radius:0.22vh;flex-shrink:0;font-size:0.93vh;font-weight:700;padding:0.15vh 0.56vh;}
 .mvdmenu__item-status_on{background:rgba(61,186,122,.15);color:rgba(61,186,122,1);}
 .mvdmenu__item-status_off{background:rgba(224,85,85,.12);color:rgba(224,85,85,0.9);}
-.mvdmenu__empty{color:#f4f1e166;font-size:1.48vh;font-style:italic;padding:2.22vh;text-align:center;}
+.mvdmenu__empty{color:#f4f1e166;font-size:1.3vh;font-style:italic;padding:2.22vh;text-align:center;}
 
-/* ID Input screen — оформлено как .window-input (1:1 по логике: margin-top:var(--wd-margin)) */
-.mvdmenu__id-input-wrap{margin-top:2.22vh;}
-.mvdmenu__id-input-label{color:#f4f1e1cc;font-size:1.67vh;font-weight:600;margin-bottom:0.93vh;}
-.mvdmenu__id-input-row{display:flex;gap:0.93vh;}
-.mvdmenu__id-input-field{-webkit-appearance:none;appearance:none;background:#ffffff08;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.67vh;font-weight:600;outline:none;padding:0.93vh 1.3vh;transition:border-color 0.15s;}
+
+/* ID Input screen */
+.mvdmenu__id-input-wrap{display:flex;flex-direction:column;gap:1.3vh;padding:2vh 1.85vh 1.85vh;position:relative;z-index:1;}
+.mvdmenu__id-input-label{color:#f4f1e1cc;font-size:1.3vh;font-weight:600;line-height:1.4;}
+.mvdmenu__id-input-row{display:flex;gap:0.74vh;}
+.mvdmenu__id-input-field{-webkit-appearance:none;appearance:none;background:#ffffff08;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e1;flex:1 1 auto;font-family:"Open Sans",Arial,sans-serif;font-size:1.48vh;font-weight:600;outline:none;padding:0.74vh 1.11vh;transition:border-color 0.15s;}
 .mvdmenu__id-input-field:focus{border-color:rgba(249,183,1,0.5);}
 .mvdmenu__id-input-field::placeholder{color:#f4f1e144;font-weight:400;}
 .mvdmenu__id-input-field::-webkit-inner-spin-button,.mvdmenu__id-input-field::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
 
-/* .mvdmenu__buttons = .window__buttons (1:1) */
-.mvdmenu__buttons{display:flex;margin-top:2.22vh;}
-.mvdmenu__buttons .controls-button__container{margin-right:1.48vh;}
-.mvdmenu__buttons .controls-button__container:last-child{margin-right:0;}
+/* Footer (Подтвердить/Назад — как window__buttons в Window.js) */
+.mvdmenu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.mvdmenu__footer .controls-button__container{margin-right:1.48vh;}
+.mvdmenu__footer .controls-button__container:last-child{margin-right:0;}
         `;
         document.head.appendChild(s);
 
