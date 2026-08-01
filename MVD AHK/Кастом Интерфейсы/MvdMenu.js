@@ -52,11 +52,13 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
         // Overlay
         createBaseVNode("div",{class:"mvdmenu__overlay",onClick:$options.close}),
 
-        // Wrapper
+        // Wrapper (= modal-container-wrapper в Modal.js/Window.js)
         createBaseVNode("div",{class:"mvdmenu__wrapper"},[
 
+          // Container (= modal-container с border-top orange, как modal_orange)
+          createBaseVNode("div",{class:"mvdmenu__container"},[
+
             createBaseVNode("div",{class:"mvdmenu__pattern",innerHTML:GRAFFITI_SVG}),
-            createBaseVNode("div",{class:"mvdmenu__top-accent"}),
 
             // ── Header ───────────────────────────────────────────────────────
             createBaseVNode("div",{class:"mvdmenu__header"},[
@@ -243,6 +245,8 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                     onPressed:$options.goBack
                 },null,8,["containerText","keyCode","onPressed"]))
             ]),
+
+          ]) // /mvdmenu__container
 
         ])
     ]));
@@ -656,11 +660,20 @@ const _sfc_main={
         const s=document.createElement("style");
         s.id="mvdmenu-style";
         s.textContent=`
+/* Overlay (= modal-overlay в Modal.js) — общий тёмный фон под меню */
 .mvdmenu{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:absolute;text-transform:none;top:0;width:100vw;z-index:11;}
-.mvdmenu__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
-.mvdmenu__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(249,183,1,0.2),0 1.5vh 5vh rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:36vh;z-index:1;}
-.mvdmenu__top-accent{background:#f9b701;height:0.19vh;left:0;position:absolute;right:0;top:0;}
-.mvdmenu__pattern{height:23.61vh;left:0;mask-image:linear-gradient(180deg,#d9d9d9,rgba(115,115,115,0) 70%);overflow:hidden;pointer-events:none;position:absolute;top:0;width:100%;}
+.mvdmenu__overlay{background:#010106eb;bottom:0;left:0;position:absolute;right:0;top:0;}
+
+/* Wrapper (= modal-container-wrapper) — тёмная карточка с золотым inset-свечением modal_orange */
+.mvdmenu__wrapper{background:#141419eb;border:0.19vh solid #ffffff0d;border-radius:0.74vh;box-shadow:inset 0vh 3.89vh 4.81vh -2.96vh #f9b70133,0vh 1.5vh 5vh #00000080;padding:0.37vh;pointer-events:auto;position:relative;width:36vh;z-index:1;}
+@media (platform:mobile){.mvdmenu__wrapper{border-radius:1.4815vh;border-width:0.3704vh}}
+
+/* Container (= modal-container) — верхняя золотая полоска через border-top, как modal_orange */
+.mvdmenu__container{border:0.19vh solid #fff0;border-top:0.19vh solid #f9b701;border-radius:0.7vh;display:flex;flex-direction:column;overflow:hidden;position:relative;}
+@media (platform:mobile){.mvdmenu__container{border-radius:1.4815vh;border-width:0.3704vh}}
+
+/* Pattern (= modal__pattern-wrapper) */
+.mvdmenu__pattern{height:23.61vh;left:0;mask-image:linear-gradient(180deg,#d9d9d9,rgba(115,115,115,0) 70%);overflow:hidden;pointer-events:none;position:absolute;top:0;width:100%;z-index:0;}
 
 /* Header */
 .mvdmenu__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
