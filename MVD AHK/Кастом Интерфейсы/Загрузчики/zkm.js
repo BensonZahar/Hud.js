@@ -42,6 +42,21 @@ if (_cssText && !document.getElementById('zkm-style-remote')) {
     document.head.appendChild(s);
 }
 
+
+// ЕУВС JSON — опционален, грузится параллельно с CSS
+let _euvsText = window.__prefetch_zkm_euvs;
+if (!_euvsText && !window.__prefetch_zkm_euvs_failed) {
+    if (window.__prefetch_promise) { await window.__prefetch_promise; _euvsText = window.__prefetch_zkm_euvs; }
+    if (!_euvsText) {
+        try { _euvsText = await _xhrGet(_GH_BASE + 'euvs.json', 0); }
+        catch (e) { console.warn('[zkm] ЕУВС не загрузился:', e.message); }
+    }
+}
+if (_euvsText) {
+    try { window.__zkm_euvs = JSON.parse(_euvsText); console.log('[zkm] ✅ ЕУВС:', window.__zkm_euvs.length, 'статей'); }
+    catch (e) { console.warn('[zkm] ЕУВС parse error:', e); }
+}
+
 _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     return 'window.__zkmComp = ' + exp.split(' as ')[0].trim() + ';';
