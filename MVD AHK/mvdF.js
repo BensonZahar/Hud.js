@@ -1139,23 +1139,21 @@ const setupChatHandler = () => {
                                     const _fineArts  = window._mvdLastFineArts;
                                     const _fineTotal = window._mvdLastFineTotal;
                                     if (_fineArts && _fineArts.length) {
-                                        // Каждая статья — 2 отдельных сообщения чтобы не упираться в лимит длины
-                                        const _msgs   = [];
-                                        const _delays = [];
-                                        let _d = 600; // пауза после подтверждения сервера
+                                        // Собираем текст одним блоком (как в C++ хелпере) и режем по 83 символа
+                                        const _codes = _fineArts.map(a => a.num).join(', ');
+                                        let _citeText = `Выписан штраф по: ${_codes} КоАП\n`;
                                         _fineArts.forEach((art) => {
-                                            _msgs.push(`Статья ${art.num} КоАП — ${art.title}.`);
-                                            _delays.push(_d);
-                                            _d += 1000;
-                                            _msgs.push(`Стоимость штрафа: ${art.fine.toLocaleString()} руб.`);
-                                            _delays.push(_d);
-                                            _d += 800;
+                                            _citeText += `${art.num} КоАП - ${art.title} - ${art.fine.toLocaleString()} руб.\n`;
                                         });
-                                        // Итог только если статей несколько
-                                        if (_fineArts.length > 1) {
-                                            _msgs.push(`Итого к оплате: ${_fineTotal.toLocaleString()} руб.`);
-                                            _delays.push(_d);
+                                        // Строка лишения ВУ — если галочка была включена
+                                        const _revokeStr = window._mvdLastFineRevokeCodes;
+                                        if (_revokeStr) {
+                                            _citeText += `Аннулирование ВУ по: ${_revokeStr}\n`;
                                         }
+                                        _citeText += `Итого: ${_fineTotal.toLocaleString()} руб.`;
+                                        // 83 символа в строке, 500 мс начальная пауза, 100 мс между строками
+                                        const _msgs   = _splitCitation83(_citeText);
+                                        const _delays = _msgs.map((_, i) => i === 0 ? 500 : 100);
                                         showCiteOffer('Цитировать штраф?', _msgs, _delays);
                                         console.log(`[FINE-LOG] 💬 Предложение цитирования штрафа: ${_fineArts.length} ст.`);
                                     }
@@ -1223,32 +1221,23 @@ const setupChatHandler = () => {
                                 try {
                                     const wantedArts = window._mvdLastWantedArts;
                                     if (wantedArts && wantedArts.length) {
-                                        // Богатое цитирование: статья + название + срок (как у Hiro)
+                                        // Собираем текст одним блоком (как в C++ хелпере) и режем по 83 символа
                                         function _yearLabel(n) {
                                             if (n === 1) return `${n} год лишения свободы`;
                                             if (n >= 2 && n <= 4) return `${n} года лишения свободы`;
                                             return `${n} лет лишения свободы`;
                                         }
-                                        const _msgs   = [];
-                                        const _delays = [];
-                                        let _d = 600;
                                         let _totalTerm = 0;
+                                        const _wCodes = wantedArts.map(a => a.num).join(', ');
+                                        let _citeText = `Объявлены в розыск по: ${_wCodes} УК\n`;
                                         wantedArts.forEach((art) => {
-                                            _msgs.push(`Объявлены в розыск по: ${art.num} УК`);
-                                            _delays.push(_d);
-                                            _d += 800;
-                                            // Разбиваем на два сообщения — название и срок отдельно,
-                                            // чтобы не упираться в лимит длины чата (~120 символов)
-                                            _msgs.push(`${art.num} УК - ${art.title}.`);
-                                            _delays.push(_d);
-                                            _d += 800;
-                                            _msgs.push(`${art.num} УК - ${_yearLabel(art.term)}.`);
-                                            _delays.push(_d);
-                                            _d += 800;
+                                            _citeText += `${art.num} УК - ${art.title} - ${_yearLabel(art.term)}.\n`;
                                             _totalTerm += (art.term || 0);
                                         });
-                                        _msgs.push(`Суммарно ${_yearLabel(_totalTerm)}.`);
-                                        _delays.push(_d);
+                                        _citeText += `Суммарно ${_yearLabel(_totalTerm)}.`;
+                                        // 83 символа в строке, 500 мс начальная пауза, 100 мс между строками
+                                        const _msgs   = _splitCitation83(_citeText);
+                                        const _delays = _msgs.map((_, i) => i === 0 ? 500 : 100);
                                         showCiteOffer('Цитировать розыск?', _msgs, _delays);
                                         console.log(`[WANTED-LOG] 💬 Предложение цитирования розыска: ${wantedArts.length} ст.`);
                                         // Очищаем — не повторять при радио-дубле
@@ -1257,14 +1246,9 @@ const setupChatHandler = () => {
                                         // Фолбэк: розыск выдан не через ZKM (напр. ручной /su) —
                                         // берём коды прямо из чата, без названий
                                         const artCodes = articlesStr.split(',').map(a => a.trim()).filter(Boolean);
-                                        const _msgs   = [];
-                                        const _delays = [];
-                                        let _d = 600;
-                                        artCodes.forEach((code) => {
-                                            _msgs.push(`Объявлен в розыск по: ${code}.`);
-                                            _delays.push(_d);
-                                            _d += 800;
-                                        });
+                                        const _fbText  = artCodes.map(code => `Объявлен в розыск по: ${code}.`).join('\n');
+                                        const _msgs    = _splitCitation83(_fbText);
+                                        const _delays  = _msgs.map((_, i) => i === 0 ? 500 : 100);
                                         showCiteOffer('Цитировать розыск?', _msgs, _delays);
                                         console.log(`[WANTED-LOG] 💬 Предложение цитирования розыска (фолбэк): ${artCodes.length} ст.`);
                                     }
@@ -2769,6 +2753,25 @@ window.sendChatInputCustom = e => {
 };
 // Максимальная длина чат-сообщения (лимит сервера)
 const _CHAT_MAX_LEN = 120;
+
+// Разбивает текст цитирования на строки по 83 символа (как в C++ хелпере)
+// с разбивкой по пробелу; пустые строки пропускаются
+function _splitCitation83(text) {
+    const maxLen = 83;
+    const result = [];
+    for (const rawLine of text.split('\n')) {
+        if (!rawLine) continue;
+        let s = rawLine;
+        while (s.length > maxLen) {
+            let cut = s.lastIndexOf(' ', maxLen);
+            if (cut <= 0) cut = maxLen;
+            result.push(s.slice(0, cut));
+            s = s.slice(cut).replace(/^\s+/, '');
+        }
+        if (s) result.push(s);
+    }
+    return result;
+}
 
 // Разбивает длинный текст на части по границам слов
 function _splitChatMessage(text) {
