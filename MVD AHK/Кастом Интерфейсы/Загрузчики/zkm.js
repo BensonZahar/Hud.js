@@ -46,14 +46,27 @@ if (_cssText && !document.getElementById('zkm-style-remote')) {
 // для этого модуля, но нужны компоненту LawsHelper. Не блокируют загрузку/eval
 // основного JS: компонент сам подождёт этот промис (window.__prefetch_zkm_lawdocs_promise)
 // в фоне, когда откроет окно. Путь другой — это отдельный репозиторий "Законы AHK",
-// специфичный для 12-го сервера (не "MVD AHK/Кастом Интерфейсы", где лежит сам zkm.js/css).
-var _GH_BASE_LAWS_12 = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/' + encodeURIComponent('Законы AHK') + '/12/';
+// подпапка выбирается по номеру текущего сервера игрока (12, 13, ...).
+function _getServerId() {
+    try {
+        var id = window.App && window.App.$store &&
+                 window.App.$store.getters['player/serverId'];
+        id = parseInt(id, 10);
+        return Number.isFinite(id) && id > 0 ? id : 12; // фолбэк на 12, если ещё не определён
+    } catch (e) {
+        return 12;
+    }
+}
+
+var _SERVER_ID = _getServerId();
+var _GH_BASE_LAWS = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/' +
+    encodeURIComponent('Законы AHK') + '/' + _SERVER_ID + '/';
 var _LAW_DOC_FILES = ['koap', 'uk', 'proc', 'kto', 'euss', 'euvs', 'zot'];
 
 if (!window.__prefetch_zkm_lawdocs && !window.__prefetch_zkm_lawdocs_promise) {
     window.__prefetch_zkm_lawdocs_promise = Promise.all(_LAW_DOC_FILES.map(function(id) {
-        return _xhrGet(_GH_BASE_LAWS_12 + id + '.json', 0)
-            .catch(function(e) { console.warn('[zkm] ' + id + '.json не загрузился (загрузится лениво позже):', e.message); return null; });
+        return _xhrGet(_GH_BASE_LAWS + id + '.json', 0)
+            .catch(function(e) { console.warn('[zkm] ' + id + '.json (сервер ' + _SERVER_ID + ') не загрузился (загрузится лениво позже):', e.message); return null; });
     })).then(function(results) {
         var map = {};
         _LAW_DOC_FILES.forEach(function(id, i) { if (results[i]) map[id] = results[i]; });
