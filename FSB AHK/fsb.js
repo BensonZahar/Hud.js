@@ -4103,6 +4103,15 @@ function extractProfileData(mm) {
         if (!s) return null;
         var org  = s.organization || {};
         var info = s.info || {};
+
+        // ── Заглушка MainMenu.js: до прихода данных с сервера
+        // organization содержит mock-значения "Officer" / "Police departament".
+        // Принимать их нельзя — ждём настоящий ответ сервера.
+        if (org.rangName === 'Officer' || org.title === 'Police departament') {
+            console.log('[Profile] ⏳ Пропускаем mock-данные (Officer / Police departament) — ждём сервер...');
+            return null;
+        }
+
         var realNick = null;
         try {
             realNick = window.App && window.App.$store && 
