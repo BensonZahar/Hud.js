@@ -1,8 +1,5 @@
 import{r as resolveComponent,o as openBlock,c as createElementBlock,b as createVNode,a as createBaseVNode,F as Fragment,h as renderList,n as normalizeClass,e as createTextVNode,t as toDisplayString,f as createCommentVNode,w as withCtx,T as Transition,_ as _export_sfc}from"./index.js";
 
-// Базовый путь до данных на GitHub — тот же репозиторий, что и у загрузчика zkm.js
-const _GH_BASE_LAWS = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/' + encodeURIComponent('Кастом Интерфейсы') + '/';
-
 const _hoisted_1={class:"laws-helper iface-container"};
 const _hoisted_2={class:"laws-helper__header"};
 const _hoisted_3={class:"laws-helper__title"};
@@ -420,54 +417,71 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 	]));
 }
 // ══════════════════════════════════════════════════════════════════
-//  Статьи КоАП (штрафы) и УК (розыск) — тоже больше НЕ хранятся здесь,
-//  грузятся асинхронно из articles.json (см. loadFineWantedArticles()
-//  и mounted()), в data() лежат как реактивные this.koapArticles /
-//  this.ukArticles, чтобы Vue видел изменение и перерисовал списки.
+//  Тексты законов И короткие статьи для штрафов/розыска больше НЕ
+//  хранятся в этом файле — каждый документ лежит в своём json на
+//  GitHub (12-й сервер) и грузится асинхронно (см. loadAllLawData()
+//  и mounted()). В data() лежат как реактивные this.lawDocuments /
+//  this.koapArticles / this.ukArticles, чтобы Vue видел изменение и
+//  перерисовал списки.
+//
+//  Структура каждого файла:
+//   koap.json — { id, title, articles:[полный текст статей КоАП],
+//                 fineArticles:[короткие статьи для таба ШТРАФЫ] }
+//   uk.json   — { id, title, articles:[полный текст статей УК],
+//                 wantedArticles:[короткие статьи для таба РОЗЫСК] }
+//   остальные — { id, title, articles:[...] }
+//  fineArticles/wantedArticles лежат прямо в koap.json/uk.json, а не
+//  в отдельном articles.json — они логически часть тех же кодексов.
 // ══════════════════════════════════════════════════════════════════
-const ARTICLES_JSON_URL = _GH_BASE_LAWS + 'articles.json';
-let _articlesLoadPromise = null;
-function loadFineWantedArticles(){
-	if (_articlesLoadPromise) return _articlesLoadPromise;
-	_articlesLoadPromise = (async () => {
-		let raw = window.__prefetch_zkm_articles;
-		if (!raw && window.__prefetch_zkm_articles_promise) {
-			try { await window.__prefetch_zkm_articles_promise; raw = window.__prefetch_zkm_articles; }
-			catch (e) { /* игнор — попробуем XHR ниже */ }
+const _GH_BASE_LAWS_12 = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/' + encodeURIComponent('Законы AHK') + '/12/';
+
+// Порядок и заголовки табов в дереве документов — это просто структура
+// (какие файлы вообще существуют), а не текст законов, поэтому держим
+// её тут, а не в JSON.
+const LAW_DOC_META = [
+	{id:"koap", title:"КоАП"},
+	{id:"uk",   title:"УК"},
+	{id:"proc", title:"Процессуальный кодекс"},
+	{id:"kto",  title:"Закон о КТО"},
+	{id:"euss", title:"ЕУСС"},
+	{id:"euvs", title:"ЕУВС"},
+	{id:"zot",  title:"Закон о ЗОТ"}
+];
+
+let _lawDataLoadPromise = null;
+function loadAllLawData(){
+	if (_lawDataLoadPromise) return _lawDataLoadPromise;
+	_lawDataLoadPromise = (async () => {
+		// 1) пробуем то, что уже успел прогрузить префетчер загрузчика (zkm-загрузчик)
+		let prefetched = window.__prefetch_zkm_lawdocs;
+		if (!prefetched && window.__prefetch_zkm_lawdocs_promise) {
+			try { prefetched = await window.__prefetch_zkm_lawdocs_promise; }
+			catch (e) { /* игнор — попробуем XHR ниже для каждого файла */ }
 		}
-		if (!raw) raw = await _xhrGetLaws(ARTICLES_JSON_URL, 0);
-		return JSON.parse(raw); // { koap: [...], uk: [...] }
+		prefetched = prefetched || {};
+
+		// 2) добираем то, что префетчер не осилил (или его вообще не было) — параллельно
+		const parsedDocs = await Promise.all(LAW_DOC_META.map(async (meta) => {
+			let raw = prefetched[meta.id];
+			if (!raw) raw = await _xhrGetLaws(_GH_BASE_LAWS_12 + meta.id + '.json', 0);
+			return JSON.parse(raw);
+		}));
+
+		const lawDocuments = parsedDocs.map((doc, i) => ({
+			id: LAW_DOC_META[i].id,
+			title: LAW_DOC_META[i].title,
+			articles: doc.articles || []
+		}));
+		const koapDoc = parsedDocs.find(d => d.id === "koap");
+		const ukDoc   = parsedDocs.find(d => d.id === "uk");
+
+		return {
+			lawDocuments,
+			koapArticles: (koapDoc && koapDoc.fineArticles) || [],
+			ukArticles: (ukDoc && ukDoc.wantedArticles) || []
+		};
 	})();
-	return _articlesLoadPromise;
-}
-
-
-// ══════════════════════════════════════════════════════════════════
-//  Тексты законов (КоАП, УК и т.д.) больше НЕ хранятся в этом файле —
-//  они грузятся асинхронно из laws.json (см. loadLawDocuments() и
-//  mounted()). Это сделано, чтобы не раздувать zkm.js текстом статей.
-// ══════════════════════════════════════════════════════════════════
-const LAWS_JSON_URL = _GH_BASE_LAWS + 'laws.json';
-let LAW_DOCUMENTS = [];
-
-// Кэшируем промис загрузки между открытиями окна за сессию,
-// чтобы не дёргать сеть повторно при каждом открытии /laws
-let _lawsLoadPromise = null;
-function loadLawDocuments(){
-	if (_lawsLoadPromise) return _lawsLoadPromise;
-	_lawsLoadPromise = (async () => {
-		// 1) пробуем то, что уже успел прогрузить префетчер загрузчика (zkm.js-загрузчик)
-		let raw = window.__prefetch_zkm_laws;
-		if (!raw && window.__prefetch_zkm_laws_promise) {
-			try { await window.__prefetch_zkm_laws_promise; raw = window.__prefetch_zkm_laws; }
-			catch (e) { /* игнор — попробуем XHR ниже */ }
-		}
-		// 2) фоллбек — тянем сами
-		if (!raw) raw = await _xhrGetLaws(LAWS_JSON_URL, 0);
-		LAW_DOCUMENTS = JSON.parse(raw);
-		return LAW_DOCUMENTS;
-	})();
-	return _lawsLoadPromise;
+	return _lawDataLoadPromise;
 }
 
 function _xhrGetLaws(url, attempt){
@@ -698,24 +712,18 @@ const _sfc_main={
 		// (см. "zkm (загрузчик).js": _xhrGet(... 'zkm.css') → <style id="zkm-style-remote">).
 		// Раньше тут был полный дубль этого CSS в виде текстового литерала — вынесли в zkm.css.
 
-		// ── Асинхронная загрузка текстов законов (КоАП/УК/...) из laws.json ──
-		loadLawDocuments().then(docs => {
-			this.lawDocuments = docs;
-			this.expandedDocs = [docs[0]?.id].filter(Boolean);
+		// ── Асинхронная загрузка законов (7 файлов koap/uk/proc/kto/euss/euvs/zot) ──
+		loadAllLawData().then(({lawDocuments, koapArticles, ukArticles}) => {
+			this.lawDocuments = lawDocuments;
+			this.expandedDocs = [lawDocuments[0]?.id].filter(Boolean);
 			this.lawsLoading = false;
-		}).catch(e => {
-			console.error('[zkm] не удалось загрузить laws.json:', e);
-			this.lawsLoading = false;
-			this.lawsLoadError = true;
-		});
-
-		// ── Асинхронная загрузка статей КоАП (штрафы) и УК (розыск) из articles.json ──
-		loadFineWantedArticles().then(({koap, uk}) => {
-			this.koapArticles = koap;
-			this.ukArticles = uk;
+			this.koapArticles = koapArticles;
+			this.ukArticles = ukArticles;
 			this.articlesLoading = false;
 		}).catch(e => {
-			console.error('[zkm] не удалось загрузить articles.json:', e);
+			console.error('[zkm] не удалось загрузить данные законов:', e);
+			this.lawsLoading = false;
+			this.lawsLoadError = true;
 			this.articlesLoading = false;
 			this.articlesLoadError = true;
 		});
