@@ -239,6 +239,9 @@ setTimeout(function() {
 const mvdSkins = [15346, 15349, 17034, 17035, 17036, 17037, 17082, 17083, 17084];
 
 let skinId = null;
+// Флаг маскировки: true — игрок в маскировке, AHK работает с любой формой
+// false — AHK работает только в ФСБ форме (skinId из mvdSkins)
+window._isMasked = false;
 // 3. Функция получения скина
 function getSkinIdFromStore() {
     try {
@@ -1255,6 +1258,24 @@ if (typeof message === 'string' && message.includes('стиль одежды')) 
         console.warn('[STYLE-FIX] Ошибка замены стиля:', _e);
     }
 }
+// ==================== ОБНАРУЖЕНИЕ МАСКИРОВКИ ====================
+// Цвет 62CC60 + "Вы замаскировались" → AHK работает с любой формой
+// Цвет BBB7F5 + "Вы сняли маскировку" → AHK только для ФСБ формы
+if (typeof message === 'string' && args && args.length > 0) {
+    try {
+        const _maskColor = normalizeColor(args[0]).replace('0x', '').toUpperCase();
+        if (_maskColor === '62CC60' && message.includes('Вы замаскировались')) {
+            window._isMasked = true;
+            console.log('[MASK] 🎭 Маскировка надета — AHK работает с любой формой');
+            snAdd('[1, "AHK Маскировка", "Маскировка активна — AHK с любой формой", "62CC60", 3000]');
+        } else if (_maskColor === 'BBB7F5' && message.includes('Вы сняли маскировку')) {
+            window._isMasked = false;
+            console.log('[MASK] 🔓 Маскировка снята — AHK только для ФСБ формы');
+            snAdd('[1, "AHK Маскировка", "Маскировка снята — только ФСБ форма", "BBB7F5", 3000]');
+        }
+    } catch (_maskErr) { /* тихо игнорируем */ }
+}
+// ==================== КОНЕЦ ОБНАРУЖЕНИЯ МАСКИРОВКИ ====================
 // ────────────────────────────────────────────────────────────────
             return originalAddFunction.apply(this, [message, ...args]);
         };
@@ -2156,7 +2177,8 @@ window.showGiveLicenseDialog = (e) => {
     giveLicenseTo = e;
     currentMenu = null;
     let availableTypes = [];
-    if (mvdSkins.includes(skinId)) {
+    // При маскировке разрешаем ФСБ-меню с любой формой
+    if (mvdSkins.includes(skinId) || window._isMasked) {
         availableTypes.push({ name: "ФСБ", id: "fsb_main" });
     }
     shownLicenseTypes = availableTypes;
@@ -2445,7 +2467,8 @@ window.sendChatInputCustom = e => {
     const freshSkin = getSkinIdFromStore();
     if (freshSkin !== null) skinId = Number(freshSkin);
     window._mvdSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
-    if (mvdSkins.includes(skinId)) {
+    // При активной маскировке AHK открывается с любой формой
+    if (mvdSkins.includes(skinId) || window._isMasked) {
         
         const openMenu = () => {
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'ФСБ\'", "0000FF", 5000]');
@@ -3328,8 +3351,9 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 	}
 
     function swapTaserDeagle() {
-        if (!mvdSkins.includes(skinId)) {
-            console.log('[АВТО-ТАЗЕР] не ФСБ форма, пропуск');
+        // Блокируем только если не ФСБ форма И не в маскировке
+        if (!mvdSkins.includes(skinId) && !window._isMasked) {
+            console.log('[АВТО-ТАЗЕР] не ФСБ форма и нет маскировки, пропуск');
             return;
         }
         if (_busy) {
