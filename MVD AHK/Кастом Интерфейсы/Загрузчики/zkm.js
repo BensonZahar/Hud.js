@@ -42,6 +42,22 @@ if (_cssText && !document.getElementById('zkm-style-remote')) {
     document.head.appendChild(s);
 }
 
+// Laws JSON — опционален для этого модуля, но нужен компоненту LawsHelper.
+// Не блокирует загрузку/eval основного JS: компонент сам подождёт этот промис
+// (window.__prefetch_zkm_laws_promise) в фоне, когда откроет таб «Законы».
+if (!window.__prefetch_zkm_laws && !window.__prefetch_zkm_laws_promise) {
+    window.__prefetch_zkm_laws_promise = _xhrGet(_GH_BASE + 'laws.json', 0)
+        .then(function(text) { window.__prefetch_zkm_laws = text; return text; })
+        .catch(function(e) { console.warn('[zkm] laws.json не загрузился (загрузится лениво позже):', e.message); });
+}
+
+// Articles JSON (КоАП-штрафы + УК-розыск) — та же логика, что и laws.json выше.
+if (!window.__prefetch_zkm_articles && !window.__prefetch_zkm_articles_promise) {
+    window.__prefetch_zkm_articles_promise = _xhrGet(_GH_BASE + 'articles.json', 0)
+        .then(function(text) { window.__prefetch_zkm_articles = text; return text; })
+        .catch(function(e) { console.warn('[zkm] articles.json не загрузился (загрузится лениво позже):', e.message); });
+}
+
 _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     return 'window.__zkmComp = ' + exp.split(' as ')[0].trim() + ';';
