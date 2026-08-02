@@ -42,20 +42,24 @@ if (_cssText && !document.getElementById('zkm-style-remote')) {
     document.head.appendChild(s);
 }
 
-// Laws JSON — опционален для этого модуля, но нужен компоненту LawsHelper.
-// Не блокирует загрузку/eval основного JS: компонент сам подождёт этот промис
-// (window.__prefetch_zkm_laws_promise) в фоне, когда откроет таб «Законы».
-if (!window.__prefetch_zkm_laws && !window.__prefetch_zkm_laws_promise) {
-    window.__prefetch_zkm_laws_promise = _xhrGet(_GH_BASE + 'laws.json', 0)
-        .then(function(text) { window.__prefetch_zkm_laws = text; return text; })
-        .catch(function(e) { console.warn('[zkm] laws.json не загрузился (загрузится лениво позже):', e.message); });
-}
+// Данные законов (7 файлов: koap/uk/proc/kto/euss/euvs/zot) — опциональны
+// для этого модуля, но нужны компоненту LawsHelper. Не блокируют загрузку/eval
+// основного JS: компонент сам подождёт этот промис (window.__prefetch_zkm_lawdocs_promise)
+// в фоне, когда откроет окно. Путь другой — это отдельный репозиторий "Законы AHK",
+// специфичный для 12-го сервера (не "MVD AHK/Кастом Интерфейсы", где лежит сам zkm.js/css).
+var _GH_BASE_LAWS_12 = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/' + encodeURIComponent('Законы AHK') + '/12/';
+var _LAW_DOC_FILES = ['koap', 'uk', 'proc', 'kto', 'euss', 'euvs', 'zot'];
 
-// Articles JSON (КоАП-штрафы + УК-розыск) — та же логика, что и laws.json выше.
-if (!window.__prefetch_zkm_articles && !window.__prefetch_zkm_articles_promise) {
-    window.__prefetch_zkm_articles_promise = _xhrGet(_GH_BASE + 'articles.json', 0)
-        .then(function(text) { window.__prefetch_zkm_articles = text; return text; })
-        .catch(function(e) { console.warn('[zkm] articles.json не загрузился (загрузится лениво позже):', e.message); });
+if (!window.__prefetch_zkm_lawdocs && !window.__prefetch_zkm_lawdocs_promise) {
+    window.__prefetch_zkm_lawdocs_promise = Promise.all(_LAW_DOC_FILES.map(function(id) {
+        return _xhrGet(_GH_BASE_LAWS_12 + id + '.json', 0)
+            .catch(function(e) { console.warn('[zkm] ' + id + '.json не загрузился (загрузится лениво позже):', e.message); return null; });
+    })).then(function(results) {
+        var map = {};
+        _LAW_DOC_FILES.forEach(function(id, i) { if (results[i]) map[id] = results[i]; });
+        window.__prefetch_zkm_lawdocs = map;
+        return map;
+    });
 }
 
 _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
