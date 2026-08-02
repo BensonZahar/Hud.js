@@ -10,7 +10,6 @@ const _ALLOWED_NICKS = [
 //  "Cosmos_Dissapointed",
 	"Egor_Hlebov",
 	"Artemka_Hasanov",
-	"Lev_Bennet",
 	"Andrey_Pulya",
 //  "Maksimka_DeMontana",
 	"Kirill_Dogadin",
