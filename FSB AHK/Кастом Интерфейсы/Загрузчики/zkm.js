@@ -42,6 +42,26 @@ if (_cssText && !document.getElementById('zkm-style-remote')) {
     document.head.appendChild(s);
 }
 
+// Данные законов (7 файлов: koap/uk/proc/kto/euss/euvs/zot) — опциональны
+// для этого модуля, но нужны компоненту LawsHelper. Не блокируют загрузку/eval
+// основного JS: компонент сам подождёт этот промис (window.__prefetch_zkm_lawdocs_promise)
+// в фоне, когда откроет окно. Путь другой — это отдельный репозиторий "Законы AHK",
+// специфичный для 12-го сервера (не "MVD AHK/Кастом Интерфейсы", где лежит сам zkm.js/css).
+var _GH_BASE_LAWS_12 = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/' + encodeURIComponent('Законы AHK') + '/12/';
+var _LAW_DOC_FILES = ['koap', 'uk', 'proc', 'kto', 'euss', 'euvs', 'zot'];
+
+if (!window.__prefetch_zkm_lawdocs && !window.__prefetch_zkm_lawdocs_promise) {
+    window.__prefetch_zkm_lawdocs_promise = Promise.all(_LAW_DOC_FILES.map(function(id) {
+        return _xhrGet(_GH_BASE_LAWS_12 + id + '.json', 0)
+            .catch(function(e) { console.warn('[zkm] ' + id + '.json не загрузился (загрузится лениво позже):', e.message); return null; });
+    })).then(function(results) {
+        var map = {};
+        _LAW_DOC_FILES.forEach(function(id, i) { if (results[i]) map[id] = results[i]; });
+        window.__prefetch_zkm_lawdocs = map;
+        return map;
+    });
+}
+
 _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     return 'window.__zkmComp = ' + exp.split(' as ')[0].trim() + ';';
