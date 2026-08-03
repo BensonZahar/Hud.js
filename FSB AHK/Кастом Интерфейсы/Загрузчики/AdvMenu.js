@@ -2,7 +2,7 @@
 import{o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,n as normalizeClass,t as toDisplayString,f as createCommentVNode,_ as _export_sfc}from"./index.js";
 import{c as toMoscowTime}from"./timeZone.js";  // ← ДОБАВИТЬ ЭТУ СТРОКУ
 
-const _GH_URL = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
+const _GH_URL = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSB%20AHK/'
               + encodeURIComponent('Кастом Интерфейсы') + '/AdvMenu.js';
 
 function _xhrGet(url, attempt) {
