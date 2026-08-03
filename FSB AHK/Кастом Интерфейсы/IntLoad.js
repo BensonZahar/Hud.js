@@ -46,6 +46,7 @@
         { name: "Zkm",     files: ["zkm.js", "zkm.css"], hideHud: false, hideChat: false, type: "interface" },
         { name: "MvdMenu", files: ["MvdMenu.js"],         hideHud: false, hideChat: false, type: "interface" },
         { name: "AdvMenu", files: ["AdvMenu.js"],         hideHud: false, hideChat: false, type: "interface" },
+        { name: "Dokladi", files: ["dokladi.js", "dokladi.css"], hideHud: false, hideChat: false, type: "interface" },
         { name: "ZkmScreenNotification", files: ["ZkmScreenNotification.js", "ZkmScreenNotification.css"], type: "sideEffect" },
     ];
 
