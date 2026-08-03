@@ -2897,10 +2897,10 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_forward_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    // Используем клавиатурный путь вместо джойстика — работает без фокуса
-                    window.onScreenControlTouchStart("<Keyboard>/w");
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
                     setTimeout(() => {
-                        window.onScreenControlTouchEnd("<Keyboard>/w");
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
                     }, 500);
                     sendToTelegram(`🚶 <b>Движение вперед на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -2912,9 +2912,10 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_back_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/s");
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
                     setTimeout(() => {
-                        window.onScreenControlTouchEnd("<Keyboard>/s");
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
                     }, 500);
                     sendToTelegram(`🚶 <b>Движение назад на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -2926,9 +2927,10 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_left_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/a");
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
                     setTimeout(() => {
-                        window.onScreenControlTouchEnd("<Keyboard>/a");
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
                     }, 500);
                     sendToTelegram(`🚶 <b>Движение влево на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -2940,9 +2942,10 @@ function processUpdates(updates) {
             } else if (message.startsWith("move_right_")) {
                 const isNotif = message.endsWith('_notification');
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/d");
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
                     setTimeout(() => {
-                        window.onScreenControlTouchEnd("<Keyboard>/d");
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
                     }, 500);
                     sendToTelegram(`🚶 <b>Движение вправо на 0.5 сек для ${displayName}</b>`, false, null);
                     showMovementControlsMenu(chatId, messageId, isNotif);
@@ -4722,10 +4725,13 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             if (listitem === 0) {
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 1) {
-                // Вперед — клавиатурный путь, не требует фокуса
+                // Вперед
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/w");
-                    setTimeout(() => { window.onScreenControlTouchEnd("<Keyboard>/w"); }, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, 1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     showScreenNotification("Hassle", "Движение вперед выполнено");
                     sendToTelegram(`🚶 <b>Движение вперед для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4735,8 +4741,11 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 2) {
                 // Влево
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/a");
-                    setTimeout(() => { window.onScreenControlTouchEnd("<Keyboard>/a"); }, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", -1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     showScreenNotification("Hassle", "Движение влево выполнено");
                     sendToTelegram(`🚶 <b>Движение влево для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4746,8 +4755,11 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 3) {
                 // Вправо
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/d");
-                    setTimeout(() => { window.onScreenControlTouchEnd("<Keyboard>/d"); }, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 1, 0);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     showScreenNotification("Hassle", "Движение вправо выполнено");
                     sendToTelegram(`🚶 <b>Движение вправо для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
@@ -4757,8 +4769,11 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 4) {
                 // Назад
                 try {
-                    window.onScreenControlTouchStart("<Keyboard>/s");
-                    setTimeout(() => { window.onScreenControlTouchEnd("<Keyboard>/s"); }, 500);
+                    window.onScreenControlTouchStart("<Gamepad>/leftStick");
+                    window.onScreenControlTouchMove("<Gamepad>/leftStick", 0, -1);
+                    setTimeout(() => {
+                        window.onScreenControlTouchEnd("<Gamepad>/leftStick");
+                    }, 500);
                     showScreenNotification("Hassle", "Движение назад выполнено");
                     sendToTelegram(`🚶 <b>Движение назад для ${displayName}</b>`, false, null);
                     setTimeout(() => showHBMovementMenu(), 100);
