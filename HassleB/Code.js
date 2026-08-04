@@ -41,7 +41,8 @@ const globalState = {
     hpAlertMessageIds: [],   // { chatId, messageId }
     hpLastHitTime: null,     // Время последнего удара
     hpLastValue: null,       // Предыдущее значение HP
-    _hpSendPending: false    // Флаг ожидания callback sendMessage (защита от дублей)
+    _hpSendPending: false,   // Флаг ожидания callback sendMessage (защита от дублей)
+    welcomeShowSettings: false // Флаг показа блока настроек в приветственном сообщении
 };
 // END GLOBAL STATE MODULE //
 
@@ -430,7 +431,8 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 Object.assign(config.accountInfo.profile, data);
                 config.accountInfo.profile.loaded = true;
                 debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
-                // Уведомление НЕ отправляем здесь — только по кнопке «Инфо об аккаунте»
+                // Обновляем приветственное сообщение с полными данными профиля
+                setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
             } else {
                 debugLog('[Profile] ⚠️ Профиль не получен — данные недоступны');
             }
@@ -1445,7 +1447,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.includes('Hassle | Bot') && message.includes('Текущие настройки')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1465,33 +1467,161 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
 // ║               editMessageText, createButton              ║
 // ╚══════════════════════════════════════════════════════════╝
 // START WELCOME MESSAGE MODULE //
+
+// ── Строит блок «Инфо об аккаунте» для встраивания в welcome-сообщение ──
+function buildWelcomeAccountInfo() {
+    try {
+        const p = config.accountInfo.profile;
+        const pos = getPlayerPositionFromStore();
+        const moneyData = getPlayerMoneyFromStore();
+        const nick = config.accountInfo.nickname || 'Unknown';
+        const server = config.accountInfo.server || '?';
+        const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined)
+            ? config.accountInfo.skinId : '❓';
+        const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
+
+        // Данные уровня / часов / VIP / donate из Vuex store
+        let level = '❓', passedHours = '❓', vipLine = '', donateLine = '';
+        try {
+            const _s = window.App && window.App.$store;
+            if (_s) {
+                const lv = _s.getters['player/level'];
+                const hr = _s.getters['player/passedHours'];
+                const vp = _s.getters['player/vip'];
+                const dn = _s.getters['player/donate'];
+                if (lv !== undefined && lv !== null) level = lv;
+                if (hr !== undefined && hr !== null) passedHours = hr;
+                const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
+                if (vp && vp > 0) vipLine = `\n🎖 <b>VIP:</b> ${vipMap[vp] || 'VIP'}`;
+                if (dn !== undefined && dn !== null && dn > 0) donateLine = `\n💎 <b>Donate:</b> ${dn}`;
+            }
+        } catch (e) { debugLog('[ACINFO] store err: ' + e.message); }
+
+        const posStr = pos
+            ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${pos.interior || 0}`
+            : '❓ Позиция недоступна';
+        const cashStr = (moneyData && moneyData.money !== null) ? `₽${moneyData.money.toLocaleString()}` : '❓';
+        const bankStr = (moneyData && moneyData.bankMoney !== null) ? `₽${moneyData.bankMoney.toLocaleString()}` : '❓';
+
+        let block = `\n\n📊 <b>Инфо об аккаунте:</b>\n`;
+        block += `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n`;
+        block += `🎭 <b>Скин:</b> ${skinId}  ${factionLabel}\n`;
+        block += `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов:</b> ${passedHours}${vipLine}${donateLine}`;
+
+        if (p && p.loaded) {
+            const sub = p.subscribe ? '✅ ' + p.subscribe : '❌ Нет';
+            const phone = p.phone !== null ? String(p.phone) : '—';
+            const simB = p.simBalance !== null ? `₽${p.simBalance.toLocaleString()}` : '—';
+            const lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ` (${p.xpCurrent}/${p.xpTarget} XP)` : '';
+
+            // Нал и банк — приоритет live store
+            const _lm = (function() { try { return getPlayerMoneyFromStore(); } catch(e) { return null; } })();
+            const pCash = (_lm && _lm.money !== null) ? `₽${_lm.money.toLocaleString()}` : (p.cash !== null ? `₽${p.cash.toLocaleString()}` : '—');
+            const pBank = (_lm && _lm.bankMoney !== null) ? `₽${_lm.bankMoney.toLocaleString()}` : (p.bank !== null ? `₽${p.bank.toLocaleString()}` : '—');
+
+            block += `\n\n🏛 <b>Фракция / Звание:</b>\n`;
+            block += `├ Фракция: ${p.orgTitle || '—'}\n`;
+            block += `├ Звание: ${p.rank || '—'}${p.rankNum !== null ? ` (#${p.rankNum})` : ''}\n`;
+            block += `└ Статус: ${p.status || '—'}\n`;
+
+            block += `\n📈 <b>Прогресс:</b>\n`;
+            block += `├ Уровень: ${p.level !== null ? p.level : '—'}${lvlBar}\n`;
+            block += `├ Выносливость: ${p.stamina !== null ? p.stamina + '%' : '—'}\n`;
+            block += `└ Сила: ${p.strength !== null ? p.strength + '%' : '—'}\n`;
+
+            block += `\n💰 <b>Финансы:</b>\n`;
+            block += `├ Нал: ${pCash}\n`;
+            block += `├ Банк: ${pBank}\n`;
+            block += `├ Телефон: ${phone}\n`;
+            block += `├ Баланс SIM: ${simB}\n`;
+            block += `└ Подписка: ${sub}\n`;
+
+            block += `\n🏠 <b>Имущество:</b>  `;
+            block += `Домов: ${p.housesCount || 0}  |  `;
+            block += `Бизнесов: ${p.bizCount || 0}  |  `;
+            block += `Машин: ${p.carsCount || 0}`;
+
+            const buffsLine = (p.buffs && p.buffs.length)
+                ? p.buffs.filter(b => !b.debuff).map(b => b.text).join(', ') || '—' : '—';
+            const debuffsLine = (p.buffs && p.buffs.length)
+                ? p.buffs.filter(b => b.debuff).map(b => b.text).join(', ') || '—' : '—';
+            const jobsLine = (p.jobs && p.jobs.length)
+                ? p.jobs.map(j => `${j.title} (ур.${j.lvl})`).join(', ') : '—';
+
+            block += `\n\n⚡ <b>Баффы:</b> ${buffsLine}\n`;
+            block += `💀 <b>Дебаффы:</b> ${debuffsLine}\n`;
+            block += `💼 <b>Работы:</b> ${jobsLine}`;
+        } else {
+            block += `\n\n<i>⏳ Профиль ещё загружается...</i>`;
+        }
+
+        block += `\n\n📍 <b>Позиция:</b>\n<code>${posStr}</code>`;
+        block += `\n💵 <b>Нал:</b> ${cashStr}   🏦 <b>Банк:</b> ${bankStr}`;
+
+        const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
+            ? globalState.sessionLog.slice(-5).map(e => `<code>${e}</code>`).join('\n')
+            : '<i>Нет событий</i>';
+        block += `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
+
+        return block;
+    } catch (e) {
+        return `\n\n❌ <i>Ошибка получения инфо: ${e.message}</i>`;
+    }
+}
+
+// ── Строит полный текст приветственного сообщения ──
+function buildWelcomeText() {
+    const _ci = window.CODE_COMMIT_INFO;
+    const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : 'Version unknown';
+    const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
+
+    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+        `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
+        `Сервер: ${config.accountInfo.server || 'Не указан'}`;
+
+    // Блок инфо об аккаунте (всегда если ник известен)
+    if (config.accountInfo.nickname) {
+        text += buildWelcomeAccountInfo();
+    }
+
+    // Блок настроек (только если пользователь раскрыл)
+    if (globalState.welcomeShowSettings) {
+        text += `\n\n🔔 <b>Текущие настройки:</b>\n` +
+            `├ Уведомления PayDay: ${config.paydayNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+            `├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+            `├ Уведомления рации (все): ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+            `├ Рация — важные (строй/место/ID): ${config.radioImportantFilter ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+            `├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+            `├ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+            `└ Автоответ КАЧ/ЗП: ${config.kacAutoReply ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
+    }
+
+    return text;
+}
+
+// ── Строит inline-клавиатуру приветственного сообщения ──
+function buildWelcomeKeyboard() {
+    const settingsBtn = globalState.welcomeShowSettings
+        ? createButton('🙈 Скрыть настройки', `hide_welcome_settings_${uniqueId}`)
+        : createButton('🔔 Настройки', `show_welcome_settings_${uniqueId}`);
+
+    return {
+        inline_keyboard: [
+            [createButton('⚙️ Управление', `show_controls_${uniqueId}`)],
+            [settingsBtn, createButton('🔄 Инфо об аккаунте', `local_account_info_${uniqueId}`)]
+        ]
+    };
+}
+
 function sendWelcomeMessage() {
     if (!config.accountInfo.nickname) {
         debugLog('Ник не определен, откладываем отправку приветственного сообщения');
         return;
     }
-    // Версия из последнего коммита Code.js (устанавливается Load.js)
-    const _ci = window.CODE_COMMIT_INFO;
-    const _versionLine = _ci
-        ? `Version ${_ci.date} — ${_ci.msg}`
-        : 'Version unknown';
-    const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
-        `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
-        `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
-        `🔔 <b>Текущие настройки:</b>\n` +
-        `├ Уведомления PayDay: ${config.paydayNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `├ Уведомления рации (все): ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `├ Рация — важные (строй/место/ID): ${config.radioImportantFilter ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `├ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-        `└ Автоответ КАЧ/ЗП: ${config.kacAutoReply ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
-    const replyMarkup = {
-        inline_keyboard: [
-            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
-        ]
-    };
+
+    const message = buildWelcomeText();
+    const replyMarkup = buildWelcomeKeyboard();
+
     // Хранилище ID приветственного сообщения отдельно по каждому чату
     if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = {};
 
@@ -1512,7 +1642,7 @@ function sendWelcomeMessage() {
                 if (data && data.result) {
                     globalState.welcomeMessageIds[chatId] = data.result.message_id;
                     globalState.lastWelcomeMessageId = data.result.message_id;
-                    debugLog(`[WELCOME] Сообщение отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
+                    debugLog(`[WELCOME] Отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
                 }
             });
         }
@@ -2918,6 +3048,12 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('local_pause_toggle_', '');
             } else if (message.startsWith('local_autologin_toggle_')) {
                 callbackUniqueId = message.replace('local_autologin_toggle_', '');
+            } else if (message.startsWith('local_account_info_')) {
+                callbackUniqueId = message.replace('local_account_info_', '');
+            } else if (message.startsWith('show_welcome_settings_')) {
+                callbackUniqueId = message.replace('show_welcome_settings_', '');
+            } else if (message.startsWith('hide_welcome_settings_')) {
+                callbackUniqueId = message.replace('hide_welcome_settings_', '');
             } else if (message.startsWith('move_forward_')) {
                 callbackUniqueId = message.replace('move_forward_', '').replace('_notification', '');
             } else if (message.startsWith('move_back_')) {
@@ -3436,6 +3572,14 @@ function processUpdates(updates) {
                     sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 }
                 setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 100);
+            } else if (message.startsWith('show_welcome_settings_')) {
+                // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
+                globalState.welcomeShowSettings = true;
+                sendWelcomeMessage();
+            } else if (message.startsWith('hide_welcome_settings_')) {
+                // Кнопка "🙈 Скрыть настройки" — скрываем блок настроек в welcome-сообщении
+                globalState.welcomeShowSettings = false;
+                sendWelcomeMessage();
             } else if (message.startsWith('prison_reconnect_')) {
                 // Кнопка "Выйти с автр." — включаем автовход и делаем /rec 5
                 autoLoginConfig.enabled = true;
