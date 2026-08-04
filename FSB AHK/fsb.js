@@ -245,7 +245,10 @@ window._isMasked = false;
 window._maskOrg = null;       // Организация маскировки
 window._maskRankNum = 0;      // Номер ранга маскировки
 window._maskRankName = null;  // Название ранга маскировки
-window._mvdRealRank = null;   // Реальное звание до маскировки
+window._mvdRealRank = null;      // Реальное звание до маскировки
+window._mvdRealCallsign = null;  // Реальный позывной/ник до маскировки
+window._mvdRealFirstName = null; // Реальное имя до маскировки
+window._mvdRealLastName = null;  // Реальная фамилия до маскировки
 // 3. Функция получения скина
 function getSkinIdFromStore() {
     try {
@@ -1278,7 +1281,6 @@ if (typeof message === 'string' && args && args.length > 0) {
                 window._maskRankNum = parseInt(_maskInfoMatch[2]);
                 const _rankMap = {1:'Рядовой',2:'Сержант',3:'Старшина',4:'Прапорщик',5:'Лейтенант',6:'Капитан',7:'Майор',8:'Подполковник'};
                 window._maskRankName = _rankMap[window._maskRankNum] || ('Ранг ' + window._maskRankNum);
-                if (!window._mvdRealRank && window._mvdRank) window._mvdRealRank = window._mvdRank;
                 console.log('[MASK] 🎭 Организация: ' + window._maskOrg + ' | Ранг: ' + window._maskRankName);
             }
             console.log('[MASK] 🎭 Маскировка надета — AHK работает с любой формой');
@@ -1286,16 +1288,31 @@ if (typeof message === 'string' && args && args.length > 0) {
                 ? window._maskOrg + ' — ' + window._maskRankName
                 : 'Маскировка активна — AHK с любой формой';
             snAdd('[1, "Вы сменили маскировку", "' + _maskNotifText + '", "62CC60", 4000]');
-            // Перепроверяем реальное звание (первый раз)
-            if (typeof window._mvdLoadPlayerProfile === 'function' && !window._mvdRealRank) {
+            // Сохраняем реальные данные (ник, звание) ДО перезагрузки профиля
+            if (!window._mvdRealRank     && window._mvdRank)      window._mvdRealRank      = window._mvdRank;
+            if (!window._mvdRealCallsign && window._mvdCallsign)   window._mvdRealCallsign  = window._mvdCallsign;
+            if (!window._mvdRealFirstName&& window._mvdFirstName)  window._mvdRealFirstName = window._mvdFirstName;
+            if (!window._mvdRealLastName && window._mvdLastName)   window._mvdRealLastName  = window._mvdLastName;
+            // Перезагружаем профиль — после надевания маски игра показывает
+            // данные маскировочного персонажа (ник и звание меняются).
+            // Сбрасываем кэш, чтобы loadPlayerProfile пошёл читать заново.
+            if (typeof window._mvdLoadPlayerProfile === 'function') {
+                window._mvdFirstName = null;
+                window._mvdLastName  = null;
+                window._mvdRank      = null;
+                window._mvdCallsign  = null;
                 window._mvdLoadPlayerProfile(function() {
-                    window._mvdRealRank = window._mvdRank;
+                    console.log('[MASK] 🔄 Профиль маски загружен: '
+                        + window._mvdRank + ' ' + window._mvdFirstName + ' ' + window._mvdLastName);
                 });
             }
         } else if (_maskColor === 'BBB7F5' && message.includes('Вы сняли маскировку')) {
             window._isMasked = false;
-            // Восстанавливаем реальное звание
-            if (window._mvdRealRank) { window._mvdRank = window._mvdRealRank; window._mvdRealRank = null; }
+            // Восстанавливаем реальные данные (звание + ник + позывной)
+            if (window._mvdRealRank)      { window._mvdRank      = window._mvdRealRank;      window._mvdRealRank      = null; }
+            if (window._mvdRealCallsign)  { window._mvdCallsign  = window._mvdRealCallsign;  window._mvdRealCallsign  = null; }
+            if (window._mvdRealFirstName) { window._mvdFirstName = window._mvdRealFirstName; window._mvdRealFirstName = null; }
+            if (window._mvdRealLastName)  { window._mvdLastName  = window._mvdRealLastName;  window._mvdRealLastName  = null; }
             window._maskOrg = null;
             window._maskRankNum = 0;
             window._maskRankName = null;
@@ -2028,9 +2045,9 @@ const executePovsednevAction = (action, targetId) => {
 				setTimeout(() => runPostActionTimer('greeting'), 1300);
 			}
 		} else {
-			// ФСБ приветствие (оригинальное)
+			// ФСБ приветствие (оригинальное) — используем реальный ник, не маскировочный
 			const _rank = window._mvdRealRank || window._mvdRank || '';
-			const _callsign = CALLSIGN || window._mvdCallsign || '';
+			const _callsign = CALLSIGN || window._mvdRealCallsign || window._mvdCallsign || '';
 			sendMessagesWithDelay([
 				"Здравия желаю.",
 				`${_rank} ФСБ, мой позывной ${_callsign}`,
