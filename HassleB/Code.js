@@ -4165,9 +4165,24 @@ function initializeChatMonitor() {
             debugLog('Обнаружено потеря соединения!');
             sendToTelegram(`❌ Потеряно соединение с сервером (${displayName})`, false, null);
         }
-        if (msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")) {
-            debugLog('Обнаружено предупреждение о неактивности!');
-            sendToTelegram(`⚠️ Вы были неактивны долгое время. Отыгранное время для PayDay обнулено (${displayName})`, false, null);
+        // Проверка неактивности — цвет F68C00 (оранжевый системный) + текст
+        if (
+            normalizedMsgColor === '0xF68C00' &&
+            msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")
+        ) {
+            debugLog('Обнаружено предупреждение о неактивности (цвет F68C00 подтверждён)!');
+            const replyMarkup = getNotificationReplyMarkup();
+            sendToTelegram(
+                `🔴 <b>НЕАКТИВНОСТЬ ОБНАРУЖЕНА! (${displayName})</b>
+` +
+                `⚠️ Вы были неактивны долгое время.
+` +
+                `💔 Отыгранное время для получения следующего PayDay было <b>обнулено</b>.
+` +
+                `⏰ Время: ${new Date().toLocaleTimeString('ru-RU')}`,
+                false, replyMarkup
+            );
+            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
         }
     };
     debugLog('Мониторинг успешно активирован');
