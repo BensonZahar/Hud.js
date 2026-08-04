@@ -430,7 +430,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 Object.assign(config.accountInfo.profile, data);
                 config.accountInfo.profile.loaded = true;
                 debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
-                _sendProfileNotification(data);
+                // Уведомление НЕ отправляем здесь — только по кнопке «Инфо об аккаунте»
             } else {
                 debugLog('[Profile] ⚠️ Профиль не получен — данные недоступны');
             }
@@ -481,8 +481,14 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
     function _sendProfileNotification(p) {
         try {
             var sub = p.subscribe ? '✅ ' + p.subscribe : '❌ Нет';
-            var cash = p.cash    !== null ? p.cash.toLocaleString('ru-RU')    + ' руб' : '—';
-            var bank = p.bank    !== null ? p.bank.toLocaleString('ru-RU')    + ' руб' : '—';
+            // Нал и банк берём из Vuex store — там актуальные значения
+            var _liveMoneyData = (function() { try { return getPlayerMoneyFromStore(); } catch(e) { return null; } })();
+            var cash = (_liveMoneyData && _liveMoneyData.money !== null)
+                ? _liveMoneyData.money.toLocaleString('ru-RU') + ' руб'
+                : (p.cash !== null ? p.cash.toLocaleString('ru-RU') + ' руб' : '—');
+            var bank = (_liveMoneyData && _liveMoneyData.bankMoney !== null)
+                ? _liveMoneyData.bankMoney.toLocaleString('ru-RU') + ' руб'
+                : (p.bank !== null ? p.bank.toLocaleString('ru-RU') + ' руб' : '—');
             var simB = p.simBalance !== null ? p.simBalance.toLocaleString('ru-RU') + ' руб' : '—';
             var phone = p.phone  !== null ? String(p.phone) : '—';
             var lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ' (' + p.xpCurrent + '/' + p.xpTarget + ' XP)' : '';
@@ -531,6 +537,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
     // window.App готов раньше, чем сервер назначает скин.
     // Загружаем профиль только после того как подтверждён фракционный скин.
     window._hassleLoadPlayerProfile = loadPlayerProfile;
+    window._hassleProfileNotification = _sendProfileNotification;  // экспорт для кнопки «Инфо об аккаунте»
     debugLog('[Profile] Модуль готов. Загрузка произойдёт при определении фракционного скина.');
 })();
 // END PLAYER PROFILE LOADER MODULE //
@@ -3448,6 +3455,17 @@ function processUpdates(updates) {
                 }, 500);
             } else if (message.startsWith('local_account_info_')) {
                 // Кнопка "Инфо. об аккаунте поз/деньги"
+
+                // Сначала отправляем карточку профиля (если загружена)
+                try {
+                    const _profile = config.accountInfo.profile;
+                    if (_profile && _profile.loaded && typeof window._hassleProfileNotification === 'function') {
+                        window._hassleProfileNotification(_profile);
+                    }
+                } catch (_pe) {
+                    debugLog('[ACINFO] Ошибка отправки профиля: ' + _pe.message);
+                }
+
                 try {
                     const pos = getPlayerPositionFromStore();
                     const moneyData = getPlayerMoneyFromStore();
