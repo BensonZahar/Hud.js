@@ -228,6 +228,12 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                   ],64))
                 : createCommentVNode("",true),
 
+            // ══════════════════════════════════════════════════════════════════
+            // ЭКРАН: greeting-choice — Выбор типа приветствия при маскировке
+            // ══════════════════════════════════════════════════════════════════
+            $data.screen==="greeting-choice"
+                ? (openBlock(),createElementBlock(Fragment,{key:"greeting-choice"},[                    createBaseVNode("div",{class:"mvdmenu__list"},[                        (openBlock(true),createElementBlock(Fragment,null,                            renderList($options.greetingChoiceItems,(item,i)=>(                                openBlock(),createElementBlock("div",{                                    key:item.id,                                    class:normalizeClass(["mvdmenu__item",{                                        "mvdmenu__item_selected":$data.selectedIndex===i,                                    }]),                                    onClick:$event=>{$data.selectedIndex=i;$options.selectGreetingChoice(item);}                                },[                                    createBaseVNode("div",{class:"mvdmenu__item-num"},                                        toDisplayString(String(i+1).padStart(2,"0")),1),                                    createBaseVNode("div",{class:"mvdmenu__item-label"},                                        toDisplayString(item.label),1)                                ],10,["onClick"])                            ))                        ,128))                    ])                  ],64))                : createCommentVNode("",true),
+
             // ── Footer: Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
             createBaseVNode("div",{class:"mvdmenu__footer"},[
                 (openBlock(),createBlock(_component_ControlsContaineredButton,{
@@ -292,10 +298,11 @@ const _sfc_main={
     },
     computed:{
         headerSubtitle(){
-            if(this.screen==="main")            return "";
-            if(this.screen==="povsednev")       return "ПОВСЕДНЕВНАЯ";
-            if(this.screen==="partner")         return "НАПАРНИК";
-            if(this.screen==="id-input")        return this.idInputContext==="tracking"?"ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?"НАПАРНИК":"ВВОД ID";
+            if(this.screen==="main")             return "";
+            if(this.screen==="povsednev")        return "ПОВСЕДНЕВНАЯ";
+            if(this.screen==="partner")          return "НАПАРНИК";
+            if(this.screen==="greeting-choice") return "ВЫБОР ПРИВЕТСТВИЯ";
+            if(this.screen==="id-input")         return this.idInputContext==="tracking"?"ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?"НАПАРНИК":"ВВОД ID";
             return "";
         },
         mainMenuItems(){
@@ -339,6 +346,19 @@ const _sfc_main={
             if(!q)return this.visibleOptions;
             return this.visibleOptions.filter(o=>o.label.toLowerCase().includes(q)||o.action.toLowerCase().includes(q));
         },
+        // ── Список пунктов выбора приветствия при маскировке ──
+        greetingChoiceItems(){
+            const items=[
+                {id:"fsb", label:"ФСБ — " + (window._mvdRealRank || window._mvdRank || "Сотрудник ФСБ")}
+            ];
+            if(window._maskOrg){
+                const lbl = window._maskRankName
+                    ? window._maskOrg + " — " + window._maskRankName
+                    : window._maskOrg;
+                items.push({id:"mask_org", label:lbl});
+            }
+            return items;
+        },
         // ── Список пунктов меню напарника (через computed — как mainMenuItems) ──
         partnerMenuItems(){
             return [
@@ -360,18 +380,21 @@ const _sfc_main={
         },
         // ── Текущий список пунктов для клавиатурной навигации (зависит от экрана) ──
         currentListItems(){
-            if(this.screen==="main")      return this.mainMenuItems;
-            if(this.screen==="povsednev") return this.filteredOptions;
-            if(this.screen==="partner")   return this.partnerMenuItems;
+            if(this.screen==="main")             return this.mainMenuItems;
+            if(this.screen==="povsednev")        return this.filteredOptions;
+            if(this.screen==="partner")          return this.partnerMenuItems;
+            if(this.screen==="greeting-choice")  return this.greetingChoiceItems;
             return [];
         },
         // ── Футер (Enter/ESC), как в нижней панели Window.js ──────────────────
         footerConfirmText(){
-            return this.screen==="id-input" ? "Подтвердить" : "Выбрать";
+            if(this.screen==="id-input") return "Подтвердить";
+            return "Выбрать";
         },
         footerBackText(){
-            if(this.screen==="main")     return "Закрыть";
-            if(this.screen==="id-input") return "Отмена";
+            if(this.screen==="main")             return "Закрыть";
+            if(this.screen==="id-input")         return "Отмена";
+            if(this.screen==="greeting-choice")  return "Назад";
             return "Назад";
         },
         footerConfirmDisabled(){
@@ -421,6 +444,7 @@ const _sfc_main={
             if(this.screen==="main") this.selectMain(item);
             else if(this.screen==="povsednev") this.selectOption(item);
             else if(this.screen==="partner" && typeof this[item.onClick]==="function") this[item.onClick]();
+            else if(this.screen==="greeting-choice") this.selectGreetingChoice(item);
         },
         // ── Кнопка футера Enter: ведёт на confirmIdInput на экране ввода ID,
         // на остальных экранах — на confirmSelected ──────────────────────────
@@ -440,6 +464,8 @@ const _sfc_main={
                 this.search="";
             } else if(this.screen==="partner"){
                 this.screen="main";
+            } else if(this.screen==="greeting-choice"){
+                this.screen="povsednev";
             } else if(this.screen==="main"){
                 this.close();
             }
@@ -553,6 +579,13 @@ const _sfc_main={
         // ── Повседневная — выбор действия ────────────────────────────────────
         selectOption(opt){
             const id=this.targetId;
+            // Если маскировка активна и выбрано приветствие → экран выбора типа
+            if(opt.action==="greeting" && window._isMasked && window._maskOrg){
+                this._pendingOpt=opt;
+                this.screen="greeting-choice";
+                this.selectedIndex=0;
+                return;
+            }
             if(opt.special==="fine"){
                 this.close();
                 setTimeout(()=>{
@@ -650,6 +683,18 @@ const _sfc_main={
         },
         onIdInputKeydown(e){
             if(e.key==="Escape") this.cancelIdInput();
+        },
+        // ── Выбор типа приветствия при маскировке ──────────────────────────────
+        selectGreetingChoice(item){
+            const opt=this._pendingOpt;
+            const id=this.targetId;
+            this.close();
+            setTimeout(()=>{
+                // Устанавливаем тип приветствия перед вызовом
+                window._mvdGreetingType = (item.id==='mask_org') ? 'mask' : 'fsb';
+                if(typeof window._mvdExecuteAction==="function")
+                    window._mvdExecuteAction('greeting', id);
+            },80);
         },
         close(){
             window.closeInterface("MvdMenu");
