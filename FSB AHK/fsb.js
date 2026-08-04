@@ -2003,12 +2003,30 @@ const executePovsednevAction = (action, targetId) => {
 			const _mOrg = window._maskOrg || '';
 			const _mFirst = window._mvdFirstName || '';
 			const _mLast = window._mvdLastName || '';
-			sendMessagesWithDelay([
-				`Здравия желаю, Вас беспокоит ${_mRank} ${_mOrg} - ${_mFirst} ${_mLast}.`,
-				`/doc ${targetId}`
-			], [0, 1000]);
-			setTimeout(() => showDocCheckPrompt(targetId), 1300);
-			setTimeout(() => runPostActionTimer('greeting'), 1300);
+			const _callsign = CALLSIGN || window._mvdCallsign || '';
+
+			// Определяем тип маскировки по названию организации
+			const _isSobrMask = _mOrg.toLowerCase().includes('собр');
+
+			if (_isSobrMask) {
+				// ── СОБР-приветствие (как skinId 15340 в mvdF.js) ──
+				sendMessagesWithDelay([
+					`Работает сотрудник СОБР | Мой позывной ${_callsign}`,
+					"Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
+					"Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
+					"Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
+				], [0, 500, 500, 500]);
+				setTimeout(() => showDocCheckPrompt(targetId), 1800);
+				setTimeout(() => runPostActionTimer('greeting'), 1800);
+			} else {
+				// ── Стандартное МВД-приветствие (ГИБДД / ГУВД / другие) ──
+				sendMessagesWithDelay([
+					`Здравия желаю, Вас беспокоит ${_mRank} ${_mOrg} - ${_mFirst} ${_mLast}.`,
+					`/doc ${targetId}`
+				], [0, 1000]);
+				setTimeout(() => showDocCheckPrompt(targetId), 1300);
+				setTimeout(() => runPostActionTimer('greeting'), 1300);
+			}
 		} else {
 			// ФСБ приветствие (оригинальное)
 			const _rank = window._mvdRealRank || window._mvdRank || '';
