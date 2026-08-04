@@ -1447,7 +1447,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1468,17 +1468,28 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
 // ╚══════════════════════════════════════════════════════════╝
 // START WELCOME MESSAGE MODULE //
 
-// ── Строит блок «Инфо об аккаунте» для встраивания в welcome-сообщение ──
+// ── Строит блок «Информация об аккаунте» для встраивания в welcome-сообщение ──
+// Показывает полный блок только когда фракция определена и профиль загружен.
+// До этого момента выводит единственную строку «Информация об аккаунте ещё не загружена».
 function buildWelcomeAccountInfo() {
     try {
         const p = config.accountInfo.profile;
+
+        // Если фракция ещё не определена или профиль не загружен — не показываем частичные данные
+        if (!config.currentFaction || !p || !p.loaded) {
+            const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
+                ? globalState.sessionLog.slice(-5).map(e => `<code>${e}</code>`).join('\n')
+                : '<i>Нет событий</i>';
+            return `\n\n📊 <i>Информация об аккаунте ещё не загружена</i>` +
+                   `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
+        }
+
         const pos = getPlayerPositionFromStore();
-        const moneyData = getPlayerMoneyFromStore();
         const nick = config.accountInfo.nickname || 'Unknown';
         const server = config.accountInfo.server || '?';
         const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined)
             ? config.accountInfo.skinId : '❓';
-        const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
+        const factionLabel = `[${config.currentFaction}]`;
 
         // Данные уровня / часов / VIP / donate из Vuex store
         let level = '❓', passedHours = '❓', vipLine = '', donateLine = '';
@@ -1500,63 +1511,57 @@ function buildWelcomeAccountInfo() {
         const posStr = pos
             ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${pos.interior || 0}`
             : '❓ Позиция недоступна';
-        const cashStr = (moneyData && moneyData.money !== null) ? `₽${moneyData.money.toLocaleString()}` : '❓';
-        const bankStr = (moneyData && moneyData.bankMoney !== null) ? `₽${moneyData.bankMoney.toLocaleString()}` : '❓';
 
-        let block = `\n\n📊 <b>Инфо об аккаунте:</b>\n`;
+        // Нал и банк — приоритет live store
+        const _lm = (function() { try { return getPlayerMoneyFromStore(); } catch(e) { return null; } })();
+        const pCash = (_lm && _lm.money !== null) ? `₽${_lm.money.toLocaleString()}` : (p.cash !== null ? `₽${p.cash.toLocaleString()}` : '—');
+        const pBank = (_lm && _lm.bankMoney !== null) ? `₽${_lm.bankMoney.toLocaleString()}` : (p.bank !== null ? `₽${p.bank.toLocaleString()}` : '—');
+
+        const sub = p.subscribe ? '✅ ' + p.subscribe : '❌ Нет';
+        const phone = p.phone !== null ? String(p.phone) : '—';
+        const simB = p.simBalance !== null ? `₽${p.simBalance.toLocaleString()}` : '—';
+        const lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ` (${p.xpCurrent}/${p.xpTarget} XP)` : '';
+
+        let block = `\n\n📊 <b>Информация об аккаунте:</b>\n`;
         block += `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n`;
-        block += `🎭 <b>Скин:</b> ${skinId}  ${factionLabel}\n`;
-        block += `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов:</b> ${passedHours}${vipLine}${donateLine}`;
+        block += `🎭 <b>Скин:</b> ${skinId}  ${factionLabel}${vipLine}${donateLine}\n`;
+        block += `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов:</b> ${passedHours}`;
 
-        if (p && p.loaded) {
-            const sub = p.subscribe ? '✅ ' + p.subscribe : '❌ Нет';
-            const phone = p.phone !== null ? String(p.phone) : '—';
-            const simB = p.simBalance !== null ? `₽${p.simBalance.toLocaleString()}` : '—';
-            const lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ` (${p.xpCurrent}/${p.xpTarget} XP)` : '';
+        block += `\n\n🏛 <b>Фракция / Звание:</b>\n`;
+        block += `├ Фракция: ${p.orgTitle || '—'}\n`;
+        block += `├ Звание: ${p.rank || '—'}${p.rankNum !== null ? ` (#${p.rankNum})` : ''}\n`;
+        block += `└ Статус: ${p.status || '—'}\n`;
 
-            // Нал и банк — приоритет live store
-            const _lm = (function() { try { return getPlayerMoneyFromStore(); } catch(e) { return null; } })();
-            const pCash = (_lm && _lm.money !== null) ? `₽${_lm.money.toLocaleString()}` : (p.cash !== null ? `₽${p.cash.toLocaleString()}` : '—');
-            const pBank = (_lm && _lm.bankMoney !== null) ? `₽${_lm.bankMoney.toLocaleString()}` : (p.bank !== null ? `₽${p.bank.toLocaleString()}` : '—');
+        block += `\n📈 <b>Прогресс:</b>\n`;
+        block += `├ Уровень: ${p.level !== null ? p.level : '—'}${lvlBar}\n`;
+        block += `├ Выносливость: ${p.stamina !== null ? p.stamina + '%' : '—'}\n`;
+        block += `└ Сила: ${p.strength !== null ? p.strength + '%' : '—'}\n`;
 
-            block += `\n\n🏛 <b>Фракция / Звание:</b>\n`;
-            block += `├ Фракция: ${p.orgTitle || '—'}\n`;
-            block += `├ Звание: ${p.rank || '—'}${p.rankNum !== null ? ` (#${p.rankNum})` : ''}\n`;
-            block += `└ Статус: ${p.status || '—'}\n`;
+        block += `\n💰 <b>Финансы:</b>\n`;
+        block += `├ Нал: ${pCash}\n`;
+        block += `├ Банк: ${pBank}\n`;
+        block += `├ Телефон: ${phone}\n`;
+        block += `├ Баланс SIM: ${simB}\n`;
+        block += `└ Подписка: ${sub}\n`;
 
-            block += `\n📈 <b>Прогресс:</b>\n`;
-            block += `├ Уровень: ${p.level !== null ? p.level : '—'}${lvlBar}\n`;
-            block += `├ Выносливость: ${p.stamina !== null ? p.stamina + '%' : '—'}\n`;
-            block += `└ Сила: ${p.strength !== null ? p.strength + '%' : '—'}\n`;
+        block += `\n🏠 <b>Имущество:</b>  `;
+        block += `Домов: ${p.housesCount || 0}  |  `;
+        block += `Бизнесов: ${p.bizCount || 0}  |  `;
+        block += `Машин: ${p.carsCount || 0}`;
 
-            block += `\n💰 <b>Финансы:</b>\n`;
-            block += `├ Нал: ${pCash}\n`;
-            block += `├ Банк: ${pBank}\n`;
-            block += `├ Телефон: ${phone}\n`;
-            block += `├ Баланс SIM: ${simB}\n`;
-            block += `└ Подписка: ${sub}\n`;
+        const buffsLine = (p.buffs && p.buffs.length)
+            ? p.buffs.filter(b => !b.debuff).map(b => b.text).join(', ') || '—' : '—';
+        const debuffsLine = (p.buffs && p.buffs.length)
+            ? p.buffs.filter(b => b.debuff).map(b => b.text).join(', ') || '—' : '—';
+        const jobsLine = (p.jobs && p.jobs.length)
+            ? p.jobs.map(j => `${j.title} (ур.${j.lvl})`).join(', ') : '—';
 
-            block += `\n🏠 <b>Имущество:</b>  `;
-            block += `Домов: ${p.housesCount || 0}  |  `;
-            block += `Бизнесов: ${p.bizCount || 0}  |  `;
-            block += `Машин: ${p.carsCount || 0}`;
-
-            const buffsLine = (p.buffs && p.buffs.length)
-                ? p.buffs.filter(b => !b.debuff).map(b => b.text).join(', ') || '—' : '—';
-            const debuffsLine = (p.buffs && p.buffs.length)
-                ? p.buffs.filter(b => b.debuff).map(b => b.text).join(', ') || '—' : '—';
-            const jobsLine = (p.jobs && p.jobs.length)
-                ? p.jobs.map(j => `${j.title} (ур.${j.lvl})`).join(', ') : '—';
-
-            block += `\n\n⚡ <b>Баффы:</b> ${buffsLine}\n`;
-            block += `💀 <b>Дебаффы:</b> ${debuffsLine}\n`;
-            block += `💼 <b>Работы:</b> ${jobsLine}`;
-        } else {
-            block += `\n\n<i>⏳ Профиль ещё загружается...</i>`;
-        }
+        block += `\n\n⚡ <b>Баффы:</b> ${buffsLine}\n`;
+        block += `💀 <b>Дебаффы:</b> ${debuffsLine}\n`;
+        block += `💼 <b>Работы:</b> ${jobsLine}`;
 
         block += `\n\n📍 <b>Позиция:</b>\n<code>${posStr}</code>`;
-        block += `\n💵 <b>Нал:</b> ${cashStr}   🏦 <b>Банк:</b> ${bankStr}`;
+        block += `\n💵 <b>Нал:</b> ${pCash}   🏦 <b>Банк:</b> ${pBank}`;
 
         const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
             ? globalState.sessionLog.slice(-5).map(e => `<code>${e}</code>`).join('\n')
@@ -1575,7 +1580,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : 'Version unknown';
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot3</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -1608,7 +1613,7 @@ function buildWelcomeKeyboard() {
     return {
         inline_keyboard: [
             [createButton('⚙️ Управление', `show_controls_${uniqueId}`)],
-            [settingsBtn, createButton('🔄 Инфо об аккаунте', `local_account_info_${uniqueId}`)]
+            [settingsBtn]
         ]
     };
 }
