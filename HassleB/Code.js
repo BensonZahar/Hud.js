@@ -526,9 +526,41 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
         }
     }
 
-    // ── Экспорт для вызова из trackNicknameAndServer ──
+    // ── Экспорт глобально ──
     window._hassleLoadPlayerProfile = loadPlayerProfile;
-    debugLog('[Profile] Модуль загрузки профиля готов. Команда обновления: window._hassleLoadPlayerProfile()');
+
+    // ── waitForApp: ждём window.App + window.interface, потом фоновая загрузка ──
+    // Точно так же как в mvdF: не привязываемся к детекту ника,
+    // запускаем как только движок готов принять openInterface('MainMenu').
+    function _waitForApp(cb, attempts) {
+        attempts = attempts || 0;
+        if (window.App && typeof window.interface === 'function') {
+            cb();
+        } else if (attempts < 150) {
+            setTimeout(function() { _waitForApp(cb, attempts + 1); }, 200);
+        } else {
+            debugLog('[Profile] ⚠️ waitForApp: App так и не появился за 30 сек');
+        }
+    }
+
+    _waitForApp(function() {
+        debugLog('[Profile] ✅ App готов. Запускаем фоновую предзагрузку профиля (1.5 сек)...');
+        setTimeout(function() {
+            // Не загружаем повторно если уже есть данные
+            if (config.accountInfo.profile && config.accountInfo.profile.loaded) {
+                debugLog('[Profile] Данные уже загружены, пропускаем предзагрузку');
+                return;
+            }
+            debugLog('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+            loadPlayerProfile(function(data) {
+                if (data && data.rank) {
+                    debugLog('[Profile] ✅ Предзагрузка готова: ' + data.rank + ' / ' + data.orgTitle);
+                } else {
+                    debugLog('[Profile] ⚠️ Предзагрузка: данные не получены');
+                }
+            });
+        }, 1500);
+    });
 })();
 // END PLAYER PROFILE LOADER MODULE //
 
@@ -1276,12 +1308,6 @@ function trackNicknameAndServer() {
             sendWelcomeMessage();
             registerUser();
             addSessionLog(`🔐 Вход: ${nicknameStr} [S${serverStr}]`);
-            // Загрузка полного профиля через MainMenu (звание, деньги, уровень и т.д.)
-            setTimeout(function() {
-                if (typeof window._hassleLoadPlayerProfile === 'function') {
-                    window._hassleLoadPlayerProfile(null);
-                }
-            }, 2500);
             // Запуск отслеживания скина с задержкой 5с
             setTimeout(() => {
                 const initialSkin = getSkinIdFromStore();
@@ -1463,7 +1489,7 @@ function sendWelcomeMessage() {
         ? `Version ${_ci.date} — ${_ci.msg}`
         : 'Version unknown';
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+    const message = `🟢 <b>Hassle | Bot1</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
