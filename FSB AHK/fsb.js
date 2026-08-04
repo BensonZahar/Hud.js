@@ -242,6 +242,10 @@ let skinId = null;
 // Флаг маскировки: true — игрок в маскировке, AHK работает с любой формой
 // false — AHK работает только в ФСБ форме (skinId из mvdSkins)
 window._isMasked = false;
+window._maskOrg = null;       // Организация маскировки
+window._maskRankNum = 0;      // Номер ранга маскировки
+window._maskRankName = null;  // Название ранга маскировки
+window._mvdRealRank = null;   // Реальное звание до маскировки
 // 3. Функция получения скина
 function getSkinIdFromStore() {
     try {
@@ -1266,10 +1270,35 @@ if (typeof message === 'string' && args && args.length > 0) {
         const _maskColor = normalizeColor(args[0]).replace('0x', '').toUpperCase();
         if (_maskColor === '62CC60' && message.includes('Вы замаскировались')) {
             window._isMasked = true;
+            // Парсим организацию и ранг из сообщения сервера
+            // Формат: Вы замаскировались под фракцию "Мин. внутренних дел" (6 ранг)
+            const _maskInfoMatch = message.match(/замаскировались под фракцию\s+["\u00ab"\u201c]([^"\u00bb"\u201d]+)["\u00bb"\u201d]\s*\((\d+)\s*ранг\)/);
+            if (_maskInfoMatch) {
+                window._maskOrg = _maskInfoMatch[1].trim();
+                window._maskRankNum = parseInt(_maskInfoMatch[2]);
+                const _rankMap = {1:'Рядовой',2:'Сержант',3:'Старшина',4:'Прапорщик',5:'Лейтенант',6:'Капитан',7:'Майор',8:'Подполковник'};
+                window._maskRankName = _rankMap[window._maskRankNum] || ('Ранг ' + window._maskRankNum);
+                if (!window._mvdRealRank && window._mvdRank) window._mvdRealRank = window._mvdRank;
+                console.log('[MASK] 🎭 Организация: ' + window._maskOrg + ' | Ранг: ' + window._maskRankName);
+            }
             console.log('[MASK] 🎭 Маскировка надета — AHK работает с любой формой');
-            snAdd('[1, "AHK Маскировка", "Маскировка активна — AHK с любой формой", "62CC60", 3000]');
+            const _maskNotifText = (window._maskOrg && window._maskRankName)
+                ? window._maskOrg + ' — ' + window._maskRankName
+                : 'Маскировка активна — AHK с любой формой';
+            snAdd('[1, "Вы сменили маскировку", "' + _maskNotifText + '", "62CC60", 4000]');
+            // Перепроверяем реальное звание (первый раз)
+            if (typeof window._mvdLoadPlayerProfile === 'function' && !window._mvdRealRank) {
+                window._mvdLoadPlayerProfile(function() {
+                    window._mvdRealRank = window._mvdRank;
+                });
+            }
         } else if (_maskColor === 'BBB7F5' && message.includes('Вы сняли маскировку')) {
             window._isMasked = false;
+            // Восстанавливаем реальное звание
+            if (window._mvdRealRank) { window._mvdRank = window._mvdRealRank; window._mvdRealRank = null; }
+            window._maskOrg = null;
+            window._maskRankNum = 0;
+            window._maskRankName = null;
             console.log('[MASK] 🔓 Маскировка снята — AHK только для ФСБ формы');
             snAdd('[1, "AHK Маскировка", "Маскировка снята — только ФСБ форма", "BBB7F5", 3000]');
         }
@@ -1963,19 +1992,38 @@ window.addEventListener('keydown', function(e) {
 const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
     switch (action) {
-	case "greeting":
-		const _rank = window._mvdRank || '';
-		const _callsign = CALLSIGN || window._mvdCallsign || '';
+	case "greeting": {
+		// Определяем тип приветствия: 'mask' = от имени маскировки, иначе ФСБ
+		const _greetingType = window._mvdGreetingType || 'fsb';
+		window._mvdGreetingType = null; // Сбрасываем флаг после использования
 
-		sendMessagesWithDelay([
-			"Здравия желаю.",
-			`${_rank} ФСБ, мой позывной ${_callsign}`,
-			"В каком кармане находятся ваши документы? Отвечайте.",
-			`/doc ${targetId}`
-		], [0, 500, 500, 1000]);
-		setTimeout(() => showDocCheckPrompt(targetId), 2000);
-		setTimeout(() => runPostActionTimer('greeting'), 2000);
+		if (_greetingType === 'mask' && window._isMasked && window._maskOrg) {
+			// Приветствие от имени организации маскировки (МВД-стиль из mvdF.js)
+			const _mRank = window._maskRankName || '';
+			const _mOrg = window._maskOrg || '';
+			const _mFirst = window._mvdFirstName || '';
+			const _mLast = window._mvdLastName || '';
+			sendMessagesWithDelay([
+				`Здравия желаю, Вас беспокоит ${_mRank} ${_mOrg} - ${_mFirst} ${_mLast}.`,
+				`/doc ${targetId}`
+			], [0, 1000]);
+			setTimeout(() => showDocCheckPrompt(targetId), 1300);
+			setTimeout(() => runPostActionTimer('greeting'), 1300);
+		} else {
+			// ФСБ приветствие (оригинальное)
+			const _rank = window._mvdRealRank || window._mvdRank || '';
+			const _callsign = CALLSIGN || window._mvdCallsign || '';
+			sendMessagesWithDelay([
+				"Здравия желаю.",
+				`${_rank} ФСБ, мой позывной ${_callsign}`,
+				"В каком кармане находятся ваши документы? Отвечайте.",
+				`/doc ${targetId}`
+			], [0, 500, 500, 1000]);
+			setTimeout(() => showDocCheckPrompt(targetId), 2000);
+			setTimeout(() => runPostActionTimer('greeting'), 2000);
+		}
 		break;
+	}
       
      case "checkDocuments":
          // ── Получаем свой ID (список игроков, с фолбэком на HUD) ──
