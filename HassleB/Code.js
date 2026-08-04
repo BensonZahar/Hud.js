@@ -526,41 +526,12 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
         }
     }
 
-    // ── Экспорт глобально ──
+    // ── Экспорт глобально — запуск через updateFaction() ──
+    // Не используем waitForApp: на мобильном клиенте (Hassle mobile)
+    // window.App готов раньше, чем сервер назначает скин.
+    // Загружаем профиль только после того как подтверждён фракционный скин.
     window._hassleLoadPlayerProfile = loadPlayerProfile;
-
-    // ── waitForApp: ждём window.App + window.interface, потом фоновая загрузка ──
-    // Точно так же как в mvdF: не привязываемся к детекту ника,
-    // запускаем как только движок готов принять openInterface('MainMenu').
-    function _waitForApp(cb, attempts) {
-        attempts = attempts || 0;
-        if (window.App && typeof window.interface === 'function') {
-            cb();
-        } else if (attempts < 150) {
-            setTimeout(function() { _waitForApp(cb, attempts + 1); }, 200);
-        } else {
-            debugLog('[Profile] ⚠️ waitForApp: App так и не появился за 30 сек');
-        }
-    }
-
-    _waitForApp(function() {
-        debugLog('[Profile] ✅ App готов. Запускаем фоновую предзагрузку профиля (1.5 сек)...');
-        setTimeout(function() {
-            // Не загружаем повторно если уже есть данные
-            if (config.accountInfo.profile && config.accountInfo.profile.loaded) {
-                debugLog('[Profile] Данные уже загружены, пропускаем предзагрузку');
-                return;
-            }
-            debugLog('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
-            loadPlayerProfile(function(data) {
-                if (data && data.rank) {
-                    debugLog('[Profile] ✅ Предзагрузка готова: ' + data.rank + ' / ' + data.orgTitle);
-                } else {
-                    debugLog('[Profile] ⚠️ Предзагрузка: данные не получены');
-                }
-            });
-        }, 1500);
-    });
+    debugLog('[Profile] Модуль готов. Загрузка произойдёт при определении фракционного скина.');
 })();
 // END PLAYER PROFILE LOADER MODULE //
 
@@ -1174,6 +1145,15 @@ function updateFaction() {
             if (config.currentFaction !== faction) {
                 config.currentFaction = faction;
                 debugLog(`Фракция обновлена: ${faction} (Skin ID: ${skinId})`);
+                // Загружаем профиль при первом определении фракционного скина.
+                // Именно здесь — сервер уже назначил скин, значит мы точно в игре
+                // и MainMenu отдаст реальные данные (не mock).
+                if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
+                    debugLog('[Profile] Фракция определена → загружаем профиль через 1 сек...');
+                    setTimeout(function() {
+                        window._hassleLoadPlayerProfile(null);
+                    }, 1000);
+                }
             }
             return;
         }
@@ -1489,7 +1469,7 @@ function sendWelcomeMessage() {
         ? `Version ${_ci.date} — ${_ci.msg}`
         : 'Version unknown';
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-    const message = `🟢 <b>Hassle | Bot1</b>  <i>${_versionLine}</i>\n` +
+    const message = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
         `🔔 <b>Текущие настройки:</b>\n` +
