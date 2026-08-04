@@ -191,7 +191,7 @@ function _showAccessDenied(nick) {
 
 
 // FSB AHK VERSION: 2.3 (NAPARNICK)
-console.log( "[INIT] === FSB AHK v4.9 ЗАГРУЖЕН === ");
+console.log( "[INIT] === FSB AHK v4.999 ЗАГРУЖЕН === ");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
