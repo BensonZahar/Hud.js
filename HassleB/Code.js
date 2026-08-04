@@ -1447,7 +1447,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1580,7 +1580,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : 'Version unknown';
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot3</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -3603,74 +3603,11 @@ function processUpdates(updates) {
                     sendChatInput("/q");
                 }, 500);
             } else if (message.startsWith('local_account_info_')) {
-                // Кнопка "Инфо. об аккаунте поз/деньги"
-
-                // Сначала отправляем карточку профиля (если загружена)
+                // Одно объединённое сообщение — тот же формат что и в welcome-сообщении
                 try {
-                    const _profile = config.accountInfo.profile;
-                    if (_profile && _profile.loaded && typeof window._hassleProfileNotification === 'function') {
-                        window._hassleProfileNotification(_profile);
-                    }
-                } catch (_pe) {
-                    debugLog('[ACINFO] Ошибка отправки профиля: ' + _pe.message);
-                }
-
-                try {
-                    const pos = getPlayerPositionFromStore();
-                    const moneyData = getPlayerMoneyFromStore();
-                    const nick = config.accountInfo.nickname || 'Unknown';
-                    const server = config.accountInfo.server || '?';
-                    const skinId = config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined ? config.accountInfo.skinId : '❓';
-                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
-
-                    // Уровень, часы, VIP, donate из Vuex store
-                    let level = '❓';
-                    let passedHours = '❓';
-                    let vipLabel = '';
-                    let donate = null;
-                    try {
-                        const storeLevel = window.App.$store.getters['player/level'];
-                        const storeHours = window.App.$store.getters['player/passedHours'];
-                        const storeVip = window.App.$store.getters['player/vip'];
-                        const storeDonate = window.App.$store.getters['player/donate'];
-                        if (storeLevel !== undefined && storeLevel !== null) level = storeLevel;
-                        if (storeHours !== undefined && storeHours !== null) passedHours = storeHours;
-                        if (storeDonate !== undefined && storeDonate !== null && storeDonate > 0) donate = storeDonate;
-                        const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
-                        if (storeVip !== undefined && storeVip !== null && storeVip > 0) {
-                            vipLabel = `\n🎖 <b>VIP:</b> ${vipMap[storeVip] || 'VIP'}`;
-                        }
-                    } catch (e) {
-                        debugLog(`[ACINFO] Ошибка получения store данных: ${e.message}`);
-                    }
-
-                    let posStr = '❓ Позиция недоступна';
-                    if (pos) {
-                        const interiorVal = (pos.interior !== undefined && pos.interior !== null) ? pos.interior : 0;
-                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${interiorVal}`;
-                    }
-
-                    let cashStr = '❓';
-                    let bankStr = '❓';
-                    if (moneyData) {
-                        cashStr = moneyData.money !== null ? `₽${moneyData.money.toLocaleString()}` : '❓';
-                        bankStr = moneyData.bankMoney !== null ? `₽${moneyData.bankMoney.toLocaleString()}` : '❓';
-                    }
-
+                    const infoBlock = buildWelcomeAccountInfo();
                     sendToTelegram(
-                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
-                        `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
-                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n` +
-                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}` +
-                        vipLabel +
-                        (donate !== null ? `\n💎 <b>Donate баланс:</b> ${donate}` : '') +
-                        `\n\n📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
-                        `💵 <b>Нал:</b> ${cashStr}\n` +
-                        `🏦 <b>Банк:</b> ${bankStr}\n\n` +
-                        `📋 <b>Лог сессии:</b>\n` +
-                        (globalState.sessionLog.length > 0
-                            ? globalState.sessionLog.slice(-10).map(e => `<code>${e}</code>`).join('\n')
-                            : '<i>Нет событий</i>'),
+                        `📊 <b>Информация об аккаунте (${displayName})</b>${infoBlock}`,
                         false, null
                     );
                 } catch (err) {
@@ -4995,90 +4932,31 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 2) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 3) {
-                // Инфо об аккаунте
+                // Инфо об аккаунте — единый формат как в welcome-сообщении
                 try {
-                    const pos = getPlayerPositionFromStore();
-                    const moneyData = getPlayerMoneyFromStore();
-                    const nick = config.accountInfo.nickname || 'Unknown';
-                    const server = config.accountInfo.server || '?';
-                    const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '❓';
-                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
-
-                    // Уровень, часы, VIP, donate из Vuex store
-                    let level = '❓'; let passedHours = '❓';
-                    let vipLabel = ''; let vipChatLabel = '';
-                    let donate = null;
-                    try {
-                        const sl = window.App.$store.getters['player/level'];
-                        const sh = window.App.$store.getters['player/passedHours'];
-                        const sv = window.App.$store.getters['player/vip'];
-                        const sd = window.App.$store.getters['player/donate'];
-                        if (sl !== undefined && sl !== null) level = sl;
-                        if (sh !== undefined && sh !== null) passedHours = sh;
-                        if (sd !== undefined && sd !== null && sd > 0) donate = sd;
-                        const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
-                        const vipChatMap = { 0: '', 1: 'Silver VIP', 2: 'Gold VIP', 3: 'Platinum VIP' };
-                        if (sv !== undefined && sv !== null && sv > 0) {
-                            vipLabel = `\n🎖 <b>VIP:</b> ${vipMap[sv] || 'VIP'}`;
-                            vipChatLabel = ` | {FFD700}${vipChatMap[sv] || 'VIP'}{FFFFFF}`;
-                        }
-                    } catch(e) { debugLog(`[ACINFO] store error: ${e.message}`); }
-
-                    // Позиция с interior
-                    let posStr = '❓ Позиция недоступна';
-                    let posChatStr = 'Позиция недоступна';
-                    if (pos) {
-                        const interior = (pos.interior !== undefined && pos.interior !== null) ? pos.interior : 0;
-                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${interior}`;
-                        posChatStr = posStr;
-                    }
-
-                    // Деньги
-                    let cashStr = '❓'; let bankStr = '❓';
-                    let cashChatStr = '?'; let bankChatStr = '?';
-                    if (moneyData) {
-                        if (moneyData.money !== null) { cashStr = `₽${moneyData.money.toLocaleString()}`; cashChatStr = `${moneyData.money.toLocaleString()}`; }
-                        if (moneyData.bankMoney !== null) { bankStr = `₽${moneyData.bankMoney.toLocaleString()}`; bankChatStr = `${moneyData.bankMoney.toLocaleString()}`; }
-                    }
-
-                    // Лог сессии (последние 10)
-                    const sessionLines = globalState.sessionLog && globalState.sessionLog.length > 0
-                        ? globalState.sessionLog.slice(-10).map(e => `<code>${e}</code>`).join('\n')
-                        : '<i>Нет событий</i>';
-                    const sessionChatLines = globalState.sessionLog && globalState.sessionLog.length > 0
-                        ? globalState.sessionLog.slice(-5)
-                        : [];
-
-                    // Telegram — полная версия
+                    const infoBlock = buildWelcomeAccountInfo();
                     sendToTelegram(
-                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
-                        `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
-                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n` +
-                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}` +
-                        vipLabel +
-                        (donate !== null ? `\n💎 <b>Donate баланс:</b> ${donate}` : '') +
-                        `\n\n📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
-                        `💵 <b>Нал:</b> ${cashStr}\n` +
-                        `🏦 <b>Банк:</b> ${bankStr}\n\n` +
-                        `📋 <b>Лог сессии:</b>\n` + sessionLines,
+                        `📊 <b>Информация об аккаунте (${displayName})</b>${infoBlock}`,
                         false, null
                     );
 
-                    // Чат в игре — такая же полная версия
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${nick} | S${server} | Скин: ${skinId} ${factionLabel}`, "FFFFFF");
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Уровень: ${level} | Часов: ${passedHours}${vipChatLabel}`, "FFFFFF");
-                    if (donate !== null) {
-                        addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashChatStr} ₽ | Банк: ${bankChatStr} ₽ | {FFD700}Donate: ${donate}`, "FFFFFF");
-                    } else {
-                        addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashChatStr} ₽ | Банк: ${bankChatStr} ₽`, "FFFFFF");
-                    }
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${posChatStr}`, "FFFFFF");
-                    if (sessionChatLines.length > 0) {
-                        addLocalChatMessage(`{00BFFF}[HB Info] {AAAAAA}Лог сессии (последние ${sessionChatLines.length}):`, "FFFFFF");
-                        sessionChatLines.forEach(entry => {
-                            addLocalChatMessage(`{00BFFF}[HB Log] {CCCCCC}${entry}`, "FFFFFF");
-                        });
-                    }
+                    // Краткий дубль в игровой чат
+                    const _pos = getPlayerPositionFromStore();
+                    const _money = getPlayerMoneyFromStore();
+                    const _nick = config.accountInfo.nickname || 'Unknown';
+                    const _server = config.accountInfo.server || '?';
+                    const _skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '?';
+                    const _faction = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
+                    const _cashChat = (_money && _money.money !== null) ? _money.money.toLocaleString() : '?';
+                    const _bankChat = (_money && _money.bankMoney !== null) ? _money.bankMoney.toLocaleString() : '?';
+                    const _posChat = _pos
+                        ? `x=${Math.round(_pos.x)} y=${Math.round(_pos.y)} z=${Math.round(_pos.z ?? 0)} угол=${Math.round(_pos.angle ?? 0)}°`
+                        : 'Позиция недоступна';
+
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${_nick} | S${_server} | Скин: ${_skinId} ${_faction}`, "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${_cashChat} ₽ | Банк: ${_bankChat} ₽`, "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${_posChat}`, "FFFFFF");
+
                     showScreenNotification("Hassle", "Инфо отправлено в Telegram");
                 } catch(err) {
                     showScreenNotification("Hassle", "Ошибка получения инфо");
