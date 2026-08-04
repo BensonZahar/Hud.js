@@ -1591,7 +1591,7 @@ function buildWelcomeText() {
 
     // Блок настроек (только если пользователь раскрыл)
     if (globalState.welcomeShowSettings) {
-        text += `\n\n🔔 <b>Текущие настройки:</b>\n` +
+        text += `\n\n🔔 <b>Текущие настройки уведомлений:</b>\n` +
             `├ Уведомления PayDay: ${config.paydayNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
             `├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
             `├ Уведомления рации (все): ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
@@ -1607,13 +1607,13 @@ function buildWelcomeText() {
 // ── Строит inline-клавиатуру приветственного сообщения ──
 function buildWelcomeKeyboard() {
     const settingsBtn = globalState.welcomeShowSettings
-        ? createButton('🙈 Скрыть настройки', `hide_welcome_settings_${uniqueId}`)
-        : createButton('🔔 Настройки', `show_welcome_settings_${uniqueId}`);
+        ? createButton('🙈 Скрыть настройки уведомлений', `hide_welcome_settings_${uniqueId}`)
+        : createButton('🔔 Настройки уведомлений', `show_welcome_settings_${uniqueId}`);
 
     return {
         inline_keyboard: [
             [createButton('⚙️ Управление', `show_controls_${uniqueId}`)],
-            [settingsBtn]
+            [createButton('💰 Инфо об аккаунте', `local_account_info_${uniqueId}`), settingsBtn]
         ]
     };
 }
@@ -2354,6 +2354,7 @@ function showControlsMenu(chatId, messageId) {
             [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
             [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
             [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
+            [createButton("🔔 Настройки уведомлений", `show_welcome_settings_${uniqueId}`)],
             [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`)],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
@@ -2648,12 +2649,8 @@ function hideControlsMenu(chatId, messageId) {
         sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
         return;
     }
-    const replyMarkup = {
-        inline_keyboard: [
-            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    // Восстанавливаем полную welcome-клавиатуру (Управление + Инфо об аккаунте + Настройки уведомлений)
+    editMessageReplyMarkup(chatId, messageId, buildWelcomeKeyboard());
 }
 // END MENU MODULE //
 
