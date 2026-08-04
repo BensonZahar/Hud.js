@@ -42,7 +42,16 @@ const globalState = {
     hpLastHitTime: null,     // Время последнего удара
     hpLastValue: null,       // Предыдущее значение HP
     _hpSendPending: false,   // Флаг ожидания callback sendMessage (защита от дублей)
-    welcomeShowSettings: false // Флаг показа блока настроек в приветственном сообщении
+    welcomeShowSettings: false, // Флаг показа блока настроек в приветственном сообщении
+    // Время загрузки скрипта — используется как fallback версии если CODE_COMMIT_INFO не задан
+    scriptLoadTime: (function() {
+        const d = new Date();
+        const dd = String(d.getDate()).padStart(2, '0');
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const hh = String(d.getHours()).padStart(2, '0');
+        const min = String(d.getMinutes()).padStart(2, '0');
+        return `${dd}.${mm} ${hh}:${min}`;
+    })()
 };
 // END GLOBAL STATE MODULE //
 
@@ -576,8 +585,8 @@ function reloadAllAccounts() {
         debugLog(`[RELOAD] Уже выполняется, игнорируем`);
         return;
     }
-    // Broadcast — другие аккаунты получат и перезагрузятся
-    reloadAllAccounts();
+    // Broadcast — другие аккаунты получат и перезагрузятся через handleGlobalBroadcastCommand('reload')
+    broadcastGlobalCommand('reload', 'on');
     // Текущий аккаунт — перезагружаем сразу (не ждём своего же сообщения)
     window._hassleReloading = true;
     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
@@ -1577,7 +1586,7 @@ function buildWelcomeAccountInfo() {
 // ── Строит полный текст приветственного сообщения ──
 function buildWelcomeText() {
     const _ci = window.CODE_COMMIT_INFO;
-    const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : 'Version unknown';
+    const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
     let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
