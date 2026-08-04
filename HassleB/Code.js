@@ -214,7 +214,33 @@ const config = {
     lastPodbrosTime: 0,
     podbrosCounter: 0,
     initialized: false,
-    accountInfo: { nickname: null, server: null, skinId: null },
+    accountInfo: {
+        nickname: null,
+        server: null,
+        skinId: null,
+        profile: {
+            loaded:      false,
+            rank:        null,   // organization.rangName  — название звания
+            rankNum:     null,   // organization.rang      — номер звания
+            orgTitle:    null,   // organization.title     — название фракции
+            status:      null,   // info.status            — должность/статус
+            level:       null,   // level.value            — уровень
+            xpCurrent:   null,   // level.score.current    — текущий опыт
+            xpTarget:    null,   // level.score.target     — опыт до след. уровня
+            cash:        null,   // about[0].value         — наличные
+            bank:        null,   // about[1].value         — банковский счёт
+            phone:       null,   // contacts.phone.value   — номер телефона
+            simBalance:  null,   // contacts.simBalance    — баланс SIM
+            stamina:     null,   // physicalStats.stamina  — выносливость %
+            strength:    null,   // physicalStats.strength — сила %
+            housesCount: null,   // property.houses        — кол-во домов
+            bizCount:    null,   // property.businesses    — кол-во бизнесов
+            carsCount:   null,   // property.cars          — кол-во машин
+            subscribe:   null,   // info.subscribe.type    — подписка
+            buffs:       [],     // активные баффы
+            jobs:        [],     // работы
+        }
+    },
     currentFaction: null,
     lastPlayerId: null,
     govMessageTrackers: {},
@@ -247,6 +273,265 @@ let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: PLAYER PROFILE LOADER                           ║
+// ║  Описание: При входе в игру один раз невидимо открывает  ║
+// ║             MainMenu → Statistics и считывает все данные ║
+// ║             профиля: звание, фракция, уровень, деньги,   ║
+// ║             телефон, физ. хар-ки, имущество, баффы.      ║
+// ║  Зависимости: config, debugLog, sendToTelegram,          ║
+// ║               displayName, tgApi, uniqueId               ║
+// ╚══════════════════════════════════════════════════════════╝
+// START PLAYER PROFILE LOADER MODULE //
+(function() {
+    'use strict';
+    var _fetching  = false;
+    var _origCursor = null, _origLabel = null, _patchActive = false, _obs = null;
+
+    // ── Скрываем курсор меню и ники не пропадают ──
+    function _applyPatch() {
+        _patchActive = true;
+        _origCursor = window.setCursorStatus;
+        _origLabel  = window.setDrawLabelStatus;
+        window.setCursorStatus = function(name, status, allow) {
+            if (_patchActive && name === 'MainMenu') {
+                try { if (typeof engine !== 'undefined') engine.trigger('SetCursorStatus', false, true); } catch(e) {}
+                return;
+            }
+            return _origCursor && _origCursor.apply(this, arguments);
+        };
+        window.setDrawLabelStatus = function(s) {
+            if (_patchActive && !s) return; // блокируем скрытие ников
+            return _origLabel && _origLabel.apply(this, arguments);
+        };
+    }
+    function _restorePatch() {
+        _patchActive = false;
+        if (_origCursor) window.setCursorStatus = _origCursor;
+        if (_origLabel)  { window.setDrawLabelStatus = _origLabel; try { _origLabel.call(window, true); } catch(e) {} }
+    }
+
+    // ── Прячем DOM главного меню через MutationObserver (без мерцания) ──
+    function _hideMenu() {
+        if (_obs) { _obs.disconnect(); _obs = null; }
+        _obs = new MutationObserver(function() {
+            var el = document.querySelector('.main-menu');
+            if (el) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; _obs.disconnect(); _obs = null; }
+        });
+        _obs.observe(document.documentElement, { childList: true, subtree: true });
+    }
+    function _unobserve() { if (_obs) { _obs.disconnect(); _obs = null; } }
+
+    // ── Отключаем hideHud/hideChat чтобы меню не ломало интерфейс ──
+    function _patchOptions() {
+        try {
+            var c = window.App && window.App.components && window.App.components.MainMenu;
+            if (!c || !c.options) return;
+            c.__rHud = c.options.hideHud; c.__rChat = c.options.hideChat;
+            c.options.hideHud = false; c.options.hideChat = false;
+        } catch(e) {}
+    }
+    function _restoreOptions() {
+        try {
+            var c = window.App && window.App.components && window.App.components.MainMenu;
+            if (!c || !c.options) return;
+            if (c.__rHud  !== undefined) c.options.hideHud  = c.__rHud;
+            if (c.__rChat !== undefined) c.options.hideChat = c.__rChat;
+        } catch(e) {}
+    }
+
+    // ── Проверка: это mock-данные сервера или уже реальные? ──
+    function _isMock(org) {
+        return !org || org.rangName === 'Officer' || org.title === 'Police departament';
+    }
+
+    // ── Извлекаем все поля из mm.statistics ──
+    function _extract(mm) {
+        try {
+            var s = mm.statistics;
+            if (!s || s.isLoading) return null;
+            var org  = s.organization || {};
+            var info = s.info         || {};
+            var lvl  = s.level        || {};
+            var ph   = s.physicalStats || {};
+            var ct   = s.contacts     || {};
+            var ab   = s.about        || [];
+            var prop = s.property     || {};
+            var sub  = (info.subscribe || {}).type;
+
+            if (_isMock(org)) return null;
+
+            return {
+                rank:        org.rangName   || null,
+                rankNum:     org.rang       || null,
+                orgTitle:    org.title      || null,
+                status:      info.status    || null,
+                level:       lvl.value      || null,
+                xpCurrent:   (lvl.score || {}).current || null,
+                xpTarget:    (lvl.score || {}).target  || null,
+                cash:        (ab[0] || {}).value       || null,
+                bank:        (ab[1] || {}).value       || null,
+                phone:       (ct.phone      || {}).value      || null,
+                simBalance:  (ct.simBalance || {}).value      || null,
+                stamina:     (ph.stamina    || {}).value      || null,
+                strength:    (ph.strength   || {}).value      || null,
+                housesCount: prop.houses    || 0,
+                bizCount:    prop.businesses|| 0,
+                carsCount:   prop.cars      || 0,
+                subscribe:   sub            || null,
+                buffs:       (s.buffs       || []).map(function(b) { return { text: b.text, leftTime: b.leftTime, debuff: !!b.debuff }; }),
+                jobs:        (s.jobs        || []).map(function(j) { return { id: j.id, title: j.title, lvl: j.lvl }; }),
+            };
+        } catch(e) { return null; }
+    }
+
+    // ── Главная функция: считывает профиль ОДИН РАЗ ──
+    function loadPlayerProfile(callback) {
+        // Уже загружено
+        if (config.accountInfo.profile && config.accountInfo.profile.loaded) {
+            if (callback) callback(config.accountInfo.profile);
+            return;
+        }
+        // Уже идёт загрузка — встаём в очередь
+        if (_fetching) {
+            var wait = setInterval(function() {
+                if (!_fetching) { clearInterval(wait); if (callback) callback(config.accountInfo.profile); }
+            }, 100);
+            return;
+        }
+
+        _fetching = true;
+        debugLog('[Profile] 🔄 Загружаем профиль через MainMenu...');
+
+        var _done = false, _wd = null;
+        var _wasOpen = false;
+        try { _wasOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+
+        function _finish(data) {
+            if (_done) return;
+            _done = true;
+            if (_wd) { clearTimeout(_wd); _wd = null; }
+
+            if (!_wasOpen) {
+                try {
+                    var mmC = window.interface('MainMenu');
+                    if (mmC && typeof mmC.sendCloseEvent === 'function') mmC.sendCloseEvent();
+                    else if (typeof window.sendClientEvent === 'function') window.sendClientEvent(0, 'MainMenu_OnPlayerCloseInterface');
+                } catch(e) {}
+                try { window.closeInterface('MainMenu'); } catch(e) {}
+            }
+            _restoreOptions();
+            _restorePatch();
+            _unobserve();
+            _fetching = false;
+
+            if (data) {
+                Object.assign(config.accountInfo.profile, data);
+                config.accountInfo.profile.loaded = true;
+                debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
+                _sendProfileNotification(data);
+            } else {
+                debugLog('[Profile] ⚠️ Профиль не получен — данные недоступны');
+            }
+            if (callback) callback(data ? config.accountInfo.profile : null);
+        }
+
+        // Аварийный предохранитель 8 сек
+        _wd = setTimeout(function() {
+            debugLog('[Profile] ⏰ Watchdog — завершаем принудительно');
+            _finish(null);
+        }, 8000);
+
+        _patchOptions();
+        _applyPatch();
+        if (!_wasOpen) _hideMenu();
+
+        if (!_wasOpen) {
+            try { window.openInterface('MainMenu'); }
+            catch(e) { _finish(null); return; }
+        }
+
+        setTimeout(function() {
+            if (_done) return;
+            var mm = window.interface('MainMenu');
+            if (!mm) { _finish(null); return; }
+            try { if (typeof mm.selectTab === 'function') mm.selectTab('Statistics'); } catch(e) {}
+
+            var attempts = 0, lastKey = null, stable = 0;
+            var poll = setInterval(function() {
+                if (_done) { clearInterval(poll); return; }
+                attempts++;
+                var d = _extract(mm);
+                if (d) {
+                    var key = (d.rank || '') + '|' + (d.orgTitle || '') + '|' + (d.level || '');
+                    if (key === lastKey) { stable++; } else { lastKey = key; stable = 1; }
+                } else {
+                    lastKey = null; stable = 0;
+                }
+                if ((d && stable >= 2) || attempts >= 35) {
+                    clearInterval(poll);
+                    setTimeout(function() { _finish(d || null); }, 150);
+                }
+            }, 200);
+        }, 600);
+    }
+
+    // ── Отправляем карточку профиля в Telegram после загрузки ──
+    function _sendProfileNotification(p) {
+        try {
+            var sub = p.subscribe ? '✅ ' + p.subscribe : '❌ Нет';
+            var cash = p.cash    !== null ? p.cash.toLocaleString('ru-RU')    + ' руб' : '—';
+            var bank = p.bank    !== null ? p.bank.toLocaleString('ru-RU')    + ' руб' : '—';
+            var simB = p.simBalance !== null ? p.simBalance.toLocaleString('ru-RU') + ' руб' : '—';
+            var phone = p.phone  !== null ? String(p.phone) : '—';
+            var lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ' (' + p.xpCurrent + '/' + p.xpTarget + ' XP)' : '';
+            var buffsLine = p.buffs && p.buffs.length
+                ? p.buffs.filter(function(b){ return !b.debuff; }).map(function(b){ return b.text; }).join(', ') || '—'
+                : '—';
+            var debuffsLine = p.buffs && p.buffs.length
+                ? p.buffs.filter(function(b){ return b.debuff; }).map(function(b){ return b.text; }).join(', ') || '—'
+                : '—';
+            var jobsLine = p.jobs && p.jobs.length
+                ? p.jobs.map(function(j){ return j.title + ' (ур.' + j.lvl + ')'; }).join(', ')
+                : '—';
+
+            var msg =
+                '📋 <b>Профиль загружен — ' + displayName + '</b>\n' +
+                '\n<b>🏛 Фракция / Звание</b>\n' +
+                '├ Фракция: ' + (p.orgTitle   || '—') + '\n' +
+                '├ Звание: '  + (p.rank       || '—') + (p.rankNum !== null ? ' (#' + p.rankNum + ')' : '') + '\n' +
+                '└ Статус: '  + (p.status     || '—') + '\n' +
+                '\n<b>📊 Прогресс</b>\n' +
+                '├ Уровень: ' + (p.level !== null ? p.level : '—') + lvlBar + '\n' +
+                '├ Выносливость: ' + (p.stamina  !== null ? p.stamina  + '%' : '—') + '\n' +
+                '└ Сила: '         + (p.strength !== null ? p.strength + '%' : '—') + '\n' +
+                '\n<b>💰 Финансы</b>\n' +
+                '├ Наличные: '  + cash  + '\n' +
+                '├ Банк: '      + bank  + '\n' +
+                '├ Телефон: '   + phone + '\n' +
+                '├ Баланс SIM: '+ simB  + '\n' +
+                '└ Подписка: '  + sub   + '\n' +
+                '\n<b>🏠 Имущество</b>\n' +
+                '├ Домов: '    + (p.housesCount || 0) + '\n' +
+                '├ Бизнесов: ' + (p.bizCount    || 0) + '\n' +
+                '└ Машин: '    + (p.carsCount   || 0) + '\n' +
+                '\n<b>⚡ Баффы:</b> ' + buffsLine  + '\n' +
+                '<b>💀 Дебаффы:</b> ' + debuffsLine + '\n' +
+                '\n<b>💼 Работы:</b> ' + jobsLine;
+
+            sendToTelegram(msg, true, null);
+        } catch(e) {
+            debugLog('[Profile] Ошибка отправки профиля: ' + e.message);
+        }
+    }
+
+    // ── Экспорт для вызова из trackNicknameAndServer ──
+    window._hassleLoadPlayerProfile = loadPlayerProfile;
+    debugLog('[Profile] Модуль загрузки профиля готов. Команда обновления: window._hassleLoadPlayerProfile()');
+})();
+// END PLAYER PROFILE LOADER MODULE //
+
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL BROADCAST                                ║
@@ -991,6 +1276,12 @@ function trackNicknameAndServer() {
             sendWelcomeMessage();
             registerUser();
             addSessionLog(`🔐 Вход: ${nicknameStr} [S${serverStr}]`);
+            // Загрузка полного профиля через MainMenu (звание, деньги, уровень и т.д.)
+            setTimeout(function() {
+                if (typeof window._hassleLoadPlayerProfile === 'function') {
+                    window._hassleLoadPlayerProfile(null);
+                }
+            }, 2500);
             // Запуск отслеживания скина с задержкой 5с
             setTimeout(() => {
                 const initialSkin = getSkinIdFromStore();
