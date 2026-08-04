@@ -95,7 +95,7 @@ function getChatRadius(color) {
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: FACTIONS                                        ║
 // ║  Описание: Данные фракций — цвета, скины, ранги          ║
-// ║             (government, mz, trk, mo, mchs, mvd)        ║
+// ║             (government, mz, trk, mo, mchs, mvd, fsb)   ║
 // ║  Зависимости: нет                                        ║
 // ╚══════════════════════════════════════════════════════════╝
 // START FACTIONS MODULE //
@@ -152,6 +152,15 @@ const factions = {
             1: 'рядовой', 2: 'сержант', 3: 'старшина', 4: 'прапорщик',
             5: 'лейтенант', 6: 'капитан', 7: 'майор', 8: 'подполковник',
             9: 'полковник', 10: 'генерал'
+        }
+    },
+    fsb: {
+        color: '7F7F7F',
+        skins: [15346, 15349, 17034, 17035, 17036, 17037, 17082, 17083, 17084],
+        highRankThreshold: 4, // Строй/рация: учитываем с 4 ранга (подполковник, полковник, генерал)
+        ranks: {
+            1: 'старший лейтенант', 2: 'капитан', 3: 'майор',
+            4: 'подполковник', 5: 'полковник', 6: 'генерал'
         }
     }
 };
@@ -3286,17 +3295,22 @@ function getRankKeywords() {
 }
 function getHighRankKeywords() {
     if (!config.currentFaction || !factions[config.currentFaction]) return [];
-    return Object.entries(factions[config.currentFaction].ranks)
-        .filter(([rankNum]) => parseInt(rankNum) >= 6) // Только 6-10
+    const faction = factions[config.currentFaction];
+    const threshold = faction.highRankThreshold !== undefined ? faction.highRankThreshold : 6;
+    return Object.entries(faction.ranks)
+        .filter(([rankNum]) => parseInt(rankNum) >= threshold)
         .map(([, rank]) => rank.toLowerCase());
 }
-// Возвращает все звания 6-10 ранга из ВСЕХ фракций (для проверки рации)
+// Возвращает все звания высокого ранга из ВСЕХ фракций (для проверки рации)
+// Порог берётся из highRankThreshold фракции (по умолчанию 6)
 function getAllHighRankKeywords() {
     const highRanks = [];
     for (const faction in factions) {
-        const ranks = factions[faction].ranks;
+        const f = factions[faction];
+        const threshold = f.highRankThreshold !== undefined ? f.highRankThreshold : 6;
+        const ranks = f.ranks;
         for (const rankNum in ranks) {
-            if (parseInt(rankNum) >= 6) {
+            if (parseInt(rankNum) >= threshold) {
                 highRanks.push(ranks[rankNum].toLowerCase());
             }
         }
