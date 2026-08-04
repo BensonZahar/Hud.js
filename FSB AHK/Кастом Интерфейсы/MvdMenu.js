@@ -852,7 +852,7 @@ const _sfc_main={
         // зажатие стрелки никак не двигало список. keydown подхватывает системный
         // автоповтор браузера — зажал стрелку и список листается сам, как в нативных окнах.
         this._onArrowKeyDown=(e)=>{
-            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner") return;
+            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner"&&this.screen!=="greeting-choice") return;
             if(e.keyCode===window.KEY_CODE_ARROW_TOP){
                 e.preventDefault();
                 this.moveSelection(-1);
