@@ -1482,8 +1482,8 @@ function sendAdminSpamAlert(adminMsg) {
     _adminSpamActive = true;
     _adminSpamCancel = false;
 
-    const TOTAL_PINGS = 9;
-    const INTERVAL_MS = 2000;
+    const TOTAL_PINGS = 4;    // было 9 — меньше спама в чате, меньше API-вызовов
+    const INTERVAL_MS = 1200; // было 2000 — пинги чаще, но их меньше
     const replyMarkup = getNotificationReplyMarkup();
 
     config.chatIds.forEach(chatId => {
@@ -2922,15 +2922,16 @@ function checkTelegramCommands() {
     // Динамический таймаут:
     // • pendingInputs не пуст → timeout=0 (мгновенный опрос, соединение освобождается сразу)
     //   Освобождает слоты браузера для sendMessage/answerCallbackQuery при ожидании ввода.
-    // • обычный режим     → timeout=5 (было 10с — снижено: 4 бота × меньший hold = меньше давление на 6 слотов Chrome)
+    // • обычный режим → timeout=1 (минимальное ожидание: Telegram отвечает мгновенно при
+    //   новом апдейте, а в холостую ждёт не 5с а 1с → кнопки реагируют быстрее)
     const hasPending = Object.keys(pendingInputs).length > 0;
-    const pollTimeout = hasPending ? 0 : 5;
+    const pollTimeout = hasPending ? 0 : 1;
 
     const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=${pollTimeout}`;
     const xhr = new XMLHttpRequest();
     _pollXhr = xhr;
     xhr.open('GET', url, true);
-    xhr.timeout = hasPending ? 3000 : 8000; // XHR timeout чуть больше poll timeout
+    xhr.timeout = hasPending ? 3000 : 4000; // XHR timeout чуть больше poll timeout
     xhr.onload = function() {
         if (_pollXhr === xhr) _pollXhr = null;
         if (xhr.status === 200) {
