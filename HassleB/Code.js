@@ -1477,6 +1477,16 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
 // ╚══════════════════════════════════════════════════════════╝
 // START WELCOME MESSAGE MODULE //
 
+// ── Читает полный объект info из HUD-компонента ──────────────
+// (health, armour, hunger, wanted, weapon, ammoInClip, totalAmmo, breath)
+function getHudInfoFull() {
+    try {
+        const hud = window.interface('Hud');
+        if (hud && hud.info) return hud.info;
+    } catch(e) {}
+    return null;
+}
+
 // ── Строит блок «Информация об аккаунте» для встраивания в welcome-сообщение ──
 // Показывает полный блок только когда фракция определена и профиль загружен.
 // До этого момента выводит единственную строку «Информация об аккаунте ещё не загружена».
@@ -1487,7 +1497,7 @@ function buildWelcomeAccountInfo() {
         // Если фракция ещё не определена или профиль не загружен — не показываем частичные данные
         if (!config.currentFaction || !p || !p.loaded) {
             const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
-                ? globalState.sessionLog.slice(-5).map(e => `<code>${e}</code>`).join('\n')
+                ? globalState.sessionLog.slice(-8).map(e => `<code>${e}</code>`).join('\n')
                 : '<i>Нет событий</i>';
             return `\n\n📊 <i>Информация об аккаунте ещё не загружена</i>` +
                    `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
@@ -1500,16 +1510,15 @@ function buildWelcomeAccountInfo() {
             ? config.accountInfo.skinId : '❓';
         const factionLabel = `[${config.currentFaction}]`;
 
-        // Данные уровня / часов / VIP / donate из Vuex store
-        let level = '❓', passedHours = '❓', vipLine = '', donateLine = '';
+        // Данные часов / VIP / donate из Vuex store
+        // Уровень убран отсюда — он уже есть в блоке Прогресс с полным XP-баром
+        let passedHours = '❓', vipLine = '', donateLine = '';
         try {
             const _s = window.App && window.App.$store;
             if (_s) {
-                const lv = _s.getters['player/level'];
                 const hr = _s.getters['player/passedHours'];
                 const vp = _s.getters['player/vip'];
                 const dn = _s.getters['player/donate'];
-                if (lv !== undefined && lv !== null) level = lv;
                 if (hr !== undefined && hr !== null) passedHours = hr;
                 const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
                 if (vp && vp > 0) vipLine = `\n🎖 <b>VIP:</b> ${vipMap[vp] || 'VIP'}`;
@@ -1531,21 +1540,25 @@ function buildWelcomeAccountInfo() {
         const simB = p.simBalance !== null ? `₽${p.simBalance.toLocaleString()}` : '—';
         const lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ` (${p.xpCurrent}/${p.xpTarget} XP)` : '';
 
+        // ── Заголовок ─────────────────────────────────────────────
         let block = `\n\n📊 <b>Информация об аккаунте:</b>\n`;
         block += `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n`;
         block += `🎭 <b>Скин:</b> ${skinId}  ${factionLabel}${vipLine}${donateLine}\n`;
-        block += `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов:</b> ${passedHours}`;
 
-        block += `\n\n🏛 <b>Фракция / Звание:</b>\n`;
+        // ── Фракция / Звание ──────────────────────────────────────
+        block += `\n🏛 <b>Фракция / Звание:</b>\n`;
         block += `├ Фракция: ${p.orgTitle || '—'}\n`;
         block += `├ Звание: ${p.rank || '—'}${p.rankNum !== null ? ` (#${p.rankNum})` : ''}\n`;
         block += `└ Статус: ${p.status || '—'}\n`;
 
+        // ── Прогресс (уровень + XP здесь — полная версия; часы тоже перенесены сюда) ──
         block += `\n📈 <b>Прогресс:</b>\n`;
         block += `├ Уровень: ${p.level !== null ? p.level : '—'}${lvlBar}\n`;
+        block += `├ Часов в игре: ${passedHours}\n`;
         block += `├ Выносливость: ${p.stamina !== null ? p.stamina + '%' : '—'}\n`;
         block += `└ Сила: ${p.strength !== null ? p.strength + '%' : '—'}\n`;
 
+        // ── Финансы ───────────────────────────────────────────────
         block += `\n💰 <b>Финансы:</b>\n`;
         block += `├ Нал: ${pCash}\n`;
         block += `├ Банк: ${pBank}\n`;
@@ -1553,11 +1566,13 @@ function buildWelcomeAccountInfo() {
         block += `├ Баланс SIM: ${simB}\n`;
         block += `└ Подписка: ${sub}\n`;
 
+        // ── Имущество ─────────────────────────────────────────────
         block += `\n🏠 <b>Имущество:</b>  `;
         block += `Домов: ${p.housesCount || 0}  |  `;
         block += `Бизнесов: ${p.bizCount || 0}  |  `;
         block += `Машин: ${p.carsCount || 0}`;
 
+        // ── Баффы / Дебаффы / Работы ──────────────────────────────
         const buffsLine = (p.buffs && p.buffs.length)
             ? p.buffs.filter(b => !b.debuff).map(b => b.text).join(', ') || '—' : '—';
         const debuffsLine = (p.buffs && p.buffs.length)
@@ -1569,11 +1584,61 @@ function buildWelcomeAccountInfo() {
         block += `💀 <b>Дебаффы:</b> ${debuffsLine}\n`;
         block += `💼 <b>Работы:</b> ${jobsLine}`;
 
-        block += `\n\n📍 <b>Позиция:</b>\n<code>${posStr}</code>`;
-        block += `\n💵 <b>Нал:</b> ${pCash}   🏦 <b>Банк:</b> ${pBank}`;
+        // ── Live HUD: состояние персонажа ─────────────────────────
+        const hInfo = getHudInfoFull();
+        if (hInfo) {
+            const hp     = hInfo.health  !== undefined ? Math.round(hInfo.health)  + '%' : '❓';
+            const armour = hInfo.armour  !== undefined ? Math.round(hInfo.armour)  + '%' : '—';
+            const hunger = hInfo.hunger  !== undefined ? Math.round(hInfo.hunger)  + '%' : '—';
+            const wantedCount = hInfo.wanted !== undefined ? hInfo.wanted : null;
+            const wantedStr   = wantedCount !== null
+                ? (wantedCount > 0 ? '⭐'.repeat(wantedCount) : '✅ Нет') : '—';
 
+            block += `\n\n❤️ <b>Состояние персонажа:</b>\n`;
+            block += `├ HP: ${hp}  |  🛡 Броня: ${armour}\n`;
+            block += `├ 🍖 Голод: ${hunger}  |  🚨 Розыск: ${wantedStr}\n`;
+
+            if (hInfo.breath !== undefined && hInfo.breath < 99) {
+                block += `├ 🌊 Дыхание: ${hInfo.breath}%\n`;
+            }
+
+            if (hInfo.weapon) {
+                const wName = String(hInfo.weapon).split('/').pop().replace(/\.\w+$/, '');
+                const clip  = hInfo.ammoInClip !== undefined ? hInfo.ammoInClip  : '—';
+                const total = hInfo.totalAmmo  !== undefined ? hInfo.totalAmmo   : '—';
+                block += `└ 🔫 Оружие: ${wName}  (${clip} / ${total})\n`;
+            }
+        }
+
+        // ── Позиция ───────────────────────────────────────────────
+        block += `\n📍 <b>Позиция:</b>\n<code>${posStr}</code>`;
+
+        // ── Время онлайна / Тюрьма ───────────────────────────────
+        if (globalState.sessionStartTime) {
+            const onlineSec = Math.floor((Date.now() - globalState.sessionStartTime) / 1000);
+            const hh  = Math.floor(onlineSec / 3600);
+            const mm  = Math.floor((onlineSec % 3600) / 60);
+            const ss  = onlineSec % 60;
+            const pad = n => String(n).padStart(2, '0');
+            block += `\n⏰ <b>Онлайн:</b> ${hh}ч ${pad(mm)}м ${pad(ss)}с`;
+        }
+        if (globalState.inPrison) {
+            block += `\n🔒 <b>Тюрьма: АКТИВНА</b>`;
+        }
+
+        // ── AFK цикл (только если активен) ───────────────────────
+        if (config.afkCycle && config.afkCycle.active) {
+            const afkMins = Math.floor(config.afkCycle.totalPlayTime / 60000);
+            const afkSal  = (config.afkCycle.totalSalary || 0).toLocaleString('ru-RU');
+            const modeNames = { fixed: '5/5 мин', random: 'Рандом', levelup: 'Прокачка', none: 'Без паузы' };
+            const modeLabel = modeNames[config.afkCycle.mode] || config.afkCycle.mode;
+            block += `\n\n🔄 <b>AFK цикл активен</b>  [${modeLabel}]\n`;
+            block += `└ Наиграно: ${afkMins} мин  |  Накоплено: ₽${afkSal}`;
+        }
+
+        // ── Лог сессии (последние 8 событий) ─────────────────────
         const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
-            ? globalState.sessionLog.slice(-5).map(e => `<code>${e}</code>`).join('\n')
+            ? globalState.sessionLog.slice(-8).map(e => `<code>${e}</code>`).join('\n')
             : '<i>Нет событий</i>';
         block += `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
 
