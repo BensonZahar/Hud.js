@@ -66,6 +66,18 @@ const globalState = {
 // Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
 const pendingInputs = {};
 const PENDING_INPUT_TTL = 45 * 1000; // 45 секунд (было 5 минут — слишком долго для мультиаккаунта)
+// Автоочистка устаревших записей pendingInputs — раз в минуту
+setInterval(() => {
+    const now = Date.now();
+    let cleared = 0;
+    for (const key in pendingInputs) {
+        if (now - pendingInputs[key].timestamp > PENDING_INPUT_TTL) {
+            delete pendingInputs[key];
+            cleared++;
+        }
+    }
+    if (cleared > 0) debugLog(`[PENDING] Очищено устаревших записей: ${cleared}`);
+}, 60 * 1000);
 // END PENDING INPUTS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
