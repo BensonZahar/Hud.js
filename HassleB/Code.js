@@ -66,18 +66,6 @@ const globalState = {
 // Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
 const pendingInputs = {};
 const PENDING_INPUT_TTL = 45 * 1000; // 45 секунд (было 5 минут — слишком долго для мультиаккаунта)
-// Автоочистка устаревших записей pendingInputs — раз в минуту
-setInterval(() => {
-    const now = Date.now();
-    let cleared = 0;
-    for (const key in pendingInputs) {
-        if (now - pendingInputs[key].timestamp > PENDING_INPUT_TTL) {
-            delete pendingInputs[key];
-            cleared++;
-        }
-    }
-    if (cleared > 0) debugLog(`[PENDING] Очищено устаревших записей: ${cleared}`);
-}, 60 * 1000);
 // END PENDING INPUTS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -2913,15 +2901,38 @@ function getNotificationReplyMarkup() {
 // ║               showPdcMenu, setSharedLastUpdateId         ║
 // ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM COMMANDS MODULE //
+// Ссылка на текущий long-poll XHR — для прерывания при необходимости
+let _pollXhr = null;
+
+// Прерывает текущий long-poll и немедленно перезапускает с timeout=0.
+// Вызывать сразу после создания pendingInputs — освобождает соединение для срочных API-вызовов.
+function _abortPollAndRestartFast() {
+    if (_pollXhr) {
+        _pollXhr.abort();
+        _pollXhr = null;
+        debugLog('[POLL] Long-poll прерван для быстрого режима');
+    }
+    setTimeout(checkTelegramCommands, 0);
+}
+
 function checkTelegramCommands() {
     if (window._hassleReloading) return;
-    // У каждого аккаунта свой бот — race condition невозможен, random delay не нужен
     config.lastUpdateId = getSharedLastUpdateId();
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=10`; // FIX: 25→10с — при 4+ аккаунтах браузер лимитирует параллельные соединения, меньший timeout снижает задержку
+
+    // Динамический таймаут:
+    // • pendingInputs не пуст → timeout=0 (мгновенный опрос, соединение освобождается сразу)
+    //   Освобождает слоты браузера для sendMessage/answerCallbackQuery при ожидании ввода.
+    // • обычный режим     → timeout=5 (было 10с — снижено: 4 бота × меньший hold = меньше давление на 6 слотов Chrome)
+    const hasPending = Object.keys(pendingInputs).length > 0;
+    const pollTimeout = hasPending ? 0 : 5;
+
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=${pollTimeout}`;
     const xhr = new XMLHttpRequest();
+    _pollXhr = xhr;
     xhr.open('GET', url, true);
-    xhr.timeout = 15000; // FIX: 30→15с соответственно
+    xhr.timeout = hasPending ? 3000 : 8000; // XHR timeout чуть больше poll timeout
     xhr.onload = function() {
+        if (_pollXhr === xhr) _pollXhr = null;
         if (xhr.status === 200) {
             try {
                 const data = JSON.parse(xhr.responseText);
@@ -2932,14 +2943,16 @@ function checkTelegramCommands() {
                 debugLog('Ошибка парсинга ответа Telegram:', e);
             }
         }
-        // Сразу следующий запрос — задержка не нужна, long-polling сам ждёт
-        setTimeout(checkTelegramCommands, 0);
+        // В режиме ожидания — пауза 50мс между запросами чтобы не спамить Telegram
+        setTimeout(checkTelegramCommands, hasPending ? 50 : 0);
     };
     xhr.onerror = function(error) {
+        if (_pollXhr === xhr) _pollXhr = null;
         debugLog('Ошибка при проверке команд:', error);
         setTimeout(checkTelegramCommands, config.checkInterval);
     };
     xhr.ontimeout = function() {
+        if (_pollXhr === xhr) _pollXhr = null;
         debugLog('Long-polling timeout, перезапуск...');
         setTimeout(checkTelegramCommands, 0);
     };
@@ -3443,6 +3456,8 @@ function processUpdates(updates) {
                 config.chatIds.forEach(cId => {
                     pendingInputs[`${cId}_${uniqueId}`] = { type: 'chat_message', timestamp: Date.now() };
                 });
+                // Прерываем текущий long-poll — освобождаем соединение для sendMessage
+                _abortPollAndRestartFast();
                 sendToTelegram(requestMsg, false, {
                     force_reply: true
                 });
@@ -3556,6 +3571,8 @@ function processUpdates(updates) {
                 config.chatIds.forEach(cId => {
                     pendingInputs[`${cId}_${uniqueId}`] = { type: 'admin_reply', timestamp: Date.now() };
                 });
+                // Прерываем текущий long-poll — освобождаем соединение для sendMessage
+                _abortPollAndRestartFast();
                 sendToTelegram(requestMsg, false, {
                     force_reply: true
                 });
