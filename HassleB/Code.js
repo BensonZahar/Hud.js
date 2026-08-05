@@ -1458,27 +1458,62 @@ function sendAdminSpamAlert(adminMsg) {
 
     config.chatIds.forEach(chatId => {
         let pingCount = 0;
-        let lastMessageId = null;
+        let mainMessageId = null; // стабильное сообщение с кнопками — стоит на месте
+
+        function buildMainText() {
+            return `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
+                   `⚠️ Пинг ${pingCount}/${TOTAL_PINGS}\n` +
+                   `<code>${adminMsg.replace(/</g, '&lt;')}</code>`;
+        }
+
+        function sendPingNotification() {
+            // Короткий пинг со звуком — появляется и удаляется через 1.5 сек
+            // Только для уведомления, не мешает нажать кнопку в основном сообщении
+            tgApi('sendMessage', {
+                chat_id: chatId,
+                text: `🔔 <b>АДМИН! ОТВЕТЬ! (${pingCount}/${TOTAL_PINGS})</b>`,
+                parse_mode: 'HTML',
+                disable_notification: false
+            }, data => {
+                const pid = data.result.message_id;
+                setTimeout(() => deleteMessage(chatId, pid), 1500);
+            });
+        }
 
         function sendPing() {
             if (window._hassleReloading) return;
             pingCount++;
-            if (lastMessageId) { deleteMessage(chatId, lastMessageId); lastMessageId = null; }
-            tgApi('sendMessage', {
-                chat_id: chatId,
-                text: `⚠️ <b>АДМИН! ОТВЕТЬ! (${pingCount}/${TOTAL_PINGS})</b>\n` +
-                      `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
-                      `<code>${adminMsg.replace(/</g, '&lt;')}</code>`,
-                parse_mode: 'HTML',
-                disable_notification: false,
-                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-            }, data => {
-                lastMessageId = data.result.message_id;
+
+            if (!mainMessageId) {
+                // Первый раз — отправляем основное сообщение с кнопками
+                tgApi('sendMessage', {
+                    chat_id: chatId,
+                    text: buildMainText(),
+                    parse_mode: 'HTML',
+                    disable_notification: false,
+                    reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+                }, data => {
+                    mainMessageId = data.result.message_id;
+                    if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
+                }, () => {
+                    debugLog(`[AdminSpam] Ошибка сети при первом пинге`);
+                    if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
+                });
+            } else {
+                // Следующие разы — редактируем счётчик (кнопки не двигаются)
+                tgApi('editMessageText', {
+                    chat_id: chatId,
+                    message_id: mainMessageId,
+                    text: buildMainText(),
+                    parse_mode: 'HTML',
+                    reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+                }, () => {}, () => {});
+
+                // Отдельный пинг со звуком — пропадёт сам
+                sendPingNotification();
+
                 if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
-            }, () => {
-                debugLog(`[AdminSpam] Ошибка сети при пинге ${pingCount}`);
-                if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
-            });
+            }
         }
 
         sendPing();
