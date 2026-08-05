@@ -1406,7 +1406,9 @@ function createButton(text, command) {
     return { text, callback_data: command };
 }
 // Универсальная функция для всех запросов к Telegram Bot API
-function tgApi(method, payload, onSuccess, onError) {
+// FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
+function tgApi(method, payload, onSuccess, onError, _retryCount) {
+    _retryCount = _retryCount || 0;
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/${method}`, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
@@ -1417,6 +1419,17 @@ function tgApi(method, payload, onSuccess, onError) {
                 if (onSuccess) onSuccess(data);
                 else debugLog(`tgApi ${method} OK`);
             } catch(e) { debugLog(`tgApi ${method} parse error: ${e.message}`); }
+        } else if (xhr.status === 429 && _retryCount < 3) {
+            // FIX: Telegram вернул "Too Many Requests" — ждём retry_after и повторяем
+            let retryAfter = 5;
+            try {
+                const errData = JSON.parse(xhr.responseText);
+                if (errData.parameters && errData.parameters.retry_after) {
+                    retryAfter = errData.parameters.retry_after;
+                }
+            } catch(e) {}
+            debugLog(`tgApi ${method} 429 — повтор через ${retryAfter}с (попытка ${_retryCount + 1}/3)`);
+            setTimeout(() => tgApi(method, payload, onSuccess, onError, _retryCount + 1), retryAfter * 1000);
         } else {
             debugLog(`tgApi ${method} error: ${xhr.status} ${xhr.responseText}`);
             if (onError) onError(xhr.status);
@@ -1448,10 +1461,20 @@ function answerCallbackQuery(callbackQueryId) {
         () => debugLog(`Callback_query ${callbackQueryId} подтверждён`));
 }
 // Функция спам-пингов при обнаружении администратора.
-// Отправляет 9 сообщений каждые 2 секунды — каждое удаляет предыдущее.
-// Следующий пинг запускается строго внутри onload, после получения message_id.
-// Последнее (9-е) сообщение остаётся навсегда.
+// Основное сообщение с кнопками стоит на месте (editMessage).
+// Короткие пинг-сообщения со звуком появляются и удаляются через 1.5 сек.
+// Защита от двойного запуска: если уже идут пинги — сбрасываем и перезапускаем.
+let _adminSpamActive = false;      // FIX: флаг активного цикла пингов
+let _adminSpamCancel = false;      // FIX: сигнал отмены текущего цикла
 function sendAdminSpamAlert(adminMsg) {
+    // FIX: если цикл уже идёт — отменяем старый и запускаем новый с актуальным сообщением
+    if (_adminSpamActive) {
+        _adminSpamCancel = true;
+        debugLog('[AdminSpam] Новый вызов — старый цикл отменён, перезапуск');
+    }
+    _adminSpamActive = true;
+    _adminSpamCancel = false;
+
     const TOTAL_PINGS = 9;
     const INTERVAL_MS = 2000;
     const replyMarkup = getNotificationReplyMarkup();
@@ -1481,7 +1504,11 @@ function sendAdminSpamAlert(adminMsg) {
         }
 
         function sendPing() {
-            if (window._hassleReloading) return;
+            // FIX: если запущен новый цикл — прекращаем старый
+            if (window._hassleReloading || _adminSpamCancel) {
+                _adminSpamActive = false;
+                return;
+            }
             pingCount++;
 
             if (!mainMessageId) {
@@ -1493,11 +1520,14 @@ function sendAdminSpamAlert(adminMsg) {
                     disable_notification: false,
                     reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
                 }, data => {
+                    if (_adminSpamCancel) { _adminSpamActive = false; return; }
                     mainMessageId = data.result.message_id;
                     if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
+                    else _adminSpamActive = false;
                 }, () => {
                     debugLog(`[AdminSpam] Ошибка сети при первом пинге`);
-                    if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
+                    if (pingCount < TOTAL_PINGS && !_adminSpamCancel) setTimeout(sendPing, INTERVAL_MS);
+                    else _adminSpamActive = false;
                 });
             } else {
                 // Следующие разы — редактируем счётчик (кнопки не двигаются)
@@ -1513,6 +1543,7 @@ function sendAdminSpamAlert(adminMsg) {
                 sendPingNotification();
 
                 if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
+                else _adminSpamActive = false; // FIX: сбрасываем флаг по завершении
             }
         }
 
@@ -4496,57 +4527,7 @@ function initializeChatMonitor() {
                 }, 1000);
             }
         }
-		// ОТЛАДКА: Выводим ВСЕ сообщения с цветом фракции МЗ
-		if (config.currentFaction === 'mz') {
-		    const mzColor = factions.mz.color;
-		    const normalizedMzColor = normalizeColor(mzColor);
-		    const normalizedMsgColor = normalizeColor(i);
-		    
-		    debugLog(`=== ОТЛАДКА МЗ ===`);
-		    debugLog(`Текущая фракция: ${config.currentFaction}`);
-		    debugLog(`Цвет фракции МЗ: ${mzColor} -> ${normalizedMzColor}`);
-		    debugLog(`Цвет сообщения: ${i} -> ${normalizedMsgColor}`);
-		    debugLog(`Радиус чата: ${chatRadius} (нужен CLOSE=${CHAT_RADIUS.CLOSE})`);
-		    debugLog(`Сообщение: "${msg}"`);
-		    debugLog(`govMessagesEnabled: ${config.govMessagesEnabled}`);
-		    
-		    // Проверяем совпадение цветов
-		    if (normalizedMzColor === normalizedMsgColor) {
-		        debugLog(`✅ ЦВЕТ СОВПАЛ! Проверяем regex...`);
-		        
-		        const govMessageRegex = new RegExp(`^\\- (.+?) \\{${mzColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
-		        debugLog(`Regex pattern: ${govMessageRegex}`);
-		        
-		        const govMatch = msg.match(govMessageRegex);
-		        if (govMatch) {
-		            debugLog(`✅ REGEX СРАБОТАЛ!`);
-		            debugLog(`Текст: ${govMatch[1]}, Отправитель: ${govMatch[2]}, ID: ${govMatch[3]}`);
-		        } else {
-		            debugLog(`❌ REGEX НЕ СРАБОТАЛ`);
-		            debugLog(`Пробуем упрощенный regex...`);
-		            
-		            // Пробуем более простой regex
-		            const simpleRegex = /\{([A-Fa-f0-9]{6})\}\(\{v:([^}]+)\}\)\[(\d+)\]/;
-		            const simpleMatch = msg.match(simpleRegex);
-		            if (simpleMatch) {
-		                debugLog(`✅ Упрощенный regex сработал!`);
-		                debugLog(`Цвет: ${simpleMatch[1]}, Имя: ${simpleMatch[2]}, ID: ${simpleMatch[3]}`);
-		            } else {
-		                debugLog(`❌ Даже упрощенный regex не сработал`);
-		            }
-		        }
-		        
-		        // Проверяем радиус
-		        if (chatRadius === CHAT_RADIUS.CLOSE) {
-		            debugLog(`✅ Радиус CLOSE подтвержден`);
-		        } else {
-		            debugLog(`❌ Радиус не CLOSE! Текущий: ${chatRadius}`);
-		        }
-		    } else {
-		        debugLog(`❌ Цвета не совпали`);
-		    }
-		    debugLog(`=== КОНЕЦ ОТЛАДКИ МЗ ===`);
-		}
+		// МЗ отладочный блок удалён
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
             factionColor = factions[config.currentFaction].color;
@@ -4574,7 +4555,7 @@ function initializeChatMonitor() {
                     sendChatInput("/c");
                     debugLog('Команда /c отправлена');
                 } catch (err) {
-                    const errorMsg = '❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>';
+                    const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>`; // FIX: были одинарные кавычки — переменные не подставлялись
                     debugLog(errorMsg);
                     sendToTelegram(errorMsg, false, null);
                 }
