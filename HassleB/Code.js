@@ -389,6 +389,14 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 housesCount: prop.houses    || 0,
                 bizCount:    prop.businesses|| 0,
                 carsCount:   prop.cars      || 0,
+                propertiesDetail: (s.properties || []).map(function(pr) {
+                    return {
+                        name:        pr.name || '',
+                        icon:        pr.icon || '',
+                        days:        pr.days || null,
+                        isApartment: !!(pr.name && (pr.name.indexOf('Квартира') !== -1 || pr.name.indexOf('квартира') !== -1)),
+                    };
+                }),
                 subscribe:   sub            || null,
                 buffs:       (s.buffs       || []).map(function(b) { return { text: b.text, leftTime: b.leftTime, debuff: !!b.debuff }; }),
                 jobs:        (s.jobs        || []).map(function(j) { return { id: j.id, title: j.title, lvl: j.lvl }; }),
@@ -513,6 +521,37 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 ? p.jobs.map(function(j){ return j.title + ' (ур.' + j.lvl + ')'; }).join(', ')
                 : '—';
 
+            // Donate из Vuex store
+            var donateLineNotif = '';
+            try {
+                var _sn = window.App && window.App.$store;
+                if (_sn) {
+                    var dn = _sn.getters['player/donate'];
+                    if (dn !== undefined && dn !== null && dn > 0) donateLineNotif = '├ 💎 Donate: ' + dn + '\n';
+                }
+            } catch(e) {}
+
+            // Детали имущества
+            var propDetailLines = '';
+            var _pList = p.propertiesDetail || [];
+            if (_pList.length > 0) {
+                _pList.forEach(function(pr, idx) {
+                    var isLast = idx === _pList.length - 1;
+                    var prefix = isLast ? '└' : '├';
+                    var typeLabel = pr.isApartment ? 'Квартира' : pr.name;
+                    var dDays = pr.days;
+                    var daysStr = dDays ? (dDays.current + '/' + dDays.max + ' дн.') : '—';
+                    var dangerIcon = dDays && dDays.isDanger ? ' ⚠️' : '';
+                    propDetailLines += prefix + ' ' + typeLabel + ': оплачен ' + daysStr + dangerIcon + '\n';
+                });
+                propDetailLines += 'Итого: Домов ' + (p.housesCount || 0) + '  Бизнесов ' + (p.bizCount || 0) + '  Машин ' + (p.carsCount || 0);
+            } else {
+                propDetailLines =
+                    '├ Домов: '    + (p.housesCount || 0) + '\n' +
+                    '├ Бизнесов: ' + (p.bizCount    || 0) + '\n' +
+                    '└ Машин: '    + (p.carsCount   || 0);
+            }
+
             var msg =
                 '📋 <b>Профиль загружен — ' + displayName + '</b>\n' +
                 '\n<b>🏛 Фракция / Звание</b>\n' +
@@ -526,13 +565,12 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 '\n<b>💰 Финансы</b>\n' +
                 '├ Наличные: '  + cash  + '\n' +
                 '├ Банк: '      + bank  + '\n' +
+                donateLineNotif +
                 '├ Телефон: '   + phone + '\n' +
                 '├ Баланс SIM: '+ simB  + '\n' +
                 '└ Подписка: '  + sub   + '\n' +
                 '\n<b>🏠 Имущество</b>\n' +
-                '├ Домов: '    + (p.housesCount || 0) + '\n' +
-                '├ Бизнесов: ' + (p.bizCount    || 0) + '\n' +
-                '└ Машин: '    + (p.carsCount   || 0) + '\n' +
+                propDetailLines + '\n' +
                 '\n<b>⚡ Баффы:</b> ' + buffsLine  + '\n' +
                 '<b>💀 Дебаффы:</b> ' + debuffsLine + '\n' +
                 '\n<b>💼 Работы:</b> ' + jobsLine;
@@ -1512,7 +1550,7 @@ function buildWelcomeAccountInfo() {
 
         // Данные часов / VIP / donate из Vuex store
         // Уровень убран отсюда — он уже есть в блоке Прогресс с полным XP-баром
-        let passedHours = '❓', vipLine = '', donateLine = '';
+        let passedHours = '❓', vipLine = '', donateVal = null;
         try {
             const _s = window.App && window.App.$store;
             if (_s) {
@@ -1522,7 +1560,7 @@ function buildWelcomeAccountInfo() {
                 if (hr !== undefined && hr !== null) passedHours = hr;
                 const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
                 if (vp && vp > 0) vipLine = `\n🎖 <b>VIP:</b> ${vipMap[vp] || 'VIP'}`;
-                if (dn !== undefined && dn !== null && dn > 0) donateLine = `\n💎 <b>Donate:</b> ${dn}`;
+                if (dn !== undefined && dn !== null && dn > 0) donateVal = dn;
             }
         } catch (e) { debugLog('[ACINFO] store err: ' + e.message); }
 
@@ -1543,7 +1581,7 @@ function buildWelcomeAccountInfo() {
         // ── Заголовок ─────────────────────────────────────────────
         let block = `\n\n📊 <b>Информация об аккаунте:</b>\n`;
         block += `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n`;
-        block += `🎭 <b>Скин:</b> ${skinId}  ${factionLabel}${vipLine}${donateLine}\n`;
+        block += `🎭 <b>Скин:</b> ${skinId}  ${factionLabel}${vipLine}\n`;
 
         // ── Фракция / Звание ──────────────────────────────────────
         block += `\n🏛 <b>Фракция / Звание:</b>\n`;
@@ -1562,15 +1600,30 @@ function buildWelcomeAccountInfo() {
         block += `\n💰 <b>Финансы:</b>\n`;
         block += `├ Нал: ${pCash}\n`;
         block += `├ Банк: ${pBank}\n`;
+        if (donateVal !== null) block += `├ 💎 Donate: ${donateVal}\n`;
         block += `├ Телефон: ${phone}\n`;
         block += `├ Баланс SIM: ${simB}\n`;
         block += `└ Подписка: ${sub}\n`;
 
         // ── Имущество ─────────────────────────────────────────────
-        block += `\n🏠 <b>Имущество:</b>  `;
-        block += `Домов: ${p.housesCount || 0}  |  `;
-        block += `Бизнесов: ${p.bizCount || 0}  |  `;
-        block += `Машин: ${p.carsCount || 0}`;
+        block += `\n🏠 <b>Имущество:</b>\n`;
+        const _propList = p.propertiesDetail || [];
+        if (_propList.length > 0) {
+            _propList.forEach((pr, idx) => {
+                const isLast = idx === _propList.length - 1;
+                const prefix = isLast ? '└' : '├';
+                const typeLabel = pr.isApartment ? 'Квартира' : pr.name;
+                const dDays = pr.days;
+                const daysStr = dDays ? `${dDays.current}/${dDays.max} дн.` : '—';
+                const dangerIcon = dDays && dDays.isDanger ? ' ⚠️' : '';
+                block += `${prefix} ${typeLabel}: оплачен ${daysStr}${dangerIcon}\n`;
+            });
+            block += `Итого: Домов ${p.housesCount || 0}  Бизнесов ${p.bizCount || 0}  Машин ${p.carsCount || 0}`;
+        } else {
+            block += `├ Домов: ${p.housesCount || 0}\n`;
+            block += `├ Бизнесов: ${p.bizCount || 0}\n`;
+            block += `└ Машин: ${p.carsCount || 0}`;
+        }
 
         // ── Баффы / Дебаффы / Работы ──────────────────────────────
         const buffsLine = (p.buffs && p.buffs.length)
@@ -1592,7 +1645,7 @@ function buildWelcomeAccountInfo() {
             const hunger = hInfo.hunger  !== undefined ? Math.round(hInfo.hunger)  + '%' : '—';
             const wantedCount = hInfo.wanted !== undefined ? hInfo.wanted : null;
             const wantedStr   = wantedCount !== null
-                ? (wantedCount > 0 ? '⭐'.repeat(wantedCount) : '✅ Нет') : '—';
+                ? (wantedCount > 0 ? '⭐'.repeat(wantedCount) : 'Нет') : '—';
 
             block += `\n\n❤️ <b>Состояние персонажа:</b>\n`;
             block += `├ HP: ${hp}  |  🛡 Броня: ${armour}\n`;
