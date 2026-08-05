@@ -219,6 +219,7 @@ const userConfig = {
 };
 const config = {
     ...userConfig,
+    botToken: window.ACCOUNT_TOKEN || DEFAULT_TOKEN, // FIX: botToken был undefined — AFK-статус и диалоги не отправлялись
     lastUpdateId: 0,
     activeUsers: {},
     lastPodbrosTime: 0,
@@ -2831,10 +2832,10 @@ function checkTelegramCommands() {
     if (window._hassleReloading) return;
     // У каждого аккаунта свой бот — race condition невозможен, random delay не нужен
     config.lastUpdateId = getSharedLastUpdateId();
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=25`;
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=10`; // FIX: 25→10с — при 4+ аккаунтах браузер лимитирует параллельные соединения, меньший timeout снижает задержку
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
-    xhr.timeout = 30000; // 30с — чуть больше чем timeout=25 у Telegram
+    xhr.timeout = 15000; // FIX: 30→15с соответственно
     xhr.onload = function() {
         if (xhr.status === 200) {
             try {
@@ -3117,7 +3118,10 @@ function processUpdates(updates) {
             const chatId = update.callback_query.message.chat.id;
             const messageId = update.callback_query.message.message_id;
             const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
-            // Определяем глобальные команды, которые должны применяться ко всем аккаунтам
+            // FIX: отвечаем на callback СРАЗУ — кнопка перестаёт крутиться мгновенно.
+            // Раньше это делалось в конце после всей обработки → задержка до нескольких секунд.
+            // dlg_* тоже нужно ответить здесь, иначе Dialog Monitor ответит позже сам.
+            answerCallbackQuery(callbackQueryId);
             // ── FIX: dlg_* коллбэки обрабатываются исключительно Dialog Monitor ──
             // Основной processUpdates их НЕ трогает — передаём дальше через continue
             if (message.startsWith('dlg_')) {
@@ -3333,9 +3337,7 @@ function processUpdates(updates) {
                 update.callback_query.message.reply_to_message.text.includes(displayName));
             if (!isForThisBot) {
                 debugLog(`Игнорируем callback_query, так как он не для этого бота (${displayName}): ${message}`);
-                // Всё равно подтверждаем, чтобы кнопка не висела
-                answerCallbackQuery(callbackQueryId);
-                continue;
+                continue; // answerCallbackQuery уже вызван в начале блока
             }
             // Обработка команд
             if (message.startsWith(`show_controls_`)) {
@@ -3741,8 +3743,7 @@ function processUpdates(updates) {
                 // Кнопка "Перезагрузить скрипт" — текущий аккаунт + broadcast остальным
                 reloadAllAccounts();
             }
-            // Подтверждаем callback_query после обработки
-            answerCallbackQuery(callbackQueryId);
+            // answerCallbackQuery уже вызван в самом начале блока callback_query
         }
     }
 }
@@ -5889,8 +5890,7 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
             `⚠️ <b>Нет активного диалога (${displayName})</b>\n` +
             `<i>Диалог уже закрыт или ещё не открыт</i>`,
             false, null);
-        answerCallbackQuery(callbackQueryId);
-        return;
+        return; // answerCallbackQuery уже вызван выше в processUpdates
     }
 
     // ── Button1 ───────────────────────────────────────────────
@@ -5938,8 +5938,7 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
             sendToTelegram(
                 `⚠️ <b>Диалог уже закрыт, ввод недоступен (${displayName})</b>`,
                 false, null);
-            answerCallbackQuery(callbackQueryId);
-            return;
+            return; // answerCallbackQuery уже вызван выше в processUpdates
         }
 
         dlg.awaitingInput = true;
@@ -5962,8 +5961,7 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
     } else if (data.startsWith(`dlg_noop_${uid}`)) {
         // Ничего не делаем
     }
-
-    answerCallbackQuery(callbackQueryId);
+    // answerCallbackQuery уже вызван выше в processUpdates
 }
 
 // ── Обёртка processUpdates ────────────────────────────────────
