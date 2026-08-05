@@ -84,8 +84,15 @@ const CHAT_RADIUS = {
     UNKNOWN: -1
 };
 function normalizeColor(color) {
+    // FIX: защита от undefined/null — системные сообщения иногда приходят без цвета
+    if (color === undefined || color === null) return '0x000000';
+    // FIX: если цвет пришёл как число (например 16420864 = 0xF68C00) — конвертируем через toString(16)
+    if (typeof color === 'number') {
+        return '0x' + color.toString(16).toUpperCase().padStart(6, '0').slice(-6);
+    }
     let normalized = color.toString().toUpperCase();
     if (normalized.startsWith('#')) normalized = normalized.slice(1);
+    if (normalized.startsWith('0X')) normalized = normalized.slice(2);
     if (normalized.length === 8) normalized = normalized.slice(0, 6);
     return '0x' + normalized;
 }
@@ -4707,11 +4714,8 @@ function initializeChatMonitor() {
             debugLog('Обнаружено потеря соединения!');
             sendToTelegram(`❌ Потеряно соединение с сервером (${displayName})`, false, null);
         }
-        // Проверка неактивности — цвет F68C00 (оранжевый системный) + текст
-        if (
-            normalizedMsgColor === '0xF68C00' &&
-            msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")
-        ) {
+        // Проверка неактивности — только по тексту (цвет может прийти как undefined у системных сообщений)
+        if (msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")) {
             debugLog('Обнаружено предупреждение о неактивности (цвет F68C00 подтверждён)!');
             const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(
