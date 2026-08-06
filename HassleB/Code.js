@@ -181,6 +181,19 @@ const factions = {
         }
     }
 };
+// Короткие русские названия фракций для отображения в Telegram
+const FACTION_NAMES = {
+    government: 'Правительство',
+    mz:         'МЗ',
+    trk:        'ТРК',
+    mo:         'МО',
+    mchs:       'МЧС',
+    mvd:        'МВД',
+    fsb:        'ФСБ'
+};
+function getFactionLabel(factionKey) {
+    return factionKey ? (FACTION_NAMES[factionKey] || factionKey.toUpperCase()) : null;
+}
 // END FACTIONS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -1633,7 +1646,7 @@ function buildWelcomeAccountInfo() {
         const server = config.accountInfo.server || '?';
         const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined)
             ? config.accountInfo.skinId : '❓';
-        const factionLabel = `[${config.currentFaction}]`;
+        const factionLabel = config.currentFaction ? `[${getFactionLabel(config.currentFaction)}]` : '';
 
         // Данные часов / VIP / donate из Vuex store
         // Уровень убран отсюда — он уже есть в блоке Прогресс с полным XP-баром
@@ -4602,16 +4615,7 @@ function initializeChatMonitor() {
             if (chatRadius === CHAT_RADIUS.CLOSE) {
                 if (checkGovMessageConditions(messageText, senderName, senderId)) {
                     const replyMarkup = getNotificationReplyMarkup();
-                    const factionNames = {
-                        government: 'Правительство',
-                        mz: 'МЗ',
-                        trk: 'ТРК',
-                        mo: 'МО',
-                        mchs: 'МЧС',
-                        mvd: 'МВД',
-                        fsb: 'ФСБ'
-                    };
-                    const factionLabel = factionNames[config.currentFaction] || 'фракции';
+                    const factionLabel = getFactionLabel(config.currentFaction) || 'фракции';
                     sendToTelegram(`🏛️ <b>${messageText}</b>\n👤 ${senderName} [ID: ${senderId}]\nСообщение от сотрудника [${factionLabel}] (${displayName})`, false, replyMarkup);
                 }
             }
@@ -5195,7 +5199,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     const _nick = config.accountInfo.nickname || 'Unknown';
                     const _server = config.accountInfo.server || '?';
                     const _skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '?';
-                    const _faction = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
+                    const _faction = config.currentFaction ? `[${getFactionLabel(config.currentFaction)}]` : '[не фракционный]';
                     const _cashChat = (_money && _money.money !== null) ? _money.money.toLocaleString() : '?';
                     const _bankChat = (_money && _money.bankMoney !== null) ? _money.bankMoney.toLocaleString() : '?';
                     const _posChat = _pos
