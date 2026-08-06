@@ -3437,8 +3437,6 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('prison_reconnect_', '');
             } else if (message.startsWith('prison_quit_')) {
                 callbackUniqueId = message.replace('prison_quit_', '');
-            } else if (message.startsWith('quick_rec5_')) {
-                callbackUniqueId = message.replace('quick_rec5_', '');
             } else if (message.startsWith('local_account_info_')) {
                 callbackUniqueId = message.replace('local_account_info_', '');
             }
@@ -3845,14 +3843,6 @@ function processUpdates(updates) {
                 deleteMessage(chatId, messageId);
                 setTimeout(() => {
                     sendChatInput("/q");
-                }, 500);
-            } else if (message.startsWith('quick_rec5_')) {
-                // Кнопка "Отправить /rec 5" из уведомления о 15-секундном ожидании
-                debugLog(`[15сек] Кнопка "/rec 5" нажата вручную`);
-                deleteMessage(chatId, messageId);
-                setTimeout(() => {
-                    sendChatInput("/rec 5");
-                    sendToTelegram(`🔄 <b>Отправлен /rec 5 (${displayName})</b>`, true, null);
                 }, 500);
             } else if (message.startsWith('local_account_info_')) {
                 // Одно объединённое сообщение — тот же формат что и в welcome-сообщении
@@ -4450,14 +4440,14 @@ function initializeChatMonitor() {
         };
     };
     window.OnChatAddMessage = function(e, i, t) {
-        debugLog(`Чат-сообщение: ${e} | Цвет: ${normalizeColor(i).replace('0x', '')} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
+        debugLog(`Чат-сообщение: ${e.replace(/\{[0-9A-Fa-f]{6}\}/g, '')} | Цвет: ${normalizeColor(i).replace('0x', '')} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
         const msg = String(e);
         const normalizedMsg = normalizeToCyrillic(msg);
         const lowerCaseMessage = normalizedMsg.toLowerCase();
         const currentTime = Date.now();
         const chatRadius = getChatRadius(i);
         // Для отладки, выводим сообщения в чат
-        console.log(msg); // сооб в чат
+        console.log(msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '')); // сооб в чат (без цветовых кодов)
         // Проверка сообщения "Текущее время:" для AFK
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
             handlePayDayTimeMessage();
@@ -4771,19 +4761,24 @@ function initializeChatMonitor() {
                 window.__afterRec5 = false; // сброс: следующее "потеряно" уже не от /rec 5
             }
         }
-        // ── Обработка: сервер требует подождать 15 секунд ──
-        // Появляется при слишком быстром входе (после /rec или обычного подключения)
-        if (msg.includes("Пожалуйста, подождите 15 секунд перед следующим входом на сервер")) {
-            debugLog('[15сек] Обнаружено сообщение о 15-секундном ожидании!');
-            const wait15Markup = {
-                inline_keyboard: [
-                    [createButton('🔄 Отправить /rec 5', `quick_rec5_${uniqueId}`)]
-                ]
-            };
+        // Вы были отключены от сервера (цвет BEBEBE)
+        if (msg.includes("Вы были отключены от сервера")) {
+            debugLog('Обнаружено отключение от сервера!');
+            if (!window.__afterRec5) {
+                const replyMarkup = getNotificationReplyMarkup();
+                sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>`, false, replyMarkup);
+            } else {
+                window.__afterRec5 = false; // после /rec 5 не дублируем
+            }
+        }
+        // Подождите 15 секунд перед следующим входом (цвет FF6600 — оранжевый, rate-limit сервера)
+        if (lowerCaseMessage.includes("подождите") && lowerCaseMessage.includes("секунд") && lowerCaseMessage.includes("входом на сервер")) {
+            debugLog('Обнаружен rate-limit сервера (15 секунд)!');
+            const replyMarkup = getNotificationReplyMarkup();
             sendToTelegram(
-                `⏱ <b>Подождите 15 секунд (${displayName})</b>\n` +
-                `Сервер требует паузу перед следующим входом`,
-                false, wait15Markup
+                `⏳ <b>Rate-limit сервера (${displayName})</b>\n` +
+                `<code>${msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/</g, '&lt;')}</code>`,
+                false, replyMarkup
             );
         }
         // Проверка неактивности — только по тексту (цвет может прийти как undefined у системных сообщений)
