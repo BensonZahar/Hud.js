@@ -902,6 +902,39 @@ function debugLog(message) {
         console.log(`[${currentTime}] [DEBUG][${config.accountInfo.nickname || 'Unknown'}]`, message);
     }
 }
+
+// ┌─────────────────────────────────────────────────────────┐
+// │  WRAPPER: window.sendChatInput — перехват ВСЕХ /rec     │
+// │  Логирует и ручные и скриптовые вызовы /rec             │
+// └─────────────────────────────────────────────────────────┘
+(function() {
+    const _orig = window.sendChatInput;
+    window.sendChatInput = function(cmd) {
+        if (typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim())) {
+            const now = new Date();
+            const ts = String(now.getHours()).padStart(2,'0') + ':' +
+                       String(now.getMinutes()).padStart(2,'0') + ':' +
+                       String(now.getSeconds()).padStart(2,'0') + '.' +
+                       String(now.getMilliseconds()).padStart(3,'0');
+            const nick = (typeof config !== 'undefined' && config.accountInfo && config.accountInfo.nickname)
+                         ? config.accountInfo.nickname : 'Unknown';
+            const source = window.__rec5Source || '✋ ВРУЧНУЮ пользователем';
+            console.log(`[${ts}] [REC5][${nick}] ➤ "${cmd}" | Источник: ${source}`);
+            window.__rec5Source = null;
+        }
+        return _orig.apply(this, arguments);
+    };
+})();
+
+// ┌─────────────────────────────────────────────────────────┐
+// │  HELPER: sendRec5(reason)                               │
+// │  Помечает источник и вызывает sendChatInput             │
+// └─────────────────────────────────────────────────────────┘
+function sendRec5(reason) {
+    window.__rec5Source = `🤖 Скрипт — ${reason}`;
+    sendChatInput("/rec 5");
+}
+
 function getCurrentTimeString() {
   const now = new Date();
   const hours = String(now.getHours()).padStart(2, '0');
@@ -2052,28 +2085,28 @@ function handleCycleEnd() {
 }
 function handleLevelUpEnd() {
     autoLoginConfig.enabled = false;
-    sendChatInput("/rec 5");
+    sendRec5("AFK LevelUp: шаг 1 — отключаемся на авторизацию");
     sendToTelegram(`🔄 <b>LevelUp: Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
     const timePassed = Date.now() - config.afkCycle.startTime;
     const timeToReconnect = 59 * 60 * 1000 - timePassed;
     if (timeToReconnect > 0) {
         setTimeout(() => {
             autoLoginConfig.enabled = true;
-            sendChatInput("/rec 5");
+            sendRec5("AFK LevelUp: шаг 2 — возвращаемся в игру");
             sendToTelegram(`🔄 <b>LevelUp: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
         }, timeToReconnect);
     }
 }
 function handleNoneReconnectEnd() {
     autoLoginConfig.enabled = false;
-    sendChatInput("/rec 5");
+    sendRec5("AFK None: шаг 1 — отключаемся на авторизацию");
     sendToTelegram(`🔄 <b>None: Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
     const timePassed = Date.now() - config.afkCycle.startTime;
     const timeToReconnect = 59 * 60 * 1000 - timePassed;
     if (timeToReconnect > 0) {
         setTimeout(() => {
             autoLoginConfig.enabled = true;
-            sendChatInput("/rec 5");
+            sendRec5("AFK None: шаг 2 — возвращаемся в игру");
             sendToTelegram(`🔄 <b>None: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
         }, timeToReconnect);
     }
@@ -2435,7 +2468,7 @@ function pdcEndPlay() {
 
     // Как в строе: отключаем автовход и /rec 5 — висим на авторизации
     autoLoginConfig.enabled = false;
-    sendChatInput('/rec 5');
+    sendRec5('PDC-цикл: строй — отключаемся на авторизацию (шаг 1)');
 
     // Реконнект: за 85 сек до :00 (= :58:35) + индивидуальный сдвиг 5–10 сек
     // Аккаунт #1 в :58:35, #2 в :58:40–45, ..., #8 в :59:20–27 — все до :00
@@ -2472,7 +2505,7 @@ function pdcReenter() {
 
     // Как в строе: включаем автовход и /rec 5 — заходим на сервер
     autoLoginConfig.enabled = true;
-    sendChatInput('/rec 5');
+    sendRec5('PDC-цикл: возвращаемся в игру после PayDay (шаг 2)');
 }
 
 // Вызывается из processSalaryAndBalance когда PayDay получен и цикл активен
@@ -3712,13 +3745,13 @@ function processUpdates(updates) {
             } else if (message.startsWith("autologin_off_")) {
                 // Уйти на авторизацию (отключить автовход + /rec 5)
                 autoLoginConfig.enabled = false;
-                sendChatInput("/rec 5");
+                sendRec5("Telegram: кнопка autologin_off — уходим на авторизацию");
                 sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
             } else if (message.startsWith("autologin_on_")) {
                 // Вернуться с авторизации (включить автовход + /rec 5)
                 autoLoginConfig.enabled = true;
-                sendChatInput("/rec 5");
+                sendRec5("Telegram: кнопка autologin_on — возвращаемся в игру");
                 sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
             } else if (message.startsWith("show_local_soob_options_")) {
@@ -3798,11 +3831,11 @@ function processUpdates(updates) {
                 // Переключение автовхода из меню Функции
                 if (autoLoginConfig.enabled) {
                     autoLoginConfig.enabled = false;
-                    sendChatInput("/rec 5");
+                    sendRec5("Telegram: local_autologin_toggle — отключаем автовход");
                     sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 } else {
                     autoLoginConfig.enabled = true;
-                    sendChatInput("/rec 5");
+                    sendRec5("Telegram: local_autologin_toggle — включаем автовход");
                     sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 }
                 setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 100);
@@ -3821,7 +3854,7 @@ function processUpdates(updates) {
                 sendToTelegram(`🔓 <b>Автовход включён (${displayName})</b>\nПодключаемся к серверу...`, false, null);
                 deleteMessage(chatId, messageId);
                 setTimeout(() => {
-                    sendChatInput("/rec 5");
+                    sendRec5("Telegram: prison_reconnect — выходим с авторизации в игру");
                 }, 500);
             } else if (message.startsWith('prison_quit_')) {
                 // Кнопка "Выйти с игры" — /q
@@ -4254,7 +4287,7 @@ function performStroiReconnect(msg) {
 
         // ШАГ 1: Немедленно отключаемся
         autoLoginConfig.enabled = false;
-        sendChatInput("/rec 5");
+        sendRec5("Строй: шаг 1 — немедленно уходим на авторизацию до PayDay");
 
         sendToTelegram(
             `📢 <b>Строй обнаружен (${displayName})</b>\n` +
@@ -4269,7 +4302,7 @@ function performStroiReconnect(msg) {
 
         stroiAutoLoginTimer = setTimeout(() => {
             autoLoginConfig.enabled = true;
-            sendChatInput("/rec 5");
+            sendRec5("Строй: шаг 2 — возвращаемся за 60 сек до PayDay");
 
             const loginMinutes = getCurrentMinutes();
             const loginSecs = new Date().getSeconds();
@@ -4322,7 +4355,7 @@ function exitAfterStroiPayDay(source) {
 
     // Немедленно выходим из игры
     autoLoginConfig.enabled = false;
-    sendChatInput("/rec 5");
+    sendRec5("Строй: PayDay получен — немедленно выходим из игры");
 
     const exitMinutes = getCurrentMinutes();
     const exitSecs = new Date().getSeconds();
@@ -4337,7 +4370,7 @@ function exitAfterStroiPayDay(source) {
     // Через 2 минуты включаем автовход и возвращаемся
     setTimeout(() => {
         autoLoginConfig.enabled = true;
-        sendChatInput("/rec 5");
+        sendRec5("Строй: возвращаемся в игру через 2 мин после PayDay");
 
         resetPayDayFlag(); // Сбрасываем флаг ожидания
 
@@ -4446,11 +4479,11 @@ function initializeChatMonitor() {
                 let restartMessage = `⚡ <b>Автоматически отправлено действие по рестарту (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
                 if (config.afkCycle.restartAction === 'rec') {
                     autoLoginConfig.enabled = false;
-                    sendChatInput("/rec 5");
+                    sendRec5("AFK-ночь: рестарт сервера — отключаемся (шаг 1)");
                     restartMessage = `🔄 <b>Отключен автовход и отправлен /rec 5 (${displayName})</b>\nПо условию AFK ночь: Сервер возобновит работу`;
                     setTimeout(() => {
                         autoLoginConfig.enabled = true;
-                        sendChatInput("/rec 5");
+                        sendRec5("AFK-ночь: рестарт сервера — возвращаемся через 5 мин (шаг 2)");
                         sendToTelegram(`🔄 <b>Включен автовход и отправлен /rec 5 (${displayName})</b>`);
                     }, 5 * 60 * 1000);
                 } else {
@@ -4515,7 +4548,7 @@ function initializeChatMonitor() {
             setTimeout(() => {
                 if (globalState.inPrison) {
                     autoLoginConfig.enabled = true;
-                    sendChatInput("/rec 5");
+                    sendRec5("Тюрьма: беспалевный реконнект через 2 мин");
                     sendToTelegram(`🔄 <b>Реконнект в тюрьме (${displayName})</b>\nОтправлен /rec — продолжаем отсидку`, true, null);
                     debugLog(`[PRISON] /rec 5 отправлен для беспалевного реконнекта`);
                 }
@@ -4555,7 +4588,7 @@ function initializeChatMonitor() {
                     false, prisonExitButtons
                 );
                 setTimeout(() => {
-                    sendChatInput("/rec 5");
+                    sendRec5("Тюрьма: срок отсижен — выходим на авторизацию (автовход выключен)");
                 }, 1000);
             } else {
                 sendToTelegram(`✅ <b>Срок отсижен! Выходим из игры (${displayName})</b>`, false, null);
@@ -4801,11 +4834,11 @@ function initializeChatMonitor() {
 function performReconnect(delay, silent = false) {
     if (config.autoReconnectEnabled) {
         autoLoginConfig.enabled = false;
-        sendChatInput("/rec 5");
+        sendRec5("performReconnect: шаг 1 — отключаем автовход и уходим");
         if (!silent) sendToTelegram(`🔄 <b>Отключен автовход и отправлен /rec 5 (${displayName})</b>`);
         setTimeout(() => {
             autoLoginConfig.enabled = true;
-            sendChatInput("/rec 5");
+            sendRec5(`performReconnect: шаг 2 — возвращаемся через ${delay}мс`);
             if (!silent) sendToTelegram(`🔄 <b>Включен автовход и отправлен /rec 5 (${displayName})</b>`);
         }, delay);
     } else {
