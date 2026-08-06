@@ -3859,11 +3859,14 @@ function processUpdates(updates) {
                 // Кнопка "Перезагрузить скрипт" — текущий аккаунт + broadcast остальным
                 reloadAllAccounts();
             } else if (message.startsWith('send_rec_cmd_')) {
-                // Кнопка "Отправить /rec 5" из уведомления rate-limit
+                // Кнопка "Отправить /rec 5" из уведомления rate-limit / disconnect
                 callbackUniqueId = message.replace('send_rec_cmd_', '');
                 if (callbackUniqueId === uniqueId) {
-                    sendChatInput('/rec 5');
-                    debugLog('[RateLimit] Отправлен /rec 5 по кнопке из Telegram');
+                    deleteMessage(chatId, messageId);
+                    setTimeout(() => {
+                        sendChatInput('/rec 5');
+                        debugLog('[RateLimit] Отправлен /rec 5 по кнопке из Telegram');
+                    }, 500);
                 }
             }
             // answerCallbackQuery уже вызван в самом начале блока callback_query
@@ -4599,7 +4602,17 @@ function initializeChatMonitor() {
             if (chatRadius === CHAT_RADIUS.CLOSE) {
                 if (checkGovMessageConditions(messageText, senderName, senderId)) {
                     const replyMarkup = getNotificationReplyMarkup();
-                    sendToTelegram(`🏛️ <b>Сообщение от сотрудника фракции (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`, false, replyMarkup);
+                    const factionNames = {
+                        government: 'Правительство',
+                        mz: 'МЗ',
+                        trk: 'ТРК',
+                        mo: 'МО',
+                        mchs: 'МЧС',
+                        mvd: 'МВД',
+                        fsb: 'ФСБ'
+                    };
+                    const factionLabel = factionNames[config.currentFaction] || 'фракции';
+                    sendToTelegram(`🏛️ <b>${messageText}</b>\n👤 ${senderName} [ID: ${senderId}]\nСообщение от сотрудника [${factionLabel}] (${displayName})`, false, replyMarkup);
                 }
             }
         }
