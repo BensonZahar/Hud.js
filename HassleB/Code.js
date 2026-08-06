@@ -3437,6 +3437,8 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('prison_reconnect_', '');
             } else if (message.startsWith('prison_quit_')) {
                 callbackUniqueId = message.replace('prison_quit_', '');
+            } else if (message.startsWith('quick_rec5_')) {
+                callbackUniqueId = message.replace('quick_rec5_', '');
             } else if (message.startsWith('local_account_info_')) {
                 callbackUniqueId = message.replace('local_account_info_', '');
             }
@@ -3843,6 +3845,14 @@ function processUpdates(updates) {
                 deleteMessage(chatId, messageId);
                 setTimeout(() => {
                     sendChatInput("/q");
+                }, 500);
+            } else if (message.startsWith('quick_rec5_')) {
+                // Кнопка "Отправить /rec 5" из уведомления о 15-секундном ожидании
+                debugLog(`[15сек] Кнопка "/rec 5" нажата вручную`);
+                deleteMessage(chatId, messageId);
+                setTimeout(() => {
+                    sendChatInput("/rec 5");
+                    sendToTelegram(`🔄 <b>Отправлен /rec 5 (${displayName})</b>`, true, null);
                 }, 500);
             } else if (message.startsWith('local_account_info_')) {
                 // Одно объединённое сообщение — тот же формат что и в welcome-сообщении
@@ -4760,6 +4770,21 @@ function initializeChatMonitor() {
             } else {
                 window.__afterRec5 = false; // сброс: следующее "потеряно" уже не от /rec 5
             }
+        }
+        // ── Обработка: сервер требует подождать 15 секунд ──
+        // Появляется при слишком быстром входе (после /rec или обычного подключения)
+        if (msg.includes("Пожалуйста, подождите 15 секунд перед следующим входом на сервер")) {
+            debugLog('[15сек] Обнаружено сообщение о 15-секундном ожидании!');
+            const wait15Markup = {
+                inline_keyboard: [
+                    [createButton('🔄 Отправить /rec 5', `quick_rec5_${uniqueId}`)]
+                ]
+            };
+            sendToTelegram(
+                `⏱ <b>Подождите 15 секунд (${displayName})</b>\n` +
+                `Сервер требует паузу перед следующим входом`,
+                false, wait15Markup
+            );
         }
         // Проверка неактивности — только по тексту (цвет может прийти как undefined у системных сообщений)
         if (msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")) {
