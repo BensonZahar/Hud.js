@@ -3858,6 +3858,13 @@ function processUpdates(updates) {
             } else if (message.startsWith('global_reload_script_')) {
                 // Кнопка "Перезагрузить скрипт" — текущий аккаунт + broadcast остальным
                 reloadAllAccounts();
+            } else if (message.startsWith('send_rec_cmd_')) {
+                // Кнопка "Отправить /rec 5" из уведомления rate-limit
+                callbackUniqueId = message.replace('send_rec_cmd_', '');
+                if (callbackUniqueId === uniqueId) {
+                    sendChatInput('/rec 5');
+                    debugLog('[RateLimit] Отправлен /rec 5 по кнопке из Telegram');
+                }
             }
             // answerCallbackQuery уже вызван в самом начале блока callback_query
         }
@@ -4761,25 +4768,42 @@ function initializeChatMonitor() {
                 window.__afterRec5 = false; // сброс: следующее "потеряно" уже не от /rec 5
             }
         }
+        // Подождите 15 секунд перед следующим входом (цвет FF6600 — оранжевый, rate-limit сервера)
+        if (lowerCaseMessage.includes("подождите") && lowerCaseMessage.includes("секунд") && lowerCaseMessage.includes("входом на сервер")) {
+            debugLog('Обнаружен rate-limit сервера (15 секунд)!');
+            window.__afterRateLimit = true; // Флаг: следующий disconnect — следствие rate-limit, подавить его
+            const rateLimitMarkup = {
+                inline_keyboard: [
+                    [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
+                    [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+                ]
+            };
+            sendToTelegram(
+                `⏳ <b>Rate-limit сервера (${displayName})</b>\n` +
+                `<code>${msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/</g, '&lt;')}</code>`,
+                false, rateLimitMarkup
+            );
+        }
         // Вы были отключены от сервера (цвет BEBEBE)
         if (msg.includes("Вы были отключены от сервера")) {
             debugLog('Обнаружено отключение от сервера!');
             if (!window.__afterRec5) {
-                const replyMarkup = getNotificationReplyMarkup();
-                sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>`, false, replyMarkup);
+                if (window.__afterRateLimit) {
+                    // Это отключение — прямое следствие rate-limit, уже уведомили выше
+                    debugLog('Отключение после rate-limit — повторное уведомление подавлено');
+                    window.__afterRateLimit = false; // сброс флага
+                } else {
+                    const disconnectMarkup = {
+                        inline_keyboard: [
+                            [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
+                            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+                        ]
+                    };
+                    sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>`, false, disconnectMarkup);
+                }
             } else {
                 window.__afterRec5 = false; // после /rec 5 не дублируем
             }
-        }
-        // Подождите 15 секунд перед следующим входом (цвет FF6600 — оранжевый, rate-limit сервера)
-        if (lowerCaseMessage.includes("подождите") && lowerCaseMessage.includes("секунд") && lowerCaseMessage.includes("входом на сервер")) {
-            debugLog('Обнаружен rate-limit сервера (15 секунд)!');
-            const replyMarkup = getNotificationReplyMarkup();
-            sendToTelegram(
-                `⏳ <b>Rate-limit сервера (${displayName})</b>\n` +
-                `<code>${msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/</g, '&lt;')}</code>`,
-                false, replyMarkup
-            );
         }
         // Проверка неактивности — только по тексту (цвет может прийти как undefined у системных сообщений)
         if (msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")) {
