@@ -3057,8 +3057,8 @@ function processUpdates(updates) {
                 if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`) && 
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
-                    // Очищаем pendingInputs чтобы iOS-фоллбэк не сработал повторно
-                    delete pendingInputs[`${chatId}_${uniqueId}`];
+                    // Очищаем pendingInputs для ВСЕХ аккаунтов в этом чате чтобы iOS-фоллбэк не сработал повторно
+                    Object.keys(pendingInputs).forEach(k => { if (k.startsWith(`${chatId}_`)) delete pendingInputs[k]; });
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка сообщения: ${textToSend}`);
                         try {
@@ -3076,8 +3076,8 @@ function processUpdates(updates) {
                 if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`) && 
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
-                    // Очищаем pendingInputs чтобы iOS-фоллбэк не сработал повторно
-                    delete pendingInputs[`${chatId}_${uniqueId}`];
+                    // Очищаем pendingInputs для ВСЕХ аккаунтов в этом чате чтобы iOS-фоллбэк не сработал повторно
+                    Object.keys(pendingInputs).forEach(k => { if (k.startsWith(`${chatId}_`)) delete pendingInputs[k]; });
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка ответа: ${textToSend}`);
                         try {
