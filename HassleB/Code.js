@@ -55,18 +55,7 @@ const globalState = {
 };
 // END GLOBAL STATE MODULE //
 
-// ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: PENDING INPUTS  (iOS fix)                       ║
-// ║  Описание: Хранилище ожидаемых вводов без reply          ║
-// ║             (обход ограничений iOS — нет reply_to)       ║
-// ║  Зависимости: нет                                        ║
-// ╚══════════════════════════════════════════════════════════╝
-// START PENDING INPUTS MODULE (iOS fix) //
-// Хранит ожидаемые вводы для совместимости с iOS (без reply)
-// Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
-const pendingInputs = {};
-const PENDING_INPUT_TTL = 45 * 1000; // 45 секунд (было 5 минут — слишком долго для мультиаккаунта)
-// END PENDING INPUTS MODULE //
+
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: CHAT RADIUS                                     ║
@@ -2917,8 +2906,8 @@ function getNotificationReplyMarkup() {
 // ║             от пользователя в Telegram.                  ║
 // ║             Команды: /hb, /afk, /rec, /stop, /msg и др. ║
 // ║             Точка входа: processUpdates()                ║
-// ║  Зависимости: config, globalState, pendingInputs,        ║
-// ║               displayName, uniqueId, debugLog,           ║
+// ║  Зависимости: config, globalState, displayName,          ║
+// ║               uniqueId, debugLog,                        ║
 // ║               sendToTelegram, editMessageText,           ║
 // ║               deleteMessage, answerCallbackQuery,        ║
 // ║               createButton, sendChatInput,               ║
@@ -2931,7 +2920,7 @@ function getNotificationReplyMarkup() {
 let _pollXhr = null;
 
 // Прерывает текущий long-poll и немедленно перезапускает с timeout=0.
-// Вызывать сразу после создания pendingInputs — освобождает соединение для срочных API-вызовов.
+// Вызывать перед sendMessage — освобождает соединение для срочных API-вызовов.
 function _abortPollAndRestartFast() {
     if (_pollXhr) {
         _pollXhr.abort();
@@ -2945,19 +2934,11 @@ function checkTelegramCommands() {
     if (window._hassleReloading) return;
     config.lastUpdateId = getSharedLastUpdateId();
 
-    // Динамический таймаут:
-    // • pendingInputs не пуст → timeout=0 (мгновенный опрос, соединение освобождается сразу)
-    //   Освобождает слоты браузера для sendMessage/answerCallbackQuery при ожидании ввода.
-    // • обычный режим → timeout=1 (минимальное ожидание: Telegram отвечает мгновенно при
-    //   новом апдейте, а в холостую ждёт не 5с а 1с → кнопки реагируют быстрее)
-    const hasPending = Object.keys(pendingInputs).length > 0;
-    const pollTimeout = hasPending ? 0 : 1;
-
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=${pollTimeout}`;
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=1`;
     const xhr = new XMLHttpRequest();
     _pollXhr = xhr;
     xhr.open('GET', url, true);
-    xhr.timeout = hasPending ? 3000 : 4000; // XHR timeout чуть больше poll timeout
+    xhr.timeout = 4000;
     xhr.onload = function() {
         if (_pollXhr === xhr) _pollXhr = null;
         if (xhr.status === 200) {
@@ -2970,8 +2951,7 @@ function checkTelegramCommands() {
                 debugLog('Ошибка парсинга ответа Telegram:', e);
             }
         }
-        // В режиме ожидания — пауза 50мс между запросами чтобы не спамить Telegram
-        setTimeout(checkTelegramCommands, hasPending ? 50 : 0);
+        setTimeout(checkTelegramCommands, 0);
     };
     xhr.onerror = function(error) {
         if (_pollXhr === xhr) _pollXhr = null;
@@ -3016,40 +2996,6 @@ function processUpdates(updates) {
 
         if (update.message) {
             const message = update.message.text ? update.message.text.trim() : '';
-            // ===== iOS FIX: Проверяем pendingInputs если нет reply_to_message =====
-            if (!update.message.reply_to_message && message) {
-                const pendingKey = `${chatId}_${uniqueId}`;
-                const pending = pendingInputs[pendingKey];
-                if (pending && (Date.now() - pending.timestamp < PENDING_INPUT_TTL)) {
-                    // Доп. защита: сообщение пользователя должно быть отправлено ПОСЛЕ создания pending-записи
-                    const msgDate = (update.message.date || 0) * 1000; // Telegram date в секундах
-                    if (msgDate < pending.timestamp) {
-                        debugLog(`[${displayName}] (iOS) Пропуск устаревшей pending-записи: сообщение (${msgDate}) старше pending (${pending.timestamp})`);
-                    } else {
-                    delete pendingInputs[pendingKey];
-                    if (pending.type === 'chat_message') {
-                        debugLog(`[${displayName}] (iOS) Отправка сообщения: ${message}`);
-                        try {
-                            sendChatInput(message);
-                            sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${message.replace(/</g, '&lt;')}</code>`, false, null);
-                        } catch (err) {
-                            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`, false, null);
-                        }
-                        continue;
-                    } else if (pending.type === 'admin_reply') {
-                        debugLog(`[${displayName}] (iOS) Отправка ответа: ${message}`);
-                        try {
-                            sendChatInput(message);
-                            sendToTelegram(`✅ <b>Ответ отправлен ${displayName}:</b>\n<code>${message.replace(/</g, '&lt;')}</code>`, false, null);
-                        } catch (err) {
-                            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ответ\n<code>${err.message}</code>`, false, null);
-                        }
-                        continue;
-                    }
-                    }
-                }
-            }
-            // ===== END iOS FIX =====
             // Проверяем, является ли сообщение ответом на запрос ввода
             if (update.message.reply_to_message) {
                 const replyToText = update.message.reply_to_message.text || '';
@@ -3057,8 +3003,6 @@ function processUpdates(updates) {
                 if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`) && 
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
-                    // Очищаем pendingInputs для ВСЕХ аккаунтов в этом чате чтобы iOS-фоллбэк не сработал повторно
-                    Object.keys(pendingInputs).forEach(k => { if (k.startsWith(`${chatId}_`)) delete pendingInputs[k]; });
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка сообщения: ${textToSend}`);
                         try {
@@ -3076,8 +3020,6 @@ function processUpdates(updates) {
                 if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`) && 
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
-                    // Очищаем pendingInputs для ВСЕХ аккаунтов в этом чате чтобы iOS-фоллбэк не сработал повторно
-                    Object.keys(pendingInputs).forEach(k => { if (k.startsWith(`${chatId}_`)) delete pendingInputs[k]; });
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка ответа: ${textToSend}`);
                         try {
@@ -3479,10 +3421,6 @@ function processUpdates(updates) {
                 hideControlsMenu(chatId, messageId);
             } else if (message.startsWith(`request_chat_message_`)) {
                 const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)\n🔑 ID: ${uniqueId}`;
-                // iOS fix: сохраняем ожидание ввода
-                config.chatIds.forEach(cId => {
-                    pendingInputs[`${cId}_${uniqueId}`] = { type: 'chat_message', timestamp: Date.now() };
-                });
                 // Прерываем текущий long-poll — освобождаем соединение для sendMessage
                 _abortPollAndRestartFast();
                 sendToTelegram(requestMsg, false, {
@@ -3594,10 +3532,6 @@ function processUpdates(updates) {
                 }
             } else if (message.startsWith("admin_reply_")) {
                 const requestMsg = `✉️ Введите ответ для ${displayName}:\n🔑 ID: ${uniqueId}`;
-                // iOS fix: сохраняем ожидание ввода
-                config.chatIds.forEach(cId => {
-                    pendingInputs[`${cId}_${uniqueId}`] = { type: 'admin_reply', timestamp: Date.now() };
-                });
                 // Прерываем текущий long-poll — освобождаем соединение для sendMessage
                 _abortPollAndRestartFast();
                 sendToTelegram(requestMsg, false, {
@@ -5557,12 +5491,10 @@ console.log('[HB Menu] Система меню успешно загружена
 // ║  Описание: Перехват серверных диалогов игры и управление ║
 // ║             ими через Telegram.                          ║
 // ║             Типы: LIST, TABLIST, INPUT, PASSWORD, MSGBOX ║
-// ║             iOS fix: pendingInputs без reply_to          ║
-// ║  Зависимости: config, pendingInputs, displayName,        ║
-// ║               uniqueId, debugLog, sendToTelegram,        ║
-// ║               deleteMessage, answerCallbackQuery,        ║
-// ║               createButton, processUpdates,              ║
-// ║               setSharedLastUpdateId, PENDING_INPUT_TTL   ║
+// ║  Зависимости: config, displayName, uniqueId, debugLog,   ║
+// ║               sendToTelegram, deleteMessage,             ║
+// ║               answerCallbackQuery, createButton,         ║
+// ║               processUpdates, setSharedLastUpdateId      ║
 // ╚══════════════════════════════════════════════════════════╝
 
 
@@ -6088,13 +6020,6 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
             `<b>"${dlgHtml(dlg.title)}"</b> (${displayName}):\n` +
             `🔑 DLG_UID: ${uid}`;
 
-        // iOS fix — pendingInput без reply_to_message
-        config.chatIds.forEach(cId => {
-            pendingInputs[`dlg_input_${cId}_${uid}`] = {
-                type: 'dialog_input', timestamp: Date.now()
-            };
-        });
-
         sendToTelegram(prompt, false, { force_reply: true });
 
     // ── Noop (счётчик страниц) ────────────────────────────────
@@ -6130,7 +6055,6 @@ processUpdates = function(updates) {
 
             /** Вспомогательная функция отправки ввода в диалог */
             function processDlgInput(text) {
-                delete pendingInputs[`dlg_input_${msgChatId}_${uniqueId}`];
                 dlg.awaitingInput = false;
 
                 // FIX v2: Проверяем активность диалога перед ответом
@@ -6163,18 +6087,6 @@ processUpdates = function(updates) {
                 }
             }
 
-            // Вариант 2: iOS fix (нет reply_to_message, но есть pendingInput)
-            if (!consumed && !update.message.reply_to_message && msgText) {
-                const pendingKey = `dlg_input_${msgChatId}_${uniqueId}`;
-                const pending    = pendingInputs[pendingKey];
-                if (pending && (Date.now() - pending.timestamp < PENDING_INPUT_TTL)) {
-                    const msgDate = (update.message.date || 0) * 1000;
-                    if (msgDate >= pending.timestamp && dlg.awaitingInput) {
-                        processDlgInput(msgText);
-                        consumed = true;
-                    }
-                }
-            }
         }
 
         // ── Callback-query: dlg_* ───────────────────────────────
