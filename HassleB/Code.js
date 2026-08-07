@@ -321,6 +321,8 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
     'use strict';
     var _fetching  = false;
     var _origCursor = null, _origLabel = null, _patchActive = false, _obs = null;
+    // Счётчик повторов хранится в globalState — доступен снаружи IIFE
+    if (!globalState.profileRetry) globalState.profileRetry = 0;
 
     // ── Скрываем курсор меню и ники не пропадают ──
     function _applyPatch() {
@@ -470,11 +472,25 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
             if (data) {
                 Object.assign(config.accountInfo.profile, data);
                 config.accountInfo.profile.loaded = true;
+                globalState.profileRetry = 0; // сбрасываем счётчик — успех
                 debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
                 // Обновляем приветственное сообщение с полными данными профиля
                 setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
             } else {
                 debugLog('[Profile] ⚠️ Профиль не получен — данные недоступны');
+                if (globalState.profileRetry < 3) {
+                    globalState.profileRetry++;
+                    var retryDelaySec = globalState.profileRetry * 15; // 15с, 30с, 45с
+                    debugLog('[Profile] 🔄 Повтор через ' + retryDelaySec + 'с (попытка ' + globalState.profileRetry + '/3)');
+                    // Обновляем сообщение — покажем частичные данные (фракция/скин уже известны)
+                    setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
+                    setTimeout(function() { loadPlayerProfile(callback); }, retryDelaySec * 1000);
+                } else {
+                    globalState.profileRetry = 0;
+                    debugLog('[Profile] ❌ Все попытки загрузки профиля исчерпаны');
+                    // Всё равно обновляем сообщение — хотя бы скин/фракция отобразятся
+                    setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
+                }
             }
             if (callback) callback(data ? config.accountInfo.profile : null);
         }
@@ -1621,11 +1637,29 @@ function buildWelcomeAccountInfo() {
     try {
         const p = config.accountInfo.profile;
 
-        // Если фракция ещё не определена или профиль не загружен — не показываем частичные данные
+        // Если фракция или профиль ещё не готовы
         if (!config.currentFaction || !p || !p.loaded) {
             const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
                 ? globalState.sessionLog.slice(-8).map(e => `<code>${e}</code>`).join('\n')
                 : '<i>Нет событий</i>';
+
+            // Скин и фракция уже определены — показываем частичные данные
+            if (config.currentFaction && config.accountInfo.skinId) {
+                const fLabel = getFactionLabel(config.currentFaction);
+                const nick   = config.accountInfo.nickname || '—';
+                const srv    = config.accountInfo.server   || '?';
+                const skin   = config.accountInfo.skinId;
+                const retryNum = globalState.profileRetry || 0;
+                const retryTip = retryNum > 0
+                    ? `\n🔄 <i>Повтор загрузки (попытка ${retryNum}/3)...</i>`
+                    : `\n⏳ <i>Данные профиля загружаются...</i>`;
+                return `\n\n📊 <b>Информация об аккаунте:</b>\n` +
+                       `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${srv}\n` +
+                       `🎭 <b>Скин:</b> ${skin}  [${fLabel}]` +
+                       retryTip +
+                       `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
+            }
+
             return `\n\n📊 <i>Информация об аккаунте ещё не загружена</i>` +
                    `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
         }
