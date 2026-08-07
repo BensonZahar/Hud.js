@@ -4809,6 +4809,10 @@ function initializeChatMonitor() {
                     // Это отключение — прямое следствие rate-limit, уже уведомили выше
                     debugLog('Отключение после rate-limit — повторное уведомление подавлено');
                     window.__afterRateLimit = false; // сброс флага
+                } else if (window.__afterAuthDialog) {
+                    // Это отключение — уже показано в диалоге авторизации, дубль не нужен
+                    debugLog('Отключение после диалога авторизации — повторное уведомление подавлено');
+                    window.__afterAuthDialog = false; // сброс флага
                 } else {
                     const disconnectMarkup = {
                         inline_keyboard: [
@@ -5954,6 +5958,14 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             } else {
                 items = allItems;
             }
+        }
+
+        // Если диалог содержит сообщение об авторизации/отключении — ставим флаг,
+        // чтобы подавить дублирующее уведомление "Вы были отключены от сервера"
+        const _dlgAllText = (title + ' ' + info + ' ' + contentText).toLowerCase();
+        if (_dlgAllText.includes('авторизац') || _dlgAllText.includes('отключены от сервера')) {
+            window.__afterAuthDialog = true;
+            debugLog('[DLG] Диалог авторизации/отключения — флаг __afterAuthDialog установлен');
         }
 
         // Обновляем состояние
