@@ -18,8 +18,8 @@ const _ALLOWED_NICKS = [
 	"Victoria_West",
     "Murad_Sixseven",
 	// "Shine_Reinhartz",
-	"Sergo_Chuk",
-	"Rich_Morales",
+	"Sergo_ Chuk",
+	"Fura_Morales",
 	"Dima_Borzyk",
 	"Sergei_Karganov",
 	"Arslanbei_Dragon"
