@@ -4854,5 +4854,190 @@ window._mvdLoadPlayerProfile = loadPlayerProfile;
     console.log('[TEST] 📋 /are_s <0-600> - вручную выставить уровень стиля одежды');
 })();
 
+// ==================== /SCC — БЛОК АРЕСТОВАННЫХ ПРЕСТУПНИКОВ ====================
+// /scc         → выбор периода → таблица TOP-20 с A/D навигацией (как серверная)
+// /scc <число> → то же самое, но в список вставляется свой ник с указанным числом
+(function () {
+
+    // ── Dialog ID (уникальные, не пересекаются с основными диалогами) ──────────
+    var SCC_PERIOD_DLG = 695;   // список выбора временного периода
+    var SCC_TABLE_DLG  = 696;   // таблица TABLIST_HEADERS
+
+    // ── Временные периоды (копия с сервера) ─────────────────────────────────────
+    var SCC_PERIODS = [
+        'За последний час',
+        'За сегодня',
+        'За последние 3 дня',
+        'За последние 7 дней',
+        'За последние 30 дней',
+        'За всё время'
+    ];
+
+    // ── Базовые данные (из скриншота, строка за строкой) ────────────────────────
+    var SCC_BASE = [
+        { nick: 'Stepa_Bambino',       count: 50 },
+        { nick: 'Don_Royale',          count: 44 },
+        { nick: 'Shine_Reinhartz',     count: 43 },
+        { nick: 'Ilyha_Prime',         count: 37 },
+        { nick: 'Kasper_Winston',      count: 32 },
+        { nick: 'Finter_Danter',       count: 29 },
+        { nick: 'Vadim_Berkutov',      count: 28 },
+        { nick: 'Exstazzy_Freimovich', count: 27 },
+        { nick: 'Hamallian_Nagasaki',  count: 24 },
+        { nick: 'Dmitry_Chipkin',      count: 23 },
+        { nick: 'Skovel_Bartosh',      count: 21 },
+        { nick: 'Luis_Janvier',        count: 21 },
+        { nick: 'Miko_Hasanov',        count: 20 },
+        { nick: 'Bonaparte_Syncrage',  count: 19 },
+        { nick: 'Loker_Jerkmeoff',     count: 19 },
+        { nick: 'Sarkis_Manucharov',   count: 18 },
+        { nick: 'Denis_Veratti',       count: 18 },
+        { nick: 'Adusik_Ponal',        count: 18 },
+        { nick: 'Bodya_Shevchenky',    count: 18 },
+        { nick: 'Aekas_Blesses',       count: 17 }
+    ];
+
+    // ── Состояние ────────────────────────────────────────────────────────────────
+    var _sccMyCount = null;   // число из /scc N (null = не задано)
+    var _sccOpen    = false;  // true пока диалог /scc активен (блокирует посторонние ID)
+
+    // ── Получить свой ник из стора ───────────────────────────────────────────────
+    function _sccGetMyNick() {
+        try {
+            var n = window.App && window.App.$store &&
+                    window.App.$store.getters &&
+                    window.App.$store.getters['player/nickName'];
+            if (n && n !== 'Name_Surname') return n;
+        } catch (e) {}
+        return null;
+    }
+
+    // ── Построить список для таблицы ────────────────────────────────────────────
+    // Если задан _sccMyCount — вставляем себя в нужную позицию после сортировки.
+    function _sccBuildList() {
+        var list = SCC_BASE.map(function (e) { return { nick: e.nick, count: e.count }; });
+        if (_sccMyCount !== null) {
+            var myNick = _sccGetMyNick();
+            if (myNick) {
+                // Убираем свой ник, если случайно уже есть в базе
+                list = list.filter(function (e) { return e.nick !== myNick; });
+                list.push({ nick: myNick, count: _sccMyCount });
+                // Сортируем по убыванию (как на сервере)
+                list.sort(function (a, b) { return b.count - a.count; });
+            }
+        }
+        return list;
+    }
+
+    // ── Показать диалог выбора периода ──────────────────────────────────────────
+    function _sccShowPeriod() {
+        _sccOpen = true;
+        var content = SCC_PERIODS.map(function (p, i) {
+            return (i + 1) + '. ' + p;
+        }).join('<n>');
+        // style 2 = LIST, кнопки "Далее" / "Назад" — точно как на сервере
+        window.addDialogInQueue(
+            '[' + SCC_PERIOD_DLG + ',2,"МВД | Арестованные преступники","","Далее","Назад",0,0]',
+            content,
+            0
+        );
+        console.log('[SCC] Диалог выбора периода открыт');
+    }
+
+    // ── Показать таблицу арестованных ───────────────────────────────────────────
+    function _sccShowTable() {
+        var list = _sccBuildList();
+        // style 5 = TABLIST_HEADERS
+        // Первая строка — заголовки (разделитель колонок <t>), дальше строки данных (<n>)
+        // Одна кнопка "Назад" — как в оригинале
+        var content = 'Имя<t>Количество';
+        list.forEach(function (e, i) {
+            content += '<n>' + (i + 1) + '. ' + e.nick + '<t>' + e.count;
+        });
+        window.addDialogInQueue(
+            '[' + SCC_TABLE_DLG + ',5,"Количество арестованных преступников","","Назад","",0,0]',
+            content,
+            0
+        );
+        console.log('[SCC] Таблица арестованных открыта (своё число: ' + _sccMyCount + ')');
+    }
+
+    // ── Перехват sendChatInput ───────────────────────────────────────────────────
+    var _sccPrevChat = window.sendChatInput;
+    window.sendChatInput = function (text) {
+        if (text && /^\/scc(\s|$)/i.test(text.trim())) {
+            var parts = text.trim().split(/\s+/);
+            var rawN  = parseInt(parts[1], 10);
+            _sccMyCount = (!isNaN(rawN) && rawN >= 0) ? rawN : null;
+            _sccShowPeriod();
+            console.log('[SCC] Команда: ' + text.trim() + ' | своё число: ' + _sccMyCount);
+            return;
+        }
+        return _sccPrevChat.apply(this, arguments);
+    };
+    sendChatInput = window.sendChatInput; // синхронизируем локальный alias
+
+    // ── Перехват sendClientEvent (OnDialogResponse для наших ID) ────────────────
+    var _sccPrevClientEvent = window.sendClientEvent;
+    window.sendClientEvent = function (event) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        if (args[0] === 'OnDialogResponse' && _sccOpen) {
+            var dlgId    = parseInt(args[1], 10);
+            var response = parseInt(args[2], 10);
+            // 1 = левая кнопка (Далее / Назад), 0 = правая кнопка / ESC
+
+            if (dlgId === SCC_PERIOD_DLG) {
+                if (response === 1) {
+                    // "Далее" — показать таблицу
+                    setTimeout(_sccShowTable, 50);
+                } else {
+                    // "Назад" / ESC — закрываем сессию
+                    _sccOpen = false;
+                    console.log('[SCC] Закрыт (выбор периода отменён)');
+                }
+                return; // не передаём в движок
+            }
+
+            if (dlgId === SCC_TABLE_DLG) {
+                // Кнопка "Назад" (response=1) или ESC (response=0) — оба ведут назад к периоду
+                setTimeout(_sccShowPeriod, 50);
+                return; // не передаём в движок
+            }
+        }
+        return _sccPrevClientEvent.apply(this, arguments);
+    };
+    sendClientEvent = window.sendClientEvent;
+
+    // ── Перехват sendClientEventHandle (A/D навигация в таблице) ────────────────
+    // Движок шлёт OnMultiDialogClickNavigButton ПЕРЕД OnDialogResponse при нажатии A/D.
+    // direction: 0 = A (назад), 1 = D (вперёд)
+    var _sccPrevEventHandle = window.sendClientEventHandle;
+    window.sendClientEventHandle = function (event) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        if (args[0] === 'OnMultiDialogClickNavigButton' && _sccOpen) {
+            var direction = parseInt(args[1], 10);
+            var dlgId     = parseInt(args[2], 10);
+
+            if (dlgId === SCC_TABLE_DLG) {
+                if (direction === 0) {
+                    // A — назад к выбору периода
+                    console.log('[SCC] A-навигация → возврат к выбору периода');
+                    setTimeout(_sccShowPeriod, 50);
+                } else {
+                    // D — единственная страница, листать некуда; показываем ту же таблицу
+                    console.log('[SCC] D-навигация → одна страница, перезагрузка таблицы');
+                    setTimeout(_sccShowTable, 50);
+                }
+                return; // блокируем стандартный обработчик
+            }
+        }
+        return _sccPrevEventHandle.apply(this, arguments);
+    };
+
+    console.log('[SCC] ✅ Загружен | /scc — таблица арестованных | /scc <число> — со своим ником');
+
+})();
+// ==================== END /SCC ====================
+
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
