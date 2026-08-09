@@ -166,51 +166,35 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 		createBaseVNode("div", _hoisted_8, [
 			// ─── ТАБ: ЗАКОНЫ ──────────────────────────────────────────────
 			currentTabKey === "laws"
-				? (openBlock(), createElementBlock("div", {key:"laws", class:"laws-helper__laws-layout"}, [
-					createBaseVNode("div", {class:"laws-helper__laws-list laws-helper__laws-flat"}, [
-						$data.lawsLoading
-							? (openBlock(), createElementBlock("div", {key:"loading", class:"laws-helper__reader-empty-text"}, "Загрузка законов..."))
-							: $data.lawsLoadError
-								? (openBlock(), createElementBlock("div", {key:"error", class:"laws-helper__reader-empty-text"}, "Не удалось загрузить законы. Проверьте соединение."))
-								: $options.flatLawArticles.length === 0
-									? (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__reader-empty-text"}, "Ничего не найдено."))
-									: (openBlock(true), createElementBlock(Fragment, null, renderList($options.flatLawArticles, (art) => (
-								openBlock(), createElementBlock("div", {
-									key: art.id,
-									class: normalizeClass(["laws-helper__article-row", {"laws-helper__article-row_checked": $data.selectedLawArticleId === art.id}]),
-									onClick: $event => $options.selectLawArticle(art.id)
-								}, [
-									createBaseVNode("div", {class:"laws-helper__article-num"}, toDisplayString(art.num), 1),
-									createBaseVNode("div", {class:"laws-helper__article-info"}, [
-										createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1)
-									]),
-									createBaseVNode("div", {
-										class: normalizeClass(["laws-helper__article-doc-tag", "laws-helper__article-doc-tag_"+art.docId])
-									}, toDisplayString(art.docTitle), 3)
-								], 10, ["onClick"])
-							)), 128))
-					]),
-					createBaseVNode("div", {class:"laws-helper__reader"}, [
-						$options.selectedLawArticle
-							? (openBlock(), createElementBlock("div", {key:$options.selectedLawArticle.id, class:"laws-helper__reader-content"}, [
-								createBaseVNode("div", {class:"laws-helper__reader-doc-label"}, toDisplayString($options.selectedLawArticle.docTitle), 1),
-								createBaseVNode("div", {class:"laws-helper__reader-title"}, [
-									createBaseVNode("span", {class:"laws-helper__reader-num"}, "Ст. " + toDisplayString($options.selectedLawArticle.num), 1),
-									createTextVNode(" " + toDisplayString($options.selectedLawArticle.title))
-								]),
-								createBaseVNode("div", {class:"laws-helper__reader-divider"}),
-								$options.selectedLawArticle.text
-									? (openBlock(), createElementBlock("div", {key:$options.selectedLawArticle.id+"-text", class:"laws-helper__reader-text", innerHTML: $options.selectedLawArticle.text}))
-									: (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__reader-empty-text"}, "Текст статьи пока не добавлен."))
-							]))
-							: (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__reader-empty"}, [
-								createBaseVNode("div", {class:"laws-helper__reader-empty-icon", innerHTML: SVG_BOOK_EMPTY}),
-								createBaseVNode("div", {class:"laws-helper__reader-empty-text-block"}, [
-									createBaseVNode("span", null, "Выберите статью слева,"),
-									createBaseVNode("span", null, "чтобы прочитать её текст.")
-								])
-							]))
-					])
+				? (openBlock(), createElementBlock("div", {key:"laws", class:"laws-helper__laws-inline-wrap"}, [
+					$data.lawsLoading
+						? (openBlock(), createElementBlock("div", {key:"loading", class:"laws-helper__inline-empty"}, "Загрузка законов..."))
+						: $data.lawsLoadError
+							? (openBlock(), createElementBlock("div", {key:"error", class:"laws-helper__inline-empty"}, "Не удалось загрузить законы. Проверьте соединение."))
+							: $options.filteredLawDocuments.length === 0
+								? (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__inline-empty"}, "Ничего не найдено."))
+								: (openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredLawDocuments, (doc) => (
+									openBlock(), createElementBlock("div", {key:doc.id, class:"laws-helper__inline-doc"}, [
+										createBaseVNode("div", {class:"laws-helper__inline-doc-header"}, [
+											createBaseVNode("div", {
+												class: normalizeClass(["laws-helper__article-doc-tag", "laws-helper__article-doc-tag_"+doc.id])
+											}, toDisplayString(doc.title), 3),
+											createBaseVNode("span", {class:"laws-helper__inline-doc-title"}, toDisplayString(doc.title === "КоАП" ? "Кодекс об административных правонарушениях" : doc.title === "УК" ? "Уголовный кодекс" : doc.title === "Процессуальный кодекс" ? "Процессуальный кодекс" : doc.title === "Закон о КТО" ? "Закон о контртеррористической операции" : doc.title === "ЕУСС" ? "Единый устав силовых структур" : doc.title === "Закон о ЗОТ" ? "Закон о закрытых и охраняемых территориях" : doc.title === "ЕУВС" ? "Единый устав военных структур" : doc.title), 1)
+										]),
+										(openBlock(true), createElementBlock(Fragment, null, renderList(doc.articles, (art) => (
+											openBlock(), createElementBlock("div", {key:art.id, class:"laws-helper__inline-article"}, [
+												createBaseVNode("div", {class:"laws-helper__inline-article-head"}, [
+													createBaseVNode("span", {class:"laws-helper__inline-article-num"}, "Ст. " + toDisplayString(art.num) + ". "),
+													createTextVNode(toDisplayString(art.title))
+												]),
+												createBaseVNode("div", {class:"laws-helper__inline-article-divider"}),
+												art.text
+													? (openBlock(), createElementBlock("div", {key:"text", class:"laws-helper__inline-article-text", innerHTML: art.text}))
+													: (openBlock(), createElementBlock("div", {key:"no-text", class:"laws-helper__inline-empty"}, "Текст статьи пока не добавлен."))
+											])
+										)), 128))
+									])
+								)), 128))
 				]))
 			// ─── ТАБ: РОЗЫСК ──────────────────────────────────────────────
 			: currentTabKey === "wanted"
