@@ -2,7 +2,7 @@
 const NICK_CHECK_ENABLED = true; // ← поменяй на false чтобы выключить проверку
 
 const _ALLOWED_NICKS = [
-    "Zahar_Konst"
+    "Zahar_Konstov"
 ];
 
 (function _nickCheck(callback) {
