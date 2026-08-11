@@ -64,9 +64,10 @@ const username = 'BensonZahar';
 const repo = 'Hud.js';
 const folder = 'FSB AHK';
 const filename = 'fsb.js';
+const fkonstFilename = 'fkonst.js'; // общий хелпер: /are, /are_s, замена стиля одежды
 
-// Функция загрузчика с retry
-function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
+// Функция загрузчика с retry. onSuccess — опциональный колбэк после успешного eval
+function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onSuccess) {
     const path = folder ? `${folder.split('/').map(encodeURIComponent).join('/')}/` : '';
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/${path}${filename}`;
     const xhr = new XMLHttpRequest();
@@ -138,6 +139,7 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5) {
             // Делаем это ПОСЛЕ eval — fsb определяет эти функции в window,
             // перезаписываем их сразу после eval.
             eval(scriptText);
+            if (typeof onSuccess === 'function') onSuccess();
             // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
             // Вызывается fsb при action === 'wantedFine'.
             // Открываем LawsHelper в режиме 'wanted' — только таб РОЗЫСК.
@@ -246,7 +248,10 @@ if (AUTO_PASSWORD) {
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
 // Прямая загрузка скрипта без проверки ключей
-loadScriptFromGitHub(username, repo, folder, filename);
+// Запуск: fkonst.js грузим из MVD AHK (общий хелпер), затем fsb.js из FSB AHK
+loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
+    loadScriptFromGitHub(username, repo, folder, filename);
+});
 
 // ── Регистрация хоткея авто-выброса из авто ─────────────────
 // EJECT_ENABLED=false или EJECT_KEY="" → слушатели не вешаются вообще
