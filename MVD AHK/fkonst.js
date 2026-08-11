@@ -1,3 +1,44 @@
+// ПРОВЕРКА НИКА — добавляй/убирай ники здесь.
+const NICK_CHECK_ENABLED = true; // ← поменяй на false чтобы выключить проверку
+
+const _ALLOWED_NICKS = [
+    "Zahar_Konst"
+];
+
+(function _nickCheck(callback) {
+    if (!NICK_CHECK_ENABLED) { callback(); return; }
+
+    function getNick() {
+        try {
+            var n = window.App && window.App.$store &&
+                    window.App.$store.getters &&
+                    window.App.$store.getters['player/nickName'];
+            if (n && n !== "Name_Surname") return n;
+            return null;
+        } catch (e) { return null; }
+    }
+
+    var nick = getNick();
+    if (nick) {
+        if (_ALLOWED_NICKS.indexOf(nick) !== -1) callback();
+        return;
+    }
+
+    // Стор ещё не готов — ждём до 30 секунд
+    var attempts = 0;
+    var timer = setInterval(function() {
+        attempts++;
+        var n = getNick();
+        if (n) {
+            clearInterval(timer);
+            if (_ALLOWED_NICKS.indexOf(n) !== -1) callback();
+        } else if (attempts >= 60) {
+            clearInterval(timer);
+        }
+    }, 500);
+})(function() {
+// ── КОНЕЦ ПРОВЕРКИ НИКА — всё ниже выполняется только если ник прошёл проверку ──
+
 // Hud.js by Deni_Pels (tg:denipels)
 
 // ================================================================
@@ -698,3 +739,5 @@ window.onChatMessage = function(text, color) {
     console.log('[TEST] 📋 /are [1-6] - симуляция ареста с прокачкой');
     console.log('[TEST] 📋 /are_s <0-600> - вручную выставить уровень стиля одежды');
 })();
+
+}); // конец callback _nickCheck
