@@ -55,41 +55,6 @@ const globalState = {
 };
 // END GLOBAL STATE MODULE //
 
-// ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: INTERIOR TRACKER                                ║
-// ║  Описание: Отслеживание нахождения в интерьере через     ║
-// ║             engine.on("UpdatePlayerPosition") — надёжнее ║
-// ║             чем чтение из Vuex store (может быть null)   ║
-// ║  Зависимости: globalState, debugLog                      ║
-// ╚══════════════════════════════════════════════════════════╝
-// START INTERIOR TRACKER MODULE //
-(function() {
-    globalState.isInInterior = false;
-    globalState.interiorId   = 0;
-
-    engine.on("UpdatePlayerPosition", function(x, y, z, angle, interior) {
-        const intId = (interior === false || interior === undefined) ? 0 : Number(interior);
-        const wasInside = globalState.isInInterior;
-
-        globalState.interiorId   = intId;
-        globalState.isInInterior = intId !== 0;
-
-        if (wasInside !== globalState.isInInterior) {
-            debugLog(`[INTERIOR] ${globalState.isInInterior ? `Вошли в интерьер ID=${intId}` : 'Вышли на улицу'}`);
-        }
-    });
-
-    debugLog('[INTERIOR] Tracker загружен');
-})();
-
-// Хелпер — используй везде вместо pos.interior
-function isInInterior() {
-    if (globalState.isInInterior !== undefined) return globalState.isInInterior;
-    const pos = getPlayerPositionFromStore();
-    return pos ? (pos.interior !== 0 && pos.interior !== false) : false;
-}
-// END INTERIOR TRACKER MODULE //
-
 
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -341,6 +306,37 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 
 const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: INTERIOR TRACKER                                ║
+// ║  Описание: Отслеживание нахождения в интерьере через     ║
+// ║             engine.on("UpdatePlayerPosition") — надёжнее ║
+// ║             чем чтение из Vuex store (может быть null)   ║
+// ║  Зависимости: globalState, config, debugLog              ║
+// ╚══════════════════════════════════════════════════════════╝
+// START INTERIOR TRACKER MODULE //
+globalState.isInInterior = false;
+globalState.interiorId   = 0;
+
+engine.on("UpdatePlayerPosition", function(x, y, z, angle, interior) {
+    const intId = (interior === false || interior === undefined) ? 0 : Number(interior);
+    const wasInside = globalState.isInInterior;
+
+    globalState.interiorId   = intId;
+    globalState.isInInterior = intId !== 0;
+
+    if (wasInside !== globalState.isInInterior) {
+        debugLog(`[INTERIOR] ${globalState.isInInterior ? `Вошли в интерьер ID=${intId}` : 'Вышли на улицу'}`);
+    }
+});
+
+// Хелпер — используй везде вместо pos.interior
+function isInInterior() {
+    if (globalState.isInInterior !== undefined) return globalState.isInInterior;
+    const pos = getPlayerPositionFromStore();
+    return pos ? (pos.interior !== 0 && pos.interior !== false) : false;
+}
+// END INTERIOR TRACKER MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: PLAYER PROFILE LOADER                           ║
