@@ -813,6 +813,8 @@ function setupAutoLogin(attempt = 1) {
                         6000        // видно 6 секунд (можно изменить)
                     );
                 }, 3000);
+                // Запрос времени до спавна после входа
+                setTimeout(() => sendChatInput("/c 60"), 5000);
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
@@ -1609,7 +1611,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot44</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
