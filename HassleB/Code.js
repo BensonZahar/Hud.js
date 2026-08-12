@@ -308,75 +308,6 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: INTERIOR TRACKER                                ║
-// ║  Описание: Отслеживание нахождения в интерьере через     ║
-// ║             engine.on("UpdatePlayerPosition") — надёжнее ║
-// ║             чем чтение из Vuex store (может быть null)   ║
-// ║  Зависимости: globalState, config, debugLog              ║
-// ╚══════════════════════════════════════════════════════════╝
-// START INTERIOR TRACKER MODULE //
-globalState.isInInterior = false;
-globalState.interiorId   = 0;
-
-engine.on("UpdatePlayerPosition", function(x, y, z, angle, interior) {
-    const intId = (interior === false || interior === undefined) ? 0 : Number(interior);
-    const wasInside = globalState.isInInterior;
-
-    globalState.interiorId   = intId;
-    globalState.isInInterior = intId !== 0;
-
-    if (wasInside !== globalState.isInInterior) {
-        debugLog(`[INTERIOR] ${globalState.isInInterior ? `Вошли в интерьер ID=${intId}` : 'Вышли на улицу'}`);
-    }
-
-    // Синхронизируем Vuex-стор чтобы Hud.js (playerIsInInterior) видел реальный interior.
-    // UpdateRadar не передаёт interior — поэтому store никогда не обновлялся и было всегда 0.
-    try {
-        const store = window.App?.$store;
-        if (store) {
-            const pos = store.getters["player/position"];
-            if (pos && pos.interior !== intId) {
-                // Пробуем стандартные названия мутации (зависит от версии стора)
-                const mutations = [
-                    "player/setPosition",
-                    "player/updatePosition",
-                    "player/UPDATE_POSITION",
-                    "player/SET_POSITION",
-                ];
-                let committed = false;
-                for (const mut of mutations) {
-                    try {
-                        store.commit(mut, { ...pos, interior: intId });
-                        committed = true;
-                        break;
-                    } catch (_) {
-                        // Эта мутация не существует — пробуем следующую
-                    }
-                }
-                if (!committed) {
-                    // Fallback: если ни одна мутация не подошла — патчим напрямую через state
-                    const playerState = store.state?.player;
-                    if (playerState?.position) {
-                        playerState.position.interior = intId;
-                    }
-                }
-            }
-        }
-    } catch (e) {
-        // Стор может быть не готов при старте — не критично, следующий тик обновит
-        debugLog(`[INTERIOR] Vuex sync error: ${e.message}`);
-    }
-});
-
-// Хелпер — используй везде вместо pos.interior
-function isInInterior() {
-    if (globalState.isInInterior !== undefined) return globalState.isInInterior;
-    const pos = getPlayerPositionFromStore();
-    return pos ? (pos.interior !== 0 && pos.interior !== false) : false;
-}
-// END INTERIOR TRACKER MODULE //
-
-// ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: PLAYER PROFILE LOADER                           ║
 // ║  Описание: При входе в игру один раз невидимо открывает  ║
 // ║             MainMenu → Statistics и считывает все данные ║
@@ -1135,6 +1066,16 @@ function getPlayerPositionFromStore() {
     }
 }
 
+// ── Определение интерьера ────────────────────────────────────
+// pos.interior из store не всегда работает в хасле,
+// поэтому дополнительный фолбэк: z >= 500 = интерьер по любому
+function isInInterior(pos) {
+    if (!pos) return false;
+    if (pos.interior) return true;
+    if (typeof pos.z === 'number' && pos.z >= 500) return true;
+    return false;
+}
+
 // ── Периодическое логирование координат персонажа ─────────────
 function trackPlayerLocation() {
     if (!config.locationLogging) return;
@@ -1142,7 +1083,7 @@ function trackPlayerLocation() {
     const pos = getPlayerPositionFromStore();
     if (pos) {
         const nick = config.accountInfo.nickname || 'Unknown';
-        const interior = isInInterior() ? ` [interior ID=${globalState.interiorId}]` : '';
+        const interior = isInInterior(pos) ? ' [interior]' : '';
         console.log(
             `[LOC][${nick}] x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} angle=${Math.round(pos.angle ?? 0)}°${interior}`
         );
@@ -1668,7 +1609,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot4</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1757,7 +1698,7 @@ function buildWelcomeAccountInfo() {
         } catch (e) { debugLog('[ACINFO] store err: ' + e.message); }
 
         const posStr = pos
-            ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${globalState.interiorId}`
+            ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${isInInterior(pos) ? 1 : 0}`
             : '❓ Позиция недоступна';
 
         // Нал и банк — приоритет live store
@@ -1899,7 +1840,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot4</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
