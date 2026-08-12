@@ -1698,7 +1698,7 @@ function buildWelcomeAccountInfo() {
         } catch (e) { debugLog('[ACINFO] store err: ' + e.message); }
 
         const posStr = pos
-            ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${isInInterior(pos) ? 1 : 0}`
+            ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${isInInterior(pos) ? 'В интерьере' : 'Не в интерьере'}`
             : '❓ Позиция недоступна';
 
         // Нал и банк — приоритет live store
