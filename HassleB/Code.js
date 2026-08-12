@@ -1634,7 +1634,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot4</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1865,7 +1865,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot4</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
