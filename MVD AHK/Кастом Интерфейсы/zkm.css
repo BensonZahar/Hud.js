@@ -11,7 +11,7 @@
    ══════════════════════════════════════════════════════════════════ */
 
 /* ══ Laws Helper — Modal/Window style ══════════════════════════ */
-.laws-helper{background:#141419eb;border:0.19vh solid #ffffff0d;border-radius:0.74vh;box-shadow:inset 0vh 3.89vh 4.81vh -2.96vh #f9b70133;color:#f4f1e1;display:flex;flex-direction:column;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:46vh;left:50%;overflow:hidden;padding:0.37vh;position:absolute;text-transform:none;top:50%;transform:translate(-50%,-50%);width:48vw;z-index:11;}
+.laws-helper{background:#141419eb;border:0.19vh solid #ffffff0d;border-radius:0.74vh;box-shadow:inset 0vh 3.89vh 4.81vh -2.96vh #f9b70133;color:#f4f1e1;display:flex;flex-direction:column;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:46vh;left:50%;overflow:hidden;padding:0.37vh;position:absolute;text-transform:none;top:50%;transform:translate(-50%,-50%);width:48vw;will-change:left,top;z-index:11;}
 .laws-helper__graffiti{height:0;left:0;pointer-events:none;position:absolute;top:0;width:100%;z-index:0;}
 .laws-helper__pattern-wrapper{height:23.61vh;left:0;mask-image:linear-gradient(180deg,#d9d9d9,#73737300 70%);overflow:hidden;pointer-events:none;position:absolute;top:0;width:100%;}
 .laws-helper__pattern{background:url(./graffiti-pattern_dark.png) 50%/cover no-repeat;height:71.94vh;opacity:0.05;transform:rotate(148deg) scale3d(-1,1,1);width:115.65vh;}
@@ -170,6 +170,9 @@
 .laws-helper__law-filter-btn_euss.laws-helper__fine-filter-btn_active{background:rgba(153,50,204,.1);border-color:rgba(153,50,204,.4);color:#9932cc;}
 .laws-helper__law-filter-btn_zot.laws-helper__fine-filter-btn_active{background:rgba(217,164,6,.1);border-color:rgba(217,164,6,.4);color:#d9a406;}
 .laws-helper__law-filter-btn_euvs.laws-helper__fine-filter-btn_active{background:rgba(43,168,160,.1);border-color:rgba(43,168,160,.4);color:#2ba8a0;}
+
+/* ══ Скрытие меню зажатием Alt (hold 500ms) ══════════════════ */
+.laws-helper_hidden{display:none!important;}
 
 /* ══ ЗАКОНЫ: инлайн-режим — весь текст сразу, как на форуме ═════ */
 .laws-helper__laws-inline-wrap{display:flex;flex:1 1 auto;flex-direction:column;gap:0;min-height:0;overflow-y:auto;padding:1.48vh 2vh 2vh;}

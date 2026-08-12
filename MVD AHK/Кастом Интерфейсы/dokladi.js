@@ -593,6 +593,32 @@ const _sfc_main={
             const disp=document.getElementById("dokladi-timer-disp");
             if(disp) disp.textContent=this.timerDisplay;
         },
+        // Скрывает курсор интерфейса и снимает фокус с активного поля ввода
+        // (иначе можно продолжать печатать вслепую, не видя курсор/меню).
+        // Запоминает поле, чтобы вернуть в него фокус при появлении курсора.
+        hideCursor(){
+            const ae=document.activeElement;
+            if(ae&&this.$el&&this.$el.contains(ae)&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')){
+                this._blurredInput=ae;
+                ae.blur();
+            } else {
+                this._blurredInput=null;
+            }
+            window.setCursorStatus('Dokladi',false);
+        },
+        // Показывает курсор обратно и возвращает фокус в поле ввода,
+        // если оно было в фокусе до скрытия курсора
+        showCursor(){
+            window.setCursorStatus('Dokladi',true);
+            if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
+            const el=this._blurredInput;
+            this._blurredInput=null;
+            if(el){
+                this.$nextTick(()=>{
+                    if(el.isConnected)el.focus();
+                });
+            }
+        },
         close(){
             window.closeInterface("Dokladi");
         }
@@ -604,11 +630,13 @@ const _sfc_main={
         s.textContent=`
 .dokladi{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:absolute;text-transform:none;top:0;width:100vw;z-index:11;}
 .dokladi__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
-.dokladi__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(249,183,1,0.2),0 1.5vh 5vh rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:36vh;z-index:1;}
+.dokladi__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(249,183,1,0.2),0 1.5vh 5vh rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:36vh;will-change:left,top;z-index:1;}
+.dokladi__wrapper_dragging{cursor:grabbing!important;}
 .dokladi__top-accent{background:#f9b701;height:0.19vh;left:0;position:absolute;right:0;top:0;}
 
 /* Header */
-.dokladi__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.dokladi__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;cursor:grab;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.dokladi__header:active{cursor:grabbing;}
 .dokladi__title{align-items:baseline;display:flex;font-family:"Open Sans Condensed",var(--fallback-font);font-style:italic;font-weight:700;gap:0.56vh;text-transform:uppercase;}
 .dokladi__title-main{color:#f4f1e1;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
 .dokladi__title-ahk{color:#f9b701;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
@@ -662,6 +690,9 @@ const _sfc_main={
 .dokladi__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
 .dokladi__footer .controls-button__container{margin-right:1.48vh;}
 .dokladi__footer .controls-button__container:last-child{margin-right:0;}
+
+/* ══ Скрытие меню зажатием Alt (hold 500ms) ══════════════════ */
+.dokladi_hidden{display:none!important;}
         `;
         document.head.appendChild(s);
 
@@ -707,12 +738,71 @@ const _sfc_main={
         document.addEventListener("keydown",this._onArrowKeyDown,false);
 
         if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
-        // ── Перетаскивание окна мышью за шапку ──────────────────────
+
+        // ── Alt: зажатие переключает видимость меню туда-обратно, короткий
+        //    тап переключает только курсор (как в MvdMenu.js/zkm.js) ──────
+        this._menuHidden=false;
+        this._altHoldTimer=null;
+        this._altHoldFired=false;
+        this._blurredInput=null;
+        const _DOKLADI_ALT_HOLD_MS=500; // зажатие Alt — 500 мс
+        this._prevOnKeyUp=window.onKeyUp;
+        this._prevOnKeyDown=window.onKeyDown;
+        window.onKeyDown=(e)=>{
+            if(e===window.KEY_CODE_ALT){
+                // !_altHoldFired — защита от повторного срабатывания из-за
+                // автоповтора keydown, пока Alt всё ещё физически зажат:
+                // новую реакцию можно получить только после отпускания клавиши
+                if(!this._altHoldTimer&&!this._altHoldFired){
+                    this._altHoldTimer=setTimeout(()=>{
+                        this._altHoldTimer=null;
+                        this._altHoldFired=true;
+                        this._menuHidden=!this._menuHidden;
+                        if(this._menuHidden){
+                            this.$el.classList.add('dokladi_hidden');
+                            this.hideCursor();
+                        } else {
+                            this.$el.classList.remove('dokladi_hidden');
+                            this.showCursor();
+                        }
+                    },_DOKLADI_ALT_HOLD_MS);
+                }
+                return;
+            }
+            if(typeof this._prevOnKeyDown==="function")this._prevOnKeyDown(e)
+        };
+        window.onKeyUp=(e)=>{
+            if(e===window.KEY_CODE_ALT){
+                if(this._altHoldTimer){
+                    // ── Короткий тап Alt: отменяем hold, переключаем только курсор ──
+                    // (только если меню видимо — когда скрыто курсор не нужен)
+                    clearTimeout(this._altHoldTimer);
+                    this._altHoldTimer=null;
+                    if(!this._menuHidden){
+                        const _curActive=window.isCursorActive('Dokladi');
+                        if(_curActive){
+                            this.hideCursor();
+                        } else {
+                            this.showCursor();
+                        }
+                    }
+                }
+                // Отпустили Alt — сбрасываем флаг сработавшего hold'а,
+                // теперь новое зажатие снова сможет вызвать реакцию
+                this._altHoldFired=false;
+                return;
+            }
+            if(typeof this._prevOnKeyUp==="function")this._prevOnKeyUp(e)
+        };
+
+        // ── Перетаскивание окна мышью за шапку (плавно, через RAF —
+        //    как в MvdMenu.js/zkm.js, без дёрганья при быстром движении) ──
         this.$nextTick(()=>{
             const wrapper=this.$el&&this.$el.querySelector('.dokladi__wrapper');
             const header=wrapper&&wrapper.querySelector('.dokladi__header');
             if(!header||!wrapper)return;
-            let dragging=false,sx=0,sy=0,sl=0,st=0;
+            let dragging=false,sx=0,sy=0,sl=0,st=0,_dragEw=0,_dragEh=0,_dragW=0,_dragH=0;
+            let _dragRaf=null,_dragPx=0,_dragPy=0;
             const toAbsolute=()=>{
                 const rect=wrapper.getBoundingClientRect();
                 wrapper.style.position='absolute';
@@ -727,27 +817,35 @@ const _sfc_main={
                 const rect=wrapper.getBoundingClientRect();
                 sx=e.clientX; sy=e.clientY;
                 sl=rect.left; st=rect.top;
-                header.style.cursor='grabbing';
+                // Кешируем размеры один раз при захвате
+                _dragEw=wrapper.offsetWidth; _dragEh=wrapper.offsetHeight;
+                _dragW=window.innerWidth; _dragH=window.innerHeight;
+                wrapper.classList.add('dokladi__wrapper_dragging');
                 document.body.style.userSelect='none';
                 e.preventDefault();
             };
             const onMove=(e)=>{
                 if(!dragging)return;
-                const nx=sl+(e.clientX-sx);
-                const ny=st+(e.clientY-sy);
-                const W=window.innerWidth,H=window.innerHeight;
-                const ew=wrapper.offsetWidth,eh=wrapper.offsetHeight;
-                wrapper.style.left=Math.max(0,Math.min(nx,W-ew))+'px';
-                wrapper.style.top=Math.max(0,Math.min(ny,H-eh))+'px';
+                _dragPx=sl+(e.clientX-sx);
+                _dragPy=st+(e.clientY-sy);
+                // Обновляем позицию через RAF — рендер строго раз в кадр, без дёрганья
+                if(!_dragRaf){
+                    _dragRaf=requestAnimationFrame(()=>{
+                        _dragRaf=null;
+                        wrapper.style.left=Math.max(0,Math.min(_dragPx,_dragW-_dragEw))+'px';
+                        wrapper.style.top=Math.max(0,Math.min(_dragPy,_dragH-_dragEh))+'px';
+                    });
+                }
             };
             const onUp=()=>{
                 if(!dragging)return;
                 dragging=false;
-                header.style.cursor='grab';
+                if(_dragRaf){cancelAnimationFrame(_dragRaf);_dragRaf=null;}
+                wrapper.classList.remove('dokladi__wrapper_dragging');
                 document.body.style.userSelect='';
+                // ── Сохраняем позицию в глобал (localStorage недоступен в CEF) ──
                 window._dokladiPos={left:wrapper.style.left,top:wrapper.style.top};
             };
-            header.style.cursor='grab';
             header.addEventListener('mousedown',onDown);
             document.addEventListener('mousemove',onMove);
             document.addEventListener('mouseup',onUp);
@@ -756,6 +854,7 @@ const _sfc_main={
                 document.removeEventListener('mousemove',onMove);
                 document.removeEventListener('mouseup',onUp);
             };
+            // ── Восстанавливаем позицию если окно уже перемещали ──
             if(window._dokladiPos&&window._dokladiPos.left&&window._dokladiPos.top){
                 wrapper.style.position='absolute';
                 wrapper.style.margin='0';
@@ -766,6 +865,9 @@ const _sfc_main={
     },
     unmounted(){
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
+        window.onKeyUp=this._prevOnKeyUp;
+        window.onKeyDown=this._prevOnKeyDown;
+        if(this._altHoldTimer)clearTimeout(this._altHoldTimer);
         if(typeof this._dragCleanup==='function')this._dragCleanup();
         const s=document.getElementById("dokladi-style");
         if(s)s.remove();

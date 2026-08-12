@@ -737,9 +737,64 @@ const _sfc_main={
 				this.wantedId=String(window._duranWantedTargetId);
 			}
 		}
+		// ── Alt-key state for cursor/menu toggle ────────────────────
+		this._menuHidden=false;
+		this._altHoldTimer=null;
+		this._altHoldFired=false;
+		this._blurredInput=null;
+		const _ZKM_ALT_HOLD_MS=500; // зажатие Alt — 500 мс
 		this._prevOnKeyUp=window.onKeyUp;
+		this._prevOnKeyDown=window.onKeyDown;
+		// onKeyDown: запускаем таймер зажатия Alt
+		window.onKeyDown=(e)=>{
+			if(e===window.KEY_CODE_ALT){
+				// !_altHoldFired — защита от повторного срабатывания из-за
+				// автоповтора keydown, пока Alt всё ещё физически зажат:
+				// новую реакцию можно получить только после отпускания клавиши
+				if(!this._altHoldTimer&&!this._altHoldFired){
+					this._altHoldTimer=setTimeout(()=>{
+						this._altHoldTimer=null;
+						this._altHoldFired=true;
+						// ── Зажатие Alt: переключает видимость меню туда-обратно.
+						//    Повторное зажатие снова показывает скрытое меню.
+						this._menuHidden=!this._menuHidden;
+						if(this._menuHidden){
+							this.$el.classList.add('laws-helper_hidden');
+							this.hideCursor();
+						} else {
+							this.$el.classList.remove('laws-helper_hidden');
+							this.showCursor();
+						}
+					},_ZKM_ALT_HOLD_MS);
+				}
+				return;
+			}
+			if(typeof this._prevOnKeyDown==="function")this._prevOnKeyDown(e)
+		}
 		window.onKeyUp=(e)=>{
 			if(e===window.KEY_CODE_ESC){this.close();return}
+			if(e===window.KEY_CODE_ALT){
+				if(this._altHoldTimer){
+					// ── Короткий тап Alt: отменяем hold, переключаем только курсор ──
+					// (только если меню видимо — когда скрыто курсор не нужен)
+					clearTimeout(this._altHoldTimer);
+					this._altHoldTimer=null;
+					if(!this._menuHidden){
+						const _curActive=window.isCursorActive('Zkm');
+						if(_curActive){
+							// Курсор скрывается — снимаем фокус с поля ввода,
+							// чтобы текст не печатался "вслепую" со скрытым курсором
+							this.hideCursor();
+						} else {
+							this.showCursor();
+						}
+					}
+				}
+				// Отпустили Alt — сбрасываем флаг сработавшего hold'а,
+				// теперь новое зажатие снова сможет вызвать реакцию
+				this._altHoldFired=false;
+				return;
+			}
 			if(typeof this._prevOnKeyUp==="function")this._prevOnKeyUp(e)
 		}
 
@@ -755,7 +810,8 @@ const _sfc_main={
 			const el=this.$el;
 			const header=el&&el.querySelector('.laws-helper__header');
 			if(!header)return;
-			let dragging=false,sx=0,sy=0,sl=0,st=0;
+			let dragging=false,sx=0,sy=0,sl=0,st=0,_dragEw=0,_dragEh=0,_dragW=0,_dragH=0;
+			let _dragRaf=null,_dragPx=0,_dragPy=0;
 			const onDown=(e)=>{
 				// Клики по кнопкам и табам — не начинаем перетаскивание
 				if(e.target.closest('.laws-helper__icon-btn,.laws-helper__tab'))return;
@@ -763,6 +819,9 @@ const _sfc_main={
 				const rect=el.getBoundingClientRect();
 				sx=e.clientX; sy=e.clientY;
 				sl=rect.left; st=rect.top;
+				// Кешируем размеры один раз при захвате
+				_dragEw=el.offsetWidth; _dragEh=el.offsetHeight;
+				_dragW=window.innerWidth; _dragH=window.innerHeight;
 				// Снимаем центрирующий transform и переходим на абсолютные px
 				el.style.transform='none';
 				el.style.left=sl+'px';
@@ -773,17 +832,21 @@ const _sfc_main={
 			};
 			const onMove=(e)=>{
 				if(!dragging)return;
-				const nx=sl+(e.clientX-sx);
-				const ny=st+(e.clientY-sy);
-				// Ограничиваем окно размерами вьюпорта
-				const W=window.innerWidth,H=window.innerHeight;
-				const ew=el.offsetWidth,eh=el.offsetHeight;
-				el.style.left=Math.max(0,Math.min(nx,W-ew))+'px';
-				el.style.top=Math.max(0,Math.min(ny,H-eh))+'px';
+				_dragPx=sl+(e.clientX-sx);
+				_dragPy=st+(e.clientY-sy);
+				// Обновляем позицию через RAF — рендер строго раз в кадр, без дёрганья
+				if(!_dragRaf){
+					_dragRaf=requestAnimationFrame(()=>{
+						_dragRaf=null;
+						el.style.left=Math.max(0,Math.min(_dragPx,_dragW-_dragEw))+'px';
+						el.style.top=Math.max(0,Math.min(_dragPy,_dragH-_dragEh))+'px';
+					});
+				}
 			};
 			const onUp=()=>{
 				if(!dragging)return;
 				dragging=false;
+				if(_dragRaf){cancelAnimationFrame(_dragRaf);_dragRaf=null;}
 				el.classList.remove('laws-helper_dragging');
 				document.body.style.userSelect='';
 				// ── Сохраняем позицию в глобал (localStorage недоступен в CEF) ──
@@ -807,9 +870,37 @@ const _sfc_main={
 	},
 	unmounted(){
 		window.onKeyUp=this._prevOnKeyUp;
+		window.onKeyDown=this._prevOnKeyDown;
 		if(typeof this._dragCleanup==='function')this._dragCleanup();
+		if(this._altHoldTimer)clearTimeout(this._altHoldTimer);
 	},
 	methods:{
+		// Скрывает курсор интерфейса и снимает фокус с активного поля ввода
+		// (иначе можно продолжать печатать вслепую, не видя курсор/меню).
+		// Запоминает поле, чтобы вернуть в него фокус при появлении курсора.
+		hideCursor(){
+			const ae=document.activeElement;
+			if(ae&&this.$el&&this.$el.contains(ae)&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')){
+				this._blurredInput=ae;
+				ae.blur();
+			} else {
+				this._blurredInput=null;
+			}
+			window.setCursorStatus('Zkm',false);
+		},
+		// Показывает курсор обратно и возвращает фокус в поле ввода,
+		// если оно было в фокусе до скрытия курсора
+		showCursor(){
+			window.setCursorStatus('Zkm',true);
+			if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
+			const el=this._blurredInput;
+			this._blurredInput=null;
+			if(el){
+				this.$nextTick(()=>{
+					if(el.isConnected)el.focus();
+				});
+			}
+		},
 		selectTab(i){
 			this.currentTab=i;
 			this.search="";

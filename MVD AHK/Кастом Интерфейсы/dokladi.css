@@ -12,11 +12,13 @@
 
 .dokladi{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:absolute;text-transform:none;top:0;width:100vw;z-index:11;}
 .dokladi__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
-.dokladi__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(249,183,1,0.2),0 1.5vh 5vh rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:36vh;z-index:1;}
+.dokladi__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(249,183,1,0.2),0 1.5vh 5vh rgba(0,0,0,.7);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:36vh;will-change:left,top;z-index:1;}
+.dokladi__wrapper_dragging{cursor:grabbing!important;}
 .dokladi__top-accent{background:#f9b701;height:0.19vh;left:0;position:absolute;right:0;top:0;}
 
-/* Header */
-.dokladi__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+/* Header — за него окно перетаскивается мышью (плавно, через RAF) */
+.dokladi__header{align-items:center;background:transparent;border-bottom:0.19vh solid #f4f1e11a;cursor:grab;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
+.dokladi__header:active{cursor:grabbing;}
 .dokladi__title{align-items:baseline;display:flex;font-family:"Open Sans Condensed",var(--fallback-font);font-style:italic;font-weight:700;gap:0.56vh;text-transform:uppercase;}
 .dokladi__title-main{color:#f4f1e1;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
 .dokladi__title-ahk{color:#f9b701;font-size:2.4vh;letter-spacing:0.1vh;line-height:normal;}
@@ -70,3 +72,6 @@
 .dokladi__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
 .dokladi__footer .controls-button__container{margin-right:1.48vh;}
 .dokladi__footer .controls-button__container:last-child{margin-right:0;}
+
+/* ══ Скрытие меню зажатием Alt (hold 500ms, как в zkm.js/MvdMenu.js) ══ */
+.dokladi_hidden{display:none!important;}
