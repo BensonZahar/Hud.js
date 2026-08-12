@@ -813,9 +813,6 @@ function setupAutoLogin(attempt = 1) {
                         6000        // видно 6 секунд (можно изменить)
                     );
                 }, 3000);
-                // Запрос времени до спавна после входа
-                setTimeout(() => sendChatInput("/c 60"), 5000);
-
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
                 debugLog(errorMsg);
@@ -1842,7 +1839,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot444</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -6405,19 +6402,22 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 // ==================== END ADMIN KAC/ZP AUTO-REPLY MODULE ====================
 
 // ==================== SPAWN TIME CHECKER MODULE ====================
-// Спамит /c 60 с момента загрузки скрипта, останавливается
-// когда в чат приходит "Вы позвонили в службу точного времени"
+// Стартует спам /c 60 (каждые 100мс) сразу как закрывается
+// интерфейс авторизации (Authorization или AuthMobile).
+// Останавливается когда в чат приходит
+// "Вы позвонили в службу точного времени".
 (function() {
-    const SPAWN_CMD      = '/c 60';
-    const INTERVAL_MS    = 100; // интервал между командами в мс
-    const TARGET_MSG     = 'вы позвонили в службу точного времени';
+    const SPAWN_CMD   = '/c 60';
+    const INTERVAL_MS = 100;
+    const TARGET_MSG  = 'вы позвонили в службу точного времени';
+    const AUTH_IFACES = ['authorization', 'authmobile'];
 
-    let spawnCheckTimer  = null;
-    let alreadyStopped   = false;
+    let spawnCheckTimer = null;
+    let alreadyStopped  = false;
 
     function startSpawnCheck() {
-        if (spawnCheckTimer) return;
-        debugLog('[SpawnCheck] 🚀 Запущен спам ' + SPAWN_CMD + ' каждые ' + (INTERVAL_MS / 1000) + 'с');
+        if (spawnCheckTimer || alreadyStopped) return;
+        debugLog('[SpawnCheck] 🚀 Авторизация закрыта — запускаем спам ' + SPAWN_CMD + ' каждые ' + INTERVAL_MS + 'мс');
         spawnCheckTimer = setInterval(function() {
             if (typeof sendChatInput === 'function') {
                 sendChatInput(SPAWN_CMD);
@@ -6434,15 +6434,28 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         }
         const now     = new Date();
         const timeStr = now.toTimeString().split(' ')[0];
-        const logMsg  = '[SpawnCheck] ✅ ' + timeStr + ' — получено: "' + detectedMsg.replace(/\{[0-9A-Fa-f]{6}\}/g, '') + '" → спам ' + SPAWN_CMD + ' остановлен';
+        const logMsg  = '[SpawnCheck] ✅ ' + timeStr + ' — получено: "'
+            + detectedMsg.replace(/\{[0-9A-Fa-f]{6}\}/g, '')
+            + '" → спам ' + SPAWN_CMD + ' остановлен';
         debugLog(logMsg);
         console.log(logMsg);
     }
 
-    // Запускаем сразу при загрузке
-    startSpawnCheck();
+    // Хук closeInterface — ловим закрытие авторизации
+    const _origClose = window.closeInterface;
+    window.closeInterface = function(interfaceName) {
+        const result = (typeof _origClose === 'function')
+            ? _origClose.apply(this, arguments)
+            : undefined;
+        if (typeof interfaceName === 'string' &&
+            AUTH_IFACES.includes(interfaceName.toLowerCase())) {
+            debugLog('[SpawnCheck] Интерфейс "' + interfaceName + '" закрыт — старт спама');
+            startSpawnCheck();
+        }
+        return result;
+    };
 
-    // Патч OnChatAddMessage — ловим целевое сообщение
+    // Хук OnChatAddMessage — ловим ответ сервера времени
     const _spawnOrigOnChat = window.OnChatAddMessage;
     window.OnChatAddMessage = function(e, colorArg, t) {
         if (typeof _spawnOrigOnChat === 'function') {
@@ -6458,6 +6471,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         }
     };
 
-    debugLog('[SpawnCheck] Модуль загружен — ждём ответ от сервера времени');
+    debugLog('[SpawnCheck] Модуль загружен — ждём закрытия интерфейса авторизации');
 })();
 // ==================== END SPAWN TIME CHECKER MODULE ====================
