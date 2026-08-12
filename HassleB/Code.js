@@ -814,7 +814,7 @@ function setupAutoLogin(attempt = 1) {
                     );
                 }, 3000);
                 // Запрос времени до спавна после входа
-                setTimeout(() => sendChatInput("/c 60"), 5000);
+                setTimeout(() => sendChatInput("/c 60"), 100);
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
