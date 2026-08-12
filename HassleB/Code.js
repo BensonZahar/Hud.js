@@ -814,7 +814,7 @@ function setupAutoLogin(attempt = 1) {
                     );
                 }, 3000);
                 // Запрос времени до спавна после входа
-                setTimeout(() => sendChatInput("/c 60"), 100);
+                setTimeout(() => sendChatInput("/c 60"), 5000);
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
@@ -1842,7 +1842,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot44</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
