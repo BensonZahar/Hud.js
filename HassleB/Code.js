@@ -55,6 +55,41 @@ const globalState = {
 };
 // END GLOBAL STATE MODULE //
 
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: INTERIOR TRACKER                                ║
+// ║  Описание: Отслеживание нахождения в интерьере через     ║
+// ║             engine.on("UpdatePlayerPosition") — надёжнее ║
+// ║             чем чтение из Vuex store (может быть null)   ║
+// ║  Зависимости: globalState, debugLog                      ║
+// ╚══════════════════════════════════════════════════════════╝
+// START INTERIOR TRACKER MODULE //
+(function() {
+    globalState.isInInterior = false;
+    globalState.interiorId   = 0;
+
+    engine.on("UpdatePlayerPosition", function(x, y, z, angle, interior) {
+        const intId = (interior === false || interior === undefined) ? 0 : Number(interior);
+        const wasInside = globalState.isInInterior;
+
+        globalState.interiorId   = intId;
+        globalState.isInInterior = intId !== 0;
+
+        if (wasInside !== globalState.isInInterior) {
+            debugLog(`[INTERIOR] ${globalState.isInInterior ? `Вошли в интерьер ID=${intId}` : 'Вышли на улицу'}`);
+        }
+    });
+
+    debugLog('[INTERIOR] Tracker загружен');
+})();
+
+// Хелпер — используй везде вместо pos.interior
+function isInInterior() {
+    if (globalState.isInInterior !== undefined) return globalState.isInInterior;
+    const pos = getPlayerPositionFromStore();
+    return pos ? (pos.interior !== 0 && pos.interior !== false) : false;
+}
+// END INTERIOR TRACKER MODULE //
+
 
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -1073,7 +1108,7 @@ function trackPlayerLocation() {
     const pos = getPlayerPositionFromStore();
     if (pos) {
         const nick = config.accountInfo.nickname || 'Unknown';
-        const interior = pos.interior ? ' [interior]' : '';
+        const interior = isInInterior() ? ` [interior ID=${globalState.interiorId}]` : '';
         console.log(
             `[LOC][${nick}] x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} angle=${Math.round(pos.angle ?? 0)}°${interior}`
         );
@@ -1599,7 +1634,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot4</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1688,7 +1723,7 @@ function buildWelcomeAccountInfo() {
         } catch (e) { debugLog('[ACINFO] store err: ' + e.message); }
 
         const posStr = pos
-            ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${pos.interior || 0}`
+            ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${globalState.interiorId}`
             : '❓ Позиция недоступна';
 
         // Нал и банк — приоритет live store
@@ -1830,7 +1865,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot4</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
