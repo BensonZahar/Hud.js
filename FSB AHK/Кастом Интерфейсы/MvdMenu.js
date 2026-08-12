@@ -228,12 +228,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                   ],64))
                 : createCommentVNode("",true),
 
-            // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: greeting-choice — Выбор типа приветствия при маскировке
-            // ══════════════════════════════════════════════════════════════════
-            $data.screen==="greeting-choice"
-                ? (openBlock(),createElementBlock(Fragment,{key:"greeting-choice"},[                    createBaseVNode("div",{class:"mvdmenu__list"},[                        (openBlock(true),createElementBlock(Fragment,null,                            renderList($options.greetingChoiceItems,(item,i)=>(                                openBlock(),createElementBlock("div",{                                    key:item.id,                                    class:normalizeClass(["mvdmenu__item",{                                        "mvdmenu__item_selected":$data.selectedIndex===i,                                    }]),                                    onClick:$event=>{$data.selectedIndex=i;$options.selectGreetingChoice(item);}                                },[                                    createBaseVNode("div",{class:"mvdmenu__item-num"},                                        toDisplayString(String(i+1).padStart(2,"0")),1),                                    createBaseVNode("div",{class:"mvdmenu__item-label"},                                        toDisplayString(item.label),1)                                ],10,["onClick"])                            ))                        ,128))                    ])                  ],64))                : createCommentVNode("",true),
-
             // ── Footer: Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
             createBaseVNode("div",{class:"mvdmenu__footer"},[
                 (openBlock(),createBlock(_component_ControlsContaineredButton,{
@@ -298,11 +292,10 @@ const _sfc_main={
     },
     computed:{
         headerSubtitle(){
-            if(this.screen==="main")             return "";
-            if(this.screen==="povsednev")        return "ПОВСЕДНЕВНАЯ";
-            if(this.screen==="partner")          return "НАПАРНИК";
-            if(this.screen==="greeting-choice") return "ВЫБОР ПРИВЕТСТВИЯ";
-            if(this.screen==="id-input")         return this.idInputContext==="tracking"?"ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?"НАПАРНИК":"ВВОД ID";
+            if(this.screen==="main")            return "";
+            if(this.screen==="povsednev")       return "ПОВСЕДНЕВНАЯ";
+            if(this.screen==="partner")         return "НАПАРНИК";
+            if(this.screen==="id-input")        return this.idInputContext==="tracking"?"ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?"НАПАРНИК":"ВВОД ID";
             return "";
         },
         mainMenuItems(){
@@ -346,19 +339,6 @@ const _sfc_main={
             if(!q)return this.visibleOptions;
             return this.visibleOptions.filter(o=>o.label.toLowerCase().includes(q)||o.action.toLowerCase().includes(q));
         },
-        // ── Список пунктов выбора приветствия при маскировке ──
-        greetingChoiceItems(){
-            const items=[
-                {id:"fsb", label:"ФСБ — " + (window._mvdRealRank || window._mvdRank || "Сотрудник ФСБ")}
-            ];
-            if(window._maskOrg){
-                const lbl = window._maskRankName
-                    ? window._maskOrg + " — " + window._maskRankName
-                    : window._maskOrg;
-                items.push({id:"mask_org", label:lbl});
-            }
-            return items;
-        },
         // ── Список пунктов меню напарника (через computed — как mainMenuItems) ──
         partnerMenuItems(){
             return [
@@ -380,21 +360,18 @@ const _sfc_main={
         },
         // ── Текущий список пунктов для клавиатурной навигации (зависит от экрана) ──
         currentListItems(){
-            if(this.screen==="main")             return this.mainMenuItems;
-            if(this.screen==="povsednev")        return this.filteredOptions;
-            if(this.screen==="partner")          return this.partnerMenuItems;
-            if(this.screen==="greeting-choice")  return this.greetingChoiceItems;
+            if(this.screen==="main")      return this.mainMenuItems;
+            if(this.screen==="povsednev") return this.filteredOptions;
+            if(this.screen==="partner")   return this.partnerMenuItems;
             return [];
         },
         // ── Футер (Enter/ESC), как в нижней панели Window.js ──────────────────
         footerConfirmText(){
-            if(this.screen==="id-input") return "Подтвердить";
-            return "Выбрать";
+            return this.screen==="id-input" ? "Подтвердить" : "Выбрать";
         },
         footerBackText(){
-            if(this.screen==="main")             return "Закрыть";
-            if(this.screen==="id-input")         return "Отмена";
-            if(this.screen==="greeting-choice")  return "Назад";
+            if(this.screen==="main")     return "Закрыть";
+            if(this.screen==="id-input") return "Отмена";
             return "Назад";
         },
         footerConfirmDisabled(){
@@ -444,7 +421,6 @@ const _sfc_main={
             if(this.screen==="main") this.selectMain(item);
             else if(this.screen==="povsednev") this.selectOption(item);
             else if(this.screen==="partner" && typeof this[item.onClick]==="function") this[item.onClick]();
-            else if(this.screen==="greeting-choice") this.selectGreetingChoice(item);
         },
         // ── Кнопка футера Enter: ведёт на confirmIdInput на экране ввода ID,
         // на остальных экранах — на confirmSelected ──────────────────────────
@@ -464,8 +440,6 @@ const _sfc_main={
                 this.search="";
             } else if(this.screen==="partner"){
                 this.screen="main";
-            } else if(this.screen==="greeting-choice"){
-                this.screen="povsednev";
             } else if(this.screen==="main"){
                 this.close();
             }
@@ -579,13 +553,6 @@ const _sfc_main={
         // ── Повседневная — выбор действия ────────────────────────────────────
         selectOption(opt){
             const id=this.targetId;
-            // Если маскировка активна и выбрано приветствие → экран выбора типа
-            if(opt.action==="greeting" && window._isMasked && window._maskOrg){
-                this._pendingOpt=opt;
-                this.screen="greeting-choice";
-                this.selectedIndex=0;
-                return;
-            }
             if(opt.special==="fine"){
                 this.close();
                 setTimeout(()=>{
@@ -683,18 +650,6 @@ const _sfc_main={
         },
         onIdInputKeydown(e){
             if(e.key==="Escape") this.cancelIdInput();
-        },
-        // ── Выбор типа приветствия при маскировке ──────────────────────────────
-        selectGreetingChoice(item){
-            const opt=this._pendingOpt;
-            const id=this.targetId;
-            this.close();
-            setTimeout(()=>{
-                // Устанавливаем тип приветствия перед вызовом
-                window._mvdGreetingType = (item.id==='mask_org') ? 'mask' : 'fsb';
-                if(typeof window._mvdExecuteAction==="function")
-                    window._mvdExecuteAction('greeting', id);
-            },80);
         },
         close(){
             window.closeInterface("MvdMenu");
@@ -852,7 +807,7 @@ const _sfc_main={
         // зажатие стрелки никак не двигало список. keydown подхватывает системный
         // автоповтор браузера — зажал стрелку и список листается сам, как в нативных окнах.
         this._onArrowKeyDown=(e)=>{
-            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner"&&this.screen!=="greeting-choice") return;
+            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner") return;
             if(e.keyCode===window.KEY_CODE_ARROW_TOP){
                 e.preventDefault();
                 this.moveSelection(-1);
@@ -866,9 +821,66 @@ const _sfc_main={
         // showInterface → setCursorStatus(true) → setDrawLabelStatus(false) скрыл метки;
         // восстанавливаем явно, чтобы ники над игроками оставались видны
         if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
+        // ── Перетаскивание окна мышью за шапку ──────────────────────
+        this.$nextTick(()=>{
+            const wrapper=this.$el&&this.$el.querySelector('.mvdmenu__wrapper');
+            const header=wrapper&&wrapper.querySelector('.mvdmenu__header');
+            if(!header||!wrapper)return;
+            let dragging=false,sx=0,sy=0,sl=0,st=0;
+            const toAbsolute=()=>{
+                const rect=wrapper.getBoundingClientRect();
+                wrapper.style.position='absolute';
+                wrapper.style.margin='0';
+                wrapper.style.left=rect.left+'px';
+                wrapper.style.top=rect.top+'px';
+            };
+            const onDown=(e)=>{
+                if(e.target.closest('.mvdmenu__close-btn'))return;
+                if(wrapper.style.position!=='absolute')toAbsolute();
+                dragging=true;
+                const rect=wrapper.getBoundingClientRect();
+                sx=e.clientX; sy=e.clientY;
+                sl=rect.left; st=rect.top;
+                header.style.cursor='grabbing';
+                document.body.style.userSelect='none';
+                e.preventDefault();
+            };
+            const onMove=(e)=>{
+                if(!dragging)return;
+                const nx=sl+(e.clientX-sx);
+                const ny=st+(e.clientY-sy);
+                const W=window.innerWidth,H=window.innerHeight;
+                const ew=wrapper.offsetWidth,eh=wrapper.offsetHeight;
+                wrapper.style.left=Math.max(0,Math.min(nx,W-ew))+'px';
+                wrapper.style.top=Math.max(0,Math.min(ny,H-eh))+'px';
+            };
+            const onUp=()=>{
+                if(!dragging)return;
+                dragging=false;
+                header.style.cursor='grab';
+                document.body.style.userSelect='';
+                window._mvdMenuPos={left:wrapper.style.left,top:wrapper.style.top};
+            };
+            header.style.cursor='grab';
+            header.addEventListener('mousedown',onDown);
+            document.addEventListener('mousemove',onMove);
+            document.addEventListener('mouseup',onUp);
+            this._dragCleanup=()=>{
+                header.removeEventListener('mousedown',onDown);
+                document.removeEventListener('mousemove',onMove);
+                document.removeEventListener('mouseup',onUp);
+            };
+            if(window._mvdMenuPos&&window._mvdMenuPos.left&&window._mvdMenuPos.top){
+                wrapper.style.position='absolute';
+                wrapper.style.margin='0';
+                wrapper.style.left=window._mvdMenuPos.left;
+                wrapper.style.top=window._mvdMenuPos.top;
+            }
+        });
     },
     unmounted(){
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
+        if(typeof this._dragCleanup==='function')this._dragCleanup();
         const s=document.getElementById("mvdmenu-style");
         if(s)s.remove();
         window._mvdMenuRefreshPartner=null; // сбрасываем колбэк при закрытии меню
