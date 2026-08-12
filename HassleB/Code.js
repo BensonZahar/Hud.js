@@ -328,6 +328,44 @@ engine.on("UpdatePlayerPosition", function(x, y, z, angle, interior) {
     if (wasInside !== globalState.isInInterior) {
         debugLog(`[INTERIOR] ${globalState.isInInterior ? `Вошли в интерьер ID=${intId}` : 'Вышли на улицу'}`);
     }
+
+    // Синхронизируем Vuex-стор чтобы Hud.js (playerIsInInterior) видел реальный interior.
+    // UpdateRadar не передаёт interior — поэтому store никогда не обновлялся и было всегда 0.
+    try {
+        const store = window.App?.$store;
+        if (store) {
+            const pos = store.getters["player/position"];
+            if (pos && pos.interior !== intId) {
+                // Пробуем стандартные названия мутации (зависит от версии стора)
+                const mutations = [
+                    "player/setPosition",
+                    "player/updatePosition",
+                    "player/UPDATE_POSITION",
+                    "player/SET_POSITION",
+                ];
+                let committed = false;
+                for (const mut of mutations) {
+                    try {
+                        store.commit(mut, { ...pos, interior: intId });
+                        committed = true;
+                        break;
+                    } catch (_) {
+                        // Эта мутация не существует — пробуем следующую
+                    }
+                }
+                if (!committed) {
+                    // Fallback: если ни одна мутация не подошла — патчим напрямую через state
+                    const playerState = store.state?.player;
+                    if (playerState?.position) {
+                        playerState.position.interior = intId;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        // Стор может быть не готов при старте — не критично, следующий тик обновит
+        debugLog(`[INTERIOR] Vuex sync error: ${e.message}`);
+    }
 });
 
 // Хелпер — используй везде вместо pos.interior
@@ -1630,7 +1668,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot4</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1861,7 +1899,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot4</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
