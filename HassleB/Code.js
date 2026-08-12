@@ -813,6 +813,9 @@ function setupAutoLogin(attempt = 1) {
                         6000        // видно 6 секунд (можно изменить)
                     );
                 }, 3000);
+                // Запрос времени до спавна после входа
+                setTimeout(() => sendChatInput("/c 60"), 5000);
+
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
                 debugLog(errorMsg);
@@ -888,6 +891,36 @@ window.openInterface = function(interfaceName, params, additionalParams) {
         debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
         setTimeout(initializeAutoLogin, 500); // Задержка для инициализации компонента
     }
+    // ── INTERACTIONS LOGGER ──────────────────────────────────────
+    if (interfaceName === "Interactions") {
+        try {
+            let list = [];
+            if (params) {
+                const parsed = typeof params === 'object' ? params : JSON.parse(params);
+                for (const key in parsed) {
+                    list.push({ type: parsed[key][0], title: parsed[key][1] });
+                }
+            }
+            const nick = (config && config.accountInfo && config.accountInfo.nickname) || 'Unknown';
+            console.log(`[INTERACTIONS][${nick}] ══════════════════════════════`);
+            if (list.length === 0) {
+                console.log(`[INTERACTIONS][${nick}] Список пуст`);
+            } else if (list.length === 1) {
+                console.log(`[INTERACTIONS][${nick}] Одно действие: "${list[0].title}" (тип: ${list[0].type})`);
+                console.log(`[INTERACTIONS][${nick}] Нажмите ALT чтобы выполнить`);
+            } else {
+                console.log(`[INTERACTIONS][${nick}] Доступных вариантов: ${list.length}`);
+                list.forEach((item, i) => {
+                    console.log(`[INTERACTIONS][${nick}]   ${i + 1}. "${item.title}"  (тип: ${item.type})`);
+                });
+                console.log(`[INTERACTIONS][${nick}] Нажмите ALT — появится курсор, кликните нужный пункт`);
+            }
+            console.log(`[INTERACTIONS][${nick}] ══════════════════════════════`);
+        } catch (e) {
+            console.log(`[INTERACTIONS] Ошибка парсинга параметров: ${e.message}`);
+        }
+    }
+    // ── END INTERACTIONS LOGGER ──────────────────────────────────
     return result;
 };
 // END AUTO LOGIN MODULE //
@@ -1608,7 +1641,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot44</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1839,7 +1872,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot444</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -6400,77 +6433,3 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END ADMIN KAC/ZP AUTO-REPLY MODULE ====================
-
-// ==================== SPAWN TIME CHECKER MODULE ====================
-// Стартует спам /c 60 (каждые 100мс) сразу как закрывается
-// интерфейс авторизации (Authorization или AuthMobile).
-// Останавливается когда в чат приходит
-// "Вы позвонили в службу точного времени".
-(function() {
-    const SPAWN_CMD   = '/c 60';
-    const INTERVAL_MS = 100;
-    const TARGET_MSG  = 'вы позвонили в службу точного времени';
-    const AUTH_IFACES = ['authorization', 'authmobile'];
-
-    let spawnCheckTimer = null;
-    let alreadyStopped  = false;
-
-    function startSpawnCheck() {
-        if (spawnCheckTimer || alreadyStopped) return;
-        debugLog('[SpawnCheck] 🚀 Авторизация закрыта — запускаем спам ' + SPAWN_CMD + ' каждые ' + INTERVAL_MS + 'мс');
-        spawnCheckTimer = setInterval(function() {
-            if (typeof sendChatInput === 'function') {
-                sendChatInput(SPAWN_CMD);
-            }
-        }, INTERVAL_MS);
-    }
-
-    function stopSpawnCheck(detectedMsg) {
-        if (alreadyStopped) return;
-        alreadyStopped = true;
-        if (spawnCheckTimer) {
-            clearInterval(spawnCheckTimer);
-            spawnCheckTimer = null;
-        }
-        const now     = new Date();
-        const timeStr = now.toTimeString().split(' ')[0];
-        const logMsg  = '[SpawnCheck] ✅ ' + timeStr + ' — получено: "'
-            + detectedMsg.replace(/\{[0-9A-Fa-f]{6}\}/g, '')
-            + '" → спам ' + SPAWN_CMD + ' остановлен';
-        debugLog(logMsg);
-        console.log(logMsg);
-    }
-
-    // Хук closeInterface — ловим закрытие авторизации
-    const _origClose = window.closeInterface;
-    window.closeInterface = function(interfaceName) {
-        const result = (typeof _origClose === 'function')
-            ? _origClose.apply(this, arguments)
-            : undefined;
-        if (typeof interfaceName === 'string' &&
-            AUTH_IFACES.includes(interfaceName.toLowerCase())) {
-            debugLog('[SpawnCheck] Интерфейс "' + interfaceName + '" закрыт — старт спама');
-            startSpawnCheck();
-        }
-        return result;
-    };
-
-    // Хук OnChatAddMessage — ловим ответ сервера времени
-    const _spawnOrigOnChat = window.OnChatAddMessage;
-    window.OnChatAddMessage = function(e, colorArg, t) {
-        if (typeof _spawnOrigOnChat === 'function') {
-            _spawnOrigOnChat.call(this, e, colorArg, t);
-        }
-        if (alreadyStopped) return;
-        const msg        = String(e);
-        const normalized = (typeof normalizeToCyrillic === 'function')
-            ? normalizeToCyrillic(msg).toLowerCase()
-            : msg.toLowerCase();
-        if (normalized.includes(TARGET_MSG)) {
-            stopSpawnCheck(msg);
-        }
-    };
-
-    debugLog('[SpawnCheck] Модуль загружен — ждём закрытия интерфейса авторизации');
-})();
-// ==================== END SPAWN TIME CHECKER MODULE ====================
