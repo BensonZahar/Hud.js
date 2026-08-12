@@ -514,13 +514,6 @@ function _matchesCombo(e, combo) {
     return modOk && (e.key.toLowerCase() === mainKey || e.code.toLowerCase() === mainKey);
 }
 
-// ── Alt ×1 / ×2 — состояние double-tap ──────────────────────────────────────
-// Alt ×1 → скрыть/показать курсор (как было)
-// Alt ×2 → скрыть/показать все открытые интерфейсы (.iface-container)
-let _altLastTap    = 0;       // время последнего Alt
-let _altMenuHidden = false;   // флаг: интерфейсы сейчас скрыты
-const _ALT_DBTAP_MS = 350;    // макс. интервал двойного нажатия (мс)
-
 // Обработчик горячих клавиш
 window.addEventListener('keydown', function(e) {
     if (MENU_KEY) {
@@ -568,42 +561,12 @@ window.addEventListener('keydown', function(e) {
     // на основе настройки SWAP_KEY из установщика.
     // Прямые хоткеи здесь убраны — не дублируем.
 
-    // ==================== ALT ×1 — курсор | ALT ×2 — скрыть/показать интерфейсы ====================
+    // ==================== ALT — ПОКАЗАТЬ/СКРЫТЬ КУРСОР ПРИ ОТКРЫТОЙ КОНСОЛИ ====================
     if (e.keyCode === window.KEY_CODE_ALT) {
-        const _now = Date.now();
-        const _isDouble = (_now - _altLastTap) <= _ALT_DBTAP_MS;
-        _altLastTap = _now;
-
         const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
-
-        // ── ×1: скрыть/показать курсор ───────────────────────────────────────
         if (consoleRef && consoleRef.isOpened) {
             window.cursorStatus = !window.cursorStatus;
             window.setCursorStatus('Console', window.cursorStatus);
-        }
-
-        // ── ×2: скрыть/показать все интерфейсы (.iface-container) ────────────
-        // Пропускаем если активен doc-check или cite-offer — у них своя Alt-логика
-        if (_isDouble && !_docCheckActive && !_citeOfferActive) {
-            _altMenuHidden = !_altMenuHidden;
-            if (_altMenuHidden) {
-                // Инжектируем CSS — скрываем все .iface-container (в т.ч. будущие)
-                if (!document.getElementById('_ahk_hide_iface')) {
-                    var _hs = document.createElement('style');
-                    _hs.id = '_ahk_hide_iface';
-                    _hs.textContent = '.iface-container{visibility:hidden!important;pointer-events:none!important;}';
-                    document.head.appendChild(_hs);
-                }
-            } else {
-                // Убираем CSS — показываем интерфейсы обратно
-                var _hs = document.getElementById('_ahk_hide_iface');
-                if (_hs) _hs.remove();
-                // Восстанавливаем курсор чтобы можно было кликать по меню
-                if (consoleRef && consoleRef.isOpened) {
-                    window.cursorStatus = true;
-                    window.setCursorStatus('Console', window.cursorStatus);
-                }
-            }
         }
     }
 });
