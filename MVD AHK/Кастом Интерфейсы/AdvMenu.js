@@ -289,6 +289,32 @@ computed:{
     },
 },
 methods:{
+    // Скрывает курсор интерфейса и снимает фокус с активного поля ввода
+    // (иначе можно продолжать печатать вслепую, не видя курсор/меню).
+    // Запоминает поле, чтобы вернуть в него фокус при появлении курсора.
+    hideCursor(){
+        const ae=document.activeElement;
+        if(ae&&this.$el&&this.$el.contains(ae)&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')){
+            this._blurredInput=ae;
+            ae.blur();
+        } else {
+            this._blurredInput=null;
+        }
+        window.setCursorStatus('AdvMenu',false);
+    },
+    // Показывает курсор обратно и возвращает фокус в поле ввода,
+    // если оно было в фокусе до скрытия курсора
+    showCursor(){
+        window.setCursorStatus('AdvMenu',true);
+        if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
+        const el=this._blurredInput;
+        this._blurredInput=null;
+        if(el){
+            this.$nextTick(()=>{
+                if(el.isConnected)el.focus();
+            });
+        }
+    },
     // ── Серверное время (МСК) ─────────────────────────────────────────────
     // Тот же механизм, что в Docs (компонент DateTime): функция `c` из
     // timeZone.js конвертирует Date в московское время. Сервер Радмира
@@ -490,6 +516,8 @@ mounted(){
         s.textContent=`
 /* ════ AdvMenu ═══════════════════════════════════════════════════════ */
 .adv-menu{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:absolute;text-transform:none;top:0;width:100vw;z-index:11;}
+.adv-menu_hidden{display:none!important;}
+.adv-menu_dragging{cursor:grabbing!important;}
 .adv-menu__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
 .adv-menu__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(74,144,217,0.18),0 1.5vh 5vh rgba(0,0,0,.75);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:32vh;z-index:1;}
 .adv-menu__top-accent{background:#4a90d9;height:0.19vh;left:0;position:absolute;right:0;top:0;}
@@ -621,12 +649,12 @@ mounted(){
     }
     if(!window.App?.developmentMode)window.setDrawLabelStatus(true);
 
-    // ── Alt-key state for cursor/menu toggle (как в zkm.js) ──────
+    // ── Alt-key state for cursor/menu toggle ────────────────────
     this._menuHidden=false;
     this._altHoldTimer=null;
     this._altHoldFired=false;
     this._blurredInput=null;
-    const _ADVMENU_ALT_HOLD_MS=500; // зажатие Alt — 500 мс
+    const _ADV_ALT_HOLD_MS=500; // зажатие Alt — 500 мс
     this._prevOnKeyUp=window.onKeyUp;
     this._prevOnKeyDown=window.onKeyDown;
     // onKeyDown: запускаем таймер зажатия Alt
@@ -649,13 +677,14 @@ mounted(){
                         this.$el.classList.remove('adv-menu_hidden');
                         this.showCursor();
                     }
-                },_ADVMENU_ALT_HOLD_MS);
+                },_ADV_ALT_HOLD_MS);
             }
             return;
         }
         if(typeof this._prevOnKeyDown==="function")this._prevOnKeyDown(e)
     }
     window.onKeyUp=(e)=>{
+        if(e===window.KEY_CODE_ESC){this.close();return}
         if(e===window.KEY_CODE_ALT){
             if(this._altHoldTimer){
                 // ── Короткий тап Alt: отменяем hold, переключаем только курсор ──
@@ -682,9 +711,6 @@ mounted(){
     }
 
     // ── Перетаскивание окна мышью за шапку ──────────────────────
-    // Более плавное движение: размеры кэшируются один раз при захвате,
-    // а позиция применяется через requestAnimationFrame — строго раз
-    // в кадр, без дёрганья (как в zkm.js).
     this.$nextTick(()=>{
         const wrapper=this.$el&&this.$el.querySelector('.adv-menu__wrapper');
         const header=wrapper&&wrapper.querySelector('.adv-menu__header');
@@ -708,8 +734,8 @@ mounted(){
             // Кешируем размеры один раз при захвате
             _dragEw=wrapper.offsetWidth; _dragEh=wrapper.offsetHeight;
             _dragW=window.innerWidth; _dragH=window.innerHeight;
+            wrapper.classList.add('adv-menu_dragging');
             header.style.cursor='grabbing';
-            wrapper.classList.add('adv-menu__wrapper_dragging');
             document.body.style.userSelect='none';
             e.preventDefault();
         };
@@ -730,8 +756,8 @@ mounted(){
             if(!dragging)return;
             dragging=false;
             if(_dragRaf){cancelAnimationFrame(_dragRaf);_dragRaf=null;}
+            wrapper.classList.remove('adv-menu_dragging');
             header.style.cursor='grab';
-            wrapper.classList.remove('adv-menu__wrapper_dragging');
             document.body.style.userSelect='';
             window._advMenuPos={left:wrapper.style.left,top:wrapper.style.top};
         };
@@ -754,9 +780,9 @@ mounted(){
 },
 unmounted(){
     this._clearTimer();
-    if(typeof this._dragCleanup==='function')this._dragCleanup();
     window.onKeyUp=this._prevOnKeyUp;
     window.onKeyDown=this._prevOnKeyDown;
+    if(typeof this._dragCleanup==='function')this._dragCleanup();
     if(this._altHoldTimer)clearTimeout(this._altHoldTimer);
     const s=document.getElementById("adv-menu-style");
     if(s)s.remove();
