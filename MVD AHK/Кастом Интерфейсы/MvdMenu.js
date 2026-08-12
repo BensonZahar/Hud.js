@@ -653,6 +653,32 @@ const _sfc_main={
         },
         close(){
             window.closeInterface("MvdMenu");
+        },
+        // Скрывает курсор интерфейса и снимает фокус с активного поля ввода
+        // (иначе можно продолжать печатать вслепую, не видя курсор/меню).
+        // Запоминает поле, чтобы вернуть в него фокус при появлении курсора.
+        hideCursor(){
+            const ae=document.activeElement;
+            if(ae&&this.$el&&this.$el.contains(ae)&&(ae.tagName==='INPUT'||ae.tagName==='TEXTAREA')){
+                this._blurredInput=ae;
+                ae.blur();
+            } else {
+                this._blurredInput=null;
+            }
+            window.setCursorStatus('MvdMenu',false);
+        },
+        // Показывает курсор обратно и возвращает фокус в поле ввода,
+        // если оно было в фокусе до скрытия курсора
+        showCursor(){
+            window.setCursorStatus('MvdMenu',true);
+            if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
+            const el=this._blurredInput;
+            this._blurredInput=null;
+            if(el){
+                this.$nextTick(()=>{
+                    if(el.isConnected)el.focus();
+                });
+            }
         }
     },
     created(){this.$data.noAdaptation=true},
@@ -737,6 +763,11 @@ const _sfc_main={
 .mvdmenu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;padding:1.2vh 1.67vh;position:relative;z-index:1;}
 .mvdmenu__footer .controls-button__container{margin-right:1.48vh;}
 .mvdmenu__footer .controls-button__container:last-child{margin-right:0;}
+
+/* Зажатие Alt — полностью скрывает меню (как laws-helper_hidden в zkm.js) */
+.mvdmenu_hidden{display:none!important;}
+/* Во время перетаскивания — курсор grabbing на всей области окна */
+.mvdmenu__wrapper_dragging,.mvdmenu__wrapper_dragging *{cursor:grabbing!important;}
         `;
         document.head.appendChild(s);
 
@@ -821,12 +852,77 @@ const _sfc_main={
         // showInterface → setCursorStatus(true) → setDrawLabelStatus(false) скрыл метки;
         // восстанавливаем явно, чтобы ники над игроками оставались видны
         if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
+
+        // ── Alt-key state for cursor/menu toggle (как в zkm.js) ──────
+        this._menuHidden=false;
+        this._altHoldTimer=null;
+        this._altHoldFired=false;
+        this._blurredInput=null;
+        const _MVDMENU_ALT_HOLD_MS=500; // зажатие Alt — 500 мс
+        this._prevOnKeyUp=window.onKeyUp;
+        this._prevOnKeyDown=window.onKeyDown;
+        // onKeyDown: запускаем таймер зажатия Alt
+        window.onKeyDown=(e)=>{
+            if(e===window.KEY_CODE_ALT){
+                // !_altHoldFired — защита от повторного срабатывания из-за
+                // автоповтора keydown, пока Alt всё ещё физически зажат:
+                // новую реакцию можно получить только после отпускания клавиши
+                if(!this._altHoldTimer&&!this._altHoldFired){
+                    this._altHoldTimer=setTimeout(()=>{
+                        this._altHoldTimer=null;
+                        this._altHoldFired=true;
+                        // ── Зажатие Alt: переключает видимость меню туда-обратно.
+                        //    Повторное зажатие снова показывает скрытое меню.
+                        this._menuHidden=!this._menuHidden;
+                        if(this._menuHidden){
+                            this.$el.classList.add('mvdmenu_hidden');
+                            this.hideCursor();
+                        } else {
+                            this.$el.classList.remove('mvdmenu_hidden');
+                            this.showCursor();
+                        }
+                    },_MVDMENU_ALT_HOLD_MS);
+                }
+                return;
+            }
+            if(typeof this._prevOnKeyDown==="function")this._prevOnKeyDown(e)
+        }
+        window.onKeyUp=(e)=>{
+            if(e===window.KEY_CODE_ALT){
+                if(this._altHoldTimer){
+                    // ── Короткий тап Alt: отменяем hold, переключаем только курсор ──
+                    // (только если меню видимо — когда скрыто курсор не нужен)
+                    clearTimeout(this._altHoldTimer);
+                    this._altHoldTimer=null;
+                    if(!this._menuHidden){
+                        const _curActive=window.isCursorActive('MvdMenu');
+                        if(_curActive){
+                            // Курсор скрывается — снимаем фокус с поля ввода,
+                            // чтобы текст не печатался "вслепую" со скрытым курсором
+                            this.hideCursor();
+                        } else {
+                            this.showCursor();
+                        }
+                    }
+                }
+                // Отпустили Alt — сбрасываем флаг сработавшего hold'а,
+                // теперь новое зажатие снова сможет вызвать реакцию
+                this._altHoldFired=false;
+                return;
+            }
+            if(typeof this._prevOnKeyUp==="function")this._prevOnKeyUp(e)
+        }
+
         // ── Перетаскивание окна мышью за шапку ──────────────────────
+        // Более плавное движение: размеры кэшируются один раз при захвате,
+        // а позиция применяется через requestAnimationFrame — строго раз
+        // в кадр, без дёрганья (как в zkm.js).
         this.$nextTick(()=>{
             const wrapper=this.$el&&this.$el.querySelector('.mvdmenu__wrapper');
             const header=wrapper&&wrapper.querySelector('.mvdmenu__header');
             if(!header||!wrapper)return;
-            let dragging=false,sx=0,sy=0,sl=0,st=0;
+            let dragging=false,sx=0,sy=0,sl=0,st=0,_dragEw=0,_dragEh=0,_dragW=0,_dragH=0;
+            let _dragRaf=null,_dragPx=0,_dragPy=0;
             const toAbsolute=()=>{
                 const rect=wrapper.getBoundingClientRect();
                 wrapper.style.position='absolute';
@@ -841,23 +937,33 @@ const _sfc_main={
                 const rect=wrapper.getBoundingClientRect();
                 sx=e.clientX; sy=e.clientY;
                 sl=rect.left; st=rect.top;
+                // Кешируем размеры один раз при захвате
+                _dragEw=wrapper.offsetWidth; _dragEh=wrapper.offsetHeight;
+                _dragW=window.innerWidth; _dragH=window.innerHeight;
                 header.style.cursor='grabbing';
+                wrapper.classList.add('mvdmenu__wrapper_dragging');
                 document.body.style.userSelect='none';
                 e.preventDefault();
             };
             const onMove=(e)=>{
                 if(!dragging)return;
-                const nx=sl+(e.clientX-sx);
-                const ny=st+(e.clientY-sy);
-                const W=window.innerWidth,H=window.innerHeight;
-                const ew=wrapper.offsetWidth,eh=wrapper.offsetHeight;
-                wrapper.style.left=Math.max(0,Math.min(nx,W-ew))+'px';
-                wrapper.style.top=Math.max(0,Math.min(ny,H-eh))+'px';
+                _dragPx=sl+(e.clientX-sx);
+                _dragPy=st+(e.clientY-sy);
+                // Обновляем позицию через RAF — рендер строго раз в кадр, без дёрганья
+                if(!_dragRaf){
+                    _dragRaf=requestAnimationFrame(()=>{
+                        _dragRaf=null;
+                        wrapper.style.left=Math.max(0,Math.min(_dragPx,_dragW-_dragEw))+'px';
+                        wrapper.style.top=Math.max(0,Math.min(_dragPy,_dragH-_dragEh))+'px';
+                    });
+                }
             };
             const onUp=()=>{
                 if(!dragging)return;
                 dragging=false;
+                if(_dragRaf){cancelAnimationFrame(_dragRaf);_dragRaf=null;}
                 header.style.cursor='grab';
+                wrapper.classList.remove('mvdmenu__wrapper_dragging');
                 document.body.style.userSelect='';
                 window._mvdMenuPos={left:wrapper.style.left,top:wrapper.style.top};
             };
@@ -881,6 +987,9 @@ const _sfc_main={
     unmounted(){
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
         if(typeof this._dragCleanup==='function')this._dragCleanup();
+        window.onKeyUp=this._prevOnKeyUp;
+        window.onKeyDown=this._prevOnKeyDown;
+        if(this._altHoldTimer)clearTimeout(this._altHoldTimer);
         const s=document.getElementById("mvdmenu-style");
         if(s)s.remove();
         window._mvdMenuRefreshPartner=null; // сбрасываем колбэк при закрытии меню
