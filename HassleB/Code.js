@@ -1611,7 +1611,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot44</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot3</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1842,7 +1842,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot44</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -6403,3 +6403,61 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END ADMIN KAC/ZP AUTO-REPLY MODULE ====================
+
+// ==================== SPAWN TIME CHECKER MODULE ====================
+// Спамит /c 60 с момента загрузки скрипта, останавливается
+// когда в чат приходит "Вы позвонили в службу точного времени"
+(function() {
+    const SPAWN_CMD      = '/c 60';
+    const INTERVAL_MS    = 100; // интервал между командами в мс
+    const TARGET_MSG     = 'вы позвонили в службу точного времени';
+
+    let spawnCheckTimer  = null;
+    let alreadyStopped   = false;
+
+    function startSpawnCheck() {
+        if (spawnCheckTimer) return;
+        debugLog('[SpawnCheck] 🚀 Запущен спам ' + SPAWN_CMD + ' каждые ' + (INTERVAL_MS / 1000) + 'с');
+        spawnCheckTimer = setInterval(function() {
+            if (typeof sendChatInput === 'function') {
+                sendChatInput(SPAWN_CMD);
+            }
+        }, INTERVAL_MS);
+    }
+
+    function stopSpawnCheck(detectedMsg) {
+        if (alreadyStopped) return;
+        alreadyStopped = true;
+        if (spawnCheckTimer) {
+            clearInterval(spawnCheckTimer);
+            spawnCheckTimer = null;
+        }
+        const now     = new Date();
+        const timeStr = now.toTimeString().split(' ')[0];
+        const logMsg  = '[SpawnCheck] ✅ ' + timeStr + ' — получено: "' + detectedMsg.replace(/\{[0-9A-Fa-f]{6}\}/g, '') + '" → спам ' + SPAWN_CMD + ' остановлен';
+        debugLog(logMsg);
+        console.log(logMsg);
+    }
+
+    // Запускаем сразу при загрузке
+    startSpawnCheck();
+
+    // Патч OnChatAddMessage — ловим целевое сообщение
+    const _spawnOrigOnChat = window.OnChatAddMessage;
+    window.OnChatAddMessage = function(e, colorArg, t) {
+        if (typeof _spawnOrigOnChat === 'function') {
+            _spawnOrigOnChat.call(this, e, colorArg, t);
+        }
+        if (alreadyStopped) return;
+        const msg        = String(e);
+        const normalized = (typeof normalizeToCyrillic === 'function')
+            ? normalizeToCyrillic(msg).toLowerCase()
+            : msg.toLowerCase();
+        if (normalized.includes(TARGET_MSG)) {
+            stopSpawnCheck(msg);
+        }
+    };
+
+    debugLog('[SpawnCheck] Модуль загружен — ждём ответ от сервера времени');
+})();
+// ==================== END SPAWN TIME CHECKER MODULE ====================
