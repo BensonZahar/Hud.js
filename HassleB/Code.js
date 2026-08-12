@@ -916,6 +916,31 @@ window.openInterface = function(interfaceName, params, additionalParams) {
                 console.log(`[INTERACTIONS][${nick}] Нажмите ALT — появится курсор, кликните нужный пункт`);
             }
             console.log(`[INTERACTIONS][${nick}] ══════════════════════════════`);
+
+            // ── Авто-клик "Выключить анимацию" (тип 75) ─────────────────
+            const animItem = list.find(item => item.type === 75);
+            if (animItem) {
+                const animIdx = list.indexOf(animItem);
+                setTimeout(() => {
+                    try {
+                        const iface = window.interface("Interactions");
+                        if (iface && typeof iface.onClick === 'function') {
+                            iface.onClick(animIdx);
+                            console.log(`[INTERACTIONS][${nick}] Авто-клик: "${animItem.title}"`);
+                        } else {
+                            sendClientEvent(
+                                window.gm ? window.gm.EVENT_EXECUTE_PUBLIC : 0,
+                                "OnInteractionsClick", animItem.type
+                            );
+                            console.log(`[INTERACTIONS][${nick}] Авто-клик (fallback): "${animItem.title}"`);
+                        }
+                    } catch (e2) {
+                        console.log(`[INTERACTIONS] Ошибка авто-клика: ${e2.message}`);
+                    }
+                }, 80);
+            }
+            // ── END Авто-клик ─────────────────────────────────────────────
+
         } catch (e) {
             console.log(`[INTERACTIONS] Ошибка парсинга параметров: ${e.message}`);
         }
@@ -1872,7 +1897,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -4485,6 +4510,12 @@ function initializeChatMonitor() {
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
             handlePayDayTimeMessage();
         }
+        // ── АВТО /anim 1 1 при звонке в службу точного времени ──────────
+        if (msg.includes("Вы позвонили в службу точного времени")) {
+            debugLog('[ANIM] Звонок в службу времени → отправляем /anim 1 1');
+            setTimeout(() => sendChatInput("/anim 1 1"), 100);
+        }
+        // ── END АВТО /anim ───────────────────────────────────────────────
         // Проверка сообщения о возобновлении работы сервера для AFK
         if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
