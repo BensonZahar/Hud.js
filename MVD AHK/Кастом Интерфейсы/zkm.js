@@ -749,9 +749,65 @@ const _sfc_main={
 
 		// Автофокус на поле поиска — можно сразу печатать при открытии окна
 		this.$nextTick(()=>this.focusSearchInput());
+
+		// ── Перетаскивание окна мышью за шапку ──────────────────────
+		this.$nextTick(()=>{
+			const el=this.$el;
+			const header=el&&el.querySelector('.laws-helper__header');
+			if(!header)return;
+			let dragging=false,sx=0,sy=0,sl=0,st=0;
+			const onDown=(e)=>{
+				// Клики по кнопкам и табам — не начинаем перетаскивание
+				if(e.target.closest('.laws-helper__icon-btn,.laws-helper__tab'))return;
+				dragging=true;
+				const rect=el.getBoundingClientRect();
+				sx=e.clientX; sy=e.clientY;
+				sl=rect.left; st=rect.top;
+				// Снимаем центрирующий transform и переходим на абсолютные px
+				el.style.transform='none';
+				el.style.left=sl+'px';
+				el.style.top=st+'px';
+				el.classList.add('laws-helper_dragging');
+				document.body.style.userSelect='none';
+				e.preventDefault();
+			};
+			const onMove=(e)=>{
+				if(!dragging)return;
+				const nx=sl+(e.clientX-sx);
+				const ny=st+(e.clientY-sy);
+				// Ограничиваем окно размерами вьюпорта
+				const W=window.innerWidth,H=window.innerHeight;
+				const ew=el.offsetWidth,eh=el.offsetHeight;
+				el.style.left=Math.max(0,Math.min(nx,W-ew))+'px';
+				el.style.top=Math.max(0,Math.min(ny,H-eh))+'px';
+			};
+			const onUp=()=>{
+				if(!dragging)return;
+				dragging=false;
+				el.classList.remove('laws-helper_dragging');
+				document.body.style.userSelect='';
+				// ── Сохраняем позицию в глобал (localStorage недоступен в CEF) ──
+				window._zkmPos={left:el.style.left,top:el.style.top};
+			};
+			header.addEventListener('mousedown',onDown);
+			document.addEventListener('mousemove',onMove);
+			document.addEventListener('mouseup',onUp);
+			this._dragCleanup=()=>{
+				header.removeEventListener('mousedown',onDown);
+				document.removeEventListener('mousemove',onMove);
+				document.removeEventListener('mouseup',onUp);
+			};
+			// ── Восстанавливаем позицию если окно уже перемещали ──
+			if(window._zkmPos&&window._zkmPos.left&&window._zkmPos.top){
+				el.style.transform='none';
+				el.style.left=window._zkmPos.left;
+				el.style.top=window._zkmPos.top;
+			}
+		});
 	},
 	unmounted(){
 		window.onKeyUp=this._prevOnKeyUp;
+		if(typeof this._dragCleanup==='function')this._dragCleanup();
 	},
 	methods:{
 		selectTab(i){

@@ -821,9 +821,66 @@ const _sfc_main={
         // showInterface → setCursorStatus(true) → setDrawLabelStatus(false) скрыл метки;
         // восстанавливаем явно, чтобы ники над игроками оставались видны
         if(!window.App?.developmentMode) window.setDrawLabelStatus(true);
+        // ── Перетаскивание окна мышью за шапку ──────────────────────
+        this.$nextTick(()=>{
+            const wrapper=this.$el&&this.$el.querySelector('.mvdmenu__wrapper');
+            const header=wrapper&&wrapper.querySelector('.mvdmenu__header');
+            if(!header||!wrapper)return;
+            let dragging=false,sx=0,sy=0,sl=0,st=0;
+            const toAbsolute=()=>{
+                const rect=wrapper.getBoundingClientRect();
+                wrapper.style.position='absolute';
+                wrapper.style.margin='0';
+                wrapper.style.left=rect.left+'px';
+                wrapper.style.top=rect.top+'px';
+            };
+            const onDown=(e)=>{
+                if(e.target.closest('.mvdmenu__close-btn'))return;
+                if(wrapper.style.position!=='absolute')toAbsolute();
+                dragging=true;
+                const rect=wrapper.getBoundingClientRect();
+                sx=e.clientX; sy=e.clientY;
+                sl=rect.left; st=rect.top;
+                header.style.cursor='grabbing';
+                document.body.style.userSelect='none';
+                e.preventDefault();
+            };
+            const onMove=(e)=>{
+                if(!dragging)return;
+                const nx=sl+(e.clientX-sx);
+                const ny=st+(e.clientY-sy);
+                const W=window.innerWidth,H=window.innerHeight;
+                const ew=wrapper.offsetWidth,eh=wrapper.offsetHeight;
+                wrapper.style.left=Math.max(0,Math.min(nx,W-ew))+'px';
+                wrapper.style.top=Math.max(0,Math.min(ny,H-eh))+'px';
+            };
+            const onUp=()=>{
+                if(!dragging)return;
+                dragging=false;
+                header.style.cursor='grab';
+                document.body.style.userSelect='';
+                window._mvdMenuPos={left:wrapper.style.left,top:wrapper.style.top};
+            };
+            header.style.cursor='grab';
+            header.addEventListener('mousedown',onDown);
+            document.addEventListener('mousemove',onMove);
+            document.addEventListener('mouseup',onUp);
+            this._dragCleanup=()=>{
+                header.removeEventListener('mousedown',onDown);
+                document.removeEventListener('mousemove',onMove);
+                document.removeEventListener('mouseup',onUp);
+            };
+            if(window._mvdMenuPos&&window._mvdMenuPos.left&&window._mvdMenuPos.top){
+                wrapper.style.position='absolute';
+                wrapper.style.margin='0';
+                wrapper.style.left=window._mvdMenuPos.left;
+                wrapper.style.top=window._mvdMenuPos.top;
+            }
+        });
     },
     unmounted(){
         document.removeEventListener("keydown",this._onArrowKeyDown,false);
+        if(typeof this._dragCleanup==='function')this._dragCleanup();
         const s=document.getElementById("mvdmenu-style");
         if(s)s.remove();
         window._mvdMenuRefreshPartner=null; // сбрасываем колбэк при закрытии меню
