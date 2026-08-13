@@ -814,12 +814,12 @@ function setupAutoLogin(attempt = 1) {
                     );
                 }, 3000);
                 // Запрос времени до спавна после входа
-                setTimeout(() => sendChatInput("/c 60"), 5000);
-                // Сразу перебиваем анимацию /c 60 через /anim 1 1
+                // /c 60 и сразу /anim 1 1 — без задержки
                 setTimeout(() => {
+                    sendChatInput("/c 60");
                     sendChatInput("/anim 1 1");
-                    console.log('[ANIM] /anim 1 1 отправлен — перебиваем /c 60');
-                }, 5200);
+                    console.log('[ANIM] /c 60 + /anim 1 1 отправлены одновременно');
+                }, 5000);
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
