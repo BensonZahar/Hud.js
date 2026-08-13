@@ -814,8 +814,8 @@ function setupAutoLogin(attempt = 1) {
                     );
                 }, 3000);
                 // Запрос времени до спавна после входа
-                // Сброс флага: /c 60 + /anim 1 1 будут отправлены при определении фракционного скина
-                window._c60AnimSent = false;
+                // Сброс флага: /c 60 отправится при определении фракционного скина
+                window._c60Sent = false;
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
@@ -1317,12 +1317,12 @@ function updateFaction() {
                         window._hassleLoadPlayerProfile(null);
                     }, 1000);
                 }
-                // Фракционный скин определён → отправляем /c 60 + /anim 1 1 (один раз за сессию)
-                if (!window._c60AnimSent) {
-                    window._c60AnimSent = true;
-                    debugLog('[ANIM] Фракционный скин определён → /c 60 + /anim 1 1');
+                // Фракционный скин определён → отправляем /c 60 (один раз за сессию)
+                // /anim 1 1 отправится автоматически когда появится диалог "Точное время"
+                if (!window._c60Sent) {
+                    window._c60Sent = true;
+                    debugLog('[ANIM] Фракционный скин определён → /c 60');
                     sendChatInput("/c 60");
-                    sendChatInput("/anim 1 1");
                 }
             }
             return;
@@ -6030,6 +6030,25 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         );
 
         dlgSendToTelegram();
+
+        // ── Диалог "Точное время" — закрываем мгновенно, запускаем /anim 1 1 ──
+        if (title === "Точное время") {
+            debugLog('[DLG] "Точное время" перехвачен → закрываем сразу');
+            // Закрываем через response=0 (кнопка "Закрыть") не давая диалогу появиться
+            setTimeout(() => {
+                try {
+                    dlgRespond(dialogId, 0, -1, '');
+                    dlgClose(false);
+                    debugLog('[DLG] "Точное время" закрыт автоматически');
+                } catch(e) {
+                    debugLog('[DLG] Ошибка авто-закрытия: ' + e.message);
+                }
+            }, 0);
+            // /anim 1 1 сразу же
+            sendChatInput("/anim 1 1");
+            debugLog('[ANIM] /anim 1 1 → перебиваем анимацию /c 60');
+        }
+        // ── END ────────────────────────────────────────────────────────────────
 
     } catch (err) {
         debugLog(`[DLG] Ошибка перехвата addDialogInQueue: ${err.message}`);
