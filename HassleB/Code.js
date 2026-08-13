@@ -3294,7 +3294,7 @@ function processUpdates(updates) {
                 });
                 globalState.lastWelcomeMessageId = null;
                 sendWelcomeMessage();
-
+            }
         } else if (update.callback_query) {
             const message = update.callback_query.data;
             const chatId = update.callback_query.message.chat.id;
