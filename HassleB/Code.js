@@ -814,12 +814,8 @@ function setupAutoLogin(attempt = 1) {
                     );
                 }, 3000);
                 // Запрос времени до спавна после входа
-                // /c 60 и сразу /anim 1 1 — без задержки
-                setTimeout(() => {
-                    sendChatInput("/c 60");
-                    sendChatInput("/anim 1 1");
-                    console.log('[ANIM] /c 60 + /anim 1 1 отправлены одновременно');
-                }, 5000);
+                // Сброс флага: /c 60 + /anim 1 1 будут отправлены при определении фракционного скина
+                window._c60AnimSent = false;
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
@@ -1320,6 +1316,13 @@ function updateFaction() {
                     setTimeout(function() {
                         window._hassleLoadPlayerProfile(null);
                     }, 1000);
+                }
+                // Фракционный скин определён → отправляем /c 60 + /anim 1 1 (один раз за сессию)
+                if (!window._c60AnimSent) {
+                    window._c60AnimSent = true;
+                    debugLog('[ANIM] Фракционный скин определён → /c 60 + /anim 1 1');
+                    sendChatInput("/c 60");
+                    sendChatInput("/anim 1 1");
                 }
             }
             return;
