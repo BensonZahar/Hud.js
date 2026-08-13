@@ -814,8 +814,10 @@ function setupAutoLogin(attempt = 1) {
                     );
                 }, 3000);
                 // Запрос времени до спавна после входа
-                // Сброс флага: /c 60 отправится при определении фракционного скина
+                // Сброс флагов: /c 60 отправится при определении фракционного скина
                 window._c60Sent = false;
+                window._awaitC60Dialog = false;
+                window._awaitAnimInteraction = false;
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
@@ -918,9 +920,10 @@ window.openInterface = function(interfaceName, params, additionalParams) {
             }
             console.log(`[INTERACTIONS][${nick}] ══════════════════════════════`);
 
-            // ── Авто-клик "Выключить анимацию" (тип 75) ─────────────────
+            // ── Авто-клик "Выключить анимацию" — только после /c 60 → MainMenu ─
             const animItem = list.find(item => item.type === 75);
-            if (animItem) {
+            if (animItem && window._awaitAnimInteraction) {
+                window._awaitAnimInteraction = false; // Одноразово
                 const animIdx = list.indexOf(animItem);
                 setTimeout(() => {
                     try {
@@ -1321,6 +1324,7 @@ function updateFaction() {
                 // /anim 1 1 отправится автоматически когда появится диалог "Точное время"
                 if (!window._c60Sent) {
                     window._c60Sent = true;
+                    window._awaitC60Dialog = true; // Ждём диалог "Точное время"
                     debugLog('[ANIM] Фракционный скин определён → /c 60');
                     sendChatInput("/c 60");
                 }
@@ -6029,26 +6033,28 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             `title="${title}", headers=${headers.length}, items=${items.length}`
         );
 
-        dlgSendToTelegram();
-
-        // ── Диалог "Точное время" — закрываем мгновенно, запускаем /anim 1 1 ──
-        if (title === "Точное время") {
-            debugLog('[DLG] "Точное время" перехвачен → закрываем сразу');
-            // Закрываем через response=0 (кнопка "Закрыть") не давая диалогу появиться
+        // ── Диалог "Точное время" от /c 60 — закрываем мгновенно (без Telegram) ──
+        if (title === "Точное время" && window._awaitC60Dialog) {
+            window._awaitC60Dialog = false; // Сбрасываем — больше не трогаем этот диалог
+            debugLog('[DLG] "Точное время" от /c 60 → закрываем, в Telegram не пишем');
+            // Закрываем через response=0 не давая диалогу появиться
             setTimeout(() => {
                 try {
                     dlgRespond(dialogId, 0, -1, '');
                     dlgClose(false);
-                    debugLog('[DLG] "Точное время" закрыт автоматически');
+                    debugLog('[DLG] "Точное время" закрыт');
                 } catch(e) {
                     debugLog('[DLG] Ошибка авто-закрытия: ' + e.message);
                 }
             }, 0);
-            // /anim 1 1 сразу же
             sendChatInput("/anim 1 1");
-            debugLog('[ANIM] /anim 1 1 → перебиваем анимацию /c 60');
+            window._awaitAnimInteraction = true; // Ждём "Выключить анимацию" один раз
+            debugLog('[ANIM] /anim 1 1 отправлен');
+            return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
         }
         // ── END ────────────────────────────────────────────────────────────────
+
+        dlgSendToTelegram();
 
     } catch (err) {
         debugLog(`[DLG] Ошибка перехвата addDialogInQueue: ${err.message}`);
