@@ -3294,7 +3294,7 @@ function processUpdates(updates) {
                 });
                 globalState.lastWelcomeMessageId = null;
                 sendWelcomeMessage();
-            }
+
         } else if (update.callback_query) {
             const message = update.callback_query.data;
             const chatId = update.callback_query.message.chat.id;
@@ -6485,3 +6485,310 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END ADMIN KAC/ZP AUTO-REPLY MODULE ====================
+
+// ==================== WARNING CHECK MODULE ====================
+// Автоматическая проверка выговоров через /find после загрузки профиля.
+// Алгоритм:
+//  1. Ждём загрузки профиля (config.accountInfo.profile.loaded === true)
+//  2. Отправляем /find (без ника — открывается диалог со списком игроков)
+//  3. Перехватываем диалог TABLIST_HEADERS с заголовком "В игре:"
+//     — НЕ пропускаем его в Telegram (тихий режим)
+//  4. Ищем строку с нашим ником
+//     — Нашли → сохраняем X/3, закрываем диалог, обновляем сообщение
+//     — Не нашли → листаем на следующую страницу через OnMultiDialogClickNavigButton
+//  5. Если прошли все страницы и не нашли → выговоры = 0/3
+// ==============================================================
+
+(function () {
+    'use strict';
+
+    // ── Состояние ────────────────────────────────────────────────
+    const warnCheck = {
+        active:      false,
+        nickname:    null,
+        pageIndex:   0,       // Текущая страница (0-based)
+        lastCount:   -1,      // Кол-во строк на прошлой странице (-1 = ещё не было)
+        dialogId:    null,
+        timeout:     null
+    };
+
+    // ── Утилиты ──────────────────────────────────────────────────
+    function _strip(text) {
+        return (text || '')
+            .replace(/<t>/gi, ' ')
+            .replace(/\{[A-Fa-f0-9]{6}\}/g, '')
+            .replace(/<[^>]+>/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function _log(msg) {
+        if (typeof debugLog === 'function') debugLog(msg);
+        else console.log(msg);
+    }
+
+    // ── Отправить событие навигации — листнуть страницу вперёд ──
+    function _navNext() {
+        try {
+            const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+                ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
+            _dlgOrigSendClientEvent(evtType, 'OnMultiDialogClickNavigButton',
+                1, warnCheck.pageIndex, 0);
+            _log(`[WARN] → Следующая страница (pageIndex=${warnCheck.pageIndex})`);
+            warnCheck.pageIndex++;
+        } catch (e) {
+            _log('[WARN] Ошибка навигации: ' + e.message);
+            _abort();
+        }
+    }
+
+    // ── Закрыть диалог /find через серверный ответ ────────────────
+    function _closeDialog(dialogId) {
+        try {
+            const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+                ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
+            _dlgOrigSendClientEvent(evtType, 'OnDialogResponse', dialogId, 0, -1, '');
+            _log('[WARN] Диалог /find закрыт');
+        } catch (e) {
+            _log('[WARN] Ошибка закрытия диалога: ' + e.message);
+        }
+        try { window.closeLastDialog(); } catch (e) {}
+    }
+
+    // ── Найти выговоры в строке ────────────────────────────────────
+    // Строка: "Nick_Name[ID] | Должность[ранг] - (статус) [ФРАКЦИЯ] | телефон [X / Y]"
+    // Нас интересует последний паттерн [X / Y] — это выговоры.
+    function _parseWarnings(row) {
+        const m = row.match(/\[(\d+)\s*\/\s*(\d+)\]\s*$/);
+        if (m) return { current: parseInt(m[1], 10), max: parseInt(m[2], 10) };
+        const m2 = row.match(/(\d+)\s*\/\s*(\d+)\s*$/);
+        if (m2) return { current: parseInt(m2[1], 10), max: parseInt(m2[2], 10) };
+        return null;
+    }
+
+    // ── Обработать страницу /find ──────────────────────────────────
+    function _processPage(dialogId, rawContent) {
+        const contentStr = Array.isArray(rawContent)
+            ? rawContent.join('<n>') : String(rawContent || '');
+        const allRows = contentStr.split('<n>').map(_strip).filter(Boolean);
+
+        if (allRows.length === 0) {
+            _log('[WARN] Пустой диалог /find — завершаем с 0 выговоров');
+            _finalize(dialogId, 0, 3);
+            return;
+        }
+
+        // Первая строка — заголовок колонок (Имя | Должность | Телефон)
+        const dataRows = allRows.slice(1);
+        _log(`[WARN] Страница ${warnCheck.pageIndex}: ${dataRows.length} строк`);
+
+        const targetNick = (warnCheck.nickname || '').trim();
+        // RegExp: строка должна начинаться с нашего ника (возможно с номером "N. ")
+        const re = new RegExp(
+            '(?:^\\d+\\.\\s*)?' +
+            targetNick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+            '\\[',
+            'i'
+        );
+
+        for (const row of dataRows) {
+            if (re.test(row)) {
+                _log(`[WARN] ✅ Найден: "${row}"`);
+                const warnData = _parseWarnings(row);
+                const cur = warnData ? warnData.current : 0;
+                const max = warnData ? warnData.max     : 3;
+                _finalize(dialogId, cur, max);
+                return;
+            }
+        }
+
+        // Не нашли — проверяем последняя ли это страница
+        const isFinalPage = (warnCheck.lastCount >= 0 && dataRows.length < warnCheck.lastCount)
+                         || dataRows.length === 0;
+        warnCheck.lastCount = dataRows.length;
+
+        if (isFinalPage) {
+            _log('[WARN] Последняя страница, ник не найден → 0 выговоров');
+            _finalize(dialogId, 0, 3);
+        } else {
+            _navNext();
+        }
+    }
+
+    // ── Сохранить результат, закрыть диалог, обновить приветствие ─
+    function _finalize(dialogId, current, max) {
+        if (warnCheck.timeout) { clearTimeout(warnCheck.timeout); warnCheck.timeout = null; }
+        warnCheck.active   = false;
+        warnCheck.dialogId = null;
+
+        _closeDialog(dialogId);
+
+        const p = config.accountInfo.profile;
+        if (p) {
+            p.warnings        = current;
+            p.maxWarnings     = max;
+            p.warningsChecked = true;
+        }
+        _log(`[WARN] Выговоры: ${current}/${max} — сохранено в профиль`);
+        if (typeof addSessionLog === 'function')
+            addSessionLog(`⚠️ Выговоры: ${current}/${max}`);
+
+        setTimeout(function () {
+            if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
+        }, 400);
+    }
+
+    // ── Прервать проверку (таймаут/ошибка) ───────────────────────
+    function _abort() {
+        if (warnCheck.timeout) { clearTimeout(warnCheck.timeout); warnCheck.timeout = null; }
+        warnCheck.active   = false;
+        warnCheck.dialogId = null;
+        _log('[WARN] Проверка выговоров прервана (таймаут/ошибка)');
+    }
+
+    // ── Публичная точка входа ─────────────────────────────────────
+    function startWarningCheck() {
+        const nick = (config && config.accountInfo && config.accountInfo.nickname) || null;
+        if (!nick) {
+            _log('[WARN] Ник не определён — откладываем проверку');
+            return;
+        }
+        if (warnCheck.active) {
+            _log('[WARN] Проверка уже идёт — пропускаем');
+            return;
+        }
+
+        warnCheck.active    = true;
+        warnCheck.nickname  = nick;
+        warnCheck.pageIndex = 0;
+        warnCheck.lastCount = -1;
+        warnCheck.dialogId  = null;
+
+        // Аварийный таймаут 30 секунд
+        warnCheck.timeout = setTimeout(function () {
+            _log('[WARN] ⏰ Таймаут 30 сек — прерываем');
+            _abort();
+        }, 30000);
+
+        // Отправляем /find БЕЗ ника — откроется диалог со списком всех игроков
+        // В этом диалоге ищем наш ник
+        _log(`[WARN] Отправляем /find (ищем ник: ${nick})`);
+        try { sendChatInput('/find'); } catch (e) {
+            _log('[WARN] Ошибка отправки /find: ' + e.message);
+            _abort();
+        }
+    }
+
+    // ── Перехват addDialogInQueue (поверх существующего патча DIALOG MONITOR v2) ─
+    const _warnPrevAddDialog = window.addDialogInQueue;
+
+    window.addDialogInQueue = function (dialogParams, content, priority) {
+        if (!warnCheck.active) {
+            return _warnPrevAddDialog
+                ? _warnPrevAddDialog.call(this, dialogParams, content, priority)
+                : undefined;
+        }
+
+        try {
+            if (dialogParams && typeof dialogParams === 'string') {
+                const parsed   = JSON.parse(dialogParams.trim());
+                const dialogId = parseInt(parsed[0], 10);
+                const style    = parseInt(parsed[1], 10);
+                const title    = _strip(parsed[2] || '');
+
+                // style=5 = TABLIST_HEADERS; заголовок /find содержит "В игре:"
+                if (style === 5 && /в игре/i.test(title)) {
+                    _log(`[WARN] Перехвачен /find диалог id=${dialogId}, title="${title}"`);
+                    warnCheck.dialogId = dialogId;
+
+                    // Регистрируем в Vue (оригинальная игровая функция), но НЕ в Telegram
+                    const gameResult = typeof _dlgOrigAddDialogInQueue === 'function'
+                        ? _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority)
+                        : undefined;
+
+                    // Асинхронно (чтобы Vue успел отрисовать) парсим содержимое
+                    setTimeout(function () {
+                        _processPage(dialogId, content);
+                    }, 80);
+
+                    return gameResult;
+                }
+            }
+        } catch (e) {
+            _log('[WARN] Ошибка патча addDialogInQueue: ' + e.message);
+        }
+
+        return _warnPrevAddDialog
+            ? _warnPrevAddDialog.call(this, dialogParams, content, priority)
+            : undefined;
+    };
+
+    // ── Monkey-patch buildWelcomeAccountInfo ──────────────────────
+    // Добавляем строку "Выговоры" в блок "Фракция / Звание", после "Статус".
+    // "└ Статус: X\n"  →  "├ Статус: X\n└ ⚠️ Выговоры: X/3\n"
+    const _origBuildWelcomeAccountInfo = (typeof buildWelcomeAccountInfo === 'function')
+        ? buildWelcomeAccountInfo : null;
+
+    if (_origBuildWelcomeAccountInfo) {
+        window.buildWelcomeAccountInfo = buildWelcomeAccountInfo = function () {
+            let block = _origBuildWelcomeAccountInfo.apply(this, arguments);
+            try {
+                const p = config && config.accountInfo && config.accountInfo.profile;
+                if (!p) return block;
+
+                let warnLine;
+                if (p.warningsChecked && p.warnings !== null && p.warnings !== undefined) {
+                    const cur  = p.warnings;
+                    const max  = p.maxWarnings || 3;
+                    const icon = cur === 0 ? '✅' : cur >= max ? '🚫' : '⚠️';
+                    warnLine = `${icon} <b>Выговоры:</b> ${cur}/${max}`;
+                } else if (p.loaded && !p.warningsChecked) {
+                    warnLine = '⏳ <b>Выговоры:</b> проверяем...';
+                } else {
+                    return block;
+                }
+
+                // Заменяем "└ Статус:" на "├ Статус:" и добавляем строку выговоров
+                let replaced = false;
+                block = block.replace(
+                    /└ Статус: ([^\n]*)\n/,
+                    (_, statusText) => { replaced = true; return `├ Статус: ${statusText}\n└ ${warnLine}\n`; }
+                );
+                if (!replaced) {
+                    block = block.replace(
+                        /(Статус: [^\n]*\n)/,
+                        `$1└ ${warnLine}\n`
+                    );
+                }
+                if (!block.includes(warnLine)) {
+                    block += `\n└ ${warnLine}`;
+                }
+            } catch (e) {
+                _log('[WARN] Ошибка monkey-patch buildWelcomeAccountInfo: ' + e.message);
+            }
+            return block;
+        };
+        _log('[WARN] buildWelcomeAccountInfo пропатчена — строка выговоров добавлена');
+    } else {
+        _log('[WARN] buildWelcomeAccountInfo не найдена — выговоры отображаться не будут');
+    }
+
+    // ── Автозапуск: ждём загрузки профиля, потом запускаем check ─
+    (function _waitForProfile() {
+        const p = config && config.accountInfo && config.accountInfo.profile;
+        if (p && p.loaded && !p.warningsChecked) {
+            _log('[WARN] Профиль загружен → запускаем проверку выговоров через 2 сек');
+            setTimeout(startWarningCheck, 2000);
+        } else if (!p || !p.loaded) {
+            setTimeout(_waitForProfile, 3000);
+        }
+        // Если warningsChecked уже true — ничего не делаем
+    })();
+
+    // Экспортируем для ручного вызова из Telegram (/find команда)
+    window._hassleCheckWarnings = startWarningCheck;
+
+    _log('[WARN] Модуль проверки выговоров загружен. /find запустится после загрузки профиля.');
+
+})();
+// ==================== END WARNING CHECK MODULE ====================
