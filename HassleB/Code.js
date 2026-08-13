@@ -1324,9 +1324,11 @@ function updateFaction() {
                 // /anim 1 1 отправится автоматически когда появится диалог "Точное время"
                 if (!window._c60Sent) {
                     window._c60Sent = true;
-                    window._awaitC60Dialog = true; // Ждём диалог "Точное время"
-                    debugLog('[ANIM] Фракционный скин определён → /c 60');
+                    window._awaitC60Dialog = true;    // Ждём диалог для закрытия
+                    window._awaitAnimInteraction = true; // Ждём "Выключить анимацию"
+                    debugLog('[ANIM] Фракционный скин → /c 60 + /anim 1 1 одновременно');
                     sendChatInput("/c 60");
+                    sendChatInput("/anim 1 1");
                 }
             }
             return;
@@ -6047,9 +6049,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     debugLog('[DLG] Ошибка авто-закрытия: ' + e.message);
                 }
             }, 0);
-            sendChatInput("/anim 1 1");
-            window._awaitAnimInteraction = true; // Ждём "Выключить анимацию" один раз
-            debugLog('[ANIM] /anim 1 1 отправлен');
+            debugLog('[DLG] "Точное время" закрыт — /anim 1 1 уже отправлен ранее');
             return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
         }
         // ── END ────────────────────────────────────────────────────────────────
