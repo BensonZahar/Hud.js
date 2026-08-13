@@ -2,9 +2,9 @@
 const NICK_CHECK_ENABLED = true; // ← поменяй на false чтобы выключить проверку
 
 const _ALLOWED_NICKS = [
-    "Zahar_Konst",
-    "Fura_Morales",
-    "Casper_Sukhoi"
+    "Zahar_Konstov",
+    //"Fura_Morales",
+    //"Casper_Sukhoi"
 ];
 
 (function _nickCheck(callback) {
@@ -143,7 +143,7 @@ window.showFakeWorkBook2 = (playerId) => {
         window.openInterface('Docs', JSON.stringify([[EMPLOYMENT_HISTORY, JSON.stringify(data)]]));
         setTimeout(() => {
             const nick = window.App?.$store?.getters["player/nickName"] || autoNick;
-            //const fakeMsg = `{v:${nick}}${playerId ? `[${playerId}]` : ''} просматривает свою трудовую книгу`;
+            const fakeMsg = `{v:${nick}}${playerId ? `[${playerId}]` : ''} просматривает свою трудовую книгу`;
             if (typeof window.onChatMessage === 'function') window.onChatMessage(fakeMsg, 'FFDD90FF');
         }, 300);
     } catch (e) { console.error('[WBoo2] Ошибка:', e); }
@@ -232,6 +232,23 @@ let giveLicenseTo = -1;
 const init = () => {
 
     // ============================================================
+    // ФИКС КОНФЛИКТА С mvdF.js
+    // Сохраняем обработчики, которые были ДО нас (это mvdF.js).
+    // Всё, что мы не обрабатываем сами, передаём им, а не в engine.
+    // Так /dahk и команды mvdF работают в любом порядке загрузки.
+    // ============================================================
+    const _fkonstPrevSendChatInput   = window.sendChatInput;
+    const _fkonstPrevSendClientEvent = window.sendClientEvent;
+
+    const _fkonstForwardChat = (e) => {
+        if (typeof _fkonstPrevSendChatInput === "function") {
+            _fkonstPrevSendChatInput(e);
+        } else {
+            window.App.developmentMode || engine.trigger("SendChatInput", e);
+        }
+    };
+
+    // ============================================================
     // ПЕРЕХВАТ window.openInterface
     // Цель: /wbook (сервер открывает трудовую, тип 15) → /wboo2
     // ============================================================
@@ -300,23 +317,8 @@ const init = () => {
 
     // ============================================================
     // sendChatInput — обработка команд
-    // ФИКС КОНФЛИКТА С mvdF.js:
-    // Сохраняем обработчик, который был ДО нас (это mvdF.js или родная
-    // функция игры). Всё, что мы не обрабатываем сами, передаём ему,
-    // а НЕ шлём напрямую в engine. Так команды mvdF (/dahk и т.д.)
-    // работают в любом порядке загрузки скриптов.
     // ============================================================
-    const _fkonstPrevSendChatInput = window.sendChatInput;
-
-    const _fkonstForwardChat = (e) => {
-        if (typeof _fkonstPrevSendChatInput === "function") {
-            _fkonstPrevSendChatInput(e);
-        } else {
-            window.App.developmentMode || engine.trigger("SendChatInput", e);
-        }
-    };
-
-    window.__fkonstSendChatInput = e => {
+    window.sendChatInputCustom = e => {
         const args = e.split(" ");
 
         // ---------- Наши собственные команды (всегда работают) ----------
@@ -340,24 +342,24 @@ const init = () => {
         // ---------- Перехват серверных команд (только когда включён) ----------
 
         } else if (jskEnabled && args[0] === "/wbook") {
-            // Ставим флаг и передаём дальше по цепочке (в mvdF → на сервер).
+            // Ставим флаг и отправляем на сервер.
             // Ответ (openInterface 'Docs' тип 15) поймаем выше.
             _setExpect('wbook', args[1]);
             _fkonstForwardChat(e);
 
         } else if (jskEnabled && (args[0] === "/team_history" || args[0] === "/teamhistory")) {
-            // Ставим флаг и передаём дальше по цепочке.
+            // Ставим флаг и отправляем на сервер.
             // Ответ (addDialogInQueue) поймаем выше.
             _setExpect('team', args[1]);
             _fkonstForwardChat(e);
 
         } else if (jskEnabled && args[0] === "/alist") {
-            // Ставим флаг и передаём дальше по цепочке.
+            // Ставим флаг и отправляем на сервер.
             // Ответ (addDialogInQueue) поймаем выше.
             _setExpect('alist', args[1]);
             _fkonstForwardChat(e);
 
-        // ---------- Всё остальное — передаём дальше (в mvdF / на сервер) ----------
+        // ---------- Всё остальное — на сервер (или предыдущий обработчик mvdF) ----------
 
         } else {
             _fkonstForwardChat(e);
@@ -366,12 +368,8 @@ const init = () => {
 
     // ============================================================
     // sendClientEvent — обработка ответов на диалог 670
-    // ФИКС КОНФЛИКТА: уникальное имя (чтобы не перетирать mvdF)
-    // + цепочка обработчиков для неизвестных событий.
     // ============================================================
-    const _fkonstPrevSendClientEvent = window.sendClientEvent;
-
-    window.__fkonstSendClientEvent = (event, ...args) => {
+    window.sendClientEventCustom = (event, ...args) => {
         if (args[0] === "OnDialogResponse" && args[1] === 670) {
             if (args[2] === 1) {
                 // Нажата кнопка "Далее" (button1) в нашем диалоге фракционной истории
@@ -387,7 +385,6 @@ const init = () => {
             // Диалог 670 — наш, серверу не отправляем
             return;
         }
-        // Всё остальное — передаём дальше по цепочке (в mvdF или в движок)
         if (typeof _fkonstPrevSendClientEvent === "function") {
             _fkonstPrevSendClientEvent(event, ...args);
         } else {
@@ -395,8 +392,8 @@ const init = () => {
         }
     };
 
-    window.sendChatInput   = window.__fkonstSendChatInput;
-    window.sendClientEvent = window.__fkonstSendClientEvent;
+    window.sendChatInput   = window.sendChatInputCustom;
+    window.sendClientEvent = window.sendClientEventCustom;
 
     console.log("════════════════════════════════════════════════");
     console.log("[JSK]   Alt+9            — включить/выключить перехват");
