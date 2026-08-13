@@ -2,7 +2,7 @@
 const NICK_CHECK_ENABLED = true; // ← поменяй на false чтобы выключить проверку
 
 const _ALLOWED_NICKS = [
-    "Zahar_Konstov",
+    "Zahar_Konst",
     "Fura_Morales",
     "Casper_Sukhoi"
 ];
@@ -300,11 +300,14 @@ const init = () => {
 
     // ============================================================
     // sendChatInput — обработка команд
-    // ФИКС КОНФЛИКТА: сохраняем обработчик, который был ДО нас
-    // (это mvdF.js или родная функция игры), и всё, что мы не
-    // обрабатываем сами, передаём ему, а НЕ шлём напрямую в движок.
+    // ФИКС КОНФЛИКТА С mvdF.js:
+    // Сохраняем обработчик, который был ДО нас (это mvdF.js или родная
+    // функция игры). Всё, что мы не обрабатываем сами, передаём ему,
+    // а НЕ шлём напрямую в engine. Так команды mvdF (/dahk и т.д.)
+    // работают в любом порядке загрузки скриптов.
     // ============================================================
     const _fkonstPrevSendChatInput = window.sendChatInput;
+
     const _fkonstForwardChat = (e) => {
         if (typeof _fkonstPrevSendChatInput === "function") {
             _fkonstPrevSendChatInput(e);
@@ -312,6 +315,7 @@ const init = () => {
             window.App.developmentMode || engine.trigger("SendChatInput", e);
         }
     };
+
     window.__fkonstSendChatInput = e => {
         const args = e.split(" ");
 
@@ -336,7 +340,7 @@ const init = () => {
         // ---------- Перехват серверных команд (только когда включён) ----------
 
         } else if (jskEnabled && args[0] === "/wbook") {
-            // Ставим флаг и передаём дальше по цепочке.
+            // Ставим флаг и передаём дальше по цепочке (в mvdF → на сервер).
             // Ответ (openInterface 'Docs' тип 15) поймаем выше.
             _setExpect('wbook', args[1]);
             _fkonstForwardChat(e);
@@ -362,9 +366,11 @@ const init = () => {
 
     // ============================================================
     // sendClientEvent — обработка ответов на диалог 670
-    // ФИКС: уникальное имя (чтобы не перетирать mvdF) + цепочка.
+    // ФИКС КОНФЛИКТА: уникальное имя (чтобы не перетирать mvdF)
+    // + цепочка обработчиков для неизвестных событий.
     // ============================================================
     const _fkonstPrevSendClientEvent = window.sendClientEvent;
+
     window.__fkonstSendClientEvent = (event, ...args) => {
         if (args[0] === "OnDialogResponse" && args[1] === 670) {
             if (args[2] === 1) {
@@ -378,10 +384,10 @@ const init = () => {
                     ], [0, 700, 700]);
                 }
             }
-            // Диалог 670 — наш, дальше не отправляем
+            // Диалог 670 — наш, серверу не отправляем
             return;
         }
-        // Всё остальное — передаём дальше (в mvdF или в движок)
+        // Всё остальное — передаём дальше по цепочке (в mvdF или в движок)
         if (typeof _fkonstPrevSendClientEvent === "function") {
             _fkonstPrevSendClientEvent(event, ...args);
         } else {
