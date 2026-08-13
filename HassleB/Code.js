@@ -815,6 +815,11 @@ function setupAutoLogin(attempt = 1) {
                 }, 3000);
                 // Запрос времени до спавна после входа
                 setTimeout(() => sendChatInput("/c 60"), 5000);
+                // Сразу перебиваем анимацию /c 60 через /anim 1 1
+                setTimeout(() => {
+                    sendChatInput("/anim 1 1");
+                    console.log('[ANIM] /anim 1 1 отправлен — перебиваем /c 60');
+                }, 5200);
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
@@ -4510,12 +4515,7 @@ function initializeChatMonitor() {
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
             handlePayDayTimeMessage();
         }
-        // ── АВТО /anim 1 1 при звонке в службу точного времени ──────────
-        if (msg.includes("Вы позвонили в службу точного времени")) {
-            debugLog('[ANIM] Звонок в службу времени → отправляем /anim 1 1');
-            setTimeout(() => sendChatInput("/anim 1 1"), 100);
-        }
-        // ── END АВТО /anim ───────────────────────────────────────────────
+
         // Проверка сообщения о возобновлении работы сервера для AFK
         if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
