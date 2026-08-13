@@ -1481,7 +1481,6 @@ function trackNicknameAndServer() {
             updateDisplayName();
             uniqueId = `${nicknameStr}_${serverStr}`;
             sendWelcomeMessage(); // редактирует уже отправленное сообщение
-            addSessionLog(`🔄 Смена: ${nicknameStr} [S${serverStr}]`);
         }
     }
 
@@ -6630,8 +6629,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             p.warningsChecked = true;
         }
         _log(`[WARN] Выговоры: ${current}/${max} — сохранено в профиль`);
-        if (typeof addSessionLog === 'function')
-            addSessionLog(`⚠️ Выговоры: ${current}/${max}`);
 
         setTimeout(function () {
             if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
@@ -6740,7 +6737,9 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 if (p.warningsChecked && p.warnings !== null && p.warnings !== undefined) {
                     const cur  = p.warnings;
                     const max  = p.maxWarnings || 3;
-                    const icon = cur === 0 ? '✅' : cur >= max ? '🚫' : '⚠️';
+                    // Если выговоров 0 — не отображаем строку вообще
+                    if (cur === 0) return block;
+                    const icon = cur >= max ? '🚫' : '⚠️';
                     warnLine = `${icon} <b>Выговоры:</b> ${cur}/${max}`;
                 } else if (p.loaded && !p.warningsChecked) {
                     warnLine = '⏳ <b>Выговоры:</b> проверяем...';
