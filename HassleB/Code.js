@@ -6035,22 +6035,15 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             `title="${title}", headers=${headers.length}, items=${items.length}`
         );
 
-        // ── Диалог "Точное время" от /c 60 — закрываем мгновенно (без Telegram) ──
+        // ── Диалог "Точное время" от /c 60 — не даём попасть в Vue вообще ──────
         if (title === "Точное время" && window._awaitC60Dialog) {
-            window._awaitC60Dialog = false; // Сбрасываем — больше не трогаем этот диалог
-            debugLog('[DLG] "Точное время" от /c 60 → закрываем, в Telegram не пишем');
-            // Закрываем через response=0 не давая диалогу появиться
-            setTimeout(() => {
-                try {
-                    dlgRespond(dialogId, 0, -1, '');
-                    dlgClose(false);
-                    debugLog('[DLG] "Точное время" закрыт');
-                } catch(e) {
-                    debugLog('[DLG] Ошибка авто-закрытия: ' + e.message);
-                }
-            }, 0);
-            debugLog('[DLG] "Точное время" закрыт — /anim 1 1 уже отправлен ранее');
-            return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+            window._awaitC60Dialog = false;
+            // Отвечаем серверу напрямую (response=0 = закрыть)
+            // dlg.active уже true — dlgRespond пропустит проверку при response=0
+            dlgRespond(dialogId, 0, -1, '');
+            dlgClose(false);
+            debugLog('[DLG] "Точное время" — ответ серверу без показа диалога');
+            return; // НЕ вызываем _dlgOrigAddDialogInQueue — диалог не попадает в Vue
         }
         // ── END ────────────────────────────────────────────────────────────────
 
