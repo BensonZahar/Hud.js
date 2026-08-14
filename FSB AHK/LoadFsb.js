@@ -189,147 +189,54 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
 // ── АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────────
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {
-        var _filling = false;
+        var _filling = false; // защита от двойного срабатывания за одно появление
 
         function tryFill() {
             if (_filling) return;
 
-            // ШАГ 1: ловим .authorization как можно раньше и сразу скрываем
-            // до того как браузер успеет нарисовать хоть один кадр с формой
-            var authEl = document.querySelector('.authorization');
-            if (!authEl) return;
+            var passInput = document.querySelector('.authorization-field__input[type="password"]');
+            if (!passInput) return;
 
-            authEl.style.opacity = '0';
-            authEl.style.pointerEvents = 'none';
             _filling = true;
 
-            // Вспомогательная: вернуть форму на экран (неверный пароль / ошибка)
-            // _filling НЕ сбрасываем — иначе Observer снова дёрнет tryFill()
-            // и получим бесконечный цикл повторных попыток.
-            // Сбрасываем только когда форма реально закроется (вход вручную).
-            function showFormOnError() {
-                authEl.style.display = '';
-                authEl.style.opacity = '';
-                authEl.style.pointerEvents = '';
-                console.warn('[AHK AUTO-PWD] Неверный пароль — показываем форму');
-                var waitManual = setInterval(function() {
-                    if (!document.querySelector('.authorization')) {
+            // Нативный setter — Vue увидит изменение v-model
+            var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+            nativeSetter.call(passInput, AUTO_PASSWORD);
+
+            // input event — обновляет v-model
+            passInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+            // Enter на форме — Vue слушает @keydown там
+            setTimeout(function() {
+                var form = document.querySelector('.login-form');
+                var target = form || passInput;
+                target.dispatchEvent(new KeyboardEvent('keydown', {
+                    key: 'Enter', code: 'Enter',
+                    keyCode: 13, which: 13,
+                    bubbles: true, cancelable: true
+                }));
+                console.log('[AHK AUTO-PWD] Enter отправлен');
+
+                // После Enter ждём пока форма исчезнет — тогда сбрасываем флаг
+                // чтобы при следующем /rec снова сработало
+                var waitGone = setInterval(function() {
+                    if (!document.querySelector('.authorization-field__input[type="password"]')) {
                         _filling = false;
-                        clearInterval(waitManual);
+                        clearInterval(waitGone);
                         console.log('[AHK AUTO-PWD] Форма закрылась — готов к следующей авторизации');
                     }
                 }, 300);
-            }
-
-            // ШАГ 2: напрямую дёргаем Vue-компонент — никаких DOM-событий,
-            // никакого 150мс ожидания реактивности
-            function tryVueDirect() {
-                try {
-                    var comp = window.interface && window.interface('Authorization');
-                    if (!comp) return false;
-
-                    var loginComp = comp.$refs && comp.$refs.auth;
-                    if (!loginComp) return false;
-
-                    // Пишем прямо в state — Vue видит изменение мгновенно
-                    loginComp.password.value = AUTO_PASSWORD;
-
-                    // Перехватываем setError ДО play() — сервер вызовет его
-                    // если пароль неверный, и мы вернём форму на экран
-                    var _origSetError = loginComp.setError.bind(loginComp);
-                    loginComp.setError = function(field, msg) {
-                        loginComp.setError = _origSetError; // восстанавливаем сразу
-                        showFormOnError();
-                        _origSetError(field, msg); // показываем ошибку в поле
-                    };
-
-                    // Вызываем play() напрямую — минуем Enter, keydown, validate
-                    loginComp.play();
-
-                    console.log('[AHK AUTO-PWD] Vue direct: пароль отправлен мгновенно');
-
-                    // ШАГ 3: скрываем форму сразу после play(), не ждём сервер
-                    authEl.style.display = 'none';
-
-                    // Сбрасываем флаг когда форма реально закрылась (успешный вход)
-                    var waitGone = setInterval(function() {
-                        if (!document.querySelector('.authorization')) {
-                            _filling = false;
-                            clearInterval(waitGone);
-                            console.log('[AHK AUTO-PWD] Готов к следующей авторизации');
-                        }
-                    }, 300);
-
-                    return true;
-                } catch (e) {
-                    console.warn('[AHK AUTO-PWD] Vue direct ошибка:', e);
-                    return false;
-                }
-            }
-
-            // Пробуем сразу — если компонент уже смонтирован
-            if (tryVueDirect()) return;
-
-            // Компонент ещё не смонтировался — ждём один тик и повторяем
-            setTimeout(function() {
-                if (tryVueDirect()) return;
-
-                // Фолбэк: старый DOM-подход, но форма уже скрыта через opacity
-                var passInput = document.querySelector('.authorization-field__input[type="password"]');
-                if (!passInput) {
-                    // Совсем ничего нет — показываем форму, пусть вводит руками
-                    showFormOnError();
-                    console.warn('[AHK AUTO-PWD] Не удалось найти поле — показываем форму');
-                    return;
-                }
-
-                var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-                nativeSetter.call(passInput, AUTO_PASSWORD);
-                passInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-                // Задержка уменьшена с 150 до 30мс — только один Vue flush нужен
-                setTimeout(function() {
-                    var form = document.querySelector('.login-form');
-                    var target = form || passInput;
-                    target.dispatchEvent(new KeyboardEvent('keydown', {
-                        key: 'Enter', code: 'Enter',
-                        keyCode: 13, which: 13,
-                        bubbles: true, cancelable: true
-                    }));
-                    authEl.style.display = 'none'; // скрываем и не ждём сервер
-                    console.log('[AHK AUTO-PWD] DOM fallback: Enter отправлен');
-
-                    // Фолбэк-детектор ошибки: если появился .authorization-field__error
-                    // значит пароль неверный — возвращаем форму
-                    var errorWatcher = new MutationObserver(function() {
-                        if (document.querySelector('.authorization-field__error')) {
-                            errorWatcher.disconnect();
-                            showFormOnError();
-                        }
-                    });
-                    errorWatcher.observe(document.body, { childList: true, subtree: true });
-
-                    var waitGone = setInterval(function() {
-                        if (!document.querySelector('.authorization-field__input[type="password"]')) {
-                            _filling = false;
-                            errorWatcher.disconnect();
-                            clearInterval(waitGone);
-                            console.log('[AHK AUTO-PWD] Форма закрылась — готов к следующей авторизации');
-                        }
-                    }, 300);
-                }, 30); // было 150мс → теперь 30мс
-            }, 0);
+            }, 150);
         }
 
-        // Observer ловит .authorization — НЕ [type="password"]
-        // Это даёт нам 2–3 рендер-цикла форы перед тем как форма дойдёт до экрана
+        // Observer живёт вечно — не делаем disconnect()
         var observer = new MutationObserver(function() {
             tryFill();
         });
 
         if (document.body) {
             observer.observe(document.body, { childList: true, subtree: true });
-            tryFill();
+            tryFill(); // на случай если форма уже есть при загрузке
         } else {
             document.addEventListener('DOMContentLoaded', function() {
                 observer.observe(document.body, { childList: true, subtree: true });
