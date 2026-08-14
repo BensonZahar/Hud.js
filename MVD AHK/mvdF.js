@@ -211,7 +211,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.7 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.8 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -4521,43 +4521,28 @@ waitForApp(function() {
     };
     console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 
-    // ── Ожидание спавна → загрузка профиля МВД ───────────────────────────────
-    // Аналог waitForSpawnThenLoadProfile из Code.js: ждём isPlayerConnected=true,
-    // только потом открываем MainMenu — гарантирует реальные данные, а не mock.
+    // ── Перехват setPlayerConnectedStatus → мгновенная загрузка профиля МВД ───
+    // index.js определяет window.setPlayerConnectedStatus — сервер вызывает её
+    // ровно в момент спавна. Перехватываем её здесь и грузим профиль без задержки.
     var _mvdSpawnProfileLoaded = false;
-    function waitForSpawnThenLoadMvdProfile() {
-        if (_mvdSpawnProfileLoaded) return;
-
-        var isConnected = false;
-        try {
-            if (window.App && window.App.$store) {
-                isConnected = window.App.$store.getters['player/isPlayerConnected'];
-            }
-        } catch(e) {}
-
-        if (!isConnected) {
-            // Ещё не заспавнились — продолжаем опрос каждые 500 мс
-            setTimeout(waitForSpawnThenLoadMvdProfile, 500);
-            return;
+    var _origSetPlayerConnectedStatus = window.setPlayerConnectedStatus;
+    window.setPlayerConnectedStatus = function(status) {
+        if (_origSetPlayerConnectedStatus) _origSetPlayerConnectedStatus(status);
+        if (status && !_mvdSpawnProfileLoaded) {
+            _mvdSpawnProfileLoaded = true;
+            console.log('[Profile] 🎮 setPlayerConnectedStatus(true) — загружаем профиль МВД...');
+            if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
+            console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+            loadPlayerProfile(function(data) {
+                if (data && data.orgRangName) {
+                    console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
+                } else {
+                    console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+                }
+            });
         }
-
-        // Спавн подтверждён — запускаем загрузку сразу
-        _mvdSpawnProfileLoaded = true;
-        console.log('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль МВД...');
-
-        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
-        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
-        loadPlayerProfile(function(data) {
-            if (data && data.orgRangName) {
-                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
-            } else {
-                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
-            }
-        });
-    }
-
-    console.log('[Profile] 🚀 Запуск ожидания спавна для загрузки профиля МВД...');
-    waitForSpawnThenLoadMvdProfile();
+    };
+    console.log('[Profile] 🪝 Перехват setPlayerConnectedStatus установлен — ждём спавна...');
 });
 
 window._mvdLoadPlayerProfile = loadPlayerProfile;
