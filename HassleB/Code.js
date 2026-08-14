@@ -1291,9 +1291,29 @@ function trackPlayerHp() {
                 // Пытаемся прочитать ник атакующего из движка
                 const attacker = getNearestAttacker();
 
-                // Урон пишем только в лог сессии (без Telegram-уведомления)
-                globalState.hpLastHitTime = now;
                 addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)} (-${damage})${attacker ? ` от ${attacker}` : ''}`);
+
+                // Накапливаем урон за 3 сек — шлём одним сообщением (не спамим при серии попаданий)
+                globalState.hpLastHitTime = now;
+                if (!globalState._dmgAccum) {
+                    globalState._dmgAccum = { total: 0, hpBefore: Math.round(globalState.hpLastValue), attacker: null };
+                }
+                globalState._dmgAccum.total += damage;
+                if (attacker) globalState._dmgAccum.attacker = attacker;
+
+                if (globalState._dmgTimer) clearTimeout(globalState._dmgTimer);
+                globalState._dmgTimer = setTimeout(function () {
+                    const acc   = globalState._dmgAccum;
+                    const hpNow = Math.round(getPlayerHpFromStore() ?? currentHp);
+                    const who   = acc.attacker ? ` от <b>${acc.attacker}</b>` : '';
+                    sendToTelegram(
+                        `💔 <b>Урон (${displayName})</b>\n` +
+                        `HP: ${acc.hpBefore} → ${hpNow} (-${Math.round(acc.total)})${who}`,
+                        false, null
+                    );
+                    globalState._dmgAccum = null;
+                    globalState._dmgTimer  = null;
+                }, 3000);
             }
         }
     }
