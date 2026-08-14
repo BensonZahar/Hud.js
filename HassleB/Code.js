@@ -830,7 +830,19 @@ const autoLoginConfig = {
 
     function tryFill() {
         if (_filling) return;
-        if (!autoLoginConfig.enabled) return;
+
+        // Если автовход отключён — показываем форму авторизации вручную,
+        // т.к. предыдущий автовход мог скрыть её (display:none / opacity:0)
+        if (!autoLoginConfig.enabled) {
+            var authElDisabled = document.querySelector('.authorization');
+            if (authElDisabled) {
+                authElDisabled.style.display = '';
+                authElDisabled.style.opacity = '';
+                authElDisabled.style.pointerEvents = '';
+                debugLog('[AUTO-LOGIN] Автовход отключён — форма авторизации показана вручную');
+            }
+            return;
+        }
 
         // ШАГ 1: ловим .authorization как можно раньше и сразу скрываем —
         // до того как браузер успеет нарисовать хоть один кадр с формой
@@ -1864,7 +1876,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot0</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2095,7 +2107,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
