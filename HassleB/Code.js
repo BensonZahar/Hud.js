@@ -445,6 +445,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
         }
 
         _fetching = true;
+        window._hassleProfileLoading = true;
         debugLog('[Profile] 🔄 Загружаем профиль через MainMenu...');
 
         var _done = false, _wd = null;
@@ -468,6 +469,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
             _restorePatch();
             _unobserve();
             _fetching = false;
+            window._hassleProfileLoading = false;
 
             if (data) {
                 Object.assign(config.accountInfo.profile, data);
@@ -629,6 +631,45 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
     debugLog('[Profile] Модуль готов. Загрузка произойдёт при определении фракционного скина.');
 })();
 // END PLAYER PROFILE LOADER MODULE //
+
+
+// ==================== ПАТЧ: MainMenu открывается сразу на «Персонаж» ====================
+// Когда игрок нажимает M (или любой другой код открывает MainMenu напрямую),
+// автоматически переключаем на вкладку Statistics («Персонаж»).
+// Пока работает loadPlayerProfile (_hassleProfileLoading = true) — патч пассивен,
+// чтобы не мешать невидимому считыванию данных.
+(function() {
+'use strict';
+function applyMainMenuTabPatch() {
+    var _origOI = window.openInterface;
+    window.openInterface = function(name) {
+        var result = _origOI.apply(this, arguments);
+        if (name === 'MainMenu' && !window._hassleProfileLoading) {
+            // Небольшая задержка: Vue-компонент должен смонтироваться
+            setTimeout(function() {
+                try {
+                    var mm = window.interface && window.interface('MainMenu');
+                    if (mm && typeof mm.selectTab === 'function') {
+                        mm.selectTab('Statistics');
+                    }
+                } catch(e) {}
+            }, 80);
+        }
+        return result;
+    };
+    console.log('[Hassle] Патч MainMenu→Персонаж активен');
+}
+
+// Ждём готовности App (openInterface и window.interface могут появиться позже)
+(function tryApply(n) {
+    if (window.openInterface && window.interface) {
+        applyMainMenuTabPatch();
+    } else if (n < 100) {
+        setTimeout(function() { tryApply(n + 1); }, 200);
+    }
+})(0);
+})();
+// ==================== END ПАТЧ MainMenu→Персонаж ====================
 
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -1771,7 +1812,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot4</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2002,7 +2043,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot4</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
