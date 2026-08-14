@@ -1864,7 +1864,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot0</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2095,7 +2095,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -6993,3 +6993,171 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END WARNING CHECK MODULE ====================
+
+
+// ══════════════════════════════════════════════════════════════════
+// MODULE: INVITE AUTOFILL
+// Описание: Авто-заполнение формы заявления на работу.
+//           При открытии меню Invite (форма) добавляет кнопки
+//           «1», «2», «3» для быстрого заполнения полей.
+// Зависимости: нет
+// ══════════════════════════════════════════════════════════════════
+(function () {
+    'use strict';
+
+    // ─── Пресеты ────────────────────────────────────────────────
+    const INVITE_PRESETS = [
+        {
+            label: '1',
+            biography:      'Честный гражданин, всю жизнь трудился на благо общества.',
+            posQualities:   'Ответственный, пунктуальный, исполнительный',
+            negQualities:   'Педантичен',
+            reasons:        'Хочу служить закону и порядку',
+            criminalRecord: 'Нет',
+            activity:       'Безработный'
+        },
+        {
+            label: '2',
+            biography:      'Работал в торговле, хочу сменить деятельность на более значимую.',
+            posQualities:   'Коммуникабельный, стрессоустойчивый, быстро обучаемый',
+            negQualities:   'Излишне общителен',
+            reasons:        'Стабильность и карьерный рост',
+            criminalRecord: 'Нет',
+            activity:       'Торговля'
+        },
+        {
+            label: '3',
+            biography:      'Опытный водитель, хорошо знаю город и его жителей.',
+            posQualities:   'Внимательный, надёжный, дисциплинированный',
+            negQualities:   'Прямолинеен',
+            reasons:        'Хочу приносить пользу обществу',
+            criminalRecord: 'Нет',
+            activity:       'Водитель такси'
+        }
+    ];
+
+    // ─── Установка значения с триггером Vue 3 v-model ───────────
+    function setVal(el, value) {
+        if (!el) return;
+        const proto = (el.tagName === 'TEXTAREA')
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype;
+        const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+        if (desc && desc.set) {
+            desc.set.call(el, value);
+        } else {
+            el.value = value;
+        }
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    // ─── Применить пресет к форме ────────────────────────────────
+    function applyPreset(preset) {
+        const textarea = document.querySelector('.create-form__input_area');
+        const inputs   = document.querySelectorAll('.create-form__input:not(.create-form__input_area)');
+        // Порядок полей совпадает с шаблоном CreateForm
+        setVal(textarea,  preset.biography);
+        setVal(inputs[0], preset.posQualities);
+        setVal(inputs[1], preset.negQualities);
+        setVal(inputs[2], preset.reasons);
+        setVal(inputs[3], preset.criminalRecord);
+        setVal(inputs[4], preset.activity);
+    }
+
+    // ─── Инжект панели кнопок ────────────────────────────────────
+    function injectAutofillPanel() {
+        // Не инжектить повторно
+        if (document.querySelector('.invite-autofill-panel')) return;
+        // Панель нужна только на виде FORM (не BIOGRAPHY)
+        const explanation = document.querySelector('.create-form__explanation');
+        if (!explanation) return;
+
+        // Обёртка панели
+        const panel = document.createElement('div');
+        panel.className = 'invite-autofill-panel';
+        panel.style.cssText = [
+            'display:flex',
+            'align-items:center',
+            'gap:0.74vh',
+            'padding:0.37vh 4.44vh 0.37vh',
+            'font-family:"Open Sans",sans-serif',
+        ].join(';');
+
+        // Подпись "Шаблон:"
+        const lbl = document.createElement('div');
+        lbl.textContent = 'Шаблон:';
+        lbl.style.cssText = [
+            'color:#14141499',
+            'font-size:1.2vh',
+            'font-style:italic',
+            'white-space:nowrap',
+            'margin-right:0.37vh',
+        ].join(';');
+        panel.appendChild(lbl);
+
+        // Кнопки 1 / 2 / 3
+        INVITE_PRESETS.forEach(function (preset) {
+            const btn = document.createElement('div');
+            btn.textContent = preset.label;
+            btn.style.cssText = [
+                'background:#14141415',
+                'border:0.09vh solid #14141440',
+                'color:#141414',
+                'cursor:pointer',
+                'font-size:1.2vh',
+                'font-weight:700',
+                'min-width:2.5vh',
+                'padding:0.37vh 1vh',
+                'text-align:center',
+                'transition:background 0.2s,color 0.2s',
+                'user-select:none',
+            ].join(';');
+
+            btn.addEventListener('mouseenter', function () {
+                btn.style.background = '#141414';
+                btn.style.color      = '#f4f1e1';
+            });
+            btn.addEventListener('mouseleave', function () {
+                btn.style.background = '#14141415';
+                btn.style.color      = '#141414';
+            });
+            btn.addEventListener('click', function () {
+                applyPreset(preset);
+                // Визуальная обратная связь — кратко подсвечиваем кнопку
+                btn.style.background = '#ea4f3d';
+                btn.style.color      = '#f4f1e1';
+                setTimeout(function () {
+                    btn.style.background = '#14141415';
+                    btn.style.color      = '#141414';
+                }, 350);
+            });
+
+            panel.appendChild(btn);
+        });
+
+        // Вставляем панель сразу ПОСЛЕ блока explanation
+        explanation.insertAdjacentElement('afterend', panel);
+    }
+
+    // ─── Хук на openInterface ────────────────────────────────────
+    const _prevOI = window.openInterface;
+    window.openInterface = function (name, params) {
+        const result = typeof _prevOI === 'function'
+            ? _prevOI.apply(this, arguments)
+            : undefined;
+
+        if (name === 'Invite') {
+            // Ждём монтирования Vue-компонента, затем инжектим кнопки.
+            // injectAutofillPanel сам проверит по DOM, нужны ли кнопки.
+            setTimeout(injectAutofillPanel, 400);
+        }
+
+        return result;
+    };
+
+    console.log('[Invite Autofill] Модуль авто-заполнения загружен.');
+
+})();
+// ══════════════════════════════════════════════════════════════════
+// END MODULE: INVITE AUTOFILL
+// ══════════════════════════════════════════════════════════════════
