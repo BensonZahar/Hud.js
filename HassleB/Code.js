@@ -802,6 +802,9 @@ function setupAutoLogin(attempt = 1) {
                 globalState.hpLastValue = null;
                 globalState.hpLastHitTime = null;
                 globalState.hpAlertMessageIds = [];
+                // Сброс флага спавна и профиля для нового входа
+                globalState._spawnProfileLoaded = false;
+                config.accountInfo.profile.loaded = false;
                 // PDC: если строй прервал отыгровку — возобновляем
                 setTimeout(() => pdcOnReloginAfterStroi(), 3000);
                 // Уведомление через 3 секунды после успешного входа
@@ -1337,6 +1340,41 @@ function trackPlayerHp() {
     setTimeout(trackPlayerHp, 500);
 }
 
+// ── Ожидание спавна → загрузка профиля независимо от фракции ──────────────
+// Аналог trackPlayerHp: ждём player/isPlayerConnected = true, затем
+// открываем MainMenu → Statistics и считываем профиль.
+// Работает для всех аккаунтов, не только фракционных.
+function waitForSpawnThenLoadProfile() {
+    if (globalState._spawnProfileLoaded) return;
+    if (window._hassleReloading) { setTimeout(waitForSpawnThenLoadProfile, 1000); return; }
+
+    let isConnected = false;
+    try {
+        if (window.App && window.App.$store) {
+            isConnected = window.App.$store.getters['player/isPlayerConnected'];
+        }
+    } catch(e) {}
+
+    if (!isConnected) {
+        // Ещё не заспавнились — ждём как HP-трекер
+        setTimeout(waitForSpawnThenLoadProfile, 500);
+        return;
+    }
+
+    // Спавн подтверждён — помечаем чтобы не запускать повторно в этой сессии
+    globalState._spawnProfileLoaded = true;
+    debugLog('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль через 3 сек...');
+
+    setTimeout(function() {
+        // Если профиль уже загружен (например, фракционный скин пришёл раньше спавна) — не дублируем
+        if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
+            window._hassleLoadPlayerProfile(null);
+        } else {
+            debugLog('[Profile] ℹ️ Профиль уже загружен (фракция определена раньше спавна), пропускаем дублирование.');
+        }
+    }, 3000);
+}
+
 
 function updateFaction() {
     const skinId = Number(config.accountInfo.skinId); // Приводим к числу
@@ -1346,7 +1384,34 @@ function updateFaction() {
             if (config.currentFaction !== faction) {
                 config.currentFaction = faction;
                 debugLog(`Фракция обновлена: ${faction} (Skin ID: ${skinId})`);
-                // Профиль грузится при спавне (isPlayerConnected=true) — см. trackNicknameAndServer
+                // Загружаем профиль при первом определении фракционного скина.
+                // Именно здесь — сервер уже назначил скин, значит мы точно в игре
+                // и MainMenu отдаст реальные данные (не mock).
+                if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
+                    debugLog('[Profile] Фракция определена → загружаем профиль через 1 сек...');
+                    // Помечаем спавн как обработанный — spawn-трекер дублировать не будет
+                    globalState._spawnProfileLoaded = true;
+                    setTimeout(function() {
+                        window._hassleLoadPlayerProfile(null);
+                    }, 1000);
+                }
+                // Если профиль уже загружен (игрок был без фракции, потом надел форму) —
+                // пересчитываем: фракционный статус мог измениться.
+                else if (config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
+                    let isConnected = false;
+                    try {
+                        if (window.App && window.App.$store) {
+                            isConnected = window.App.$store.getters['player/isPlayerConnected'];
+                        }
+                    } catch(e) {}
+                    if (isConnected) {
+                        debugLog('[Profile] 👔 Надета форма фракции → сбрасываем профиль и перезагружаем...');
+                        config.accountInfo.profile.loaded = false;
+                        setTimeout(function() {
+                            window._hassleLoadPlayerProfile(null);
+                        }, 1500);
+                    }
+                }
                 // Фракционный скин определён → отправляем /c 60 (один раз за сессию)
                 // /anim 1 1 отправится автоматически когда появится диалог "Точное время"
                 if (!window._c60Sent) {
@@ -1532,28 +1597,6 @@ function trackNicknameAndServer() {
     watchGetter("menu/nickName");
     watchGetter("menu/selectedServer");
 
-    // ── Загрузка профиля при спавне ───────────────────────────────
-    // Профиль грузим НЕ при определении фракции, а когда сервер подтвердил спавн.
-    // isPlayerConnected=true устанавливается через window.setPlayerConnectedStatus(true).
-    // Выговоры/рация остаются привязаны к фракционному скину — это не меняется.
-    function _tryLoadProfile() {
-        if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
-            debugLog('[Profile] Игрок заспавнен (isPlayerConnected=true) → загружаем профиль через 1 сек...');
-            setTimeout(function() { window._hassleLoadPlayerProfile(null); }, 1000);
-        }
-    }
-    try {
-        // Проверяем сразу — вдруг скрипт загрузился когда игрок уже в игре
-        if (store.getters['player/isPlayerConnected']) _tryLoadProfile();
-        // Подписка на изменение — сработает при каждом новом спавне
-        store.watch(
-            function(state, getters) { return getters['player/isPlayerConnected']; },
-            function(newVal) {
-                if (newVal) _tryLoadProfile();
-            }
-        );
-    } catch(e) { debugLog('[Profile] watch isPlayerConnected не удался: ' + e.message); }
-
     debugLog("[NICK] $store.watch активен — смена ника/сервера отслеживается реактивно");
 }
 // END PLAYER INFO MODULE //
@@ -1728,7 +1771,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot44</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot8</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1959,7 +2002,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot5</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -4961,6 +5004,10 @@ function initializeChatMonitor() {
             debugLog('[HP] Запуск отслеживания HP персонажа...');
             setTimeout(trackPlayerHp, 5000);
         }
+        // Запуск ожидания спавна для загрузки профиля (работает для всех аккаунтов,
+        // не только фракционных — аналог HP-трекера, но для профиля).
+        debugLog('[Profile] 🚀 Запуск ожидания спавна для загрузки профиля через MainMenu...');
+        setTimeout(waitForSpawnThenLoadProfile, 5000);
         globalState.sessionStartTime = Date.now();
         addSessionLog('🟢 Сессия начата');
     }
