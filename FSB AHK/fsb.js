@@ -4155,28 +4155,34 @@ function restoreMainMenuOptions() {
     } catch(e) {}
 }
 
-// Безопасное скрытие меню через ИНЛАЙН-СТИЛИ (не ломает Vue Transition) Почему инлайн, а не CSS-тег <style>? MainMenu.js использует Vue Tra...
-var _profileCheckInterval = null;
+// Безопасное скрытие меню через ИНЛАЙН-СТИЛИ (не ломает Vue Transition).
+// Используем MutationObserver вместо setInterval — срабатывает в той же задаче
+// сразу после добавления элемента в DOM, ДО перерисовки браузера.
+// Это полностью исключает мерцание (setInterval с 50мс давал 0-50мс окно,
+// за которое браузер успевал нарисовать кадр с видимым меню).
+var _profileObserver = null;
 
 function applyProfileStyles(skipHiding) {
     removeProfileStyles();
     if (skipHiding) return; // Меню уже открыто игроком — не трогаем его
-    
-    _profileCheckInterval = setInterval(function() {
+
+    _profileObserver = new MutationObserver(function() {
         var el = document.querySelector('.main-menu');
         if (el) {
-            clearInterval(_profileCheckInterval);
-            _profileCheckInterval = null;
             el.style.opacity = '0';
             el.style.pointerEvents = 'none';
+            _profileObserver.disconnect();
+            _profileObserver = null;
         }
-    }, 50);
+    });
+    // subtree:true — ловим вложенные добавления; childList:true — добавление узлов
+    _profileObserver.observe(document.documentElement, { childList: true, subtree: true });
 }
 
 function removeProfileStyles() {
-    if (_profileCheckInterval) {
-        clearInterval(_profileCheckInterval);
-        _profileCheckInterval = null;
+    if (_profileObserver) {
+        _profileObserver.disconnect();
+        _profileObserver = null;
     }
     // ВАЖНО: инлайн-стили НЕ убираем намеренно!
     // closeInterface() удалит DOM-элемент вместе с ними.
@@ -4241,6 +4247,7 @@ function loadPlayerProfile(callback) {
     }
     
     _fetching = true;
+    window._mvdProfileLoading = true; // блокируем патч вкладки пока читаем профиль
     console.log('[Profile] Загрузка данных персонажа (первый раз)...');
 
     var _done = false;
@@ -4274,6 +4281,7 @@ function loadPlayerProfile(callback) {
         restoreCursorPatch();
         removeProfileStyles();
         _fetching = false;
+        window._mvdProfileLoading = false; // разблокируем патч вкладки
         if (callback) callback(result);
     }
 
@@ -4365,8 +4373,8 @@ function loadPlayerProfile(callback) {
                     });
                 }, 150);
             }
-        }, 200);
-    }, 600);
+        }, 100); // ↓ 200→100ms: быстрее считываем данные
+    }, 250);  // ↓ 600→250ms: Vue успевает примонтироваться, но не ждём лишнего
 }
 
 // ── Команда /mmenu для принудительного обновления данных ──
@@ -4423,6 +4431,44 @@ waitForApp(function() {
 window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
 // ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
+
+// ==================== ПАТЧ: MainMenu открывается сразу на «Персонаж» ====================
+// Когда игрок нажимает M (или любой другой код открывает MainMenu напрямую),
+// автоматически переключаем на вкладку Statistics («Персонаж»).
+// Пока работает loadPlayerProfile (_mvdProfileLoading = true) — патч пассивен,
+// чтобы не мешать невидимому считыванию данных.
+(function() {
+'use strict';
+function applyMainMenuTabPatch() {
+    var _origOI = window.openInterface;
+    window.openInterface = function(name) {
+        var result = _origOI.apply(this, arguments);
+        if (name === 'MainMenu' && !window._mvdProfileLoading) {
+            // Небольшая задержка: Vue-компонент должен смонтироваться
+            setTimeout(function() {
+                try {
+                    var mm = window.interface && window.interface('MainMenu');
+                    if (mm && typeof mm.selectTab === 'function') {
+                        mm.selectTab('Statistics');
+                    }
+                } catch(e) {}
+            }, 80);
+        }
+        return result;
+    };
+    console.log('[FSB] Патч MainMenu→Персонаж активен');
+}
+
+// Ждём готовности App (openInterface и window.interface могут появиться позже)
+(function tryApply(n) {
+    if (window.openInterface && window.interface) {
+        applyMainMenuTabPatch();
+    } else if (n < 100) {
+        setTimeout(function() { tryApply(n + 1); }, 200);
+    }
+})(0);
+})();
+// ==================== END ПАТЧ MainMenu→Персонаж ====================
 
 // /are и /are_s перенесены в fkonst.js
 
