@@ -293,31 +293,12 @@ let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 // ┌─────────────────────────────────────────────────────────┐
 // │  Флаг подавления "потеряно соединение" после /rec 5     │
-// │  + защита от двойных /rec (кулдаун 8 с)                 │
-// │  + авто-сброс __afterRec5 через 30 с (страховка)        │
 // └─────────────────────────────────────────────────────────┘
 (function() {
     const _orig = window.sendChatInput;
-    let _lastRecMs = 0;
-    const REC_COOLDOWN = 8000; // мин. интервал между /rec командами (мс)
-
     window.sendChatInput = function(cmd) {
         if (typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim())) {
-            const now = Date.now();
-            if (now - _lastRecMs < REC_COOLDOWN) {
-                // Двойной /rec в короткий промежуток — игнорируем, чтобы не завис клиент
-                console.log('[sendChatInput] /rec проигнорирован — кулдаун ещё ' +
-                    Math.round((REC_COOLDOWN - (now - _lastRecMs)) / 1000) + 'с');
-                return;
-            }
-            _lastRecMs = now;
             window.__afterRec5 = true;
-            // Страховой авто-сброс флага через 30 с —
-            // на случай если сообщение об отключении от сервера так и не пришло
-            clearTimeout(window.__afterRec5Timer);
-            window.__afterRec5Timer = setTimeout(function() {
-                window.__afterRec5 = false;
-            }, 30000);
         }
         return _orig.apply(this, arguments);
     };
@@ -812,220 +793,150 @@ function handleGlobalBroadcastCommand(cmd, val) {
 const autoLoginConfig = {
     password: PASSWORD, // Ваш пароль
     enabled: true, // Флаг активации автовхода
-    maxAttempts: 10, // Максимум попыток (не используется в новом подходе — оставлено для совместимости)
-    attemptInterval: 1000 // Интервал (не используется в новом подходе — оставлено для совместимости)
+    maxAttempts: 10, // Максимум попыток
+    attemptInterval: 1000 // Интервал между попытками (мс)
 };
-
-// ── АВТО-ВВОД ПАРОЛЯ (MutationObserver + Vue direct, как в LoadAhk) ──────────
-(function setupAutoLogin() {
-    var _filling = false;
-
-    // Всё что делается после успешного play() — вынесено для чистоты
-    function onLoginSuccess() {
-        sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null);
-        // Сброс HP: первые показания HUD = 100 (заглушка), настоящее HP придёт позже
-        globalState.hpLastValue = null;
-        globalState.hpLastHitTime = null;
-        globalState.hpAlertMessageIds = [];
-        // Сброс флага спавна и профиля для нового входа
-        globalState._spawnProfileLoaded = false;
-        config.accountInfo.profile.loaded = false;
-        // PDC: если строй прервал отыгровку — возобновляем
-        setTimeout(() => pdcOnReloginAfterStroi(), 3000);
-        // Уведомление через 3 секунды после успешного входа
-        setTimeout(() => {
-            showScreenNotification(
-                "HASSLE",
-                "Скрипт загружен.<br>Меню /hb или Телеграмм.",
-                "FFFF00",  // жёлтый цвет
-                6000       // видно 6 секунд
-            );
-        }, 3000);
-        // Сброс флагов: /c 60 отправится при определении фракционного скина
-        window._c60Sent = false;
-        window._awaitC60Dialog = false;
-        window._awaitAnimInteraction = false;
+// Функция для автоматического ввода пароля
+function setupAutoLogin(attempt = 1) {
+    if (!autoLoginConfig.enabled) {
+        debugLog('Автовход отключен');
+        return;
     }
+    if (attempt > autoLoginConfig.maxAttempts) {
+        const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить автовход после ${autoLoginConfig.maxAttempts} попыток`;
+        debugLog(errorMsg);
+        sendToTelegram(errorMsg, false, null);
+        return;
+    }
+    // Проверяем, открыт ли интерфейс Authorization
+    if (!window.getInterfaceStatus("Authorization")) {
+        debugLog(`Попытка ${attempt}: Интерфейс Authorization не открыт, повтор через ${autoLoginConfig.attemptInterval}мс`);
+        setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
+        return;
+    }
+    // Получаем экземпляр Authorization
+    const authInstance = window.interface("Authorization");
+    if (!authInstance) {
+        debugLog(`Попытка ${attempt}: Экземпляр Authorization не найден, повтор через ${autoLoginConfig.attemptInterval}мс`);
+        setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
+        return;
+    }
+    // Получаем экземпляр Login через getInstance("auth")
+    const loginInstance = authInstance.getInstance("auth");
+    if (!loginInstance) {
+        debugLog(`Попытка ${attempt}: Экземпляр Login не найден, повтор через ${autoLoginConfig.attemptInterval}мс`);
+        setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
+        return;
+    }
+    // Устанавливаем пароль
+    debugLog(`[${displayName}] Автоввод пароля: ${autoLoginConfig.password}`);
+    loginInstance.password.value = autoLoginConfig.password;
+    // Ждем обновления DOM и эмулируем нажатие кнопки "Войти"
+    setTimeout(() => {
+        if (loginInstance.password.value === autoLoginConfig.password) {
+            debugLog(`[${displayName}] Эмуляция нажатия кнопки "Войти"`);
+            try {
+                loginInstance.onClickEvent("play");
+                sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
+                // Сброс HP после входа: первые показания HUD = 100 (заглушка),
+                // настоящее HP придёт чуть позже — не считаем это уроном.
+                globalState.hpLastValue = null;
+                globalState.hpLastHitTime = null;
+                globalState.hpAlertMessageIds = [];
+                // Сброс флага спавна и профиля для нового входа
+                globalState._spawnProfileLoaded = false;
+                config.accountInfo.profile.loaded = false;
+                // PDC: если строй прервал отыгровку — возобновляем
+                setTimeout(() => pdcOnReloginAfterStroi(), 3000);
+                // Уведомление через 3 секунды после успешного входа
+                setTimeout(() => {
+                    showScreenNotification(
+                        "HASSLE", 
+                        "Скрипт загружен.<br>Меню /hb или Телеграмм.", 
+                        "FFFF00",   // жёлтый цвет
+                        6000        // видно 6 секунд (можно изменить)
+                    );
+                }, 3000);
+                // Запрос времени до спавна после входа
+                // Сброс флагов: /c 60 отправится при определении фракционного скина
+                window._c60Sent = false;
+                window._awaitC60Dialog = false;
+                window._awaitAnimInteraction = false;
 
-    function tryFill() {
-        if (_filling) return;
-
-        // Если автовход отключён — показываем форму авторизации вручную,
-        // т.к. предыдущий автовход мог скрыть её (display:none / opacity:0)
-        if (!autoLoginConfig.enabled) {
-            var authElDisabled = document.querySelector('.authorization');
-            if (authElDisabled) {
-                authElDisabled.style.display = '';
-                authElDisabled.style.opacity = '';
-                authElDisabled.style.pointerEvents = '';
-                debugLog('[AUTO-LOGIN] Автовход отключён — форма авторизации показана вручную');
+            } catch (err) {
+                const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
+                debugLog(errorMsg);
+                sendToTelegram(errorMsg, false, null);
+                setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
             }
+        } else {
+            debugLog(`[${displayName}] Ошибка: пароль не установлен, повтор через ${autoLoginConfig.attemptInterval}мс`);
+            setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
+        }
+    }, 100);
+}
+// Функция инициализации автовхода
+function initializeAutoLogin() {
+    if (!autoLoginConfig.enabled) {
+        debugLog('Автовход отключен в конфигурации');
+        return;
+    }
+    // Проверяем, открыт ли интерфейс Authorization
+    if (window.getInterfaceStatus("Authorization")) {
+        debugLog('Интерфейс Authorization уже открыт, запускаем автовход');
+        setupAutoLogin();
+    } else {
+        // Открываем интерфейс Authorization с параметрами
+        const openParams = [
+            "auth", // Страница авторизации
+            config.accountInfo.nickname || "Pavel_Nabokov", // Логин (замените на ваш, если известен)
+            "", // Сервер
+            "", // Бонусы
+            "", // Хэллоуин
+            "", // Новый год
+            "", // Пасха
+            "https://radmir.online/recovery-password", // Восстановление пароля
+            { // Дополнительные параметры
+                autoLogin: {
+                    password: autoLoginConfig.password,
+                    enabled: autoLoginConfig.enabled
+                }
+            }
+        ];
+        debugLog(`Открываем интерфейс Authorization для ${displayName}`);
+        try {
+            window.openInterface("Authorization", JSON.stringify(openParams));
+        } catch (err) {
+            debugLog(`Ошибка при открытии Authorization: ${err.message}`);
+            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть интерфейс Authorization\n<code>${err.message}</code>`, false, null);
             return;
         }
-
-        // ШАГ 1: ловим .authorization как можно раньше и сразу скрываем —
-        // до того как браузер успеет нарисовать хоть один кадр с формой
-        var authEl = document.querySelector('.authorization');
-        if (!authEl) return;
-
-        authEl.style.opacity = '0';
-        authEl.style.pointerEvents = 'none';
-        _filling = true;
-
-        // Вернуть форму при неверном пароле / ошибке.
-        // _filling НЕ сбрасываем — иначе Observer снова дёрнет tryFill()
-        // и получим бесконечный цикл. Сбрасываем только когда форма закроется.
-        function showFormOnError() {
-            authEl.style.display = '';
-            authEl.style.opacity = '';
-            authEl.style.pointerEvents = '';
-            debugLog('[AUTO-LOGIN] Неверный пароль — показываем форму');
-            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНеверный пароль автовхода`, false, null);
-            var waitManual = setInterval(function() {
-                if (!document.querySelector('.authorization')) {
-                    _filling = false;
-                    clearInterval(waitManual);
-                    debugLog('[AUTO-LOGIN] Форма закрылась — готов к следующей авторизации');
-                }
-            }, 300);
-        }
-
-        // ШАГ 2: дёргаем Vue-компонент напрямую — никаких DOM-событий,
-        // никаких задержек на реактивность
-        function tryVueDirect() {
-            try {
-                var comp = window.interface && window.interface('Authorization');
-                if (!comp) return false;
-
-                var loginComp = comp.$refs && comp.$refs.auth;
-                if (!loginComp) return false;
-
-                // Пишем прямо в Vue state — компонент видит изменение мгновенно
-                loginComp.password.value = autoLoginConfig.password;
-
-                // Перехватываем setError ДО play() — сервер вызовет его если пароль неверный
-                var _origSetError = loginComp.setError.bind(loginComp);
-                loginComp.setError = function(field, msg) {
-                    loginComp.setError = _origSetError; // восстанавливаем сразу
-                    showFormOnError();
-                    _origSetError(field, msg);          // показываем ошибку в поле
-                };
-
-                // Вызываем play() напрямую — минуем Enter, keydown, validate
-                loginComp.play();
-
-                debugLog('[AUTO-LOGIN] Vue direct: пароль отправлен мгновенно');
-
-                // ШАГ 3: скрываем форму сразу после play(), не ждём сервер
-                authEl.style.display = 'none';
-
-                onLoginSuccess();
-
-                // Сбрасываем _filling когда форма реально ушла из DOM
-                var waitGone = setInterval(function() {
-                    if (!document.querySelector('.authorization')) {
-                        _filling = false;
-                        clearInterval(waitGone);
-                        debugLog('[AUTO-LOGIN] Готов к следующей авторизации');
-                    }
-                }, 300);
-
-                return true;
-            } catch (e) {
-                debugLog('[AUTO-LOGIN] Vue direct ошибка: ' + e.message);
-                return false;
+        // Ожидаем открытия интерфейса
+        let attempts = 0;
+        const checkInterval = setInterval(() => {
+            attempts++;
+            if (window.getInterfaceStatus("Authorization")) {
+                clearInterval(checkInterval);
+                debugLog('Интерфейс Authorization открыт, запускаем автовход');
+                setTimeout(setupAutoLogin, 1000); // Задержка для полной инициализации
+            } else if (attempts >= autoLoginConfig.maxAttempts) {
+                clearInterval(checkInterval);
+                const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть Authorization после ${autoLoginConfig.maxAttempts} попыток`;
+                debugLog(errorMsg);
+                sendToTelegram(errorMsg, false, null);
+            } else {
+                debugLog(`Попытка ${attempts}: Ожидание открытия Authorization`);
             }
-        }
-
-        // Пробуем сразу — если компонент уже смонтирован
-        if (tryVueDirect()) return;
-
-        // Компонент ещё не смонтировался — ждём один тик и повторяем
-        setTimeout(function() {
-            if (tryVueDirect()) return;
-
-            // DOM-фолбэк: форма уже скрыта, находим поле вручную
-            var passInput = document.querySelector('.authorization-field__input[type="password"]');
-            if (!passInput) {
-                showFormOnError();
-                debugLog('[AUTO-LOGIN] Не удалось найти поле пароля — показываем форму');
-                return;
-            }
-
-            var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-            nativeSetter.call(passInput, autoLoginConfig.password);
-            passInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-            // 30мс достаточно для одного Vue flush — было 100мс+ в старом коде
-            setTimeout(function() {
-                var form = document.querySelector('.login-form');
-                var target = form || passInput;
-                target.dispatchEvent(new KeyboardEvent('keydown', {
-                    key: 'Enter', code: 'Enter',
-                    keyCode: 13, which: 13,
-                    bubbles: true, cancelable: true
-                }));
-                authEl.style.display = 'none';
-                debugLog('[AUTO-LOGIN] DOM fallback: Enter отправлен');
-
-                onLoginSuccess();
-
-                // Детектор ошибки неверного пароля
-                var errorWatcher = new MutationObserver(function() {
-                    if (document.querySelector('.authorization-field__error')) {
-                        errorWatcher.disconnect();
-                        showFormOnError();
-                    }
-                });
-                errorWatcher.observe(document.body, { childList: true, subtree: true });
-
-                var waitGone = setInterval(function() {
-                    if (!document.querySelector('.authorization-field__input[type="password"]')) {
-                        _filling = false;
-                        errorWatcher.disconnect();
-                        clearInterval(waitGone);
-                        debugLog('[AUTO-LOGIN] Форма закрылась — готов к следующей авторизации');
-                    }
-                }, 300);
-            }, 30);
-        }, 0);
+        }, autoLoginConfig.attemptInterval);
     }
-
-    // Observer ловит .authorization — даёт нам несколько рендер-циклов форы
-    // перед тем как форма дойдёт до экрана. Работает независимо от того,
-    // как форма открылась (через openInterface, reconnect и т.д.)
-    var observer = new MutationObserver(function() { tryFill(); });
-
-    if (document.body) {
-        observer.observe(document.body, { childList: true, subtree: true });
-        tryFill(); // на случай если форма уже в DOM при инициализации скрипта
-    } else {
-        document.addEventListener('DOMContentLoaded', function() {
-            observer.observe(document.body, { childList: true, subtree: true });
-            tryFill();
-        });
-    }
-
-    // Сбрасывает застрявший _filling перед /rec 5 — чтобы когда форма появится
-    // после реконнекта, Observer подхватил и tryFill нормально ввёл пароль.
-    window.__resetAutoLoginFilling = function() {
-        _filling = false;
-    };
-})();
-// ── END АВТО-ВВОД ПАРОЛЯ ─────────────────────────────────────────────────────
-
-// Заглушка для обратной совместимости
-function initializeAutoLogin() {
-    debugLog('[AUTO-LOGIN] MutationObserver обрабатывает форму автоматически');
 }
-
-// Перехват window.openInterface (хук остаётся — нужен для INTERACTIONS LOGGER и прочего)
+// Перехват window.openInterface для автоматического входа (хуком)
 const originalOpenInterface = window.openInterface;
 window.openInterface = function(interfaceName, params, additionalParams) {
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);
     if (interfaceName === "Authorization") {
-        debugLog(`[${displayName}] Открыт интерфейс Authorization — MutationObserver подхватит`);
-        // Задержка и polling убраны: Observer обнаружит .authorization мгновенно
+        debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
+        setTimeout(initializeAutoLogin, 500); // Задержка для инициализации компонента
     }
     // ── INTERACTIONS LOGGER ──────────────────────────────────────
     if (interfaceName === "Interactions") {
@@ -4014,9 +3925,6 @@ function processUpdates(updates) {
             } else if (message.startsWith("autologin_on_")) {
                 // Вернуться с авторизации (включить автовход + /rec 5)
                 autoLoginConfig.enabled = true;
-                // Сброс застрявшего _filling — иначе после реконнекта форма появится,
-                // но tryFill сразу выйдет и пароль не введётся
-                if (typeof window.__resetAutoLoginFilling === 'function') window.__resetAutoLoginFilling();
                 sendChatInput("/rec 5");
                 sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
@@ -4101,14 +4009,8 @@ function processUpdates(updates) {
                     sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 } else {
                     autoLoginConfig.enabled = true;
-                    if (document.querySelector('.authorization')) {
-                        // Форма уже в DOM — заполняем напрямую без лишнего /rec 5
-                        if (typeof window.__triggerAutoLogin === 'function') window.__triggerAutoLogin();
-                        sendToTelegram(`✅ <b>Автовход включён — вводим пароль (${displayName})</b>`, false, null);
-                    } else {
-                        sendChatInput("/rec 5");
-                        sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
-                    }
+                    sendChatInput("/rec 5");
+                    sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 }
                 setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 100);
             } else if (message.startsWith('show_welcome_settings_')) {
@@ -7039,268 +6941,3 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END WARNING CHECK MODULE ====================
-
-
-// ══════════════════════════════════════════════════════════════════
-// MODULE: INVITE AUTOFILL
-// Описание: Авто-заполнение формы заявления на работу.
-//           При открытии меню Invite (форма) добавляет кнопки
-//           «1», «2», «3» для быстрого заполнения полей.
-// Зависимости: нет
-// ══════════════════════════════════════════════════════════════════
-(function () {
-    'use strict';
-
-    // ─── Пресеты авто-заполнения ────────────────────────────────
-    const INVITE_PRESETS = [
-        {
-            label: '1',
-            biography:      'Работал таксистом, надоело. Хочу попробовать себя в чём-то серьёзном.',
-            posQualities:   'Ответственный, не болтаю лишнего, умею слушать',
-            negQualities:   'Упрямый, медленно схожусь с людьми, иногда тормоз',
-            reasons:        'Хочу стабильность и развиваться',
-            criminalRecord: 'Нет',
-            activity:       'Таксист'
-        },
-        {
-            label: '2',
-            biography:      'Долго занимался разным, нигде не задерживался. Решил наконец найти что-то стоящее.',
-            posQualities:   'Пунктуальный, надёжный, быстро учусь',
-            negQualities:   'Нетерпеливый, иногда резкий, прямолинейный',
-            reasons:        'Хочу быть частью нормальной структуры',
-            criminalRecord: 'Нет',
-            activity:       'Охранник'
-        },
-        {
-            label: '3',
-            biography:      'Сидел без дела, решил устроиться нормально и заняться чем-то полезным.',
-            posQualities:   'Смелый, всегда на связи, не подвожу',
-            negQualities:   'Горячий, упрямый, иногда лезу не в своё дело',
-            reasons:        'Хочу занятость и уважение',
-            criminalRecord: 'Нет',
-            activity:       'Без работы'
-        }
-    ];
-
-    // ─── Обход VNode-дерева Vue 3 в поиске CreateForm ────────────
-    // CreateForm — единственный компонент у которого data.form
-    // содержит ключ 'biography'. Идём вглубь subTree рекурсивно.
-    function walkVNode(vnode) {
-        if (!vnode) return null;
-        if (vnode.component) {
-            var comp = vnode.component;
-            // Нашли компонент с нужными полями?
-            if (comp.data && comp.data.form &&
-                typeof comp.data.form.biography === 'string') {
-                return comp.proxy || null;
-            }
-            // Идём глубже в его subTree
-            var found = walkVNode(comp.subTree);
-            if (found) return found;
-        }
-        // Обходим детей vnode (массив или объект-слоты)
-        var children = vnode.children;
-        if (children) {
-            if (Array.isArray(children)) {
-                for (var i = 0; i < children.length; i++) {
-                    var c = children[i];
-                    if (c && typeof c === 'object' && !Array.isArray(c)) {
-                        var f = walkVNode(c);
-                        if (f) return f;
-                    }
-                }
-            } else if (typeof children === 'object') {
-                var keys = Object.keys(children);
-                for (var k = 0; k < keys.length; k++) {
-                    var slot = children[keys[k]];
-                    if (slot && typeof slot === 'object') {
-                        // Слот может быть функцией возвращающей массив vnodes
-                        var vnodes = typeof slot === 'function' ? null : slot;
-                        if (vnodes) {
-                            var ff = walkVNode(vnodes);
-                            if (ff) return ff;
-                        }
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    // ─── Получить proxy компонента CreateForm ────────────────────
-    function getCreateFormProxy() {
-        try {
-            // window.interface('Invite') — игровой API, возвращает Vue 3 proxy компонента.
-            // proxy.$ — внутренний инстанс Vue 3 (ComponentInternalInstance).
-            var inviteProxy = (typeof window.interface === 'function')
-                ? window.interface('Invite')
-                : null;
-            if (!inviteProxy) return null;
-            var internal = inviteProxy.$;          // инстанс Invite
-            if (!internal || !internal.subTree) return null;
-            return walkVNode(internal.subTree);    // ищем CreateForm внутри
-        } catch (e) {
-            console.log('[InviteAutofill] getCreateFormProxy error: ' + e.message);
-            return null;
-        }
-    }
-
-    // ─── Fallback: симуляция DOM-ввода для Vue 3 v-model ─────────
-    // Vue 3 vModelText слушает нативный 'input' event и читает el.value —
-    // просто присваиваем значение и стреляем событием.
-    function domFallback(preset) {
-        var container = document.querySelector('.create-form');
-        if (!container) return false;
-        var textarea = container.querySelector('.create-form__input_area');
-        var inputs   = container.querySelectorAll(
-            '.create-form__input:not(.create-form__input_area)'
-        );
-        function fire(el, val) {
-            if (!el) return;
-            el.value = val;
-            el.dispatchEvent(new Event('input',  { bubbles: true }));
-            el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        // Порядок полей совпадает с шаблоном CreateForm
-        fire(textarea,  preset.biography);
-        fire(inputs[0], preset.posQualities);
-        fire(inputs[1], preset.negQualities);
-        fire(inputs[2], preset.reasons);
-        fire(inputs[3], preset.criminalRecord);
-        fire(inputs[4], preset.activity);
-        return true;
-    }
-
-    // ─── Применить пресет ────────────────────────────────────────
-    function applyPreset(preset) {
-        // Способ 1: напрямую в реактивные данные Vue 3
-        var proxy = getCreateFormProxy();
-        if (proxy && proxy.form) {
-            proxy.form.biography      = preset.biography;
-            proxy.form.posQualities   = preset.posQualities;
-            proxy.form.negQualities   = preset.negQualities;
-            proxy.form.reasons        = preset.reasons;
-            proxy.form.criminalRecord = preset.criminalRecord;
-            proxy.form.activity       = preset.activity;
-            console.log('[InviteAutofill] Applied via Vue proxy ✓');
-            return;
-        }
-        // Способ 2: DOM events (fallback)
-        if (domFallback(preset)) {
-            console.log('[InviteAutofill] Applied via DOM events ✓');
-        } else {
-            console.log('[InviteAutofill] Both approaches failed — form not found');
-        }
-    }
-
-    // ─── Создать кнопку пресета ───────────────────────────────────
-    function makeBtn(preset) {
-        var btn = document.createElement('div');
-        btn.textContent = preset.label;
-        btn.style.cssText = [
-            'align-items:center',
-            'background:#14141418',
-            'border:0.15vh solid #14141450',
-            'color:#141414',
-            'cursor:pointer',
-            'display:flex',
-            'font-family:"Open Sans",sans-serif',
-            'font-size:2vh',
-            'font-weight:700',
-            'justify-content:center',
-            'min-height:5vh',
-            'min-width:7vh',
-            'padding:0.74vh 2vh',
-            'text-align:center',
-            'transition:background 0.15s,color 0.15s',
-            'user-select:none',
-            '-webkit-user-select:none',
-            'flex:1 1',       // растягиваем на всю доступную ширину равномерно
-        ].join(';');
-        btn.addEventListener('touchstart', function (e) {
-            e.preventDefault();          // исключаем задержку 300 мс на мобилке
-            btn.style.background = '#141414';
-            btn.style.color      = '#f4f1e1';
-            applyPreset(preset);
-            setTimeout(function () {
-                btn.style.background = '#14141418';
-                btn.style.color      = '#141414';
-            }, 400);
-        }, { passive: false });
-        btn.addEventListener('click', function () {
-            applyPreset(preset);
-            btn.style.background = '#ea4f3d';
-            btn.style.color      = '#f4f1e1';
-            setTimeout(function () {
-                btn.style.background = '#14141418';
-                btn.style.color      = '#141414';
-            }, 400);
-        });
-        btn.addEventListener('mouseenter', function () {
-            btn.style.background = '#141414';
-            btn.style.color      = '#f4f1e1';
-        });
-        btn.addEventListener('mouseleave', function () {
-            btn.style.background = '#14141418';
-            btn.style.color      = '#141414';
-        });
-        return btn;
-    }
-
-    // ─── Инжект панели ───────────────────────────────────────────
-    function injectAutofillPanel() {
-        if (document.querySelector('.invite-autofill-panel')) return;
-        // Только для формы заявления (FORM), не биографии
-        var explanation = document.querySelector('.create-form__explanation');
-        if (!explanation) return;
-
-        var panel = document.createElement('div');
-        panel.className = 'invite-autofill-panel';
-        panel.style.cssText = [
-            'align-items:center',
-            'display:flex',
-            'gap:1vh',
-            'padding:1vh 4.44vh',
-            'width:100%',
-            'box-sizing:border-box',
-        ].join(';');
-
-        var lbl = document.createElement('div');
-        lbl.textContent = 'Шаблон:';
-        lbl.style.cssText = [
-            'color:#14141499',
-            'font-family:"Open Sans",sans-serif',
-            'font-size:1.48vh',
-            'font-style:italic',
-            'white-space:nowrap',
-            'flex-shrink:0',
-        ].join(';');
-        panel.appendChild(lbl);
-
-        INVITE_PRESETS.forEach(function (preset) {
-            panel.appendChild(makeBtn(preset));
-        });
-
-        explanation.insertAdjacentElement('afterend', panel);
-        console.log('[InviteAutofill] Panel injected ✓');
-    }
-
-    // ─── Хук на openInterface ────────────────────────────────────
-    var _prevOI = window.openInterface;
-    window.openInterface = function (name) {
-        var result = typeof _prevOI === 'function'
-            ? _prevOI.apply(this, arguments)
-            : undefined;
-        if (name === 'Invite') {
-            // 400 мс — Vue успевает смонтировать компонент
-            setTimeout(injectAutofillPanel, 400);
-        }
-        return result;
-    };
-
-    console.log('[InviteAutofill] Module loaded ✓');
-
-})();
-// ══════════════════════════════════════════════════════════════════
-// END MODULE: INVITE AUTOFILL
-// ══════════════════════════════════════════════════════════════════
