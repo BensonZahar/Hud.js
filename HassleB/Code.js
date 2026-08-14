@@ -1276,6 +1276,18 @@ function trackPlayerHp() {
     if (!config.hpTracking) return;
     if (window._hassleReloading) return;
 
+    // ── Пока игрок не заспавнен — HP ненадёжно (может быть 100 по умолчанию).
+    // hud.info.show === false означает: ещё на экране авторизации или загрузки.
+    // Держим baseline null чтобы первое реальное HP стало точкой отсчёта, а не «уроном».
+    try {
+        const _hud = window.interface("Hud");
+        if (!_hud || !_hud.info || !_hud.info.show) {
+            globalState.hpLastValue = null;
+            setTimeout(trackPlayerHp, 500);
+            return;
+        }
+    } catch(e) {}
+
     const currentHp = getPlayerHpFromStore();
 
     if (currentHp !== null && globalState.hpLastValue !== null) {
@@ -1313,13 +1325,13 @@ function trackPlayerHp() {
                     );
                     globalState._dmgAccum = null;
                     globalState._dmgTimer  = null;
-                }, 3000);
+                }, 1500);
             }
         }
     }
 
     if (currentHp !== null) globalState.hpLastValue = currentHp;
-    setTimeout(trackPlayerHp, 1500);
+    setTimeout(trackPlayerHp, 500);
 }
 
 
