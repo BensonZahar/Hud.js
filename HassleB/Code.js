@@ -1277,11 +1277,14 @@ function trackPlayerHp() {
     if (window._hassleReloading) return;
 
     // ── Пока игрок не заспавнен — HP ненадёжно (может быть 100 по умолчанию).
-    // hud.info.show === false означает: ещё на экране авторизации или загрузки.
-    // Держим baseline null чтобы первое реальное HP стало точкой отсчёта, а не «уроном».
+    // player/isPlayerConnected = true устанавливается сервером только после полного спавна.
+    // Пока false — держим baseline null чтобы первое реальное HP стало точкой отсчёта, а не «уроном».
     try {
-        const _hud = window.interface("Hud");
-        if (!_hud || !_hud.info || !_hud.info.show) {
+        let _isConnected = false;
+        if (window.App && window.App.$store) {
+            _isConnected = window.App.$store.getters['player/isPlayerConnected'];
+        }
+        if (!_isConnected) {
             globalState.hpLastValue = null;
             setTimeout(trackPlayerHp, 500);
             return;
@@ -1711,7 +1714,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot44</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot4</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1942,7 +1945,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot4</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
