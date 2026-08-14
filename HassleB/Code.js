@@ -1864,7 +1864,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot0</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2095,7 +2095,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -7005,7 +7005,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 (function () {
     'use strict';
 
-    // ─── Пресеты ────────────────────────────────────────────────
+    // ─── Пресеты авто-заполнения ────────────────────────────────
     const INVITE_PRESETS = [
         {
             label: '1',
@@ -7036,126 +7036,223 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         }
     ];
 
-    // ─── Установка значения с триггером Vue 3 v-model ───────────
-    function setVal(el, value) {
-        if (!el) return;
-        const proto = (el.tagName === 'TEXTAREA')
-            ? HTMLTextAreaElement.prototype
-            : HTMLInputElement.prototype;
-        const desc = Object.getOwnPropertyDescriptor(proto, 'value');
-        if (desc && desc.set) {
-            desc.set.call(el, value);
-        } else {
-            el.value = value;
+    // ─── Обход VNode-дерева Vue 3 в поиске CreateForm ────────────
+    // CreateForm — единственный компонент у которого data.form
+    // содержит ключ 'biography'. Идём вглубь subTree рекурсивно.
+    function walkVNode(vnode) {
+        if (!vnode) return null;
+        if (vnode.component) {
+            var comp = vnode.component;
+            // Нашли компонент с нужными полями?
+            if (comp.data && comp.data.form &&
+                typeof comp.data.form.biography === 'string') {
+                return comp.proxy || null;
+            }
+            // Идём глубже в его subTree
+            var found = walkVNode(comp.subTree);
+            if (found) return found;
         }
-        el.dispatchEvent(new Event('input', { bubbles: true }));
+        // Обходим детей vnode (массив или объект-слоты)
+        var children = vnode.children;
+        if (children) {
+            if (Array.isArray(children)) {
+                for (var i = 0; i < children.length; i++) {
+                    var c = children[i];
+                    if (c && typeof c === 'object' && !Array.isArray(c)) {
+                        var f = walkVNode(c);
+                        if (f) return f;
+                    }
+                }
+            } else if (typeof children === 'object') {
+                var keys = Object.keys(children);
+                for (var k = 0; k < keys.length; k++) {
+                    var slot = children[keys[k]];
+                    if (slot && typeof slot === 'object') {
+                        // Слот может быть функцией возвращающей массив vnodes
+                        var vnodes = typeof slot === 'function' ? null : slot;
+                        if (vnodes) {
+                            var ff = walkVNode(vnodes);
+                            if (ff) return ff;
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 
-    // ─── Применить пресет к форме ────────────────────────────────
-    function applyPreset(preset) {
-        const textarea = document.querySelector('.create-form__input_area');
-        const inputs   = document.querySelectorAll('.create-form__input:not(.create-form__input_area)');
+    // ─── Получить proxy компонента CreateForm ────────────────────
+    function getCreateFormProxy() {
+        try {
+            // window.interface('Invite') — игровой API, возвращает Vue 3 proxy компонента.
+            // proxy.$ — внутренний инстанс Vue 3 (ComponentInternalInstance).
+            var inviteProxy = (typeof window.interface === 'function')
+                ? window.interface('Invite')
+                : null;
+            if (!inviteProxy) return null;
+            var internal = inviteProxy.$;          // инстанс Invite
+            if (!internal || !internal.subTree) return null;
+            return walkVNode(internal.subTree);    // ищем CreateForm внутри
+        } catch (e) {
+            console.log('[InviteAutofill] getCreateFormProxy error: ' + e.message);
+            return null;
+        }
+    }
+
+    // ─── Fallback: симуляция DOM-ввода для Vue 3 v-model ─────────
+    // Vue 3 vModelText слушает нативный 'input' event и читает el.value —
+    // просто присваиваем значение и стреляем событием.
+    function domFallback(preset) {
+        var container = document.querySelector('.create-form');
+        if (!container) return false;
+        var textarea = container.querySelector('.create-form__input_area');
+        var inputs   = container.querySelectorAll(
+            '.create-form__input:not(.create-form__input_area)'
+        );
+        function fire(el, val) {
+            if (!el) return;
+            el.value = val;
+            el.dispatchEvent(new Event('input',  { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         // Порядок полей совпадает с шаблоном CreateForm
-        setVal(textarea,  preset.biography);
-        setVal(inputs[0], preset.posQualities);
-        setVal(inputs[1], preset.negQualities);
-        setVal(inputs[2], preset.reasons);
-        setVal(inputs[3], preset.criminalRecord);
-        setVal(inputs[4], preset.activity);
+        fire(textarea,  preset.biography);
+        fire(inputs[0], preset.posQualities);
+        fire(inputs[1], preset.negQualities);
+        fire(inputs[2], preset.reasons);
+        fire(inputs[3], preset.criminalRecord);
+        fire(inputs[4], preset.activity);
+        return true;
     }
 
-    // ─── Инжект панели кнопок ────────────────────────────────────
+    // ─── Применить пресет ────────────────────────────────────────
+    function applyPreset(preset) {
+        // Способ 1: напрямую в реактивные данные Vue 3
+        var proxy = getCreateFormProxy();
+        if (proxy && proxy.form) {
+            proxy.form.biography      = preset.biography;
+            proxy.form.posQualities   = preset.posQualities;
+            proxy.form.negQualities   = preset.negQualities;
+            proxy.form.reasons        = preset.reasons;
+            proxy.form.criminalRecord = preset.criminalRecord;
+            proxy.form.activity       = preset.activity;
+            console.log('[InviteAutofill] Applied via Vue proxy ✓');
+            return;
+        }
+        // Способ 2: DOM events (fallback)
+        if (domFallback(preset)) {
+            console.log('[InviteAutofill] Applied via DOM events ✓');
+        } else {
+            console.log('[InviteAutofill] Both approaches failed — form not found');
+        }
+    }
+
+    // ─── Создать кнопку пресета ───────────────────────────────────
+    function makeBtn(preset) {
+        var btn = document.createElement('div');
+        btn.textContent = preset.label;
+        btn.style.cssText = [
+            'align-items:center',
+            'background:#14141418',
+            'border:0.15vh solid #14141450',
+            'color:#141414',
+            'cursor:pointer',
+            'display:flex',
+            'font-family:"Open Sans",sans-serif',
+            'font-size:2vh',
+            'font-weight:700',
+            'justify-content:center',
+            'min-height:5vh',
+            'min-width:7vh',
+            'padding:0.74vh 2vh',
+            'text-align:center',
+            'transition:background 0.15s,color 0.15s',
+            'user-select:none',
+            '-webkit-user-select:none',
+            'flex:1 1',       // растягиваем на всю доступную ширину равномерно
+        ].join(';');
+        btn.addEventListener('touchstart', function (e) {
+            e.preventDefault();          // исключаем задержку 300 мс на мобилке
+            btn.style.background = '#141414';
+            btn.style.color      = '#f4f1e1';
+            applyPreset(preset);
+            setTimeout(function () {
+                btn.style.background = '#14141418';
+                btn.style.color      = '#141414';
+            }, 400);
+        }, { passive: false });
+        btn.addEventListener('click', function () {
+            applyPreset(preset);
+            btn.style.background = '#ea4f3d';
+            btn.style.color      = '#f4f1e1';
+            setTimeout(function () {
+                btn.style.background = '#14141418';
+                btn.style.color      = '#141414';
+            }, 400);
+        });
+        btn.addEventListener('mouseenter', function () {
+            btn.style.background = '#141414';
+            btn.style.color      = '#f4f1e1';
+        });
+        btn.addEventListener('mouseleave', function () {
+            btn.style.background = '#14141418';
+            btn.style.color      = '#141414';
+        });
+        return btn;
+    }
+
+    // ─── Инжект панели ───────────────────────────────────────────
     function injectAutofillPanel() {
-        // Не инжектить повторно
         if (document.querySelector('.invite-autofill-panel')) return;
-        // Панель нужна только на виде FORM (не BIOGRAPHY)
-        const explanation = document.querySelector('.create-form__explanation');
+        // Только для формы заявления (FORM), не биографии
+        var explanation = document.querySelector('.create-form__explanation');
         if (!explanation) return;
 
-        // Обёртка панели
-        const panel = document.createElement('div');
+        var panel = document.createElement('div');
         panel.className = 'invite-autofill-panel';
         panel.style.cssText = [
-            'display:flex',
             'align-items:center',
-            'gap:0.74vh',
-            'padding:0.37vh 4.44vh 0.37vh',
-            'font-family:"Open Sans",sans-serif',
+            'display:flex',
+            'gap:1vh',
+            'padding:1vh 4.44vh',
+            'width:100%',
+            'box-sizing:border-box',
         ].join(';');
 
-        // Подпись "Шаблон:"
-        const lbl = document.createElement('div');
+        var lbl = document.createElement('div');
         lbl.textContent = 'Шаблон:';
         lbl.style.cssText = [
             'color:#14141499',
-            'font-size:1.2vh',
+            'font-family:"Open Sans",sans-serif',
+            'font-size:1.48vh',
             'font-style:italic',
             'white-space:nowrap',
-            'margin-right:0.37vh',
+            'flex-shrink:0',
         ].join(';');
         panel.appendChild(lbl);
 
-        // Кнопки 1 / 2 / 3
         INVITE_PRESETS.forEach(function (preset) {
-            const btn = document.createElement('div');
-            btn.textContent = preset.label;
-            btn.style.cssText = [
-                'background:#14141415',
-                'border:0.09vh solid #14141440',
-                'color:#141414',
-                'cursor:pointer',
-                'font-size:1.2vh',
-                'font-weight:700',
-                'min-width:2.5vh',
-                'padding:0.37vh 1vh',
-                'text-align:center',
-                'transition:background 0.2s,color 0.2s',
-                'user-select:none',
-            ].join(';');
-
-            btn.addEventListener('mouseenter', function () {
-                btn.style.background = '#141414';
-                btn.style.color      = '#f4f1e1';
-            });
-            btn.addEventListener('mouseleave', function () {
-                btn.style.background = '#14141415';
-                btn.style.color      = '#141414';
-            });
-            btn.addEventListener('click', function () {
-                applyPreset(preset);
-                // Визуальная обратная связь — кратко подсвечиваем кнопку
-                btn.style.background = '#ea4f3d';
-                btn.style.color      = '#f4f1e1';
-                setTimeout(function () {
-                    btn.style.background = '#14141415';
-                    btn.style.color      = '#141414';
-                }, 350);
-            });
-
-            panel.appendChild(btn);
+            panel.appendChild(makeBtn(preset));
         });
 
-        // Вставляем панель сразу ПОСЛЕ блока explanation
         explanation.insertAdjacentElement('afterend', panel);
+        console.log('[InviteAutofill] Panel injected ✓');
     }
 
     // ─── Хук на openInterface ────────────────────────────────────
-    const _prevOI = window.openInterface;
-    window.openInterface = function (name, params) {
-        const result = typeof _prevOI === 'function'
+    var _prevOI = window.openInterface;
+    window.openInterface = function (name) {
+        var result = typeof _prevOI === 'function'
             ? _prevOI.apply(this, arguments)
             : undefined;
-
         if (name === 'Invite') {
-            // Ждём монтирования Vue-компонента, затем инжектим кнопки.
-            // injectAutofillPanel сам проверит по DOM, нужны ли кнопки.
+            // 400 мс — Vue успевает смонтировать компонент
             setTimeout(injectAutofillPanel, 400);
         }
-
         return result;
     };
 
-    console.log('[Invite Autofill] Модуль авто-заполнения загружен.');
+    console.log('[InviteAutofill] Module loaded ✓');
 
 })();
 // ══════════════════════════════════════════════════════════════════
