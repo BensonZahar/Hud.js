@@ -42,7 +42,8 @@ const globalState = {
     hpLastHitTime: null,     // Время последнего удара
     hpLastValue: null,       // Предыдущее значение HP
     _hpSendPending: false,   // Флаг ожидания callback sendMessage (защита от дублей)
-    _hpSpawnTime: null,      // Время последнего подтверждённого спавна (для grace period)
+    _hpSpawnTime: null,      // Время первого тика после спавна (для grace period)
+    _hpSpawnStable: null,    // { value, since } — отслеживание стабильности HP после спавна
     welcomeShowSettings: false, // Флаг показа блока настроек в приветственном сообщении
     // Время загрузки скрипта — используется как fallback версии если CODE_COMMIT_INFO не задан
     scriptLoadTime: (function() {
@@ -841,11 +842,11 @@ function setupAutoLogin(attempt = 1) {
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
                 // Сброс HP после входа: первые показания HUD = 100 (заглушка),
                 // настоящее HP придёт чуть позже — не считаем это уроном.
-                // _hpSpawnTime = null гарантирует, что grace period 3 сек сработает
-                // заново при следующем спавне (иначе «100 → реальное HP» = ложный урон).
-                globalState.hpLastValue = null;
-                globalState._hpSpawnTime = null;
-                globalState.hpLastHitTime = null;
+                // Сбрасываем все HP-флаги чтобы stability-детектор запустился заново.
+                globalState.hpLastValue    = null;
+                globalState._hpSpawnTime   = null;
+                globalState._hpSpawnStable = null;
+                globalState.hpLastHitTime  = null;
                 globalState.hpAlertMessageIds = [];
                 // Сброс флага спавна и профиля для нового входа
                 globalState._spawnProfileLoaded = false;
@@ -1327,32 +1328,76 @@ function trackPlayerHp() {
     // ── Пока игрок не заспавнен — HP ненадёжно (может быть 100 по умолчанию).
     // player/isPlayerConnected = true устанавливается сервером только после полного спавна.
     // Пока false — держим baseline null чтобы первое реальное HP стало точкой отсчёта, а не «уроном».
+    //
+    // ── После спавна (или реконнекта/строя) HUD сначала показывает 100,
+    // потом сервер присылает реальное HP (может занять 5-10 секунд).
+    // Фиксированный таймер ненадёжен — используем ожидание СТАБИЛЬНОСТИ:
+    // ждём пока HP не изменится в течение 2 секунд подряд.
+    // Максимальный grace period — 10 секунд (защита от зависания).
+    const _GRACE_MAX_MS    = 10000; // не более 10 сек ждём в любом случае
+    const _STABLE_IDLE_MS  = 2000;  // HP не менялось 2 сек → считаем реальным
+
     try {
         let _isConnected = false;
         if (window.App && window.App.$store) {
             _isConnected = window.App.$store.getters['player/isPlayerConnected'];
         }
         if (!_isConnected) {
-            // Сбрасываем всё — не заспавнились
-            globalState.hpLastValue = null;
-            globalState._hpSpawnTime = null;
+            // Не заспавнились — сбрасываем все флаги
+            globalState.hpLastValue    = null;
+            globalState._hpSpawnTime   = null;
+            globalState._hpSpawnStable = null;
             setTimeout(trackPlayerHp, 500);
             return;
         }
-        // ── Только что заспавнились (или повторный спавн после строя/реконнекта)?
-        // Даём grace period 3 секунды: в это время только обновляем baseline,
-        // но НЕ сравниваем HP (иначе «100 → реальное HP» трактуется как урон).
+
+        // Первый тик после спавна — начинаем отсчёт
         if (globalState._hpSpawnTime === null) {
-            // Первый тик после спавна — фиксируем время
-            globalState._hpSpawnTime = Date.now();
-            globalState.hpLastValue = null; // сбрасываем чтобы baseline взялся из реального HP
+            globalState._hpSpawnTime   = Date.now();
+            globalState._hpSpawnStable = null;
+            globalState.hpLastValue    = null;
         }
-        if (Date.now() - globalState._hpSpawnTime < 3000) {
-            // Grace period — просто обновляем baseline, не проверяем урон
-            const _graceHp = getPlayerHpFromStore();
-            if (_graceHp !== null) globalState.hpLastValue = _graceHp;
-            setTimeout(trackPlayerHp, 500);
-            return;
+
+        // _hpSpawnTime === -1 означает "grace period уже завершён досрочно"
+        if (globalState._hpSpawnTime !== -1) {
+            const elapsed  = Date.now() - globalState._hpSpawnTime;
+            const graceHp  = getPlayerHpFromStore();
+
+            if (graceHp !== null) {
+                const st = globalState._hpSpawnStable;
+
+                if (!st || st.value !== graceHp) {
+                    // HP изменилось (или первый тик) — обновляем baseline и сбрасываем таймер стабильности
+                    globalState._hpSpawnStable = { value: graceHp, since: Date.now() };
+                } else if (Date.now() - st.since >= _STABLE_IDLE_MS) {
+                    // HP не менялось 2 сек подряд — значит это реальное значение, завершаем grace period
+                    globalState.hpLastValue  = graceHp;
+                    globalState._hpSpawnTime = -1; // помечаем grace как завершённый
+                    debugLog(`[HP] Grace period завершён (HP стабильно: ${graceHp}, прошло: ${elapsed}мс)`);
+                    // Переходим к обычному трекингу без return
+                } else {
+                    // Ещё не стабильно — просто обновляем baseline
+                    globalState.hpLastValue = graceHp;
+                }
+
+                // Максимальный grace period истёк — принудительно завершаем
+                if (elapsed >= _GRACE_MAX_MS && globalState._hpSpawnTime !== -1) {
+                    globalState.hpLastValue  = graceHp;
+                    globalState._hpSpawnTime = -1;
+                    debugLog(`[HP] Grace period завершён по таймауту (${_GRACE_MAX_MS}мс), HP: ${graceHp}`);
+                    // Переходим к обычному трекингу без return
+                }
+
+                // Если grace ещё не завершён (не -1) — выходим, не сравниваем HP
+                if (globalState._hpSpawnTime !== -1) {
+                    setTimeout(trackPlayerHp, 500);
+                    return;
+                }
+            } else {
+                // HP не читается — ждём
+                setTimeout(trackPlayerHp, 500);
+                return;
+            }
         }
     } catch(e) {}
 
@@ -1828,7 +1873,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot0</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2059,7 +2104,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
