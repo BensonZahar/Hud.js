@@ -4521,21 +4521,45 @@ waitForApp(function() {
     };
     console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 
-    // ── Фоновая предзагрузка профиля при старте ──────────────────────────────
-    // Запускаем loadPlayerProfile сразу после готовности App — невидимо для
-    // игрока — чтобы к первому /dahk данные уже лежали в window._mvdRank /
-    // _mvdFirstName / _mvdLastName и MvdMenu открывалось мгновенно.
-    setTimeout(function() {
-        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
-        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
-        loadPlayerProfile(function(data) {
-            if (data && data.orgRangName) {
-                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
-            } else {
-                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+    // ── Ожидание спавна → загрузка профиля МВД ───────────────────────────────
+    // Аналог waitForSpawnThenLoadProfile из Code.js: ждём isPlayerConnected=true,
+    // только потом открываем MainMenu — гарантирует реальные данные, а не mock.
+    var _mvdSpawnProfileLoaded = false;
+    function waitForSpawnThenLoadMvdProfile() {
+        if (_mvdSpawnProfileLoaded) return;
+
+        var isConnected = false;
+        try {
+            if (window.App && window.App.$store) {
+                isConnected = window.App.$store.getters['player/isPlayerConnected'];
             }
-        });
-    }, 1500);
+        } catch(e) {}
+
+        if (!isConnected) {
+            // Ещё не заспавнились — продолжаем опрос каждые 500 мс
+            setTimeout(waitForSpawnThenLoadMvdProfile, 500);
+            return;
+        }
+
+        // Спавн подтверждён — запускаем загрузку один раз
+        _mvdSpawnProfileLoaded = true;
+        console.log('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль МВД через 3 сек...');
+
+        setTimeout(function() {
+            if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
+            console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+            loadPlayerProfile(function(data) {
+                if (data && data.orgRangName) {
+                    console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
+                } else {
+                    console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+                }
+            });
+        }, 3000);
+    }
+
+    console.log('[Profile] 🚀 Запуск ожидания спавна для загрузки профиля МВД...');
+    setTimeout(waitForSpawnThenLoadMvdProfile, 5000);
 });
 
 window._mvdLoadPlayerProfile = loadPlayerProfile;
