@@ -6844,7 +6844,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     if (cur === 0) return block;
                     const icon = cur >= max ? '🚫' : '⚠️';
                     warnLine = `${icon} <b>Выговоры:</b> ${cur}/${max}`;
-                } else if (p.loaded && !p.warningsChecked) {
+                } else if (p.loaded && !p.warningsChecked && config.currentFaction) {
                     warnLine = '⏳ <b>Выговоры:</b> проверяем...';
                 } else {
                     return block;
