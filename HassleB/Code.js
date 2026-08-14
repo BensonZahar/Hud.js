@@ -293,12 +293,31 @@ let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 // ┌─────────────────────────────────────────────────────────┐
 // │  Флаг подавления "потеряно соединение" после /rec 5     │
+// │  + защита от двойных /rec (кулдаун 8 с)                 │
+// │  + авто-сброс __afterRec5 через 30 с (страховка)        │
 // └─────────────────────────────────────────────────────────┘
 (function() {
     const _orig = window.sendChatInput;
+    let _lastRecMs = 0;
+    const REC_COOLDOWN = 8000; // мин. интервал между /rec командами (мс)
+
     window.sendChatInput = function(cmd) {
         if (typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim())) {
+            const now = Date.now();
+            if (now - _lastRecMs < REC_COOLDOWN) {
+                // Двойной /rec в короткий промежуток — игнорируем, чтобы не завис клиент
+                console.log('[sendChatInput] /rec проигнорирован — кулдаун ещё ' +
+                    Math.round((REC_COOLDOWN - (now - _lastRecMs)) / 1000) + 'с');
+                return;
+            }
+            _lastRecMs = now;
             window.__afterRec5 = true;
+            // Страховой авто-сброс флага через 30 с —
+            // на случай если сообщение об отключении от сервера так и не пришло
+            clearTimeout(window.__afterRec5Timer);
+            window.__afterRec5Timer = setTimeout(function() {
+                window.__afterRec5 = false;
+            }, 30000);
         }
         return _orig.apply(this, arguments);
     };
@@ -986,6 +1005,12 @@ const autoLoginConfig = {
             tryFill();
         });
     }
+
+    // Сбрасывает застрявший _filling перед /rec 5 — чтобы когда форма появится
+    // после реконнекта, Observer подхватил и tryFill нормально ввёл пароль.
+    window.__resetAutoLoginFilling = function() {
+        _filling = false;
+    };
 })();
 // ── END АВТО-ВВОД ПАРОЛЯ ─────────────────────────────────────────────────────
 
@@ -1876,7 +1901,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot0</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2107,7 +2132,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -3989,6 +4014,9 @@ function processUpdates(updates) {
             } else if (message.startsWith("autologin_on_")) {
                 // Вернуться с авторизации (включить автовход + /rec 5)
                 autoLoginConfig.enabled = true;
+                // Сброс застрявшего _filling — иначе после реконнекта форма появится,
+                // но tryFill сразу выйдет и пароль не введётся
+                if (typeof window.__resetAutoLoginFilling === 'function') window.__resetAutoLoginFilling();
                 sendChatInput("/rec 5");
                 sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
@@ -4073,8 +4101,14 @@ function processUpdates(updates) {
                     sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 } else {
                     autoLoginConfig.enabled = true;
-                    sendChatInput("/rec 5");
-                    sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                    if (document.querySelector('.authorization')) {
+                        // Форма уже в DOM — заполняем напрямую без лишнего /rec 5
+                        if (typeof window.__triggerAutoLogin === 'function') window.__triggerAutoLogin();
+                        sendToTelegram(`✅ <b>Автовход включён — вводим пароль (${displayName})</b>`, false, null);
+                    } else {
+                        sendChatInput("/rec 5");
+                        sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                    }
                 }
                 setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 100);
             } else if (message.startsWith('show_welcome_settings_')) {
