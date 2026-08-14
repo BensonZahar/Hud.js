@@ -211,7 +211,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.8 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.7 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -4541,25 +4541,23 @@ waitForApp(function() {
             return;
         }
 
-        // Спавн подтверждён — запускаем загрузку один раз
+        // Спавн подтверждён — запускаем загрузку сразу
         _mvdSpawnProfileLoaded = true;
-        console.log('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль МВД через 3 сек...');
+        console.log('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль МВД...');
 
-        setTimeout(function() {
-            if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
-            console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
-            loadPlayerProfile(function(data) {
-                if (data && data.orgRangName) {
-                    console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
-                } else {
-                    console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
-                }
-            });
-        }, 3000);
+        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
+        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+        loadPlayerProfile(function(data) {
+            if (data && data.orgRangName) {
+                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
+            } else {
+                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+            }
+        });
     }
 
     console.log('[Profile] 🚀 Запуск ожидания спавна для загрузки профиля МВД...');
-    setTimeout(waitForSpawnThenLoadMvdProfile, 5000);
+    waitForSpawnThenLoadMvdProfile();
 });
 
 window._mvdLoadPlayerProfile = loadPlayerProfile;
