@@ -1771,7 +1771,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot8</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -1809,8 +1809,8 @@ function buildWelcomeAccountInfo() {
     try {
         const p = config.accountInfo.profile;
 
-        // Если фракция или профиль ещё не готовы
-        if (!config.currentFaction || !p || !p.loaded) {
+        // Если профиль ещё не готов (фракция не обязательна)
+        if (!p || !p.loaded) {
             const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
                 ? globalState.sessionLog.slice(-8).map(e => `<code>${e}</code>`).join('\n')
                 : '<i>Нет событий</i>';
@@ -2002,7 +2002,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot5</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -6741,6 +6741,13 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
     // ── Публичная точка входа ─────────────────────────────────────
     function startWarningCheck() {
+        // Выговоры актуальны только для фракционных игроков
+        if (!config.currentFaction) {
+            _log('[WARN] Не во фракции — проверка выговоров пропущена');
+            const p = config && config.accountInfo && config.accountInfo.profile;
+            if (p) { p.warnings = 0; p.maxWarnings = 3; p.warningsChecked = true; }
+            return;
+        }
         const nick = (config && config.accountInfo && config.accountInfo.nickname) || null;
         if (!nick) {
             _log('[WARN] Ник не определён — откладываем проверку');
@@ -6872,6 +6879,12 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     (function _waitForProfile() {
         const p = config && config.accountInfo && config.accountInfo.profile;
         if (p && p.loaded && !p.warningsChecked) {
+            // Вне фракции — пропускаем /find, выставляем 0 выговоров
+            if (!config.currentFaction) {
+                p.warnings = 0; p.maxWarnings = 3; p.warningsChecked = true;
+                _log('[WARN] Не во фракции — выговоры не проверяем');
+                return;
+            }
             _log('[WARN] Профиль загружен → запускаем проверку выговоров через 2 сек');
             setTimeout(startWarningCheck, 2000);
         } else if (!p || !p.loaded) {
