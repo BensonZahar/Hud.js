@@ -793,150 +793,202 @@ function handleGlobalBroadcastCommand(cmd, val) {
 const autoLoginConfig = {
     password: PASSWORD, // Ваш пароль
     enabled: true, // Флаг активации автовхода
-    maxAttempts: 10, // Максимум попыток
-    attemptInterval: 1000 // Интервал между попытками (мс)
+    maxAttempts: 10, // Максимум попыток (не используется в новом подходе — оставлено для совместимости)
+    attemptInterval: 1000 // Интервал (не используется в новом подходе — оставлено для совместимости)
 };
-// Функция для автоматического ввода пароля
-function setupAutoLogin(attempt = 1) {
-    if (!autoLoginConfig.enabled) {
-        debugLog('Автовход отключен');
-        return;
-    }
-    if (attempt > autoLoginConfig.maxAttempts) {
-        const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить автовход после ${autoLoginConfig.maxAttempts} попыток`;
-        debugLog(errorMsg);
-        sendToTelegram(errorMsg, false, null);
-        return;
-    }
-    // Проверяем, открыт ли интерфейс Authorization
-    if (!window.getInterfaceStatus("Authorization")) {
-        debugLog(`Попытка ${attempt}: Интерфейс Authorization не открыт, повтор через ${autoLoginConfig.attemptInterval}мс`);
-        setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-        return;
-    }
-    // Получаем экземпляр Authorization
-    const authInstance = window.interface("Authorization");
-    if (!authInstance) {
-        debugLog(`Попытка ${attempt}: Экземпляр Authorization не найден, повтор через ${autoLoginConfig.attemptInterval}мс`);
-        setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-        return;
-    }
-    // Получаем экземпляр Login через getInstance("auth")
-    const loginInstance = authInstance.getInstance("auth");
-    if (!loginInstance) {
-        debugLog(`Попытка ${attempt}: Экземпляр Login не найден, повтор через ${autoLoginConfig.attemptInterval}мс`);
-        setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-        return;
-    }
-    // Устанавливаем пароль
-    debugLog(`[${displayName}] Автоввод пароля: ${autoLoginConfig.password}`);
-    loginInstance.password.value = autoLoginConfig.password;
-    // Ждем обновления DOM и эмулируем нажатие кнопки "Войти"
-    setTimeout(() => {
-        if (loginInstance.password.value === autoLoginConfig.password) {
-            debugLog(`[${displayName}] Эмуляция нажатия кнопки "Войти"`);
-            try {
-                loginInstance.onClickEvent("play");
-                sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
-                // Сброс HP после входа: первые показания HUD = 100 (заглушка),
-                // настоящее HP придёт чуть позже — не считаем это уроном.
-                globalState.hpLastValue = null;
-                globalState.hpLastHitTime = null;
-                globalState.hpAlertMessageIds = [];
-                // Сброс флага спавна и профиля для нового входа
-                globalState._spawnProfileLoaded = false;
-                config.accountInfo.profile.loaded = false;
-                // PDC: если строй прервал отыгровку — возобновляем
-                setTimeout(() => pdcOnReloginAfterStroi(), 3000);
-                // Уведомление через 3 секунды после успешного входа
-                setTimeout(() => {
-                    showScreenNotification(
-                        "HASSLE", 
-                        "Скрипт загружен.<br>Меню /hb или Телеграмм.", 
-                        "FFFF00",   // жёлтый цвет
-                        6000        // видно 6 секунд (можно изменить)
-                    );
-                }, 3000);
-                // Запрос времени до спавна после входа
-                // Сброс флагов: /c 60 отправится при определении фракционного скина
-                window._c60Sent = false;
-                window._awaitC60Dialog = false;
-                window._awaitAnimInteraction = false;
 
-            } catch (err) {
-                const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
-                debugLog(errorMsg);
-                sendToTelegram(errorMsg, false, null);
-                setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-            }
-        } else {
-            debugLog(`[${displayName}] Ошибка: пароль не установлен, повтор через ${autoLoginConfig.attemptInterval}мс`);
-            setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-        }
-    }, 100);
-}
-// Функция инициализации автовхода
-function initializeAutoLogin() {
-    if (!autoLoginConfig.enabled) {
-        debugLog('Автовход отключен в конфигурации');
-        return;
+// ── АВТО-ВВОД ПАРОЛЯ (MutationObserver + Vue direct, как в LoadAhk) ──────────
+(function setupAutoLogin() {
+    var _filling = false;
+
+    // Всё что делается после успешного play() — вынесено для чистоты
+    function onLoginSuccess() {
+        sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null);
+        // Сброс HP: первые показания HUD = 100 (заглушка), настоящее HP придёт позже
+        globalState.hpLastValue = null;
+        globalState.hpLastHitTime = null;
+        globalState.hpAlertMessageIds = [];
+        // Сброс флага спавна и профиля для нового входа
+        globalState._spawnProfileLoaded = false;
+        config.accountInfo.profile.loaded = false;
+        // PDC: если строй прервал отыгровку — возобновляем
+        setTimeout(() => pdcOnReloginAfterStroi(), 3000);
+        // Уведомление через 3 секунды после успешного входа
+        setTimeout(() => {
+            showScreenNotification(
+                "HASSLE",
+                "Скрипт загружен.<br>Меню /hb или Телеграмм.",
+                "FFFF00",  // жёлтый цвет
+                6000       // видно 6 секунд
+            );
+        }, 3000);
+        // Сброс флагов: /c 60 отправится при определении фракционного скина
+        window._c60Sent = false;
+        window._awaitC60Dialog = false;
+        window._awaitAnimInteraction = false;
     }
-    // Проверяем, открыт ли интерфейс Authorization
-    if (window.getInterfaceStatus("Authorization")) {
-        debugLog('Интерфейс Authorization уже открыт, запускаем автовход');
-        setupAutoLogin();
-    } else {
-        // Открываем интерфейс Authorization с параметрами
-        const openParams = [
-            "auth", // Страница авторизации
-            config.accountInfo.nickname || "Pavel_Nabokov", // Логин (замените на ваш, если известен)
-            "", // Сервер
-            "", // Бонусы
-            "", // Хэллоуин
-            "", // Новый год
-            "", // Пасха
-            "https://radmir.online/recovery-password", // Восстановление пароля
-            { // Дополнительные параметры
-                autoLogin: {
-                    password: autoLoginConfig.password,
-                    enabled: autoLoginConfig.enabled
+
+    function tryFill() {
+        if (_filling) return;
+        if (!autoLoginConfig.enabled) return;
+
+        // ШАГ 1: ловим .authorization как можно раньше и сразу скрываем —
+        // до того как браузер успеет нарисовать хоть один кадр с формой
+        var authEl = document.querySelector('.authorization');
+        if (!authEl) return;
+
+        authEl.style.opacity = '0';
+        authEl.style.pointerEvents = 'none';
+        _filling = true;
+
+        // Вернуть форму при неверном пароле / ошибке.
+        // _filling НЕ сбрасываем — иначе Observer снова дёрнет tryFill()
+        // и получим бесконечный цикл. Сбрасываем только когда форма закроется.
+        function showFormOnError() {
+            authEl.style.display = '';
+            authEl.style.opacity = '';
+            authEl.style.pointerEvents = '';
+            debugLog('[AUTO-LOGIN] Неверный пароль — показываем форму');
+            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНеверный пароль автовхода`, false, null);
+            var waitManual = setInterval(function() {
+                if (!document.querySelector('.authorization')) {
+                    _filling = false;
+                    clearInterval(waitManual);
+                    debugLog('[AUTO-LOGIN] Форма закрылась — готов к следующей авторизации');
                 }
-            }
-        ];
-        debugLog(`Открываем интерфейс Authorization для ${displayName}`);
-        try {
-            window.openInterface("Authorization", JSON.stringify(openParams));
-        } catch (err) {
-            debugLog(`Ошибка при открытии Authorization: ${err.message}`);
-            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть интерфейс Authorization\n<code>${err.message}</code>`, false, null);
-            return;
+            }, 300);
         }
-        // Ожидаем открытия интерфейса
-        let attempts = 0;
-        const checkInterval = setInterval(() => {
-            attempts++;
-            if (window.getInterfaceStatus("Authorization")) {
-                clearInterval(checkInterval);
-                debugLog('Интерфейс Authorization открыт, запускаем автовход');
-                setTimeout(setupAutoLogin, 1000); // Задержка для полной инициализации
-            } else if (attempts >= autoLoginConfig.maxAttempts) {
-                clearInterval(checkInterval);
-                const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть Authorization после ${autoLoginConfig.maxAttempts} попыток`;
-                debugLog(errorMsg);
-                sendToTelegram(errorMsg, false, null);
-            } else {
-                debugLog(`Попытка ${attempts}: Ожидание открытия Authorization`);
+
+        // ШАГ 2: дёргаем Vue-компонент напрямую — никаких DOM-событий,
+        // никаких задержек на реактивность
+        function tryVueDirect() {
+            try {
+                var comp = window.interface && window.interface('Authorization');
+                if (!comp) return false;
+
+                var loginComp = comp.$refs && comp.$refs.auth;
+                if (!loginComp) return false;
+
+                // Пишем прямо в Vue state — компонент видит изменение мгновенно
+                loginComp.password.value = autoLoginConfig.password;
+
+                // Перехватываем setError ДО play() — сервер вызовет его если пароль неверный
+                var _origSetError = loginComp.setError.bind(loginComp);
+                loginComp.setError = function(field, msg) {
+                    loginComp.setError = _origSetError; // восстанавливаем сразу
+                    showFormOnError();
+                    _origSetError(field, msg);          // показываем ошибку в поле
+                };
+
+                // Вызываем play() напрямую — минуем Enter, keydown, validate
+                loginComp.play();
+
+                debugLog('[AUTO-LOGIN] Vue direct: пароль отправлен мгновенно');
+
+                // ШАГ 3: скрываем форму сразу после play(), не ждём сервер
+                authEl.style.display = 'none';
+
+                onLoginSuccess();
+
+                // Сбрасываем _filling когда форма реально ушла из DOM
+                var waitGone = setInterval(function() {
+                    if (!document.querySelector('.authorization')) {
+                        _filling = false;
+                        clearInterval(waitGone);
+                        debugLog('[AUTO-LOGIN] Готов к следующей авторизации');
+                    }
+                }, 300);
+
+                return true;
+            } catch (e) {
+                debugLog('[AUTO-LOGIN] Vue direct ошибка: ' + e.message);
+                return false;
             }
-        }, autoLoginConfig.attemptInterval);
+        }
+
+        // Пробуем сразу — если компонент уже смонтирован
+        if (tryVueDirect()) return;
+
+        // Компонент ещё не смонтировался — ждём один тик и повторяем
+        setTimeout(function() {
+            if (tryVueDirect()) return;
+
+            // DOM-фолбэк: форма уже скрыта, находим поле вручную
+            var passInput = document.querySelector('.authorization-field__input[type="password"]');
+            if (!passInput) {
+                showFormOnError();
+                debugLog('[AUTO-LOGIN] Не удалось найти поле пароля — показываем форму');
+                return;
+            }
+
+            var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+            nativeSetter.call(passInput, autoLoginConfig.password);
+            passInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+            // 30мс достаточно для одного Vue flush — было 100мс+ в старом коде
+            setTimeout(function() {
+                var form = document.querySelector('.login-form');
+                var target = form || passInput;
+                target.dispatchEvent(new KeyboardEvent('keydown', {
+                    key: 'Enter', code: 'Enter',
+                    keyCode: 13, which: 13,
+                    bubbles: true, cancelable: true
+                }));
+                authEl.style.display = 'none';
+                debugLog('[AUTO-LOGIN] DOM fallback: Enter отправлен');
+
+                onLoginSuccess();
+
+                // Детектор ошибки неверного пароля
+                var errorWatcher = new MutationObserver(function() {
+                    if (document.querySelector('.authorization-field__error')) {
+                        errorWatcher.disconnect();
+                        showFormOnError();
+                    }
+                });
+                errorWatcher.observe(document.body, { childList: true, subtree: true });
+
+                var waitGone = setInterval(function() {
+                    if (!document.querySelector('.authorization-field__input[type="password"]')) {
+                        _filling = false;
+                        errorWatcher.disconnect();
+                        clearInterval(waitGone);
+                        debugLog('[AUTO-LOGIN] Форма закрылась — готов к следующей авторизации');
+                    }
+                }, 300);
+            }, 30);
+        }, 0);
     }
+
+    // Observer ловит .authorization — даёт нам несколько рендер-циклов форы
+    // перед тем как форма дойдёт до экрана. Работает независимо от того,
+    // как форма открылась (через openInterface, reconnect и т.д.)
+    var observer = new MutationObserver(function() { tryFill(); });
+
+    if (document.body) {
+        observer.observe(document.body, { childList: true, subtree: true });
+        tryFill(); // на случай если форма уже в DOM при инициализации скрипта
+    } else {
+        document.addEventListener('DOMContentLoaded', function() {
+            observer.observe(document.body, { childList: true, subtree: true });
+            tryFill();
+        });
+    }
+})();
+// ── END АВТО-ВВОД ПАРОЛЯ ─────────────────────────────────────────────────────
+
+// Заглушка для обратной совместимости
+function initializeAutoLogin() {
+    debugLog('[AUTO-LOGIN] MutationObserver обрабатывает форму автоматически');
 }
-// Перехват window.openInterface для автоматического входа (хуком)
+
+// Перехват window.openInterface (хук остаётся — нужен для INTERACTIONS LOGGER и прочего)
 const originalOpenInterface = window.openInterface;
 window.openInterface = function(interfaceName, params, additionalParams) {
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);
     if (interfaceName === "Authorization") {
-        debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
-        setTimeout(initializeAutoLogin, 500); // Задержка для инициализации компонента
+        debugLog(`[${displayName}] Открыт интерфейс Authorization — MutationObserver подхватит`);
+        // Задержка и polling убраны: Observer обнаружит .authorization мгновенно
     }
     // ── INTERACTIONS LOGGER ──────────────────────────────────────
     if (interfaceName === "Interactions") {
