@@ -198,6 +198,15 @@ if (AUTO_PASSWORD) {
             authEl.style.pointerEvents = 'none';
             _filling = true;
 
+            // Вспомогательная: вернуть форму на экран (неверный пароль / ошибка)
+            function showFormOnError() {
+                authEl.style.display = '';
+                authEl.style.opacity = '';
+                authEl.style.pointerEvents = '';
+                _filling = false;
+                console.warn('[AHK AUTO-PWD] Неверный пароль — показываем форму');
+            }
+
             // ШАГ 2: напрямую дёргаем Vue-компонент — никаких DOM-событий,
             // никакого 150мс ожидания реактивности
             function tryVueDirect() {
@@ -211,6 +220,15 @@ if (AUTO_PASSWORD) {
                     // Пишем прямо в state — Vue видит изменение мгновенно
                     loginComp.password.value = AUTO_PASSWORD;
 
+                    // Перехватываем setError ДО play() — сервер вызовет его
+                    // если пароль неверный, и мы вернём форму на экран
+                    var _origSetError = loginComp.setError.bind(loginComp);
+                    loginComp.setError = function(field, msg) {
+                        loginComp.setError = _origSetError; // восстанавливаем сразу
+                        showFormOnError();
+                        _origSetError(field, msg); // показываем ошибку в поле
+                    };
+
                     // Вызываем play() напрямую — минуем Enter, keydown, validate
                     loginComp.play();
 
@@ -219,7 +237,7 @@ if (AUTO_PASSWORD) {
                     // ШАГ 3: скрываем форму сразу после play(), не ждём сервер
                     authEl.style.display = 'none';
 
-                    // Сбрасываем флаг когда форма реально закрылась
+                    // Сбрасываем флаг когда форма реально закрылась (успешный вход)
                     var waitGone = setInterval(function() {
                         if (!document.querySelector('.authorization')) {
                             _filling = false;
@@ -246,9 +264,7 @@ if (AUTO_PASSWORD) {
                 var passInput = document.querySelector('.authorization-field__input[type="password"]');
                 if (!passInput) {
                     // Совсем ничего нет — показываем форму, пусть вводит руками
-                    authEl.style.opacity = '';
-                    authEl.style.pointerEvents = '';
-                    _filling = false;
+                    showFormOnError();
                     console.warn('[AHK AUTO-PWD] Не удалось найти поле — показываем форму');
                     return;
                 }
@@ -269,9 +285,20 @@ if (AUTO_PASSWORD) {
                     authEl.style.display = 'none'; // скрываем и не ждём сервер
                     console.log('[AHK AUTO-PWD] DOM fallback: Enter отправлен');
 
+                    // Фолбэк-детектор ошибки: если появился .authorization-field__error
+                    // значит пароль неверный — возвращаем форму
+                    var errorWatcher = new MutationObserver(function() {
+                        if (document.querySelector('.authorization-field__error')) {
+                            errorWatcher.disconnect();
+                            showFormOnError();
+                        }
+                    });
+                    errorWatcher.observe(document.body, { childList: true, subtree: true });
+
                     var waitGone = setInterval(function() {
                         if (!document.querySelector('.authorization-field__input[type="password"]')) {
                             _filling = false;
+                            errorWatcher.disconnect();
                             clearInterval(waitGone);
                             console.log('[AHK AUTO-PWD] Форма закрылась — готов к следующей авторизации');
                         }
