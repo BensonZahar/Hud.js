@@ -42,6 +42,7 @@ const globalState = {
     hpLastHitTime: null,     // Время последнего удара
     hpLastValue: null,       // Предыдущее значение HP
     _hpSendPending: false,   // Флаг ожидания callback sendMessage (защита от дублей)
+    _hpSpawnTime: null,      // Время последнего подтверждённого спавна (для grace period)
     welcomeShowSettings: false, // Флаг показа блока настроек в приветственном сообщении
     // Время загрузки скрипта — используется как fallback версии если CODE_COMMIT_INFO не задан
     scriptLoadTime: (function() {
@@ -840,7 +841,10 @@ function setupAutoLogin(attempt = 1) {
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
                 // Сброс HP после входа: первые показания HUD = 100 (заглушка),
                 // настоящее HP придёт чуть позже — не считаем это уроном.
+                // _hpSpawnTime = null гарантирует, что grace period 3 сек сработает
+                // заново при следующем спавне (иначе «100 → реальное HP» = ложный урон).
                 globalState.hpLastValue = null;
+                globalState._hpSpawnTime = null;
                 globalState.hpLastHitTime = null;
                 globalState.hpAlertMessageIds = [];
                 // Сброс флага спавна и профиля для нового входа
@@ -1329,7 +1333,24 @@ function trackPlayerHp() {
             _isConnected = window.App.$store.getters['player/isPlayerConnected'];
         }
         if (!_isConnected) {
+            // Сбрасываем всё — не заспавнились
             globalState.hpLastValue = null;
+            globalState._hpSpawnTime = null;
+            setTimeout(trackPlayerHp, 500);
+            return;
+        }
+        // ── Только что заспавнились (или повторный спавн после строя/реконнекта)?
+        // Даём grace period 3 секунды: в это время только обновляем baseline,
+        // но НЕ сравниваем HP (иначе «100 → реальное HP» трактуется как урон).
+        if (globalState._hpSpawnTime === null) {
+            // Первый тик после спавна — фиксируем время
+            globalState._hpSpawnTime = Date.now();
+            globalState.hpLastValue = null; // сбрасываем чтобы baseline взялся из реального HP
+        }
+        if (Date.now() - globalState._hpSpawnTime < 3000) {
+            // Grace period — просто обновляем baseline, не проверяем урон
+            const _graceHp = getPlayerHpFromStore();
+            if (_graceHp !== null) globalState.hpLastValue = _graceHp;
             setTimeout(trackPlayerHp, 500);
             return;
         }
@@ -1347,27 +1368,22 @@ function trackPlayerHp() {
             if (damage >= 1) {
                 const now = Date.now();
 
-                // Пытаемся прочитать ник атакующего из движка
-                const attacker = getNearestAttacker();
+                addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)} (-${damage})`);
 
-                addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)} (-${damage})${attacker ? ` от ${attacker}` : ''}`);
-
-                // Накапливаем урон за 3 сек — шлём одним сообщением (не спамим при серии попаданий)
+                // Накапливаем урон за 1.5 сек — шлём одним сообщением (не спамим при серии попаданий)
                 globalState.hpLastHitTime = now;
                 if (!globalState._dmgAccum) {
-                    globalState._dmgAccum = { total: 0, hpBefore: Math.round(globalState.hpLastValue), attacker: null };
+                    globalState._dmgAccum = { total: 0, hpBefore: Math.round(globalState.hpLastValue) };
                 }
                 globalState._dmgAccum.total += damage;
-                if (attacker) globalState._dmgAccum.attacker = attacker;
 
                 if (globalState._dmgTimer) clearTimeout(globalState._dmgTimer);
                 globalState._dmgTimer = setTimeout(function () {
                     const acc   = globalState._dmgAccum;
                     const hpNow = Math.round(getPlayerHpFromStore() ?? currentHp);
-                    const who   = acc.attacker ? ` от <b>${acc.attacker}</b>` : '';
                     sendToTelegram(
                         `💔 <b>Урон (${displayName})</b>\n` +
-                        `HP: ${acc.hpBefore} → ${hpNow} (-${Math.round(acc.total)})${who}`,
+                        `HP: ${acc.hpBefore} → ${hpNow} (-${Math.round(acc.total)})`,
                         false, null
                     );
                     globalState._dmgAccum = null;
