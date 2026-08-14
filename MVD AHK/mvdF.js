@@ -4359,6 +4359,7 @@ function loadPlayerProfile(callback) {
     }
     
     _fetching = true;
+    window._mvdProfileLoading = true; // блокируем патч вкладки пока читаем профиль
     console.log('[Profile] Загрузка данных персонажа (первый раз)...');
 
     var _done = false;
@@ -4392,6 +4393,7 @@ function loadPlayerProfile(callback) {
         restoreCursorPatch();
         removeProfileStyles();
         _fetching = false;
+        window._mvdProfileLoading = false; // разблокируем патч вкладки
         if (callback) callback(result);
     }
 
@@ -4483,8 +4485,8 @@ function loadPlayerProfile(callback) {
                     });
                 }, 150);
             }
-        }, 200);
-    }, 600);
+        }, 100); // ↓ 200→100ms: быстрее считываем данные
+    }, 250);  // ↓ 600→250ms: Vue успевает примонтироваться, но не ждём лишнего
 }
 
 // ── Команда /mmenu для принудительного обновления данных ──
@@ -4521,33 +4523,64 @@ waitForApp(function() {
     };
     console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 
-    // ── Перехват setPlayerConnectedStatus → мгновенная загрузка профиля МВД ───
-    // index.js определяет window.setPlayerConnectedStatus — сервер вызывает её
-    // ровно в момент спавна. Перехватываем её здесь и грузим профиль без задержки.
-    var _mvdSpawnProfileLoaded = false;
-    var _origSetPlayerConnectedStatus = window.setPlayerConnectedStatus;
-    window.setPlayerConnectedStatus = function(status) {
-        if (_origSetPlayerConnectedStatus) _origSetPlayerConnectedStatus(status);
-        if (status && !_mvdSpawnProfileLoaded) {
-            _mvdSpawnProfileLoaded = true;
-            console.log('[Profile] 🎮 setPlayerConnectedStatus(true) — загружаем профиль МВД...');
-            if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
-            console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
-            loadPlayerProfile(function(data) {
-                if (data && data.orgRangName) {
-                    console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
-                } else {
-                    console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
-                }
-            });
-        }
-    };
-    console.log('[Profile] 🪝 Перехват setPlayerConnectedStatus установлен — ждём спавна...');
+    // ── Фоновая предзагрузка профиля при старте ──────────────────────────────
+    // Запускаем loadPlayerProfile сразу после готовности App — невидимо для
+    // игрока — чтобы к первому /dahk данные уже лежали в window._mvdRank /
+    // _mvdFirstName / _mvdLastName и MvdMenu открывалось мгновенно.
+    setTimeout(function() {
+        if (window._mvdFirstName && window._mvdLastName && window._mvdRank) return;
+        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+        loadPlayerProfile(function(data) {
+            if (data && data.orgRangName) {
+                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._mvdFirstName||'') + ' ' + (window._mvdLastName||''));
+            } else {
+                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+            }
+        });
+    }, 1500);
 });
 
 window._mvdLoadPlayerProfile = loadPlayerProfile;
 })();
 // ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
+
+// ==================== ПАТЧ: MainMenu открывается сразу на «Персонаж» ====================
+// Когда игрок нажимает M (или любой другой код открывает MainMenu напрямую),
+// автоматически переключаем на вкладку Statistics («Персонаж»).
+// Пока работает loadPlayerProfile (_mvdProfileLoading = true) — патч пассивен,
+// чтобы не мешать невидимому считыванию данных.
+(function() {
+'use strict';
+function applyMainMenuTabPatch() {
+    var _origOI = window.openInterface;
+    window.openInterface = function(name) {
+        var result = _origOI.apply(this, arguments);
+        if (name === 'MainMenu' && !window._mvdProfileLoading) {
+            // Небольшая задержка: Vue-компонент должен смонтироваться
+            setTimeout(function() {
+                try {
+                    var mm = window.interface && window.interface('MainMenu');
+                    if (mm && typeof mm.selectTab === 'function') {
+                        mm.selectTab('Statistics');
+                    }
+                } catch(e) {}
+            }, 80);
+        }
+        return result;
+    };
+    console.log('[MVD] Патч MainMenu→Персонаж активен');
+}
+
+// Ждём готовности App (openInterface и window.interface могут появиться позже)
+(function tryApply(n) {
+    if (window.openInterface && window.interface) {
+        applyMainMenuTabPatch();
+    } else if (n < 100) {
+        setTimeout(function() { tryApply(n + 1); }, 200);
+    }
+})(0);
+})();
+// ==================== END ПАТЧ MainMenu→Персонаж ====================
 
 // /are и /are_s перенесены в fkonst.js
 
