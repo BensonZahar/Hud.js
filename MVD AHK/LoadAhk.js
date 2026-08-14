@@ -199,12 +199,21 @@ if (AUTO_PASSWORD) {
             _filling = true;
 
             // Вспомогательная: вернуть форму на экран (неверный пароль / ошибка)
+            // _filling НЕ сбрасываем — иначе Observer снова дёрнет tryFill()
+            // и получим бесконечный цикл повторных попыток.
+            // Сбрасываем только когда форма реально закроется (вход вручную).
             function showFormOnError() {
                 authEl.style.display = '';
                 authEl.style.opacity = '';
                 authEl.style.pointerEvents = '';
-                _filling = false;
                 console.warn('[AHK AUTO-PWD] Неверный пароль — показываем форму');
+                var waitManual = setInterval(function() {
+                    if (!document.querySelector('.authorization')) {
+                        _filling = false;
+                        clearInterval(waitManual);
+                        console.log('[AHK AUTO-PWD] Форма закрылась — готов к следующей авторизации');
+                    }
+                }, 300);
             }
 
             // ШАГ 2: напрямую дёргаем Vue-компонент — никаких DOM-событий,
