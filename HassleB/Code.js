@@ -2046,7 +2046,7 @@ function buildWelcomeAccountInfo() {
         if (config.afkCycle && config.afkCycle.active) {
             const afkMins = Math.floor(config.afkCycle.totalPlayTime / 60000);
             const afkSal  = (config.afkCycle.totalSalary || 0).toLocaleString('ru-RU');
-            const modeNames = { fixed: '5/5 мин', random: 'Рандом', levelup: 'Прокачка', none: 'Без паузы' };
+            const modeNames = { fixed: '5/5 мин', random: 'Рандом', none: 'Без паузы' };
             const modeLabel = modeNames[config.afkCycle.mode] || config.afkCycle.mode;
             block += `\n\n🔄 <b>AFK цикл активен</b>  [${modeLabel}]\n`;
             block += `└ Наиграно: ${afkMins} мин  |  Накоплено: ₽${afkSal}`;
@@ -2147,7 +2147,7 @@ function sendWelcomeMessage() {
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: AFK                                             ║
-// ║  Описание: AFK-циклы (fixed / random / levelup / none)   ║
+// ║  Описание: AFK-циклы (fixed / random / none)             ║
 // ║             управление паузами, реконнект, зарплата,     ║
 // ║             статус в Telegram                            ║
 // ║  Зависимости: config, displayName, debugLog,             ║
@@ -2161,7 +2161,6 @@ function getAFKStatusText() {
     if (!config.afkCycle.active) return '';
     const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' :
         config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' :
-        config.afkCycle.mode === 'levelup' ? 'прокачка уровня (10 мин игры без пауз)' :
         'без пауз';
     let reconnectText = '';
     if (config.autoReconnectEnabled) {
@@ -2176,7 +2175,7 @@ function getAFKStatusText() {
     config.afkCycle.pauseHistory.slice(-3).forEach((entry, index) => {
         statusText += `${index + 1}. ${entry}\n`;
     });
-    if (config.afkCycle.mode === 'none' || config.afkCycle.mode === 'levelup') {
+    if (config.afkCycle.mode === 'none') {
         statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
     }
     return statusText;
@@ -2281,7 +2280,7 @@ function startPlayPhase() {
     if (!config.afkCycle.active) return;
     debugLog(`Начинаем игровую фазу для ${displayName}`);
     config.afkCycle.currentPlayTime = 0;
-    const requiredPlayTime = (config.afkCycle.mode === 'levelup') ? 10 * 60 * 1000 : 25 * 60 * 1000;
+    const requiredPlayTime = 25 * 60 * 1000;
     let playDurationMs;
     if (config.afkCycle.mode === 'fixed') {
         playDurationMs = 5 * 60 * 1000;
@@ -2322,7 +2321,7 @@ function startPlayPhase() {
     debugLog(`Игровая фаза: ${durationMin} минут`);
     config.afkCycle.playTimer = setTimeout(() => {
         config.afkCycle.totalPlayTime += playDurationMs;
-        if (config.afkCycle.totalPlayTime < requiredPlayTime && config.afkCycle.mode !== 'none' && config.afkCycle.mode !== 'levelup') {
+        if (config.afkCycle.totalPlayTime < requiredPlayTime && config.afkCycle.mode !== 'none') {
             startPausePhase();
         } else {
             debugLog(`Отыграно ${requiredPlayTime / 60000} минут для ${displayName}`);
@@ -2331,26 +2330,10 @@ function startPlayPhase() {
     }, playDurationMs);
 }
 function handleCycleEnd() {
-    if (config.afkCycle.mode === 'levelup') {
-        handleLevelUpEnd();
-    } else if (config.afkCycle.mode === 'none' && config.afkCycle.reconnectEnabled) {
+    if (config.afkCycle.mode === 'none' && config.afkCycle.reconnectEnabled) {
         handleNoneReconnectEnd();
     } else {
         enterPauseUntilEnd();
-    }
-}
-function handleLevelUpEnd() {
-    autoLoginConfig.enabled = false;
-    sendChatInput("/rec 5");
-    sendToTelegram(`🔄 <b>LevelUp: Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
-    const timePassed = Date.now() - config.afkCycle.startTime;
-    const timeToReconnect = 59 * 60 * 1000 - timePassed;
-    if (timeToReconnect > 0) {
-        setTimeout(() => {
-            autoLoginConfig.enabled = true;
-            sendChatInput("/rec 5");
-            sendToTelegram(`🔄 <b>LevelUp: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
-        }, timeToReconnect);
     }
 }
 function handleNoneReconnectEnd() {
@@ -2452,7 +2435,7 @@ function handlePayDayTimeMessage() {
     }
     config.afkCycle.startTime = Date.now();
     config.afkCycle.totalPlayTime = 0;
-    const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' : config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' : config.afkCycle.mode === 'levelup' ? 'прокачка уровня (10 мин игры без пауз)' : 'без пауз';
+    const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' : config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' : 'без пауз';
     debugLog(`Обнаружено сообщение "Текущее время:", начинаем AFK цикл для ${displayName}`);
     updateAFKStatus(); // Обновляем с начальным статусом
     startPlayPhase();
@@ -2502,9 +2485,6 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
 
         [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_kac_options_${uniqueIdParam}`)],
     ];
-    if (config.autoReconnectEnabled) {
-        inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
-    }
     inlineKeyboard.push([createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]);
     const replyMarkup = {
         inline_keyboard: inlineKeyboard
@@ -3055,8 +3035,7 @@ function processUpdates(updates) {
                 message.startsWith('show_radio_options_') ||
                 message.startsWith('show_warning_options_') ||
                 message.startsWith('show_kac_options_') ||
-                message.startsWith('show_global_functions_') ||
-                message.startsWith('levelup_reconnect_');
+                message.startsWith('show_global_functions_');
             let callbackUniqueId = null;
             if (message.startsWith('show_controls_')) {
                 callbackUniqueId = message.replace('show_controls_', '');
@@ -3218,14 +3197,7 @@ function processUpdates(updates) {
                 const parts = message.split('_');
                 callbackUniqueId = parts[parts.length - 2];
                 const selectedMode = parts[parts.length - 1];
-                if (selectedMode === 'levelup') {
-                    showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
-                } else {
-                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
-                }
-            } else if (message.startsWith('global_levelup_')) {
-                callbackUniqueId = message.replace('global_levelup_', '');
-                showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
+                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
             } else if (message.startsWith('prison_reconnect_')) {
                 callbackUniqueId = message.replace('prison_reconnect_', '');
             } else if (message.startsWith('prison_quit_')) {
@@ -4807,9 +4779,6 @@ function showHBGlobalFunctionsMenu() {
         { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_global" },
         { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" }
     ];
-    if (config.autoReconnectEnabled) {
-        menuItems.push({ name: "{FFD700}> {FFFFFF}Прокачка уровня", action: "levelup" });
-    }
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
@@ -5071,9 +5040,6 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 8) {
                 setTimeout(() => showHBAFKModesMenu(), 100);
-            } else if (listitem === 9 && config.autoReconnectEnabled) {
-                currentHBSelectedMode = 'levelup';
-                setTimeout(() => showHBAFKRestartMenu('levelup'), 100);
             }
             break;
         case HB_DIALOG_IDS.MOVEMENT_CONTROLS:
