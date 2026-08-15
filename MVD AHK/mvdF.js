@@ -8,7 +8,7 @@ const _ALLOWED_NICKS = [
     "Maxim_Vortex",
     "Denis_Galievskiy",
 //  "Cosmos_Dissapointed",
-	"Casper_Sukhoi",
+	"Casper_Paradise",
 	"Artemka_Hasanov",
 	"Andrey_Pulya",
 //  "Maksimka_DeMontana",
