@@ -1,22 +1,3 @@
-// ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
-// ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
-// 
-// Проблема: Когда работают несколько аккаунтов, все они создавали
-// одинаковый запрос "Введите ответ для..." и все обрабатывали одно 
-// и то же сообщение, из-за чего приходилось отправлять ответ дважды.
-//
-// Решение: Добавлен уникальный идентификатор 🔑 ID: к каждому запросу.
-// Теперь каждый аккаунт проверяет, что ответ предназначен именно ему.
-//
-// Изменения внесены в:
-// 1. Запрос на ответ администратору (строка ~1673)
-// 2. Обработка ответа администратору (строка ~1257)
-// 3. Запрос на ввод сообщения (строка ~1589)
-// 4. Обработка ввода сообщения (строка ~1241)
-// ===========================================================
-
-// END CONSTANTS MODULE //
-
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
 // ║  Описание: Глобальные флаги состояния                    ║
@@ -193,7 +174,7 @@ function getFactionLabel(factionKey) {
 // ║               (инжектируются из List.js через Load.js)   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START CONFIG MODULE //
-const userConfig = {
+const config = {
     chatIds: CHAT_IDS,
     keywords: [],
     clearDelay: 3000,
@@ -222,11 +203,8 @@ const userConfig = {
     locationLogInterval: 3000,    // Интервал логирования координат (мс)
     moneyLogging: false,           // Логировать Нал и Банк персонажа в консоль
     moneyLogInterval: 5000,       // Интервал логирования денег (мс)
-    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT, // <-- используем константу
-    hpTracking: true               // Отслеживание HP и уведомление об уроне
-};
-const config = {
-    ...userConfig,
+    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT,
+    hpTracking: true,              // Отслеживание HP и уведомление об уроне
     botToken: window.ACCOUNT_TOKEN || DEFAULT_TOKEN, // FIX: botToken был undefined — AFK-статус и диалоги не отправлялись
     lastUpdateId: 0,
     activeUsers: {},
@@ -285,9 +263,7 @@ const config = {
     },
     nicknameLogged: false
 };
-const defaultToken = DEFAULT_TOKEN;
-// Токен берётся по номеру аккаунта из List.js (ACCOUNT_BOT_TOKENS), установленному через установщик
-const accountToken = window.ACCOUNT_TOKEN || defaultToken;
+const accountToken = window.ACCOUNT_TOKEN || DEFAULT_TOKEN;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 // ┌─────────────────────────────────────────────────────────┐
@@ -3676,11 +3652,6 @@ function isImportantRadioMessage(msg) {
 
     return false;
 }
-function checkIDFormats(message) {
-    const idRegex = /(\d-\d-\d|\d{3})/g;
-    const matches = message.match(idRegex);
-    return matches ? matches : [];
-}
 function getRankKeywords() {
     if (!config.currentFaction || !factions[config.currentFaction]) return [];
     return Object.values(factions[config.currentFaction].ranks).map(rank => rank.toLowerCase());
@@ -3746,10 +3717,7 @@ function checkLocationRequest(msg, lowerCaseMessage, chatRadius) {
     const rankKeywords = getRankKeywords();
     const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
     const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word.toLowerCase()));
-    const hasID = isTargetingPlayer(msg);
-   
-    // Строгая проверка: обязательно action keyword, если нет targeting
-    const isValid = hasRoleKeyword && hasActionKeyword && (hasID || true); // Если нужно, уберите || true для еще большей строгости
+    const isValid = hasRoleKeyword && hasActionKeyword;
    
     // Добавляем фильтр по радиусу чата (игнорируем UNKNOWN или SELF)
     const validRadius = (chatRadius === CHAT_RADIUS.RADIO || chatRadius === CHAT_RADIUS.CLOSE);
@@ -3937,28 +3905,6 @@ function resetPayDayFlag() {
     debugLog('Флаг ожидания PayDay сброшен');
 }
 
-// Функция для получения времени до 58 минуты в миллисекундах
-function getTimeUntil58Minutes() {
-    const now = new Date();
-    const currentMinutes = now.getMinutes();
-    const currentSeconds = now.getSeconds();
-    
-    if (currentMinutes >= 58) {
-        // Уже 58-59 минут, заходим через 10 секунд
-        return 10000;
-    }
-    
-    // Рассчитываем время до 58 минуты
-    const minutesUntil58 = 58 - currentMinutes;
-    const secondsUntil58 = minutesUntil58 * 60 - currentSeconds;
-    
-    // Вычитаем ~60 секунд на реконнект (с запасом)
-    const timeToStart = (secondsUntil58 - 60) * 1000;
-    
-    // Минимум 5 секунд, максимум рассчитанное время
-    return Math.max(5000, timeToStart);
-}
-
 // Функция для получения времени до следующего PayDay в миллисекундах
 function getTimeUntilPayDay() {
     const now = new Date();
@@ -4023,9 +3969,6 @@ function performStroiReconnect(msg) {
         stroiAutoLoginTimer = setTimeout(() => {
             autoLoginConfig.enabled = true;
             sendChatInput("/rec 5");
-
-            const loginMinutes = getCurrentMinutes();
-            const loginSecs = new Date().getSeconds();
             sendToTelegram(
                 `🔄 <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
                 `💰 PayDay через ~60 сек — входим в игру`,
@@ -4051,16 +3994,6 @@ function performStroiReconnect(msg) {
             performReconnect(5 * 60 * 1000, true); // silent — сообщение уже отправлено выше
         }, 30);
     }
-}
-
-// Функция для отмены ожидания PayDay (на случай нештатных ситуаций)
-function cancelStroiReconnect() {
-    if (stroiReconnectTimer) {
-        clearTimeout(stroiReconnectTimer);
-        stroiReconnectTimer = null;
-    }
-    resetPayDayFlag();
-    debugLog('Отменено ожидание PayDay после строя');
 }
 
 // Выход из игры сразу после получения PayDay при строе
