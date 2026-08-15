@@ -1,8 +1,7 @@
-// Load.js - Загрузчик с поддержкой конфигураций
-// Один токен на пользователя — аккаунты различаются по ACCOUNT_NUMBER (#N)
+// Load.js - Улучшенный загрузчик с поддержкой конфигураций
 const username = 'BensonZahar';
 const repo = 'Hud.js';
-const currentUser = ''; // ИЗМЕНЯЙТЕ ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kolya'
+const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
 const accountNumber = ''; // НОМЕР АККАУНТА (1–8) — устанавливается установщиком автоматически
 
 // ============================================================
@@ -39,13 +38,16 @@ function hookComponent(v, name) {
 }
 
 function evalScan() {
+    // Все возможные символы для минифицированных имён
     const starts = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$'.split('');
     const rest   = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$'.split('');
 
+    // 1 символ
     for (const c of starts) {
         let v; try { v = eval(c); } catch(e) { continue; }
         if (hookComponent(v, c)) return true;
     }
+    // 2 символа
     for (const c1 of starts) {
         for (const c2 of rest) {
             const n = c1 + c2;
@@ -53,6 +55,7 @@ function evalScan() {
             if (hookComponent(v, n)) return true;
         }
     }
+    // 3 символа
     for (const c1 of starts) {
         for (const c2 of rest) {
             for (const c3 of rest) {
@@ -68,6 +71,8 @@ function evalScan() {
 }
 
 function setupChatHook() {
+    // Метод 1: найти имя переменной по исходнику Hud.js
+    // Паттерн const XX={components:{Scrolling: стабилен между обновлениями
     try {
         const hudScript = Array.from(document.querySelectorAll('script[type="module"][src]'))
             .find(s => s.src.includes('Hud'));
@@ -80,6 +85,7 @@ function setupChatHook() {
                     if (match) {
                         const varName = match[1];
                         console.log(`🔍 Нашли имя чат-компонента в исходнике: "${varName}"`);
+                        // eval() здесь имеет доступ к scope модуля Hud.js
                         let v; try { v = eval(varName); } catch(e) {}
                         if (!hookComponent(v, varName)) {
                             console.warn('⚠️ eval по имени не сработал, запускаем сканирование');
@@ -92,10 +98,11 @@ function setupChatHook() {
                 })
                 .catch(() => evalScan());
 
-            return;
+            return; // fetch асинхронный, выходим
         }
     } catch (e) {}
 
+    // Метод 2: сканирование (синхронно, если fetch не доступен)
     evalScan();
 }
 
@@ -148,8 +155,7 @@ function loadScriptFromGitHub(filename, retries = 5) {
     });
 }
 
-// Применить конфигурацию пользователя
-// ИЗМЕНЕНИЕ: BOT_TOKENS (словарь по аккаунту) → BOT_TOKEN (один токен на пользователя)
+// Функция для применения конфигурации пользователя
 function applyUserConfig() {
     if (!window.USER_CONFIGS) {
         console.error('❌ USER_CONFIGS не загружен!');
@@ -162,25 +168,24 @@ function applyUserConfig() {
         return false;
     }
 
-    window.CHAT_IDS                  = userConfig.CHAT_IDS;
-    window.DEFAULT_TOKEN             = null;
-    window.PASSWORD                  = userConfig.PASSWORD;
+    window.CHAT_IDS = userConfig.CHAT_IDS;
+    window.DEFAULT_TOKEN = null;
+    window.PASSWORD = userConfig.PASSWORD;
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
-    window.ACCOUNT_NUMBER            = accountNumber;
 
-    // Один токен на пользователя — все аккаунты его используют
-    // Аккаунты различаются по ACCOUNT_NUMBER (#1, #2, ...) в сообщениях и командах
-    if (userConfig.BOT_TOKEN) {
-        window.ACCOUNT_TOKEN = userConfig.BOT_TOKEN;
-        console.log(`✅ Токен аккаунта #${accountNumber} (${currentUser}) установлен (общий)`);
+    window.ACCOUNT_NUMBER = accountNumber;
+    const userBotTokens = userConfig.BOT_TOKENS || {};
+    if (accountNumber && userBotTokens[accountNumber]) {
+        window.ACCOUNT_TOKEN = userBotTokens[accountNumber];
+        console.log(`✅ Токен для аккаунта #${accountNumber} (${currentUser}) установлен`);
     } else {
         window.ACCOUNT_TOKEN = null;
-        console.warn(`⚠️ BOT_TOKEN для "${currentUser}" не найден в List.js`);
+        console.warn(`⚠️ Токен для аккаунта #${accountNumber} у "${currentUser}" не найден`);
     }
 
-    console.log(`✅ Конфигурация для "${currentUser}" аккаунт #${accountNumber} применена:`, {
-        chatIds:   userConfig.CHAT_IDS,
-        password:  '***' + userConfig.PASSWORD.slice(-4),
+    console.log(`✅ Конфигурация для "${currentUser}" применена:`, {
+        chatIds: userConfig.CHAT_IDS,
+        password: '***' + userConfig.PASSWORD.slice(-4),
         reconnect: userConfig.RECONNECT_ENABLED_DEFAULT
     });
 
@@ -203,9 +208,10 @@ async function fetchLastCommitInfo(filename) {
             const commits = JSON.parse(xhr.responseText);
             if (commits && commits.length > 0) {
                 const c = commits[0];
-                const msg    = c.commit.message.split('\n')[0].slice(0, 80);
+                const msg   = c.commit.message.split('\n')[0].slice(0, 80); // первая строка, макс 80 символов
                 const author = c.commit.author.name;
-                const rawDate = c.commit.author.date;
+                const rawDate = c.commit.author.date; // ISO 8601
+                // Форматируем дату в DD.MM.YYYY HH:MM
                 const d = new Date(rawDate);
                 const pad = n => String(n).padStart(2, '0');
                 const dateStr = `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -218,21 +224,22 @@ async function fetchLastCommitInfo(filename) {
     return null;
 }
 
-// Отправить в Telegram уведомление о загрузке
+// Отправить в Telegram уведомление о загруженном файле с инфой о коммите
 function sendCodeLoadedNotification(filename, commitInfo) {
-    const token   = window.ACCOUNT_TOKEN || window.DEFAULT_TOKEN;
+    // Берём токен и chatIds из window (уже установлены через applyUserConfig)
+    const token = window.ACCOUNT_TOKEN || window.DEFAULT_TOKEN;
     const chatIds = window.CHAT_IDS;
     if (!token || !chatIds || chatIds.length === 0) return;
 
     let text;
     if (commitInfo) {
         text =
-            `📦 <b>${filename} загружен</b> [#${window.ACCOUNT_NUMBER || '?'}]\n` +
+            `📦 <b>${filename} загружен</b>\n` +
             `📝 ${commitInfo.msg}\n` +
             `📅 ${commitInfo.date}\n` +
             `👤 ${commitInfo.author}  <code>#${commitInfo.sha}</code>`;
     } else {
-        text = `📦 <b>${filename} загружен</b> [#${window.ACCOUNT_NUMBER || '?'}]\n<i>Информация о коммите недоступна</i>`;
+        text = `📦 <b>${filename} загружен</b>\n<i>Информация о коммите недоступна</i>`;
     }
 
     const tgUrl = `https://api.telegram.org/bot${token}/sendMessage`;
@@ -252,28 +259,31 @@ function sendCodeLoadedNotification(filename, commitInfo) {
 // Последовательная загрузка скриптов
 async function initializeScripts() {
     try {
-        console.log(`🚀 Начало загрузки для пользователя: ${currentUser} аккаунт #${accountNumber}`);
+        console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
 
         console.log('📋 Загрузка List.js...');
         await loadScriptFromGitHub('List.js');
 
-        console.log(`⚙️ Применение конфигурации для ${currentUser} #${accountNumber}...`);
+        console.log(`⚙️ Применение конфигурации для ${currentUser}...`);
         if (!applyUserConfig()) {
             throw new Error('Не удалось применить конфигурацию пользователя');
         }
 
         console.log('📦 Загрузка Code.js...');
+        // Получаем инфо о коммите до загрузки (параллельно, не блокируем загрузку)
         const codeCommitInfoPromise = fetchLastCommitInfo('Code.js');
         await loadScriptFromGitHub('Code.js');
 
+        // Сохраняем инфо о коммите глобально — Code.js читает его в велком-сообщении
         const codeCommitInfo = await codeCommitInfoPromise;
         window.CODE_COMMIT_INFO = codeCommitInfo || null;
+        // Отдельное уведомление убрано — версия отображается прямо в велком-сообщении
 
-        console.log(`🎉 Все скрипты успешно загружены для ${currentUser} #${accountNumber}!`);
+        console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
 
         // === ЗАЖАТИЕ ЛОГОТИПА H → /hb ===
         (function setupHBLongPress() {
-            const LONG_PRESS_MS = 600;
+            const LONG_PRESS_MS = 600; // мс — сколько держать для открытия меню
 
             function attachLongPress() {
                 const fist = document.querySelector('.hud-hassle-info__fist-content');
@@ -286,6 +296,7 @@ async function initializeScripts() {
 
                 let timer = null;
 
+                // Touch (мобилка)
                 fist.addEventListener('touchstart', () => {
                     timer = setTimeout(() => {
                         timer = null;
@@ -301,6 +312,7 @@ async function initializeScripts() {
                     if (timer) { clearTimeout(timer); timer = null; }
                 });
 
+                // Mouse (ПК)
                 fist.addEventListener('mousedown', () => {
                     timer = setTimeout(() => {
                         timer = null;
@@ -333,12 +345,12 @@ async function initializeScripts() {
 
     } catch (error) {
         console.error('❌ Критическая ошибка при инициализации:', error);
-        alert(`Ошибка загрузки скриптов для ${currentUser} #${accountNumber}: ${error.message}`);
+        alert(`Ошибка загрузки скриптов для ${currentUser}: ${error.message}`);
     }
 }
 
-window.CURRENT_USER     = currentUser;
-window.ACCOUNT_NUMBER   = accountNumber;
+window.CURRENT_USER = currentUser;
+window.ACCOUNT_NUMBER = accountNumber;
 window.initializeScripts = initializeScripts;
 
 initializeScripts();

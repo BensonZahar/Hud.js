@@ -1002,9 +1002,8 @@ window.openInterface = function(interfaceName, params, additionalParams) {
 // ║  Зависимости: debugLog                                   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SHARED STORAGE MODULE //
-// Храним offset локально в window — каждая вкладка (аккаунт) ведёт свой offset независимо.
-// С одним общим токеном на пользователя все аккаунты получают одинаковые апдейты
-// и фильтруют их по uniqueId (callback) или по "#N " префиксу (текстовые команды).
+// Храним offset per-account, чтобы разные боты не перезаписывали друг другу значения.
+// Ключ: window._hbOffset_<ACCOUNT_NUMBER>
 function _getOffsetKey() {
     return `_hbOffset_${window.ACCOUNT_NUMBER || '0'}`;
 }
@@ -2048,7 +2047,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot#${window.ACCOUNT_NUMBER || '?'}</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -2863,27 +2862,7 @@ function processUpdates(updates) {
         // ===== END GLOBAL BROADCAST =====
 
         if (update.message) {
-            const rawMessage = update.message.text ? update.message.text.trim() : '';
-
-            // ═══════════════════════════════════════════════════════════════
-            // РОУТИНГ ПО НОМЕРУ АККАУНТА
-            // Синтаксис: "#2 /команда" → выполнится только на аккаунте #2
-            //            "/команда"    → глобально (все аккаунты)
-            // Примеры:
-            //   "#1 /afk_n"   — AFK только на аккаунте #1
-            //   "#3 /list"    — обновить welcome только аккаунта #3
-            //   "/reload"     — перезагрузить ВСЕ аккаунты
-            // ═══════════════════════════════════════════════════════════════
-            const _routeM = rawMessage.match(/^#(\d+)\s+([\s\S]*)/);
-            let message = rawMessage;
-            if (_routeM) {
-                if (_routeM[1] !== String(window.ACCOUNT_NUMBER || '')) {
-                    continue; // команда адресована другому аккаунту — пропускаем
-                }
-                message = _routeM[2].trim(); // убираем "#N " префикс
-            }
-            // ═══════════════════════════════════════════════════════════════
-
+            const message = update.message.text ? update.message.text.trim() : '';
             // Проверяем, является ли сообщение ответом на запрос ввода
             if (update.message.reply_to_message) {
                 const replyToText = update.message.reply_to_message.text || '';
