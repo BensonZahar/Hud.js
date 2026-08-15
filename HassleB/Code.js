@@ -42,6 +42,7 @@ const globalState = {
     hpLastHitTime: null,     // Время последнего удара
     hpLastValue: null,       // Предыдущее значение HP
     _hpSendPending: false,   // Флаг ожидания callback sendMessage (защита от дублей)
+    _hpGraceUntil: null,     // Время окончания grace period после спавна (игнорируем изменения HP)
 
     welcomeShowSettings: false, // Флаг показа блока настроек в приветственном сообщении
     // Время загрузки скрипта — используется как fallback версии если CODE_COMMIT_INFO не задан
@@ -314,10 +315,12 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
                 }
             } catch(e) {}
 
-            // Сбрасываем hpLastValue — следующий тик после спавна
-            // только запишет baseline, без сравнения (как при первом входе)
+            // Сбрасываем hpLastValue и grace period — следующий тик после спавна
+            // только запишет baseline, без сравнения (как при первом входе).
+            // Grace period запустится заново в trackPlayerHp при первом connected тике.
             if (typeof globalState !== 'undefined') {
-                globalState.hpLastValue = null;
+                globalState.hpLastValue   = null;
+                globalState._hpGraceUntil = null;
             }
         }
         return _orig.apply(this, arguments);
@@ -861,7 +864,9 @@ function setupAutoLogin(attempt = 1) {
                 // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
                 // hpLastValue = null означает: следующий тик после спавна
                 // только запишет baseline, без сравнения — как при первом входе.
+                // Grace period сбрасывается здесь тоже — trackPlayerHp запустит его заново.
                 globalState.hpLastValue       = null;
+                globalState._hpGraceUntil     = null;
                 globalState.hpLastHitTime     = null;
                 globalState.hpAlertMessageIds = [];
                 // Сброс флага спавна и профиля для нового входа
@@ -1360,7 +1365,17 @@ function trackPlayerHp() {
 
     const currentHp = getPlayerHpFromStore();
 
-    if (currentHp !== null && globalState.hpLastValue !== null) {
+    // Первый тик после спавна (hpLastValue был null) → запускаем grace period 5 сек.
+    // За это время Lua-скрипт успеет обновить HP с движкового 100 до реального значения.
+    // Без grace period: baseline=100, через 500ms HP=75 → ложное уведомление об уроне.
+    if (currentHp !== null && globalState.hpLastValue === null) {
+        globalState._hpGraceUntil = Date.now() + 5000;
+        debugLog('[HP] 🛡️ Grace period 5 сек после спавна — baseline HP=' + Math.round(currentHp));
+    }
+
+    const inGracePeriod = globalState._hpGraceUntil && Date.now() < globalState._hpGraceUntil;
+
+    if (!inGracePeriod && currentHp !== null && globalState.hpLastValue !== null) {
         if (currentHp < globalState.hpLastValue) {
             const damage = Math.round(globalState.hpLastValue - currentHp);
 
@@ -1830,7 +1845,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot777</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2061,7 +2076,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot777</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
