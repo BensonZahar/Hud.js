@@ -2429,6 +2429,7 @@ function processUpdates(updates) {
                     _handleReplyInput(message, 'Ответ отправлен', 'ответ');
                     continue;
                 }
+            } // closes if (update.message.reply_to_message)
             // Глобальные команды (работают на все аккаунты)
             if (message === '/reload') {
                 reloadAllAccounts();
@@ -2459,6 +2460,7 @@ function processUpdates(updates) {
                     debugLog(errorMsg);
                     sendToTelegram(errorMsg, false, null);
                 }
+            } // closes else if (/chat...)
 
             const isGlobalCommand = message.startsWith('global_') ||
                 message.startsWith('show_soob_options_') ||
