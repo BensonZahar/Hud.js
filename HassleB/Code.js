@@ -25,9 +25,6 @@
 // ╚══════════════════════════════════════════════════════════╝
 // START GLOBAL STATE MODULE //
 const globalState = {
-    awaitingAfkAccount: false,
-    awaitingAfkId: false,
-    afkTargetAccount: null,
     lastWelcomeMessageId: null,
     lastPaydayMessageIds: [],
     isPrison: false,       // Флаг для игнора /rec при кике после посадки
@@ -1845,7 +1842,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot0</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2076,7 +2073,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -2864,10 +2861,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
         [createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
         [createButton("📡 Рация", `show_radio_options_${uniqueIdParam}`)],
         [createButton("⚠️ Выговоры", `show_warning_options_${uniqueIdParam}`)],
-        [
-            createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
-            createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
-        ],
+        [createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`)],
         [createButton("⏱️ PayDay Цикл", `show_pdc_menu_${uniqueIdParam}`)],
         [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_kac_options_${uniqueIdParam}`)],
     ];
@@ -3313,44 +3307,7 @@ function processUpdates(updates) {
                     }
                     continue;
                 }
-                // Ответ на запрос ника для AFK
-                if (replyToText.includes(`✉️ Введите ник аккаунта для активации AFK режима:`)) {
-                    const accountNickname = message.trim();
-                    if (accountNickname && accountNickname === config.accountInfo.nickname) {
-                        globalState.afkTargetAccount = accountNickname;
-                        globalState.awaitingAfkAccount = false;
-                        globalState.awaitingAfkId = true;
-                        sendToTelegram(`✉️ Введите ID для активации AFK режима для ${displayName}:`, false, {
-                            force_reply: true
-                        });
-                    } else {
-                        sendToTelegram(`❌ <b>Ошибка:</b> Неверный ник аккаунта. Попробуйте снова.`, false, {
-                            force_reply: true
-                        });
-                    }
-                    continue;
-                }
-                // Ответ на запрос ID для AFK
-                if (replyToText.includes(`✉️ Введите ID для активации AFK режима для`) && globalState.awaitingAfkId) {
-                    const id = message.trim();
-                    if (globalState.afkTargetAccount === config.accountInfo.nickname) {
-                        const idFormats = [id];
-                        if (id.includes('-')) {
-                            idFormats.push(id.replace(/-/g, ''));
-                        } else if (id.length === 3) {
-                            idFormats.push(`${id[0]}-${id[1]}-${id[2]}`);
-                        }
-                        config.afkSettings = {
-                            id: id,
-                            formats: idFormats,
-                            active: true
-                        };
-                        globalState.awaitingAfkId = false;
-                        globalState.afkTargetAccount = null;
-                        sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null);
-                    }
-                    continue;
-                }
+
             }
             // Глобальные команды (работают на все аккаунты)
             if (message === '/reload') {
@@ -3393,26 +3350,6 @@ function processUpdates(updates) {
                     const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`;
                     debugLog(errorMsg);
                     sendToTelegram(errorMsg, false, null);
-                }
-            } else if (message.startsWith('/afk ')) {
-                const parts = message.split(' ');
-                if (parts.length >= 3) {
-                    const targetNickname = parts[1];
-                    const id = parts[2];
-                    if (targetNickname === config.accountInfo.nickname) {
-                        const idFormats = [id];
-                        if (id.includes('-')) {
-                            idFormats.push(id.replace(/-/g, ''));
-                        } else if (id.length === 3) {
-                            idFormats.push(`${id[0]}-${id[1]}-${id[2]}`);
-                        }
-                        config.afkSettings = {
-                            id: id,
-                            formats: idFormats,
-                            active: true
-                        };
-                        sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null);
-                    }
                 }
             } else if (message.startsWith('/afk_n')) {
                 const parts = message.split(' ');
@@ -3602,8 +3539,6 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('global_warning_off_', '');
             } else if (message.startsWith('global_afk_n_')) {
                 callbackUniqueId = message.replace('global_afk_n_', '');
-            } else if (message.startsWith('global_afk_')) {
-                callbackUniqueId = message.replace('global_afk_', '');
             } else if (message.startsWith('afk_n_with_pauses_')) {
                 callbackUniqueId = message.replace('afk_n_with_pauses_', '');
             } else if (message.startsWith('afk_n_without_pauses_')) {
@@ -3801,14 +3736,6 @@ function processUpdates(updates) {
                     showAFKReconnectMenu(chatId, messageId, callbackUniqueId, 'random');
                 } else {
                     activateAFKWithMode('random', false, 'q', chatId, messageId);
-                }
-            } else if (message.startsWith(`global_afk_`)) {
-                if (!globalState.awaitingAfkAccount) {
-                    globalState.awaitingAfkAccount = true;
-                    const requestMsg = `✉️ Введите ник аккаунта для активации AFK режима:`;
-                    sendToTelegram(requestMsg, false, {
-                        force_reply: true
-                    });
                 }
             } else if (message.startsWith("admin_reply_")) {
                 const requestMsg = `✉️ Введите ответ для ${displayName}:\n🔑 ID: ${uniqueId}`;
@@ -5274,8 +5201,7 @@ function showHBGlobalFunctionsMenu() {
         { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter" },
         { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
         { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_global" },
-        { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" },
-        { name: "{FFD700}> {FFFFFF}AFK", action: "afk_standard" }
+        { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" }
     ];
     if (config.autoReconnectEnabled) {
         menuItems.push({ name: "{FFD700}> {FFFFFF}Прокачка уровня", action: "levelup" });
@@ -5541,28 +5467,6 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 8) {
                 setTimeout(() => showHBAFKModesMenu(), 100);
-            } else if (listitem === 9) {
-                // Стандартный AFK
-                const hudId = getPlayerIdFromHUD();
-                if (!hudId) {
-                    sendToTelegram(`❌ <b>Ошибка:</b> Не удалось получить ID из HUD`, false, null);
-                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
-                    return;
-                }
-                const idFormats = [hudId];
-                if (hudId.includes('-')) {
-                    idFormats.push(hudId.replace(/-/g, ''));
-                } else if (hudId.length === 3) {
-                    idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
-                }
-                config.afkSettings = {
-                    id: hudId,
-                    formats: idFormats,
-                    active: true
-                };
-                showScreenNotification("Hassle", "AFK режим активирован");
-                sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null);
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 9 && config.autoReconnectEnabled) {
                 currentHBSelectedMode = 'levelup';
                 setTimeout(() => showHBAFKRestartMenu('levelup'), 100);
