@@ -1,20 +1,3 @@
-// ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
-// ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
-// 
-// Проблема: Когда работают несколько аккаунтов, все они создавали
-// одинаковый запрос "Введите ответ для..." и все обрабатывали одно 
-// и то же сообщение, из-за чего приходилось отправлять ответ дважды.
-//
-// Решение: Добавлен уникальный идентификатор 🔑 ID: к каждому запросу.
-// Теперь каждый аккаунт проверяет, что ответ предназначен именно ему.
-//
-// Изменения внесены в:
-// 1. Запрос на ответ администратору (строка ~1673)
-// 2. Обработка ответа администратору (строка ~1257)
-// 3. Запрос на ввод сообщения (строка ~1589)
-// 4. Обработка ввода сообщения (строка ~1241)
-// ===========================================================
-
 // END CONSTANTS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -263,9 +246,6 @@ const config = {
     ignoredStroiNicknames: ['Denis_Bymer'], // <-- ДОБАВЬТЕ ЭТУ СТРОКУ
     nicknameLogged: false
 };
-const defaultToken = DEFAULT_TOKEN;
-// Токен берётся по номеру аккаунта из List.js (ACCOUNT_BOT_TOKENS), установленному через установщик
-const accountToken = window.ACCOUNT_TOKEN || defaultToken;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 // ┌─────────────────────────────────────────────────────────┐
@@ -1025,12 +1005,7 @@ function setSharedLastUpdateId(id) {
 // START DEBUG AND UTILS MODULE //
 function debugLog(message) {
     if (config.debug) {
-        const now = new Date();
-        const hours = String(now.getHours()).padStart(2, '0');
-        const minutes = String(now.getMinutes()).padStart(2, '0');
-        const seconds = String(now.getSeconds()).padStart(2, '0');
-        const currentTime = `${hours}:${minutes}:${seconds}`;
-        console.log(`[${currentTime}] [DEBUG][${config.accountInfo.nickname || 'Unknown'}]`, message);
+        console.log(`[${getCurrentTimeString()}] [DEBUG][${config.accountInfo.nickname || 'Unknown'}]`, message);
     }
 }
 function getCurrentTimeString() {
@@ -1145,21 +1120,18 @@ function getSkinIdFromStore() {
         return null;
     }
 }
+// ── Универсальный хелпер: получить Vuex-store (App или Menu) ─
+function _getStore() {
+    if (window.App && window.App.$store) return window.App.$store;
+    try { const m = window.interface("Menu"); if (m && m.$store) return m.$store; } catch(e) {}
+    return null;
+}
+
 // ── Получить позицию персонажа из Vuex store ─────────────────
 function getPlayerPositionFromStore() {
     try {
-        // Вариант 1: через window.App (прямой доступ)
-        if (window.App && window.App.$store) {
-            const pos = window.App.$store.getters["player/position"];
-            if (pos) return pos;
-        }
-        // Вариант 2: через window.interface("Menu") (как getSkinIdFromStore)
-        const menuInterface = window.interface("Menu");
-        if (menuInterface && menuInterface.$store) {
-            const pos = menuInterface.$store.getters["player/position"];
-            if (pos) return pos;
-        }
-        return null;
+        const _s = _getStore();
+        return (_s && _s.getters["player/position"]) || null;
     } catch (e) {
         debugLog(`[LOC] Ошибка при получении позиции из store: ${e.message}`);
         return null;
@@ -1169,12 +1141,7 @@ function getPlayerPositionFromStore() {
 // ── Определение интерьера ────────────────────────────────────
 // pos.interior из store не всегда работает в хасле,
 // поэтому дополнительный фолбэк: z >= 500 = интерьер по любому
-function isInInterior(pos) {
-    if (!pos) return false;
-    if (pos.interior) return true;
-    if (typeof pos.z === 'number' && pos.z >= 500) return true;
-    return false;
-}
+const isInInterior = pos => !!(pos?.interior || (typeof pos?.z === 'number' && pos.z >= 500));
 
 // ── Периодическое логирование координат персонажа ─────────────
 function trackPlayerLocation() {
@@ -1196,20 +1163,12 @@ function trackPlayerLocation() {
 // ── Получить Нал и Банк персонажа из Vuex store ──────────────
 function getPlayerMoneyFromStore() {
     try {
-        if (window.App && window.App.$store) {
-            const money     = window.App.$store.getters["player/money"];
-            const bankMoney = window.App.$store.getters["player/bankMoney"];
-            if (money !== undefined || bankMoney !== undefined) {
-                return { money: money ?? null, bankMoney: bankMoney ?? null };
-            }
-        }
-        const menuInterface = window.interface("Menu");
-        if (menuInterface && menuInterface.$store) {
-            const money     = menuInterface.$store.getters["player/money"];
-            const bankMoney = menuInterface.$store.getters["player/bankMoney"];
-            if (money !== undefined || bankMoney !== undefined) {
-                return { money: money ?? null, bankMoney: bankMoney ?? null };
-            }
+        const _s = _getStore();
+        if (!_s) return null;
+        const money     = _s.getters["player/money"];
+        const bankMoney = _s.getters["player/bankMoney"];
+        if (money !== undefined || bankMoney !== undefined) {
+            return { money: money ?? null, bankMoney: bankMoney ?? null };
         }
         return null;
     } catch (e) {
@@ -1591,7 +1550,7 @@ function trackNicknameAndServer() {
         if (isFirstTime) {
             // Первый вход
             config.nicknameLogged = true;
-            config.botToken = accountToken;
+            config.botToken = window.ACCOUNT_TOKEN || DEFAULT_TOKEN;
             debugLog(`[NICK] Первый вход. botToken аккаунта #${window.ACCOUNT_NUMBER} установлен`);
             console.log(`nickname: ${nicknameStr}, Server: ${serverStr}`);
             updateDisplayName();
@@ -2154,28 +2113,16 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
 }
 
 function showSoobOptionsMenu(chatId, messageId, uniqueIdParam) {
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton("🔔 ВКЛ", `global_soob_on_${uniqueIdParam}`),
-                createButton("🔕 ВЫКЛ", `global_soob_off_${uniqueIdParam}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    _showSimpleToggleMenu(chatId, messageId,
+        "🔔 ВКЛ", `global_soob_on_${uniqueIdParam}`,
+        "🔕 ВЫКЛ", `global_soob_off_${uniqueIdParam}`,
+        `show_global_functions_${uniqueIdParam}`, false);
 }
 function showMestoOptionsMenu(chatId, messageId, uniqueIdParam) {
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton("🔔 ВКЛ", `global_mesto_on_${uniqueIdParam}`),
-                createButton("🔕 ВЫКЛ", `global_mesto_off_${uniqueIdParam}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    _showSimpleToggleMenu(chatId, messageId,
+        "🔔 ВКЛ", `global_mesto_on_${uniqueIdParam}`,
+        "🔕 ВЫКЛ", `global_mesto_off_${uniqueIdParam}`,
+        `show_global_functions_${uniqueIdParam}`, false);
 }
 function showRadioOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
@@ -2194,28 +2141,16 @@ function showRadioOptionsMenu(chatId, messageId, uniqueIdParam) {
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton("🔔 ВКЛ", `global_warning_on_${uniqueIdParam}`),
-                createButton("🔕 ВЫКЛ", `global_warning_off_${uniqueIdParam}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    _showSimpleToggleMenu(chatId, messageId,
+        "🔔 ВКЛ", `global_warning_on_${uniqueIdParam}`,
+        "🔕 ВЫКЛ", `global_warning_off_${uniqueIdParam}`,
+        `show_global_functions_${uniqueIdParam}`, false);
 }
 function showKacOptionsMenu(chatId, messageId, uniqueIdParam) {
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton("🟢 ВКЛ", `global_kac_on_${uniqueIdParam}`),
-                createButton("🔴 ВЫКЛ", `global_kac_off_${uniqueIdParam}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    _showSimpleToggleMenu(chatId, messageId,
+        "🟢 ВКЛ", `global_kac_on_${uniqueIdParam}`,
+        "🔴 ВЫКЛ", `global_kac_off_${uniqueIdParam}`,
+        `show_global_functions_${uniqueIdParam}`, false);
 }
 
 
@@ -2273,37 +2208,31 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
-function showLocalSoobOptionsMenu(chatId, messageId) {
-    if (!config.accountInfo.nickname) {
+// ── Универсальное меню ВКЛ/ВЫКЛ с кнопкой «Назад» ───────────
+// requireNick=true — проверяет наличие ника (для local-меню)
+function _showSimpleToggleMenu(chatId, messageId, onBtn, onCmd, offBtn, offCmd, backCmd, requireNick) {
+    if (requireNick && !config.accountInfo.nickname) {
         sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
         return;
     }
-    const replyMarkup = {
+    editMessageReplyMarkup(chatId, messageId, {
         inline_keyboard: [
-            [
-                createButton("🔔 ВКЛ", `local_soob_on_${uniqueId}`),
-                createButton("🔕 ВЫКЛ", `local_soob_off_${uniqueId}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
+            [createButton(onBtn, onCmd), createButton(offBtn, offCmd)],
+            [createButton("⬅️ Вернуться назад", backCmd)]
         ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    });
+}
+function showLocalSoobOptionsMenu(chatId, messageId) {
+    _showSimpleToggleMenu(chatId, messageId,
+        "🔔 ВКЛ", `local_soob_on_${uniqueId}`,
+        "🔕 ВЫКЛ", `local_soob_off_${uniqueId}`,
+        `show_local_functions_${uniqueId}`, true);
 }
 function showLocalMestoOptionsMenu(chatId, messageId) {
-    if (!config.accountInfo.nickname) {
-        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
-        return;
-    }
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton("🔔 ВКЛ", `local_mesto_on_${uniqueId}`),
-                createButton("🔕 ВЫКЛ", `local_mesto_off_${uniqueId}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    _showSimpleToggleMenu(chatId, messageId,
+        "🔔 ВКЛ", `local_mesto_on_${uniqueId}`,
+        "🔕 ВЫКЛ", `local_mesto_off_${uniqueId}`,
+        `show_local_functions_${uniqueId}`, true);
 }
 function showLocalRadioOptionsMenu(chatId, messageId) {
     if (!config.accountInfo.nickname) {
@@ -2326,36 +2255,16 @@ function showLocalRadioOptionsMenu(chatId, messageId) {
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 function showLocalWarningOptionsMenu(chatId, messageId) {
-    if (!config.accountInfo.nickname) {
-        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
-        return;
-    }
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton("🔔 ВКЛ", `local_warning_on_${uniqueId}`),
-                createButton("🔕 ВЫКЛ", `local_warning_off_${uniqueId}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    _showSimpleToggleMenu(chatId, messageId,
+        "🔔 ВКЛ", `local_warning_on_${uniqueId}`,
+        "🔕 ВЫКЛ", `local_warning_off_${uniqueId}`,
+        `show_local_functions_${uniqueId}`, true);
 }
 function showLocalKacOptionsMenu(chatId, messageId) {
-    if (!config.accountInfo.nickname) {
-        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
-        return;
-    }
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton("🟢 ВКЛ", `local_kac_on_${uniqueId}`),
-                createButton("🔴 ВЫКЛ", `local_kac_off_${uniqueId}`)
-            ],
-            [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    _showSimpleToggleMenu(chatId, messageId,
+        "🟢 ВКЛ", `local_kac_on_${uniqueId}`,
+        "🔴 ВЫКЛ", `local_kac_off_${uniqueId}`,
+        `show_local_functions_${uniqueId}`, true);
 }
 function hideControlsMenu(chatId, messageId) {
     if (!config.accountInfo.nickname) {
@@ -2492,41 +2401,32 @@ function processUpdates(updates) {
 
         if (update.message) {
             const message = update.message.text ? update.message.text.trim() : '';
+            // ── Хелпер: выполнить sendChatInput и уведомить в Telegram ──
+            function _handleReplyInput(textToSend, successLabel, failLabel) {
+                if (!textToSend) return;
+                debugLog(`[${displayName}] Отправка ${failLabel}: ${textToSend}`);
+                try {
+                    sendChatInput(textToSend);
+                    sendToTelegram(`✅ <b>${successLabel} ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
+                } catch (err) {
+                    const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ${failLabel}\n<code>${err.message}</code>`;
+                    debugLog(errorMsg);
+                    sendToTelegram(errorMsg, false, null);
+                }
+            }
             // Проверяем, является ли сообщение ответом на запрос ввода
             if (update.message.reply_to_message) {
                 const replyToText = update.message.reply_to_message.text || '';
                 // Ответ на запрос сообщения для чата
-                if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`) && 
+                if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`) &&
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
-                    const textToSend = message;
-                    if (textToSend) {
-                        debugLog(`[${displayName}] Отправка сообщения: ${textToSend}`);
-                        try {
-                            sendChatInput(textToSend);
-                            sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
-                        } catch (err) {
-                            const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`;
-                            debugLog(errorMsg);
-                            sendToTelegram(errorMsg, false, null);
-                        }
-                    }
+                    _handleReplyInput(message, 'Сообщение отправлено', 'сообщение');
                     continue;
                 }
                 // Ответ на запрос ответа администратору
-                if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`) && 
+                if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`) &&
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
-                    const textToSend = message;
-                    if (textToSend) {
-                        debugLog(`[${displayName}] Отправка ответа: ${textToSend}`);
-                        try {
-                            sendChatInput(textToSend);
-                            sendToTelegram(`✅ <b>Ответ отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
-                        } catch (err) {
-                            const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ответ\n<code>${err.message}</code>`;
-                            debugLog(errorMsg);
-                            sendToTelegram(errorMsg, false, null);
-                        }
-                    }
+                    _handleReplyInput(message, 'Ответ отправлен', 'ответ');
                     continue;
                 }
             // Глобальные команды (работают на все аккаунты)
@@ -3134,9 +3034,7 @@ function isImportantRadioMessage(msg) {
     return false;
 }
 function checkIDFormats(message) {
-    const idRegex = /(\d-\d-\d|\d{3})/g;
-    const matches = message.match(idRegex);
-    return matches ? matches : [];
+    return message.match(/(\d-\d-\d|\d{3})/g) || [];
 }
 function getRankKeywords() {
     if (!config.currentFaction || !factions[config.currentFaction]) return [];
@@ -3153,18 +3051,12 @@ function getHighRankKeywords() {
 // Возвращает все звания высокого ранга из ВСЕХ фракций (для проверки рации)
 // Порог берётся из highRankThreshold фракции (по умолчанию 6)
 function getAllHighRankKeywords() {
-    const highRanks = [];
-    for (const faction in factions) {
-        const f = factions[faction];
-        const threshold = f.highRankThreshold !== undefined ? f.highRankThreshold : 6;
-        const ranks = f.ranks;
-        for (const rankNum in ranks) {
-            if (parseInt(rankNum) >= threshold) {
-                highRanks.push(ranks[rankNum].toLowerCase());
-            }
-        }
-    }
-    return highRanks;
+    return Object.values(factions).flatMap(f => {
+        const threshold = f.highRankThreshold ?? 6;
+        return Object.entries(f.ranks)
+            .filter(([num]) => +num >= threshold)
+            .map(([, rank]) => rank.toLowerCase());
+    });
 }
 // Проверяет, отправлено ли радиосообщение игроком с 6-10 рангом (любой фракции)
 // Формат: [R] <Звание> <Ник>[ID]: текст  или  [R] <Звание> [{цвет}Фракция{цвет}] <Ник>[ID]: текст
@@ -3218,29 +3110,23 @@ function isTargetingPlayer(msg) {
     return idFormats.some(format => msg.match(new RegExp(`\\[${format}\\]|\\b${format}\\b`)));
 }
 function processSalaryAndBalance(msg) {
+    // Хелпер: PayDay-предупреждение
+    function _salaryWarn(text) {
+        sendToTelegram(`- PayDay | ${displayName}:\n${text}`);
+        config.lastSalaryInfo = null;
+    }
     // Проверка на новые тексты (отрицательные сценарии)
     if (msg.includes("Для получения зарплаты необходимо находиться в игре минимум 25 минут")) {
         debugLog(`Обнаружено предупреждение о 25 минутах`);
-        const message = `- PayDay | ${displayName}:\nДля получения зарплаты необходимо находиться в игре минимум 25 минут`;
-        sendToTelegram(message);
-        config.lastSalaryInfo = null;
-        return;
+        _salaryWarn('Для получения зарплаты необходимо находиться в игре минимум 25 минут'); return;
     }
-    
     if (msg.includes("Вы не должны находиться на паузе для получения зарплаты")) {
         debugLog(`Обнаружено предупреждение о паузе`);
-        const message = `- PayDay | ${displayName}:\nВы не должны находиться на паузе для получения зарплаты`;
-        sendToTelegram(message);
-        config.lastSalaryInfo = null;
-        return;
+        _salaryWarn('Вы не должны находиться на паузе для получения зарплаты'); return;
     }
-    
     if (msg.includes("Для получения опыта необходимо находиться в игре минимум 10 минут")) {
         debugLog(`Обнаружено предупреждение о 10 минутах для опыта`);
-        const message = `- PayDay | ${displayName}:\nДля получения опыта необходимо находиться в игре минимум 10 минут`;
-        sendToTelegram(message);
-        config.lastSalaryInfo = null;
-        return;
+        _salaryWarn('Для получения опыта необходимо находиться в игре минимум 10 минут'); return;
     }
     
     // Regex для зарплаты с учетом цветовых кодов
@@ -3344,17 +3230,12 @@ let payDayResetTimer = null;
 let stroiKeepAliveTimer = null;  // Таймер для повторных /rec 5 пока ждём на авторизации
 let stroiAutoLoginTimer = null;  // Таймер для включения автовхода перед PayDay
 
-// Функция для получения текущих минут
-function getCurrentMinutes() {
-    return new Date().getMinutes();
-}
-
 // Функция для проверки, скоро ли PayDay (в пределах 7 минут до :00)
 function isPayDayApproaching() {
-    const currentMinutes = getCurrentMinutes();
     // PayDay только с 53 по 59 минуту включительно
     // НЕ в 0-6 минут нового часа
-    return currentMinutes >= 53 && currentMinutes <= 59;
+    const m = new Date().getMinutes();
+    return m >= 53 && m <= 59;
 }
 
 // Функция для сброса флага PayDay
