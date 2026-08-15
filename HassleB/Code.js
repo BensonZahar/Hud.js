@@ -205,6 +205,7 @@ const config = {
     moneyLogInterval: 5000,       // Интервал логирования денег (мс)
     autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT,
     hpTracking: true,              // Отслеживание HP и уведомление об уроне
+    kacAutoReply: false,           // Автоответ КАЧ/ЗП
     botToken: window.ACCOUNT_TOKEN || DEFAULT_TOKEN, // FIX: botToken был undefined — AFK-статус и диалоги не отправлялись
     lastUpdateId: 0,
     activeUsers: {},
@@ -1815,7 +1816,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot0</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2046,7 +2047,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
