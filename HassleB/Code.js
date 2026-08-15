@@ -42,10 +42,7 @@ const globalState = {
     hpLastHitTime: null,     // Время последнего удара
     hpLastValue: null,       // Предыдущее значение HP
     _hpSendPending: false,   // Флаг ожидания callback sendMessage (защита от дублей)
-    _hpSpawnTime: null,         // Время первого тика после спавна; -1 = grace завершён
-    _hpSpawnInitial: null,      // Первое значение HP после спавна (дефолт HUD = 100)
-    _hpSpawnChanged: false,     // true когда HP хотя бы раз изменилось от начального значения
-    _hpSpawnStable: null,       // { value, since } — стабильность после первого изменения
+
     welcomeShowSettings: false, // Флаг показа блока настроек в приветственном сообщении
     // Время загрузки скрипта — используется как fallback версии если CODE_COMMIT_INFO не задан
     scriptLoadTime: (function() {
@@ -303,6 +300,25 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
     window.sendChatInput = function(cmd) {
         if (typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim())) {
             window.__afterRec5 = true;
+
+            // Принудительно сбрасываем isPlayerConnected → false.
+            // Это гарантирует что trackPlayerHp увидит переход false→true
+            // при следующем спавне и корректно запустит grace period.
+            // Без этого isPlayerConnected мог оставаться true во время
+            // авторизации, и grace period не срабатывал повторно.
+            try {
+                if (window.setPlayerConnectedStatus) {
+                    window.setPlayerConnectedStatus(false);
+                } else if (window.App && window.App.$store) {
+                    window.App.$store.commit('player/setPlayerConnectedStatus', false);
+                }
+            } catch(e) {}
+
+            // Сбрасываем hpLastValue — следующий тик после спавна
+            // только запишет baseline, без сравнения (как при первом входе)
+            if (typeof globalState !== 'undefined') {
+                globalState.hpLastValue = null;
+            }
         }
         return _orig.apply(this, arguments);
     };
@@ -842,15 +858,11 @@ function setupAutoLogin(attempt = 1) {
             try {
                 loginInstance.onClickEvent("play");
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
-                // Сброс HP после входа: первые показания HUD = 100 (заглушка),
-                // настоящее HP придёт чуть позже — не считаем это уроном.
-                // Сбрасываем ВСЕ HP-флаги чтобы grace period запустился заново.
-                globalState.hpLastValue     = null;
-                globalState._hpSpawnTime    = null;
-                globalState._hpSpawnInitial = null;
-                globalState._hpSpawnChanged = false;
-                globalState._hpSpawnStable  = null;
-                globalState.hpLastHitTime   = null;
+                // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
+                // hpLastValue = null означает: следующий тик после спавна
+                // только запишет baseline, без сравнения — как при первом входе.
+                globalState.hpLastValue       = null;
+                globalState.hpLastHitTime     = null;
                 globalState.hpAlertMessageIds = [];
                 // Сброс флага спавна и профиля для нового входа
                 globalState._spawnProfileLoaded = false;
@@ -1329,97 +1341,20 @@ function trackPlayerHp() {
     if (!config.hpTracking) return;
     if (window._hassleReloading) return;
 
-    // ══════════════════════════════════════════════════════════════
-    // GRACE PERIOD после спавна / реконнекта / строя
-    // ──────────────────────────────────────────────────────────────
-    // Проблема: при спавне HUD сначала показывает HP=100 (дефолт движка),
-    // а сервер присылает настоящее HP чуть позже (иногда через несколько секунд).
-    // Если мы сразу начнём сравнивать — зафиксируем ложный «урон» 100→20.
-    //
-    // Решение (2 фазы):
-    //   Фаза 1 — ждём ИЗМЕНЕНИЯ от начального значения.
-    //     HUD показывает 100 — ждём пока сервер пришлёт реальное HP (оно отличается).
-    //     Таймаут 15 сек: если HP не изменилось → значит у игрока реально 100 HP.
-    //   Фаза 2 — ждём СТАБИЛЬНОСТИ 2 сек.
-    //     После первого изменения HP может ещё «дёргаться» — ждём 2 сек без изменений.
-    //
-    // Итог: baseline всегда = настоящее HP игрока, а не дефолт HUD.
-    // ══════════════════════════════════════════════════════════════
-    const _GRACE_TIMEOUT_MS = 15000; // макс. ожидание изменения от дефолта (фаза 1)
-    const _STABLE_MS        = 2000;  // сек. стабильности после изменения (фаза 2)
-
+    // Пока isPlayerConnected = false — игрок не в игре (авторизация / реконнект).
+    // hpLastValue = null гарантирует что первый тик после спавна только
+    // установит baseline, без сравнения. Работает как при первом заходе.
+    // /rec 5 принудительно сбрасывает isPlayerConnected → false через перехватчик
+    // sendChatInput, поэтому повторные реконнекты обрабатываются так же.
     try {
         let _isConnected = false;
         if (window.App && window.App.$store) {
             _isConnected = window.App.$store.getters['player/isPlayerConnected'];
         }
         if (!_isConnected) {
-            // Не в игре — полный сброс всех HP-флагов
-            globalState.hpLastValue      = null;
-            globalState._hpSpawnTime     = null;
-            globalState._hpSpawnInitial  = null;
-            globalState._hpSpawnChanged  = false;
-            globalState._hpSpawnStable   = null;
+            globalState.hpLastValue = null;
             setTimeout(trackPlayerHp, 500);
             return;
-        }
-
-        // isPlayerConnected = true, но grace period ещё идёт?
-        if (globalState._hpSpawnTime !== -1) {
-            // Первый тик после спавна — инициализируем grace period
-            if (globalState._hpSpawnTime === null) {
-                globalState._hpSpawnTime    = Date.now();
-                globalState._hpSpawnInitial = null;
-                globalState._hpSpawnChanged = false;
-                globalState._hpSpawnStable  = null;
-                globalState.hpLastValue     = null;
-            }
-
-            const graceHp = getPlayerHpFromStore();
-            if (graceHp === null) { setTimeout(trackPlayerHp, 500); return; }
-
-            // Запоминаем первое значение HP после спавна
-            if (globalState._hpSpawnInitial === null) {
-                globalState._hpSpawnInitial = graceHp;
-                debugLog(`[HP] Grace period начат, начальное HP=${graceHp}`);
-            }
-
-            // Всегда обновляем baseline во время grace
-            globalState.hpLastValue = graceHp;
-
-            const elapsed = Date.now() - globalState._hpSpawnTime;
-
-            if (!globalState._hpSpawnChanged) {
-                // ── ФАЗА 1: ждём изменения HP от начального значения ─────
-                if (graceHp !== globalState._hpSpawnInitial) {
-                    // HP изменилось! Переходим в фазу 2
-                    globalState._hpSpawnChanged = true;
-                    globalState._hpSpawnStable  = { value: graceHp, since: Date.now() };
-                    debugLog(`[HP] Фаза 2: HP изменилось ${globalState._hpSpawnInitial}→${graceHp}, ждём стабильности`);
-                } else if (elapsed >= _GRACE_TIMEOUT_MS) {
-                    // Таймаут: HP так и не изменилось → у игрока реально то HP что показывает HUD
-                    globalState._hpSpawnTime = -1;
-                    debugLog(`[HP] Grace завершён по таймауту (${elapsed}мс), HP=${graceHp} — настоящее`);
-                }
-                // Иначе: ждём дальше
-            } else {
-                // ── ФАЗА 2: HP изменилось, ждём 2 сек стабильности ───────
-                const st = globalState._hpSpawnStable;
-                if (!st || st.value !== graceHp) {
-                    // HP продолжает меняться — сбрасываем таймер стабильности
-                    globalState._hpSpawnStable = { value: graceHp, since: Date.now() };
-                } else if (Date.now() - st.since >= _STABLE_MS) {
-                    // Стабильно 2 сек → это реальное HP, завершаем grace period
-                    globalState._hpSpawnTime = -1;
-                    debugLog(`[HP] Grace завершён (стабильность), HP=${graceHp}, прошло ${elapsed}мс`);
-                }
-            }
-
-            // Если grace ещё не завершён — не сравниваем HP, ждём следующего тика
-            if (globalState._hpSpawnTime !== -1) {
-                setTimeout(trackPlayerHp, 500);
-                return;
-            }
         }
     } catch(e) {}
 
@@ -1895,7 +1830,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot9</b>')) {
+            if (message.startsWith('🟢 <b>Hassle | Bot777</b>')) {
                 globalState.lastWelcomeMessageId = messageId;
             }
             if (message.includes('+ PayDay |')) {
@@ -2126,7 +2061,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot777</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
