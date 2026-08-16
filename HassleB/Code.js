@@ -196,7 +196,6 @@ const config = {
     radioOfficialNotifications: false,  // Все сообщения рации — изначально ВЫКЛ
     radioImportantFilter: true,         // Фильтр важных сообщений рации (строй/место/ID) — изначально ВКЛ
     warningNotifications: true,
-    notificationDeleteDelay: 5000,
     trackSkinId: true,
     skinCheckInterval: 5000,
     locationLogging: false,        // Логировать координаты персонажа в консоль
@@ -1805,7 +1804,7 @@ function sendAdminSpamAlert(adminMsg) {
         sendPing();
     });
 }
-function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
+function sendToTelegram(message, silent = false, replyMarkup = null) {
     config.chatIds.forEach(chatId => {
         tgApi('sendMessage', {
             chat_id: chatId,
@@ -2801,11 +2800,11 @@ function checkTelegramCommands() {
     if (window._hassleReloading) return;
     config.lastUpdateId = getSharedLastUpdateId();
 
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=1`;
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=25`;
     const xhr = new XMLHttpRequest();
     _pollXhr = xhr;
     xhr.open('GET', url, true);
-    xhr.timeout = 4000;
+    xhr.timeout = 30000;
     xhr.onload = function() {
         if (_pollXhr === xhr) _pollXhr = null;
         if (xhr.status === 200) {
