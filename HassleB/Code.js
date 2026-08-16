@@ -292,8 +292,9 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
             // только запишет baseline, без сравнения (как при первом входе).
             // Grace period запустится заново в trackPlayerHp при первом connected тике.
             if (typeof globalState !== 'undefined') {
-                globalState.hpLastValue   = null;
-                globalState._hpGraceUntil = null;
+                globalState.hpLastValue    = null;
+                globalState._hpGraceUntil  = null;
+                globalState._hpGraceActive = false;
             }
         }
         return _orig.apply(this, arguments);
@@ -839,6 +840,7 @@ function setupAutoLogin(attempt = 1) {
                 // Grace period сбрасывается здесь тоже — trackPlayerHp запустит его заново.
                 globalState.hpLastValue       = null;
                 globalState._hpGraceUntil     = null;
+                globalState._hpGraceActive    = false;
                 globalState.hpLastHitTime     = null;
                 globalState.hpAlertMessageIds = [];
                 // Сброс флага спавна и профиля для нового входа
@@ -1316,18 +1318,16 @@ function trackPlayerHp() {
     if (!config.hpTracking) return;
     if (window._hassleReloading) return;
 
-    // Пока isPlayerConnected = false — игрок не в игре (авторизация / реконнект).
-    // hpLastValue = null гарантирует что первый тик после спавна только
-    // установит baseline, без сравнения. Работает как при первом заходе.
-    // /rec 5 принудительно сбрасывает isPlayerConnected → false через перехватчик
-    // sendChatInput, поэтому повторные реконнекты обрабатываются так же.
+    // Пока не в игре — сбрасываем baseline и ждём
     try {
         let _isConnected = false;
         if (window.App && window.App.$store) {
             _isConnected = window.App.$store.getters['player/isPlayerConnected'];
         }
         if (!_isConnected) {
-            globalState.hpLastValue = null;
+            globalState.hpLastValue    = null;
+            globalState._hpGraceUntil  = null;
+            globalState._hpGraceActive = false;
             setTimeout(trackPlayerHp, 500);
             return;
         }
@@ -1335,29 +1335,24 @@ function trackPlayerHp() {
 
     const currentHp = getPlayerHpFromStore();
 
-    // Первый тик после спавна (hpLastValue был null) → запускаем grace period 5 сек.
-    // За это время Lua-скрипт успеет обновить HP с движкового 100 до реального значения.
-    // Без grace period: baseline=100, через 500ms HP=75 → ложное уведомление об уроне.
+    // Первый тик в игре — только ставим baseline, урон не считаем
     if (currentHp !== null && globalState.hpLastValue === null) {
-        globalState._hpGraceUntil = Date.now() + 5000;
-        debugLog('[HP] 🛡️ Grace period 5 сек после спавна — baseline HP=' + Math.round(currentHp));
+        globalState.hpLastValue = currentHp;
+        debugLog('[HP] ✅ В игре — baseline HP=' + Math.round(currentHp));
+        setTimeout(trackPlayerHp, 500);
+        return;
     }
 
-    const inGracePeriod = globalState._hpGraceUntil && Date.now() < globalState._hpGraceUntil;
-
-    if (!inGracePeriod && currentHp !== null && globalState.hpLastValue !== null) {
+    // Сравниваем только когда в игре и baseline уже есть
+    if (currentHp !== null && globalState.hpLastValue !== null) {
         if (currentHp < globalState.hpLastValue) {
             const damage = Math.round(globalState.hpLastValue - currentHp);
 
-            // ИСПРАВЛЕНИЕ 1: порог damage >= 1
-            // Убирает ложные срабатывания из-за float-шума движка.
-            // Пример: HP 59.3 → 59.1 даёт damage=0 — это не реальный урон.
             if (damage >= 1) {
                 const now = Date.now();
 
                 addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)} (-${damage})`);
 
-                // Накапливаем урон за 1.5 сек — шлём одним сообщением (не спамим при серии попаданий)
                 globalState.hpLastHitTime = now;
                 if (!globalState._dmgAccum) {
                     globalState._dmgAccum = { total: 0, hpBefore: Math.round(globalState.hpLastValue) };
@@ -1378,9 +1373,10 @@ function trackPlayerHp() {
                 }, 1500);
             }
         }
+
+        globalState.hpLastValue = currentHp;
     }
 
-    if (currentHp !== null) globalState.hpLastValue = currentHp;
     setTimeout(trackPlayerHp, 500);
 }
 
@@ -2097,7 +2093,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -4575,8 +4571,6 @@ function initializeChatMonitor() {
         setTimeout(waitForSpawnThenLoadProfile, 5000);
         globalState.sessionStartTime = Date.now();
         addSessionLog('🟢 Сессия начата');
-        debugLog('[DBG] Запуск debug-трекера (HP / координаты / скин / спавн)...');
-        startDebugStatTracker();
     }
     checkTelegramCommands();
     return true;
