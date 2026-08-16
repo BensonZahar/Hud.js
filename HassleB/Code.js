@@ -1384,6 +1384,47 @@ function trackPlayerHp() {
     setTimeout(trackPlayerHp, 500);
 }
 
+// ── DEBUG: каждую секунду пишет HP / координаты / скин / спавн ──
+let _debugStatTimer = null;
+
+function startDebugStatTracker() {
+    if (_debugStatTimer) clearInterval(_debugStatTimer);
+    _debugStatTimer = setInterval(() => {
+        try {
+            // Спавн
+            let spawned = false;
+            try { spawned = !!window.App.$store.getters['player/isPlayerConnected']; } catch(e) {}
+
+            // HP
+            const hp = getPlayerHpFromStore();
+
+            // Координаты
+            const pos = getPlayerPositionFromStore();
+
+            // Скин
+            const skin = getSkinIdFromStore();
+
+            const hpStr   = hp   !== null ? Math.round(hp) : '—';
+            const skinStr = skin !== null ? skin            : '—';
+            const posStr  = pos
+                ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)}`
+                : 'недоступны';
+            const spawnStr = spawned ? '✅ заспавнен' : '❌ не в игре';
+
+            console.log(`[DBG][${displayName}] ${spawnStr} | HP: ${hpStr} | Скин: ${skinStr} | Позиция: ${posStr}`);
+        } catch (e) {
+            console.log(`[DBG][${displayName}] Ошибка: ${e.message}`);
+        }
+    }, 1000);
+}
+
+function stopDebugStatTracker() {
+    if (_debugStatTimer) {
+        clearInterval(_debugStatTimer);
+        _debugStatTimer = null;
+    }
+}
+
 // ── Ожидание спавна → загрузка профиля независимо от фракции ──────────────
 // Аналог trackPlayerHp: ждём player/isPlayerConnected = true, затем
 // открываем MainMenu → Statistics и считываем профиль.
@@ -2056,7 +2097,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -2923,6 +2964,12 @@ function processUpdates(updates) {
             // Глобальные команды (работают на все аккаунты)
             if (message === '/reload') {
                 reloadAllAccounts();
+            } else if (message === '/dbg_on') {
+                startDebugStatTracker();
+                sendToTelegram(`🔍 <b>Debug-трекер запущен для ${displayName}</b>\nКаждую секунду в консоль: HP, координаты, скин, спавн.\n/dbg_off — остановить`, false, null);
+            } else if (message === '/dbg_off') {
+                stopDebugStatTracker();
+                sendToTelegram(`⏹ <b>Debug-трекер остановлен для ${displayName}</b>`, false, null);
             } else if (message === '/p_off') {
                 config.paydayNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null);
@@ -4528,6 +4575,8 @@ function initializeChatMonitor() {
         setTimeout(waitForSpawnThenLoadProfile, 5000);
         globalState.sessionStartTime = Date.now();
         addSessionLog('🟢 Сессия начата');
+        debugLog('[DBG] Запуск debug-трекера (HP / координаты / скин / спавн)...');
+        startDebugStatTracker();
     }
     checkTelegramCommands();
     return true;
