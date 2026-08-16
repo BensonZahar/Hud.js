@@ -2797,10 +2797,12 @@ function getNotificationReplyMarkup() {
 // START TELEGRAM COMMANDS MODULE //
 // Ссылка на текущий long-poll XHR — для прерывания при необходимости
 let _pollXhr = null;
+let _pollRestartScheduled = false; // FIX: предотвращает двойной запуск poll-цикла
 
 // Прерывает текущий long-poll и немедленно перезапускает с timeout=0.
 // Вызывать перед sendMessage — освобождает соединение для срочных API-вызовов.
 function _abortPollAndRestartFast() {
+    _pollRestartScheduled = true;
     if (_pollXhr) {
         _pollXhr.abort();
         _pollXhr = null;
@@ -2811,6 +2813,7 @@ function _abortPollAndRestartFast() {
 
 function checkTelegramCommands() {
     if (window._hassleReloading) return;
+    _pollRestartScheduled = false;
     config.lastUpdateId = getSharedLastUpdateId();
 
     const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=25`;
@@ -2830,7 +2833,10 @@ function checkTelegramCommands() {
                 debugLog('Ошибка парсинга ответа Telegram:', e);
             }
         }
-        setTimeout(checkTelegramCommands, 0);
+        // Если _abortPollAndRestartFast уже запланировал новый цикл — не дублируем
+        if (!_pollRestartScheduled) {
+            setTimeout(checkTelegramCommands, 0);
+        }
     };
     xhr.onerror = function(error) {
         if (_pollXhr === xhr) _pollXhr = null;
@@ -3315,7 +3321,6 @@ function processUpdates(updates) {
                 }
             } else if (message.startsWith("admin_reply_")) {
                 const requestMsg = `✉️ Введите ответ для ${displayName}:\n🔑 ID: ${uniqueId}`;
-                // Прерываем текущий long-poll — освобождаем соединение для sendMessage
                 _abortPollAndRestartFast();
                 sendToTelegram(requestMsg, false, {
                     force_reply: true
