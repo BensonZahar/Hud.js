@@ -1708,7 +1708,18 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
         text,
         parse_mode: 'HTML',
         reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-    }, () => debugLog(`Сообщение отредактировано в Telegram чате ${chatId}`));
+    }, () => debugLog(`Сообщение отредактировано в Telegram чате ${chatId}`),
+    (status) => {
+        // 400 = сообщение удалено или недоступно — сбрасываем ID и шлём новое
+        if (status === 400) {
+            debugLog(`[EDIT] Сообщение ${messageId} не найдено в чате ${chatId} — отправляем новое`);
+            if (globalState.welcomeMessageIds && globalState.welcomeMessageIds[chatId] === messageId) {
+                delete globalState.welcomeMessageIds[chatId];
+                if (globalState.welcomeSending) globalState.welcomeSending[chatId] = false;
+                sendWelcomeMessage();
+            }
+        }
+    });
 }
 function answerCallbackQuery(callbackQueryId) {
     tgApi('answerCallbackQuery', { callback_query_id: callbackQueryId },
@@ -1752,6 +1763,7 @@ function sendAdminSpamAlert(adminMsg) {
                 parse_mode: 'HTML',
                 disable_notification: false
             }, data => {
+                if (!data || !data.result) return;
                 const pid = data.result.message_id;
                 setTimeout(() => deleteMessage(chatId, pid), 1500);
             });
@@ -1814,10 +1826,8 @@ function sendToTelegram(message, silent = false, replyMarkup = null) {
             reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
+            if (!data || !data.result) return;
             const messageId = data.result.message_id;
-            if (message.startsWith('🟢 <b>Hassle | Bot0</b>')) {
-                globalState.lastWelcomeMessageId = messageId;
-            }
             if (message.includes('+ PayDay |')) {
                 globalState.lastPaydayMessageIds.push({ chatId, messageId });
             }
@@ -2095,14 +2105,19 @@ function sendWelcomeMessage() {
 
     // Хранилище ID приветственного сообщения отдельно по каждому чату
     if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = {};
+    if (!globalState.welcomeSending) globalState.welcomeSending = {};
 
     config.chatIds.forEach(chatId => {
         const existingId = globalState.welcomeMessageIds[chatId];
         if (existingId) {
             // Редактируем уже отправленное сообщение — не шлём новое
             editMessageText(chatId, existingId, message, replyMarkup);
+        } else if (globalState.welcomeSending[chatId]) {
+            // Уже летит запрос на отправку — не дублируем
+            debugLog(`[WELCOME] Чат ${chatId}: отправка уже в процессе, пропускаем`);
         } else {
-            // Первый запуск: отправляем и запоминаем ID
+            // Первый запуск: ставим флаг и отправляем
+            globalState.welcomeSending[chatId] = true;
             tgApi('sendMessage', {
                 chat_id: chatId,
                 text: message,
@@ -2110,11 +2125,16 @@ function sendWelcomeMessage() {
                 disable_notification: false,
                 reply_markup: JSON.stringify(replyMarkup)
             }, data => {
+                globalState.welcomeSending[chatId] = false;
                 if (data && data.result) {
                     globalState.welcomeMessageIds[chatId] = data.result.message_id;
                     globalState.lastWelcomeMessageId = data.result.message_id;
                     debugLog(`[WELCOME] Отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
                 }
+            }, () => {
+                // На ошибке сети — снимаем флаг, следующий вызов попробует снова
+                globalState.welcomeSending[chatId] = false;
+                debugLog(`[WELCOME] Ошибка отправки в чат ${chatId}`);
             });
         }
     });
@@ -2164,24 +2184,17 @@ function updateAFKStatus(isNew = false) {
         // Отправляем новое сообщение и сохраняем IDs
         config.afkCycle.statusMessageIds = [];
         config.chatIds.forEach(chatId => {
-            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
-            const payload = {
+            tgApi('sendMessage', {
                 chat_id: chatId,
                 text: fullText,
                 parse_mode: 'HTML'
-            };
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', url, true);
-            xhr.setRequestHeader('Content-Type', 'application/json');
-            xhr.onload = function() {
-                if (xhr.status === 200) {
-                    const data = JSON.parse(xhr.responseText);
+            }, data => {
+                if (data && data.result) {
                     const messageId = data.result.message_id;
                     config.afkCycle.statusMessageIds.push({ chatId, messageId });
                     debugLog(`Новое AFK статус-сообщение отправлено в чат ${chatId}: ID ${messageId}`);
                 }
-            };
-            xhr.send(JSON.stringify(payload));
+            }, () => debugLog(`[AFK] Ошибка отправки статус-сообщения в чат ${chatId}`));
         });
     } else {
         // Редактируем существующие сообщения
