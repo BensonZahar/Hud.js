@@ -3429,7 +3429,7 @@ function processUpdates(updates) {
                 } catch(e) {
                     sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null);
                 }
-                setTimeout(() => editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup()), 300);
+                editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
             } else if (message.startsWith("pause_exit_")) {
                 // Выйти с паузы
                 try {
@@ -3438,7 +3438,7 @@ function processUpdates(updates) {
                 } catch(e) {
                     sendToTelegram(`❌ <b>Ошибка выхода из паузы (${displayName}):</b> ${e.message}`, false, null);
                 }
-                setTimeout(() => editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup()), 300);
+                editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
             } else if (message.startsWith("autologin_off_")) {
                 // Уйти на авторизацию (отключить автовход + /rec 5)
                 autoLoginConfig.enabled = false;
@@ -3523,7 +3523,7 @@ function processUpdates(updates) {
                 } catch(e) {
                     sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null);
                 }
-                setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 300);
+                showLocalFunctionsMenu(chatId, messageId);
             } else if (message.startsWith("local_autologin_toggle_")) {
                 // Переключение автовхода из меню Функции
                 if (autoLoginConfig.enabled) {
@@ -3535,7 +3535,7 @@ function processUpdates(updates) {
                     sendChatInput("/rec 5");
                     sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 }
-                setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 100);
+                showLocalFunctionsMenu(chatId, messageId);
             } else if (message.startsWith('show_welcome_settings_')) {
                 // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
                 globalState.welcomeShowSettings = true;
@@ -3550,17 +3550,13 @@ function processUpdates(updates) {
                 debugLog(`[PRISON] "Выйти с автр." нажата — включаем автовход, отправляем /rec 5`);
                 sendToTelegram(`🔓 <b>Автовход включён (${displayName})</b>\nПодключаемся к серверу...`, false, null);
                 deleteMessage(chatId, messageId);
-                setTimeout(() => {
-                    sendChatInput("/rec 5");
-                }, 500);
+                sendChatInput("/rec 5");
             } else if (message.startsWith('prison_quit_')) {
                 // Кнопка "Выйти с игры" — /q
                 debugLog(`[PRISON] "Выйти с игры" нажата — отправляем /q`);
                 sendToTelegram(`🚪 <b>Выходим из игры (${displayName})</b>`, false, null);
                 deleteMessage(chatId, messageId);
-                setTimeout(() => {
-                    sendChatInput("/q");
-                }, 500);
+                sendChatInput("/q");
             } else if (message.startsWith('local_account_info_')) {
                 // Одно объединённое сообщение — тот же формат что и в welcome-сообщении
                 try {
@@ -3580,10 +3576,8 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('send_rec_cmd_', '');
                 if (callbackUniqueId === uniqueId) {
                     deleteMessage(chatId, messageId);
-                    setTimeout(() => {
-                        sendChatInput('/rec 5');
-                        debugLog('[RateLimit] Отправлен /rec 5 по кнопке из Telegram');
-                    }, 500);
+                    sendChatInput('/rec 5');
+                    debugLog('[RateLimit] Отправлен /rec 5 по кнопке из Telegram');
                 }
             }
             // answerCallbackQuery уже вызван в самом начале блока callback_query
@@ -4241,14 +4235,10 @@ function initializeChatMonitor() {
                     `Выберите действие:`,
                     false, prisonExitButtons
                 );
-                setTimeout(() => {
-                    sendChatInput("/rec 5");
-                }, 1000);
+                sendChatInput("/rec 5");
             } else {
                 sendToTelegram(`✅ <b>Срок отсижен! Выходим из игры (${displayName})</b>`, false, null);
-                setTimeout(() => {
-                    sendChatInput("/q");
-                }, 1000);
+                sendChatInput("/q");
             }
         }
 		// МЗ отладочный блок удалён
