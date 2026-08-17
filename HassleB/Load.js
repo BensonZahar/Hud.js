@@ -269,15 +269,13 @@ async function initializeScripts() {
             throw new Error('Не удалось применить конфигурацию пользователя');
         }
 
-        console.log('📦 Загрузка Code.js...');
-        // Получаем инфо о коммите до загрузки (параллельно, не блокируем загрузку)
-        const codeCommitInfoPromise = fetchLastCommitInfo('Code.js');
-        await loadScriptFromGitHub('Code.js');
-
-        // Сохраняем инфо о коммите глобально — Code.js читает его в велком-сообщении
-        const codeCommitInfo = await codeCommitInfoPromise;
+        // Получаем инфо о коммите ДО загрузки Code.js — чтобы велком сразу видел версию
+        console.log('🔍 Получение инфо о коммите Code.js...');
+        const codeCommitInfo = await fetchLastCommitInfo('Code.js');
         window.CODE_COMMIT_INFO = codeCommitInfo || null;
-        // Отдельное уведомление убрано — версия отображается прямо в велком-сообщении
+
+        console.log('📦 Загрузка Code.js...');
+        await loadScriptFromGitHub('Code.js');
 
         console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
 
