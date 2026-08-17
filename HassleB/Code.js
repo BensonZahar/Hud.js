@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | Bot'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | Bot99'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -37,15 +37,7 @@ const globalState = {
     otygrovkaTrackInterval: null,  // setInterval — тикает каждую секунду
     otygrovkaExitTimer: null,      // setTimeout — выход в :59:20
     otygrovkaCurrentTime: null,    // «Текущее время» из последнего /c 60
-    // Время загрузки скрипта — используется как fallback версии если CODE_COMMIT_INFO не задан
-    scriptLoadTime: (function() {
-        const d = new Date();
-        const dd = String(d.getDate()).padStart(2, '0');
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const hh = String(d.getHours()).padStart(2, '0');
-        const min = String(d.getMinutes()).padStart(2, '0');
-        return `${dd}.${mm} ${hh}:${min}`;
-    })()
+    scriptLoadTime: null // не используется (версия берётся из CODE_COMMIT_INFO)
 };
 // END GLOBAL STATE MODULE //
 
@@ -2133,10 +2125,10 @@ function buildWelcomeAccountInfo() {
 // ── Строит полный текст приветственного сообщения ──
 function buildWelcomeText() {
     const _ci = window.CODE_COMMIT_INFO;
-    const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
+    const _versionLine = _ci ? `  <i>Version ${_ci.date} — ${_ci.msg}</i>` : '';
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>${BOT_NAME}</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>${BOT_NAME}</b>${_versionLine}\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
