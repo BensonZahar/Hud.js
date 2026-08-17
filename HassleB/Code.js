@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotАвтошкола'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotАвтошкоа2а'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -7233,10 +7233,14 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 // ║             После остановки записи — отправляет полный   ║
 // ║             маршрут в Telegram. Повтор воспроизводит     ║
 // ║             маршрут один в один.                         ║
+// ║  При старте записи запоминаются: позиция (X/Y/Z/угол)    ║
+// ║  и признак «сидим в машине». При повторе позиция и       ║
+// ║  статус сравниваются; при расхождении — сообщение в чат. ║
 // ║  Команды в чате игры:                                    ║
 // ║    /arec_on  → начать запись                             ║
 // ║    /arec_off → остановить запись + отправить в TG        ║
 // ║    /apov     → повторить последний маршрут               ║
+// ║    /apov_off → отменить текущий повтор                   ║
 // ║  Зависимости: debugLog, sendToTelegram, config,          ║
 // ║               window.onChatMessage                       ║
 // ╚══════════════════════════════════════════════════════════╝
@@ -7259,16 +7263,86 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
     const RECORD_KEYS = new Set(Object.keys(KEY_MAP).map(Number));
 
+    // Допустимое отклонение позиции (в игровых единицах) при сравнении.
+    // Значение 1.5 позволяет сравнить «один в один» с поправкой на погрешность
+    // плавающей точки и небольшую погрешность стоянки.
+    const POS_THRESHOLD = 1.5;
+
     // ── Состояние модуля ───────────────────────────────────────
     const avto = {
-        recording:    false,   // Активна ли запись прямо сейчас
-        events:       [],      // Записанные события: [{t, d, k}]
-        startTime:    null,    // Date.now() в момент старта записи
-        lastRoute:    null,    // Последний завершённый маршрут (для /apov)
-        replaying:    false,   // Идёт ли повтор прямо сейчас
-        replayTimers: [],      // setTimeout-ы повтора (для отмены)
-        heldKeys:     new Set(), // Зажатые клавиши в процессе записи
+        recording:     false,   // Активна ли запись прямо сейчас
+        events:        [],      // Записанные события: [{t, d, k}]
+        startTime:     null,    // Date.now() в момент старта записи
+        lastRoute:     null,    // Последний завершённый маршрут (для /apov)
+        replaying:     false,   // Идёт ли повтор прямо сейчас
+        replayTimers:  [],      // setTimeout-ы повтора (для отмены)
+        heldKeys:      new Set(), // Зажатые клавиши в процессе записи
+        startSnapshot: null,    // Снимок состояния при старте записи: {pos, inVehicle}
     };
+
+    // ── Получить текущий снимок: позиция + признак машины ─────
+    // inVehicle определяется по спидометру HUD — он виден только в транспорте.
+    function _getSnapshot() {
+        var pos       = null;
+        var inVehicle = false;
+        try {
+            if (window.App && window.App.$store) {
+                var raw = window.App.$store.getters['player/position'];
+                if (raw) {
+                    pos = { x: raw.x, y: raw.y, z: raw.z, angle: raw.angle, interior: raw.interior };
+                }
+            }
+            var hud = (typeof window.interface === 'function') ? window.interface('Hud') : null;
+            if (hud && hud.speedometer) {
+                inVehicle = !!hud.speedometer.show;
+            }
+        } catch (err) {
+            debugLog('[АВТОШКОЛА] _getSnapshot ошибка: ' + err.message);
+        }
+        return { pos: pos, inVehicle: inVehicle };
+    }
+
+    // ── Форматировать позицию для вывода в чат ─────────────────
+    function _fmtPos(pos) {
+        if (!pos) return '(нет данных)';
+        return 'X:' + pos.x.toFixed(1) + ' Y:' + pos.y.toFixed(1) + ' Z:' + pos.z.toFixed(1);
+    }
+
+    // ── Сравнить снимок при записи с текущим и вывести предупреждения
+    function _checkSnapshot() {
+        var snap    = avto.startSnapshot;
+        var current = _getSnapshot();
+        var problems = [];
+
+        // Сравнение «в машине / не в машине»
+        if (snap && snap.inVehicle !== current.inVehicle) {
+            problems.push(
+                '{EE4444}❌ Статус машины не совпадает! ' +
+                'Запись: ' + (snap.inVehicle ? 'в машине' : 'пешком') +
+                ' → Сейчас: ' + (current.inVehicle ? 'в машине' : 'пешком')
+            );
+        }
+
+        // Сравнение позиции (X / Y; Z обычно менее критична)
+        if (snap && snap.pos && current.pos) {
+            var dx = Math.abs(current.pos.x - snap.pos.x);
+            var dy = Math.abs(current.pos.y - snap.pos.y);
+            if (dx > POS_THRESHOLD || dy > POS_THRESHOLD) {
+                problems.push(
+                    '{EE4444}❌ Позиция не совпадает! ' +
+                    'Запись: ' + _fmtPos(snap.pos) +
+                    ' → Сейчас: ' + _fmtPos(current.pos) +
+                    ' (ΔX:' + dx.toFixed(1) + ' ΔY:' + dy.toFixed(1) + ')'
+                );
+            }
+        } else if (snap && !snap.pos) {
+            problems.push('{FFAA00}⚠ Позиция при записи не была сохранена — сравнение невозможно');
+        } else if (!current.pos) {
+            problems.push('{FFAA00}⚠ Позиция сейчас недоступна — сравнение невозможно');
+        }
+
+        return problems;
+    }
 
     // ── Обработчики клавиш (навешиваются только при записи) ───
 
@@ -7302,14 +7376,22 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             _chat('{EE4444}Сначала дождись окончания повтора');
             return;
         }
+
+        // ── Сохраняем снимок состояния ────────────────────────
+        avto.startSnapshot = _getSnapshot();
+        var snap           = avto.startSnapshot;
+        var snapLabel      = (snap.inVehicle ? '🚗 в машине' : '🚶 пешком') +
+                            (snap.pos ? ' | ' + _fmtPos(snap.pos) : ' | позиция неизвестна');
+
         avto.recording  = true;
         avto.events     = [];
         avto.startTime  = Date.now();
         avto.heldKeys.clear();
         document.addEventListener('keydown', onKeyDown, true);
         document.addEventListener('keyup',   onKeyUp,   true);
-        _chat('{33DD77}🔴 Запись маршрута НАЧАТА | /arec_off — стоп');
-        debugLog('[АВТОШКОЛА] ✅ Запись началась');
+
+        _chat('{33DD77}🔴 Запись НАЧАТА [' + snapLabel + '] | /arec_off — стоп');
+        debugLog('[АВТОШКОЛА] ✅ Запись. Снимок: ' + JSON.stringify(snap));
     }
 
     // ── Остановить запись ──────────────────────────────────────
@@ -7354,9 +7436,26 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             return;
         }
 
+        // ── Проверяем совпадение позиции и статуса машины ─────
+        var problems = _checkSnapshot();
+        if (problems.length > 0) {
+            _chat('{FFAA00}⚠ ВНИМАНИЕ — позиция/статус не совпадают со снимком записи:');
+            problems.forEach(function (p) { _chat(p); });
+            // Сообщаем в Telegram тоже
+            if (typeof sendToTelegram === 'function') {
+                var tgMsg = '⚠ <b>АВТОШКОЛА — Повтор: расхождение позиции/статуса</b>\n\n';
+                problems.forEach(function (p) {
+                    // Убираем цветовые теги для Telegram
+                    tgMsg += '• ' + p.replace(/\{[0-9A-Fa-f]{6}\}/g, '') + '\n';
+                });
+                sendToTelegram(tgMsg, false, null);
+            }
+            // Продолжаем повтор с предупреждением (не останавливаем)
+        }
+
         avto.replaying = true;
         avto.replayTimers = [];
-        const events = avto.lastRoute;
+        const events  = avto.lastRoute;
         const totalMs = events[events.length - 1] ? events[events.length - 1].t : 0;
 
         _chat('{33DD77}▶ Повтор маршрута НАЧАТ (' + (totalMs / 1000).toFixed(1) + 'с)');
@@ -7444,6 +7543,12 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             .map(function (pair) { return '  ' + pair[0] + ': ' + pair[1] + ' раз(а)'; })
             .join('\n') || '  (нет нажатий)';
 
+        // Снимок позиции при старте записи
+        var snap       = avto.startSnapshot;
+        var snapStatus = snap
+            ? ((snap.inVehicle ? '🚗 в машине' : '🚶 пешком') + ' | ' + _fmtPos(snap.pos))
+            : '(нет данных)';
+
         // Компактный JSON маршрута: [[t,d,k], ...]
         const routeJson = JSON.stringify(events.map(function (ev) {
             return [ev.t, ev.d, ev.k];
@@ -7452,7 +7557,8 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         // Формируем заголовочное сообщение
         let header = '🏎 <b>АВТОШКОЛА — Маршрут записан</b>\n\n';
         header += '⏱ Длительность: <b>' + totalSec + ' сек</b>\n';
-        header += '📊 Событий: <b>' + events.length + '</b>\n\n';
+        header += '📊 Событий: <b>' + events.length + '</b>\n';
+        header += '📍 Старт записи: <b>' + snapStatus + '</b>\n\n';
         header += '📋 <b>Сводка нажатий:</b>\n' + summaryLines + '\n\n';
         header += '🔄 Для повтора введи в чат: <code>/apov</code>';
 
@@ -7485,7 +7591,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         }
     }
 
-    // ── Хук sendChatInput — перехват /arec_on, /arec_off, /apov
     // ── Хук onScreenControlTouchStart/End (Hassle mobile HUD-кнопки) ──
     // Обратный маппинг: path → keyCode, чтобы касание кнопки газа/тормоза/руля
     // записывалось так же, как нажатие клавиши W/S/A/D/Space/H.
@@ -7537,7 +7642,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     })();
 
     // ── Инициализация ──────────────────────────────────────────
-    _chat('{AAAAAA}Модуль загружен | /arec_on — запись | /arec_off — стоп | /apov — повтор');
+    _chat('{AAAAAA}Модуль загружен | /arec_on — запись | /arec_off — стоп | /apov — повтор | /apov_off — отмена');
     debugLog('[АВТОШКОЛА] Модуль загружен | /arec_on | /arec_off | /apov | /apov_off');
 
 })();
