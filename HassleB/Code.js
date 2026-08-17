@@ -1,3 +1,8 @@
+// ┌──────────────────────────────────────────────────────────┐
+// │  НАСТРОЙКИ — меняй здесь                                │
+// └──────────────────────────────────────────────────────────┘
+const BOT_NAME = 'Hassle | Bot'; // Имя бота в приветственном сообщении
+
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
 // ║  Описание: Глобальные флаги состояния                    ║
@@ -1337,6 +1342,15 @@ function trackPlayerHp() {
     if (!config.hpTracking) return;
     if (window._hassleReloading) return;
 
+    // В тюрьме — урон не отслеживаем, сбрасываем baseline
+    if (globalState.inPrison) {
+        globalState.hpLastValue    = null;
+        globalState._hpGraceUntil  = null;
+        globalState._hpGraceActive = false;
+        setTimeout(trackPlayerHp, 2000);
+        return;
+    }
+
     // Пока не в игре — сбрасываем baseline и ждём
     try {
         let _isConnected = false;
@@ -2122,7 +2136,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>${BOT_NAME}</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
