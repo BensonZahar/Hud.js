@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗавод2'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotАвтошкола'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -7223,3 +7223,286 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END ZAVOD MODULE ====================
+
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: АВТОШКОЛА — запись и повтор маршрута            ║
+// ║  Описание: Записывает все нажатия и удержания клавиш     ║
+// ║             управления транспортом (газ, тормоз, руль,   ║
+// ║             ручник) с точностью до миллисекунды.         ║
+// ║             После остановки записи — отправляет полный   ║
+// ║             маршрут в Telegram. Повтор воспроизводит     ║
+// ║             маршрут один в один.                         ║
+// ║  Команды в чате игры:                                    ║
+// ║    /arec_on  → начать запись                             ║
+// ║    /arec_off → остановить запись + отправить в TG        ║
+// ║    /apov     → повторить последний маршрут               ║
+// ║  Зависимости: debugLog, sendToTelegram, config,          ║
+// ║               window.onChatMessage                       ║
+// ╚══════════════════════════════════════════════════════════╝
+// START AVTOSHKOLA MODULE //
+(function () {
+    'use strict';
+
+    // ── Маппинг клавиш: keyCode → {label, path} ───────────────
+    // path — строка для window.onScreenControlTouchStart/End
+    const KEY_MAP = {
+        87:  { label: 'Газ (W)',          path: '<Keyboard>/w'         },
+        83:  { label: 'Тормоз (S)',       path: '<Keyboard>/s'         },
+        65:  { label: 'Влево (A)',        path: '<Keyboard>/a'         },
+        68:  { label: 'Вправо (D)',       path: '<Keyboard>/d'         },
+        32:  { label: 'Ручник (Space)',   path: '<Keyboard>/space'     },
+        81:  { label: 'Пов. влево (Q)',   path: '<Keyboard>/q'         },
+        69:  { label: 'Пов. вправо (E)',  path: '<Keyboard>/e'         },
+        72:  { label: 'Сигнал (H)',       path: '<Keyboard>/h'         },
+    };
+
+    const RECORD_KEYS = new Set(Object.keys(KEY_MAP).map(Number));
+
+    // ── Состояние модуля ───────────────────────────────────────
+    const avto = {
+        recording:    false,   // Активна ли запись прямо сейчас
+        events:       [],      // Записанные события: [{t, d, k}]
+        startTime:    null,    // Date.now() в момент старта записи
+        lastRoute:    null,    // Последний завершённый маршрут (для /apov)
+        replaying:    false,   // Идёт ли повтор прямо сейчас
+        replayTimers: [],      // setTimeout-ы повтора (для отмены)
+        heldKeys:     new Set(), // Зажатые клавиши в процессе записи
+    };
+
+    // ── Обработчики клавиш (навешиваются только при записи) ───
+
+    function onKeyDown(e) {
+        if (!avto.recording) return;
+        const code = e.keyCode;
+        if (!RECORD_KEYS.has(code)) return;
+        if (avto.heldKeys.has(code)) return;          // игнор авто-повторов
+        avto.heldKeys.add(code);
+        avto.events.push({ t: Date.now() - avto.startTime, d: 1, k: code });
+        debugLog('[АВТОШКОЛА] ⬇ ' + KEY_MAP[code].label);
+    }
+
+    function onKeyUp(e) {
+        if (!avto.recording) return;
+        const code = e.keyCode;
+        if (!RECORD_KEYS.has(code)) return;
+        if (!avto.heldKeys.has(code)) return;         // клавиша и так не зажата
+        avto.heldKeys.delete(code);
+        avto.events.push({ t: Date.now() - avto.startTime, d: 0, k: code });
+        debugLog('[АВТОШКОЛА] ⬆ ' + KEY_MAP[code].label);
+    }
+
+    // ── Начать запись ──────────────────────────────────────────
+    function startRecording() {
+        if (avto.recording) {
+            _chat('{FFAA00}Запись уже идёт! Останови: /arec_off');
+            return;
+        }
+        if (avto.replaying) {
+            _chat('{EE4444}Сначала дождись окончания повтора');
+            return;
+        }
+        avto.recording  = true;
+        avto.events     = [];
+        avto.startTime  = Date.now();
+        avto.heldKeys.clear();
+        document.addEventListener('keydown', onKeyDown, true);
+        document.addEventListener('keyup',   onKeyUp,   true);
+        _chat('{33DD77}🔴 Запись маршрута НАЧАТА | /arec_off — стоп');
+        debugLog('[АВТОШКОЛА] ✅ Запись началась');
+    }
+
+    // ── Остановить запись ──────────────────────────────────────
+    function stopRecording() {
+        if (!avto.recording) {
+            _chat('{EE4444}Запись не активна. Запусти: /arec_on');
+            return;
+        }
+        avto.recording = false;
+        document.removeEventListener('keydown', onKeyDown, true);
+        document.removeEventListener('keyup',   onKeyUp,   true);
+
+        // Виртуально отпускаем все зажатые клавиши в конец записи
+        avto.heldKeys.forEach(function (code) {
+            avto.events.push({ t: Date.now() - avto.startTime, d: 0, k: code });
+        });
+        avto.heldKeys.clear();
+
+        avto.lastRoute = avto.events.slice();          // сохраняем копию
+        const totalSec = (avto.lastRoute[avto.lastRoute.length - 1]
+            ? avto.lastRoute[avto.lastRoute.length - 1].t / 1000
+            : 0).toFixed(1);
+
+        _chat('{EE4444}⏹ Запись остановлена | ' + avto.lastRoute.length + ' событий, ' + totalSec + 'с | /apov — повтор');
+        debugLog('[АВТОШКОЛА] ⛔ Запись остановлена. Событий: ' + avto.lastRoute.length);
+
+        _sendToTelegram(avto.lastRoute, totalSec);
+    }
+
+    // ── Воспроизведение маршрута ───────────────────────────────
+    function replayRoute() {
+        if (avto.replaying) {
+            _chat('{FFAA00}Повтор уже идёт!');
+            return;
+        }
+        if (!avto.lastRoute || avto.lastRoute.length === 0) {
+            _chat('{EE4444}Нет записанного маршрута. Запусти /arec_on');
+            return;
+        }
+        if (avto.recording) {
+            _chat('{EE4444}Сначала останови запись: /arec_off');
+            return;
+        }
+
+        avto.replaying = true;
+        avto.replayTimers = [];
+        const events = avto.lastRoute;
+        const totalMs = events[events.length - 1] ? events[events.length - 1].t : 0;
+
+        _chat('{33DD77}▶ Повтор маршрута НАЧАТ (' + (totalMs / 1000).toFixed(1) + 'с)');
+        debugLog('[АВТОШКОЛА] ▶ Повтор: ' + events.length + ' событий');
+
+        events.forEach(function (ev) {
+            const timer = setTimeout(function () {
+                const info = KEY_MAP[ev.k];
+                if (!info) return;
+                try {
+                    if (ev.d === 1) {
+                        // Нажатие — через игровой API виртуальных кнопок
+                        if (typeof window.onScreenControlTouchStart === 'function') {
+                            window.onScreenControlTouchStart(info.path);
+                        }
+                        // Дублируем нативным событием (для legacy/Radmir режима)
+                        document.dispatchEvent(new KeyboardEvent('keydown', {
+                            keyCode: ev.k, which: ev.k,
+                            bubbles: true, cancelable: true
+                        }));
+                        debugLog('[АВТОШКОЛА] ▶⬇ ' + info.label);
+                    } else {
+                        // Отпускание
+                        if (typeof window.onScreenControlTouchEnd === 'function') {
+                            window.onScreenControlTouchEnd(info.path);
+                        }
+                        document.dispatchEvent(new KeyboardEvent('keyup', {
+                            keyCode: ev.k, which: ev.k,
+                            bubbles: true, cancelable: true
+                        }));
+                        debugLog('[АВТОШКОЛА] ▶⬆ ' + info.label);
+                    }
+                } catch (err) {
+                    debugLog('[АВТОШКОЛА] Ошибка воспроизведения: ' + err.message);
+                }
+            }, ev.t);
+            avto.replayTimers.push(timer);
+        });
+
+        // Завершение повтора
+        const doneTimer = setTimeout(function () {
+            avto.replaying    = false;
+            avto.replayTimers = [];
+            _chat('{33DD77}✅ Повтор маршрута ЗАВЕРШЁН');
+            debugLog('[АВТОШКОЛА] ✅ Повтор завершён');
+        }, totalMs + 600);
+        avto.replayTimers.push(doneTimer);
+    }
+
+    // ── Отмена повтора (служебная, если понадобится) ──────────
+    function cancelReplay() {
+        if (!avto.replaying) return;
+        avto.replayTimers.forEach(clearTimeout);
+        avto.replayTimers = [];
+        avto.replaying    = false;
+        _chat('{FFAA00}⏹ Повтор отменён');
+
+        // Принудительно отпускаем все клавиши
+        RECORD_KEYS.forEach(function (code) {
+            const info = KEY_MAP[code];
+            if (!info) return;
+            try {
+                if (typeof window.onScreenControlTouchEnd === 'function') {
+                    window.onScreenControlTouchEnd(info.path);
+                }
+                document.dispatchEvent(new KeyboardEvent('keyup', {
+                    keyCode: code, which: code,
+                    bubbles: true, cancelable: true
+                }));
+            } catch (e) {}
+        });
+    }
+
+    // ── Формирование и отправка маршрута в Telegram ────────────
+    function _sendToTelegram(events, totalSec) {
+        // Сводка нажатий по клавишам
+        const summary = {};
+        events.forEach(function (ev) {
+            if (ev.d === 1) {
+                const lbl = KEY_MAP[ev.k] ? KEY_MAP[ev.k].label : 'Key' + ev.k;
+                summary[lbl] = (summary[lbl] || 0) + 1;
+            }
+        });
+        const summaryLines = Object.entries(summary)
+            .map(function (pair) { return '  ' + pair[0] + ': ' + pair[1] + ' раз(а)'; })
+            .join('\n') || '  (нет нажатий)';
+
+        // Компактный JSON маршрута: [[t,d,k], ...]
+        const routeJson = JSON.stringify(events.map(function (ev) {
+            return [ev.t, ev.d, ev.k];
+        }));
+
+        // Формируем заголовочное сообщение
+        let header = '🏎 <b>АВТОШКОЛА — Маршрут записан</b>\n\n';
+        header += '⏱ Длительность: <b>' + totalSec + ' сек</b>\n';
+        header += '📊 Событий: <b>' + events.length + '</b>\n\n';
+        header += '📋 <b>Сводка нажатий:</b>\n' + summaryLines + '\n\n';
+        header += '🔄 Для повтора введи в чат: <code>/apov</code>';
+
+        if (typeof sendToTelegram === 'function') {
+            sendToTelegram(header, false, null);
+
+            // Если данные маршрута влезают в одно сообщение — отправляем сразу,
+            // иначе разбиваем на чанки по 3800 символов
+            const chunkSize = 3800;
+            const prefix    = '📦 <b>Данные маршрута</b> (вставь в /apov_load при необходимости):\n<code>';
+            const suffix    = '</code>';
+
+            for (let i = 0; i < routeJson.length; i += chunkSize) {
+                const chunk = routeJson.slice(i, i + chunkSize);
+                const part  = (routeJson.length > chunkSize)
+                    ? ' [' + (Math.floor(i / chunkSize) + 1) + '/' + Math.ceil(routeJson.length / chunkSize) + ']'
+                    : '';
+                const msg = prefix.replace('маршрута)', 'маршрута' + part + ')') + chunk + suffix;
+                sendToTelegram(msg, true, null);
+            }
+        } else {
+            debugLog('[АВТОШКОЛА] sendToTelegram недоступна. Маршрут:\n' + routeJson);
+        }
+    }
+
+    // ── Вспомогалка: вывод в системный чат игры ───────────────
+    function _chat(coloredText) {
+        if (typeof window.onChatMessage === 'function') {
+            window.onChatMessage('{999999}АВТОШКОЛА — ' + coloredText, '999999FF');
+        }
+    }
+
+    // ── Хук sendChatInput — перехват /arec_on, /arec_off, /apov
+    (function hookSendChatInput() {
+        const _orig = window.sendChatInput;
+        window.sendChatInput = function (cmd) {
+            if (typeof cmd === 'string') {
+                const t = cmd.trim().toLowerCase();
+                if (t === '/arec_on')  { startRecording(); return; }
+                if (t === '/arec_off') { stopRecording();  return; }
+                if (t === '/apov')     { replayRoute();    return; }
+                if (t === '/apov_off') { cancelReplay();   return; }
+            }
+            if (typeof _orig === 'function') return _orig.apply(this, arguments);
+        };
+    })();
+
+    // ── Инициализация ──────────────────────────────────────────
+    _chat('{AAAAAA}Модуль загружен | /arec_on — запись | /arec_off — стоп | /apov — повтор');
+    debugLog('[АВТОШКОЛА] Модуль загружен | /arec_on | /arec_off | /apov | /apov_off');
+
+})();
+// ==================== END AVTOSHKOLA MODULE ====================
