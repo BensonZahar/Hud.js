@@ -23,16 +23,8 @@ const globalState = {
     _hpGraceUntil: null,     // Время окончания grace period после спавна (игнорируем изменения HP)
 
     welcomeShowSettings: false, // Флаг показа блока настроек в приветственном сообщении
-
-    // ── Режим "Отыгровка 25 минут" ──────────────────────────────
-    roleplay25: {
-        active: false,              // Режим включён/выключен
-        lastHourMinutes: null,      // Отыгранное время за последний час (мин), считанное из /c 60
-        lastTodayStr: null,         // Строка "сегодня" из диалога "Точное время"
-        lastYesterdayStr: null,     // Строка "вчера" из диалога "Точное время"
-        lastDialogTime: null,       // Timestamp последнего успешного считывания
-    },
-
+    otygrovkaMode: false,       // Режим «Отыгровка 25 мин» — ждём /c 60 и считываем время
+    otygrovkaTimeInHour: null,  // Последнее считанное «Время в игре за час»
     // Время загрузки скрипта — используется как fallback версии если CODE_COMMIT_INFO не задан
     scriptLoadTime: (function() {
         const d = new Date();
@@ -865,11 +857,7 @@ function setupAutoLogin(attempt = 1) {
                         6000        // видно 6 секунд (можно изменить)
                     );
                 }, 3000);
-                // Запрос времени до спавна после входа
-                // Сброс флагов: /c 60 отправится при определении фракционного скина
-                window._c60Sent = false;
-                window._awaitC60Dialog = false;
-                window._awaitAnimInteraction = false;
+                // /c 60 теперь отправляется только через кнопку «Отыгровка 25 мин» в Telegram
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
@@ -1503,21 +1491,8 @@ function updateFaction() {
                         }, 1500);
                     }
                 }
-                // Фракционный скин определён → отправляем /c 60 (один раз за сессию)
-                // Если "Отыгровка 25 мин" активна — сбрасываем флаг при каждом заходе,
-                // чтобы /c 60 срабатывал КАЖДЫЙ вход (не только первый за сессию).
-                if (globalState.roleplay25 && globalState.roleplay25.active) {
-                    window._c60Sent = false; // сбиваем — при каждом заходе перечитываем
-                }
-                // /anim 1 1 отправится автоматически когда появится диалог "Точное время"
-                if (!window._c60Sent) {
-                    window._c60Sent = true;
-                    window._awaitC60Dialog = true;    // Ждём диалог для закрытия
-                    window._awaitAnimInteraction = true; // Ждём "Выключить анимацию"
-                    debugLog('[ANIM] Фракционный скин → /c 60 + /anim 1 1 одновременно');
-                    sendChatInput("/c 60");
-                    sendChatInput("/anim 1 1");
-                }
+                // /c 60 теперь запускается только через кнопку «Отыгровка 25 мин» в Telegram
+                debugLog('[ANIM] Фракционный скин определён; /c 60 не отправляем (используй Отыгровку в Telegram)');
             }
             return;
         }
@@ -2108,7 +2083,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | BotОтыгро</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -2677,6 +2652,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
             [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
             [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
             [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_local_kac_options_${uniqueId}`)],
+            [createButton(`🎭 Отыгровка 25 мин ${globalState.otygrovkaMode ? '🟢' : '🔴'}`, `show_otygrovka_options_${uniqueId}`)],
             [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
             [pauseBtn, autoLoginBtn],
             [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
@@ -2791,6 +2767,31 @@ function showLocalKacOptionsMenu(chatId, messageId) {
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+function showOtygrovkaMenu(chatId, messageId) {
+    if (!config.accountInfo.nickname) {
+        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
+        return;
+    }
+    const isOn = globalState.otygrovkaMode;
+    const lastTime = globalState.otygrovkaTimeInHour;
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton(`🎭 ВКЛ ${isOn ? '🟢' : '⚪'}`, `otygrovka_on_${uniqueId}`),
+                createButton(`⏹️ ВЫКЛ ${!isOn ? '🔴' : '⚪'}`, `otygrovka_off_${uniqueId}`)
+            ],
+            [createButton(`⬅️ Вернуться назад`, `show_local_functions_${uniqueId}`)]
+        ]
+    };
+    const statusText = isOn
+        ? `\nСтатус: 🟢 Активна — ожидаем данные /c 60`
+        : `\nСтатус: ⏹️ Неактивна${lastTime !== null && lastTime !== undefined ? `\nПоследнее время за час: <b>${lastTime}</b>` : ''}`;
+    editMessageText(
+        chatId, messageId,
+        `🎭 <b>Отыгровка 25 мин — ${displayName}</b>${statusText}`,
+        replyMarkup
+    );
 }
 function hideControlsMenu(chatId, messageId) {
     if (!config.accountInfo.nickname) {
@@ -3132,6 +3133,12 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('show_welcome_settings_', '');
             } else if (message.startsWith('hide_welcome_settings_')) {
                 callbackUniqueId = message.replace('hide_welcome_settings_', '');
+            } else if (message.startsWith('show_otygrovka_options_')) {
+                callbackUniqueId = message.replace('show_otygrovka_options_', '');
+            } else if (message.startsWith('otygrovka_on_')) {
+                callbackUniqueId = message.replace('otygrovka_on_', '');
+            } else if (message.startsWith('otygrovka_off_')) {
+                callbackUniqueId = message.replace('otygrovka_off_', '');
             } else if (message.startsWith('move_forward_')) {
                 callbackUniqueId = message.replace('move_forward_', '').replace('_notification', '');
             } else if (message.startsWith('move_back_')) {
@@ -3633,6 +3640,23 @@ function processUpdates(updates) {
                 sendToTelegram(`🚪 <b>Выходим из игры (${displayName})</b>`, false, null);
                 deleteMessage(chatId, messageId);
                 sendChatInput("/q");
+            } else if (message.startsWith('show_otygrovka_options_')) {
+                showOtygrovkaMenu(chatId, messageId);
+            } else if (message.startsWith('otygrovka_on_')) {
+                // Включаем режим отыгровки — отправляем /c 60 с механизмом сбива анимации
+                globalState.otygrovkaMode = true;
+                window._awaitC60Dialog    = true;  // Ждём диалог «Точное время» для парсинга
+                window._awaitAnimInteraction = true; // Ждём «Выключить анимацию»
+                sendChatInput("/c 60");
+                sendChatInput("/anim 1 1");
+                debugLog('[OTYGROVKA] /c 60 + /anim 1 1 отправлены — ждём диалог');
+                showOtygrovkaMenu(chatId, messageId);
+            } else if (message.startsWith('otygrovka_off_')) {
+                // Отменяем режим отыгровки (если ещё не сработал)
+                globalState.otygrovkaMode = false;
+                window._awaitC60Dialog    = false;
+                sendToTelegram(`⏹️ <b>Отыгровка отменена (${displayName})</b>`, false, null);
+                showOtygrovkaMenu(chatId, messageId);
             } else if (message.startsWith('local_account_info_')) {
                 // Одно объединённое сообщение — тот же формат что и в welcome-сообщении
                 try {
@@ -4743,7 +4767,6 @@ function showHBLocalFunctionsMenu() {
     currentHBPage = 0;
     const statusOn = "{00FF00}[ВКЛ]";
     const statusOff = "{FF0000}[ВЫКЛ]";
-    const rp25Status = globalState.roleplay25 && globalState.roleplay25.active ? statusOn : statusOff;
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}Движение", action: "movement" },
         { name: `{FFFFFF}Увед. правик ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob_local" },
@@ -4751,8 +4774,7 @@ function showHBLocalFunctionsMenu() {
         { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
         { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter_local" },
         { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" },
-        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_local" },
-        { name: `{FFD700}> {FFFFFF}Отыгровка 25 мин ${rp25Status}`, action: "toggle_roleplay25" }
+        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_local" }
     ];
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
@@ -4997,31 +5019,6 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 config.kacAutoReply = !config.kacAutoReply;
                 showScreenNotification("Hassle", `Автоответ КАЧ/ЗП: ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'}`);
                 sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'} для ${displayName}</b>`, false, null);
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
-            } else if (listitem === 8) {
-                // ── Отыгровка 25 минут ────────────────────────────────────
-                const rp = globalState.roleplay25;
-                rp.active = !rp.active;
-                const rpOn = rp.active;
-                showScreenNotification("Hassle", `Отыгровка 25 мин: ${rpOn ? 'ВКЛ' : 'ВЫКЛ'}`);
-
-                if (rpOn) {
-                    // При включении сразу шлём /c 60 чтобы получить актуальные данные
-                    window._awaitC60Dialog = true;
-                    window._awaitAnimInteraction = false; // анимацию не трогаем повторно
-                    sendChatInput('/c 60');
-                    debugLog('[RP25] Режим включён → отправлен /c 60');
-                    sendToTelegram(
-                        `⏱ <b>Отыгровка 25 мин ВКЛ (${displayName})</b>\n` +
-                        `<i>Считываем время из /c 60...</i>`,
-                        false, null
-                    );
-                } else {
-                    debugLog('[RP25] Режим выключен');
-                    sendToTelegram(`⏱ <b>Отыгровка 25 мин ВЫКЛ (${displayName})</b>`, false, null);
-                }
-
-                sendWelcomeMessage();
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             }
             break;
@@ -5529,68 +5526,6 @@ function dlgBuildKeyboard() {
 
 // ── Telegram-операции ────────────────────────────────────────
 
-// ╔══════════════════════════════════════════════════════════╗
-// ║  HELPER: парсинг диалога "Точное время" (/c 60)          ║
-// ║  Вызывается только когда roleplay25.active === true       ║
-// ╚══════════════════════════════════════════════════════════╝
-function _parseC60TimeData(items, contentText) {
-    try {
-        let hourMins    = null;
-        let todayStr    = null;
-        let yesterdayStr = null;
-
-        // Извлекает последнее значение из строки вида:
-        //   "Время в игре за час: │  │ 5 мин"  →  "5 мин"
-        function extractVal(str) {
-            const parts = str.split('│');
-            return parts[parts.length - 1].trim();
-        }
-
-        // Попытка 1: из items (TABLIST / TABLIST_HEADERS)
-        if (items && items.length > 0) {
-            for (const row of items) {
-                const lo = row.toLowerCase();
-                if (lo.includes('за час')) {
-                    const val = extractVal(row);
-                    const m = val.match(/(\d+)\s*мин/);
-                    if (m) hourMins = parseInt(m[1], 10);
-                } else if (lo.includes('сегодня') && lo.includes('игре')) {
-                    todayStr = extractVal(row);
-                } else if (lo.includes('вчера')) {
-                    yesterdayStr = extractVal(row);
-                }
-            }
-        }
-
-        // Попытка 2: из contentText (MSGBOX fallback)
-        if (hourMins === null && contentText) {
-            for (const line of contentText.split('\n')) {
-                const lo = line.toLowerCase();
-                if (lo.includes('за час')) {
-                    const val = extractVal(line);
-                    const m = val.match(/(\d+)\s*мин/);
-                    if (m) hourMins = parseInt(m[1], 10);
-                } else if (lo.includes('сегодня') && lo.includes('игре')) {
-                    todayStr = todayStr || extractVal(line);
-                } else if (lo.includes('вчера')) {
-                    yesterdayStr = yesterdayStr || extractVal(line);
-                }
-            }
-        }
-
-        // Сохраняем в globalState
-        const rp = globalState.roleplay25;
-        rp.lastHourMinutes  = hourMins;
-        rp.lastTodayStr     = todayStr;
-        rp.lastYesterdayStr = yesterdayStr;
-        rp.lastDialogTime   = Date.now();
-
-        debugLog(`[RP25] ⏱ Считано из /c 60 → за час: ${hourMins} мин | сегодня: ${todayStr} | вчера: ${yesterdayStr}`);
-    } catch (e) {
-        debugLog('[RP25] Ошибка парсинга /c 60: ' + e.message);
-    }
-}
-
 function dlgSendToTelegram() {
     dlg.tgMsgs.forEach(({ chatId, messageId }) => deleteMessage(chatId, messageId));
     dlg.tgMsgs = [];
@@ -5770,13 +5705,44 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         if (title === "Точное время" && window._awaitC60Dialog) {
             window._awaitC60Dialog = false;
 
-            // ── Режим "Отыгровка 25 мин": парсим данные перед закрытием ─────
-            if (globalState.roleplay25 && globalState.roleplay25.active) {
-                _parseC60TimeData(items, contentText);
+            // ── Режим «Отыгровка 25 мин»: извлекаем «Время в игре за час» ──
+            if (globalState.otygrovkaMode) {
+                try {
+                    // Собираем все строки: info, contentText, items
+                    const allLines = [];
+                    if (info)        allLines.push(...info.split('\n'));
+                    if (contentText) allLines.push(...contentText.split('\n'));
+                    if (items && items.length > 0) allLines.push(...items);
+
+                    let timeInHour = null;
+                    for (const line of allLines) {
+                        if (line.includes('Время в игре за час')) {
+                            // Строка вида «Время в игре за час: │  │ 0 мин» или «Время в игре за час │ 0 мин»
+                            const parts = line.split('│');
+                            if (parts.length > 1) {
+                                timeInHour = parts[parts.length - 1].trim();
+                            } else {
+                                const colonIdx = line.indexOf(':');
+                                if (colonIdx !== -1) timeInHour = line.substring(colonIdx + 1).trim();
+                            }
+                            break;
+                        }
+                    }
+                    globalState.otygrovkaTimeInHour = timeInHour;
+                    const msg =
+                        `🎭 <b>Отыгровка 25 мин — ${displayName}</b>\n` +
+                        `⏱ Время в игре за час: <b>${timeInHour !== null ? timeInHour : 'не определено'}</b>`;
+                    sendToTelegram(msg, false, null);
+                    debugLog(`[OTYGROVKA] Время за час: ${timeInHour}`);
+                } catch (e) {
+                    debugLog(`[OTYGROVKA] Ошибка парсинга времени: ${e.message}`);
+                }
+                // После считывания режим сбрасывается — c 60 был один раз
+                globalState.otygrovkaMode = false;
             }
+            // ── END Отыгровка ──────────────────────────────────────────────────
 
             // Отвечаем серверу напрямую (response=0 = закрыть)
-            // dlg.active уже true — dlgRespond пропустит проверку при response=0
             dlgRespond(dialogId, 0, -1, '');
             dlgClose(false);
             debugLog('[DLG] "Точное время" — ответ серверу без показа диалога');
