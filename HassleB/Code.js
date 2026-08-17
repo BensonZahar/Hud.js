@@ -7486,6 +7486,42 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     }
 
     // ── Хук sendChatInput — перехват /arec_on, /arec_off, /apov
+    // ── Хук onScreenControlTouchStart/End (Hassle mobile HUD-кнопки) ──
+    // Обратный маппинг: path → keyCode, чтобы касание кнопки газа/тормоза/руля
+    // записывалось так же, как нажатие клавиши W/S/A/D/Space/H.
+    const PATH_MAP = {};
+    Object.keys(KEY_MAP).forEach(function (code) {
+        PATH_MAP[KEY_MAP[code].path] = Number(code);
+    });
+
+    (function hookTouchControls() {
+        const _origStart = window.onScreenControlTouchStart;
+        window.onScreenControlTouchStart = function (path) {
+            if (avto.recording) {
+                const code = PATH_MAP[path];
+                if (code !== undefined && !avto.heldKeys.has(code)) {
+                    avto.heldKeys.add(code);
+                    avto.events.push({ t: Date.now() - avto.startTime, d: 1, k: code });
+                    debugLog('[АВТОШКОЛА] ▼touch ' + (KEY_MAP[code] ? KEY_MAP[code].label : path));
+                }
+            }
+            if (typeof _origStart === 'function') return _origStart.apply(this, arguments);
+        };
+
+        const _origEnd = window.onScreenControlTouchEnd;
+        window.onScreenControlTouchEnd = function (path) {
+            if (avto.recording) {
+                const code = PATH_MAP[path];
+                if (code !== undefined && avto.heldKeys.has(code)) {
+                    avto.heldKeys.delete(code);
+                    avto.events.push({ t: Date.now() - avto.startTime, d: 0, k: code });
+                    debugLog('[АВТОШКОЛА] ▲touch ' + (KEY_MAP[code] ? KEY_MAP[code].label : path));
+                }
+            }
+            if (typeof _origEnd === 'function') return _origEnd.apply(this, arguments);
+        };
+    })();
+
     (function hookSendChatInput() {
         const _orig = window.sendChatInput;
         window.sendChatInput = function (cmd) {
