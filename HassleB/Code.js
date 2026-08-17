@@ -281,21 +281,10 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 (function() {
     const _orig = window.sendChatInput;
     window.sendChatInput = function(cmd) {
-        if (typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim())) {
-            window.__afterRec5 = true;
+        const isRec = typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim());
 
-            // Принудительно сбрасываем isPlayerConnected → false.
-            // Это гарантирует что trackPlayerHp увидит переход false→true
-            // при следующем спавне и корректно запустит grace period.
-            // Без этого isPlayerConnected мог оставаться true во время
-            // авторизации, и grace period не срабатывал повторно.
-            try {
-                if (window.setPlayerConnectedStatus) {
-                    window.setPlayerConnectedStatus(false);
-                } else if (window.App && window.App.$store) {
-                    window.App.$store.commit('player/setPlayerConnectedStatus', false);
-                }
-            } catch(e) {}
+        if (isRec) {
+            window.__afterRec5 = true;
 
             // Сбрасываем hpLastValue и grace period — следующий тик после спавна
             // только запишет baseline, без сравнения (как при первом входе).
@@ -306,7 +295,32 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
                 globalState._hpGraceActive = false;
             }
         }
-        return _orig.apply(this, arguments);
+
+        // FIX: сначала отправляем команду движку, только ПОТОМ меняем Vue-состояние.
+        // Раньше setPlayerConnectedStatus(false) вызывался ДО _orig.apply():
+        //   → Vue commit сразу реагировал и мог вызвать openInterface("Authorization")
+        //   → наш хук openInterface ставил setTimeout(initializeAutoLogin, 500)
+        //   → затем _orig.apply() отправлял /rec 5, игра СНОВА открывала Authorization
+        //   → хук срабатывал второй раз → setupAutoLogin вызывался дважды
+        //   → двойной loginInstance.onClickEvent("play") → зависание игры
+        const result = typeof _orig === 'function'
+            ? _orig.apply(this, arguments)
+            : undefined; // FIX: защита от undefined если sendChatInput ещё не инициализирован
+
+        if (isRec) {
+            // Принудительно сбрасываем isPlayerConnected → false ПОСЛЕ отправки команды.
+            // Гарантирует что trackPlayerHp увидит переход false→true при следующем спавне
+            // и корректно запустит grace period.
+            try {
+                if (window.setPlayerConnectedStatus) {
+                    window.setPlayerConnectedStatus(false);
+                } else if (window.App && window.App.$store) {
+                    window.App.$store.commit('player/setPlayerConnectedStatus', false);
+                }
+            } catch(e) {}
+        }
+
+        return result;
     };
 })();
 
