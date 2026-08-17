@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗавод2'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -6854,8 +6854,33 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         const result = typeof _origOpen === 'function' ? _origOpen.apply(this, arguments) : undefined;
 
         if (zavod.active && name === 'Turner') {
-            debugLog('[ЗАВОД] openInterface("Turner") → запускаем авто-заполнение');
-            _scheduleTurnerFill(350);
+            debugLog('[ЗАВОД] openInterface("Turner") → мгновенное завершение');
+            // Turner.js watch: { progress(t) { t>=100 && sendClientEvent(gm.EVENT_EXECUTE_PUBLIC,"Turner_OnPlayerEnd") } }
+            // Серверу нужен только этот event — Vue-компонент, changeProgress и поллинг не нужны вообще.
+            // setTimeout(0): следующий тик, ~1ms — даём движку зарегистрировать открытие Turner.
+            setTimeout(function () {
+                try {
+                    if (typeof sendClientEvent === 'function' && typeof gm !== 'undefined') {
+                        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'Turner_OnPlayerEnd');
+                        debugLog('[ЗАВОД] ✅ Turner_OnPlayerEnd → мгновенно (~1ms)');
+                    }
+                } catch (e) {
+                    debugLog('[ЗАВОД] Ошибка Turner_OnPlayerEnd: ' + e.message);
+                    _scheduleTurnerFill(0); // резерв: найти компонент и заполнить
+                }
+            }, 0);
+            // Закрываем интерфейс если сервер не закрыл сам (~150ms)
+            setTimeout(function () {
+                try {
+                    const stillOpen = typeof window.getInterfaceStatus === 'function'
+                        ? window.getInterfaceStatus('Turner')
+                        : document.querySelector('.turner');
+                    if (stillOpen) {
+                        window.closeInterface('Turner');
+                        debugLog('[ЗАВОД] 🔒 Turner закрыт принудительно');
+                    }
+                } catch (e) {}
+            }, 150);
         }
 
         // ── Авто-клик «Начать производство» (тип 399) при /zon ───────
@@ -7010,7 +7035,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                                                 node.querySelector('.turner')));
                     if (hasTurner) {
                         debugLog('[ЗАВОД] Turner обнаружен в DOM → запускаем заполнение');
-                        _scheduleTurnerFill(400);
+                        _scheduleTurnerFill(80);
                         return;
                     }
                 }
@@ -7029,10 +7054,10 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             let tries = 0;
             zavod.turnerInterval = setInterval(function () {
                 tries++;
-                if (!zavod.active || tries > 60) {
+                if (!zavod.active || tries > 30) {
                     clearInterval(zavod.turnerInterval);
                     zavod.turnerInterval = null;
-                    if (tries > 60) debugLog('[ЗАВОД] ⚠️ Turner: компонент не найден за 12 сек');
+                    if (tries > 30) debugLog('[ЗАВОД] ⚠️ Turner: компонент не найден за 3 сек');
                     return;
                 }
                 if (_tryFillTurner()) {
@@ -7040,7 +7065,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     zavod.turnerInterval = null;
                     debugLog('[ЗАВОД] ✅ Turner успешно заполнен!');
                 }
-            }, 200);
+            }, 80);
         }, delayMs);
     }
 
@@ -7143,17 +7168,19 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     // Заполняем все прямоугольники TurnerMachine
     function _fillTurnerMachine(vm) {
         const rects = vm.currentFigure.rects;
-        debugLog(`[ЗАВОД] 🎨 Заполняем ${rects.length} прямоугольников токарного станка...`);
+        debugLog('[ЗАВОД] 🎨 Заполняем ' + rects.length + ' прямоугольников токарного станка...');
 
+        // 1) Устанавливаем прогресс всех секций = 1 через Vue-метод
+        //    (обновляет vm.progress[] и эмитит total% в outer Turner)
         for (let i = 0; i < rects.length; i++) {
             try {
-                vm.changeProgress(i, 1); // устанавливаем прогресс секции = 100%
+                vm.changeProgress(i, 1);
             } catch (e) {
-                debugLog(`[ЗАВОД] Ошибка changeProgress(${i}): ${e.message}`);
+                debugLog('[ЗАВОД] Ошибка changeProgress(' + i + '): ' + e.message);
             }
         }
 
-        // Визуально белим все canvas-холсты (UI-эффект)
+        // 2) Мгновенная визуальная заливка canvas белым
         document.querySelectorAll('canvas.turner-machine-canvas').forEach(function (c) {
             try {
                 const ctx = c.getContext('2d');
@@ -7161,6 +7188,35 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 ctx.fillRect(0, 0, c.width, c.height);
             } catch (e) {}
         });
+
+        // 3) Напрямую отправляем Turner_OnPlayerEnd — не ждём Vue-watcher.
+        //    Turner.js: watch { progress(t) { t>=100 && sendClientEvent(...,"Turner_OnPlayerEnd") } }
+        //    Этот watcher — flush:'pre' (асинхронный). Обходим его, стреляем сами.
+        setTimeout(function () {
+            try {
+                if (typeof sendClientEvent === 'function' && typeof gm !== 'undefined') {
+                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'Turner_OnPlayerEnd');
+                    debugLog('[ЗАВОД] ✅ Turner_OnPlayerEnd отправлен напрямую');
+                }
+            } catch (e) {
+                debugLog('[ЗАВОД] Ошибка Turner_OnPlayerEnd: ' + e.message);
+            }
+        }, 80);
+
+        // 4) Закрываем интерфейс, если сервер не закрыл сам
+        //    Turner.js close(): sendClientEvent(...,"Turner_OnPlayerClose") + closeInterface("Turner")
+        //    После Turner_OnPlayerEnd сервер обычно закрывает сам, но на всякий случай — страховка
+        setTimeout(function () {
+            try {
+                const stillOpen = typeof window.getInterfaceStatus === 'function'
+                    ? window.getInterfaceStatus('Turner')
+                    : document.querySelector('.turner');
+                if (stillOpen) {
+                    window.closeInterface('Turner');
+                    debugLog('[ЗАВОД] 🔒 Turner принудительно закрыт (сервер не закрыл)');
+                }
+            } catch (e) {}
+        }, 500);
     }
 
     debugLog('[ЗАВОД] Модуль загружен | /zon — включить | /zoff — выключить');
