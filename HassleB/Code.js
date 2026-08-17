@@ -6848,24 +6848,93 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         return typeof _origChat === 'function' ? _origChat.apply(this, arguments) : undefined;
     };
 
-    // ── Хук openInterface — ловим открытие Turner ──────────────
+    // ── Хук openInterface — ловим открытие Turner и Interactions ─
     const _origOpen = window.openInterface;
     window.openInterface = function (name) {
         const result = typeof _origOpen === 'function' ? _origOpen.apply(this, arguments) : undefined;
+
         if (zavod.active && name === 'Turner') {
             debugLog('[ЗАВОД] openInterface("Turner") → запускаем авто-заполнение');
             _scheduleTurnerFill(350);
         }
+
+        // ── Авто-клик «Начать производство» (тип 399) при /zon ───────
+        // Работает точно так же, как авто-клик «Выключить анимацию» (тип 75):
+        // получаем Vue-прокси Interactions и вызываем onClick(idx).
+        if (zavod.active && name === 'Interactions') {
+            const params = arguments[1];
+            try {
+                let list = [];
+                if (params) {
+                    const parsed = (typeof params === 'object') ? params : JSON.parse(params);
+                    for (const key in parsed) {
+                        list.push({ type: parsed[key][0], title: parsed[key][1] });
+                    }
+                }
+                const prodItem = list.find(function (item) { return item.type === 399; });
+                if (prodItem) {
+                    const prodIdx = list.indexOf(prodItem);
+                    debugLog('[ЗАВОД] 🔘 Авто-клик "' + prodItem.title + '" (тип 399)');
+                    setTimeout(function () {
+                        try {
+                            const iface = window.interface('Interactions');
+                            if (iface && typeof iface.onClick === 'function') {
+                                iface.onClick(prodIdx);
+                                debugLog('[ЗАВОД] ✅ onClick("Начать производство") выполнен');
+                            } else {
+                                sendClientEvent(
+                                    window.gm ? window.gm.EVENT_EXECUTE_PUBLIC : 0,
+                                    'OnInteractionsClick', prodItem.type
+                                );
+                                debugLog('[ЗАВОД] ✅ sendClientEvent (fallback) выполнен');
+                            }
+                        } catch (e2) {
+                            debugLog('[ЗАВОД] Ошибка авто-клика: ' + e2.message);
+                        }
+                    }, 80);
+                }
+            } catch (e) {
+                debugLog('[ЗАВОД] Ошибка парсинга Interactions params: ' + e.message);
+            }
+        }
+        // ── END Авто-клик «Начать производство» ──────────────────────
+
         return result;
     };
 
     // ─────────────────────────────────────────────────────────
     //  ВКЛ / ВЫКЛ
     // ─────────────────────────────────────────────────────────
+
+    // Уведомление в чат + автоудаление через 3 сек (как _notifyToggle в fkonst.js)
+    function _notifyZavod(on) {
+        if (typeof window.onChatMessage !== 'function') return;
+        if (on) {
+            window.onChatMessage('{999999}ЗАВОД — {33DD77}Включён', '999999FF');
+        } else {
+            window.onChatMessage('{999999}ЗАВОД — {EE4444}Выключён', '999999FF');
+        }
+        setTimeout(function () {
+            try {
+                const hud = window.interface('Hud');
+                if (!hud || !hud.$refs || !hud.$refs.chat) return;
+                const chat = hud.$refs.chat;
+                if (!Array.isArray(chat.messages)) return;
+                chat.messages = chat.messages.filter(function (m) {
+                    if (!m.content) return true;
+                    return !m.content.some(function (c) {
+                        return c.text && c.text.includes('ЗАВОД —');
+                    });
+                });
+            } catch (_) { /* тихо */ }
+        }, 3000);
+    }
+
     function _zavodOn() {
         if (zavod.active) { debugLog('[ЗАВОД] уже включён'); return; }
         zavod.active = true;
         debugLog('[ЗАВОД] ✅ Авто-завод ВКЛЮЧЁН  (выключить: /zoff)');
+        _notifyZavod(true);
         _startProductionPoller(); // поиск кнопки «Начать производство»
         _startDOMObserver();      // слежение за появлением Turner в DOM
     }
@@ -6876,6 +6945,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         if (zavod.turnerInterval) { clearInterval(zavod.turnerInterval); zavod.turnerInterval = null; }
         if (zavod.domObserver)    { zavod.domObserver.disconnect();       zavod.domObserver = null; }
         debugLog('[ЗАВОД] ⛔ Авто-завод ВЫКЛЮЧЕН');
+        _notifyZavod(false);
     }
 
     // ─────────────────────────────────────────────────────────
