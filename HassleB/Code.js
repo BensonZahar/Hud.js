@@ -2090,7 +2090,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | BotK</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -5982,7 +5982,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 
                     // Если авто-режим — запускаем трекинг
                     if (globalState.otygrovkaAuto) {
-                        const remaining = 25 - initialMinutes;
+                        const remaining = 27 - initialMinutes;
                         if (remaining <= 0) {
                             msgParts.push(`✅ Уже ≥27 мин — планируем выход в :59:20`);
                         } else {
