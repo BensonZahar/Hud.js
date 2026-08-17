@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | Bot99'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -6809,3 +6809,291 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END WARNING CHECK MODULE ====================
+
+
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: ЗАВОД — авто-производство на заводе             ║
+// ║  Описание: Перехватывает команды /zon и /zoff в чате     ║
+// ║             игры (не Telegram). В режиме ВКЛ:            ║
+// ║             1) автоматически нажимает кнопку             ║
+// ║                «Начать производство» при её появлении     ║
+// ║             2) автоматически заполняет интерфейс         ║
+// ║                токарного станка (Turner) по максимуму    ║
+// ║  Зависимости: debugLog, window.openInterface,            ║
+// ║               window.sendChatInput                       ║
+// ╚══════════════════════════════════════════════════════════╝
+// START ZAVOD MODULE //
+(function () {
+    'use strict';
+
+    // ── Состояние модуля ───────────────────────────────────────
+    const zavod = {
+        active: false,        // Режим включён?
+        prodInterval: null,   // Таймер поиска кнопки «Начать производство»
+        turnerInterval: null, // Таймер заполнения Turner
+        domObserver: null,    // MutationObserver для появления Turner в DOM
+    };
+
+    // ── Хук sendChatInput — перехват /zon и /zoff ─────────────
+    // Команды набираются в чате игры (не в Telegram):
+    //   /zon  → включить авто-завод
+    //   /zoff → выключить авто-завод
+    const _origChat = window.sendChatInput;
+    window.sendChatInput = function (input) {
+        if (typeof input === 'string') {
+            const cmd = input.trim().toLowerCase();
+            if (cmd === '/zon')  { _zavodOn();  return; } // не отправляем в игру
+            if (cmd === '/zoff') { _zavodOff(); return; }
+        }
+        return typeof _origChat === 'function' ? _origChat.apply(this, arguments) : undefined;
+    };
+
+    // ── Хук openInterface — ловим открытие Turner ──────────────
+    const _origOpen = window.openInterface;
+    window.openInterface = function (name) {
+        const result = typeof _origOpen === 'function' ? _origOpen.apply(this, arguments) : undefined;
+        if (zavod.active && name === 'Turner') {
+            debugLog('[ЗАВОД] openInterface("Turner") → запускаем авто-заполнение');
+            _scheduleTurnerFill(350);
+        }
+        return result;
+    };
+
+    // ─────────────────────────────────────────────────────────
+    //  ВКЛ / ВЫКЛ
+    // ─────────────────────────────────────────────────────────
+    function _zavodOn() {
+        if (zavod.active) { debugLog('[ЗАВОД] уже включён'); return; }
+        zavod.active = true;
+        debugLog('[ЗАВОД] ✅ Авто-завод ВКЛЮЧЁН  (выключить: /zoff)');
+        _startProductionPoller(); // поиск кнопки «Начать производство»
+        _startDOMObserver();      // слежение за появлением Turner в DOM
+    }
+
+    function _zavodOff() {
+        zavod.active = false;
+        if (zavod.prodInterval)   { clearInterval(zavod.prodInterval);   zavod.prodInterval = null; }
+        if (zavod.turnerInterval) { clearInterval(zavod.turnerInterval); zavod.turnerInterval = null; }
+        if (zavod.domObserver)    { zavod.domObserver.disconnect();       zavod.domObserver = null; }
+        debugLog('[ЗАВОД] ⛔ Авто-завод ВЫКЛЮЧЕН');
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  1) АВТО-НАЖАТИЕ «Начать производство»
+    // ─────────────────────────────────────────────────────────
+    function _startProductionPoller() {
+        if (zavod.prodInterval) clearInterval(zavod.prodInterval);
+        zavod.prodInterval = setInterval(function () {
+            if (!zavod.active) return;
+            _tryClickProduction();
+        }, 600);
+    }
+
+    function _tryClickProduction() {
+        // Ищем листовой DOM-элемент с нужным текстом (без вложенных тегов)
+        const all = document.querySelectorAll('*');
+        for (const el of all) {
+            if (el.childElementCount === 0 &&
+                el.textContent.trim() === 'Начать производство' &&
+                _isVisible(el)) {
+                debugLog('[ЗАВОД] 🔘 Нажимаем "Начать производство"');
+                // Кликаем сам элемент и несколько его родителей (на случай обёрток)
+                let cur = el;
+                for (let i = 0; i < 6; i++) {
+                    cur.click();
+                    cur.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                    if (!cur.parentElement || cur.parentElement === document.body) break;
+                    cur = cur.parentElement;
+                }
+                return;
+            }
+        }
+    }
+
+    function _isVisible(el) {
+        if (!el) return false;
+        try {
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) return false;
+            const s = getComputedStyle(el);
+            return s.display !== 'none' &&
+                   s.visibility !== 'hidden' &&
+                   parseFloat(s.opacity || '1') > 0;
+        } catch (e) { return false; }
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  2) DOM OBSERVER — Turner появился в DOM
+    // ─────────────────────────────────────────────────────────
+    function _startDOMObserver() {
+        if (zavod.domObserver) zavod.domObserver.disconnect();
+        zavod.domObserver = new MutationObserver(function (mutations) {
+            if (!zavod.active) return;
+            for (const m of mutations) {
+                for (const node of m.addedNodes) {
+                    if (node.nodeType !== 1) continue;
+                    // Сам узел — turner или его потомок
+                    const hasTurner =
+                        (node.classList && (node.classList.contains('turner') ||
+                                            node.classList.contains('turner-machine'))) ||
+                        (node.querySelector && (node.querySelector('.turner-machine') ||
+                                                node.querySelector('.turner')));
+                    if (hasTurner) {
+                        debugLog('[ЗАВОД] Turner обнаружен в DOM → запускаем заполнение');
+                        _scheduleTurnerFill(400);
+                        return;
+                    }
+                }
+            }
+        });
+        zavod.domObserver.observe(document.body, { childList: true, subtree: true });
+    }
+
+    // ─────────────────────────────────────────────────────────
+    //  3) АВТО-ЗАПОЛНЕНИЕ TURNER
+    // ─────────────────────────────────────────────────────────
+    function _scheduleTurnerFill(delayMs) {
+        setTimeout(function () {
+            if (!zavod.active) return;
+            if (zavod.turnerInterval) clearInterval(zavod.turnerInterval);
+            let tries = 0;
+            zavod.turnerInterval = setInterval(function () {
+                tries++;
+                if (!zavod.active || tries > 60) {
+                    clearInterval(zavod.turnerInterval);
+                    zavod.turnerInterval = null;
+                    if (tries > 60) debugLog('[ЗАВОД] ⚠️ Turner: компонент не найден за 12 сек');
+                    return;
+                }
+                if (_tryFillTurner()) {
+                    clearInterval(zavod.turnerInterval);
+                    zavod.turnerInterval = null;
+                    debugLog('[ЗАВОД] ✅ Turner успешно заполнен!');
+                }
+            }, 200);
+        }, delayMs);
+    }
+
+    function _tryFillTurner() {
+        // ── Способ A: div.turner-machine → Vue-прокси компонента ──
+        const machineEl = document.querySelector('.turner-machine');
+        if (machineEl) {
+            const vm = _getVueProxy(machineEl);
+            if (vm) {
+                if (_isTurnerMachineVm(vm)) { _fillTurnerMachine(vm); return true; }
+                // Ищем дочерний TurnerMachine во vnode-дереве (Vue 3)
+                const child = vm.$ && vm.$.subTree
+                    ? _findVmInVnodes(vm.$.subTree, _isTurnerMachineVm)
+                    : null;
+                if (child) { _fillTurnerMachine(child); return true; }
+            }
+        }
+
+        // ── Способ B: window.interface('Turner') ──────────────────
+        try {
+            const ti = typeof window.interface === 'function' && window.interface('Turner');
+            if (ti) {
+                if (_isTurnerMachineVm(ti)) { _fillTurnerMachine(ti); return true; }
+                const child = ti.$ && ti.$.subTree
+                    ? _findVmInVnodes(ti.$.subTree, _isTurnerMachineVm)
+                    : null;
+                if (child) { _fillTurnerMachine(child); return true; }
+            }
+        } catch (e) {}
+
+        // ── Способ C: через canvas-элементы → ищем .turner-machine ─
+        const canvases = document.querySelectorAll('canvas.turner-machine-canvas');
+        for (const c of canvases) {
+            let ancestor = c.parentElement;
+            while (ancestor && !ancestor.classList.contains('turner-machine')) {
+                ancestor = ancestor.parentElement;
+            }
+            if (ancestor) {
+                const vm = _getVueProxy(ancestor);
+                if (vm && _isTurnerMachineVm(vm)) {
+                    _fillTurnerMachine(vm);
+                    return true;
+                }
+            }
+        }
+
+        return false; // компонент ещё не готов — retry
+    }
+
+    // Получаем публичный прокси Vue-компонента по DOM-элементу
+    function _getVueProxy(el) {
+        if (!el) return null;
+        // Vue 3: __vueParentComponent установлен на корневом элементе компонента
+        if (el.__vueParentComponent) {
+            return el.__vueParentComponent.proxy || el.__vueParentComponent.ctx || null;
+        }
+        // Vue 2 / некоторые сборки Vue 3
+        if (el.__vue__) return el.__vue__;
+        return null;
+    }
+
+    // Является ли vm компонентом TurnerMachine?
+    function _isTurnerMachineVm(vm) {
+        return !!(vm &&
+                  vm.currentFigure &&
+                  Array.isArray(vm.currentFigure.rects) &&
+                  typeof vm.changeProgress === 'function');
+    }
+
+    // Рекурсивный обход vnode-дерева Vue 3
+    function _findVmInVnodes(vnode, predicate) {
+        if (!vnode) return null;
+        // Vnode — компонент
+        if (vnode.component) {
+            const proxy = vnode.component.proxy || vnode.component.ctx;
+            if (predicate(proxy)) return proxy;
+            // Углубляемся в subTree компонента
+            const r = _findVmInVnodes(vnode.component.subTree, predicate);
+            if (r) return r;
+        }
+        // Дочерние vnode (статические и динамические)
+        const children = vnode.children;
+        if (Array.isArray(children)) {
+            for (const ch of children) {
+                if (ch && typeof ch === 'object') {
+                    const r = _findVmInVnodes(ch, predicate);
+                    if (r) return r;
+                }
+            }
+        }
+        if (Array.isArray(vnode.dynamicChildren)) {
+            for (const ch of vnode.dynamicChildren) {
+                const r = _findVmInVnodes(ch, predicate);
+                if (r) return r;
+            }
+        }
+        return null;
+    }
+
+    // Заполняем все прямоугольники TurnerMachine
+    function _fillTurnerMachine(vm) {
+        const rects = vm.currentFigure.rects;
+        debugLog(`[ЗАВОД] 🎨 Заполняем ${rects.length} прямоугольников токарного станка...`);
+
+        for (let i = 0; i < rects.length; i++) {
+            try {
+                vm.changeProgress(i, 1); // устанавливаем прогресс секции = 100%
+            } catch (e) {
+                debugLog(`[ЗАВОД] Ошибка changeProgress(${i}): ${e.message}`);
+            }
+        }
+
+        // Визуально белим все canvas-холсты (UI-эффект)
+        document.querySelectorAll('canvas.turner-machine-canvas').forEach(function (c) {
+            try {
+                const ctx = c.getContext('2d');
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(0, 0, c.width, c.height);
+            } catch (e) {}
+        });
+    }
+
+    debugLog('[ЗАВОД] Модуль загружен | /zon — включить | /zoff — выключить');
+
+})();
+// ==================== END ZAVOD MODULE ====================
