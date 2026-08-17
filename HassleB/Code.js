@@ -1356,14 +1356,32 @@ function trackPlayerHp() {
 
     // Первый тик в игре — только ставим baseline, урон не считаем
     if (currentHp !== null && globalState.hpLastValue === null) {
-        globalState.hpLastValue = currentHp;
-        debugLog('[HP] ✅ В игре — baseline HP=' + Math.round(currentHp));
+        globalState.hpLastValue   = currentHp;
+        // Grace period: HUD после спавна/rec ещё может показывать 100
+        // пока сервер не прислал реальный HP — ждём 4 сек без учёта урона
+        globalState._hpGraceUntil  = Date.now() + 4000;
+        globalState._hpGraceActive = true;
+        debugLog('[HP] ✅ В игре — baseline HP=' + Math.round(currentHp) + ', grace 4s');
         setTimeout(trackPlayerHp, 500);
         return;
     }
 
     // Сравниваем только когда в игре и baseline уже есть
     if (currentHp !== null && globalState.hpLastValue !== null) {
+        // Grace period: пока HUD не синхронизировался с сервером после спавна/rec —
+        // молча обновляем baseline, урон не считаем
+        if (globalState._hpGraceActive && globalState._hpGraceUntil && Date.now() < globalState._hpGraceUntil) {
+            globalState.hpLastValue = currentHp;
+            setTimeout(trackPlayerHp, 500);
+            return;
+        }
+        // Grace period истёк — сбрасываем флаг
+        if (globalState._hpGraceActive) {
+            globalState._hpGraceActive = false;
+            globalState._hpGraceUntil  = null;
+            debugLog('[HP] Grace period завершён, baseline HP=' + Math.round(currentHp));
+        }
+
         if (currentHp < globalState.hpLastValue) {
             const damage = Math.round(globalState.hpLastValue - currentHp);
 
@@ -2104,7 +2122,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | Bot9</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
