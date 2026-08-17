@@ -23,14 +23,14 @@ const globalState = {
     _hpGraceUntil: null,     // Время окончания grace period после спавна (игнорируем изменения HP)
 
     welcomeShowSettings: false, // Флаг показа блока настроек в приветственном сообщении
-    otygrovkaMode: false,       // Режим «Отыгровка 25 мин» — ждём /c 60 и считываем время
+    otygrovkaMode: false,       // Режим «Отыгровка 27 мин» — ждём /c 60 и считываем время
     otygrovkaTimeInHour: null,  // Последнее считанное «Время в игре за час»
     // ── Авто-цикл отыгровки ────────────────────────────────────
-    otygrovkaAuto: false,          // Полный автоматический 25-мин цикл активен
+    otygrovkaAuto: false,          // Полный автоматический 27-мин цикл активен
     otygrovkaInitialSec: 0,        // Секунды «Время в игре за час» из /c 60 (начальная точка)
     otygrovkaPlaySec: 0,           // Накопленное время IN-GAME (spawned + не пауза), секунды
     otygrovkaTrackInterval: null,  // setInterval — тикает каждую секунду
-    otygrovkaExitTimer: null,      // setTimeout — выход в :59:30
+    otygrovkaExitTimer: null,      // setTimeout — выход в :59:20
     otygrovkaCurrentTime: null,    // «Текущее время» из последнего /c 60
     // Время загрузки скрипта — используется как fallback версии если CODE_COMMIT_INFO не задан
     scriptLoadTime: (function() {
@@ -864,7 +864,7 @@ function setupAutoLogin(attempt = 1) {
                         6000        // видно 6 секунд (можно изменить)
                     );
                 }, 3000);
-                // /c 60 теперь отправляется только через кнопку «Отыгровка 25 мин» в Telegram
+                // /c 60 теперь отправляется только через кнопку «Отыгровка 27 мин» в Telegram
 
             } catch (err) {
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
@@ -1498,7 +1498,7 @@ function updateFaction() {
                         }, 1500);
                     }
                 }
-                // /c 60 теперь запускается только через кнопку «Отыгровка 25 мин» в Telegram
+                // /c 60 теперь запускается только через кнопку «Отыгровка 27 мин» в Telegram
                 debugLog('[ANIM] Фракционный скин определён; /c 60 не отправляем (используй Отыгровку в Telegram)');
             }
             return;
@@ -2090,7 +2090,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | BotK</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -2470,7 +2470,7 @@ function handlePayDayTimeMessage() {
 // ║  Описание: Автоматический 25-мин цикл отыгровки.         ║
 // ║    • Считает ТОЛЬКО время when isPlayerConnected=true    ║
 // ║      и PauseMenu закрыто (авторизация/пауза — не считаем)║
-// ║    • После 25 мин → выход /rec 5 в :59:30 + автовход    ║
+// ║    • После 27 мин → выход /rec 5 в :59:20 + автовход    ║
 // ║    • Ловим PayDay в :00 → сбрасываем и повторяем         ║
 // ║  Зависимости: globalState, autoLoginConfig,              ║
 // ║               sendChatInput, sendToTelegram, debugLog,   ║
@@ -2478,7 +2478,7 @@ function handlePayDayTimeMessage() {
 // ╚══════════════════════════════════════════════════════════╝
 // START OTYGROVKA AUTO MODULE //
 
-const OTYGROVKA_TARGET_SEC = 25 * 60; // 1500 сек = 25 мин
+const OTYGROVKA_TARGET_SEC = 27 * 60; // 1620 сек = 27 мин
 
 // ── Суммарное in-game время в секундах (начальное + накопленное) ──────────
 function _otygrovkaTotalSec() {
@@ -2517,11 +2517,11 @@ function startOtygrovkaTracking(initialMinutes) {
     globalState.otygrovkaInitialSec = initSec;
     globalState.otygrovkaPlaySec    = 0;
 
-    debugLog(`[OTYGROVKA] Запуск трекинга. Начало: ${initialMinutes} мин (${initSec} сек). Цель: 25 мин.`);
+    debugLog(`[OTYGROVKA] Запуск трекинга. Начало: ${initialMinutes} мин (${initSec} сек). Цель: 27 мин.`);
 
     // Уже 25+ мин? Сразу планируем выход
     if (initSec >= OTYGROVKA_TARGET_SEC) {
-        debugLog('[OTYGROVKA] Уже ≥25 мин — немедленно планируем выход в :59:30');
+        debugLog('[OTYGROVKA] Уже ≥27 мин — немедленно планируем выход в :59:20');
         scheduleOtygrovkaExit();
         return;
     }
@@ -2546,7 +2546,7 @@ function startOtygrovkaTracking(initialMinutes) {
 
 // ── Запланировать выход и реконнект ──────────────────────────────────────
 // ШАГ 1 (сейчас):    autoLogin ВЫКЛ + /rec 5 → висим на авторизации
-// ШАГ 2 (в :59:30):  autoLogin ВКЛ  + /rec 5 → заходим, ловим PayDay в :00
+// ШАГ 2 (в :59:20):  autoLogin ВКЛ  + /rec 5 → заходим, ловим PayDay в :00
 function scheduleOtygrovkaExit() {
     if (globalState.otygrovkaExitTimer) return; // Уже запланирован
 
@@ -2558,22 +2558,22 @@ function scheduleOtygrovkaExit() {
     autoLoginConfig.enabled = false;
     sendChatInput('/rec 5');
 
-    // Секунды до :59:30 текущего (или следующего) часа
-    let secsUntilReconnect = (59 - min) * 60 + (30 - sec);
+    // Секунды до :59:20 текущего (или следующего) часа
+    let secsUntilReconnect = (59 - min) * 60 + (20 - sec);
     if (secsUntilReconnect < 0) secsUntilReconnect += 3600;
-    // Если уже почти :59:30 — даём хотя бы 5 сек
+    // Если уже почти :59:20 — даём хотя бы 5 сек
     if (secsUntilReconnect < 5) secsUntilReconnect += 3600;
 
     const totalSec  = _otygrovkaTotalSec();
     const totalMin  = Math.floor(totalSec / 60);
     const totalSecR = totalSec % 60;
     const reconnTime = new Date(Date.now() + secsUntilReconnect * 1000);
-    const reconnStr  = `${String(reconnTime.getHours()).padStart(2,'0')}:59:30`;
+    const reconnStr  = `${String(reconnTime.getHours()).padStart(2,'0')}:59:20`;
 
-    debugLog(`[OTYGROVKA] 25 мин выполнено (${totalMin}:${String(totalSecR).padStart(2,'0')}). autoLogin ВЫКЛ, /rec 5. Реконнект в ${reconnStr} через ${secsUntilReconnect} сек`);
+    debugLog(`[OTYGROVKA] 27 мин выполнено (${totalMin}:${String(totalSecR).padStart(2,'0')}). autoLogin ВЫКЛ, /rec 5. Реконнект в ${reconnStr} через ${secsUntilReconnect} сек`);
 
     sendToTelegram(
-        `🎭 <b>Отыгровка 25 мин — ${displayName}</b>\n` +
+        `🎭 <b>Отыгровка 27 мин — ${displayName}</b>\n` +
         `✅ <b>${totalMin} мин ${totalSecR} сек отыграно!</b>\n` +
         `🔴 Автовход ВЫКЛ — висим на авторизации\n` +
         `⏰ Включим автовход и зайдём в <b>${reconnStr}</b>\n` +
@@ -2581,7 +2581,7 @@ function scheduleOtygrovkaExit() {
         false, null
     );
 
-    // ШАГ 2 — в :59:30 включаем автовход и заходим
+    // ШАГ 2 — в :59:20 включаем автовход и заходим
     globalState.otygrovkaExitTimer = setTimeout(function() {
         globalState.otygrovkaExitTimer = null;
         otygrovkaDoReconnect();
@@ -2595,7 +2595,7 @@ function otygrovkaDoReconnect() {
     autoLoginConfig.enabled = true;
     sendChatInput('/rec 5');
 
-    debugLog('[OTYGROVKA] :59:30 — autoLogin ВКЛ, /rec 5 — заходим для PayDay в :00');
+    debugLog('[OTYGROVKA] :59:20 — autoLogin ВКЛ, /rec 5 — заходим для PayDay в :00');
     sendToTelegram(
         `🎭 <b>Отыгровка — заходим для PayDay (${displayName})</b>\n` +
         `🟢 Автовход ВКЛ + /rec 5\n` +
@@ -2622,11 +2622,11 @@ function otygrovkaResetAfterPayday() {
 
         if (isConnected) {
             clearInterval(_waitSpawn);
-            debugLog('[OTYGROVKA] Спавн после PayDay — новый цикл трекинга (0 мин → 25 мин)');
+            debugLog('[OTYGROVKA] Спавн после PayDay — новый цикл трекинга (0 мин → 27 мин)');
             startOtygrovkaTracking(0);
             sendToTelegram(
                 `🎭 <b>Отыгровка — новый цикл (${displayName})</b>\n` +
-                `▶️ Трекинг запущен: 0 → 25 мин`,
+                `▶️ Трекинг запущен: 0 → 27 мин`,
                 false, null
             );
         }
@@ -2829,7 +2829,7 @@ function showLocalFunctionsMenu(chatId, messageId) {
             [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
             [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
             [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_local_kac_options_${uniqueId}`)],
-            [createButton(`🎭 Отыгровка 25 мин ${globalState.otygrovkaMode ? '🟢' : '🔴'}`, `show_otygrovka_options_${uniqueId}`)],
+            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaMode ? '🟢' : '🔴'}`, `show_otygrovka_options_${uniqueId}`)],
             [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
             [pauseBtn, autoLoginBtn],
             [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
@@ -2972,16 +2972,16 @@ function showOtygrovkaMenu(chatId, messageId) {
     let statusText;
     if (isAuto) {
         if (globalState.otygrovkaExitTimer) {
-            // Фаза 2: висим на авторизации, ждём :59:30
+            // Фаза 2: висим на авторизации, ждём :59:20
             statusText =
-                `\nСтатус: 🟡 <b>Ждём :59:30</b> — на авторизации` +
+                `\nСтатус: 🟡 <b>Ждём :59:20</b> — на авторизации` +
                 `\n📊 ${totalMin} мин ${totalSecR} сек отыграно ✅` +
-                `\n🔴 Автовход ВЫКЛ — зайдём в :59:30`;
+                `\n🔴 Автовход ВЫКЛ — зайдём в :59:20`;
         } else if (globalState.otygrovkaTrackInterval) {
             // Фаза 1: трекинг идёт
             statusText =
                 `\nСтатус: 🟢 <b>Трекинг идёт</b>` +
-                `\n📊 ${totalMin} мин ${totalSecR} сек / 25 мин (${pctDone}%)` +
+                `\n📊 ${totalMin} мин ${totalSecR} сек / 27 мин (${pctDone}%)` +
                 `\n⚡ Счёт: только in-game (без паузы/авторизации)`;
         } else {
             // Ждём диалог /c 60
@@ -2998,7 +2998,7 @@ function showOtygrovkaMenu(chatId, messageId) {
 
     editMessageText(
         chatId, messageId,
-        `🎭 <b>Отыгровка 25 мин — ${displayName}</b>${statusText}`,
+        `🎭 <b>Отыгровка 27 мин — ${displayName}</b>${statusText}`,
         replyMarkup
     );
 }
@@ -3853,7 +3853,7 @@ function processUpdates(updates) {
                 showOtygrovkaMenu(chatId, messageId);
             } else if (message.startsWith('otygrovka_on_')) {
                 // Включаем авто-режим отыгровки — /c 60 считывает начальное время,
-                // затем трекинг сам считает in-game секунды и выходит в :59:30
+                // затем трекинг сам считает in-game секунды и выходит в :59:20
                 globalState.otygrovkaAuto = true;    // Авто-цикл активен
                 globalState.otygrovkaMode = true;    // Ждём диалог /c 60
                 window._awaitC60Dialog    = true;
@@ -5926,7 +5926,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         if (title === "Точное время" && window._awaitC60Dialog) {
             window._awaitC60Dialog = false;
 
-            // ── Режим «Отыгровка 25 мин»: извлекаем «Время в игре за час» ──
+            // ── Режим «Отыгровка 27 мин»: извлекаем «Время в игре за час» ──
             if (globalState.otygrovkaMode) {
                 try {
                     // Собираем все строки: info, contentText, items
@@ -5975,7 +5975,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     globalState.otygrovkaCurrentTime = currentRealTime;
 
                     const msgParts = [
-                        `🎭 <b>Отыгровка 25 мин — ${displayName}</b>`,
+                        `🎭 <b>Отыгровка 27 мин — ${displayName}</b>`,
                         `🕐 Текущее время: <b>${currentRealTime || '—'}</b>`,
                         `⏱ Время в игре за час: <b>${timeInHour !== null ? timeInHour : 'не определено'}</b>`,
                     ];
@@ -5984,7 +5984,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     if (globalState.otygrovkaAuto) {
                         const remaining = 25 - initialMinutes;
                         if (remaining <= 0) {
-                            msgParts.push(`✅ Уже ≥25 мин — планируем выход в :59:30`);
+                            msgParts.push(`✅ Уже ≥27 мин — планируем выход в :59:20`);
                         } else {
                             msgParts.push(`▶️ Трекинг запущен: нужно ещё ~${remaining} мин`);
                         }
