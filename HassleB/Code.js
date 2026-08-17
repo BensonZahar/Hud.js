@@ -23,6 +23,16 @@ const globalState = {
     _hpGraceUntil: null,     // Время окончания grace period после спавна (игнорируем изменения HP)
 
     welcomeShowSettings: false, // Флаг показа блока настроек в приветственном сообщении
+
+    // ── Режим "Отыгровка 25 минут" ──────────────────────────────
+    roleplay25: {
+        active: false,              // Режим включён/выключен
+        lastHourMinutes: null,      // Отыгранное время за последний час (мин), считанное из /c 60
+        lastTodayStr: null,         // Строка "сегодня" из диалога "Точное время"
+        lastYesterdayStr: null,     // Строка "вчера" из диалога "Точное время"
+        lastDialogTime: null,       // Timestamp последнего успешного считывания
+    },
+
     // Время загрузки скрипта — используется как fallback версии если CODE_COMMIT_INFO не задан
     scriptLoadTime: (function() {
         const d = new Date();
@@ -1494,6 +1504,11 @@ function updateFaction() {
                     }
                 }
                 // Фракционный скин определён → отправляем /c 60 (один раз за сессию)
+                // Если "Отыгровка 25 мин" активна — сбрасываем флаг при каждом заходе,
+                // чтобы /c 60 срабатывал КАЖДЫЙ вход (не только первый за сессию).
+                if (globalState.roleplay25 && globalState.roleplay25.active) {
+                    window._c60Sent = false; // сбиваем — при каждом заходе перечитываем
+                }
                 // /anim 1 1 отправится автоматически когда появится диалог "Точное время"
                 if (!window._c60Sent) {
                     window._c60Sent = true;
@@ -2093,7 +2108,7 @@ function buildWelcomeText() {
     const _versionLine = _ci ? `Version ${_ci.date} — ${_ci.msg}` : `Загружен ${globalState.scriptLoadTime}`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
-    let text = `🟢 <b>Hassle | Bot0</b>  <i>${_versionLine}</i>\n` +
+    let text = `🟢 <b>Hassle | BotОтыгро</b>  <i>${_versionLine}</i>\n` +
         `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
         `Сервер: ${config.accountInfo.server || 'Не указан'}`;
 
@@ -4728,6 +4743,7 @@ function showHBLocalFunctionsMenu() {
     currentHBPage = 0;
     const statusOn = "{00FF00}[ВКЛ]";
     const statusOff = "{FF0000}[ВЫКЛ]";
+    const rp25Status = globalState.roleplay25 && globalState.roleplay25.active ? statusOn : statusOff;
     const menuItems = [
         { name: "{FFD700}> {FFFFFF}Движение", action: "movement" },
         { name: `{FFFFFF}Увед. правик ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob_local" },
@@ -4735,7 +4751,8 @@ function showHBLocalFunctionsMenu() {
         { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
         { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter_local" },
         { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" },
-        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_local" }
+        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_local" },
+        { name: `{FFD700}> {FFFFFF}Отыгровка 25 мин ${rp25Status}`, action: "toggle_roleplay25" }
     ];
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
@@ -4980,6 +4997,31 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 config.kacAutoReply = !config.kacAutoReply;
                 showScreenNotification("Hassle", `Автоответ КАЧ/ЗП: ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'}`);
                 sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'} для ${displayName}</b>`, false, null);
+                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+            } else if (listitem === 8) {
+                // ── Отыгровка 25 минут ────────────────────────────────────
+                const rp = globalState.roleplay25;
+                rp.active = !rp.active;
+                const rpOn = rp.active;
+                showScreenNotification("Hassle", `Отыгровка 25 мин: ${rpOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+
+                if (rpOn) {
+                    // При включении сразу шлём /c 60 чтобы получить актуальные данные
+                    window._awaitC60Dialog = true;
+                    window._awaitAnimInteraction = false; // анимацию не трогаем повторно
+                    sendChatInput('/c 60');
+                    debugLog('[RP25] Режим включён → отправлен /c 60');
+                    sendToTelegram(
+                        `⏱ <b>Отыгровка 25 мин ВКЛ (${displayName})</b>\n` +
+                        `<i>Считываем время из /c 60...</i>`,
+                        false, null
+                    );
+                } else {
+                    debugLog('[RP25] Режим выключен');
+                    sendToTelegram(`⏱ <b>Отыгровка 25 мин ВЫКЛ (${displayName})</b>`, false, null);
+                }
+
+                sendWelcomeMessage();
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             }
             break;
@@ -5487,6 +5529,68 @@ function dlgBuildKeyboard() {
 
 // ── Telegram-операции ────────────────────────────────────────
 
+// ╔══════════════════════════════════════════════════════════╗
+// ║  HELPER: парсинг диалога "Точное время" (/c 60)          ║
+// ║  Вызывается только когда roleplay25.active === true       ║
+// ╚══════════════════════════════════════════════════════════╝
+function _parseC60TimeData(items, contentText) {
+    try {
+        let hourMins    = null;
+        let todayStr    = null;
+        let yesterdayStr = null;
+
+        // Извлекает последнее значение из строки вида:
+        //   "Время в игре за час: │  │ 5 мин"  →  "5 мин"
+        function extractVal(str) {
+            const parts = str.split('│');
+            return parts[parts.length - 1].trim();
+        }
+
+        // Попытка 1: из items (TABLIST / TABLIST_HEADERS)
+        if (items && items.length > 0) {
+            for (const row of items) {
+                const lo = row.toLowerCase();
+                if (lo.includes('за час')) {
+                    const val = extractVal(row);
+                    const m = val.match(/(\d+)\s*мин/);
+                    if (m) hourMins = parseInt(m[1], 10);
+                } else if (lo.includes('сегодня') && lo.includes('игре')) {
+                    todayStr = extractVal(row);
+                } else if (lo.includes('вчера')) {
+                    yesterdayStr = extractVal(row);
+                }
+            }
+        }
+
+        // Попытка 2: из contentText (MSGBOX fallback)
+        if (hourMins === null && contentText) {
+            for (const line of contentText.split('\n')) {
+                const lo = line.toLowerCase();
+                if (lo.includes('за час')) {
+                    const val = extractVal(line);
+                    const m = val.match(/(\d+)\s*мин/);
+                    if (m) hourMins = parseInt(m[1], 10);
+                } else if (lo.includes('сегодня') && lo.includes('игре')) {
+                    todayStr = todayStr || extractVal(line);
+                } else if (lo.includes('вчера')) {
+                    yesterdayStr = yesterdayStr || extractVal(line);
+                }
+            }
+        }
+
+        // Сохраняем в globalState
+        const rp = globalState.roleplay25;
+        rp.lastHourMinutes  = hourMins;
+        rp.lastTodayStr     = todayStr;
+        rp.lastYesterdayStr = yesterdayStr;
+        rp.lastDialogTime   = Date.now();
+
+        debugLog(`[RP25] ⏱ Считано из /c 60 → за час: ${hourMins} мин | сегодня: ${todayStr} | вчера: ${yesterdayStr}`);
+    } catch (e) {
+        debugLog('[RP25] Ошибка парсинга /c 60: ' + e.message);
+    }
+}
+
 function dlgSendToTelegram() {
     dlg.tgMsgs.forEach(({ chatId, messageId }) => deleteMessage(chatId, messageId));
     dlg.tgMsgs = [];
@@ -5665,6 +5769,12 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         // ── Диалог "Точное время" от /c 60 — не даём попасть в Vue вообще ──────
         if (title === "Точное время" && window._awaitC60Dialog) {
             window._awaitC60Dialog = false;
+
+            // ── Режим "Отыгровка 25 мин": парсим данные перед закрытием ─────
+            if (globalState.roleplay25 && globalState.roleplay25.active) {
+                _parseC60TimeData(items, contentText);
+            }
+
             // Отвечаем серверу напрямую (response=0 = закрыть)
             // dlg.active уже true — dlgRespond пропустит проверку при response=0
             dlgRespond(dialogId, 0, -1, '');
