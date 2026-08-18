@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotАвтошкоа'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotАвтошко3а'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -7228,24 +7228,19 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 // ║  MODULE: АВТОШКОЛА v3 — запись и повтор маршрута         ║
 // ║  Описание: Записывает все нажатия и удержания клавиш     ║
 // ║             с точностью до долей миллисекунды            ║
-// ║             (performance.now — суб-мс точность),         ║
-// ║             а также трек позиции (X/Y/угол каждые        ║
-// ║             ~120мс) для активного слежения при повторе.  ║
-// ║  Повтор:   сравнивает тайминг КАЖДОГО события (дрифт мс).║
-// ║  /apov_track — доп. к повтору нажатий каждый кадр         ║
-// ║             сверяет факт. позицию/курс с записанным      ║
-// ║             треком и подруливает A/D, чтобы траектория   ║
-// ║             реально совпадала, а не просто дублировала   ║
-// ║             входные события "вслепую".                   ║
+// ║             (performance.now — суб-мс точность).         ║
+// ║  Повтор: сравнивает тайминг КАЖДОГО события (дрифт мс)  ║
+// ║           + сравнивает позицию каждые 500 мс.           ║
+// ║  ИСПРАВЛЕНО: правильное определение метода ввода         ║
+// ║    (touch/keyboard) по платформе и движку.               ║
 // ║  По завершению повтора — детальный отчёт в Telegram.     ║
 // ║  Снимок позиции: Vue $data.speedometer.show (Hud.js).    ║
 // ║                                                           ║
 // ║  Команды в чате игры:                                    ║
-// ║    /arec_on    → начать запись                           ║
-// ║    /arec_off   → остановить запись + отправить в TG      ║
-// ║    /apov       → обычный повтор (только нажатия клавиш)  ║
-// ║    /apov_track → повтор + активное слежение за треком    ║
-// ║    /apov_off   → отменить текущий повтор                 ║
+// ║    /arec_on  → начать запись                             ║
+// ║    /arec_off → остановить запись + отправить в TG        ║
+// ║    /apov     → повторить последний маршрут               ║
+// ║    /apov_off → отменить текущий повтор                   ║
 // ║  Зависимости: debugLog, sendToTelegram, config,          ║
 // ║               window.onChatMessage                       ║
 // ╚══════════════════════════════════════════════════════════╝
@@ -7276,41 +7271,36 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     const POS_THRESHOLD         = 1.5;   // допустимое отклонение нач. позиции (игровых ед.)
     const END_POS_THRESHOLD     = 15;    // допустимое отклонение кон. позиции
     const ANGLE_THRESHOLD       = 3;     // допустимое отклонение угла разворота (градусы)
-    const TIMING_WARN_THRESHOLD = 50;    // порог дрифта одного события (мс) для предупреждения
+    const TIMING_WARN_THRESHOLD = 50;    // порог дрифта одного события (мс)
 
-    // ── Параметры активного слежения за траекторией (/apov_track) ──
-    const POS_SAMPLE_INTERVAL_MS    = 120; // период сэмплирования трека при записи (мс)
-    const CROSS_TRACK_THRESHOLD     = 2.0; // допустимое боковое отклонение (игр.ед.) до коррекции
-    const HEADING_CORRECT_THRESHOLD = 6;   // допустимое расхождение курса (град.) до коррекции
-    const CORRECTION_TAP_MS         = 130; // длительность корректирующего нажатия A/D (мс)
-    const CORRECTION_COOLDOWN_MS    = 220; // мин. пауза между коррекциями (анти-дребезг руля)
+    // ── Параметры логирования позиции ────────────────────────
+    const POS_LOG_INTERVAL    = 500;   // мс между снимками позиции при записи
+    const POS_DRIFT_WARN      = 5;     // м — предупреждение в чат при дрейфе
+    const POS_DRIFT_CRITICAL  = 15;    // м — критический дрейф
 
     // ── Состояние модуля ───────────────────────────────────────
     const avto = {
         recording:        false,
-        events:           [],      // [{t, d, k}]  t = performance.now offset, мс (float)
-        startPerf:        null,    // performance.now() при старте записи
-        lastRoute:        null,    // последний завершённый маршрут
+        events:           [],      // [{t, d, k}]
+        startPerf:        null,
+        lastRoute:        null,
         replaying:        false,
         replayRAF:        null,
         heldKeys:         new Set(),
-        startSnapshot:    null,    // снимок при СТАРТЕ записи
-        endSnapshot:      null,    // снимок при КОНЦЕ записи
-        replayStats:      null,    // статистика последнего повтора
-        positionLog:      [],      // [{t,x,y,angle}] — трек позиции во время записи
-        lastPositionLog:  null,    // последний записанный трек (для /apov_track)
-        posSampleTimer:   null,    // id setInterval сэмплирования позиции
-        tracking:         false,   // включена ли активная коррекция в текущем повторе
-        lastCorrectionAt: 0,       // performance.now() последней коррекции руля
-        correctionActive: null,    // {code, timeoutId} — текущая корректирующая клавиша
-        activeRouteKeys:  new Set(), // клавиши, которые СЕЙЧАС держит базовый (записанный) маршрут
+        startSnapshot:    null,
+        endSnapshot:      null,
+        replayStats:      null,
+        // ── Лог позиций (запись) ──────────────────────────────
+        posLog:           [],      // [{t: мс, pos: {x,y,z,angle}}]
+        lastPosLog:       null,    // лог после остановки записи
+        posLogIntervalId: null,    // ID setInterval при записи
+        maxPosDrift:      0,       // макс. дрейф позиции при повторе (м)
     };
 
     // ── Визуальный оверлей нажатых клавиш (запись И повтор) ───
     var _hudOverlay = null;
     var _hudOverlayMode = null; // 'record' | 'replay'
 
-    // Метки строк клавиш (одни и те же для обоих режимов)
     var _KEY_LABELS = [
         [87, '⬆ ГАЗ (W)'],
         [68, '▶ ВПРАВО (D)'],
@@ -7326,7 +7316,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         mode = mode || 'replay';
         _hudOverlayMode = mode;
 
-        // Если оверлей уже есть — только обновляем заголовок и цвет
         if (_hudOverlay) {
             _updateOverlayHeader(mode);
             return;
@@ -7371,6 +7360,26 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             wrap.appendChild(row);
         });
 
+        // ── Разделитель ────────────────────────────────────────
+        var sep = document.createElement('div');
+        sep.style.cssText = 'height:1px;background:rgba(255,255,255,0.12);margin:1px 0';
+        wrap.appendChild(sep);
+
+        // ── Строка дрейфа позиции (только при повторе) ────────
+        var driftRow = document.createElement('div');
+        driftRow.id = 'avto-krow-posdrift';
+        driftRow.textContent = '📍 Позиция';
+        driftRow.style.cssText = [
+            'padding:0.35vh 0.8vh',
+            'border-radius:0.3vh',
+            'background:rgba(0,0,0,0.5)',
+            'color:rgba(255,255,255,0.3)',
+            'border:1px solid rgba(255,255,255,0.08)',
+            'white-space:nowrap',
+            'font-size:1.35vh',
+        ].join(';');
+        wrap.appendChild(driftRow);
+
         document.body.appendChild(wrap);
         _hudOverlay = wrap;
     }
@@ -7407,7 +7416,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         var el = document.getElementById('avto-krow-' + code);
         if (!el) return;
         if (isDown) {
-            // При записи — оранжевый; при повторе — зелёный
             var isRec = (_hudOverlayMode === 'record');
             el.style.background  = isRec ? 'rgba(210,100,0,0.80)' : 'rgba(30,180,80,0.75)';
             el.style.color       = '#fff';
@@ -7419,12 +7427,38 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         }
     }
 
-    // Сбросить визуальное состояние ВСЕХ клавиш в оверлее
     function _overlayResetAll() {
         RECORD_KEYS.forEach(function (code) { _overlaySetKey(code, false); });
     }
 
-    // ── Снимок позиции + статус машины (через Hud.js $data) ───
+    // ── Обновить строку дрейфа позиции в оверлее ─────────────
+    function _updatePosDriftOverlay(distM, timeStr) {
+        var el = document.getElementById('avto-krow-posdrift');
+        if (!el) return;
+        var isOk   = distM < POS_DRIFT_WARN;
+        var isWarn = distM < POS_DRIFT_CRITICAL;
+        el.style.background  = isOk   ? 'rgba(20,130,55,0.75)'
+                             : isWarn  ? 'rgba(180,130,0,0.75)'
+                             :           'rgba(170,35,35,0.80)';
+        el.style.color       = '#fff';
+        el.style.borderColor = isOk   ? '#33DD77'
+                             : isWarn  ? '#FFD700'
+                             :           '#FF4444';
+        el.textContent = '📍 ' + (isOk ? '✅' : isWarn ? '⚠' : '❌') +
+                         ' Δ' + distM.toFixed(2) + 'м @ ' + timeStr;
+    }
+
+    // ── Сбросить строку дрейфа ────────────────────────────────
+    function _resetPosDriftOverlay() {
+        var el = document.getElementById('avto-krow-posdrift');
+        if (!el) return;
+        el.style.background  = 'rgba(0,0,0,0.5)';
+        el.style.color       = 'rgba(255,255,255,0.3)';
+        el.style.borderColor = 'rgba(255,255,255,0.08)';
+        el.textContent       = '📍 Ожидание данных...';
+    }
+
+    // ── Снимок позиции ─────────────────────────────────────────
     function _getSnapshot() {
         var pos       = null;
         var inVehicle = false;
@@ -7455,169 +7489,21 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         return 'X:' + pos.x.toFixed(1) + ' Y:' + pos.y.toFixed(1) + ' Z:' + pos.z.toFixed(1);
     }
 
-    // Кратчайшая разница углов в градусах (0..180), с учётом перехода 359°→0°
     function _angleDiff(a, b) {
         if (a == null || b == null) return null;
         var d = Math.abs(a - b) % 360;
         return d > 180 ? 360 - d : d;
     }
 
-    // Линейная интерполяция угла с учётом перехода через 360° (кратчайший путь)
-    function _lerpAngle(a, b, ratio) {
-        var diff = ((b - a + 540) % 360) - 180; // -180..180
-        return a + diff * ratio;
+    // ── Рассчитать расстояние между двумя позициями (XY) ─────
+    function _posDistance(p1, p2) {
+        if (!p1 || !p2) return null;
+        var dx = p1.x - p2.x;
+        var dy = p1.y - p2.y;
+        return Math.sqrt(dx * dx + dy * dy);
     }
 
-    // Ожидаемая точка трека (X,Y,angle) на момент времени t — интерполяция
-    // между двумя ближайшими сэмплами позиции, записанными при /arec_on
-    function _expectedPointAt(log, t) {
-        if (!log || log.length === 0) return null;
-        if (t <= log[0].t) return log[0];
-        var last = log[log.length - 1];
-        if (t >= last.t) return last;
-        for (var i = 1; i < log.length; i++) {
-            if (log[i].t >= t) {
-                var a = log[i - 1], b = log[i];
-                var span = b.t - a.t;
-                var ratio = span > 0 ? (t - a.t) / span : 0;
-                return {
-                    x:     a.x + (b.x - a.x) * ratio,
-                    y:     a.y + (b.y - a.y) * ratio,
-                    angle: _lerpAngle(a.angle, b.angle, ratio)
-                };
-            }
-        }
-        return last;
-    }
-
-    // Сэмпл позиции для трека (вызывается по таймеру, только пока avto.recording)
-    function _samplePosition() {
-        if (!avto.recording) return;
-        var snap = _getSnapshot();
-        if (!snap.pos) return;
-        var t = performance.now() - avto.startPerf;
-        avto.positionLog.push({ t: t, x: snap.pos.x, y: snap.pos.y, angle: snap.pos.angle });
-    }
-
-    // ── Живой индикатор отклонения от трека (только режим /apov_track) ──
-    function _updateDeviationRow(dist, headErr) {
-        if (!_hudOverlay) return;
-        var row = document.getElementById('avto-krow-dev');
-        if (!row) {
-            row = document.createElement('div');
-            row.id = 'avto-krow-dev';
-            row.style.cssText = [
-                'padding:0.35vh 0.8vh',
-                'border-radius:0.3vh',
-                'background:rgba(0,0,0,0.6)',
-                'color:#4FD8FF',
-                'border:1px solid rgba(79,216,255,0.5)',
-                'white-space:nowrap',
-                'font-size:1.3vh',
-            ].join(';');
-            _hudOverlay.appendChild(row);
-        }
-        row.textContent = '📏 ' + dist.toFixed(2) + 'м  ↻' + headErr.toFixed(1) + '°';
-    }
-
-    // ── Корректирующее нажатие руля (только в режиме /apov_track) ──
-    function _releaseCorrection() {
-        if (!avto.correctionActive) return;
-        var code = avto.correctionActive.code;
-        if (avto.correctionActive.timeoutId) clearTimeout(avto.correctionActive.timeoutId);
-        avto.correctionActive = null;
-        var info = KEY_MAP[code];
-        if (!info) return;
-        try {
-            var hasTouchControl = typeof window.onScreenControlTouchEnd === 'function';
-            if (hasTouchControl) {
-                window.onScreenControlTouchEnd(info.path);
-            } else {
-                document.dispatchEvent(new KeyboardEvent('keyup', {
-                    keyCode: code, which: code, bubbles: true, cancelable: true
-                }));
-            }
-        } catch (e) {}
-        // Не гасим подсветку в оверлее, если эту же клавишу продолжает
-        // держать основной (записанный) маршрут — иначе моргнёт лишний раз
-        if (!avto.activeRouteKeys.has(code)) _overlaySetKey(code, false);
-    }
-
-    function _tapCorrection(code) {
-        if (avto.activeRouteKeys.has(code)) return; // база уже рулит этой клавишей — не мешаем
-        if (avto.correctionActive && avto.correctionActive.code === code) return; // уже держим
-        _releaseCorrection();
-        var info = KEY_MAP[code];
-        if (!info) return;
-        try {
-            var hasTouchControl = typeof window.onScreenControlTouchStart === 'function';
-            if (hasTouchControl) {
-                window.onScreenControlTouchStart(info.path);
-            } else {
-                document.dispatchEvent(new KeyboardEvent('keydown', {
-                    keyCode: code, which: code, bubbles: true, cancelable: true
-                }));
-            }
-        } catch (e) {}
-        _overlaySetKey(code, true);
-        if (avto.replayStats) {
-            avto.replayStats.correctionsApplied = (avto.replayStats.correctionsApplied || 0) + 1;
-        }
-        var timeoutId = setTimeout(function () {
-            if (avto.correctionActive && avto.correctionActive.code === code) {
-                _releaseCorrection();
-            }
-        }, CORRECTION_TAP_MS);
-        avto.correctionActive = { code: code, timeoutId: timeoutId };
-    }
-
-    // Сверяем факт. позицию с ожидаемой точкой трека и при необходимости подруливаем
-    function _trackingCorrect(elapsed) {
-        var log = avto.lastPositionLog;
-        if (!log || log.length < 2) return;
-        var expected = _expectedPointAt(log, elapsed);
-        if (!expected) return;
-        var cur = _getSnapshot();
-        if (!cur.pos) return;
-
-        var dx   = cur.pos.x - expected.x;
-        var dy   = cur.pos.y - expected.y;
-        var dist = Math.sqrt(dx * dx + dy * dy);
-        var headErr = _angleDiff(cur.pos.angle, expected.angle);
-
-        var stats = avto.replayStats;
-        if (stats) {
-            stats.totalCrossTrack   = (stats.totalCrossTrack || 0) + dist;
-            stats.crossTrackSamples = (stats.crossTrackSamples || 0) + 1;
-            if (dist > (stats.maxCrossTrack || 0)) stats.maxCrossTrack = dist;
-        }
-        _updateDeviationRow(dist, headErr == null ? 0 : headErr);
-
-        // Если клавишу, которой сейчас "рулит" коррекция, забрал базовый
-        // маршрут (пошло записанное нажатие) — отдаём ему управление
-        if (avto.correctionActive && avto.activeRouteKeys.has(avto.correctionActive.code)) {
-            avto.correctionActive = null; // без отдельного keyup — база держит клавишу сама
-        }
-
-        var now = performance.now();
-        if (now - avto.lastCorrectionAt < CORRECTION_COOLDOWN_MS) return;
-        if (headErr == null) return;
-
-        if (dist > CROSS_TRACK_THRESHOLD || headErr > HEADING_CORRECT_THRESHOLD) {
-            avto.lastCorrectionAt = now;
-            // Знаковая разница курса: куда фактически довёрнута машина
-            // относительно записанного курса в этой точке трека
-            var signed = ((cur.pos.angle - expected.angle + 540) % 360) - 180;
-            var code   = signed > 0 ? 65 /* A — влево */ : 68 /* D — вправо */;
-            _tapCorrection(code);
-            debugLog('[АВТОШКОЛА] 🛠 track-коррекция dist=' + dist.toFixed(2) +
-                     ' headErr=' + headErr.toFixed(1) + '° → ' + (code === 65 ? 'A' : 'D'));
-        } else if (avto.correctionActive) {
-            _releaseCorrection();
-        }
-    }
-
-    // ── Проверить НАЧАЛЬНУЮ позицию ────────────────────────────
+    // ── Проверить начальную позицию ────────────────────────────
     function _checkStartSnapshot() {
         var snap    = avto.startSnapshot;
         var current = _getSnapshot();
@@ -7639,12 +7525,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 msgs.push('{33DD77}✅ Начальная позиция совпадает: ' + _fmtPos(current.pos));
             }
 
-            // ── Угол разворота машины ───────────────────────────
-            // Даже при идеальном совпадении X/Y и идеальном тайминге
-            // нажатий, руль работает относительно ТЕКУЩЕГО направления
-            // машины. Разница в пару градусов на старте за 20-30 сек
-            // езды превращается в десятки метров отклонения к финишу —
-            // именно это чаще всего и есть причина "ехал не так же".
             var da = _angleDiff(current.pos.angle, snap.pos.angle);
             if (da !== null) {
                 if (da > ANGLE_THRESHOLD) {
@@ -7658,22 +7538,22 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 }
             }
         } else if (snap && !snap.pos) {
-            msgs.push('{FFAA00}⚠ Позиция при записи не была сохранена — сравнение невозможно');
+            msgs.push('{FFAA00}⚠ Позиция при записи не была сохранена');
         } else if (!current.pos) {
-            msgs.push('{FFAA00}⚠ Текущая позиция недоступна — сравнение невозможно');
+            msgs.push('{FFAA00}⚠ Текущая позиция недоступна');
         }
         return msgs;
     }
 
-    // ── Проверить КОНЕЧНУЮ позицию ─────────────────────────────
+    // ── Проверить конечную позицию ─────────────────────────────
     function _checkEndSnapshot() {
         var endSnap = avto.endSnapshot;
         if (!endSnap || !endSnap.pos) {
-            return ['{FFAA00}⚠ Конечная позиция записи не сохранена — сравнение недоступно'];
+            return ['{FFAA00}⚠ Конечная позиция записи не сохранена'];
         }
         var current = _getSnapshot();
         if (!current.pos) {
-            return ['{FFAA00}⚠ Текущая позиция недоступна — сравнение конца невозможно'];
+            return ['{FFAA00}⚠ Текущая позиция недоступна'];
         }
         var dx = Math.abs(current.pos.x - endSnap.pos.x);
         var dy = Math.abs(current.pos.y - endSnap.pos.y);
@@ -7686,16 +7566,16 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         return ['{33DD77}✅ Конечная позиция совпадает: ' + _fmtPos(current.pos)];
     }
 
-    // ── Обработчики клавиш (навешиваются только при записи) ───
+    // ── Обработчики клавиш (только при записи) ────────────────
     function onKeyDown(e) {
         if (!avto.recording) return;
         const code = e.keyCode;
         if (!RECORD_KEYS.has(code)) return;
-        if (avto.heldKeys.has(code)) return;   // игнор авто-повторов браузера
+        if (avto.heldKeys.has(code)) return;
         avto.heldKeys.add(code);
         var t = performance.now() - avto.startPerf;
         avto.events.push({ t: t, d: 1, k: code });
-        _overlaySetKey(code, true);             // ← отображаем нажатие в оверлее
+        _overlaySetKey(code, true);
         debugLog('[АВТОШКОЛА] ⬇ ' + KEY_MAP[code].label + ' @ ' + t.toFixed(3) + 'мс');
     }
 
@@ -7707,7 +7587,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         avto.heldKeys.delete(code);
         var t = performance.now() - avto.startPerf;
         avto.events.push({ t: t, d: 0, k: code });
-        _overlaySetKey(code, false);            // ← отображаем отпускание
+        _overlaySetKey(code, false);
         debugLog('[АВТОШКОЛА] ⬆ ' + KEY_MAP[code].label + ' @ ' + t.toFixed(3) + 'мс');
     }
 
@@ -7732,16 +7612,24 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         avto.events    = [];
         avto.startPerf = performance.now();
         avto.heldKeys.clear();
+
+        // ── Старт логирования позиции каждые POS_LOG_INTERVAL мс ──
+        avto.posLog = [];
+        avto.posLogIntervalId = setInterval(function () {
+            if (!avto.recording) return;
+            var s = _getSnapshot();
+            if (s.pos) {
+                var t = performance.now() - avto.startPerf;
+                avto.posLog.push({
+                    t:   Math.round(t),
+                    pos: { x: s.pos.x, y: s.pos.y, z: s.pos.z, angle: s.pos.angle }
+                });
+            }
+        }, POS_LOG_INTERVAL);
+
         document.addEventListener('keydown', onKeyDown, true);
         document.addEventListener('keyup',   onKeyUp,   true);
 
-        // ── Трек позиции для активного слежения (/apov_track) ─
-        avto.positionLog = [];
-        if (avto.posSampleTimer !== null) clearInterval(avto.posSampleTimer);
-        avto.posSampleTimer = setInterval(_samplePosition, POS_SAMPLE_INTERVAL_MS);
-        _samplePosition(); // стартовая точка трека (t≈0)
-
-        // ── Показываем оверлей в режиме ЗАПИСИ ────────────────
         _createHudOverlay('record');
         _overlayResetAll();
 
@@ -7759,42 +7647,39 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         document.removeEventListener('keydown', onKeyDown, true);
         document.removeEventListener('keyup',   onKeyUp,   true);
 
-        // Виртуально отпускаем все зажатые клавиши с точным временем
+        // Виртуально отпускаем все зажатые клавиши
         avto.heldKeys.forEach(function (code) {
             avto.events.push({ t: performance.now() - avto.startPerf, d: 0, k: code });
             _overlaySetKey(code, false);
         });
         avto.heldKeys.clear();
 
-        // ── Останавливаем и сохраняем трек позиции ────────────
-        if (avto.posSampleTimer !== null) {
-            clearInterval(avto.posSampleTimer);
-            avto.posSampleTimer = null;
-        }
-        _samplePosition(); // финальная точка трека — на момент фактического /arec_off
-        avto.lastPositionLog = avto.positionLog.slice();
-
-        // ── Маркер фактического момента остановки записи ──────
-        // Без этого длительность маршрута определяется временем
-        // ПОСЛЕДНЕГО keydown/keyup, а не временем /arec_off.
-        // Если после последнего отпускания клавиши была тишина
-        // (просто ждали) — она нигде не сохранялась и полностью
-        // "съедалась" при повторе (повтор завершался сразу же
-        // после последнего события, будто ожидания и не было).
-        // k:-1 — заведомо отсутствует в KEY_MAP, поэтому при
-        // повторе для этого события ничего не эмулируется —
-        // он нужен только чтобы задать точный totalMs.
+        // ── Маркер остановки записи ────────────────────────────
         (function _pushStopMarker() {
             var stopT   = performance.now() - avto.startPerf;
             var lastEvT = avto.events.length
-                ? avto.events[avto.events.length - 1].t
-                : 0;
+                ? avto.events[avto.events.length - 1].t : 0;
             if (stopT > lastEvT) {
                 avto.events.push({ t: stopT, d: -1, k: -1 });
             }
         })();
 
-        // ── Убираем оверлей записи ────────────────────────────
+        // ── Остановить логирование позиции ─────────────────────
+        if (avto.posLogIntervalId) {
+            clearInterval(avto.posLogIntervalId);
+            avto.posLogIntervalId = null;
+        }
+        // Финальный снимок позиции
+        var finalSnap = _getSnapshot();
+        if (finalSnap.pos) {
+            avto.posLog.push({
+                t:   Math.round(performance.now() - avto.startPerf),
+                pos: { x: finalSnap.pos.x, y: finalSnap.pos.y,
+                       z: finalSnap.pos.z, angle: finalSnap.pos.angle }
+            });
+        }
+        avto.lastPosLog = avto.posLog.slice();
+
         _removeHudOverlay();
 
         avto.endSnapshot = _getSnapshot();
@@ -7809,18 +7694,18 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
         var realCount = avto.lastRoute.filter(function (ev) { return ev.k !== -1; }).length;
         _chat('{EE4444}⏹ Запись остановлена | ' +
-              realCount + ' событий, ' + totalSec + 'с (с учётом финальной паузы) | ' +
-              avto.lastPositionLog.length + ' точек трека');
+              realCount + ' событий, ' + totalSec + 'с | ' +
+              avto.lastPosLog.length + ' снимков позиции');
         _chat('{AAAAAA}🏁 Конечная позиция: ' + endLabel);
-        _chat('{AAAAAA}Введи /apov (обычный повтор) или /apov_track (повтор + слежение)');
+        _chat('{AAAAAA}Введи /apov для повтора');
         debugLog('[АВТОШКОЛА] ⛔ Остановлена. Событий: ' + avto.lastRoute.length +
-                 '. Конец: ' + JSON.stringify(endSnap));
+                 '. PosLog: ' + avto.lastPosLog.length + '. Конец: ' + JSON.stringify(endSnap));
 
         _sendRouteToTelegram(avto.lastRoute, totalSec);
     }
 
-    // ── Воспроизведение маршрута (RAF-based, с замером дрифта) ─
-    function replayRoute(trackingMode) {
+    // ── Воспроизведение маршрута ───────────────────────────────
+    function replayRoute() {
         if (avto.replaying) {
             _chat('{FFAA00}Повтор уже идёт!');
             return;
@@ -7833,16 +7718,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             _chat('{EE4444}Сначала останови запись: /arec_off');
             return;
         }
-
-        avto.tracking = !!trackingMode;
-        if (avto.tracking && (!avto.lastPositionLog || avto.lastPositionLog.length < 2)) {
-            _chat('{FFAA00}⚠ Трек позиции недоступен (маршрут записан старой версией?) — ' +
-                  'слежение отключено, будет обычный повтор');
-            avto.tracking = false;
-        }
-        avto.activeRouteKeys = new Set();
-        avto.correctionActive = null;
-        avto.lastCorrectionAt = 0;
 
         var startMsgs = _checkStartSnapshot();
         _chat('{AAAAAA}📍 Проверка стартовой позиции:');
@@ -7859,40 +7734,64 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             sendToTelegram(tgMsg, false, null);
         }
 
-        avto.replaying = true;
-        avto.replayRAF = null;
+        avto.replaying   = true;
+        avto.replayRAF   = null;
+        avto.maxPosDrift = 0;
 
         avto.replayStats = {
-            totalEvents:      avto.lastRoute.length,
-            processedEvents:  0,
-            maxDrift:         0,
-            totalDrift:       0,
-            driftEvents:      [],
-            correctionsApplied: 0,
-            maxCrossTrack:      0,
-            totalCrossTrack:    0,
-            crossTrackSamples:  0,
+            totalEvents:     avto.lastRoute.length,
+            processedEvents: 0,
+            maxDrift:        0,
+            totalDrift:      0,
+            driftEvents:     [],
+            // Позиционная статистика
+            posCheckCount:   0,
+            posDriftTotal:   0,
+            posDriftMax:     0,
         };
 
         const events  = avto.lastRoute;
+        const posLog  = avto.lastPosLog || [];
         const totalMs = events.length ? events[events.length - 1].t : 0;
 
         _chat('{33DD77}▶ Повтор маршрута НАЧАТ (' + (totalMs / 1000).toFixed(2) + 'с | ' +
-              events.length + ' событий)' +
-              (avto.tracking ? ' | ⚡ АКТИВНОЕ СЛЕЖЕНИЕ ВКЛ' : ''));
-        debugLog('[АВТОШКОЛА] ▶ Повтор: ' + events.length + ' событий, tracking=' + avto.tracking);
+              events.length + ' событий | ' + posLog.length + ' точек позиции)');
+        debugLog('[АВТОШКОЛА] ▶ Повтор: ' + events.length + ' событий, ' +
+                 posLog.length + ' posLog точек');
 
-        // ── Показываем оверлей в режиме ПОВТОРА ───────────────
         _createHudOverlay('replay');
         _overlayResetAll();
-        if (avto.tracking) {
-            var hdr = document.getElementById('avto-krow-header');
-            if (hdr) hdr.textContent = '▶ ПОВТОР ⚡СЛЕЖЕНИЕ';
-        }
+        _resetPosDriftOverlay();
 
         const startPerf  = performance.now();
         var   eventIndex = 0;
-        var   hasTouchControl = typeof window.onScreenControlTouchStart === 'function';
+        var   posLogIdx  = 0;   // текущий индекс в posLog при повторе
+
+        // ════════════════════════════════════════════════════
+        // ── ИСПРАВЛЕНО: определение метода ввода ────────────
+        // Проблема v2: hasTouchControl = typeof window.onScreenControlTouchStart === 'function'
+        //   → всегда true, т.к. функция всегда определена в index.js.
+        //   На legacy-движке onScreenControlTouchStart — no-op (engine!="legacy" → false),
+        //   поэтому машина НЕ двигалась при повторе на PC/legacy.
+        //   На новом движке touch и keyboard обрабатываются по-разному физически.
+        //
+        // Правильная логика:
+        //   • mobile + новый движок  → touch (engine.trigger OnScreenControlTouchStart)
+        //   • desktop / legacy       → keyboard (dispatchEvent KeyboardEvent)
+        // ════════════════════════════════════════════════════
+        var hasTouchControl = !!(
+            window.App &&
+            window.App.isMobile &&
+            window.App.engine !== 'legacy' &&
+            typeof window.onScreenControlTouchStart === 'function' &&
+            typeof window.onScreenControlTouchEnd   === 'function'
+        );
+
+        var inputMethod = hasTouchControl ? 'touch (mobile)' : 'keyboard (dispatchEvent)';
+        _chat('{AAAAAA}🎮 Метод ввода повтора: ' + inputMethod);
+        debugLog('[АВТОШКОЛА] Метод ввода: ' + inputMethod +
+                 ' | isMobile=' + (window.App && window.App.isMobile) +
+                 ' | engine=' + (window.App && window.App.engine));
 
         function _execEvent(ev) {
             const info = KEY_MAP[ev.k];
@@ -7907,7 +7806,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                             bubbles: true, cancelable: true
                         }));
                     }
-                    avto.activeRouteKeys.add(ev.k);
                     _overlaySetKey(ev.k, true);
                     debugLog('[АВТОШКОЛА] ▶⬇ ' + info.label);
                 } else {
@@ -7919,7 +7817,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                             bubbles: true, cancelable: true
                         }));
                     }
-                    avto.activeRouteKeys.delete(ev.k);
                     _overlaySetKey(ev.k, false);
                     debugLog('[АВТОШКОЛА] ▶⬆ ' + info.label);
                 }
@@ -7944,8 +7841,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     _overlaySetKey(code, false);
                 } catch (e) {}
             });
-            avto.activeRouteKeys.clear();
-            _releaseCorrection();
         }
 
         function _rafLoop() {
@@ -7958,6 +7853,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             var elapsed = performance.now() - startPerf;
             var stats   = avto.replayStats;
 
+            // ── Воспроизведение клавишных событий ─────────────
             while (eventIndex < events.length && events[eventIndex].t <= elapsed) {
                 var ev = events[eventIndex];
 
@@ -7979,10 +7875,47 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 eventIndex++;
             }
 
-            if (avto.tracking) {
-                _trackingCorrect(elapsed);
+            // ── Сравнение позиции в контрольных точках ────────
+            // Каждые ~POS_LOG_INTERVAL мс сравниваем текущую
+            // позицию с записанной в posLog.
+            while (posLogIdx < posLog.length && posLog[posLogIdx].t <= elapsed) {
+                var logEntry = posLog[posLogIdx];
+                var cur      = _getSnapshot();
+
+                if (cur.pos && logEntry.pos) {
+                    var dist  = _posDistance(cur.pos, logEntry.pos);
+                    var da    = _angleDiff(cur.pos.angle, logEntry.pos.angle);
+                    var timeS = (logEntry.t / 1000).toFixed(1) + 'с';
+
+                    if (dist !== null) {
+                        if (dist > stats.posDriftMax) stats.posDriftMax = dist;
+                        if (dist > avto.maxPosDrift)  avto.maxPosDrift  = dist;
+                        stats.posDriftTotal += dist;
+                        stats.posCheckCount++;
+
+                        // Обновляем оверлей (всегда)
+                        _updatePosDriftOverlay(dist, timeS);
+
+                        // Предупреждения в чат только при превышении порогов
+                        if (dist >= POS_DRIFT_CRITICAL) {
+                            _chat('{EE4444}❌ КРИТИЧЕСКИЙ дрейф: ' + dist.toFixed(1) + 'м @ ' +
+                                  timeS + ' (угол: ' + (da !== null ? da.toFixed(1) + '°' : '?') + ')');
+                        } else if (dist >= POS_DRIFT_WARN) {
+                            _chat('{FFAA00}⚠ Дрейф позиции: ' + dist.toFixed(1) + 'м @ ' + timeS);
+                        }
+
+                        debugLog('[АВТОШКОЛА] POS @ ' + timeS +
+                                 ' | Δ=' + dist.toFixed(3) + 'м' +
+                                 ' | cur=' + _fmtPos(cur.pos) +
+                                 ' | exp=' + _fmtPos(logEntry.pos) +
+                                 (da !== null ? ' | Δangle=' + da.toFixed(1) + '°' : ''));
+                    }
+                }
+
+                posLogIdx++;
             }
 
+            // ── Ждём или завершаем ─────────────────────────────
             if (elapsed < totalMs + 400) {
                 avto.replayRAF = requestAnimationFrame(_rafLoop);
             } else {
@@ -7990,12 +7923,13 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 _removeHudOverlay();
                 avto.replaying = false;
                 avto.replayRAF = null;
-                avto.tracking  = false;
 
+                // Конечная позиция
                 var endMsgs = _checkEndSnapshot();
                 _chat('{AAAAAA}📍 Проверка конечной позиции:');
                 endMsgs.forEach(function (p) { _chat(p); });
 
+                // Тайминг-качество
                 var avgDrift = stats.processedEvents > 0
                     ? stats.totalDrift / stats.processedEvents : 0;
                 var qualityChat = stats.maxDrift < 20 ? '{33DD77}🟢 Отлично'
@@ -8004,6 +7938,20 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     :                                   '{EE4444}🔴 Плохо';
                 _chat(qualityChat + ' | Макс.дрифт: ' + stats.maxDrift.toFixed(2) +
                       'мс | Ср.дрифт: ' + avgDrift.toFixed(2) + 'мс');
+
+                // Итог по позиционному дрейфу
+                if (stats.posCheckCount > 0) {
+                    var avgPosDrift = stats.posDriftTotal / stats.posCheckCount;
+                    var posDriftColor = stats.posDriftMax < POS_DRIFT_WARN  ? '{33DD77}'
+                                     : stats.posDriftMax < POS_DRIFT_CRITICAL ? '{FFAA00}'
+                                     :                                           '{EE4444}';
+                    _chat(posDriftColor + '📍 Позиция | Макс.дрейф: ' +
+                          stats.posDriftMax.toFixed(2) + 'м | Ср.: ' +
+                          avgPosDrift.toFixed(2) + 'м | Точек: ' + stats.posCheckCount);
+                } else {
+                    _chat('{AAAAAA}📍 Лог позиций пуст — запусти запись заново');
+                }
+
                 if (stats.driftEvents.length > 0) {
                     _chat('{FF8800}⚠ Событий с дрифтом >' + TIMING_WARN_THRESHOLD +
                           'мс: ' + stats.driftEvents.length + ' из ' + stats.processedEvents);
@@ -8012,18 +7960,12 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                           ' событий в допуске ≤' + TIMING_WARN_THRESHOLD + 'мс');
                 }
 
-                if (stats.crossTrackSamples > 0) {
-                    var avgCross = stats.totalCrossTrack / stats.crossTrackSamples;
-                    _chat('{4FD8FF}📏 Слежение: макс.откл ' + stats.maxCrossTrack.toFixed(2) +
-                          'м | ср.откл ' + avgCross.toFixed(2) + 'м | коррекций руля: ' +
-                          stats.correctionsApplied);
-                }
-
                 _chat('{33DD77}✅ Повтор маршрута ЗАВЕРШЁН');
                 debugLog('[АВТОШКОЛА] ✅ Повтор. maxDrift=' + stats.maxDrift.toFixed(3) +
-                         'мс avgDrift=' + avgDrift.toFixed(3) + 'мс');
+                         'мс avgDrift=' + avgDrift.toFixed(3) +
+                         'мс posDriftMax=' + stats.posDriftMax.toFixed(2) + 'м');
 
-                _sendReplayResultToTelegram(stats, endMsgs);
+                _sendReplayResultToTelegram(stats, endMsgs, inputMethod);
             }
         }
 
@@ -8038,9 +7980,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             avto.replayRAF = null;
         }
         avto.replaying = false;
-        avto.tracking  = false;
-        _releaseCorrection();
-        avto.activeRouteKeys.clear();
         _chat('{FFAA00}⏹ Повтор отменён');
         _removeHudOverlay();
         RECORD_KEYS.forEach(function (code) {
@@ -8058,7 +7997,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         });
     }
 
-    // ── Отправка маршрута в Telegram (при /arec_off) ───────────
+    // ── Отправка маршрута в Telegram ──────────────────────────
     function _sendRouteToTelegram(events, totalSec) {
         const summary = {};
         events.forEach(function (ev) {
@@ -8085,18 +8024,16 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         }));
 
         var realEventsCount = events.filter(function (ev) { return ev.k !== -1; }).length;
-        var trackPoints     = avto.lastPositionLog ? avto.lastPositionLog.length : 0;
 
         let header = '🏎 <b>АВТОШКОЛА — Маршрут записан</b>\n\n';
         header += '⏱ Длительность: <b>' + totalSec + ' сек</b>\n';
         header += '📊 Событий: <b>' + realEventsCount + '</b>\n';
-        header += '📈 Точек трека: <b>' + trackPoints + '</b>\n';
+        header += '📍 Точек позиции: <b>' + (avto.lastPosLog ? avto.lastPosLog.length : 0) + '</b>\n';
         header += '📍 Старт: <b>' + snapStatus + '</b>\n';
         header += '🏁 Финиш: <b>' + endStatus + '</b>\n\n';
         header += '📋 <b>Сводка нажатий:</b>\n' + summaryLines + '\n\n';
         header += '⚡ Точность записи: <b>performance.now (суб-мс)</b>\n';
-        header += '🔄 Обычный повтор: <code>/apov</code>\n';
-        header += '🎯 Повтор + слежение: <code>/apov_track</code>';
+        header += '🔄 Для повтора введи в чат: <code>/apov</code>';
 
         if (typeof sendToTelegram === 'function') {
             sendToTelegram(header, false, null);
@@ -8120,7 +8057,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     }
 
     // ── Отправка отчёта о повторе в Telegram ──────────────────
-    function _sendReplayResultToTelegram(stats, endMsgs) {
+    function _sendReplayResultToTelegram(stats, endMsgs, inputMethod) {
         if (typeof sendToTelegram !== 'function') return;
 
         var avgDrift = stats.processedEvents > 0
@@ -8133,12 +8070,29 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                          :                        '🔴 Плохо (≥100мс)';
 
         var msg = '🏁 <b>АВТОШКОЛА — Повтор завершён</b>\n\n';
+        msg += '🎮 Метод ввода: <b>' + (inputMethod || '—') + '</b>\n';
         msg += '🎯 Качество тайминга: <b>' + qualityLabel + '</b>\n';
         msg += '📊 Обработано событий: <b>' + stats.processedEvents +
                ' / ' + stats.totalEvents + '</b>\n';
         msg += '⏱ Макс. дрифт: <b>' + stats.maxDrift.toFixed(2) + ' мс</b>\n';
         msg += '📉 Ср. дрифт: <b>' + avgDrift + ' мс</b>\n';
         msg += '🔒 Порог предупреждения: <b>' + TIMING_WARN_THRESHOLD + ' мс</b>\n';
+
+        // Позиционный дрейф
+        if (stats.posCheckCount > 0) {
+            var avgPosDrift = (stats.posDriftTotal / stats.posCheckCount).toFixed(2);
+            msg += '\n📍 <b>Позиционный дрейф:</b>\n';
+            msg += '  Проверок: <b>' + stats.posCheckCount + '</b>\n';
+            msg += '  Макс.: <b>' + stats.posDriftMax.toFixed(2) + ' м</b>\n';
+            msg += '  Ср.: <b>' + avgPosDrift + ' м</b>\n';
+            var posDriftQuality = stats.posDriftMax < 1   ? '🟢 Идеально'
+                                : stats.posDriftMax < POS_DRIFT_WARN     ? '🟡 Хорошо'
+                                : stats.posDriftMax < POS_DRIFT_CRITICAL ? '🟠 Заметный'
+                                :                                           '🔴 Критический';
+            msg += '  Оценка: <b>' + posDriftQuality + '</b>\n';
+        } else {
+            msg += '\n📍 <b>Лог позиций пуст</b> — перезапиши маршрут\n';
+        }
 
         if (stats.driftEvents.length === 0) {
             msg += '\n✅ <b>Все события в допуске!</b> Тайминг идеален.\n';
@@ -8168,25 +8122,17 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             msg += '• ' + m.replace(/\{[0-9A-Fa-f]{6}\}/g, '') + '\n';
         });
 
-        if (stats.crossTrackSamples > 0) {
-            var avgCross = stats.totalCrossTrack / stats.crossTrackSamples;
-            msg += '\n📏 <b>Активное слежение:</b>\n';
-            msg += '  Макс. отклонение: <b>' + stats.maxCrossTrack.toFixed(2) + ' м</b>\n';
-            msg += '  Ср. отклонение: <b>' + avgCross.toFixed(2) + ' м</b>\n';
-            msg += '  Коррекций руля: <b>' + stats.correctionsApplied + '</b>\n';
-        }
-
         sendToTelegram(msg, false, null);
     }
 
-    // ── Вспомогалка: вывод в системный чат игры ───────────────
+    // ── Вывод в системный чат ──────────────────────────────────
     function _chat(coloredText) {
         if (typeof window.onChatMessage === 'function') {
             window.onChatMessage('{999999}АВТОШКОЛА — ' + coloredText, '999999FF');
         }
     }
 
-    // ── Хук onScreenControlTouchStart/End (мобильные HUD-кнопки) ──
+    // ── Хук onScreenControlTouchStart/End (мобильные кнопки) ──
     (function hookTouchControls() {
         const _origStart = window.onScreenControlTouchStart;
         window.onScreenControlTouchStart = function (path) {
@@ -8196,7 +8142,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     avto.heldKeys.add(code);
                     var t = performance.now() - avto.startPerf;
                     avto.events.push({ t: t, d: 1, k: code });
-                    _overlaySetKey(code, true);     // ← показываем нажатие при записи
+                    _overlaySetKey(code, true);
                     debugLog('[АВТОШКОЛА] ▼touch ' +
                              (KEY_MAP[code] ? KEY_MAP[code].label : path) +
                              ' @ ' + t.toFixed(3) + 'мс');
@@ -8213,7 +8159,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     avto.heldKeys.delete(code);
                     var t = performance.now() - avto.startPerf;
                     avto.events.push({ t: t, d: 0, k: code });
-                    _overlaySetKey(code, false);    // ← показываем отпускание при записи
+                    _overlaySetKey(code, false);
                     debugLog('[АВТОШКОЛА] ▲touch ' +
                              (KEY_MAP[code] ? KEY_MAP[code].label : path) +
                              ' @ ' + t.toFixed(3) + 'мс');
@@ -8229,19 +8175,18 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         window.sendChatInput = function (cmd) {
             if (typeof cmd === 'string') {
                 const t = cmd.trim().toLowerCase();
-                if (t === '/arec_on')    { startRecording();     return; }
-                if (t === '/arec_off')   { stopRecording();      return; }
-                if (t === '/apov')       { replayRoute(false);   return; }
-                if (t === '/apov_track') { replayRoute(true);    return; }
-                if (t === '/apov_off')   { cancelReplay();       return; }
+                if (t === '/arec_on')  { startRecording(); return; }
+                if (t === '/arec_off') { stopRecording();  return; }
+                if (t === '/apov')     { replayRoute();    return; }
+                if (t === '/apov_off') { cancelReplay();   return; }
             }
             if (typeof _orig === 'function') return _orig.apply(this, arguments);
         };
     })();
 
     // ── Инициализация ──────────────────────────────────────────
-    _chat('{AAAAAA}Модуль v3 загружен | /arec_on | /arec_off | /apov | /apov_track | /apov_off');
-    debugLog('[АВТОШКОЛА v3] Загружен | performance.now() | drift-tracking | position-tracking | TG on replay');
+    _chat('{AAAAAA}Модуль v3 загружен | /arec_on | /arec_off | /apov | /apov_off');
+    debugLog('[АВТОШКОЛА v3] Загружен | performance.now() | drift-tracking | posLog | TG on replay');
 
 })();
 // ==================== END AVTOSHKOLA MODULE ====================
