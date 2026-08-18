@@ -7236,6 +7236,8 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 // ║  При старте записи запоминаются: позиция (X/Y/Z/угол)    ║
 // ║  и признак «сидим в машине». При повторе позиция и       ║
 // ║  статус сравниваются; при расхождении — сообщение в чат. ║
+// ║  При остановке записи показывается финальная позиция.    ║
+// ║  При завершении повтора сравнивается конечная позиция.   ║
 // ║  Команды в чате игры:                                    ║
 // ║    /arec_on  → начать запись                             ║
 // ║    /arec_off → остановить запись + отправить в TG        ║
@@ -7251,37 +7253,109 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     // ── Маппинг клавиш: keyCode → {label, path} ───────────────
     // path — строка для window.onScreenControlTouchStart/End
     const KEY_MAP = {
-        87:  { label: 'Газ (W)',          path: '<Keyboard>/w'         },
-        83:  { label: 'Тормоз (S)',       path: '<Keyboard>/s'         },
-        65:  { label: 'Влево (A)',        path: '<Keyboard>/a'         },
-        68:  { label: 'Вправо (D)',       path: '<Keyboard>/d'         },
-        32:  { label: 'Ручник (Space)',   path: '<Keyboard>/space'     },
-        81:  { label: 'Пов. влево (Q)',   path: '<Keyboard>/q'         },
-        69:  { label: 'Пов. вправо (E)',  path: '<Keyboard>/e'         },
-        72:  { label: 'Сигнал (H)',       path: '<Keyboard>/h'         },
+        87:  { label: 'Газ (W)',          path: '<Keyboard>/w'     },
+        83:  { label: 'Тормоз (S)',       path: '<Keyboard>/s'     },
+        65:  { label: 'Влево (A)',        path: '<Keyboard>/a'     },
+        68:  { label: 'Вправо (D)',       path: '<Keyboard>/d'     },
+        32:  { label: 'Ручник (Space)',   path: '<Keyboard>/space' },
+        81:  { label: 'Пов. влево (Q)',   path: '<Keyboard>/q'     },
+        69:  { label: 'Пов. вправо (E)', path: '<Keyboard>/e'     },
+        72:  { label: 'Сигнал (H)',       path: '<Keyboard>/h'     },
     };
 
     const RECORD_KEYS = new Set(Object.keys(KEY_MAP).map(Number));
 
-    // Допустимое отклонение позиции (в игровых единицах) при сравнении.
-    // Значение 1.5 позволяет сравнить «один в один» с поправкой на погрешность
-    // плавающей точки и небольшую погрешность стоянки.
-    const POS_THRESHOLD = 1.5;
+    // Допустимое отклонение позиции (в игровых единицах).
+    const POS_THRESHOLD     = 1.5;
+    // Порог для проверки КОНЕЧНОЙ позиции (допускаем занос при остановке).
+    const END_POS_THRESHOLD = 15;
 
     // ── Состояние модуля ───────────────────────────────────────
     const avto = {
-        recording:     false,   // Активна ли запись прямо сейчас
-        events:        [],      // Записанные события: [{t, d, k}]
-        startTime:     null,    // Date.now() в момент старта записи
-        lastRoute:     null,    // Последний завершённый маршрут (для /apov)
-        replaying:     false,   // Идёт ли повтор прямо сейчас
-        replayTimers:  [],      // setTimeout-ы повтора (для отмены)
-        heldKeys:      new Set(), // Зажатые клавиши в процессе записи
-        startSnapshot: null,    // Снимок состояния при старте записи: {pos, inVehicle}
+        recording:     false,   // Активна ли запись
+        events:        [],      // [{t, d, k}]
+        startTime:     null,    // Date.now() при старте записи
+        lastRoute:     null,    // Последний завершённый маршрут
+        replaying:     false,   // Идёт ли повтор
+        replayRAF:     null,    // ID requestAnimationFrame повтора
+        heldKeys:      new Set(),
+        startSnapshot: null,    // Снимок при СТАРТЕ записи
+        endSnapshot:   null,    // Снимок при КОНЦЕ записи
     };
 
+    // ── Визуальный оверлей нажатых клавиш (при повторе) ───────
+    var _hudOverlay = null;
+
+    function _createHudOverlay() {
+        if (_hudOverlay) return;
+        var wrap = document.createElement('div');
+        wrap.id = 'avto-key-overlay';
+        wrap.style.cssText = [
+            'position:fixed',
+            'right:1.8vw',
+            'bottom:22vh',
+            'z-index:99999',
+            'display:flex',
+            'flex-direction:column',
+            'gap:3px',
+            'pointer-events:none',
+            'font-family:sans-serif',
+            'font-size:1.5vh',
+        ].join(';');
+
+        // Метки кнопок в порядке отображения
+        var keyLabels = [
+            [87, '⬆ ГАЗ (W)'],
+            [68, '▶ ВПРАВО (D)'],
+            [65, '◀ ВЛЕВО (A)'],
+            [83, '⬇ ТОРМОЗ (S)'],
+            [32, '🅿 РУЧНИК'],
+            [81, '↩ ПОВ.Л (Q)'],
+            [69, '↪ ПОВ.П (E)'],
+            [72, '📯 СИГНАЛ (H)'],
+        ];
+
+        keyLabels.forEach(function (pair) {
+            var code = pair[0], label = pair[1];
+            var row = document.createElement('div');
+            row.id = 'avto-krow-' + code;
+            row.textContent = label;
+            row.style.cssText = [
+                'padding:0.35vh 0.8vh',
+                'border-radius:0.3vh',
+                'background:rgba(0,0,0,0.5)',
+                'color:rgba(255,255,255,0.3)',
+                'border:1px solid rgba(255,255,255,0.08)',
+                'transition:background 0.06s,color 0.06s,border-color 0.06s',
+                'white-space:nowrap',
+            ].join(';');
+            wrap.appendChild(row);
+        });
+
+        document.body.appendChild(wrap);
+        _hudOverlay = wrap;
+    }
+
+    function _removeHudOverlay() {
+        if (_hudOverlay) { _hudOverlay.remove(); _hudOverlay = null; }
+    }
+
+    function _overlaySetKey(code, isDown) {
+        if (!_hudOverlay) return;
+        var el = document.getElementById('avto-krow-' + code);
+        if (!el) return;
+        if (isDown) {
+            el.style.background  = 'rgba(30,180,80,0.75)';
+            el.style.color       = '#fff';
+            el.style.borderColor = '#33DD77';
+        } else {
+            el.style.background  = 'rgba(0,0,0,0.5)';
+            el.style.color       = 'rgba(255,255,255,0.3)';
+            el.style.borderColor = 'rgba(255,255,255,0.08)';
+        }
+    }
+
     // ── Получить текущий снимок: позиция + признак машины ─────
-    // inVehicle определяется по спидометру HUD — он виден только в транспорте.
     function _getSnapshot() {
         var pos       = null;
         var inVehicle = false;
@@ -7289,7 +7363,8 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             if (window.App && window.App.$store) {
                 var raw = window.App.$store.getters['player/position'];
                 if (raw) {
-                    pos = { x: raw.x, y: raw.y, z: raw.z, angle: raw.angle, interior: raw.interior };
+                    pos = { x: raw.x, y: raw.y, z: raw.z,
+                            angle: raw.angle, interior: raw.interior };
                 }
             }
             var hud = (typeof window.interface === 'function') ? window.interface('Hud') : null;
@@ -7305,47 +7380,73 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     // ── Форматировать позицию для вывода в чат ─────────────────
     function _fmtPos(pos) {
         if (!pos) return '(нет данных)';
-        return 'X:' + pos.x.toFixed(1) + ' Y:' + pos.y.toFixed(1) + ' Z:' + pos.z.toFixed(1);
+        return 'X:' + pos.x.toFixed(1) +
+               ' Y:' + pos.y.toFixed(1) +
+               ' Z:' + pos.z.toFixed(1);
     }
 
-    // ── Сравнить снимок при записи с текущим и вывести предупреждения
-    function _checkSnapshot() {
+    // ── Проверить НАЧАЛЬНУЮ позицию (снимок записи vs текущий) ─
+    function _checkStartSnapshot() {
         var snap    = avto.startSnapshot;
         var current = _getSnapshot();
-        var problems = [];
+        var msgs    = [];
 
-        // Сравнение «в машине / не в машине»
         if (snap && snap.inVehicle !== current.inVehicle) {
-            problems.push(
+            msgs.push(
                 '{EE4444}❌ Статус машины не совпадает! ' +
                 'Запись: ' + (snap.inVehicle ? 'в машине' : 'пешком') +
                 ' → Сейчас: ' + (current.inVehicle ? 'в машине' : 'пешком')
             );
         }
 
-        // Сравнение позиции (X / Y; Z обычно менее критична)
         if (snap && snap.pos && current.pos) {
             var dx = Math.abs(current.pos.x - snap.pos.x);
             var dy = Math.abs(current.pos.y - snap.pos.y);
             if (dx > POS_THRESHOLD || dy > POS_THRESHOLD) {
-                problems.push(
-                    '{EE4444}❌ Позиция не совпадает! ' +
+                msgs.push(
+                    '{EE4444}❌ Начальная позиция НЕ совпадает! ' +
                     'Запись: ' + _fmtPos(snap.pos) +
-                    ' → Сейчас: ' + _fmtPos(current.pos) +
+                    ' | Сейчас: ' + _fmtPos(current.pos) +
                     ' (ΔX:' + dx.toFixed(1) + ' ΔY:' + dy.toFixed(1) + ')'
+                );
+            } else {
+                msgs.push(
+                    '{33DD77}✅ Начальная позиция совпадает: ' + _fmtPos(current.pos)
                 );
             }
         } else if (snap && !snap.pos) {
-            problems.push('{FFAA00}⚠ Позиция при записи не была сохранена — сравнение невозможно');
+            msgs.push('{FFAA00}⚠ Позиция при записи не была сохранена — сравнение невозможно');
         } else if (!current.pos) {
-            problems.push('{FFAA00}⚠ Позиция сейчас недоступна — сравнение невозможно');
+            msgs.push('{FFAA00}⚠ Текущая позиция недоступна — сравнение невозможно');
         }
 
-        return problems;
+        return msgs;
+    }
+
+    // ── Проверить КОНЕЧНУЮ позицию (снимок конца записи vs текущий)
+    function _checkEndSnapshot() {
+        var endSnap = avto.endSnapshot;
+        if (!endSnap || !endSnap.pos) {
+            return ['{FFAA00}⚠ Конечная позиция записи не сохранена — сравнение недоступно'];
+        }
+        var current = _getSnapshot();
+        if (!current.pos) {
+            return ['{FFAA00}⚠ Текущая позиция недоступна — сравнение конца невозможно'];
+        }
+        var dx = Math.abs(current.pos.x - endSnap.pos.x);
+        var dy = Math.abs(current.pos.y - endSnap.pos.y);
+        if (dx > END_POS_THRESHOLD || dy > END_POS_THRESHOLD) {
+            return [
+                '{EE4444}❌ Конечная позиция НЕ совпадает! ' +
+                'Запись: ' + _fmtPos(endSnap.pos) +
+                ' | Сейчас: ' + _fmtPos(current.pos) +
+                ' (ΔX:' + dx.toFixed(1) + ' ΔY:' + dy.toFixed(1) + ')'
+            ];
+        }
+        return ['{33DD77}✅ Конечная позиция совпадает: ' + _fmtPos(current.pos)];
     }
 
     // ── Обработчики клавиш (навешиваются только при записи) ───
-
     function onKeyDown(e) {
         if (!avto.recording) return;
         const code = e.keyCode;
@@ -7360,7 +7461,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         if (!avto.recording) return;
         const code = e.keyCode;
         if (!RECORD_KEYS.has(code)) return;
-        if (!avto.heldKeys.has(code)) return;         // клавиша и так не зажата
+        if (!avto.heldKeys.has(code)) return;
         avto.heldKeys.delete(code);
         avto.events.push({ t: Date.now() - avto.startTime, d: 0, k: code });
         debugLog('[АВТОШКОЛА] ⬆ ' + KEY_MAP[code].label);
@@ -7377,8 +7478,8 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             return;
         }
 
-        // ── Сохраняем снимок состояния ────────────────────────
         avto.startSnapshot = _getSnapshot();
+        avto.endSnapshot   = null;
         var snap           = avto.startSnapshot;
         var snapLabel      = (snap.inVehicle ? '🚗 в машине' : '🚶 пешком') +
                             (snap.pos ? ' | ' + _fmtPos(snap.pos) : ' | позиция неизвестна');
@@ -7410,18 +7511,40 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         });
         avto.heldKeys.clear();
 
-        avto.lastRoute = avto.events.slice();          // сохраняем копию
-        const totalSec = (avto.lastRoute[avto.lastRoute.length - 1]
-            ? avto.lastRoute[avto.lastRoute.length - 1].t / 1000
-            : 0).toFixed(1);
+        // ── Сохраняем конечный снимок позиции ─────────────────
+        avto.endSnapshot = _getSnapshot();
+        var endSnap      = avto.endSnapshot;
+        var endLabel     = (endSnap.inVehicle ? '🚗 в машине' : '🚶 пешком') +
+                           (endSnap.pos ? ' | ' + _fmtPos(endSnap.pos) : ' | позиция неизвестна');
 
-        _chat('{EE4444}⏹ Запись остановлена | ' + avto.lastRoute.length + ' событий, ' + totalSec + 'с | /apov — повтор');
-        debugLog('[АВТОШКОЛА] ⛔ Запись остановлена. Событий: ' + avto.lastRoute.length);
+        avto.lastRoute = avto.events.slice();
+        const lastEv   = avto.lastRoute.length
+            ? avto.lastRoute[avto.lastRoute.length - 1] : null;
+        const totalSec = (lastEv ? lastEv.t / 1000 : 0).toFixed(1);
+
+        _chat('{EE4444}⏹ Запись остановлена | ' +
+              avto.lastRoute.length + ' событий, ' + totalSec + 'с');
+        _chat('{AAAAAA}🏁 Конечная позиция: ' + endLabel);
+        _chat('{AAAAAA}Введи /apov для повтора');
+        debugLog('[АВТОШКОЛА] ⛔ Остановлена. Событий: ' + avto.lastRoute.length +
+                 '. Конец: ' + JSON.stringify(endSnap));
 
         _sendToTelegram(avto.lastRoute, totalSec);
     }
 
-    // ── Воспроизведение маршрута ───────────────────────────────
+    // ── Воспроизведение маршрута (RAF-based timing) ────────────
+    //
+    //  ИСПРАВЛЕНИЯ по сравнению с предыдущей версией:
+    //  1. Вместо множества setTimeout → один requestAnimationFrame-цикл
+    //     с проверкой performance.now(). Это устраняет накопленные задержки
+    //     и «пачечное» срабатывание таймеров при загруженном потоке.
+    //  2. Используем ТОЛЬКО onScreenControlTouchStart/End — убрали дублирующие
+    //     KeyboardEvent при активном touch-контроле. Двойной ввод (touch + key)
+    //     приводил к тому, что машина ехала быстрее/резче, чем при записи,
+    //     и врезалась в стены.
+    //  3. Добавлен визуальный оверлей нажатых клавиш.
+    //  4. В конце повтора показывается сравнение конечной позиции.
+    //
     function replayRoute() {
         if (avto.replaying) {
             _chat('{FFAA00}Повтор уже идёт!');
@@ -7436,82 +7559,149 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             return;
         }
 
-        // ── Проверяем совпадение позиции и статуса машины ─────
-        var problems = _checkSnapshot();
-        if (problems.length > 0) {
-            _chat('{FFAA00}⚠ ВНИМАНИЕ — позиция/статус не совпадают со снимком записи:');
-            problems.forEach(function (p) { _chat(p); });
-            // Сообщаем в Telegram тоже
-            if (typeof sendToTelegram === 'function') {
-                var tgMsg = '⚠ <b>АВТОШКОЛА — Повтор: расхождение позиции/статуса</b>\n\n';
-                problems.forEach(function (p) {
-                    // Убираем цветовые теги для Telegram
-                    tgMsg += '• ' + p.replace(/\{[0-9A-Fa-f]{6}\}/g, '') + '\n';
-                });
-                sendToTelegram(tgMsg, false, null);
-            }
-            // Продолжаем повтор с предупреждением (не останавливаем)
+        // ── Проверка начальной позиции (всегда, не только при ошибке) ──
+        var startMsgs = _checkStartSnapshot();
+        _chat('{AAAAAA}📍 Проверка стартовой позиции:');
+        startMsgs.forEach(function (p) { _chat(p); });
+
+        var hasStartProblems = startMsgs.some(function (m) {
+            return m.indexOf('{EE4444}') === 0;
+        });
+        if (hasStartProblems && typeof sendToTelegram === 'function') {
+            var tgMsg = '⚠ <b>АВТОШКОЛА — Повтор: расхождение позиции</b>\n\n';
+            startMsgs.forEach(function (p) {
+                tgMsg += '• ' + p.replace(/\{[0-9A-Fa-f]{6}\}/g, '') + '\n';
+            });
+            sendToTelegram(tgMsg, false, null);
         }
 
         avto.replaying = true;
-        avto.replayTimers = [];
+        avto.replayRAF = null;
+
         const events  = avto.lastRoute;
-        const totalMs = events[events.length - 1] ? events[events.length - 1].t : 0;
+        const totalMs = events.length ? events[events.length - 1].t : 0;
 
         _chat('{33DD77}▶ Повтор маршрута НАЧАТ (' + (totalMs / 1000).toFixed(1) + 'с)');
         debugLog('[АВТОШКОЛА] ▶ Повтор: ' + events.length + ' событий');
 
-        events.forEach(function (ev) {
-            const timer = setTimeout(function () {
-                const info = KEY_MAP[ev.k];
-                if (!info) return;
-                try {
-                    if (ev.d === 1) {
-                        // Нажатие — через игровой API виртуальных кнопок
-                        if (typeof window.onScreenControlTouchStart === 'function') {
-                            window.onScreenControlTouchStart(info.path);
-                        }
-                        // Дублируем нативным событием (для legacy/Radmir режима)
+        // Создаём визуальный оверлей
+        _createHudOverlay();
+
+        const startPerf  = performance.now();
+        var   eventIndex = 0;
+
+        // Используем ли touch-контрол или keyboard-fallback
+        var hasTouchControl = typeof window.onScreenControlTouchStart === 'function';
+
+        // ── Выполнить одно событие ─────────────────────────────
+        function _execEvent(ev) {
+            const info = KEY_MAP[ev.k];
+            if (!info) return;
+            try {
+                if (ev.d === 1) {
+                    // НАЖАТИЕ
+                    // Используем ТОЛЬКО один метод — исключаем двойной ввод.
+                    // Двойной ввод (touch + keyboard) был главной причиной
+                    // того, что машина ехала быстрее/несла и врезалась в стены.
+                    if (hasTouchControl) {
+                        window.onScreenControlTouchStart(info.path);
+                    } else {
+                        // Фоллбэк: только если touch-API недоступен
                         document.dispatchEvent(new KeyboardEvent('keydown', {
                             keyCode: ev.k, which: ev.k,
                             bubbles: true, cancelable: true
                         }));
-                        debugLog('[АВТОШКОЛА] ▶⬇ ' + info.label);
+                    }
+                    _overlaySetKey(ev.k, true);
+                    debugLog('[АВТОШКОЛА] ▶⬇ ' + info.label);
+                } else {
+                    // ОТПУСКАНИЕ
+                    if (hasTouchControl) {
+                        window.onScreenControlTouchEnd(info.path);
                     } else {
-                        // Отпускание
-                        if (typeof window.onScreenControlTouchEnd === 'function') {
-                            window.onScreenControlTouchEnd(info.path);
-                        }
                         document.dispatchEvent(new KeyboardEvent('keyup', {
                             keyCode: ev.k, which: ev.k,
                             bubbles: true, cancelable: true
                         }));
-                        debugLog('[АВТОШКОЛА] ▶⬆ ' + info.label);
                     }
-                } catch (err) {
-                    debugLog('[АВТОШКОЛА] Ошибка воспроизведения: ' + err.message);
+                    _overlaySetKey(ev.k, false);
+                    debugLog('[АВТОШКОЛА] ▶⬆ ' + info.label);
                 }
-            }, ev.t);
-            avto.replayTimers.push(timer);
-        });
+            } catch (err) {
+                debugLog('[АВТОШКОЛА] Ошибка воспроизведения: ' + err.message);
+            }
+        }
 
-        // Завершение повтора
-        const doneTimer = setTimeout(function () {
-            avto.replaying    = false;
-            avto.replayTimers = [];
-            _chat('{33DD77}✅ Повтор маршрута ЗАВЕРШЁН');
-            debugLog('[АВТОШКОЛА] ✅ Повтор завершён');
-        }, totalMs + 600);
-        avto.replayTimers.push(doneTimer);
+        // ── Принудительно отпустить все клавиши ───────────────
+        function _releaseAll() {
+            RECORD_KEYS.forEach(function (code) {
+                const info = KEY_MAP[code];
+                if (!info) return;
+                try {
+                    if (hasTouchControl) {
+                        window.onScreenControlTouchEnd(info.path);
+                    } else {
+                        document.dispatchEvent(new KeyboardEvent('keyup', {
+                            keyCode: code, which: code,
+                            bubbles: true, cancelable: true
+                        }));
+                    }
+                    _overlaySetKey(code, false);
+                } catch (e) {}
+            });
+        }
+
+        // ── RAF-петля: точная синхронизация по performance.now() ──
+        function _rafLoop() {
+            // Повтор мог быть отменён снаружи (cancelReplay)
+            if (!avto.replaying) {
+                _releaseAll();
+                _removeHudOverlay();
+                return;
+            }
+
+            var elapsed = performance.now() - startPerf;
+
+            // Обрабатываем все события, время которых уже наступило
+            while (eventIndex < events.length && events[eventIndex].t <= elapsed) {
+                _execEvent(events[eventIndex]);
+                eventIndex++;
+            }
+
+            if (elapsed < totalMs + 400) {
+                // Продолжаем петлю
+                avto.replayRAF = requestAnimationFrame(_rafLoop);
+            } else {
+                // ── Повтор завершён ───────────────────────────
+                _releaseAll();
+                _removeHudOverlay();
+                avto.replaying = false;
+                avto.replayRAF = null;
+
+                // Сравниваем конечную позицию
+                var endMsgs = _checkEndSnapshot();
+                _chat('{AAAAAA}📍 Проверка конечной позиции:');
+                endMsgs.forEach(function (p) { _chat(p); });
+
+                _chat('{33DD77}✅ Повтор маршрута ЗАВЕРШЁН');
+                debugLog('[АВТОШКОЛА] ✅ Повтор завершён');
+            }
+        }
+
+        avto.replayRAF = requestAnimationFrame(_rafLoop);
     }
 
-    // ── Отмена повтора (служебная, если понадобится) ──────────
+    // ── Отмена повтора ─────────────────────────────────────────
     function cancelReplay() {
         if (!avto.replaying) return;
-        avto.replayTimers.forEach(clearTimeout);
-        avto.replayTimers = [];
-        avto.replaying    = false;
+
+        if (avto.replayRAF !== null) {
+            cancelAnimationFrame(avto.replayRAF);
+            avto.replayRAF = null;
+        }
+        avto.replaying = false;
         _chat('{FFAA00}⏹ Повтор отменён');
+        _removeHudOverlay();
 
         // Принудительно отпускаем все клавиши
         RECORD_KEYS.forEach(function (code) {
@@ -7543,10 +7733,13 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             .map(function (pair) { return '  ' + pair[0] + ': ' + pair[1] + ' раз(а)'; })
             .join('\n') || '  (нет нажатий)';
 
-        // Снимок позиции при старте записи
-        var snap       = avto.startSnapshot;
+        var snap    = avto.startSnapshot;
+        var endSnap = avto.endSnapshot;
         var snapStatus = snap
             ? ((snap.inVehicle ? '🚗 в машине' : '🚶 пешком') + ' | ' + _fmtPos(snap.pos))
+            : '(нет данных)';
+        var endStatus = endSnap
+            ? ((endSnap.inVehicle ? '🚗 в машине' : '🚶 пешком') + ' | ' + _fmtPos(endSnap.pos))
             : '(нет данных)';
 
         // Компактный JSON маршрута: [[t,d,k], ...]
@@ -7554,19 +7747,17 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             return [ev.t, ev.d, ev.k];
         }));
 
-        // Формируем заголовочное сообщение
         let header = '🏎 <b>АВТОШКОЛА — Маршрут записан</b>\n\n';
         header += '⏱ Длительность: <b>' + totalSec + ' сек</b>\n';
         header += '📊 Событий: <b>' + events.length + '</b>\n';
-        header += '📍 Старт записи: <b>' + snapStatus + '</b>\n\n';
+        header += '📍 Старт: <b>' + snapStatus + '</b>\n';
+        header += '🏁 Финиш: <b>' + endStatus + '</b>\n\n';
         header += '📋 <b>Сводка нажатий:</b>\n' + summaryLines + '\n\n';
         header += '🔄 Для повтора введи в чат: <code>/apov</code>';
 
         if (typeof sendToTelegram === 'function') {
             sendToTelegram(header, false, null);
 
-            // Если данные маршрута влезают в одно сообщение — отправляем сразу,
-            // иначе разбиваем на чанки по 3800 символов
             const chunkSize = 3800;
             const prefix    = '📦 <b>Данные маршрута</b> (вставь в /apov_load при необходимости):\n<code>';
             const suffix    = '</code>';
@@ -7574,7 +7765,8 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             for (let i = 0; i < routeJson.length; i += chunkSize) {
                 const chunk = routeJson.slice(i, i + chunkSize);
                 const part  = (routeJson.length > chunkSize)
-                    ? ' [' + (Math.floor(i / chunkSize) + 1) + '/' + Math.ceil(routeJson.length / chunkSize) + ']'
+                    ? ' [' + (Math.floor(i / chunkSize) + 1) + '/' +
+                      Math.ceil(routeJson.length / chunkSize) + ']'
                     : '';
                 const msg = prefix.replace('маршрута)', 'маршрута' + part + ')') + chunk + suffix;
                 sendToTelegram(msg, true, null);
@@ -7592,8 +7784,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     }
 
     // ── Хук onScreenControlTouchStart/End (Hassle mobile HUD-кнопки) ──
-    // Обратный маппинг: path → keyCode, чтобы касание кнопки газа/тормоза/руля
-    // записывалось так же, как нажатие клавиши W/S/A/D/Space/H.
+    // Обратный маппинг: path → keyCode
     const PATH_MAP = {};
     Object.keys(KEY_MAP).forEach(function (code) {
         PATH_MAP[KEY_MAP[code].path] = Number(code);
