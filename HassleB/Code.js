@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotАвтошкоа2а'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotАвтошкоа2'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -7284,43 +7284,100 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         replayStats:   null,    // статистика последнего повтора
     };
 
-    // ── Визуальный оверлей нажатых клавиш (при повторе) ───────
+    // ── Визуальный оверлей нажатых клавиш (запись И повтор) ───
     var _hudOverlay = null;
+    var _hudOverlayMode = null; // 'record' | 'replay'
 
-    function _createHudOverlay() {
-        if (_hudOverlay) return;
+    // Метки строк клавиш (одни и те же для обоих режимов)
+    var _KEY_LABELS = [
+        [87, '⬆ ГАЗ (W)'],
+        [68, '▶ ВПРАВО (D)'],
+        [65, '◀ ВЛЕВО (A)'],
+        [83, '⬇ ТОРМОЗ (S)'],
+        [32, '🅿 РУЧНИК'],
+        [81, '↩ ПОВ.Л (Q)'],
+        [69, '↪ ПОВ.П (E)'],
+        [72, '📯 СИГНАЛ (H)'],
+    ];
+
+    function _createHudOverlay(mode) {
+        mode = mode || 'replay';
+        _hudOverlayMode = mode;
+
+        // Если оверлей уже есть — только обновляем заголовок и цвет
+        if (_hudOverlay) {
+            _updateOverlayHeader(mode);
+            return;
+        }
+
         var wrap = document.createElement('div');
         wrap.id = 'avto-key-overlay';
         wrap.style.cssText = [
-            'position:fixed', 'right:1.8vw', 'bottom:22vh', 'z-index:99999',
-            'display:flex', 'flex-direction:column', 'gap:3px',
-            'pointer-events:none', 'font-family:sans-serif', 'font-size:1.5vh',
+            'position:fixed',
+            'right:1.8vw',
+            'bottom:22vh',
+            'z-index:99999',
+            'display:flex',
+            'flex-direction:column',
+            'gap:3px',
+            'pointer-events:none',
+            'font-family:"Open Sans",var(--fallback-font),sans-serif',
+            'font-size:1.5vh',
         ].join(';');
-        var keyLabels = [
-            [87, '⬆ ГАЗ (W)'], [68, '▶ ВПРАВО (D)'], [65, '◀ ВЛЕВО (A)'],
-            [83, '⬇ ТОРМОЗ (S)'], [32, '🅿 РУЧНИК'],
-            [81, '↩ ПОВ.Л (Q)'], [69, '↪ ПОВ.П (E)'], [72, '📯 СИГНАЛ (H)'],
-        ];
-        keyLabels.forEach(function (pair) {
+
+        // ── Заголовок-индикатор режима ─────────────────────────
+        var header = document.createElement('div');
+        header.id = 'avto-krow-header';
+        _applyHeaderStyle(header, mode);
+        wrap.appendChild(header);
+
+        // ── Строки клавиш ──────────────────────────────────────
+        _KEY_LABELS.forEach(function (pair) {
             var code = pair[0], label = pair[1];
             var row = document.createElement('div');
             row.id = 'avto-krow-' + code;
             row.textContent = label;
             row.style.cssText = [
-                'padding:0.35vh 0.8vh', 'border-radius:0.3vh',
-                'background:rgba(0,0,0,0.5)', 'color:rgba(255,255,255,0.3)',
+                'padding:0.35vh 0.8vh',
+                'border-radius:0.3vh',
+                'background:rgba(0,0,0,0.5)',
+                'color:rgba(255,255,255,0.3)',
                 'border:1px solid rgba(255,255,255,0.08)',
                 'transition:background 0.06s,color 0.06s,border-color 0.06s',
                 'white-space:nowrap',
             ].join(';');
             wrap.appendChild(row);
         });
+
         document.body.appendChild(wrap);
         _hudOverlay = wrap;
     }
 
+    function _applyHeaderStyle(el, mode) {
+        var isRec = (mode === 'record');
+        el.textContent  = isRec ? '🔴 ЗАПИСЬ' : '▶ ПОВТОР';
+        el.style.cssText = [
+            'padding:0.35vh 0.8vh',
+            'border-radius:0.3vh',
+            'background:rgba(0,0,0,0.7)',
+            'color:' + (isRec ? '#FF4444' : '#33DD77'),
+            'border:1px solid ' + (isRec ? '#FF4444' : '#33DD77'),
+            'white-space:nowrap',
+            'font-weight:bold',
+            'text-align:center',
+            'letter-spacing:0.05em',
+        ].join(';');
+    }
+
+    function _updateOverlayHeader(mode) {
+        _hudOverlayMode = mode;
+        var hdr = document.getElementById('avto-krow-header');
+        if (hdr) _applyHeaderStyle(hdr, mode);
+    }
+
     function _removeHudOverlay() {
         if (_hudOverlay) { _hudOverlay.remove(); _hudOverlay = null; }
+        _hudOverlayMode = null;
     }
 
     function _overlaySetKey(code, isDown) {
@@ -7328,9 +7385,11 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         var el = document.getElementById('avto-krow-' + code);
         if (!el) return;
         if (isDown) {
-            el.style.background  = 'rgba(30,180,80,0.75)';
+            // При записи — оранжевый; при повторе — зелёный
+            var isRec = (_hudOverlayMode === 'record');
+            el.style.background  = isRec ? 'rgba(210,100,0,0.80)' : 'rgba(30,180,80,0.75)';
             el.style.color       = '#fff';
-            el.style.borderColor = '#33DD77';
+            el.style.borderColor = isRec ? '#FF8800' : '#33DD77';
         } else {
             el.style.background  = 'rgba(0,0,0,0.5)';
             el.style.color       = 'rgba(255,255,255,0.3)';
@@ -7338,12 +7397,16 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         }
     }
 
+    // Сбросить визуальное состояние ВСЕХ клавиш в оверлее
+    function _overlayResetAll() {
+        RECORD_KEYS.forEach(function (code) { _overlaySetKey(code, false); });
+    }
+
     // ── Снимок позиции + статус машины (через Hud.js $data) ───
     function _getSnapshot() {
         var pos       = null;
         var inVehicle = false;
         try {
-            // Позиция через Vuex store
             if (window.App && window.App.$store) {
                 var raw = window.App.$store.getters['player/position'];
                 if (raw) {
@@ -7351,13 +7414,9 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                             angle: raw.angle, interior: raw.interior };
                 }
             }
-            // Статус машины через Vue-компонент HUD
-            // Hud.js: компонент "su" имеет data().speedometer.show
-            // Доступ: hudComp.$data.speedometer.show (через Vue instance)
             var hudComp = (typeof window.interface === 'function')
                 ? window.interface('Hud') : null;
             if (hudComp) {
-                // Пробуем $data (Vue 3 reactive) и прямой доступ (Vue 2/legacy)
                 var spd = (hudComp.$data && hudComp.$data.speedometer)
                     ? hudComp.$data.speedometer
                     : hudComp.speedometer;
@@ -7425,7 +7484,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     }
 
     // ── Обработчики клавиш (навешиваются только при записи) ───
-    //  performance.now() → суб-миллисекундная точность
     function onKeyDown(e) {
         if (!avto.recording) return;
         const code = e.keyCode;
@@ -7434,6 +7492,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         avto.heldKeys.add(code);
         var t = performance.now() - avto.startPerf;
         avto.events.push({ t: t, d: 1, k: code });
+        _overlaySetKey(code, true);             // ← отображаем нажатие в оверлее
         debugLog('[АВТОШКОЛА] ⬇ ' + KEY_MAP[code].label + ' @ ' + t.toFixed(3) + 'мс');
     }
 
@@ -7445,6 +7504,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         avto.heldKeys.delete(code);
         var t = performance.now() - avto.startPerf;
         avto.events.push({ t: t, d: 0, k: code });
+        _overlaySetKey(code, false);            // ← отображаем отпускание
         debugLog('[АВТОШКОЛА] ⬆ ' + KEY_MAP[code].label + ' @ ' + t.toFixed(3) + 'мс');
     }
 
@@ -7467,10 +7527,14 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
         avto.recording = true;
         avto.events    = [];
-        avto.startPerf = performance.now();   // ← performance.now() вместо Date.now()
+        avto.startPerf = performance.now();
         avto.heldKeys.clear();
         document.addEventListener('keydown', onKeyDown, true);
         document.addEventListener('keyup',   onKeyUp,   true);
+
+        // ── Показываем оверлей в режиме ЗАПИСИ ────────────────
+        _createHudOverlay('record');
+        _overlayResetAll();
 
         _chat('{33DD77}🔴 Запись НАЧАТА [' + snapLabel + '] | /arec_off — стоп');
         debugLog('[АВТОШКОЛА] ✅ Запись. Снимок: ' + JSON.stringify(snap));
@@ -7489,8 +7553,12 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         // Виртуально отпускаем все зажатые клавиши с точным временем
         avto.heldKeys.forEach(function (code) {
             avto.events.push({ t: performance.now() - avto.startPerf, d: 0, k: code });
+            _overlaySetKey(code, false);
         });
         avto.heldKeys.clear();
+
+        // ── Убираем оверлей записи ────────────────────────────
+        _removeHudOverlay();
 
         avto.endSnapshot = _getSnapshot();
         var endSnap      = avto.endSnapshot;
@@ -7513,13 +7581,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     }
 
     // ── Воспроизведение маршрута (RAF-based, с замером дрифта) ─
-    //
-    //  Ключевые улучшения v2:
-    //  1. performance.now() во всех таймингах (суб-мс точность)
-    //  2. Для каждого события замеряем дрифт = elapsed − ev.t
-    //     и накапливаем статистику (max/avg/список превышений)
-    //  3. По завершению — отправляем полный отчёт в Telegram
-    //
     function replayRoute() {
         if (avto.replaying) {
             _chat('{FFAA00}Повтор уже идёт!');
@@ -7534,7 +7595,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             return;
         }
 
-        // Проверка начальной позиции (позиция + статус машины)
         var startMsgs = _checkStartSnapshot();
         _chat('{AAAAAA}📍 Проверка стартовой позиции:');
         startMsgs.forEach(function (p) { _chat(p); });
@@ -7553,13 +7613,12 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         avto.replaying = true;
         avto.replayRAF = null;
 
-        // Инициализируем статистику дрифта для этого повтора
         avto.replayStats = {
             totalEvents:     avto.lastRoute.length,
             processedEvents: 0,
             maxDrift:        0,
             totalDrift:      0,
-            driftEvents:     [],  // [{k,d,expected,actual,drift}] для событий > порога
+            driftEvents:     [],
         };
 
         const events  = avto.lastRoute;
@@ -7569,13 +7628,14 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
               events.length + ' событий)');
         debugLog('[АВТОШКОЛА] ▶ Повтор: ' + events.length + ' событий');
 
-        _createHudOverlay();
+        // ── Показываем оверлей в режиме ПОВТОРА ───────────────
+        _createHudOverlay('replay');
+        _overlayResetAll();
 
         const startPerf  = performance.now();
         var   eventIndex = 0;
         var   hasTouchControl = typeof window.onScreenControlTouchStart === 'function';
 
-        // ── Выполнить одно событие ─────────────────────────────
         function _execEvent(ev) {
             const info = KEY_MAP[ev.k];
             if (!info) return;
@@ -7608,7 +7668,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             }
         }
 
-        // ── Принудительно отпустить все клавиши ───────────────
         function _releaseAll() {
             RECORD_KEYS.forEach(function (code) {
                 const info = KEY_MAP[code];
@@ -7627,7 +7686,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             });
         }
 
-        // ── RAF-петля: точная синхронизация + замер дрифта ────
         function _rafLoop() {
             if (!avto.replaying) {
                 _releaseAll();
@@ -7638,14 +7696,10 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             var elapsed = performance.now() - startPerf;
             var stats   = avto.replayStats;
 
-            // Обрабатываем все события, время которых наступило
             while (eventIndex < events.length && events[eventIndex].t <= elapsed) {
                 var ev = events[eventIndex];
 
-                // ═══ Замер дрифта каждого нажатия ════════════
-                // drift = сколько миллисекунд опоздало событие
-                // Идеал: drift ≈ 0.  > TIMING_WARN_THRESHOLD → предупреждение
-                var drift = elapsed - ev.t;  // всегда >= 0 (событие уже наступило)
+                var drift = elapsed - ev.t;
                 stats.processedEvents++;
                 stats.totalDrift += drift;
                 if (drift > stats.maxDrift) stats.maxDrift = drift;
@@ -7658,7 +7712,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                         drift:    drift
                     });
                 }
-                // ═════════════════════════════════════════════
 
                 _execEvent(ev);
                 eventIndex++;
@@ -7667,18 +7720,15 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             if (elapsed < totalMs + 400) {
                 avto.replayRAF = requestAnimationFrame(_rafLoop);
             } else {
-                // ── Повтор завершён ───────────────────────────
                 _releaseAll();
                 _removeHudOverlay();
                 avto.replaying = false;
                 avto.replayRAF = null;
 
-                // Сравниваем конечную позицию
                 var endMsgs = _checkEndSnapshot();
                 _chat('{AAAAAA}📍 Проверка конечной позиции:');
                 endMsgs.forEach(function (p) { _chat(p); });
 
-                // Отчёт о качестве тайминга в чат
                 var avgDrift = stats.processedEvents > 0
                     ? stats.totalDrift / stats.processedEvents : 0;
                 var qualityChat = stats.maxDrift < 20 ? '{33DD77}🟢 Отлично'
@@ -7699,7 +7749,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 debugLog('[АВТОШКОЛА] ✅ Повтор. maxDrift=' + stats.maxDrift.toFixed(3) +
                          'мс avgDrift=' + avgDrift.toFixed(3) + 'мс');
 
-                // Отправляем детальный отчёт в Telegram
                 _sendReplayResultToTelegram(stats, endMsgs);
             }
         }
@@ -7754,7 +7803,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             ? ((endSnap.inVehicle ? '🚗 в машине' : '🚶 пешком') + ' | ' + _fmtPos(endSnap.pos))
             : '(нет данных)';
 
-        // Компактный JSON: [t_float_2dp, d, k] — 2 знака после запятой для суб-мс точности
         const routeJson = JSON.stringify(events.map(function (ev) {
             return [+(ev.t.toFixed(2)), ev.d, ev.k];
         }));
@@ -7790,9 +7838,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     }
 
     // ── Отправка отчёта о повторе в Telegram ──────────────────
-    //   Содержит: качество тайминга, макс/ср дрифт,
-    //   список событий с дрифтом > TIMING_WARN_THRESHOLD,
-    //   сравнение конечной позиции.
     function _sendReplayResultToTelegram(stats, endMsgs) {
         if (typeof sendToTelegram !== 'function') return;
 
@@ -7818,7 +7863,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         } else {
             msg += '\n⚠ <b>Событий с дрифтом &gt;' + TIMING_WARN_THRESHOLD + 'мс: ' +
                    stats.driftEvents.length + ' шт.</b>\n';
-            // Показываем максимум 20 событий с наибольшим дрифтом
             var sorted = stats.driftEvents.slice().sort(function (a, b) {
                 return b.drift - a.drift;
             });
@@ -7837,7 +7881,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             }
         }
 
-        // Конечная позиция
         msg += '\n📍 <b>Конечная позиция:</b>\n';
         endMsgs.forEach(function (m) {
             msg += '• ' + m.replace(/\{[0-9A-Fa-f]{6}\}/g, '') + '\n';
@@ -7854,7 +7897,6 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     }
 
     // ── Хук onScreenControlTouchStart/End (мобильные HUD-кнопки) ──
-    //  Захватываем touch-нажатия с precision timing через performance.now()
     (function hookTouchControls() {
         const _origStart = window.onScreenControlTouchStart;
         window.onScreenControlTouchStart = function (path) {
@@ -7864,6 +7906,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     avto.heldKeys.add(code);
                     var t = performance.now() - avto.startPerf;
                     avto.events.push({ t: t, d: 1, k: code });
+                    _overlaySetKey(code, true);     // ← показываем нажатие при записи
                     debugLog('[АВТОШКОЛА] ▼touch ' +
                              (KEY_MAP[code] ? KEY_MAP[code].label : path) +
                              ' @ ' + t.toFixed(3) + 'мс');
@@ -7880,6 +7923,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     avto.heldKeys.delete(code);
                     var t = performance.now() - avto.startPerf;
                     avto.events.push({ t: t, d: 0, k: code });
+                    _overlaySetKey(code, false);    // ← показываем отпускание при записи
                     debugLog('[АВТОШКОЛА] ▲touch ' +
                              (KEY_MAP[code] ? KEY_MAP[code].label : path) +
                              ' @ ' + t.toFixed(3) + 'мс');
