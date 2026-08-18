@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗавод2'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗавод9'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -6849,15 +6849,119 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     };
 
     // ── Хук openInterface — ловим открытие Turner и Interactions ─
-    const _origOpen = window.openInterface;
+    const _origOpen         = window.openInterface;
+    const _origSetCursor    = window.setCursorStatus; // сохраняем заранее, один раз
     window.openInterface = function (name) {
+
+        // ════════════════════════════════════════════════════════════
+        //  PRE-CALL БЛОК — всё ниже выполняется ДО _origOpen(),
+        //  потому что именно во время его выполнения движок скрывает
+        //  HUD и блокирует движение игрока.
+        // ════════════════════════════════════════════════════════════
+        let _hudVm                = null;
+        let _savedHideHud         = null;
+        let _savedHideChat        = null;
+        let _cursorPatched        = false;
+
+        if (zavod.active && name === 'Turner') {
+
+            // ── 1. Перехватываем setCursorStatus ─────────────────────
+            // Движок вызывает setCursorStatus(X, true) при открытии
+            // интерфейса — это блокирует WASD/мышь/камеру игрока.
+            // Временно подменяем: пропускаем любой вызов с true,
+            // чтобы игра не знала, что у нас открыт UI с курсором.
+            window.setCursorStatus = function (type, status) {
+                if (status === true || status === 1) {
+                    debugLog('[ЗАВОД] 🛡️ setCursorStatus("' + type + '", true) — заблокирован');
+                    return; // не передаём в игру — движение сохраняется
+                }
+                return typeof _origSetCursor === 'function'
+                    ? _origSetCursor.apply(this, arguments)
+                    : undefined;
+            };
+            _cursorPatched = true;
+            debugLog('[ЗАВОД] 🛡️ setCursorStatus патч активен');
+
+            // ── 2. Перехватываем manualHideHud / manualHideChat ──────
+            // Движок (или его JS-обёртка) вызывает эти методы прямо на
+            // Vue-прокси HUD-компонента, добавляя класс hud-iface-hidden
+            // (opacity:0; visibility:hidden; pointer-events:none).
+            // Подменяем методы на no-op до вызова _origOpen.
+            try {
+                _hudVm = typeof window.interface === 'function'
+                    ? window.interface('Hud')
+                    : null;
+                if (_hudVm) {
+                    _savedHideHud  = _hudVm.manualHideHud;
+                    _savedHideChat = _hudVm.manualHideChat;
+
+                    _hudVm.manualHideHud  = function () {
+                        debugLog('[ЗАВОД] 🛡️ manualHideHud() заблокирован');
+                    };
+                    _hudVm.manualHideChat = function () {
+                        debugLog('[ЗАВОД] 🛡️ manualHideChat() заблокирован');
+                    };
+                    debugLog('[ЗАВОД] 🛡️ HUD-методы патч активен');
+                }
+            } catch (e) {
+                debugLog('[ЗАВОД] Ошибка патча HUD-методов: ' + e.message);
+            }
+
+            // ── 3. Восстанавливаем всё через 600ms ───────────────────
+            // Turner к этому моменту уже закрыт (150-200ms).
+            // Восстановление нужно чтобы Chat/другие интерфейсы
+            // продолжали работать корректно.
+            setTimeout(function () {
+                // Cursor
+                if (_cursorPatched) {
+                    window.setCursorStatus = _origSetCursor;
+                    _cursorPatched = false;
+                    debugLog('[ЗАВОД] ✅ setCursorStatus восстановлен');
+                }
+                // HUD-методы
+                try {
+                    const hudNow = typeof window.interface === 'function'
+                        ? window.interface('Hud')
+                        : null;
+                    if (hudNow) {
+                        if (_savedHideHud)  hudNow.manualHideHud  = _savedHideHud;
+                        if (_savedHideChat) hudNow.manualHideChat = _savedHideChat;
+                        debugLog('[ЗАВОД] ✅ HUD-методы восстановлены');
+                    }
+                } catch (e) {}
+            }, 600);
+        }
+        // ════════════════════════════════════════════════════════════
+        //  END PRE-CALL БЛОК
+        // ════════════════════════════════════════════════════════════
+
         const result = typeof _origOpen === 'function' ? _origOpen.apply(this, arguments) : undefined;
 
         if (zavod.active && name === 'Turner') {
-            debugLog('[ЗАВОД] openInterface("Turner") → мгновенное завершение');
-            // Turner.js watch: { progress(t) { t>=100 && sendClientEvent(gm.EVENT_EXECUTE_PUBLIC,"Turner_OnPlayerEnd") } }
-            // Серверу нужен только этот event — Vue-компонент, changeProgress и поллинг не нужны вообще.
-            // setTimeout(0): следующий тик, ~1ms — даём движку зарегистрировать открытие Turner.
+            debugLog('[ЗАВОД] openInterface("Turner") → невидимый, HUD/чат/движение сохранены');
+
+            // ── 4. Скрываем .turner через opacity ────────────────────
+            // Используем opacity (не display:none) — Vue-компонент должен
+            // оставаться живым для корректной эмиссии событий прогресса.
+            // Серия попыток: DOM рендерится асинхронно.
+            var _turnerHidden = false;
+            [0, 16, 32, 80, 150].forEach(function (delay) {
+                setTimeout(function () {
+                    if (_turnerHidden) return;
+                    const el = document.querySelector('.turner');
+                    if (el) {
+                        el.style.setProperty('opacity',        '0',    'important');
+                        el.style.setProperty('pointer-events', 'none', 'important');
+                        el.style.setProperty('background',     'none', 'important');
+                        _turnerHidden = true;
+                        debugLog('[ЗАВОД] 🙈 .turner скрыт (opacity:0)');
+                    }
+                }, delay);
+            });
+
+            // ── 5. Turner_OnPlayerEnd → следующий тик (~1ms) ─────────
+            // Turner.js watch: { progress(t) { t>=100 && sendClientEvent(...,"Turner_OnPlayerEnd") } }
+            // Стреляем напрямую — не ждём Vue-watcher.
             setTimeout(function () {
                 try {
                     if (typeof sendClientEvent === 'function' && typeof gm !== 'undefined') {
@@ -6869,7 +6973,8 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     _scheduleTurnerFill(0); // резерв: найти компонент и заполнить
                 }
             }, 0);
-            // Закрываем интерфейс если сервер не закрыл сам (~150ms)
+
+            // ── 6. Принудительное закрытие если сервер не закрыл ─────
             setTimeout(function () {
                 try {
                     const stillOpen = typeof window.getInterfaceStatus === 'function'
@@ -6880,7 +6985,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                         debugLog('[ЗАВОД] 🔒 Turner закрыт принудительно');
                     }
                 } catch (e) {}
-            }, 150);
+            }, 200);
         }
 
         // ── Авто-клик «Начать производство» (тип 399) при /zon ───────
