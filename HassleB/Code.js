@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotАвтошкоа2'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotАвтошкоа'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -7557,6 +7557,26 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         });
         avto.heldKeys.clear();
 
+        // ── Маркер фактического момента остановки записи ──────
+        // Без этого длительность маршрута определяется временем
+        // ПОСЛЕДНЕГО keydown/keyup, а не временем /arec_off.
+        // Если после последнего отпускания клавиши была тишина
+        // (просто ждали) — она нигде не сохранялась и полностью
+        // "съедалась" при повторе (повтор завершался сразу же
+        // после последнего события, будто ожидания и не было).
+        // k:-1 — заведомо отсутствует в KEY_MAP, поэтому при
+        // повторе для этого события ничего не эмулируется —
+        // он нужен только чтобы задать точный totalMs.
+        (function _pushStopMarker() {
+            var stopT   = performance.now() - avto.startPerf;
+            var lastEvT = avto.events.length
+                ? avto.events[avto.events.length - 1].t
+                : 0;
+            if (stopT > lastEvT) {
+                avto.events.push({ t: stopT, d: -1, k: -1 });
+            }
+        })();
+
         // ── Убираем оверлей записи ────────────────────────────
         _removeHudOverlay();
 
@@ -7570,8 +7590,9 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             ? avto.lastRoute[avto.lastRoute.length - 1] : null;
         const totalSec = (lastEv ? lastEv.t / 1000 : 0).toFixed(2);
 
+        var realCount = avto.lastRoute.filter(function (ev) { return ev.k !== -1; }).length;
         _chat('{EE4444}⏹ Запись остановлена | ' +
-              avto.lastRoute.length + ' событий, ' + totalSec + 'с');
+              realCount + ' событий, ' + totalSec + 'с (с учётом финальной паузы)');
         _chat('{AAAAAA}🏁 Конечная позиция: ' + endLabel);
         _chat('{AAAAAA}Введи /apov для повтора');
         debugLog('[АВТОШКОЛА] ⛔ Остановлена. Событий: ' + avto.lastRoute.length +
@@ -7807,9 +7828,11 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
             return [+(ev.t.toFixed(2)), ev.d, ev.k];
         }));
 
+        var realEventsCount = events.filter(function (ev) { return ev.k !== -1; }).length;
+
         let header = '🏎 <b>АВТОШКОЛА — Маршрут записан</b>\n\n';
         header += '⏱ Длительность: <b>' + totalSec + ' сек</b>\n';
-        header += '📊 Событий: <b>' + events.length + '</b>\n';
+        header += '📊 Событий: <b>' + realEventsCount + '</b>\n';
         header += '📍 Старт: <b>' + snapStatus + '</b>\n';
         header += '🏁 Финиш: <b>' + endStatus + '</b>\n\n';
         header += '📋 <b>Сводка нажатий:</b>\n' + summaryLines + '\n\n';
