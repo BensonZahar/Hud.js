@@ -108,23 +108,35 @@ function setupChatHook() {
 
 setupChatHook();
 
-// Загрузить текст файла с GitHub (без eval) — с retry
-async function fetchRawText(filename, retries = 5) {
+// Загрузить текст файла с GitHub (без eval) — XHR с retry
+function fetchRawText(filename, retries = 5) {
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/HassleB/${filename}`;
-    for (let i = 0; i <= retries; i++) {
-        try {
-            const resp = await fetch(url);
-            if (resp.ok) {
+    return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', url, true);
+        xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
                 console.log(`✅ Текст ${filename} получен`);
-                return await resp.text();
+                resolve(xhr.responseText);
+            } else {
+                if (retries > 0) {
+                    console.warn(`⚠️ HTTP ${xhr.status} для ${filename}, повтор... (${retries} осталось)`);
+                    setTimeout(() => fetchRawText(filename, retries - 1).then(resolve).catch(reject), 2000);
+                } else {
+                    reject(new Error(`Не удалось загрузить текст ${filename}`));
+                }
             }
-            console.warn(`⚠️ HTTP ${resp.status} при загрузке ${filename}, попытка ${i + 1}/${retries + 1}`);
-        } catch (e) {
-            console.warn(`⚠️ Ошибка сети ${filename}, попытка ${i + 1}/${retries + 1}:`, e.message);
-        }
-        if (i < retries) await new Promise(r => setTimeout(r, 2000));
-    }
-    throw new Error(`Не удалось загрузить текст ${filename} после ${retries + 1} попыток`);
+        };
+        xhr.onerror = function() {
+            if (retries > 0) {
+                console.warn(`⚠️ Ошибка сети ${filename}, повтор... (${retries} осталось)`);
+                setTimeout(() => fetchRawText(filename, retries - 1).then(resolve).catch(reject), 2000);
+            } else {
+                reject(new Error(`Сетевая ошибка при загрузке текста ${filename}`));
+            }
+        };
+        xhr.send();
+    });
 }
 
 // Функция загрузчика с retry
@@ -288,18 +300,9 @@ async function initializeScripts() {
             throw new Error('Не удалось применить конфигурацию пользователя');
         }
 
-        // Получаем инфо о коммитах и текст Code2.js параллельно
-        console.log('🔍 Получение инфо о коммитах и текста Code2.js...');
-        const [codeCommitInfo, code2CommitInfo, code2Text] = await Promise.all([
-            fetchLastCommitInfo('Code.js'),
-            fetchLastCommitInfo('Code2.js'),
-            fetchRawText('Code2.js'),
-        ]);
-        window.CODE_COMMIT_INFO  = codeCommitInfo  || null;
-        window.CODE2_COMMIT_INFO = code2CommitInfo || null;
-
-        // Code2.js будет eval'иться изнутри Code.js — в его scope
-        window.__CODE2_TEXT__ = code2Text;
+        // Сначала получаем текст Code2.js — он нужен до запуска Code.js
+        console.log('📥 Загрузка текста Code2.js...');
+        window.__CODE2_TEXT__ = await fetchRawText('Code2.js');
 
         // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
         window.__WAIT_CODE2__ = true;
@@ -315,6 +318,18 @@ async function initializeScripts() {
         } else {
             console.warn('⚠️ __botInit не найден — бот уже запущен или Code.js не установил флаг');
         }
+
+        // Инфо о коммитах грузим в фоне — не блокируем старт бота
+        Promise.all([
+            fetchLastCommitInfo('Code.js'),
+            fetchLastCommitInfo('Code2.js'),
+        ]).then(([codeInfo, code2Info]) => {
+            window.CODE_COMMIT_INFO  = codeInfo  || null;
+            window.CODE2_COMMIT_INFO = code2Info || null;
+            console.log('📝 Инфо о коммитах загружено в фоне');
+        }).catch(() => {
+            console.warn('⚠️ Не удалось получить инфо о коммитах');
+        });
 
         console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
 
