@@ -277,6 +277,14 @@ async function initializeScripts() {
         console.log('📦 Загрузка Code.js...');
         await loadScriptFromGitHub('Code.js');
 
+        // Получаем инфо о коммите ДО загрузки Code2.js
+        console.log('🔍 Получение инфо о коммите Code2.js...');
+        const code2CommitInfo = await fetchLastCommitInfo('Code2.js');
+        window.CODE2_COMMIT_INFO = code2CommitInfo || null;
+
+        console.log('📦 Загрузка Code2.js...');
+        await loadScriptFromGitHub('Code2.js');
+
         console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
 
         // === ЗАЖАТИЕ ЛОГОТИПА H → /hb ===
