@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗавод9'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -277,10 +277,18 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 // └─────────────────────────────────────────────────────────┘
 (function() {
     const _orig = window.sendChatInput;
+    let _recInFlight = false;
+
     window.sendChatInput = function(cmd) {
         const isRec = typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim());
 
         if (isRec) {
+            // Защита: не пускаем второй /rec, пока первый ещё обрабатывается
+            if (_recInFlight) {
+                debugLog('[REC] Повторный /rec во время реконнекта — проигнорирован');
+                return undefined;
+            }
+            _recInFlight = true;
             window.__afterRec5 = true;
 
             // Сбрасываем hpLastValue и grace period — следующий тик после спавна
@@ -293,28 +301,16 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
             }
         }
 
-        // FIX: сначала отправляем команду движку, только ПОТОМ меняем Vue-состояние.
-        // Раньше setPlayerConnectedStatus(false) вызывался ДО _orig.apply():
-        //   → Vue commit сразу реагировал и мог вызвать openInterface("Authorization")
-        //   → наш хук openInterface ставил setTimeout(initializeAutoLogin, 500)
-        //   → затем _orig.apply() отправлял /rec 5, игра СНОВА открывала Authorization
-        //   → хук срабатывал второй раз → setupAutoLogin вызывался дважды
-        //   → двойной loginInstance.onClickEvent("play") → зависание игры
         const result = typeof _orig === 'function'
             ? _orig.apply(this, arguments)
             : undefined; // FIX: защита от undefined если sendChatInput ещё не инициализирован
 
         if (isRec) {
-            // Принудительно сбрасываем isPlayerConnected → false ПОСЛЕ отправки команды.
-            // Гарантирует что trackPlayerHp увидит переход false→true при следующем спавне
-            // и корректно запустит grace period.
-            try {
-                if (window.setPlayerConnectedStatus) {
-                    window.setPlayerConnectedStatus(false);
-                } else if (window.App && window.App.$store) {
-                    window.App.$store.commit('player/setPlayerConnectedStatus', false);
-                }
-            } catch(e) {}
+            // ⚠️ НЕ вызываем setPlayerConnectedStatus(false)!
+            // Движок сам сменит статус при реальном дисконнекте.
+            // Ручной commit запускал второй параллельный disconnect-flow
+            // и двойное открытие Authorization → вылет.
+            setTimeout(() => { _recInFlight = false; }, 5000);
         }
 
         return result;
@@ -813,12 +809,24 @@ const autoLoginConfig = {
     attemptInterval: 1000 // Интервал между попытками (мс)
 };
 // Функция для автоматического ввода пароля
+let _autoLoginRunning = false;
+
 function setupAutoLogin(attempt = 1) {
     if (!autoLoginConfig.enabled) {
         debugLog('Автовход отключен');
+        _autoLoginRunning = false;
         return;
     }
+    // Мьютекс: только одна цепочка одновременно
+    if (attempt === 1) {
+        if (_autoLoginRunning) {
+            debugLog('[AUTOLOGIN] Цепочка уже активна — дубль пропущен');
+            return;
+        }
+        _autoLoginRunning = true;
+    }
     if (attempt > autoLoginConfig.maxAttempts) {
+        _autoLoginRunning = false;
         const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить автовход после ${autoLoginConfig.maxAttempts} попыток`;
         debugLog(errorMsg);
         sendToTelegram(errorMsg, false, null);
@@ -853,6 +861,7 @@ function setupAutoLogin(attempt = 1) {
             debugLog(`[${displayName}] Эмуляция нажатия кнопки "Войти"`);
             try {
                 loginInstance.onClickEvent("play");
+                _autoLoginRunning = false; // освобождаем мьютекс после клика
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
                 // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
                 // hpLastValue = null означает: следующий тик после спавна
@@ -878,6 +887,7 @@ function setupAutoLogin(attempt = 1) {
                 // /c 60 теперь отправляется только через кнопку «Отыгровка 27 мин» в Telegram
 
             } catch (err) {
+                _autoLoginRunning = false;
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
                 debugLog(errorMsg);
                 sendToTelegram(errorMsg, false, null);
@@ -895,62 +905,29 @@ function initializeAutoLogin() {
         debugLog('Автовход отключен в конфигурации');
         return;
     }
-    // Проверяем, открыт ли интерфейс Authorization
+    // Только реагируем на уже открытый движком интерфейс.
+    // Скрипт НЕ должен сам открывать Authorization — это вызывает
+    // конфликт с тем, что движок открывает его параллельно после /rec.
     if (window.getInterfaceStatus("Authorization")) {
         debugLog('Интерфейс Authorization уже открыт, запускаем автовход');
         setupAutoLogin();
     } else {
-        // Открываем интерфейс Authorization с параметрами
-        const openParams = [
-            "auth", // Страница авторизации
-            config.accountInfo.nickname || "Pavel_Nabokov", // Логин (замените на ваш, если известен)
-            "", // Сервер
-            "", // Бонусы
-            "", // Хэллоуин
-            "", // Новый год
-            "", // Пасха
-            "https://radmir.online/recovery-password", // Восстановление пароля
-            { // Дополнительные параметры
-                autoLogin: {
-                    password: autoLoginConfig.password,
-                    enabled: autoLoginConfig.enabled
-                }
-            }
-        ];
-        debugLog(`Открываем интерфейс Authorization для ${displayName}`);
-        try {
-            window.openInterface("Authorization", JSON.stringify(openParams));
-        } catch (err) {
-            debugLog(`Ошибка при открытии Authorization: ${err.message}`);
-            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть интерфейс Authorization\n<code>${err.message}</code>`, false, null);
-            return;
-        }
-        // Ожидаем открытия интерфейса
-        let attempts = 0;
-        const checkInterval = setInterval(() => {
-            attempts++;
-            if (window.getInterfaceStatus("Authorization")) {
-                clearInterval(checkInterval);
-                debugLog('Интерфейс Authorization открыт, запускаем автовход');
-                setTimeout(setupAutoLogin, 1000); // Задержка для полной инициализации
-            } else if (attempts >= autoLoginConfig.maxAttempts) {
-                clearInterval(checkInterval);
-                const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть Authorization после ${autoLoginConfig.maxAttempts} попыток`;
-                debugLog(errorMsg);
-                sendToTelegram(errorMsg, false, null);
-            } else {
-                debugLog(`Попытка ${attempts}: Ожидание открытия Authorization`);
-            }
-        }, autoLoginConfig.attemptInterval);
+        debugLog('[AUTOLOGIN] Authorization ещё не открыт движком — ждём хука openInterface');
     }
 }
 // Перехват window.openInterface для автоматического входа (хуком)
 const originalOpenInterface = window.openInterface;
+let _authHookScheduled = false;
 window.openInterface = function(interfaceName, params, additionalParams) {
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);
-    if (interfaceName === "Authorization") {
+    if (interfaceName === "Authorization" && !_authHookScheduled) {
+        _authHookScheduled = true;
         debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
-        setTimeout(initializeAutoLogin, 500); // Задержка для инициализации компонента
+        setTimeout(() => {
+            _authHookScheduled = false;
+            initializeAutoLogin();
+        }, 500); // Дебаунс: даже если Authorization откроется несколько раз подряд,
+                 // initializeAutoLogin вызовется только один раз
     }
     // ── INTERACTIONS LOGGER ──────────────────────────────────────
     if (interfaceName === "Interactions") {
