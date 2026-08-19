@@ -326,7 +326,11 @@ async function initializeScripts() {
         ]).then(([codeInfo, code2Info]) => {
             window.CODE_COMMIT_INFO  = codeInfo  || null;
             window.CODE2_COMMIT_INFO = code2Info || null;
-            console.log('📝 Инфо о коммитах загружено в фоне');
+            console.log('📝 Инфо о коммитах загружено — обновляем велком');
+            // Редактируем уже отправленное велком-сообщение с версиями
+            if (typeof window.sendWelcomeMessage === 'function') {
+                window.sendWelcomeMessage();
+            }
         }).catch(() => {
             console.warn('⚠️ Не удалось получить инфо о коммитах');
         });

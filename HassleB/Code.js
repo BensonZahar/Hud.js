@@ -2101,8 +2101,12 @@ function buildWelcomeAccountInfo() {
 
 // ── Строит полный текст приветственного сообщения ──
 function buildWelcomeText() {
-    const _ci = window.CODE_COMMIT_INFO;
-    const _versionLine = _ci ? `  <i>Version ${_ci.date} — ${_ci.msg}</i>` : '';
+    const _ci  = window.CODE_COMMIT_INFO;
+    const _ci2 = window.CODE2_COMMIT_INFO;
+
+    let _versionLine = '';
+    if (_ci)  _versionLine += `\n  <i>Code: ${_ci.date} — ${_ci.msg}</i>`;
+    if (_ci2) _versionLine += `\n  <i>Code2: ${_ci2.date} — ${_ci2.msg}</i>`;
     const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
 
     let text = `🟢 <b>${BOT_NAME}</b>${_versionLine}\n` +
@@ -6077,5 +6081,8 @@ if (window.__CODE2_TEXT__) {
     eval(window.__CODE2_TEXT__);
     delete window.__CODE2_TEXT__;
 }
+
+// Экспортируем для вызова из Load.js (например, обновить велком после загрузки коммитов)
+window.sendWelcomeMessage = sendWelcomeMessage;
 
 window.__CODE_READY__ = true;
