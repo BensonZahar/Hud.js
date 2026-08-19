@@ -4886,22 +4886,32 @@ function performReconnect(delay, silent = false) {
 // ║               initializeChatMonitor                      ║
 // ╚══════════════════════════════════════════════════════════╝
 // START INITIALIZATION MODULE //
-debugLog('Скрипт запущен');
-if (!initializeChatMonitor()) {
-    let attempts = 0;
-    const intervalId = setInterval(() => {
-        attempts++;
-        if (initializeChatMonitor()) {
-            clearInterval(intervalId);
-        } else if (attempts >= config.maxAttempts) {
-            clearInterval(intervalId);
-            const errorMsg = `❌ <b>Ошибка</b>\nНе удалось инициализировать после ${config.maxAttempts} попыток`;
-            debugLog(errorMsg);
-            sendToTelegram(errorMsg, false, null);
-        } else {
-            debugLog(`Попытка инициализации #${attempts}`);
-        }
-    }, config.checkInterval);
+function __initBot() {
+    debugLog('Скрипт запущен');
+    if (!initializeChatMonitor()) {
+        let attempts = 0;
+        const intervalId = setInterval(() => {
+            attempts++;
+            if (initializeChatMonitor()) {
+                clearInterval(intervalId);
+            } else if (attempts >= config.maxAttempts) {
+                clearInterval(intervalId);
+                const errorMsg = `❌ <b>Ошибка</b>\nНе удалось инициализировать после ${config.maxAttempts} попыток`;
+                debugLog(errorMsg);
+                sendToTelegram(errorMsg, false, null);
+            } else {
+                debugLog(`Попытка инициализации #${attempts}`);
+            }
+        }, config.checkInterval);
+    }
+}
+
+if (window.__WAIT_CODE2__) {
+    // Load.js запустит __initBot() после загрузки Code2.js
+    window.__botInit = __initBot;
+    debugLog('⏳ Бот на паузе — ждём загрузки Code2.js...');
+} else {
+    __initBot();
 }
 // END INITIALIZATION MODULE //
 

@@ -274,6 +274,9 @@ async function initializeScripts() {
         const codeCommitInfo = await fetchLastCommitInfo('Code.js');
         window.CODE_COMMIT_INFO = codeCommitInfo || null;
 
+        // Флаг: Code.js не запускает бота сам — ждёт Code2.js
+        window.__WAIT_CODE2__ = true;
+
         console.log('📦 Загрузка Code.js...');
         await loadScriptFromGitHub('Code.js');
 
@@ -284,6 +287,15 @@ async function initializeScripts() {
 
         console.log('📦 Загрузка Code2.js...');
         await loadScriptFromGitHub('Code2.js');
+
+        // Оба файла загружены — запускаем бота
+        console.log('🚀 Code2.js готов — запускаем бота...');
+        if (typeof window.__botInit === 'function') {
+            window.__botInit();
+            window.__botInit = null;
+        } else {
+            console.warn('⚠️ __botInit не найден — бот уже запущен или Code.js не установил флаг');
+        }
 
         console.log(`🎉 Все скрипты успешно загружены для ${currentUser}!`);
 
