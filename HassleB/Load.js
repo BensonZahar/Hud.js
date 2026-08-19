@@ -108,6 +108,25 @@ function setupChatHook() {
 
 setupChatHook();
 
+// Загрузить текст файла с GitHub (без eval) — с retry
+async function fetchRawText(filename, retries = 5) {
+    const url = `https://raw.githubusercontent.com/${username}/${repo}/main/HassleB/${filename}`;
+    for (let i = 0; i <= retries; i++) {
+        try {
+            const resp = await fetch(url);
+            if (resp.ok) {
+                console.log(`✅ Текст ${filename} получен`);
+                return await resp.text();
+            }
+            console.warn(`⚠️ HTTP ${resp.status} при загрузке ${filename}, попытка ${i + 1}/${retries + 1}`);
+        } catch (e) {
+            console.warn(`⚠️ Ошибка сети ${filename}, попытка ${i + 1}/${retries + 1}:`, e.message);
+        }
+        if (i < retries) await new Promise(r => setTimeout(r, 2000));
+    }
+    throw new Error(`Не удалось загрузить текст ${filename} после ${retries + 1} попыток`);
+}
+
 // Функция загрузчика с retry
 function loadScriptFromGitHub(filename, retries = 5) {
     const url = `https://raw.githubusercontent.com/${username}/${repo}/main/HassleB/${filename}`;
@@ -269,27 +288,27 @@ async function initializeScripts() {
             throw new Error('Не удалось применить конфигурацию пользователя');
         }
 
-        // Получаем инфо о коммите ДО загрузки Code.js — чтобы велком сразу видел версию
-        console.log('🔍 Получение инфо о коммите Code.js...');
-        const codeCommitInfo = await fetchLastCommitInfo('Code.js');
-        window.CODE_COMMIT_INFO = codeCommitInfo || null;
-
-        // Флаг: Code.js не запускает бота сам — ждёт Code2.js
-        window.__WAIT_CODE2__ = true;
-
-        console.log('📦 Загрузка Code.js...');
-        await loadScriptFromGitHub('Code.js');
-
-        // Получаем инфо о коммите ДО загрузки Code2.js
-        console.log('🔍 Получение инфо о коммите Code2.js...');
-        const code2CommitInfo = await fetchLastCommitInfo('Code2.js');
+        // Получаем инфо о коммитах и текст Code2.js параллельно
+        console.log('🔍 Получение инфо о коммитах и текста Code2.js...');
+        const [codeCommitInfo, code2CommitInfo, code2Text] = await Promise.all([
+            fetchLastCommitInfo('Code.js'),
+            fetchLastCommitInfo('Code2.js'),
+            fetchRawText('Code2.js'),
+        ]);
+        window.CODE_COMMIT_INFO  = codeCommitInfo  || null;
         window.CODE2_COMMIT_INFO = code2CommitInfo || null;
 
-        console.log('📦 Загрузка Code2.js...');
-        await loadScriptFromGitHub('Code2.js');
+        // Code2.js будет eval'иться изнутри Code.js — в его scope
+        window.__CODE2_TEXT__ = code2Text;
 
-        // Оба файла загружены — запускаем бота
-        console.log('🚀 Code2.js готов — запускаем бота...');
+        // Флаг: Code.js не запускает бота сам — ждёт завершения eval Code2
+        window.__WAIT_CODE2__ = true;
+
+        console.log('📦 Загрузка Code.js (+ Code2 внутри)...');
+        await loadScriptFromGitHub('Code.js');
+
+        // Бот запускается после того как Code.js eval'нул Code2 и установил __botInit
+        console.log('🚀 Запускаем бота...');
         if (typeof window.__botInit === 'function') {
             window.__botInit();
             window.__botInit = null;

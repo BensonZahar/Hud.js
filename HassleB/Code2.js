@@ -1,15 +1,5 @@
-// Code2.js — дополнительные модули
-// Загружается через Load.js строго после Code.js
-
-(function() {
-    if (!window.__CODE_READY__) {
-        console.error('❌ Code2.js: Code.js ещё не загружен — прерываем запуск');
-        return;
-    }
-    console.log('✅ Code2.js: Code.js готов — запускаем модули');
-})();
-
-if (!window.__CODE_READY__) { throw new Error('Code2.js остановлен — Code.js не готов'); }
+// Code2.js — продолжение Code.js в отдельном файле
+// eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: DIALOG MONITOR v2                               ║
@@ -647,9 +637,9 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
 
 // ── Обёртка processUpdates ────────────────────────────────────
 
-const _dlgOrigProcessUpdates = window.processUpdates;
+const _dlgOrigProcessUpdates = processUpdates;
 
-window.processUpdates = function(updates) {
+processUpdates = function(updates) {
     const passThrough = [];
 
     for (const update of updates) {
