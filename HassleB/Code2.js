@@ -647,9 +647,9 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
 
 // ── Обёртка processUpdates ────────────────────────────────────
 
-const _dlgOrigProcessUpdates = processUpdates;
+const _dlgOrigProcessUpdates = window.processUpdates;
 
-processUpdates = function(updates) {
+window.processUpdates = function(updates) {
     const passThrough = [];
 
     for (const update of updates) {

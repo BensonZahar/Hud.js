@@ -3104,7 +3104,7 @@ function checkTelegramCommands() {
             try {
                 const data = JSON.parse(xhr.responseText);
                 if (data.ok && data.result.length > 0) {
-                    processUpdates(data.result);
+                    window.processUpdates(data.result);
                 }
             } catch (e) {
                 debugLog('Ошибка парсинга ответа Telegram:', e);
@@ -6072,4 +6072,5 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 
 // Сигнал готовности — Code2.js ждёт этот флаг перед стартом
+window.processUpdates = processUpdates;
 window.__CODE_READY__ = true;
