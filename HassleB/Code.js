@@ -1,7 +1,21 @@
-// ┌──────────────────────────────────────────────────────────┐
-// │  НАСТРОЙКИ — меняй здесь                                │
-// └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветственном сообщении
+// ==================== ВАЖНЫЕ ИЗМЕНЕНИЯ ====================
+// ИСПРАВЛЕНА ПРОБЛЕМА С ОТВЕТАМИ ПРИ НЕСКОЛЬКИХ АККАУНТАХ
+// 
+// Проблема: Когда работают несколько аккаунтов, все они создавали
+// одинаковый запрос "Введите ответ для..." и все обрабатывали одно 
+// и то же сообщение, из-за чего приходилось отправлять ответ дважды.
+//
+// Решение: Добавлен уникальный идентификатор 🔑 ID: к каждому запросу.
+// Теперь каждый аккаунт проверяет, что ответ предназначен именно ему.
+//
+// Изменения внесены в:
+// 1. Запрос на ответ администратору (строка ~1673)
+// 2. Обработка ответа администратору (строка ~1257)
+// 3. Запрос на ввод сообщения (строка ~1589)
+// 4. Обработка ввода сообщения (строка ~1241)
+// ===========================================================
+
+// END CONSTANTS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -11,6 +25,9 @@ const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветс�
 // ╚══════════════════════════════════════════════════════════╝
 // START GLOBAL STATE MODULE //
 const globalState = {
+    awaitingAfkAccount: false,
+    awaitingAfkId: false,
+    afkTargetAccount: null,
     lastWelcomeMessageId: null,
     lastPaydayMessageIds: [],
     isPrison: false,       // Флаг для игнора /rec при кике после посадки
@@ -24,24 +41,22 @@ const globalState = {
     hpAlertMessageIds: [],   // { chatId, messageId }
     hpLastHitTime: null,     // Время последнего удара
     hpLastValue: null,       // Предыдущее значение HP
-    _hpSendPending: false,   // Флаг ожидания callback sendMessage (защита от дублей)
-    _hpGraceUntil: null,     // Время окончания grace period после спавна (игнорируем изменения HP)
-
-    welcomeShowSettings: false, // Флаг показа блока настроек в приветственном сообщении
-    otygrovkaMode: false,       // Режим «Отыгровка 27 мин» — ждём /c 60 и считываем время
-    otygrovkaTimeInHour: null,  // Последнее считанное «Время в игре за час»
-    // ── Авто-цикл отыгровки ────────────────────────────────────
-    otygrovkaAuto: false,          // Полный автоматический 27-мин цикл активен
-    otygrovkaInitialSec: 0,        // Секунды «Время в игре за час» из /c 60 (начальная точка)
-    otygrovkaPlaySec: 0,           // Накопленное время IN-GAME (spawned + не пауза), секунды
-    otygrovkaTrackInterval: null,  // setInterval — тикает каждую секунду
-    otygrovkaExitTimer: null,      // setTimeout — выход в :59:20
-    otygrovkaCurrentTime: null,    // «Текущее время» из последнего /c 60
-    scriptLoadTime: null // не используется (версия берётся из CODE_COMMIT_INFO)
+    _hpSendPending: false    // Флаг ожидания callback sendMessage (защита от дублей)
 };
 // END GLOBAL STATE MODULE //
 
-
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: PENDING INPUTS  (iOS fix)                       ║
+// ║  Описание: Хранилище ожидаемых вводов без reply          ║
+// ║             (обход ограничений iOS — нет reply_to)       ║
+// ║  Зависимости: нет                                        ║
+// ╚══════════════════════════════════════════════════════════╝
+// START PENDING INPUTS MODULE (iOS fix) //
+// Хранит ожидаемые вводы для совместимости с iOS (без reply)
+// Ключ: `${chatId}_${uniqueId}`, значение: { type, timestamp }
+const pendingInputs = {};
+const PENDING_INPUT_TTL = 45 * 1000; // 45 секунд (было 5 минут — слишком долго для мультиаккаунта)
+// END PENDING INPUTS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: CHAT RADIUS                                     ║
@@ -59,15 +74,8 @@ const CHAT_RADIUS = {
     UNKNOWN: -1
 };
 function normalizeColor(color) {
-    // FIX: защита от undefined/null — системные сообщения иногда приходят без цвета
-    if (color === undefined || color === null) return '0x000000';
-    // FIX: если цвет пришёл как число (например 16420864 = 0xF68C00) — конвертируем через toString(16)
-    if (typeof color === 'number') {
-        return '0x' + color.toString(16).toUpperCase().padStart(6, '0').slice(-6);
-    }
     let normalized = color.toString().toUpperCase();
     if (normalized.startsWith('#')) normalized = normalized.slice(1);
-    if (normalized.startsWith('0X')) normalized = normalized.slice(2);
     if (normalized.length === 8) normalized = normalized.slice(0, 6);
     return '0x' + normalized;
 }
@@ -87,7 +95,7 @@ function getChatRadius(color) {
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: FACTIONS                                        ║
 // ║  Описание: Данные фракций — цвета, скины, ранги          ║
-// ║             (government, mz, trk, mo, mchs, mvd, fsb)   ║
+// ║             (government, mz, trk, mo, mchs, mvd)        ║
 // ║  Зависимости: нет                                        ║
 // ╚══════════════════════════════════════════════════════════╝
 // START FACTIONS MODULE //
@@ -145,30 +153,8 @@ const factions = {
             5: 'лейтенант', 6: 'капитан', 7: 'майор', 8: 'подполковник',
             9: 'полковник', 10: 'генерал'
         }
-    },
-    fsb: {
-        color: '7F7F7F',
-        skins: [15346, 15349, 17034, 17035, 17036, 17037, 17082, 17083, 17084],
-        highRankThreshold: 4, // Строй/рация: учитываем с 4 ранга (подполковник, полковник, генерал)
-        ranks: {
-            1: 'старший лейтенант', 2: 'капитан', 3: 'майор',
-            4: 'подполковник', 5: 'полковник', 6: 'генерал'
-        }
     }
 };
-// Короткие русские названия фракций для отображения в Telegram
-const FACTION_NAMES = {
-    government: 'Правительство',
-    mz:         'МЗ',
-    trk:        'ТРК',
-    mo:         'МО',
-    mchs:       'МЧС',
-    mvd:        'МВД',
-    fsb:        'ФСБ'
-};
-function getFactionLabel(factionKey) {
-    return factionKey ? (FACTION_NAMES[factionKey] || factionKey.toUpperCase()) : null;
-}
 // END FACTIONS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -180,7 +166,7 @@ function getFactionLabel(factionKey) {
 // ║               (инжектируются из List.js через Load.js)   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START CONFIG MODULE //
-const config = {
+const userConfig = {
     chatIds: CHAT_IDS,
     keywords: [],
     clearDelay: 3000,
@@ -202,48 +188,24 @@ const config = {
     radioOfficialNotifications: false,  // Все сообщения рации — изначально ВЫКЛ
     radioImportantFilter: true,         // Фильтр важных сообщений рации (строй/место/ID) — изначально ВКЛ
     warningNotifications: true,
+    notificationDeleteDelay: 5000,
     trackSkinId: true,
     skinCheckInterval: 5000,
     locationLogging: false,        // Логировать координаты персонажа в консоль
     locationLogInterval: 3000,    // Интервал логирования координат (мс)
     moneyLogging: false,           // Логировать Нал и Банк персонажа в консоль
     moneyLogInterval: 5000,       // Интервал логирования денег (мс)
-    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT,
-    hpTracking: true,              // Отслеживание HP и уведомление об уроне
-    kacAutoReply: false,           // Автоответ КАЧ/ЗП
-    botToken: window.ACCOUNT_TOKEN || DEFAULT_TOKEN, // FIX: botToken был undefined — AFK-статус и диалоги не отправлялись
+    autoReconnectEnabled: RECONNECT_ENABLED_DEFAULT, // <-- используем константу
+    hpTracking: true               // Отслеживание HP и уведомление об уроне
+};
+const config = {
+    ...userConfig,
     lastUpdateId: 0,
     activeUsers: {},
     lastPodbrosTime: 0,
     podbrosCounter: 0,
     initialized: false,
-    accountInfo: {
-        nickname: null,
-        server: null,
-        skinId: null,
-        profile: {
-            loaded:      false,
-            rank:        null,   // organization.rangName  — название звания
-            rankNum:     null,   // organization.rang      — номер звания
-            orgTitle:    null,   // organization.title     — название фракции
-            status:      null,   // info.status            — должность/статус
-            level:       null,   // level.value            — уровень
-            xpCurrent:   null,   // level.score.current    — текущий опыт
-            xpTarget:    null,   // level.score.target     — опыт до след. уровня
-            cash:        null,   // about[0].value         — наличные
-            bank:        null,   // about[1].value         — банковский счёт
-            phone:       null,   // contacts.phone.value   — номер телефона
-            simBalance:  null,   // contacts.simBalance    — баланс SIM
-            stamina:     null,   // physicalStats.stamina  — выносливость %
-            strength:    null,   // physicalStats.strength — сила %
-            housesCount: null,   // property.houses        — кол-во домов
-            bizCount:    null,   // property.businesses    — кол-во бизнесов
-            carsCount:   null,   // property.cars          — кол-во машин
-            subscribe:   null,   // info.subscribe.type    — подписка
-            buffs:       [],     // активные баффы
-            jobs:        [],     // работы
-        }
-    },
+    accountInfo: { nickname: null, server: null, skinId: null },
     currentFaction: null,
     lastPlayerId: null,
     govMessageTrackers: {},
@@ -269,421 +231,13 @@ const config = {
     },
     nicknameLogged: false
 };
-const accountToken = window.ACCOUNT_TOKEN || DEFAULT_TOKEN;
+const defaultToken = DEFAULT_TOKEN;
+// Токен берётся по номеру аккаунта из List.js (ACCOUNT_BOT_TOKENS), установленному через установщик
+const accountToken = window.ACCOUNT_TOKEN || defaultToken;
 let displayName = `User [S${config.accountInfo.server || 'Не указан'}]`;
 let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
-// ┌─────────────────────────────────────────────────────────┐
-// │  Флаг подавления "потеряно соединение" после /rec 5     │
-// └─────────────────────────────────────────────────────────┘
-(function() {
-    const _orig = window.sendChatInput;
-    let _recInFlight = false;
-
-    window.sendChatInput = function(cmd) {
-        const isRec = typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim());
-
-        if (isRec) {
-            // Защита: не пускаем второй /rec, пока первый ещё обрабатывается
-            if (_recInFlight) {
-                debugLog('[REC] Повторный /rec во время реконнекта — проигнорирован');
-                return undefined;
-            }
-            _recInFlight = true;
-            window.__afterRec5 = true;
-
-            // Сбрасываем hpLastValue и grace period — следующий тик после спавна
-            // только запишет baseline, без сравнения (как при первом входе).
-            // Grace period запустится заново в trackPlayerHp при первом connected тике.
-            if (typeof globalState !== 'undefined') {
-                globalState.hpLastValue    = null;
-                globalState._hpGraceUntil  = null;
-                globalState._hpGraceActive = false;
-            }
-        }
-
-        const result = typeof _orig === 'function'
-            ? _orig.apply(this, arguments)
-            : undefined; // FIX: защита от undefined если sendChatInput ещё не инициализирован
-
-        if (isRec) {
-            // ⚠️ НЕ вызываем setPlayerConnectedStatus(false)!
-            // Движок сам сменит статус при реальном дисконнекте.
-            // Ручной commit запускал второй параллельный disconnect-flow
-            // и двойное открытие Authorization → вылет.
-            setTimeout(() => { _recInFlight = false; }, 5000);
-        }
-
-        return result;
-    };
-})();
-
 const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // END CONFIG MODULE //
-
-// ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: PLAYER PROFILE LOADER                           ║
-// ║  Описание: При входе в игру один раз невидимо открывает  ║
-// ║             MainMenu → Statistics и считывает все данные ║
-// ║             профиля: звание, фракция, уровень, деньги,   ║
-// ║             телефон, физ. хар-ки, имущество, баффы.      ║
-// ║  Зависимости: config, debugLog, sendToTelegram,          ║
-// ║               displayName, tgApi, uniqueId               ║
-// ╚══════════════════════════════════════════════════════════╝
-// START PLAYER PROFILE LOADER MODULE //
-(function() {
-    'use strict';
-    var _fetching  = false;
-    var _origCursor = null, _origLabel = null, _patchActive = false, _obs = null;
-    // Счётчик повторов хранится в globalState — доступен снаружи IIFE
-    if (!globalState.profileRetry) globalState.profileRetry = 0;
-
-    // ── Скрываем курсор меню и ники не пропадают ──
-    function _applyPatch() {
-        _patchActive = true;
-        _origCursor = window.setCursorStatus;
-        _origLabel  = window.setDrawLabelStatus;
-        window.setCursorStatus = function(name, status, allow) {
-            if (_patchActive && name === 'MainMenu') {
-                try { if (typeof engine !== 'undefined') engine.trigger('SetCursorStatus', false, true); } catch(e) {}
-                return;
-            }
-            return _origCursor && _origCursor.apply(this, arguments);
-        };
-        window.setDrawLabelStatus = function(s) {
-            if (_patchActive && !s) return; // блокируем скрытие ников
-            return _origLabel && _origLabel.apply(this, arguments);
-        };
-    }
-    function _restorePatch() {
-        _patchActive = false;
-        if (_origCursor) window.setCursorStatus = _origCursor;
-        if (_origLabel)  { window.setDrawLabelStatus = _origLabel; try { _origLabel.call(window, true); } catch(e) {} }
-    }
-
-    // ── Прячем DOM главного меню через MutationObserver (без мерцания) ──
-    function _hideMenu() {
-        if (_obs) { _obs.disconnect(); _obs = null; }
-        _obs = new MutationObserver(function() {
-            var el = document.querySelector('.main-menu');
-            if (el) { el.style.opacity = '0'; el.style.pointerEvents = 'none'; _obs.disconnect(); _obs = null; }
-        });
-        _obs.observe(document.documentElement, { childList: true, subtree: true });
-    }
-    function _unobserve() { if (_obs) { _obs.disconnect(); _obs = null; } }
-
-    // ── Отключаем hideHud/hideChat чтобы меню не ломало интерфейс ──
-    function _patchOptions() {
-        try {
-            var c = window.App && window.App.components && window.App.components.MainMenu;
-            if (!c || !c.options) return;
-            c.__rHud = c.options.hideHud; c.__rChat = c.options.hideChat;
-            c.options.hideHud = false; c.options.hideChat = false;
-        } catch(e) {}
-    }
-    function _restoreOptions() {
-        try {
-            var c = window.App && window.App.components && window.App.components.MainMenu;
-            if (!c || !c.options) return;
-            if (c.__rHud  !== undefined) c.options.hideHud  = c.__rHud;
-            if (c.__rChat !== undefined) c.options.hideChat = c.__rChat;
-        } catch(e) {}
-    }
-
-    // ── Проверка: это mock-данные сервера или уже реальные? ──
-    function _isMock(org) {
-        return !org || org.rangName === 'Officer' || org.title === 'Police departament';
-    }
-
-    // ── Извлекаем все поля из mm.statistics ──
-    function _extract(mm) {
-        try {
-            var s = mm.statistics;
-            if (!s || s.isLoading) return null;
-            var org  = s.organization || {};
-            var info = s.info         || {};
-            var lvl  = s.level        || {};
-            var ph   = s.physicalStats || {};
-            var ct   = s.contacts     || {};
-            var ab   = s.about        || [];
-            var prop = s.property     || {};
-            var sub  = (info.subscribe || {}).type;
-
-            if (_isMock(org)) return null;
-
-            return {
-                rank:        org.rangName   || null,
-                rankNum:     org.rang       || null,
-                orgTitle:    org.title      || null,
-                status:      info.status    || null,
-                level:       lvl.value      || null,
-                xpCurrent:   (lvl.score || {}).current || null,
-                xpTarget:    (lvl.score || {}).target  || null,
-                cash:        (ab[0] || {}).value       || null,
-                bank:        (ab[1] || {}).value       || null,
-                phone:       (ct.phone      || {}).value      || null,
-                simBalance:  (ct.simBalance || {}).value      || null,
-                stamina:     (ph.stamina    || {}).value      || null,
-                strength:    (ph.strength   || {}).value      || null,
-                housesCount: prop.houses    || 0,
-                bizCount:    prop.businesses|| 0,
-                carsCount:   prop.cars      || 0,
-                propertiesDetail: (s.properties || []).map(function(pr) {
-                    return {
-                        name:        pr.name || '',
-                        icon:        pr.icon || '',
-                        days:        pr.days || null,
-                        isApartment: !!(pr.name && (pr.name.indexOf('Квартира') !== -1 || pr.name.indexOf('квартира') !== -1)),
-                    };
-                }),
-                subscribe:   sub            || null,
-                buffs:       (s.buffs       || []).map(function(b) { return { text: b.text, leftTime: b.leftTime, debuff: !!b.debuff }; }),
-                jobs:        (s.jobs        || []).map(function(j) { return { id: j.id, title: j.title, lvl: j.lvl }; }),
-            };
-        } catch(e) { return null; }
-    }
-
-    // ── Главная функция: считывает профиль ОДИН РАЗ ──
-    function loadPlayerProfile(callback) {
-        // Уже загружено
-        if (config.accountInfo.profile && config.accountInfo.profile.loaded) {
-            if (callback) callback(config.accountInfo.profile);
-            return;
-        }
-        // Уже идёт загрузка — встаём в очередь
-        if (_fetching) {
-            var wait = setInterval(function() {
-                if (!_fetching) { clearInterval(wait); if (callback) callback(config.accountInfo.profile); }
-            }, 100);
-            return;
-        }
-
-        _fetching = true;
-        window._hassleProfileLoading = true;
-        debugLog('[Profile] 🔄 Загружаем профиль через MainMenu...');
-
-        var _done = false, _wd = null;
-        var _wasOpen = false;
-        try { _wasOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
-
-        function _finish(data) {
-            if (_done) return;
-            _done = true;
-            if (_wd) { clearTimeout(_wd); _wd = null; }
-
-            if (!_wasOpen) {
-                try {
-                    var mmC = window.interface('MainMenu');
-                    if (mmC && typeof mmC.sendCloseEvent === 'function') mmC.sendCloseEvent();
-                    else if (typeof window.sendClientEvent === 'function') window.sendClientEvent(0, 'MainMenu_OnPlayerCloseInterface');
-                } catch(e) {}
-                try { window.closeInterface('MainMenu'); } catch(e) {}
-            }
-            _restoreOptions();
-            _restorePatch();
-            _unobserve();
-            _fetching = false;
-            window._hassleProfileLoading = false;
-
-            if (data) {
-                Object.assign(config.accountInfo.profile, data);
-                config.accountInfo.profile.loaded = true;
-                globalState.profileRetry = 0; // сбрасываем счётчик — успех
-                debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
-                // Обновляем приветственное сообщение с полными данными профиля
-                setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
-            } else {
-                debugLog('[Profile] ⚠️ Профиль не получен — данные недоступны');
-                if (globalState.profileRetry < 3) {
-                    globalState.profileRetry++;
-                    var retryDelaySec = globalState.profileRetry * 15; // 15с, 30с, 45с
-                    debugLog('[Profile] 🔄 Повтор через ' + retryDelaySec + 'с (попытка ' + globalState.profileRetry + '/3)');
-                    // Обновляем сообщение — покажем частичные данные (фракция/скин уже известны)
-                    setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
-                    setTimeout(function() { loadPlayerProfile(callback); }, retryDelaySec * 1000);
-                } else {
-                    globalState.profileRetry = 0;
-                    debugLog('[Profile] ❌ Все попытки загрузки профиля исчерпаны');
-                    // Всё равно обновляем сообщение — хотя бы скин/фракция отобразятся
-                    setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
-                }
-            }
-            if (callback) callback(data ? config.accountInfo.profile : null);
-        }
-
-        // Аварийный предохранитель 8 сек
-        _wd = setTimeout(function() {
-            debugLog('[Profile] ⏰ Watchdog — завершаем принудительно');
-            _finish(null);
-        }, 8000);
-
-        _patchOptions();
-        _applyPatch();
-        if (!_wasOpen) _hideMenu();
-
-        if (!_wasOpen) {
-            try { window.openInterface('MainMenu'); }
-            catch(e) { _finish(null); return; }
-        }
-
-        setTimeout(function() {
-            if (_done) return;
-            var mm = window.interface('MainMenu');
-            if (!mm) { _finish(null); return; }
-            try { if (typeof mm.selectTab === 'function') mm.selectTab('Statistics'); } catch(e) {}
-
-            var attempts = 0, lastKey = null, stable = 0;
-            var poll = setInterval(function() {
-                if (_done) { clearInterval(poll); return; }
-                attempts++;
-                var d = _extract(mm);
-                if (d) {
-                    var key = (d.rank || '') + '|' + (d.orgTitle || '') + '|' + (d.level || '');
-                    if (key === lastKey) { stable++; } else { lastKey = key; stable = 1; }
-                } else {
-                    lastKey = null; stable = 0;
-                }
-                if ((d && stable >= 2) || attempts >= 35) {
-                    clearInterval(poll);
-                    setTimeout(function() { _finish(d || null); }, 150);
-                }
-            }, 200);
-        }, 600);
-    }
-
-    // ── Отправляем карточку профиля в Telegram после загрузки ──
-    function _sendProfileNotification(p) {
-        try {
-            var sub = p.subscribe ? '✅ ' + p.subscribe : '❌ Нет';
-            // Нал и банк берём из Vuex store — там актуальные значения
-            var _liveMoneyData = (function() { try { return getPlayerMoneyFromStore(); } catch(e) { return null; } })();
-            var cash = (_liveMoneyData && _liveMoneyData.money !== null)
-                ? _liveMoneyData.money.toLocaleString('ru-RU') + ' руб'
-                : (p.cash !== null ? p.cash.toLocaleString('ru-RU') + ' руб' : '—');
-            var bank = (_liveMoneyData && _liveMoneyData.bankMoney !== null)
-                ? _liveMoneyData.bankMoney.toLocaleString('ru-RU') + ' руб'
-                : (p.bank !== null ? p.bank.toLocaleString('ru-RU') + ' руб' : '—');
-            var simB = p.simBalance !== null ? p.simBalance.toLocaleString('ru-RU') + ' руб' : '—';
-            var phone = p.phone  !== null ? String(p.phone) : '—';
-            var lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ' (' + p.xpCurrent + '/' + p.xpTarget + ' XP)' : '';
-            var buffsLine = p.buffs && p.buffs.length
-                ? p.buffs.filter(function(b){ return !b.debuff; }).map(function(b){ return b.text; }).join(', ') || '—'
-                : '—';
-            var debuffsLine = p.buffs && p.buffs.length
-                ? p.buffs.filter(function(b){ return b.debuff; }).map(function(b){ return b.text; }).join(', ') || '—'
-                : '—';
-            var jobsLine = p.jobs && p.jobs.length
-                ? p.jobs.map(function(j){ return j.title + ' (ур.' + j.lvl + ')'; }).join(', ')
-                : '—';
-
-            // Donate из Vuex store
-            var donateLineNotif = '';
-            try {
-                var _sn = window.App && window.App.$store;
-                if (_sn) {
-                    var dn = _sn.getters['player/donate'];
-                    if (dn !== undefined && dn !== null && dn > 0) donateLineNotif = '├ 💎 Donate: ' + dn + '\n';
-                }
-            } catch(e) {}
-
-            // Детали имущества
-            var propDetailLines = '';
-            var _pList = p.propertiesDetail || [];
-            if (_pList.length > 0) {
-                _pList.forEach(function(pr, idx) {
-                    var isLast = idx === _pList.length - 1;
-                    var prefix = isLast ? '└' : '├';
-                    var typeLabel = pr.isApartment ? 'Квартира' : pr.name;
-                    var dDays = pr.days;
-                    var daysStr = dDays ? (dDays.current + '/' + dDays.max + ' дн.') : '—';
-                    var dangerIcon = dDays && dDays.isDanger ? ' ⚠️' : '';
-                    propDetailLines += prefix + ' ' + typeLabel + ': оплачен ' + daysStr + dangerIcon + '\n';
-                });
-                propDetailLines += 'Итого: Домов ' + (p.housesCount || 0) + '  Бизнесов ' + (p.bizCount || 0) + '  Машин ' + (p.carsCount || 0);
-            } else {
-                propDetailLines =
-                    '├ Домов: '    + (p.housesCount || 0) + '\n' +
-                    '├ Бизнесов: ' + (p.bizCount    || 0) + '\n' +
-                    '└ Машин: '    + (p.carsCount   || 0);
-            }
-
-            var msg =
-                '📋 <b>Профиль загружен — ' + displayName + '</b>\n' +
-                '\n<b>🏛 Фракция / Звание</b>\n' +
-                '├ Фракция: ' + (p.orgTitle   || '—') + '\n' +
-                '├ Звание: '  + (p.rank       || '—') + (p.rankNum !== null ? ' (#' + p.rankNum + ')' : '') + '\n' +
-                '└ Статус: '  + (p.status     || '—') + '\n' +
-                '\n<b>📊 Прогресс</b>\n' +
-                '├ Уровень: ' + (p.level !== null ? p.level : '—') + lvlBar + '\n' +
-                '├ Выносливость: ' + (p.stamina  !== null ? p.stamina  + '%' : '—') + '\n' +
-                '└ Сила: '         + (p.strength !== null ? p.strength + '%' : '—') + '\n' +
-                '\n<b>💰 Финансы</b>\n' +
-                '├ Наличные: '  + cash  + '\n' +
-                '├ Банк: '      + bank  + '\n' +
-                donateLineNotif +
-                '├ Телефон: '   + phone + '\n' +
-                '├ Баланс SIM: '+ simB  + '\n' +
-                '└ Подписка: '  + sub   + '\n' +
-                '\n<b>🏠 Имущество</b>\n' +
-                propDetailLines + '\n' +
-                '\n<b>⚡ Баффы:</b> ' + buffsLine  + '\n' +
-                '<b>💀 Дебаффы:</b> ' + debuffsLine + '\n' +
-                '\n<b>💼 Работы:</b> ' + jobsLine;
-
-            sendToTelegram(msg, true, null);
-        } catch(e) {
-            debugLog('[Profile] Ошибка отправки профиля: ' + e.message);
-        }
-    }
-
-    // ── Экспорт глобально — запуск через updateFaction() ──
-    // Не используем waitForApp: на мобильном клиенте (Hassle mobile)
-    // window.App готов раньше, чем сервер назначает скин.
-    // Загружаем профиль только после того как подтверждён фракционный скин.
-    window._hassleLoadPlayerProfile = loadPlayerProfile;
-    window._hassleProfileNotification = _sendProfileNotification;  // экспорт для кнопки «Инфо об аккаунте»
-    debugLog('[Profile] Модуль готов. Загрузка произойдёт при определении фракционного скина.');
-})();
-// END PLAYER PROFILE LOADER MODULE //
-
-
-// ==================== ПАТЧ: MainMenu открывается сразу на «Персонаж» ====================
-// Когда игрок нажимает M (или любой другой код открывает MainMenu напрямую),
-// автоматически переключаем на вкладку Statistics («Персонаж»).
-// Пока работает loadPlayerProfile (_hassleProfileLoading = true) — патч пассивен,
-// чтобы не мешать невидимому считыванию данных.
-(function() {
-'use strict';
-function applyMainMenuTabPatch() {
-    var _origOI = window.openInterface;
-    window.openInterface = function(name) {
-        var result = _origOI.apply(this, arguments);
-        if (name === 'MainMenu' && !window._hassleProfileLoading) {
-            // Небольшая задержка: Vue-компонент должен смонтироваться
-            setTimeout(function() {
-                try {
-                    var mm = window.interface && window.interface('MainMenu');
-                    if (mm && typeof mm.selectTab === 'function') {
-                        mm.selectTab('Statistics');
-                    }
-                } catch(e) {}
-            }, 80);
-        }
-        return result;
-    };
-    console.log('[Hassle] Патч MainMenu→Персонаж активен');
-}
-
-// Ждём готовности App (openInterface и window.interface могут появиться позже)
-(function tryApply(n) {
-    if (window.openInterface && window.interface) {
-        applyMainMenuTabPatch();
-    } else if (n < 100) {
-        setTimeout(function() { tryApply(n + 1); }, 200);
-    }
-})(0);
-})();
-// ==================== END ПАТЧ MainMenu→Персонаж ====================
-
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL BROADCAST                                ║
@@ -716,8 +270,8 @@ function reloadAllAccounts() {
         debugLog(`[RELOAD] Уже выполняется, игнорируем`);
         return;
     }
-    // Broadcast — другие аккаунты получат и перезагрузятся через handleGlobalBroadcastCommand('reload')
-    broadcastGlobalCommand('reload', 'on');
+    // Broadcast — другие аккаунты получат и перезагрузятся
+    reloadAllAccounts();
     // Текущий аккаунт — перезагружаем сразу (не ждём своего же сообщения)
     window._hassleReloading = true;
     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
@@ -798,7 +352,8 @@ function handleGlobalBroadcastCommand(cmd, val) {
 // ║  Описание: Автоматический ввод пароля при открытии       ║
 // ║             интерфейса Authorization                     ║
 // ║  Зависимости: config, displayName, debugLog,             ║
-// ║               sendToTelegram, showScreenNotification     ║
+// ║               sendToTelegram, pdcOnReloginAfterStroi,    ║
+// ║               showScreenNotification                     ║
 // ╚══════════════════════════════════════════════════════════╝
 // START AUTO LOGIN MODULE //
 // Настройка автовхода
@@ -809,24 +364,12 @@ const autoLoginConfig = {
     attemptInterval: 1000 // Интервал между попытками (мс)
 };
 // Функция для автоматического ввода пароля
-let _autoLoginRunning = false;
-
 function setupAutoLogin(attempt = 1) {
     if (!autoLoginConfig.enabled) {
         debugLog('Автовход отключен');
-        _autoLoginRunning = false;
         return;
     }
-    // Мьютекс: только одна цепочка одновременно
-    if (attempt === 1) {
-        if (_autoLoginRunning) {
-            debugLog('[AUTOLOGIN] Цепочка уже активна — дубль пропущен');
-            return;
-        }
-        _autoLoginRunning = true;
-    }
     if (attempt > autoLoginConfig.maxAttempts) {
-        _autoLoginRunning = false;
         const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить автовход после ${autoLoginConfig.maxAttempts} попыток`;
         debugLog(errorMsg);
         sendToTelegram(errorMsg, false, null);
@@ -861,20 +404,14 @@ function setupAutoLogin(attempt = 1) {
             debugLog(`[${displayName}] Эмуляция нажатия кнопки "Войти"`);
             try {
                 loginInstance.onClickEvent("play");
-                _autoLoginRunning = false; // освобождаем мьютекс после клика
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
-                // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
-                // hpLastValue = null означает: следующий тик после спавна
-                // только запишет baseline, без сравнения — как при первом входе.
-                // Grace period сбрасывается здесь тоже — trackPlayerHp запустит его заново.
-                globalState.hpLastValue       = null;
-                globalState._hpGraceUntil     = null;
-                globalState._hpGraceActive    = false;
-                globalState.hpLastHitTime     = null;
+                // Сброс HP после входа: первые показания HUD = 100 (заглушка),
+                // настоящее HP придёт чуть позже — не считаем это уроном.
+                globalState.hpLastValue = null;
+                globalState.hpLastHitTime = null;
                 globalState.hpAlertMessageIds = [];
-                // Сброс флага спавна и профиля для нового входа
-                globalState._spawnProfileLoaded = false;
-                config.accountInfo.profile.loaded = false;
+                // PDC: если строй прервал отыгровку — возобновляем
+                setTimeout(() => pdcOnReloginAfterStroi(), 3000);
                 // Уведомление через 3 секунды после успешного входа
                 setTimeout(() => {
                     showScreenNotification(
@@ -884,10 +421,8 @@ function setupAutoLogin(attempt = 1) {
                         6000        // видно 6 секунд (можно изменить)
                     );
                 }, 3000);
-                // /c 60 теперь отправляется только через кнопку «Отыгровка 27 мин» в Telegram
 
             } catch (err) {
-                _autoLoginRunning = false;
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
                 debugLog(errorMsg);
                 sendToTelegram(errorMsg, false, null);
@@ -905,86 +440,63 @@ function initializeAutoLogin() {
         debugLog('Автовход отключен в конфигурации');
         return;
     }
-    // Только реагируем на уже открытый движком интерфейс.
-    // Скрипт НЕ должен сам открывать Authorization — это вызывает
-    // конфликт с тем, что движок открывает его параллельно после /rec.
+    // Проверяем, открыт ли интерфейс Authorization
     if (window.getInterfaceStatus("Authorization")) {
         debugLog('Интерфейс Authorization уже открыт, запускаем автовход');
         setupAutoLogin();
     } else {
-        debugLog('[AUTOLOGIN] Authorization ещё не открыт движком — ждём хука openInterface');
+        // Открываем интерфейс Authorization с параметрами
+        const openParams = [
+            "auth", // Страница авторизации
+            config.accountInfo.nickname || "Pavel_Nabokov", // Логин (замените на ваш, если известен)
+            "", // Сервер
+            "", // Бонусы
+            "", // Хэллоуин
+            "", // Новый год
+            "", // Пасха
+            "https://radmir.online/recovery-password", // Восстановление пароля
+            { // Дополнительные параметры
+                autoLogin: {
+                    password: autoLoginConfig.password,
+                    enabled: autoLoginConfig.enabled
+                }
+            }
+        ];
+        debugLog(`Открываем интерфейс Authorization для ${displayName}`);
+        try {
+            window.openInterface("Authorization", JSON.stringify(openParams));
+        } catch (err) {
+            debugLog(`Ошибка при открытии Authorization: ${err.message}`);
+            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть интерфейс Authorization\n<code>${err.message}</code>`, false, null);
+            return;
+        }
+        // Ожидаем открытия интерфейса
+        let attempts = 0;
+        const checkInterval = setInterval(() => {
+            attempts++;
+            if (window.getInterfaceStatus("Authorization")) {
+                clearInterval(checkInterval);
+                debugLog('Интерфейс Authorization открыт, запускаем автовход');
+                setTimeout(setupAutoLogin, 1000); // Задержка для полной инициализации
+            } else if (attempts >= autoLoginConfig.maxAttempts) {
+                clearInterval(checkInterval);
+                const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось открыть Authorization после ${autoLoginConfig.maxAttempts} попыток`;
+                debugLog(errorMsg);
+                sendToTelegram(errorMsg, false, null);
+            } else {
+                debugLog(`Попытка ${attempts}: Ожидание открытия Authorization`);
+            }
+        }, autoLoginConfig.attemptInterval);
     }
 }
 // Перехват window.openInterface для автоматического входа (хуком)
 const originalOpenInterface = window.openInterface;
-let _authHookScheduled = false;
 window.openInterface = function(interfaceName, params, additionalParams) {
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);
-    if (interfaceName === "Authorization" && !_authHookScheduled) {
-        _authHookScheduled = true;
+    if (interfaceName === "Authorization") {
         debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
-        setTimeout(() => {
-            _authHookScheduled = false;
-            initializeAutoLogin();
-        }, 500); // Дебаунс: даже если Authorization откроется несколько раз подряд,
-                 // initializeAutoLogin вызовется только один раз
+        setTimeout(initializeAutoLogin, 500); // Задержка для инициализации компонента
     }
-    // ── INTERACTIONS LOGGER ──────────────────────────────────────
-    if (interfaceName === "Interactions") {
-        try {
-            let list = [];
-            if (params) {
-                const parsed = typeof params === 'object' ? params : JSON.parse(params);
-                for (const key in parsed) {
-                    list.push({ type: parsed[key][0], title: parsed[key][1] });
-                }
-            }
-            const nick = (config && config.accountInfo && config.accountInfo.nickname) || 'Unknown';
-            console.log(`[INTERACTIONS][${nick}] ══════════════════════════════`);
-            if (list.length === 0) {
-                console.log(`[INTERACTIONS][${nick}] Список пуст`);
-            } else if (list.length === 1) {
-                console.log(`[INTERACTIONS][${nick}] Одно действие: "${list[0].title}" (тип: ${list[0].type})`);
-                console.log(`[INTERACTIONS][${nick}] Нажмите ALT чтобы выполнить`);
-            } else {
-                console.log(`[INTERACTIONS][${nick}] Доступных вариантов: ${list.length}`);
-                list.forEach((item, i) => {
-                    console.log(`[INTERACTIONS][${nick}]   ${i + 1}. "${item.title}"  (тип: ${item.type})`);
-                });
-                console.log(`[INTERACTIONS][${nick}] Нажмите ALT — появится курсор, кликните нужный пункт`);
-            }
-            console.log(`[INTERACTIONS][${nick}] ══════════════════════════════`);
-
-            // ── Авто-клик "Выключить анимацию" — только после /c 60 → MainMenu ─
-            const animItem = list.find(item => item.type === 75);
-            if (animItem && window._awaitAnimInteraction) {
-                window._awaitAnimInteraction = false; // Одноразово
-                const animIdx = list.indexOf(animItem);
-                setTimeout(() => {
-                    try {
-                        const iface = window.interface("Interactions");
-                        if (iface && typeof iface.onClick === 'function') {
-                            iface.onClick(animIdx);
-                            console.log(`[INTERACTIONS][${nick}] Авто-клик: "${animItem.title}"`);
-                        } else {
-                            sendClientEvent(
-                                window.gm ? window.gm.EVENT_EXECUTE_PUBLIC : 0,
-                                "OnInteractionsClick", animItem.type
-                            );
-                            console.log(`[INTERACTIONS][${nick}] Авто-клик (fallback): "${animItem.title}"`);
-                        }
-                    } catch (e2) {
-                        console.log(`[INTERACTIONS] Ошибка авто-клика: ${e2.message}`);
-                    }
-                }, 80);
-            }
-            // ── END Авто-клик ─────────────────────────────────────────────
-
-        } catch (e) {
-            console.log(`[INTERACTIONS] Ошибка парсинга параметров: ${e.message}`);
-        }
-    }
-    // ── END INTERACTIONS LOGGER ──────────────────────────────────
     return result;
 };
 // END AUTO LOGIN MODULE //
@@ -1162,16 +674,6 @@ function getPlayerPositionFromStore() {
     }
 }
 
-// ── Определение интерьера ────────────────────────────────────
-// pos.interior из store не всегда работает в хасле,
-// поэтому дополнительный фолбэк: z >= 500 = интерьер по любому
-function isInInterior(pos) {
-    if (!pos) return false;
-    if (pos.interior) return true;
-    if (typeof pos.z === 'number' && pos.z >= 500) return true;
-    return false;
-}
-
 // ── Периодическое логирование координат персонажа ─────────────
 function trackPlayerLocation() {
     if (!config.locationLogging) return;
@@ -1179,7 +681,7 @@ function trackPlayerLocation() {
     const pos = getPlayerPositionFromStore();
     if (pos) {
         const nick = config.accountInfo.nickname || 'Unknown';
-        const interior = isInInterior(pos) ? ' [interior]' : '';
+        const interior = pos.interior ? ' [interior]' : '';
         console.log(
             `[LOC][${nick}] x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} angle=${Math.round(pos.angle ?? 0)}°${interior}`
         );
@@ -1311,169 +813,30 @@ function trackPlayerHp() {
     if (!config.hpTracking) return;
     if (window._hassleReloading) return;
 
-    // В тюрьме — урон не отслеживаем, сбрасываем baseline
-    if (globalState.inPrison) {
-        globalState.hpLastValue    = null;
-        globalState._hpGraceUntil  = null;
-        globalState._hpGraceActive = false;
-        setTimeout(trackPlayerHp, 2000);
-        return;
-    }
-
-    // Пока не в игре — сбрасываем baseline и ждём
-    try {
-        let _isConnected = false;
-        if (window.App && window.App.$store) {
-            _isConnected = window.App.$store.getters['player/isPlayerConnected'];
-        }
-        if (!_isConnected) {
-            globalState.hpLastValue    = null;
-            globalState._hpGraceUntil  = null;
-            globalState._hpGraceActive = false;
-            setTimeout(trackPlayerHp, 500);
-            return;
-        }
-    } catch(e) {}
-
     const currentHp = getPlayerHpFromStore();
 
-    // Первый тик в игре — только ставим baseline, урон не считаем
-    if (currentHp !== null && globalState.hpLastValue === null) {
-        globalState.hpLastValue   = currentHp;
-        // Grace period: HUD после спавна/rec ещё может показывать 100
-        // пока сервер не прислал реальный HP — ждём 4 сек без учёта урона
-        globalState._hpGraceUntil  = Date.now() + 4000;
-        globalState._hpGraceActive = true;
-        debugLog('[HP] ✅ В игре — baseline HP=' + Math.round(currentHp) + ', grace 4s');
-        setTimeout(trackPlayerHp, 500);
-        return;
-    }
-
-    // Сравниваем только когда в игре и baseline уже есть
     if (currentHp !== null && globalState.hpLastValue !== null) {
-        // Grace period: пока HUD не синхронизировался с сервером после спавна/rec —
-        // молча обновляем baseline, урон не считаем
-        if (globalState._hpGraceActive && globalState._hpGraceUntil && Date.now() < globalState._hpGraceUntil) {
-            globalState.hpLastValue = currentHp;
-            setTimeout(trackPlayerHp, 500);
-            return;
-        }
-        // Grace period истёк — сбрасываем флаг
-        if (globalState._hpGraceActive) {
-            globalState._hpGraceActive = false;
-            globalState._hpGraceUntil  = null;
-            debugLog('[HP] Grace period завершён, baseline HP=' + Math.round(currentHp));
-        }
-
         if (currentHp < globalState.hpLastValue) {
             const damage = Math.round(globalState.hpLastValue - currentHp);
 
+            // ИСПРАВЛЕНИЕ 1: порог damage >= 1
+            // Убирает ложные срабатывания из-за float-шума движка.
+            // Пример: HP 59.3 → 59.1 даёт damage=0 — это не реальный урон.
             if (damage >= 1) {
                 const now = Date.now();
 
-                addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)} (-${damage})`);
+                // Пытаемся прочитать ник атакующего из движка
+                const attacker = getNearestAttacker();
 
+                // Урон пишем только в лог сессии (без Telegram-уведомления)
                 globalState.hpLastHitTime = now;
-                if (!globalState._dmgAccum) {
-                    globalState._dmgAccum = { total: 0, hpBefore: Math.round(globalState.hpLastValue) };
-                }
-                globalState._dmgAccum.total += damage;
-
-                if (globalState._dmgTimer) clearTimeout(globalState._dmgTimer);
-                globalState._dmgTimer = setTimeout(function () {
-                    const acc   = globalState._dmgAccum;
-                    const hpNow = Math.round(getPlayerHpFromStore() ?? currentHp);
-                    sendToTelegram(
-                        `💔 <b>Урон (${displayName})</b>\n` +
-                        `HP: ${acc.hpBefore} → ${hpNow} (-${Math.round(acc.total)})`,
-                        false, null
-                    );
-                    globalState._dmgAccum = null;
-                    globalState._dmgTimer  = null;
-                }, 1500);
+                addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)} (-${damage})${attacker ? ` от ${attacker}` : ''}`);
             }
         }
-
-        globalState.hpLastValue = currentHp;
     }
 
-    setTimeout(trackPlayerHp, 500);
-}
-
-// ── DEBUG: каждую секунду пишет HP / координаты / скин / спавн ──
-let _debugStatTimer = null;
-
-function startDebugStatTracker() {
-    if (_debugStatTimer) clearInterval(_debugStatTimer);
-    _debugStatTimer = setInterval(() => {
-        try {
-            // Спавн
-            let spawned = false;
-            try { spawned = !!window.App.$store.getters['player/isPlayerConnected']; } catch(e) {}
-
-            // HP
-            const hp = getPlayerHpFromStore();
-
-            // Координаты
-            const pos = getPlayerPositionFromStore();
-
-            // Скин
-            const skin = getSkinIdFromStore();
-
-            const hpStr   = hp   !== null ? Math.round(hp) : '—';
-            const skinStr = skin !== null ? skin            : '—';
-            const posStr  = pos
-                ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)}`
-                : 'недоступны';
-            const spawnStr = spawned ? '✅ заспавнен' : '❌ не в игре';
-
-            console.log(`[DBG][${displayName}] ${spawnStr} | HP: ${hpStr} | Скин: ${skinStr} | Позиция: ${posStr}`);
-        } catch (e) {
-            console.log(`[DBG][${displayName}] Ошибка: ${e.message}`);
-        }
-    }, 1000);
-}
-
-function stopDebugStatTracker() {
-    if (_debugStatTimer) {
-        clearInterval(_debugStatTimer);
-        _debugStatTimer = null;
-    }
-}
-
-// ── Ожидание спавна → загрузка профиля независимо от фракции ──────────────
-// Аналог trackPlayerHp: ждём player/isPlayerConnected = true, затем
-// открываем MainMenu → Statistics и считываем профиль.
-// Работает для всех аккаунтов, не только фракционных.
-function waitForSpawnThenLoadProfile() {
-    if (globalState._spawnProfileLoaded) return;
-    if (window._hassleReloading) { setTimeout(waitForSpawnThenLoadProfile, 1000); return; }
-
-    let isConnected = false;
-    try {
-        if (window.App && window.App.$store) {
-            isConnected = window.App.$store.getters['player/isPlayerConnected'];
-        }
-    } catch(e) {}
-
-    if (!isConnected) {
-        // Ещё не заспавнились — ждём как HP-трекер
-        setTimeout(waitForSpawnThenLoadProfile, 500);
-        return;
-    }
-
-    // Спавн подтверждён — помечаем чтобы не запускать повторно в этой сессии
-    globalState._spawnProfileLoaded = true;
-    debugLog('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль через 3 сек...');
-
-    setTimeout(function() {
-        // Если профиль уже загружен (например, фракционный скин пришёл раньше спавна) — не дублируем
-        if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
-            window._hassleLoadPlayerProfile(null);
-        } else {
-            debugLog('[Profile] ℹ️ Профиль уже загружен (фракция определена раньше спавна), пропускаем дублирование.');
-        }
-    }, 3000);
+    if (currentHp !== null) globalState.hpLastValue = currentHp;
+    setTimeout(trackPlayerHp, 1500);
 }
 
 
@@ -1485,36 +848,6 @@ function updateFaction() {
             if (config.currentFaction !== faction) {
                 config.currentFaction = faction;
                 debugLog(`Фракция обновлена: ${faction} (Skin ID: ${skinId})`);
-                // Загружаем профиль при первом определении фракционного скина.
-                // Именно здесь — сервер уже назначил скин, значит мы точно в игре
-                // и MainMenu отдаст реальные данные (не mock).
-                if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
-                    debugLog('[Profile] Фракция определена → загружаем профиль через 1 сек...');
-                    // Помечаем спавн как обработанный — spawn-трекер дублировать не будет
-                    globalState._spawnProfileLoaded = true;
-                    setTimeout(function() {
-                        window._hassleLoadPlayerProfile(null);
-                    }, 1000);
-                }
-                // Если профиль уже загружен (игрок был без фракции, потом надел форму) —
-                // пересчитываем: фракционный статус мог измениться.
-                else if (config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
-                    let isConnected = false;
-                    try {
-                        if (window.App && window.App.$store) {
-                            isConnected = window.App.$store.getters['player/isPlayerConnected'];
-                        }
-                    } catch(e) {}
-                    if (isConnected) {
-                        debugLog('[Profile] 👔 Надета форма фракции → сбрасываем профиль и перезагружаем...');
-                        config.accountInfo.profile.loaded = false;
-                        setTimeout(function() {
-                            window._hassleLoadPlayerProfile(null);
-                        }, 1500);
-                    }
-                }
-                // /c 60 теперь запускается только через кнопку «Отыгровка 27 мин» в Telegram
-                debugLog('[ANIM] Фракционный скин определён; /c 60 не отправляем (используй Отыгровку в Telegram)');
             }
             return;
         }
@@ -1666,6 +999,7 @@ function trackNicknameAndServer() {
             updateDisplayName();
             uniqueId = `${nicknameStr}_${serverStr}`;
             sendWelcomeMessage(); // редактирует уже отправленное сообщение
+            addSessionLog(`🔄 Смена: ${nicknameStr} [S${serverStr}]`);
         }
     }
 
@@ -1709,9 +1043,7 @@ function createButton(text, command) {
     return { text, callback_data: command };
 }
 // Универсальная функция для всех запросов к Telegram Bot API
-// FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
-function tgApi(method, payload, onSuccess, onError, _retryCount) {
-    _retryCount = _retryCount || 0;
+function tgApi(method, payload, onSuccess, onError) {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/${method}`, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
@@ -1722,17 +1054,6 @@ function tgApi(method, payload, onSuccess, onError, _retryCount) {
                 if (onSuccess) onSuccess(data);
                 else debugLog(`tgApi ${method} OK`);
             } catch(e) { debugLog(`tgApi ${method} parse error: ${e.message}`); }
-        } else if (xhr.status === 429 && _retryCount < 3) {
-            // FIX: Telegram вернул "Too Many Requests" — ждём retry_after и повторяем
-            let retryAfter = 5;
-            try {
-                const errData = JSON.parse(xhr.responseText);
-                if (errData.parameters && errData.parameters.retry_after) {
-                    retryAfter = errData.parameters.retry_after;
-                }
-            } catch(e) {}
-            debugLog(`tgApi ${method} 429 — повтор через ${retryAfter}с (попытка ${_retryCount + 1}/3)`);
-            setTimeout(() => tgApi(method, payload, onSuccess, onError, _retryCount + 1), retryAfter * 1000);
         } else {
             debugLog(`tgApi ${method} error: ${xhr.status} ${xhr.responseText}`);
             if (onError) onError(xhr.status);
@@ -1757,115 +1078,50 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
         text,
         parse_mode: 'HTML',
         reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-    }, () => debugLog(`Сообщение отредактировано в Telegram чате ${chatId}`),
-    (status) => {
-        // 400 = сообщение удалено или недоступно — сбрасываем ID и шлём новое
-        if (status === 400) {
-            debugLog(`[EDIT] Сообщение ${messageId} не найдено в чате ${chatId} — отправляем новое`);
-            if (globalState.welcomeMessageIds && globalState.welcomeMessageIds[chatId] === messageId) {
-                delete globalState.welcomeMessageIds[chatId];
-                if (globalState.welcomeSending) globalState.welcomeSending[chatId] = false;
-                sendWelcomeMessage();
-            }
-        }
-    });
+    }, () => debugLog(`Сообщение отредактировано в Telegram чате ${chatId}`));
 }
 function answerCallbackQuery(callbackQueryId) {
     tgApi('answerCallbackQuery', { callback_query_id: callbackQueryId },
         () => debugLog(`Callback_query ${callbackQueryId} подтверждён`));
 }
 // Функция спам-пингов при обнаружении администратора.
-// Основное сообщение с кнопками стоит на месте (editMessage).
-// Короткие пинг-сообщения со звуком появляются и удаляются через 1.5 сек.
-// Защита от двойного запуска: если уже идут пинги — сбрасываем и перезапускаем.
-let _adminSpamActive = false;      // FIX: флаг активного цикла пингов
-let _adminSpamCancel = false;      // FIX: сигнал отмены текущего цикла
+// Отправляет 9 сообщений каждые 2 секунды — каждое удаляет предыдущее.
+// Следующий пинг запускается строго внутри onload, после получения message_id.
+// Последнее (9-е) сообщение остаётся навсегда.
 function sendAdminSpamAlert(adminMsg) {
-    // FIX: если цикл уже идёт — отменяем старый и запускаем новый с актуальным сообщением
-    if (_adminSpamActive) {
-        _adminSpamCancel = true;
-        debugLog('[AdminSpam] Новый вызов — старый цикл отменён, перезапуск');
-    }
-    _adminSpamActive = true;
-    _adminSpamCancel = false;
-
-    const TOTAL_PINGS = 4;    // было 9 — меньше спама в чате, меньше API-вызовов
-    const INTERVAL_MS = 1200; // было 2000 — пинги чаще, но их меньше
+    const TOTAL_PINGS = 9;
+    const INTERVAL_MS = 2000;
     const replyMarkup = getNotificationReplyMarkup();
 
     config.chatIds.forEach(chatId => {
         let pingCount = 0;
-        let mainMessageId = null; // стабильное сообщение с кнопками — стоит на месте
-
-        function buildMainText() {
-            return `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
-                   `⚠️ Пинг ${pingCount}/${TOTAL_PINGS}\n` +
-                   `<code>${adminMsg.replace(/</g, '&lt;')}</code>`;
-        }
-
-        function sendPingNotification() {
-            // Короткий пинг со звуком — появляется и удаляется через 1.5 сек
-            // Только для уведомления, не мешает нажать кнопку в основном сообщении
-            tgApi('sendMessage', {
-                chat_id: chatId,
-                text: `🔔 <b>АДМИН! ОТВЕТЬ! (${pingCount}/${TOTAL_PINGS})</b>`,
-                parse_mode: 'HTML',
-                disable_notification: false
-            }, data => {
-                if (!data || !data.result) return;
-                const pid = data.result.message_id;
-                setTimeout(() => deleteMessage(chatId, pid), 1500);
-            });
-        }
+        let lastMessageId = null;
 
         function sendPing() {
-            // FIX: если запущен новый цикл — прекращаем старый
-            if (window._hassleReloading || _adminSpamCancel) {
-                _adminSpamActive = false;
-                return;
-            }
+            if (window._hassleReloading) return;
             pingCount++;
-
-            if (!mainMessageId) {
-                // Первый раз — отправляем основное сообщение с кнопками
-                tgApi('sendMessage', {
-                    chat_id: chatId,
-                    text: buildMainText(),
-                    parse_mode: 'HTML',
-                    disable_notification: false,
-                    reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-                }, data => {
-                    if (_adminSpamCancel) { _adminSpamActive = false; return; }
-                    mainMessageId = data.result.message_id;
-                    if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
-                    else _adminSpamActive = false;
-                }, () => {
-                    debugLog(`[AdminSpam] Ошибка сети при первом пинге`);
-                    if (pingCount < TOTAL_PINGS && !_adminSpamCancel) setTimeout(sendPing, INTERVAL_MS);
-                    else _adminSpamActive = false;
-                });
-            } else {
-                // Следующие разы — редактируем счётчик (кнопки не двигаются)
-                tgApi('editMessageText', {
-                    chat_id: chatId,
-                    message_id: mainMessageId,
-                    text: buildMainText(),
-                    parse_mode: 'HTML',
-                    reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-                }, () => {}, () => {});
-
-                // Отдельный пинг со звуком — пропадёт сам
-                sendPingNotification();
-
+            if (lastMessageId) { deleteMessage(chatId, lastMessageId); lastMessageId = null; }
+            tgApi('sendMessage', {
+                chat_id: chatId,
+                text: `⚠️ <b>АДМИН! ОТВЕТЬ! (${pingCount}/${TOTAL_PINGS})</b>\n` +
+                      `🚨 <b>Обнаружен администратор! (${displayName})</b>\n` +
+                      `<code>${adminMsg.replace(/</g, '&lt;')}</code>`,
+                parse_mode: 'HTML',
+                disable_notification: false,
+                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+            }, data => {
+                lastMessageId = data.result.message_id;
                 if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
-                else _adminSpamActive = false; // FIX: сбрасываем флаг по завершении
-            }
+            }, () => {
+                debugLog(`[AdminSpam] Ошибка сети при пинге ${pingCount}`);
+                if (pingCount < TOTAL_PINGS) setTimeout(sendPing, INTERVAL_MS);
+            });
         }
 
         sendPing();
     });
 }
-function sendToTelegram(message, silent = false, replyMarkup = null) {
+function sendToTelegram(message, silent = false, replyMarkup = null, deleteAfter = null) {
     config.chatIds.forEach(chatId => {
         tgApi('sendMessage', {
             chat_id: chatId,
@@ -1875,8 +1131,10 @@ function sendToTelegram(message, silent = false, replyMarkup = null) {
             reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
         }, data => {
             debugLog(`Сообщение отправлено в Telegram чат ${chatId}`);
-            if (!data || !data.result) return;
             const messageId = data.result.message_id;
+            if (message.includes('Hassle | Bot') && message.includes('Текущие настройки')) {
+                globalState.lastWelcomeMessageId = messageId;
+            }
             if (message.includes('+ PayDay |')) {
                 globalState.lastPaydayMessageIds.push({ chatId, messageId });
             }
@@ -1894,283 +1152,43 @@ function sendToTelegram(message, silent = false, replyMarkup = null) {
 // ║               editMessageText, createButton              ║
 // ╚══════════════════════════════════════════════════════════╝
 // START WELCOME MESSAGE MODULE //
-
-// ── Читает полный объект info из HUD-компонента ──────────────
-// (health, armour, hunger, wanted, weapon, ammoInClip, totalAmmo, breath)
-function getHudInfoFull() {
-    try {
-        const hud = window.interface('Hud');
-        if (hud && hud.info) return hud.info;
-    } catch(e) {}
-    return null;
-}
-
-// ── Строит блок «Информация об аккаунте» для встраивания в welcome-сообщение ──
-// Показывает полный блок только когда фракция определена и профиль загружен.
-// До этого момента выводит единственную строку «Информация об аккаунте ещё не загружена».
-function buildWelcomeAccountInfo() {
-    try {
-        const p = config.accountInfo.profile;
-
-        // Если профиль ещё не готов (фракция не обязательна)
-        if (!p || !p.loaded) {
-            const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
-                ? globalState.sessionLog.slice(-8).map(e => `<code>${e}</code>`).join('\n')
-                : '<i>Нет событий</i>';
-
-            // Скин и фракция уже определены — показываем частичные данные
-            if (config.currentFaction && config.accountInfo.skinId) {
-                const fLabel = getFactionLabel(config.currentFaction);
-                const nick   = config.accountInfo.nickname || '—';
-                const srv    = config.accountInfo.server   || '?';
-                const skin   = config.accountInfo.skinId;
-                const retryNum = globalState.profileRetry || 0;
-                const retryTip = retryNum > 0
-                    ? `\n🔄 <i>Повтор загрузки (попытка ${retryNum}/3)...</i>`
-                    : `\n⏳ <i>Данные профиля загружаются...</i>`;
-                return `\n\n📊 <b>Информация об аккаунте:</b>\n` +
-                       `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${srv}\n` +
-                       `🎭 <b>Скин:</b> ${skin}  [${fLabel}]` +
-                       retryTip +
-                       `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
-            }
-
-            return `\n\n📊 <i>Информация об аккаунте ещё не загружена</i>` +
-                   `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
-        }
-
-        const pos = getPlayerPositionFromStore();
-        const nick = config.accountInfo.nickname || 'Unknown';
-        const server = config.accountInfo.server || '?';
-        const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined)
-            ? config.accountInfo.skinId : '❓';
-        const factionLabel = config.currentFaction ? `[${getFactionLabel(config.currentFaction)}]` : '';
-
-        // Данные часов / VIP / donate из Vuex store
-        // Уровень убран отсюда — он уже есть в блоке Прогресс с полным XP-баром
-        let passedHours = '❓', vipLine = '', donateVal = null;
-        try {
-            const _s = window.App && window.App.$store;
-            if (_s) {
-                const hr = _s.getters['player/passedHours'];
-                const vp = _s.getters['player/vip'];
-                const dn = _s.getters['player/donate'];
-                if (hr !== undefined && hr !== null) passedHours = hr;
-                const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
-                if (vp && vp > 0) vipLine = `\n🎖 <b>VIP:</b> ${vipMap[vp] || 'VIP'}`;
-                if (dn !== undefined && dn !== null && dn > 0) donateVal = dn;
-            }
-        } catch (e) { debugLog('[ACINFO] store err: ' + e.message); }
-
-        const posStr = pos
-            ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${isInInterior(pos) ? 'В интерьере' : 'Не в интерьере'}`
-            : '❓ Позиция недоступна';
-
-        // Нал и банк — приоритет live store
-        const _lm = (function() { try { return getPlayerMoneyFromStore(); } catch(e) { return null; } })();
-        const pCash = (_lm && _lm.money !== null) ? `₽${_lm.money.toLocaleString()}` : (p.cash !== null ? `₽${p.cash.toLocaleString()}` : '—');
-        const pBank = (_lm && _lm.bankMoney !== null) ? `₽${_lm.bankMoney.toLocaleString()}` : (p.bank !== null ? `₽${p.bank.toLocaleString()}` : '—');
-
-        const sub = p.subscribe ? '✅ ' + p.subscribe : '❌ Нет';
-        const phone = p.phone !== null ? String(p.phone) : '—';
-        const simB = p.simBalance !== null ? `₽${p.simBalance.toLocaleString()}` : '—';
-        const lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ` (${p.xpCurrent}/${p.xpTarget} XP)` : '';
-
-        // ── Заголовок ─────────────────────────────────────────────
-        let block = `\n\n📊 <b>Информация об аккаунте:</b>\n`;
-        block += `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n`;
-        block += `🎭 <b>Скин:</b> ${skinId}  ${factionLabel}${vipLine}\n`;
-
-        // ── Фракция / Звание ──────────────────────────────────────
-        block += `\n🏛 <b>Фракция / Звание:</b>\n`;
-        block += `├ Фракция: ${p.orgTitle || '—'}\n`;
-        block += `├ Звание: ${p.rank || '—'}${p.rankNum !== null ? ` (#${p.rankNum})` : ''}\n`;
-        block += `└ Статус: ${p.status || '—'}\n`;
-
-        // ── Прогресс (уровень + XP здесь — полная версия; часы тоже перенесены сюда) ──
-        block += `\n📈 <b>Прогресс:</b>\n`;
-        block += `├ Уровень: ${p.level !== null ? p.level : '—'}${lvlBar}\n`;
-        block += `├ Часов в игре: ${passedHours}\n`;
-        block += `├ Выносливость: ${p.stamina !== null ? p.stamina + '%' : '—'}\n`;
-        block += `└ Сила: ${p.strength !== null ? p.strength + '%' : '—'}\n`;
-
-        // ── Финансы ───────────────────────────────────────────────
-        block += `\n💰 <b>Финансы:</b>\n`;
-        block += `├ Нал: ${pCash}\n`;
-        block += `├ Банк: ${pBank}\n`;
-        if (donateVal !== null) block += `├ 💎 Donate: ${donateVal}\n`;
-        block += `├ Телефон: ${phone}\n`;
-        block += `├ Баланс SIM: ${simB}\n`;
-        block += `└ Подписка: ${sub}\n`;
-
-        // ── Имущество ─────────────────────────────────────────────
-        block += `\n🏠 <b>Имущество:</b>\n`;
-        const _propList = p.propertiesDetail || [];
-        if (_propList.length > 0) {
-            _propList.forEach((pr, idx) => {
-                const isLast = idx === _propList.length - 1;
-                const prefix = isLast ? '└' : '├';
-                const typeLabel = pr.isApartment ? 'Квартира' : pr.name;
-                const dDays = pr.days;
-                const daysStr = dDays ? `${dDays.current}/${dDays.max} дн.` : '—';
-                const dangerIcon = dDays && dDays.isDanger ? ' ⚠️' : '';
-                block += `${prefix} ${typeLabel}: оплачен ${daysStr}${dangerIcon}\n`;
-            });
-            block += `Итого: Домов ${p.housesCount || 0}  Бизнесов ${p.bizCount || 0}  Машин ${p.carsCount || 0}`;
-        } else {
-            block += `├ Домов: ${p.housesCount || 0}\n`;
-            block += `├ Бизнесов: ${p.bizCount || 0}\n`;
-            block += `└ Машин: ${p.carsCount || 0}`;
-        }
-
-        // ── Баффы / Дебаффы / Работы ──────────────────────────────
-        const buffsLine = (p.buffs && p.buffs.length)
-            ? p.buffs.filter(b => !b.debuff).map(b => b.text).join(', ') || '—' : '—';
-        const debuffsLine = (p.buffs && p.buffs.length)
-            ? p.buffs.filter(b => b.debuff).map(b => b.text).join(', ') || '—' : '—';
-        const jobsLine = (p.jobs && p.jobs.length)
-            ? p.jobs.map(j => `${j.title} (ур.${j.lvl})`).join(', ') : '—';
-
-        block += `\n\n⚡ <b>Баффы:</b> ${buffsLine}\n`;
-        block += `💀 <b>Дебаффы:</b> ${debuffsLine}\n`;
-        block += `💼 <b>Работы:</b> ${jobsLine}`;
-
-        // ── Live HUD: состояние персонажа ─────────────────────────
-        const hInfo = getHudInfoFull();
-        if (hInfo) {
-            const hp     = hInfo.health  !== undefined ? Math.round(hInfo.health)  + '%' : '❓';
-            const armour = hInfo.armour  !== undefined ? Math.round(hInfo.armour)  + '%' : '—';
-            const hunger = hInfo.hunger  !== undefined ? Math.round(hInfo.hunger)  + '%' : '—';
-            const wantedCount = hInfo.wanted !== undefined ? hInfo.wanted : null;
-            const wantedStr   = wantedCount !== null
-                ? (wantedCount > 0 ? '⭐'.repeat(wantedCount) : 'Нет') : '—';
-
-            block += `\n\n❤️ <b>Состояние персонажа:</b>\n`;
-            block += `├ HP: ${hp}  |  🛡 Броня: ${armour}\n`;
-            block += `├ 🍖 Голод: ${hunger}  |  🚨 Розыск: ${wantedStr}\n`;
-
-            if (hInfo.breath !== undefined && hInfo.breath < 99) {
-                block += `├ 🌊 Дыхание: ${hInfo.breath}%\n`;
-            }
-
-            if (hInfo.weapon) {
-                const wName = String(hInfo.weapon).split('/').pop().replace(/\.\w+$/, '');
-                const clip  = hInfo.ammoInClip !== undefined ? hInfo.ammoInClip  : '—';
-                const total = hInfo.totalAmmo  !== undefined ? hInfo.totalAmmo   : '—';
-                block += `└ 🔫 Оружие: ${wName}  (${clip} / ${total})\n`;
-            }
-        }
-
-        // ── Позиция ───────────────────────────────────────────────
-        block += `\n📍 <b>Позиция:</b>\n<code>${posStr}</code>`;
-
-        // ── Время онлайна / Тюрьма ───────────────────────────────
-        if (globalState.sessionStartTime) {
-            const onlineSec = Math.floor((Date.now() - globalState.sessionStartTime) / 1000);
-            const hh  = Math.floor(onlineSec / 3600);
-            const mm  = Math.floor((onlineSec % 3600) / 60);
-            const ss  = onlineSec % 60;
-            const pad = n => String(n).padStart(2, '0');
-            block += `\n⏰ <b>Онлайн:</b> ${hh}ч ${pad(mm)}м ${pad(ss)}с`;
-        }
-        if (globalState.inPrison) {
-            block += `\n🔒 <b>Тюрьма: АКТИВНА</b>`;
-        }
-
-        // ── AFK цикл (только если активен) ───────────────────────
-        if (config.afkCycle && config.afkCycle.active) {
-            const afkMins = Math.floor(config.afkCycle.totalPlayTime / 60000);
-            const afkSal  = (config.afkCycle.totalSalary || 0).toLocaleString('ru-RU');
-            const modeNames = { fixed: '5/5 мин', random: 'Рандом', none: 'Без паузы' };
-            const modeLabel = modeNames[config.afkCycle.mode] || config.afkCycle.mode;
-            block += `\n\n🔄 <b>AFK цикл активен</b>  [${modeLabel}]\n`;
-            block += `└ Наиграно: ${afkMins} мин  |  Накоплено: ₽${afkSal}`;
-        }
-
-        // ── Лог сессии (последние 8 событий) ─────────────────────
-        const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
-            ? globalState.sessionLog.slice(-8).map(e => `<code>${e}</code>`).join('\n')
-            : '<i>Нет событий</i>';
-        block += `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
-
-        return block;
-    } catch (e) {
-        return `\n\n❌ <i>Ошибка получения инфо: ${e.message}</i>`;
-    }
-}
-
-// ── Строит полный текст приветственного сообщения ──
-function buildWelcomeText() {
-    const _ci  = window.CODE_COMMIT_INFO;
-    const _ci2 = window.CODE2_COMMIT_INFO;
-
-    let _versionLine = '';
-    if (_ci)  _versionLine += `\n  <i>Code: ${_ci.date} — ${_ci.msg}</i>`;
-    if (_ci2) _versionLine += `\n  <i>Code2: ${_ci2.date} — ${_ci2.msg}</i>`;
-    const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
-
-    let text = `🟢 <b>${BOT_NAME}</b>${_versionLine}\n` +
-        `Ник: ${config.accountInfo.nickname || '...'}${playerIdDisplay}\n` +
-        `Сервер: ${config.accountInfo.server || 'Не указан'}`;
-
-    // Блок инфо об аккаунте (всегда если ник известен)
-    if (config.accountInfo.nickname) {
-        text += buildWelcomeAccountInfo();
-    }
-
-    // Блок настроек (только если пользователь раскрыл)
-    if (globalState.welcomeShowSettings) {
-        text += `\n\n🔔 <b>Текущие настройки уведомлений:</b>\n` +
-            `├ Уведомления PayDay: ${config.paydayNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-            `├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-            `├ Уведомления рации (все): ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-            `├ Рация — важные (строй/место/ID): ${config.radioImportantFilter ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-            `├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-            `├ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
-            `└ Автоответ КАЧ/ЗП: ${config.kacAutoReply ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
-    }
-
-    return text;
-}
-
-// ── Строит inline-клавиатуру приветственного сообщения ──
-function buildWelcomeKeyboard() {
-    const settingsBtn = globalState.welcomeShowSettings
-        ? createButton('🙈 Скрыть настройки уведомлений', `hide_welcome_settings_${uniqueId}`)
-        : createButton('🔔 Настройки уведомлений', `show_welcome_settings_${uniqueId}`);
-
-    return {
-        inline_keyboard: [
-            [createButton('⚙️ Управление', `show_controls_${uniqueId}`)],
-            [createButton('💰 Инфо об аккаунте', `local_account_info_${uniqueId}`), settingsBtn]
-        ]
-    };
-}
-
 function sendWelcomeMessage() {
     if (!config.accountInfo.nickname) {
         debugLog('Ник не определен, откладываем отправку приветственного сообщения');
         return;
     }
-
-    const message = buildWelcomeText();
-    const replyMarkup = buildWelcomeKeyboard();
-
+    // Версия из последнего коммита Code.js (устанавливается Load.js)
+    const _ci = window.CODE_COMMIT_INFO;
+    const _versionLine = _ci
+        ? `Version ${_ci.date} — ${_ci.msg}`
+        : 'Version unknown';
+    const playerIdDisplay = config.lastPlayerId ? ` (ID: ${config.lastPlayerId})` : '';
+    const message = `🟢 <b>Hassle | Bot</b>  <i>${_versionLine}</i>\n` +
+        `Ник: ${config.accountInfo.nickname}${playerIdDisplay}\n` +
+        `Сервер: ${config.accountInfo.server || 'Не указан'}\n\n` +
+        `🔔 <b>Текущие настройки:</b>\n` +
+        `├ Уведомления PayDay: ${config.paydayNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `├ Уведомления от сотрудников: ${config.govMessagesEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `├ Уведомления рации (все): ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `├ Рация — важные (строй/место/ID): ${config.radioImportantFilter ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `├ Уведомления выговоры: ${config.warningNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `├ Отслеживание местоположения: ${config.trackLocationRequests ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+        `└ Автоответ КАЧ/ЗП: ${config.kacAutoReply ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}`;
+    const replyMarkup = {
+        inline_keyboard: [
+            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+        ]
+    };
     // Хранилище ID приветственного сообщения отдельно по каждому чату
     if (!globalState.welcomeMessageIds) globalState.welcomeMessageIds = {};
-    if (!globalState.welcomeSending) globalState.welcomeSending = {};
 
     config.chatIds.forEach(chatId => {
         const existingId = globalState.welcomeMessageIds[chatId];
         if (existingId) {
             // Редактируем уже отправленное сообщение — не шлём новое
             editMessageText(chatId, existingId, message, replyMarkup);
-        } else if (globalState.welcomeSending[chatId]) {
-            // Уже летит запрос на отправку — не дублируем
-            debugLog(`[WELCOME] Чат ${chatId}: отправка уже в процессе, пропускаем`);
         } else {
-            // Первый запуск: ставим флаг и отправляем
-            globalState.welcomeSending[chatId] = true;
+            // Первый запуск: отправляем и запоминаем ID
             tgApi('sendMessage', {
                 chat_id: chatId,
                 text: message,
@@ -2178,16 +1196,11 @@ function sendWelcomeMessage() {
                 disable_notification: false,
                 reply_markup: JSON.stringify(replyMarkup)
             }, data => {
-                globalState.welcomeSending[chatId] = false;
                 if (data && data.result) {
                     globalState.welcomeMessageIds[chatId] = data.result.message_id;
                     globalState.lastWelcomeMessageId = data.result.message_id;
-                    debugLog(`[WELCOME] Отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
+                    debugLog(`[WELCOME] Сообщение отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
                 }
-            }, () => {
-                // На ошибке сети — снимаем флаг, следующий вызов попробует снова
-                globalState.welcomeSending[chatId] = false;
-                debugLog(`[WELCOME] Ошибка отправки в чат ${chatId}`);
             });
         }
     });
@@ -2196,7 +1209,7 @@ function sendWelcomeMessage() {
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: AFK                                             ║
-// ║  Описание: AFK-циклы (fixed / random / none)             ║
+// ║  Описание: AFK-циклы (fixed / random / levelup / none)   ║
 // ║             управление паузами, реконнект, зарплата,     ║
 // ║             статус в Telegram                            ║
 // ║  Зависимости: config, displayName, debugLog,             ║
@@ -2210,6 +1223,7 @@ function getAFKStatusText() {
     if (!config.afkCycle.active) return '';
     const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' :
         config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' :
+        config.afkCycle.mode === 'levelup' ? 'прокачка уровня (10 мин игры без пауз)' :
         'без пауз';
     let reconnectText = '';
     if (config.autoReconnectEnabled) {
@@ -2224,7 +1238,7 @@ function getAFKStatusText() {
     config.afkCycle.pauseHistory.slice(-3).forEach((entry, index) => {
         statusText += `${index + 1}. ${entry}\n`;
     });
-    if (config.afkCycle.mode === 'none') {
+    if (config.afkCycle.mode === 'none' || config.afkCycle.mode === 'levelup') {
         statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
     }
     return statusText;
@@ -2237,17 +1251,24 @@ function updateAFKStatus(isNew = false) {
         // Отправляем новое сообщение и сохраняем IDs
         config.afkCycle.statusMessageIds = [];
         config.chatIds.forEach(chatId => {
-            tgApi('sendMessage', {
+            const url = `https://api.telegram.org/bot${config.botToken}/sendMessage`;
+            const payload = {
                 chat_id: chatId,
                 text: fullText,
                 parse_mode: 'HTML'
-            }, data => {
-                if (data && data.result) {
+            };
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
                     const messageId = data.result.message_id;
                     config.afkCycle.statusMessageIds.push({ chatId, messageId });
                     debugLog(`Новое AFK статус-сообщение отправлено в чат ${chatId}: ID ${messageId}`);
                 }
-            }, () => debugLog(`[AFK] Ошибка отправки статус-сообщения в чат ${chatId}`));
+            };
+            xhr.send(JSON.stringify(payload));
         });
     } else {
         // Редактируем существующие сообщения
@@ -2322,7 +1343,7 @@ function startPlayPhase() {
     if (!config.afkCycle.active) return;
     debugLog(`Начинаем игровую фазу для ${displayName}`);
     config.afkCycle.currentPlayTime = 0;
-    const requiredPlayTime = 25 * 60 * 1000;
+    const requiredPlayTime = (config.afkCycle.mode === 'levelup') ? 10 * 60 * 1000 : 25 * 60 * 1000;
     let playDurationMs;
     if (config.afkCycle.mode === 'fixed') {
         playDurationMs = 5 * 60 * 1000;
@@ -2363,7 +1384,7 @@ function startPlayPhase() {
     debugLog(`Игровая фаза: ${durationMin} минут`);
     config.afkCycle.playTimer = setTimeout(() => {
         config.afkCycle.totalPlayTime += playDurationMs;
-        if (config.afkCycle.totalPlayTime < requiredPlayTime && config.afkCycle.mode !== 'none') {
+        if (config.afkCycle.totalPlayTime < requiredPlayTime && config.afkCycle.mode !== 'none' && config.afkCycle.mode !== 'levelup') {
             startPausePhase();
         } else {
             debugLog(`Отыграно ${requiredPlayTime / 60000} минут для ${displayName}`);
@@ -2372,10 +1393,26 @@ function startPlayPhase() {
     }, playDurationMs);
 }
 function handleCycleEnd() {
-    if (config.afkCycle.mode === 'none' && config.afkCycle.reconnectEnabled) {
+    if (config.afkCycle.mode === 'levelup') {
+        handleLevelUpEnd();
+    } else if (config.afkCycle.mode === 'none' && config.afkCycle.reconnectEnabled) {
         handleNoneReconnectEnd();
     } else {
         enterPauseUntilEnd();
+    }
+}
+function handleLevelUpEnd() {
+    autoLoginConfig.enabled = false;
+    sendChatInput("/rec 5");
+    sendToTelegram(`🔄 <b>LevelUp: Отключен автовход и отправлен /rec 5 (${displayName})</b>` + getAFKStatusText());
+    const timePassed = Date.now() - config.afkCycle.startTime;
+    const timeToReconnect = 59 * 60 * 1000 - timePassed;
+    if (timeToReconnect > 0) {
+        setTimeout(() => {
+            autoLoginConfig.enabled = true;
+            sendChatInput("/rec 5");
+            sendToTelegram(`🔄 <b>LevelUp: Включен автовход и отправлен /rec 5 (${displayName})</b>`);
+        }, timeToReconnect);
     }
 }
 function handleNoneReconnectEnd() {
@@ -2477,7 +1514,7 @@ function handlePayDayTimeMessage() {
     }
     config.afkCycle.startTime = Date.now();
     config.afkCycle.totalPlayTime = 0;
-    const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' : config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' : 'без пауз';
+    const modeText = config.afkCycle.mode === 'fixed' ? '5 мин играем, 5 мин пауза' : config.afkCycle.mode === 'random' ? 'рандомное время игры/паузы' : config.afkCycle.mode === 'levelup' ? 'прокачка уровня (10 мин игры без пауз)' : 'без пауз';
     debugLog(`Обнаружено сообщение "Текущее время:", начинаем AFK цикл для ${displayName}`);
     updateAFKStatus(); // Обновляем с начальным статусом
     startPlayPhase();
@@ -2485,180 +1522,369 @@ function handlePayDayTimeMessage() {
 // END AFK MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: OTYGROVKA AUTO                                  ║
-// ║  Описание: Автоматический 25-мин цикл отыгровки.         ║
-// ║    • Считает ТОЛЬКО время when isPlayerConnected=true    ║
-// ║      и PauseMenu закрыто (авторизация/пауза — не считаем)║
-// ║    • После 27 мин → выход /rec 5 в :59:20 + автовход    ║
-// ║    • Ловим PayDay в :00 → сбрасываем и повторяем         ║
-// ║  Зависимости: globalState, autoLoginConfig,              ║
-// ║               sendChatInput, sendToTelegram, debugLog,   ║
-// ║               displayName                                ║
+// ║  MODULE: PAYDAY CYCLE                                    ║
+// ║  Описание: Автоцикл для получения PayDay:                ║
+// ║             вход → отыгровка 25-26 мин → авторизация     ║
+// ║             → :59 → пэйдэй → повтор.                    ║
+// ║             Стаггер между аккаунтами, прерывание строем  ║
+// ║  Зависимости: config, displayName, debugLog,             ║
+// ║               sendToTelegram, editMessageText,           ║
+// ║               createButton, sendChatInput,               ║
+// ║               autoLoginConfig, window.ACCOUNT_NUMBER     ║
 // ╚══════════════════════════════════════════════════════════╝
-// START OTYGROVKA AUTO MODULE //
+// ==================== START PAYDAY CYCLE MODULE ====================
+// Цикл: вход → 30с → отыгровка 25-26 мин → авторизация → ждём :59 → вход → пэйдэй → повтор
+// Включение/выключение на одном аккаунте → все аккаунты реагируют (общий chatId)
+// Аккаунты заходят со сдвигом 20-25 сек (по номеру аккаунта), localStorage НЕ используется
 
-const OTYGROVKA_TARGET_SEC = 27 * 60; // 1620 сек = 27 мин
+const pdCycle = {
+    active: false,
+    phase: 'idle',    // 'idle' | 'initial' | 'playing' | 'auth_wait' | 'reconnecting' | 'stroi_interrupted'
+    playTimer: null,
+    authTimer: null,
+    startTimer: null,
+    playStartTime: null,
+    cycleCount: 0,
+    totalPlayedMs: 0,    // накопленное игровое время с последнего PayDay
+    stroiInterrupted: false  // флаг: строй прервал отыгровку
+};
 
-// ── Суммарное in-game время в секундах (начальное + накопленное) ──────────
-function _otygrovkaTotalSec() {
-    return (globalState.otygrovkaInitialSec || 0) + (globalState.otygrovkaPlaySec || 0);
+// Сдвиг для данного аккаунта: (номер - 1) × 20-25 сек, чтоб не заходили одновременно
+// Стаггер при первом старте: 20–25 сек между аккаунтами
+function pdcGetStartStagger() {
+    const num = parseInt(window.ACCOUNT_NUMBER) || 1;
+    const perAcc = Math.floor(Math.random() * 5001) + 20000; // 20 000 – 25 000 мс
+    return (num - 1) * perAcc;
+}
+// Стаггер при реконнекте перед пэйдэем: 5–10 сек между аккаунтами
+// #1=0с, #2=5-10с, ..., #8=35-70с — все в игре до :00
+function pdcGetReconnectStagger() {
+    const num = parseInt(window.ACCOUNT_NUMBER) || 1;
+    const perAcc = Math.floor(Math.random() * 5001) + 5000; // 5 000 – 10 000 мс
+    return (num - 1) * perAcc;
 }
 
-// ── Остановить трекинг и все таймеры ─────────────────────────────────────
-function stopOtygrovkaTracking() {
-    if (globalState.otygrovkaTrackInterval) {
-        clearInterval(globalState.otygrovkaTrackInterval);
-        globalState.otygrovkaTrackInterval = null;
+// Миллисекунды до следующей :59:00
+// Сколько мс до момента когда надо слать /rec 5 перед пэйдэем.
+// PayDay в :00, /rec 5 занимает ~25 сек → шлём за 85 сек до :00 (= :58:35)
+// Аналогично строю: строй шлёт за 60 сек, мы шлём на 25 сек раньше с учётом подключения
+function pdcMsUntilReenter() {
+    const now    = new Date();
+    const nowMs  = now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds();
+    const hourMs = 60 * 60000;
+    let msUntil00 = hourMs - nowMs;          // мс до следующего :00:00
+    if (msUntil00 <= 0) msUntil00 += hourMs;
+    let result = msUntil00 - 85000;          // за 85 сек до :00
+    if (result <= 0) result += hourMs;       // уже прошло — следующий час
+    return result;
+}
+
+// Очистить все таймеры цикла
+function pdcClearTimers() {
+    ['playTimer', 'authTimer', 'startTimer'].forEach(t => {
+        if (pdCycle[t]) { clearTimeout(pdCycle[t]); pdCycle[t] = null; }
+    });
+}
+
+// Сколько мс до следующего :00:00
+function pdcMsUntil00() {
+    const now   = new Date();
+    const nowMs = now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds();
+    let result  = 60 * 60000 - nowMs;
+    if (result <= 0) result += 60 * 60000;
+    return result;
+}
+
+// Сохраняем отыгранное время текущей сессии в totalPlayedMs
+// (вызывать перед любым прерыванием play-фазы)
+function pdcSnapshotPlay() {
+    if (pdCycle.phase === 'playing' && pdCycle.playStartTime) {
+        const elapsed = Date.now() - pdCycle.playStartTime;
+        pdCycle.totalPlayedMs += elapsed;
+        pdCycle.playStartTime = null;
+        debugLog(`[PDC] Snapshot: +${Math.round(elapsed/1000)}с → итого ${Math.round(pdCycle.totalPlayedMs/1000)}с`);
     }
-    if (globalState.otygrovkaExitTimer) {
-        clearTimeout(globalState.otygrovkaExitTimer);
-        globalState.otygrovkaExitTimer = null;
-    }
-    debugLog('[OTYGROVKA] Трекинг остановлен');
 }
 
-// ── Проверка: игрок заспавнен и не на паузе ──────────────────────────────
-function _otygrovkaIsActive() {
-    let isConnected = false;
-    try { isConnected = !!window.App.$store.getters['player/isPlayerConnected']; } catch(e) {}
-    if (!isConnected) return false;
-    let isPaused = false;
-    try { isPaused = !!window.getInterfaceStatus('PauseMenu'); } catch(e) {}
-    return !isPaused;
+// Вызывается из performStroiReconnect когда PDC-цикл активен и мы в фазе 'playing'
+function pdcOnStroiInterrupt() {
+    if (!pdCycle.active || pdCycle.phase !== 'playing') return;
+    pdcClearTimers();      // останавливаем playTimer — строй сам управляет реконнектом
+    pdcSnapshotPlay();     // сохраняем сколько отыграли
+
+    pdCycle.phase            = 'stroi_interrupted';
+    pdCycle.stroiInterrupted = true;
+
+    const playedMin  = Math.floor(pdCycle.totalPlayedMs / 60000);
+    const playedSec  = Math.floor((pdCycle.totalPlayedMs % 60000) / 1000);
+    const remaining  = Math.max(0, 25 * 60000 - pdCycle.totalPlayedMs);
+    const remMin     = Math.floor(remaining / 60000);
+    const remSec     = Math.floor((remaining % 60000) / 1000);
+
+    sendToTelegram(
+        `⚠️ <b>Строй прервал отыгровку! (${displayName})</b>
+` +
+        `✅ Отыграно: ${playedMin} мин ${playedSec} сек
+` +
+        `⏳ Осталось: ${remMin} мин ${remSec} сек до 25 мин
+` +
+        `🔄 Строй обрабатывает реконнект — после входа продолжим`,
+        false, null
+    );
+    debugLog(`[PDC] Строй прервал. Отыграно ${playedMin}м ${playedSec}с, осталось ${remMin}м ${remSec}с`);
 }
 
-// ── Запустить трекинг секунд ──────────────────────────────────────────────
-// initialMinutes — «Время в игре за час» из /c 60 (число минут)
-function startOtygrovkaTracking(initialMinutes) {
-    stopOtygrovkaTracking(); // Сбрасываем предыдущий интервал
+// Вызывается из setupAutoLogin после успешного входа в игру
+// Если строй прервал отыгровку — возобновляем
+function pdcOnReloginAfterStroi() {
+    if (!pdCycle.active || !pdCycle.stroiInterrupted) return;
+    pdCycle.stroiInterrupted = false;
 
-    const initSec = (initialMinutes || 0) * 60;
-    globalState.otygrovkaInitialSec = initSec;
-    globalState.otygrovkaPlaySec    = 0;
+    const remaining = Math.max(0, 25 * 60000 - pdCycle.totalPlayedMs);
+    const msUntil00 = pdcMsUntil00();
+    // Запас: 90с (85с до :00 + ~5с на вход+загрузку)
+    const BUFFER_MS = 90000;
 
-    debugLog(`[OTYGROVKA] Запуск трекинга. Начало: ${initialMinutes} мин (${initSec} сек). Цель: 27 мин.`);
-
-    // Уже 25+ мин? Сразу планируем выход
-    if (initSec >= OTYGROVKA_TARGET_SEC) {
-        debugLog('[OTYGROVKA] Уже ≥27 мин — немедленно планируем выход в :59:20');
-        scheduleOtygrovkaExit();
+    if (remaining === 0) {
+        // Уже отыграли 25 мин — просто ждём пэйдэй
+        pdCycle.phase = 'reconnecting';
+        const minLeft = Math.floor(msUntil00 / 60000);
+        const secLeft = Math.floor((msUntil00 % 60000) / 1000);
+        sendToTelegram(
+            `✅ <b>Вернулись после строя (${displayName})</b>
+` +
+            `💰 25 мин уже отыграны — ждём PayDay через ${minLeft} мин ${secLeft} сек`,
+            false, null
+        );
         return;
     }
 
-    globalState.otygrovkaTrackInterval = setInterval(function() {
-        if (!globalState.otygrovkaAuto) {
-            clearInterval(globalState.otygrovkaTrackInterval);
-            globalState.otygrovkaTrackInterval = null;
-            return;
-        }
-        if (!_otygrovkaIsActive()) return; // Не считаем: не в игре / пауза
-
-        globalState.otygrovkaPlaySec++;
-
-        if (_otygrovkaTotalSec() >= OTYGROVKA_TARGET_SEC && !globalState.otygrovkaExitTimer) {
-            clearInterval(globalState.otygrovkaTrackInterval);
-            globalState.otygrovkaTrackInterval = null;
-            scheduleOtygrovkaExit();
-        }
-    }, 1000);
+    if (msUntil00 - BUFFER_MS >= remaining) {
+        // Успеваем доиграть
+        const remMin = Math.floor(remaining / 60000);
+        const remSec = Math.floor((remaining % 60000) / 1000);
+        sendToTelegram(
+            `▶️ <b>Возобновляем отыгровку после строя (${displayName})</b>
+` +
+            `⏳ Осталось доиграть: ${remMin} мин ${remSec} сек
+` +
+            `🕐 До PayDay: ${Math.floor((msUntil00)/60000)} мин`,
+            false, null
+        );
+        debugLog(`[PDC] Возобновляем: осталось ${remMin}м ${remSec}с, до :00 ${Math.floor(msUntil00/60000)}м`);
+        // Не прибавляем cycleCount — это продолжение той же отыгровки
+        pdCycle.phase         = 'playing';
+        pdCycle.playStartTime = Date.now();
+        pdCycle.playTimer     = setTimeout(() => pdcEndPlay(), remaining);
+    } else if (msUntil00 > BUFFER_MS + 5 * 60000) {
+        // Времени мало, но хоть что-то доиграем (> 5 мин до :00)
+        const canPlay = msUntil00 - BUFFER_MS;
+        const canMin  = Math.floor(canPlay / 60000);
+        const canSec  = Math.floor((canPlay % 60000) / 1000);
+        sendToTelegram(
+            `⚠️ <b>Не успеваем доиграть 25 мин (${displayName})</b>
+` +
+            `⏳ Нужно ещё: ${Math.floor(remaining/60000)} мин, есть: ${canMin} мин ${canSec} сек
+` +
+            `▶️ Играем сколько успеем`,
+            false, null
+        );
+        pdCycle.phase         = 'playing';
+        pdCycle.playStartTime = Date.now();
+        pdCycle.playTimer     = setTimeout(() => pdcEndPlay(), canPlay);
+    } else {
+        // До :00 < 5 мин — уже не успеть ничего, просто ждём
+        pdCycle.phase = 'reconnecting';
+        sendToTelegram(
+            `⏰ <b>До PayDay меньше 5 мин (${displayName})</b>
+` +
+            `💤 Ждём пэйдэй — не успеваем набрать 25 мин`,
+            false, null
+        );
+        debugLog(`[PDC] До :00 < 5 мин — ждём пэйдэй без отыгровки`);
+    }
 }
 
-// ── Запланировать выход и реконнект ──────────────────────────────────────
-// ШАГ 1 (сейчас):    autoLogin ВЫКЛ + /rec 5 → висим на авторизации
-// ШАГ 2 (в :59:20):  autoLogin ВКЛ  + /rec 5 → заходим, ловим PayDay в :00
-function scheduleOtygrovkaExit() {
-    if (globalState.otygrovkaExitTimer) return; // Уже запланирован
+// Запустить цикл (из кнопки или команды — все аккаунты получают через общий chatId)
+function pdcStart() {
+    if (pdCycle.active) {
+        sendToTelegram(`⏱️ <b>PayDay цикл уже активен (${displayName})</b>`, true, null);
+        return;
+    }
+    pdcClearTimers();
+    pdCycle.active   = true;
+    pdCycle.phase    = 'initial';
+    pdCycle.cycleCount = 0;
 
-    const now = new Date();
-    const min = now.getMinutes();
-    const sec = now.getSeconds();
+    const stagger = pdcGetStartStagger();
+    const totalDelay = stagger + 30000; // сдвиг + 30 сек после входа
 
-    // ШАГ 1 — немедленно выходим на авторизацию
+    sendToTelegram(
+        `⏱️ <b>PayDay цикл запущен! (${displayName})</b>\n` +
+        `🔢 Аккаунт #${window.ACCOUNT_NUMBER || '?'}, сдвиг: ${Math.round(stagger / 1000)} сек\n` +
+        `▶️ Отыгровка начнётся через ${Math.round(totalDelay / 1000)} сек`,
+        true, null
+    );
+
+    debugLog(`[PDC] Старт. Аккаунт #${window.ACCOUNT_NUMBER || '?'}, задержка ${Math.round(totalDelay / 1000)}с`);
+    pdCycle.startTimer = setTimeout(() => pdcBeginPlay(), totalDelay);
+}
+
+// Начало фазы отыгровки
+function pdcBeginPlay() {
+    if (!pdCycle.active) return;
+    pdcClearTimers();
+
+    // Выходим с паузы если вдруг на ней
+    try { if (typeof closeInterface === 'function') closeInterface("PauseMenu"); } catch(e) {}
+
+    pdCycle.cycleCount++;
+    pdCycle.phase         = 'playing';
+    pdCycle.playStartTime = Date.now();
+
+    const REQUIRED_MS = 25 * 60000;
+    const remaining   = Math.max(0, REQUIRED_MS - pdCycle.totalPlayedMs);
+
+    let playMs;
+    if (remaining <= 0) {
+        // Уже отыграно 25+ мин (напр. сразу после строя) — не нужна отыгровка
+        pdCycle.phase = 'reconnecting';
+        sendToTelegram(
+            `✅ <b>25 мин уже отыграны (${displayName})</b>\n` +
+            `💰 Ждём PayDay`,
+            true, null
+        );
+        debugLog(`[PDC] 25 мин уже набраны (${Math.round(pdCycle.totalPlayedMs/60000)} мин), ждём PayDay`);
+        return;
+    }
+
+    // Рандом +0–60с сверху только если это первая отыгровка без накопленного времени
+    const extra  = (pdCycle.totalPlayedMs === 0) ? Math.floor(Math.random() * 60001) : 0;
+    playMs       = remaining + extra;
+
+    const minStr = Math.floor(playMs / 60000);
+    const secStr = Math.floor((playMs % 60000) / 1000);
+    const playedMin = Math.floor(pdCycle.totalPlayedMs / 60000);
+
+    sendToTelegram(
+        `▶️ <b>Отыгровка #${pdCycle.cycleCount} (${displayName})</b>\n` +
+        `⏱ ${minStr} мин ${secStr} сек` +
+        (pdCycle.totalPlayedMs > 0 ? `\n📊 Уже отыграно: ${playedMin} мин` : ''),
+        true, null
+    );
+    debugLog(`[PDC] Отыгровка #${pdCycle.cycleCount}: ${minStr}м ${secStr}с (накоплено ${playedMin}м)`);
+
+    pdCycle.playTimer = setTimeout(() => pdcEndPlay(), playMs);
+}
+
+// Конец отыгровки → выход из игры, ждём :58:35
+function pdcEndPlay() {
+    if (!pdCycle.active) return;
+    pdcClearTimers();
+    pdcSnapshotPlay();    // сохраняем время текущей сессии
+    pdCycle.phase = 'auth_wait';
+
+    // Как в строе: отключаем автовход и /rec 5 — висим на авторизации
     autoLoginConfig.enabled = false;
     sendChatInput('/rec 5');
 
-    // Секунды до :59:20 текущего (или следующего) часа
-    let secsUntilReconnect = (59 - min) * 60 + (20 - sec);
-    if (secsUntilReconnect < 0) secsUntilReconnect += 3600;
-    // Если уже почти :59:20 — даём хотя бы 5 сек
-    if (secsUntilReconnect < 5) secsUntilReconnect += 3600;
-
-    const totalSec  = _otygrovkaTotalSec();
-    const totalMin  = Math.floor(totalSec / 60);
-    const totalSecR = totalSec % 60;
-    const reconnTime = new Date(Date.now() + secsUntilReconnect * 1000);
-    const reconnStr  = `${String(reconnTime.getHours()).padStart(2,'0')}:59:20`;
-
-    debugLog(`[OTYGROVKA] 27 мин выполнено (${totalMin}:${String(totalSecR).padStart(2,'0')}). autoLogin ВЫКЛ, /rec 5. Реконнект в ${reconnStr} через ${secsUntilReconnect} сек`);
+    // Реконнект: за 85 сек до :00 (= :58:35) + индивидуальный сдвиг 5–10 сек
+    // Аккаунт #1 в :58:35, #2 в :58:40–45, ..., #8 в :59:20–27 — все до :00
+    const reStagger  = pdcGetReconnectStagger();
+    const totalMs    = pdcMsUntilReenter() + reStagger;
+    const minLeft    = Math.floor(totalMs / 60000);
+    const secLeft    = Math.floor((totalMs % 60000) / 1000);
 
     sendToTelegram(
-        `🎭 <b>Отыгровка 27 мин — ${displayName}</b>\n` +
-        `✅ <b>${totalMin} мин ${totalSecR} сек отыграно!</b>\n` +
-        `🔴 Автовход ВЫКЛ — висим на авторизации\n` +
-        `⏰ Включим автовход и зайдём в <b>${reconnStr}</b>\n` +
-        `🕐 Через ${Math.floor(secsUntilReconnect/60)} мин ${secsUntilReconnect%60} сек`,
-        false, null
+        `🔒 <b>Авторизация (${displayName})</b>\n` +
+        `✅ Отыгровка #${pdCycle.cycleCount} завершена\n` +
+        `⏰ /rec 5 через ${minLeft} мин ${secLeft} сек\n` +
+        `🔢 Сдвиг #${window.ACCOUNT_NUMBER || '?'}: +${Math.round(reStagger / 1000)} сек от :58:35`,
+        true, null
     );
+    debugLog(`[PDC] Ждём авторизации. До реконнекта: ${minLeft}м ${secLeft}с, сдвиг: ${Math.round(reStagger/1000)}с`);
 
-    // ШАГ 2 — в :59:20 включаем автовход и заходим
-    globalState.otygrovkaExitTimer = setTimeout(function() {
-        globalState.otygrovkaExitTimer = null;
-        otygrovkaDoReconnect();
-    }, secsUntilReconnect * 1000);
+    pdCycle.authTimer = setTimeout(() => pdcReenter(), totalMs);
 }
 
-// ── ШАГ 2: включить автовход и зайти для поимки PayDay ───────────────────
-function otygrovkaDoReconnect() {
-    if (!globalState.otygrovkaAuto) return;
+// Входим на сервер (в :59 + сдвиг аккаунта)
+function pdcReenter() {
+    if (!pdCycle.active) return;
+    pdcClearTimers();
+    pdCycle.phase = 'reconnecting';
 
+    sendToTelegram(
+        `🔓 <b>Вход на сервер (${displayName})</b>\n` +
+        `💰 Аккаунт #${window.ACCOUNT_NUMBER || '?'} — ждём PayDay в :00...\n` +
+        `🔑 Включён автовход и отправлен /rec 5`,
+        true, null
+    );
+    debugLog(`[PDC] Вход на сервер. Аккаунт #${window.ACCOUNT_NUMBER || '?'}`);
+
+    // Как в строе: включаем автовход и /rec 5 — заходим на сервер
     autoLoginConfig.enabled = true;
     sendChatInput('/rec 5');
+}
 
-    debugLog('[OTYGROVKA] :59:20 — autoLogin ВКЛ, /rec 5 — заходим для PayDay в :00');
+// Вызывается из processSalaryAndBalance когда PayDay получен и цикл активен
+function pdcOnPayDayReceived() {
+    if (!pdCycle.active) return;
+    // Принимаем PayDay в любой фазе кроме idle и auth_wait
+    if (pdCycle.phase === 'idle' || pdCycle.phase === 'auth_wait') return;
+    pdcClearTimers();
+    pdcSnapshotPlay(); // на случай если таймер не успел сработать
+
+    // Сбрасываем накопленное время — новый часовой цикл
+    pdCycle.totalPlayedMs    = 0;
+    pdCycle.playStartTime    = null;
+    pdCycle.stroiInterrupted = false;
+    pdCycle.phase            = 'initial';
+
+    debugLog('[PDC] PayDay получен — сброс времени, новая отыгровка через 30 сек');
     sendToTelegram(
-        `🎭 <b>Отыгровка — заходим для PayDay (${displayName})</b>\n` +
-        `🟢 Автовход ВКЛ + /rec 5\n` +
-        `💰 Ловим PayDay в :00 → новый цикл`,
-        false, null
+        `💰 <b>PayDay получен! (${displayName})</b>\n` +
+        `▶️ Новая отыгровка начнётся через 30 сек`,
+        true, null
+    );
+
+    pdCycle.startTimer = setTimeout(() => pdcBeginPlay(), 30000);
+}
+
+// Остановка цикла
+function pdcStop() {
+    pdcClearTimers();
+    pdcSnapshotPlay();
+    pdCycle.active           = false;
+    pdCycle.phase            = 'idle';
+    pdCycle.totalPlayedMs    = 0;
+    pdCycle.stroiInterrupted = false;
+    autoLoginConfig.enabled  = true; // Возвращаем автологин
+    sendToTelegram(`⏹️ <b>PayDay цикл остановлен (${displayName})</b>`, false, null);
+    debugLog('[PDC] Цикл остановлен');
+}
+
+// Меню управления циклом
+function showPdcMenu(chatId, messageId, uid) {
+    const status = pdCycle.active
+        ? `🟢 Активен | Фаза: ${pdCycle.phase} | Цикл #${pdCycle.cycleCount}`
+        : '🔴 Выключен';
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton("▶️ Запустить", `pdc_start_${uid}`),
+                createButton("⏹️ Остановить", `pdc_stop_${uid}`)
+            ],
+            [createButton("⬅️ Назад", `show_global_functions_${uid}`)]
+        ]
+    };
+    editMessageText(chatId, messageId,
+        `⏱️ <b>PayDay цикл (${displayName})</b>\n` +
+        `Статус: ${status}\n\n` +
+        `<i>Вход→30с→отыгровка 25-26 мин→авторизация→:59→пэйдэй→повтор</i>`,
+        replyMarkup
     );
 }
-
-// ── Сброс и запуск нового цикла после PayDay ──────────────────────────────
-function otygrovkaResetAfterPayday() {
-    if (!globalState.otygrovkaAuto) return;
-
-    debugLog('[OTYGROVKA] PayDay получен — сбрасываем счётчик, ждём спавна для нового цикла');
-    stopOtygrovkaTracking();
-    globalState.otygrovkaInitialSec = 0;
-    globalState.otygrovkaPlaySec    = 0;
-
-    // Ждём спавна (isPlayerConnected = true), затем запускаем новый цикл
-    var _waitSpawn = setInterval(function() {
-        if (!globalState.otygrovkaAuto) { clearInterval(_waitSpawn); return; }
-
-        let isConnected = false;
-        try { isConnected = !!window.App.$store.getters['player/isPlayerConnected']; } catch(e) {}
-
-        if (isConnected) {
-            clearInterval(_waitSpawn);
-            debugLog('[OTYGROVKA] Спавн после PayDay — новый цикл трекинга (0 мин → 27 мин)');
-            startOtygrovkaTracking(0);
-            sendToTelegram(
-                `🎭 <b>Отыгровка — новый цикл (${displayName})</b>\n` +
-                `▶️ Трекинг запущен: 0 → 27 мин`,
-                false, null
-            );
-        }
-    }, 2000);
-}
-
-// END OTYGROVKA AUTO MODULE //
-
-
-
-
-
-
+// ==================== END PAYDAY CYCLE MODULE ====================
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: MENU                                            ║
@@ -2666,7 +1892,8 @@ function otygrovkaResetAfterPayday() {
 // ║             (настройки, AFK-режимы, функции)             ║
 // ║  Зависимости: config, displayName, uniqueId, debugLog,   ║
 // ║               sendToTelegram, editMessageText,           ║
-// ║               createButton, answerCallbackQuery          ║
+// ║               createButton, answerCallbackQuery,         ║
+// ║               showPdcMenu                                ║
 // ╚══════════════════════════════════════════════════════════╝
 // START MENU MODULE //
 function showControlsMenu(chatId, messageId) {
@@ -2679,7 +1906,6 @@ function showControlsMenu(chatId, messageId) {
             [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
             [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
             [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
-            [createButton("🔔 Настройки уведомлений", `show_welcome_settings_${uniqueId}`)],
             [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`)],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
@@ -2693,10 +1919,16 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
         [createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
         [createButton("📡 Рация", `show_radio_options_${uniqueIdParam}`)],
         [createButton("⚠️ Выговоры", `show_warning_options_${uniqueIdParam}`)],
-        [createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`)],
-
+        [
+            createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`),
+            createButton("🔄 AFK", `global_afk_${uniqueIdParam}`)
+        ],
+        [createButton("⏱️ PayDay Цикл", `show_pdc_menu_${uniqueIdParam}`)],
         [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_kac_options_${uniqueIdParam}`)],
     ];
+    if (config.autoReconnectEnabled) {
+        inlineKeyboard.push([createButton("📈 Прокачка уровня", `global_levelup_${uniqueIdParam}`)]);
+    }
     inlineKeyboard.push([createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]);
     const replyMarkup = {
         inline_keyboard: inlineKeyboard
@@ -2848,7 +2080,6 @@ function showLocalFunctionsMenu(chatId, messageId) {
             [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
             [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
             [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_local_kac_options_${uniqueId}`)],
-            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaMode ? '🟢' : '🔴'}`, `show_otygrovka_options_${uniqueId}`)],
             [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
             [pauseBtn, autoLoginBtn],
             [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
@@ -2964,70 +2195,17 @@ function showLocalKacOptionsMenu(chatId, messageId) {
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
-function showOtygrovkaMenu(chatId, messageId) {
-    if (!config.accountInfo.nickname) {
-        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
-        return;
-    }
-    const isAuto = globalState.otygrovkaAuto;
-    const lastTime = globalState.otygrovkaTimeInHour;
-
-    // Прогресс трекинга
-    const totalSec  = (globalState.otygrovkaInitialSec || 0) + (globalState.otygrovkaPlaySec || 0);
-    const totalMin  = Math.floor(totalSec / 60);
-    const totalSecR = totalSec % 60;
-    const pctDone   = Math.min(100, Math.round(totalSec / OTYGROVKA_TARGET_SEC * 100));
-
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton(`🎭 ВКЛ ${isAuto ? '🟢' : '⚪'}`, `otygrovka_on_${uniqueId}`),
-                createButton(`⏹️ ВЫКЛ ${!isAuto ? '🔴' : '⚪'}`, `otygrovka_off_${uniqueId}`)
-            ],
-            [createButton(`⬅️ Вернуться назад`, `show_local_functions_${uniqueId}`)]
-        ]
-    };
-
-    let statusText;
-    if (isAuto) {
-        if (globalState.otygrovkaExitTimer) {
-            // Фаза 2: висим на авторизации, ждём :59:20
-            statusText =
-                `\nСтатус: 🟡 <b>Ждём :59:20</b> — на авторизации` +
-                `\n📊 ${totalMin} мин ${totalSecR} сек отыграно ✅` +
-                `\n🔴 Автовход ВЫКЛ — зайдём в :59:20`;
-        } else if (globalState.otygrovkaTrackInterval) {
-            // Фаза 1: трекинг идёт
-            statusText =
-                `\nСтатус: 🟢 <b>Трекинг идёт</b>` +
-                `\n📊 ${totalMin} мин ${totalSecR} сек / 27 мин (${pctDone}%)` +
-                `\n⚡ Счёт: только in-game (без паузы/авторизации)`;
-        } else {
-            // Ждём диалог /c 60
-            statusText =
-                `\nСтатус: 🟢 <b>Активна</b> — ожидаем данные /c 60` +
-                (lastTime !== null && lastTime !== undefined ? `\nВремя за час: <b>${lastTime}</b>` : '');
-        }
-    } else {
-        statusText =
-            `\nСтатус: ⏹️ Неактивна` +
-            (lastTime !== null && lastTime !== undefined ? `\nПоследнее время за час: <b>${lastTime}</b>` : '') +
-            (globalState.otygrovkaCurrentTime ? `\nПоследнее реальное время: <b>${globalState.otygrovkaCurrentTime}</b>` : '');
-    }
-
-    editMessageText(
-        chatId, messageId,
-        `🎭 <b>Отыгровка 27 мин — ${displayName}</b>${statusText}`,
-        replyMarkup
-    );
-}
 function hideControlsMenu(chatId, messageId) {
     if (!config.accountInfo.nickname) {
         sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
         return;
     }
-    // Восстанавливаем полную welcome-клавиатуру (Управление + Инфо об аккаунте + Настройки уведомлений)
-    editMessageReplyMarkup(chatId, messageId, buildWelcomeKeyboard());
+    const replyMarkup = {
+        inline_keyboard: [
+            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
 // END MENU MODULE //
 
@@ -3067,43 +2245,25 @@ function getNotificationReplyMarkup() {
 // ║             от пользователя в Telegram.                  ║
 // ║             Команды: /hb, /afk, /rec, /stop, /msg и др. ║
 // ║             Точка входа: processUpdates()                ║
-// ║  Зависимости: config, globalState, displayName,          ║
-// ║               uniqueId, debugLog,                        ║
+// ║  Зависимости: config, globalState, pendingInputs,        ║
+// ║               displayName, uniqueId, debugLog,           ║
 // ║               sendToTelegram, editMessageText,           ║
 // ║               deleteMessage, answerCallbackQuery,        ║
 // ║               createButton, sendChatInput,               ║
 // ║               showControlsMenu, activateAFKWithMode,     ║
-// ║               stopAFKCycle, setSharedLastUpdateId        ║
+// ║               stopAFKCycle, pdcStart, pdcStop,           ║
+// ║               showPdcMenu, setSharedLastUpdateId         ║
 // ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM COMMANDS MODULE //
-// Ссылка на текущий long-poll XHR — для прерывания при необходимости
-let _pollXhr = null;
-let _pollRestartScheduled = false; // FIX: предотвращает двойной запуск poll-цикла
-
-// Прерывает текущий long-poll и немедленно перезапускает с timeout=0.
-// Вызывать перед sendMessage — освобождает соединение для срочных API-вызовов.
-function _abortPollAndRestartFast() {
-    _pollRestartScheduled = true;
-    if (_pollXhr) {
-        _pollXhr.abort();
-        _pollXhr = null;
-        debugLog('[POLL] Long-poll прерван для быстрого режима');
-    }
-    setTimeout(checkTelegramCommands, 0);
-}
-
 function checkTelegramCommands() {
     if (window._hassleReloading) return;
-    _pollRestartScheduled = false;
+    // У каждого аккаунта свой бот — race condition невозможен, random delay не нужен
     config.lastUpdateId = getSharedLastUpdateId();
-
     const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=25`;
     const xhr = new XMLHttpRequest();
-    _pollXhr = xhr;
     xhr.open('GET', url, true);
-    xhr.timeout = 30000;
+    xhr.timeout = 30000; // 30с — чуть больше чем timeout=25 у Telegram
     xhr.onload = function() {
-        if (_pollXhr === xhr) _pollXhr = null;
         if (xhr.status === 200) {
             try {
                 const data = JSON.parse(xhr.responseText);
@@ -3114,18 +2274,14 @@ function checkTelegramCommands() {
                 debugLog('Ошибка парсинга ответа Telegram:', e);
             }
         }
-        // Если _abortPollAndRestartFast уже запланировал новый цикл — не дублируем
-        if (!_pollRestartScheduled) {
-            setTimeout(checkTelegramCommands, 0);
-        }
+        // Сразу следующий запрос — задержка не нужна, long-polling сам ждёт
+        setTimeout(checkTelegramCommands, 0);
     };
     xhr.onerror = function(error) {
-        if (_pollXhr === xhr) _pollXhr = null;
         debugLog('Ошибка при проверке команд:', error);
         setTimeout(checkTelegramCommands, config.checkInterval);
     };
     xhr.ontimeout = function() {
-        if (_pollXhr === xhr) _pollXhr = null;
         debugLog('Long-polling timeout, перезапуск...');
         setTimeout(checkTelegramCommands, 0);
     };
@@ -3162,6 +2318,40 @@ function processUpdates(updates) {
 
         if (update.message) {
             const message = update.message.text ? update.message.text.trim() : '';
+            // ===== iOS FIX: Проверяем pendingInputs если нет reply_to_message =====
+            if (!update.message.reply_to_message && message) {
+                const pendingKey = `${chatId}_${uniqueId}`;
+                const pending = pendingInputs[pendingKey];
+                if (pending && (Date.now() - pending.timestamp < PENDING_INPUT_TTL)) {
+                    // Доп. защита: сообщение пользователя должно быть отправлено ПОСЛЕ создания pending-записи
+                    const msgDate = (update.message.date || 0) * 1000; // Telegram date в секундах
+                    if (msgDate < pending.timestamp) {
+                        debugLog(`[${displayName}] (iOS) Пропуск устаревшей pending-записи: сообщение (${msgDate}) старше pending (${pending.timestamp})`);
+                    } else {
+                    delete pendingInputs[pendingKey];
+                    if (pending.type === 'chat_message') {
+                        debugLog(`[${displayName}] (iOS) Отправка сообщения: ${message}`);
+                        try {
+                            sendChatInput(message);
+                            sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${message.replace(/</g, '&lt;')}</code>`, false, null);
+                        } catch (err) {
+                            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`, false, null);
+                        }
+                        continue;
+                    } else if (pending.type === 'admin_reply') {
+                        debugLog(`[${displayName}] (iOS) Отправка ответа: ${message}`);
+                        try {
+                            sendChatInput(message);
+                            sendToTelegram(`✅ <b>Ответ отправлен ${displayName}:</b>\n<code>${message.replace(/</g, '&lt;')}</code>`, false, null);
+                        } catch (err) {
+                            sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ответ\n<code>${err.message}</code>`, false, null);
+                        }
+                        continue;
+                    }
+                    }
+                }
+            }
+            // ===== END iOS FIX =====
             // Проверяем, является ли сообщение ответом на запрос ввода
             if (update.message.reply_to_message) {
                 const replyToText = update.message.reply_to_message.text || '';
@@ -3169,6 +2359,8 @@ function processUpdates(updates) {
                 if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`) && 
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
+                    // Очищаем pendingInputs чтобы iOS-фоллбэк не сработал повторно
+                    delete pendingInputs[`${chatId}_${uniqueId}`];
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка сообщения: ${textToSend}`);
                         try {
@@ -3186,6 +2378,8 @@ function processUpdates(updates) {
                 if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`) && 
                     replyToText.includes(`🔑 ID: ${uniqueId}`)) {
                     const textToSend = message;
+                    // Очищаем pendingInputs чтобы iOS-фоллбэк не сработал повторно
+                    delete pendingInputs[`${chatId}_${uniqueId}`];
                     if (textToSend) {
                         debugLog(`[${displayName}] Отправка ответа: ${textToSend}`);
                         try {
@@ -3199,21 +2393,56 @@ function processUpdates(updates) {
                     }
                     continue;
                 }
-
+                // Ответ на запрос ника для AFK
+                if (replyToText.includes(`✉️ Введите ник аккаунта для активации AFK режима:`)) {
+                    const accountNickname = message.trim();
+                    if (accountNickname && accountNickname === config.accountInfo.nickname) {
+                        globalState.afkTargetAccount = accountNickname;
+                        globalState.awaitingAfkAccount = false;
+                        globalState.awaitingAfkId = true;
+                        sendToTelegram(`✉️ Введите ID для активации AFK режима для ${displayName}:`, false, {
+                            force_reply: true
+                        });
+                    } else {
+                        sendToTelegram(`❌ <b>Ошибка:</b> Неверный ник аккаунта. Попробуйте снова.`, false, {
+                            force_reply: true
+                        });
+                    }
+                    continue;
+                }
+                // Ответ на запрос ID для AFK
+                if (replyToText.includes(`✉️ Введите ID для активации AFK режима для`) && globalState.awaitingAfkId) {
+                    const id = message.trim();
+                    if (globalState.afkTargetAccount === config.accountInfo.nickname) {
+                        const idFormats = [id];
+                        if (id.includes('-')) {
+                            idFormats.push(id.replace(/-/g, ''));
+                        } else if (id.length === 3) {
+                            idFormats.push(`${id[0]}-${id[1]}-${id[2]}`);
+                        }
+                        config.afkSettings = {
+                            id: id,
+                            formats: idFormats,
+                            active: true
+                        };
+                        globalState.awaitingAfkId = false;
+                        globalState.afkTargetAccount = null;
+                        sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null);
+                    }
+                    continue;
+                }
             }
             // Глобальные команды (работают на все аккаунты)
             if (message === '/reload') {
                 reloadAllAccounts();
-            } else if (message === '/dbg_on') {
-                startDebugStatTracker();
-                sendToTelegram(`🔍 <b>Debug-трекер запущен для ${displayName}</b>\nКаждую секунду в консоль: HP, координаты, скин, спавн.\n/dbg_off — остановить`, false, null);
-            } else if (message === '/dbg_off') {
-                stopDebugStatTracker();
-                sendToTelegram(`⏹ <b>Debug-трекер остановлен для ${displayName}</b>`, false, null);
             } else if (message === '/p_off') {
                 config.paydayNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null);
                 sendWelcomeMessage();
+            } else if (message === '/pdc_start') {
+                pdcStart();
+            } else if (message === '/pdc_stop') {
+                pdcStop();
             } else if (message === '/p_on') {
                 config.paydayNotifications = true;
                 sendToTelegram(`🔔 <b>Уведомления о PayDay включены для ${displayName}</b>`, false, null);
@@ -3244,6 +2473,26 @@ function processUpdates(updates) {
                     const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`;
                     debugLog(errorMsg);
                     sendToTelegram(errorMsg, false, null);
+                }
+            } else if (message.startsWith('/afk ')) {
+                const parts = message.split(' ');
+                if (parts.length >= 3) {
+                    const targetNickname = parts[1];
+                    const id = parts[2];
+                    if (targetNickname === config.accountInfo.nickname) {
+                        const idFormats = [id];
+                        if (id.includes('-')) {
+                            idFormats.push(id.replace(/-/g, ''));
+                        } else if (id.length === 3) {
+                            idFormats.push(`${id[0]}-${id[1]}-${id[2]}`);
+                        }
+                        config.afkSettings = {
+                            id: id,
+                            formats: idFormats,
+                            active: true
+                        };
+                        sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${id}\nФорматы: ${idFormats.join(', ')}`, false, null);
+                    }
                 }
             } else if (message.startsWith('/afk_n')) {
                 const parts = message.split(' ');
@@ -3296,10 +2545,7 @@ function processUpdates(updates) {
             const chatId = update.callback_query.message.chat.id;
             const messageId = update.callback_query.message.message_id;
             const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
-            // FIX: отвечаем на callback СРАЗУ — кнопка перестаёт крутиться мгновенно.
-            // Раньше это делалось в конце после всей обработки → задержка до нескольких секунд.
-            // dlg_* тоже нужно ответить здесь, иначе Dialog Monitor ответит позже сам.
-            answerCallbackQuery(callbackQueryId);
+            // Определяем глобальные команды, которые должны применяться ко всем аккаунтам
             // ── FIX: dlg_* коллбэки обрабатываются исключительно Dialog Monitor ──
             // Основной processUpdates их НЕ трогает — передаём дальше через continue
             if (message.startsWith('dlg_')) {
@@ -3317,7 +2563,11 @@ function processUpdates(updates) {
                 message.startsWith('show_radio_options_') ||
                 message.startsWith('show_warning_options_') ||
                 message.startsWith('show_kac_options_') ||
-                message.startsWith('show_global_functions_');
+                message.startsWith('show_global_functions_') ||
+                message.startsWith('levelup_reconnect_') ||
+                message.startsWith('show_pdc_menu_') ||
+                message.startsWith('pdc_start_') ||
+                message.startsWith('pdc_stop_');
             let callbackUniqueId = null;
             if (message.startsWith('show_controls_')) {
                 callbackUniqueId = message.replace('show_controls_', '');
@@ -3355,18 +2605,6 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('local_pause_toggle_', '');
             } else if (message.startsWith('local_autologin_toggle_')) {
                 callbackUniqueId = message.replace('local_autologin_toggle_', '');
-            } else if (message.startsWith('local_account_info_')) {
-                callbackUniqueId = message.replace('local_account_info_', '');
-            } else if (message.startsWith('show_welcome_settings_')) {
-                callbackUniqueId = message.replace('show_welcome_settings_', '');
-            } else if (message.startsWith('hide_welcome_settings_')) {
-                callbackUniqueId = message.replace('hide_welcome_settings_', '');
-            } else if (message.startsWith('show_otygrovka_options_')) {
-                callbackUniqueId = message.replace('show_otygrovka_options_', '');
-            } else if (message.startsWith('otygrovka_on_')) {
-                callbackUniqueId = message.replace('otygrovka_on_', '');
-            } else if (message.startsWith('otygrovka_off_')) {
-                callbackUniqueId = message.replace('otygrovka_off_', '');
             } else if (message.startsWith('move_forward_')) {
                 callbackUniqueId = message.replace('move_forward_', '').replace('_notification', '');
             } else if (message.startsWith('move_back_')) {
@@ -3435,6 +2673,8 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('global_warning_off_', '');
             } else if (message.startsWith('global_afk_n_')) {
                 callbackUniqueId = message.replace('global_afk_n_', '');
+            } else if (message.startsWith('global_afk_')) {
+                callbackUniqueId = message.replace('global_afk_', '');
             } else if (message.startsWith('afk_n_with_pauses_')) {
                 callbackUniqueId = message.replace('afk_n_with_pauses_', '');
             } else if (message.startsWith('afk_n_without_pauses_')) {
@@ -3485,7 +2725,20 @@ function processUpdates(updates) {
                 const parts = message.split('_');
                 callbackUniqueId = parts[parts.length - 2];
                 const selectedMode = parts[parts.length - 1];
-                showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
+                if (selectedMode === 'levelup') {
+                    showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
+                } else {
+                    showAFKReconnectMenu(chatId, messageId, callbackUniqueId, selectedMode);
+                }
+            } else if (message.startsWith('global_levelup_')) {
+                callbackUniqueId = message.replace('global_levelup_', '');
+                showRestartActionMenu(chatId, messageId, callbackUniqueId, 'levelup');
+            } else if (message.startsWith('show_pdc_menu_')) {
+                callbackUniqueId = message.replace('show_pdc_menu_', '');
+            } else if (message.startsWith('pdc_start_')) {
+                callbackUniqueId = message.replace('pdc_start_', '');
+            } else if (message.startsWith('pdc_stop_')) {
+                callbackUniqueId = message.replace('pdc_stop_', '');
             } else if (message.startsWith('prison_reconnect_')) {
                 callbackUniqueId = message.replace('prison_reconnect_', '');
             } else if (message.startsWith('prison_quit_')) {
@@ -3502,7 +2755,9 @@ function processUpdates(updates) {
                 update.callback_query.message.reply_to_message.text.includes(displayName));
             if (!isForThisBot) {
                 debugLog(`Игнорируем callback_query, так как он не для этого бота (${displayName}): ${message}`);
-                continue; // answerCallbackQuery уже вызван в начале блока
+                // Всё равно подтверждаем, чтобы кнопка не висела
+                answerCallbackQuery(callbackQueryId);
+                continue;
             }
             // Обработка команд
             if (message.startsWith(`show_controls_`)) {
@@ -3519,8 +2774,10 @@ function processUpdates(updates) {
                 hideControlsMenu(chatId, messageId);
             } else if (message.startsWith(`request_chat_message_`)) {
                 const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)\n🔑 ID: ${uniqueId}`;
-                // Прерываем текущий long-poll — освобождаем соединение для sendMessage
-                _abortPollAndRestartFast();
+                // iOS fix: сохраняем ожидание ввода
+                config.chatIds.forEach(cId => {
+                    pendingInputs[`${cId}_${uniqueId}`] = { type: 'chat_message', timestamp: Date.now() };
+                });
                 sendToTelegram(requestMsg, false, {
                     force_reply: true
                 });
@@ -3592,6 +2849,14 @@ function processUpdates(updates) {
                 sendWelcomeMessage();
             } else if (message.startsWith(`global_afk_n_`)) {
                 showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith('show_pdc_menu_')) {
+                showPdcMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith('pdc_start_')) {
+                pdcStart();
+                setTimeout(() => showPdcMenu(chatId, messageId, callbackUniqueId), 300);
+            } else if (message.startsWith('pdc_stop_')) {
+                pdcStop();
+                setTimeout(() => showPdcMenu(chatId, messageId, callbackUniqueId), 300);
             } else if (message.startsWith(`afk_n_with_pauses_`)) {
                 showAFKWithPausesSubMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`afk_n_without_pauses_`)) {
@@ -3612,9 +2877,20 @@ function processUpdates(updates) {
                 } else {
                     activateAFKWithMode('random', false, 'q', chatId, messageId);
                 }
+            } else if (message.startsWith(`global_afk_`)) {
+                if (!globalState.awaitingAfkAccount) {
+                    globalState.awaitingAfkAccount = true;
+                    const requestMsg = `✉️ Введите ник аккаунта для активации AFK режима:`;
+                    sendToTelegram(requestMsg, false, {
+                        force_reply: true
+                    });
+                }
             } else if (message.startsWith("admin_reply_")) {
                 const requestMsg = `✉️ Введите ответ для ${displayName}:\n🔑 ID: ${uniqueId}`;
-                _abortPollAndRestartFast();
+                // iOS fix: сохраняем ожидание ввода
+                config.chatIds.forEach(cId => {
+                    pendingInputs[`${cId}_${uniqueId}`] = { type: 'admin_reply', timestamp: Date.now() };
+                });
                 sendToTelegram(requestMsg, false, {
                     force_reply: true
                 });
@@ -3740,7 +3016,7 @@ function processUpdates(updates) {
                 } catch(e) {
                     sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null);
                 }
-                editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
+                setTimeout(() => editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup()), 300);
             } else if (message.startsWith("pause_exit_")) {
                 // Выйти с паузы
                 try {
@@ -3749,7 +3025,7 @@ function processUpdates(updates) {
                 } catch(e) {
                     sendToTelegram(`❌ <b>Ошибка выхода из паузы (${displayName}):</b> ${e.message}`, false, null);
                 }
-                editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup());
+                setTimeout(() => editMessageReplyMarkup(chatId, messageId, getNotificationReplyMarkup()), 300);
             } else if (message.startsWith("autologin_off_")) {
                 // Уйти на авторизацию (отключить автовход + /rec 5)
                 autoLoginConfig.enabled = false;
@@ -3834,7 +3110,7 @@ function processUpdates(updates) {
                 } catch(e) {
                     sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null);
                 }
-                showLocalFunctionsMenu(chatId, messageId);
+                setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 300);
             } else if (message.startsWith("local_autologin_toggle_")) {
                 // Переключение автовхода из меню Функции
                 if (autoLoginConfig.enabled) {
@@ -3846,57 +3122,82 @@ function processUpdates(updates) {
                     sendChatInput("/rec 5");
                     sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 }
-                showLocalFunctionsMenu(chatId, messageId);
-            } else if (message.startsWith('show_welcome_settings_')) {
-                // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
-                globalState.welcomeShowSettings = true;
-                sendWelcomeMessage();
-            } else if (message.startsWith('hide_welcome_settings_')) {
-                // Кнопка "🙈 Скрыть настройки" — скрываем блок настроек в welcome-сообщении
-                globalState.welcomeShowSettings = false;
-                sendWelcomeMessage();
+                setTimeout(() => showLocalFunctionsMenu(chatId, messageId), 100);
             } else if (message.startsWith('prison_reconnect_')) {
                 // Кнопка "Выйти с автр." — включаем автовход и делаем /rec 5
                 autoLoginConfig.enabled = true;
                 debugLog(`[PRISON] "Выйти с автр." нажата — включаем автовход, отправляем /rec 5`);
                 sendToTelegram(`🔓 <b>Автовход включён (${displayName})</b>\nПодключаемся к серверу...`, false, null);
                 deleteMessage(chatId, messageId);
-                sendChatInput("/rec 5");
+                setTimeout(() => {
+                    sendChatInput("/rec 5");
+                }, 500);
             } else if (message.startsWith('prison_quit_')) {
                 // Кнопка "Выйти с игры" — /q
                 debugLog(`[PRISON] "Выйти с игры" нажата — отправляем /q`);
                 sendToTelegram(`🚪 <b>Выходим из игры (${displayName})</b>`, false, null);
                 deleteMessage(chatId, messageId);
-                sendChatInput("/q");
-            } else if (message.startsWith('show_otygrovka_options_')) {
-                showOtygrovkaMenu(chatId, messageId);
-            } else if (message.startsWith('otygrovka_on_')) {
-                // Включаем авто-режим отыгровки — /c 60 считывает начальное время,
-                // затем трекинг сам считает in-game секунды и выходит в :59:20
-                globalState.otygrovkaAuto = true;    // Авто-цикл активен
-                globalState.otygrovkaMode = true;    // Ждём диалог /c 60
-                window._awaitC60Dialog    = true;
-                window._awaitAnimInteraction = true;
-                sendChatInput("/c 60");
-                sendChatInput("/anim 1 1");
-                debugLog('[OTYGROVKA] Авто-цикл ВКЛ. /c 60 + /anim 1 1 отправлены — ждём диалог «Точное время»');
-                showOtygrovkaMenu(chatId, messageId);
-            } else if (message.startsWith('otygrovka_off_')) {
-                // Полностью останавливаем авто-цикл
-                globalState.otygrovkaAuto = false;
-                globalState.otygrovkaMode = false;
-                window._awaitC60Dialog    = false;
-                stopOtygrovkaTracking();
-                // Восстанавливаем автовход если отыгровка его отключила
-                autoLoginConfig.enabled = true;
-                sendToTelegram(`⏹️ <b>Отыгровка остановлена (${displayName})</b>\n🟢 Автовход восстановлен`, false, null);
-                showOtygrovkaMenu(chatId, messageId);
+                setTimeout(() => {
+                    sendChatInput("/q");
+                }, 500);
             } else if (message.startsWith('local_account_info_')) {
-                // Одно объединённое сообщение — тот же формат что и в welcome-сообщении
+                // Кнопка "Инфо. об аккаунте поз/деньги"
                 try {
-                    const infoBlock = buildWelcomeAccountInfo();
+                    const pos = getPlayerPositionFromStore();
+                    const moneyData = getPlayerMoneyFromStore();
+                    const nick = config.accountInfo.nickname || 'Unknown';
+                    const server = config.accountInfo.server || '?';
+                    const skinId = config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined ? config.accountInfo.skinId : '❓';
+                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
+
+                    // Уровень, часы, VIP, donate из Vuex store
+                    let level = '❓';
+                    let passedHours = '❓';
+                    let vipLabel = '';
+                    let donate = null;
+                    try {
+                        const storeLevel = window.App.$store.getters['player/level'];
+                        const storeHours = window.App.$store.getters['player/passedHours'];
+                        const storeVip = window.App.$store.getters['player/vip'];
+                        const storeDonate = window.App.$store.getters['player/donate'];
+                        if (storeLevel !== undefined && storeLevel !== null) level = storeLevel;
+                        if (storeHours !== undefined && storeHours !== null) passedHours = storeHours;
+                        if (storeDonate !== undefined && storeDonate !== null && storeDonate > 0) donate = storeDonate;
+                        const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
+                        if (storeVip !== undefined && storeVip !== null && storeVip > 0) {
+                            vipLabel = `\n🎖 <b>VIP:</b> ${vipMap[storeVip] || 'VIP'}`;
+                        }
+                    } catch (e) {
+                        debugLog(`[ACINFO] Ошибка получения store данных: ${e.message}`);
+                    }
+
+                    let posStr = '❓ Позиция недоступна';
+                    if (pos) {
+                        const interiorVal = (pos.interior !== undefined && pos.interior !== null) ? pos.interior : 0;
+                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${interiorVal}`;
+                    }
+
+                    let cashStr = '❓';
+                    let bankStr = '❓';
+                    if (moneyData) {
+                        cashStr = moneyData.money !== null ? `₽${moneyData.money.toLocaleString()}` : '❓';
+                        bankStr = moneyData.bankMoney !== null ? `₽${moneyData.bankMoney.toLocaleString()}` : '❓';
+                    }
+
                     sendToTelegram(
-                        `📊 <b>Информация об аккаунте (${displayName})</b>${infoBlock}`,
+                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
+                        `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
+                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n` +
+                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}` +
+                        vipLabel +
+                        (donate !== null ? `\n💎 <b>Donate баланс:</b> ${donate}` : '') +
+                        `\n\n📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
+                        `💵 <b>Нал:</b> ${cashStr}\n` +
+                        `🏦 <b>Банк:</b> ${bankStr}\n\n` +
+                        `📋 <b>Лог сессии:</b>\n` +
+                        (globalState.sessionLog.length > 0
+                            ? globalState.sessionLog.slice(-10).map(e => `<code>${e}</code>`).join('\n')
+                            : '<i>Нет событий</i>'),
                         false, null
                     );
                 } catch (err) {
@@ -3905,16 +3206,9 @@ function processUpdates(updates) {
             } else if (message.startsWith('global_reload_script_')) {
                 // Кнопка "Перезагрузить скрипт" — текущий аккаунт + broadcast остальным
                 reloadAllAccounts();
-            } else if (message.startsWith('send_rec_cmd_')) {
-                // Кнопка "Отправить /rec 5" из уведомления rate-limit / disconnect
-                callbackUniqueId = message.replace('send_rec_cmd_', '');
-                if (callbackUniqueId === uniqueId) {
-                    deleteMessage(chatId, messageId);
-                    sendChatInput('/rec 5');
-                    debugLog('[RateLimit] Отправлен /rec 5 по кнопке из Telegram');
-                }
             }
-            // answerCallbackQuery уже вызван в самом начале блока callback_query
+            // Подтверждаем callback_query после обработки
+            answerCallbackQuery(callbackQueryId);
         }
     }
 }
@@ -3944,7 +3238,8 @@ function registerUser() {
 // ║  Зависимости: config, globalState, displayName,          ║
 // ║               debugLog, sendToTelegram, createButton,    ║
 // ║               getNotificationReplyMarkup,                ║
-// ║               sendAdminSpamAlert, stopAFKCycle           ║
+// ║               sendAdminSpamAlert, pdcOnPayDayReceived,   ║
+// ║               stopAFKCycle                               ║
 // ╚══════════════════════════════════════════════════════════╝
 // START MESSAGE PROCESSING MODULE //
 function isNonRPMessage(message) {
@@ -3980,28 +3275,28 @@ function isImportantRadioMessage(msg) {
 
     return false;
 }
+function checkIDFormats(message) {
+    const idRegex = /(\d-\d-\d|\d{3})/g;
+    const matches = message.match(idRegex);
+    return matches ? matches : [];
+}
 function getRankKeywords() {
     if (!config.currentFaction || !factions[config.currentFaction]) return [];
     return Object.values(factions[config.currentFaction].ranks).map(rank => rank.toLowerCase());
 }
 function getHighRankKeywords() {
     if (!config.currentFaction || !factions[config.currentFaction]) return [];
-    const faction = factions[config.currentFaction];
-    const threshold = faction.highRankThreshold !== undefined ? faction.highRankThreshold : 6;
-    return Object.entries(faction.ranks)
-        .filter(([rankNum]) => parseInt(rankNum) >= threshold)
+    return Object.entries(factions[config.currentFaction].ranks)
+        .filter(([rankNum]) => parseInt(rankNum) >= 6) // Только 6-10
         .map(([, rank]) => rank.toLowerCase());
 }
-// Возвращает все звания высокого ранга из ВСЕХ фракций (для проверки рации)
-// Порог берётся из highRankThreshold фракции (по умолчанию 6)
+// Возвращает все звания 6-10 ранга из ВСЕХ фракций (для проверки рации)
 function getAllHighRankKeywords() {
     const highRanks = [];
     for (const faction in factions) {
-        const f = factions[faction];
-        const threshold = f.highRankThreshold !== undefined ? f.highRankThreshold : 6;
-        const ranks = f.ranks;
+        const ranks = factions[faction].ranks;
         for (const rankNum in ranks) {
-            if (parseInt(rankNum) >= threshold) {
+            if (parseInt(rankNum) >= 6) {
                 highRanks.push(ranks[rankNum].toLowerCase());
             }
         }
@@ -4045,7 +3340,10 @@ function checkLocationRequest(msg, lowerCaseMessage, chatRadius) {
     const rankKeywords = getRankKeywords();
     const hasRoleKeyword = rankKeywords.some(keyword => lowerCaseMessage.includes(keyword));
     const hasActionKeyword = config.locationKeywords.some(word => lowerCaseMessage.includes(word.toLowerCase()));
-    const isValid = hasRoleKeyword && hasActionKeyword;
+    const hasID = isTargetingPlayer(msg);
+   
+    // Строгая проверка: обязательно action keyword, если нет targeting
+    const isValid = hasRoleKeyword && hasActionKeyword && (hasID || true); // Если нужно, уберите || true для еще большей строгости
    
     // Добавляем фильтр по радиусу чата (игнорируем UNKNOWN или SELF)
     const validRadius = (chatRadius === CHAT_RADIUS.RADIO || chatRadius === CHAT_RADIUS.CLOSE);
@@ -4136,16 +3434,15 @@ function processSalaryAndBalance(msg) {
         sendToTelegram(message);
         config.lastSalaryInfo = null;
 
+        // PayDay цикл — новая отыгровка
+        if (pdCycle.active && pdCycle.phase === 'reconnecting') {
+            pdcOnPayDayReceived();
+        }
+
         // Если ждём PayDay после строя — выходим из игры НЕМЕДЛЕННО
         if (waitingForPayDay) {
             debugLog('PayDay получен во время ожидания после строя — выходим немедленно');
             exitAfterStroiPayDay('processSalaryAndBalance');
-        }
-
-        // Если отыгровка в авто-режиме — сбрасываем счётчик и ждём нового спавна
-        if (globalState.otygrovkaAuto) {
-            debugLog('[OTYGROVKA] PayDay получен — сбрасываем цикл, ждём спавна для нового трекинга');
-            otygrovkaResetAfterPayday();
         }
     }
 }
@@ -4239,6 +3536,28 @@ function resetPayDayFlag() {
     debugLog('Флаг ожидания PayDay сброшен');
 }
 
+// Функция для получения времени до 58 минуты в миллисекундах
+function getTimeUntil58Minutes() {
+    const now = new Date();
+    const currentMinutes = now.getMinutes();
+    const currentSeconds = now.getSeconds();
+    
+    if (currentMinutes >= 58) {
+        // Уже 58-59 минут, заходим через 10 секунд
+        return 10000;
+    }
+    
+    // Рассчитываем время до 58 минуты
+    const minutesUntil58 = 58 - currentMinutes;
+    const secondsUntil58 = minutesUntil58 * 60 - currentSeconds;
+    
+    // Вычитаем ~60 секунд на реконнект (с запасом)
+    const timeToStart = (secondsUntil58 - 60) * 1000;
+    
+    // Минимум 5 секунд, максимум рассчитанное время
+    return Math.max(5000, timeToStart);
+}
+
 // Функция для получения времени до следующего PayDay в миллисекундах
 function getTimeUntilPayDay() {
     const now = new Date();
@@ -4262,6 +3581,11 @@ function performStroiReconnect(msg) {
     const currentMinutes = now.getMinutes();
     const currentSeconds = now.getSeconds();
     const msgHtml = msg ? `\n<code>${msg.replace(/</g, '&lt;')}</code>` : '';
+
+    // Если PDC-цикл активен и мы в фазе отыгровки — сохраняем прогресс
+    if (pdCycle.active && pdCycle.phase === 'playing') {
+        pdcOnStroiInterrupt();
+    }
 
     // Если уже ждём PayDay - игнорируем повторные сообщения о строе
     if (waitingForPayDay) {
@@ -4303,6 +3627,9 @@ function performStroiReconnect(msg) {
         stroiAutoLoginTimer = setTimeout(() => {
             autoLoginConfig.enabled = true;
             sendChatInput("/rec 5");
+
+            const loginMinutes = getCurrentMinutes();
+            const loginSecs = new Date().getSeconds();
             sendToTelegram(
                 `🔄 <b>Включён автовход и отправлен /rec 5 (${displayName})</b>\n` +
                 `💰 PayDay через ~60 сек — входим в игру`,
@@ -4328,6 +3655,16 @@ function performStroiReconnect(msg) {
             performReconnect(5 * 60 * 1000, true); // silent — сообщение уже отправлено выше
         }, 30);
     }
+}
+
+// Функция для отмены ожидания PayDay (на случай нештатных ситуаций)
+function cancelStroiReconnect() {
+    if (stroiReconnectTimer) {
+        clearTimeout(stroiReconnectTimer);
+        stroiReconnectTimer = null;
+    }
+    resetPayDayFlag();
+    debugLog('Отменено ожидание PayDay после строя');
 }
 
 // Выход из игры сразу после получения PayDay при строе
@@ -4447,19 +3784,18 @@ function initializeChatMonitor() {
         };
     };
     window.OnChatAddMessage = function(e, i, t) {
-        debugLog(`Чат-сообщение: ${e.replace(/\{[0-9A-Fa-f]{6}\}/g, '')} | Цвет: ${normalizeColor(i).replace('0x', '')} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
+        debugLog(`Чат-сообщение: ${e} | Цвет: ${normalizeColor(i).replace('0x', '')} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
         const msg = String(e);
         const normalizedMsg = normalizeToCyrillic(msg);
         const lowerCaseMessage = normalizedMsg.toLowerCase();
         const currentTime = Date.now();
         const chatRadius = getChatRadius(i);
         // Для отладки, выводим сообщения в чат
-        console.log(msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '')); // сооб в чат (без цветовых кодов)
+        console.log(msg); // сооб в чат
         // Проверка сообщения "Текущее время:" для AFK
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
             handlePayDayTimeMessage();
         }
-
         // Проверка сообщения о возобновлении работы сервера для AFK
         if (config.afkSettings.active && config.afkCycle.active && msg.includes("Сервер возобновит работу в течение минуты...")) {
             debugLog('Обнаружено сообщение о возобновлении работы сервера!');
@@ -4575,13 +3911,67 @@ function initializeChatMonitor() {
                     `Выберите действие:`,
                     false, prisonExitButtons
                 );
-                sendChatInput("/rec 5");
+                setTimeout(() => {
+                    sendChatInput("/rec 5");
+                }, 1000);
             } else {
                 sendToTelegram(`✅ <b>Срок отсижен! Выходим из игры (${displayName})</b>`, false, null);
-                sendChatInput("/q");
+                setTimeout(() => {
+                    sendChatInput("/q");
+                }, 1000);
             }
         }
-		// МЗ отладочный блок удалён
+		// ОТЛАДКА: Выводим ВСЕ сообщения с цветом фракции МЗ
+		if (config.currentFaction === 'mz') {
+		    const mzColor = factions.mz.color;
+		    const normalizedMzColor = normalizeColor(mzColor);
+		    const normalizedMsgColor = normalizeColor(i);
+		    
+		    debugLog(`=== ОТЛАДКА МЗ ===`);
+		    debugLog(`Текущая фракция: ${config.currentFaction}`);
+		    debugLog(`Цвет фракции МЗ: ${mzColor} -> ${normalizedMzColor}`);
+		    debugLog(`Цвет сообщения: ${i} -> ${normalizedMsgColor}`);
+		    debugLog(`Радиус чата: ${chatRadius} (нужен CLOSE=${CHAT_RADIUS.CLOSE})`);
+		    debugLog(`Сообщение: "${msg}"`);
+		    debugLog(`govMessagesEnabled: ${config.govMessagesEnabled}`);
+		    
+		    // Проверяем совпадение цветов
+		    if (normalizedMzColor === normalizedMsgColor) {
+		        debugLog(`✅ ЦВЕТ СОВПАЛ! Проверяем regex...`);
+		        
+		        const govMessageRegex = new RegExp(`^\\- (.+?) \\{${mzColor}\\}\\(\\{v:([^}]+)}\\)\\[(\\d+)\\]`);
+		        debugLog(`Regex pattern: ${govMessageRegex}`);
+		        
+		        const govMatch = msg.match(govMessageRegex);
+		        if (govMatch) {
+		            debugLog(`✅ REGEX СРАБОТАЛ!`);
+		            debugLog(`Текст: ${govMatch[1]}, Отправитель: ${govMatch[2]}, ID: ${govMatch[3]}`);
+		        } else {
+		            debugLog(`❌ REGEX НЕ СРАБОТАЛ`);
+		            debugLog(`Пробуем упрощенный regex...`);
+		            
+		            // Пробуем более простой regex
+		            const simpleRegex = /\{([A-Fa-f0-9]{6})\}\(\{v:([^}]+)\}\)\[(\d+)\]/;
+		            const simpleMatch = msg.match(simpleRegex);
+		            if (simpleMatch) {
+		                debugLog(`✅ Упрощенный regex сработал!`);
+		                debugLog(`Цвет: ${simpleMatch[1]}, Имя: ${simpleMatch[2]}, ID: ${simpleMatch[3]}`);
+		            } else {
+		                debugLog(`❌ Даже упрощенный regex не сработал`);
+		            }
+		        }
+		        
+		        // Проверяем радиус
+		        if (chatRadius === CHAT_RADIUS.CLOSE) {
+		            debugLog(`✅ Радиус CLOSE подтвержден`);
+		        } else {
+		            debugLog(`❌ Радиус не CLOSE! Текущий: ${chatRadius}`);
+		        }
+		    } else {
+		        debugLog(`❌ Цвета не совпали`);
+		    }
+		    debugLog(`=== КОНЕЦ ОТЛАДКИ МЗ ===`);
+		}
         let factionColor = 'CCFF00'; // По умолчанию
         if (config.currentFaction && factions[config.currentFaction] && factions[config.currentFaction].color) {
             factionColor = factions[config.currentFaction].color;
@@ -4596,8 +3986,7 @@ function initializeChatMonitor() {
             if (chatRadius === CHAT_RADIUS.CLOSE) {
                 if (checkGovMessageConditions(messageText, senderName, senderId)) {
                     const replyMarkup = getNotificationReplyMarkup();
-                    const factionLabel = getFactionLabel(config.currentFaction) || 'фракции';
-                    sendToTelegram(`🏛️ <b>${messageText}</b>\n👤 ${senderName} [ID: ${senderId}]\nСообщение от сотрудника [${factionLabel}] (${displayName})`, false, replyMarkup);
+                    sendToTelegram(`🏛️ <b>Сообщение от сотрудника фракции (${displayName}):</b>\n👤 ${senderName} [ID: ${senderId}]\n💬 ${messageText}`, false, replyMarkup);
                 }
             }
         }
@@ -4610,7 +3999,7 @@ function initializeChatMonitor() {
                     sendChatInput("/c");
                     debugLog('Команда /c отправлена');
                 } catch (err) {
-                    const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>`; // FIX: были одинарные кавычки — переменные не подставлялись
+                    const errorMsg = '❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить /c\n<code>${err.message}</code>';
                     debugLog(errorMsg);
                     sendToTelegram(errorMsg, false, null);
                 }
@@ -4760,68 +4149,11 @@ function initializeChatMonitor() {
         // Новые проверки сообщений в чате
         if (msg.includes("Потеряно соединение с сервером")) {
             debugLog('Обнаружено потеря соединения!');
-            if (!window.__afterRec5) {
-                sendToTelegram(`❌ Потеряно соединение с сервером (${displayName})`, false, null);
-            } else {
-                window.__afterRec5 = false; // сброс: следующее "потеряно" уже не от /rec 5
-            }
+            sendToTelegram(`❌ Потеряно соединение с сервером (${displayName})`, false, null);
         }
-        // Подождите 15 секунд перед следующим входом (цвет FF6600 — оранжевый, rate-limit сервера)
-        if (lowerCaseMessage.includes("подождите") && lowerCaseMessage.includes("секунд") && lowerCaseMessage.includes("входом на сервер")) {
-            debugLog('Обнаружен rate-limit сервера (15 секунд)!');
-            window.__afterRateLimit = true; // Флаг: следующий disconnect — следствие rate-limit, подавить его
-            const rateLimitMarkup = {
-                inline_keyboard: [
-                    [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
-                    [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
-                ]
-            };
-            sendToTelegram(
-                `⏳ <b>Rate-limit сервера (${displayName})</b>\n` +
-                `<code>${msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').replace(/</g, '&lt;')}</code>`,
-                false, rateLimitMarkup
-            );
-        }
-        // Вы были отключены от сервера (цвет BEBEBE)
-        if (msg.includes("Вы были отключены от сервера")) {
-            debugLog('Обнаружено отключение от сервера!');
-            if (!window.__afterRec5) {
-                if (window.__afterRateLimit) {
-                    // Это отключение — прямое следствие rate-limit, уже уведомили выше
-                    debugLog('Отключение после rate-limit — повторное уведомление подавлено');
-                    window.__afterRateLimit = false; // сброс флага
-                } else if (window.__afterAuthDialog) {
-                    // Это отключение — уже показано в диалоге авторизации, дубль не нужен
-                    debugLog('Отключение после диалога авторизации — повторное уведомление подавлено');
-                    window.__afterAuthDialog = false; // сброс флага
-                } else {
-                    const disconnectMarkup = {
-                        inline_keyboard: [
-                            [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
-                            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
-                        ]
-                    };
-                    sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>`, false, disconnectMarkup);
-                }
-            } else {
-                window.__afterRec5 = false; // после /rec 5 не дублируем
-            }
-        }
-        // Проверка неактивности — только по тексту (цвет может прийти как undefined у системных сообщений)
         if (msg.includes("Вы были неактивны долгое время. Отыгранное время для получения следующего PayDay было обнулено.")) {
-            debugLog('Обнаружено предупреждение о неактивности (цвет F68C00 подтверждён)!');
-            const replyMarkup = getNotificationReplyMarkup();
-            sendToTelegram(
-                `🔴 <b>НЕАКТИВНОСТЬ ОБНАРУЖЕНА! (${displayName})</b>
-` +
-                `⚠️ Вы были неактивны долгое время.
-` +
-                `💔 Отыгранное время для получения следующего PayDay было <b>обнулено</b>.
-` +
-                `⏰ Время: ${new Date().toLocaleTimeString('ru-RU')}`,
-                false, replyMarkup
-            );
-            window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
+            debugLog('Обнаружено предупреждение о неактивности!');
+            sendToTelegram(`⚠️ Вы были неактивны долгое время. Отыгранное время для PayDay обнулено (${displayName})`, false, null);
         }
     };
     debugLog('Мониторинг успешно активирован');
@@ -4844,10 +4176,6 @@ function initializeChatMonitor() {
             debugLog('[HP] Запуск отслеживания HP персонажа...');
             setTimeout(trackPlayerHp, 5000);
         }
-        // Запуск ожидания спавна для загрузки профиля (работает для всех аккаунтов,
-        // не только фракционных — аналог HP-трекера, но для профиля).
-        debugLog('[Profile] 🚀 Запуск ожидания спавна для загрузки профиля через MainMenu...');
-        setTimeout(waitForSpawnThenLoadProfile, 5000);
         globalState.sessionStartTime = Date.now();
         addSessionLog('🟢 Сессия начата');
     }
@@ -4890,32 +4218,22 @@ function performReconnect(delay, silent = false) {
 // ║               initializeChatMonitor                      ║
 // ╚══════════════════════════════════════════════════════════╝
 // START INITIALIZATION MODULE //
-function __initBot() {
-    debugLog('Скрипт запущен');
-    if (!initializeChatMonitor()) {
-        let attempts = 0;
-        const intervalId = setInterval(() => {
-            attempts++;
-            if (initializeChatMonitor()) {
-                clearInterval(intervalId);
-            } else if (attempts >= config.maxAttempts) {
-                clearInterval(intervalId);
-                const errorMsg = `❌ <b>Ошибка</b>\nНе удалось инициализировать после ${config.maxAttempts} попыток`;
-                debugLog(errorMsg);
-                sendToTelegram(errorMsg, false, null);
-            } else {
-                debugLog(`Попытка инициализации #${attempts}`);
-            }
-        }, config.checkInterval);
-    }
-}
-
-if (window.__WAIT_CODE2__) {
-    // Load.js запустит __initBot() после загрузки Code2.js
-    window.__botInit = __initBot;
-    debugLog('⏳ Бот на паузе — ждём загрузки Code2.js...');
-} else {
-    __initBot();
+debugLog('Скрипт запущен');
+if (!initializeChatMonitor()) {
+    let attempts = 0;
+    const intervalId = setInterval(() => {
+        attempts++;
+        if (initializeChatMonitor()) {
+            clearInterval(intervalId);
+        } else if (attempts >= config.maxAttempts) {
+            clearInterval(intervalId);
+            const errorMsg = `❌ <b>Ошибка</b>\nНе удалось инициализировать после ${config.maxAttempts} попыток`;
+            debugLog(errorMsg);
+            sendToTelegram(errorMsg, false, null);
+        } else {
+            debugLog(`Попытка инициализации #${attempts}`);
+        }
+    }, config.checkInterval);
 }
 // END INITIALIZATION MODULE //
 
@@ -5050,8 +4368,12 @@ function showHBGlobalFunctionsMenu() {
         { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter" },
         { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
         { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_global" },
-        { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" }
+        { name: "{FFD700}> {FFFFFF}AFK Ночь", action: "afk_night" },
+        { name: "{FFD700}> {FFFFFF}AFK", action: "afk_standard" }
     ];
+    if (config.autoReconnectEnabled) {
+        menuItems.push({ name: "{FFD700}> {FFFFFF}Прокачка уровня", action: "levelup" });
+    }
     let menuList = "{FFA500}< Назад<n>";
     menuItems.forEach((item) => {
         menuList += `${item.name}<n>`;
@@ -5180,31 +4502,90 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 2) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 3) {
-                // Инфо об аккаунте — единый формат как в welcome-сообщении
+                // Инфо об аккаунте
                 try {
-                    const infoBlock = buildWelcomeAccountInfo();
+                    const pos = getPlayerPositionFromStore();
+                    const moneyData = getPlayerMoneyFromStore();
+                    const nick = config.accountInfo.nickname || 'Unknown';
+                    const server = config.accountInfo.server || '?';
+                    const skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '❓';
+                    const factionLabel = config.currentFaction ? `[${config.currentFaction}]` : '[не фракционный]';
+
+                    // Уровень, часы, VIP, donate из Vuex store
+                    let level = '❓'; let passedHours = '❓';
+                    let vipLabel = ''; let vipChatLabel = '';
+                    let donate = null;
+                    try {
+                        const sl = window.App.$store.getters['player/level'];
+                        const sh = window.App.$store.getters['player/passedHours'];
+                        const sv = window.App.$store.getters['player/vip'];
+                        const sd = window.App.$store.getters['player/donate'];
+                        if (sl !== undefined && sl !== null) level = sl;
+                        if (sh !== undefined && sh !== null) passedHours = sh;
+                        if (sd !== undefined && sd !== null && sd > 0) donate = sd;
+                        const vipMap = { 0: '', 1: '🥈 Silver VIP', 2: '🥇 Gold VIP', 3: '💎 Platinum VIP' };
+                        const vipChatMap = { 0: '', 1: 'Silver VIP', 2: 'Gold VIP', 3: 'Platinum VIP' };
+                        if (sv !== undefined && sv !== null && sv > 0) {
+                            vipLabel = `\n🎖 <b>VIP:</b> ${vipMap[sv] || 'VIP'}`;
+                            vipChatLabel = ` | {FFD700}${vipChatMap[sv] || 'VIP'}{FFFFFF}`;
+                        }
+                    } catch(e) { debugLog(`[ACINFO] store error: ${e.message}`); }
+
+                    // Позиция с interior
+                    let posStr = '❓ Позиция недоступна';
+                    let posChatStr = 'Позиция недоступна';
+                    if (pos) {
+                        const interior = (pos.interior !== undefined && pos.interior !== null) ? pos.interior : 0;
+                        posStr = `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)} угол=${Math.round(pos.angle ?? 0)}° interior=${interior}`;
+                        posChatStr = posStr;
+                    }
+
+                    // Деньги
+                    let cashStr = '❓'; let bankStr = '❓';
+                    let cashChatStr = '?'; let bankChatStr = '?';
+                    if (moneyData) {
+                        if (moneyData.money !== null) { cashStr = `₽${moneyData.money.toLocaleString()}`; cashChatStr = `${moneyData.money.toLocaleString()}`; }
+                        if (moneyData.bankMoney !== null) { bankStr = `₽${moneyData.bankMoney.toLocaleString()}`; bankChatStr = `${moneyData.bankMoney.toLocaleString()}`; }
+                    }
+
+                    // Лог сессии (последние 10)
+                    const sessionLines = globalState.sessionLog && globalState.sessionLog.length > 0
+                        ? globalState.sessionLog.slice(-10).map(e => `<code>${e}</code>`).join('\n')
+                        : '<i>Нет событий</i>';
+                    const sessionChatLines = globalState.sessionLog && globalState.sessionLog.length > 0
+                        ? globalState.sessionLog.slice(-5)
+                        : [];
+
+                    // Telegram — полная версия
                     sendToTelegram(
-                        `📊 <b>Информация об аккаунте (${displayName})</b>${infoBlock}`,
+                        `📊 <b>Инфо об аккаунте (${displayName})</b>\n\n` +
+                        `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${server}\n` +
+                        `🎭 <b>Скин ID:</b> ${skinId}  ${factionLabel}\n` +
+                        `⭐ <b>Уровень:</b> ${level}  |  ⏱ <b>Часов в игре:</b> ${passedHours}` +
+                        vipLabel +
+                        (donate !== null ? `\n💎 <b>Donate баланс:</b> ${donate}` : '') +
+                        `\n\n📍 <b>Позиция:</b>\n<code>${posStr}</code>\n\n` +
+                        `💵 <b>Нал:</b> ${cashStr}\n` +
+                        `🏦 <b>Банк:</b> ${bankStr}\n\n` +
+                        `📋 <b>Лог сессии:</b>\n` + sessionLines,
                         false, null
                     );
 
-                    // Краткий дубль в игровой чат
-                    const _pos = getPlayerPositionFromStore();
-                    const _money = getPlayerMoneyFromStore();
-                    const _nick = config.accountInfo.nickname || 'Unknown';
-                    const _server = config.accountInfo.server || '?';
-                    const _skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '?';
-                    const _faction = config.currentFaction ? `[${getFactionLabel(config.currentFaction)}]` : '[не фракционный]';
-                    const _cashChat = (_money && _money.money !== null) ? _money.money.toLocaleString() : '?';
-                    const _bankChat = (_money && _money.bankMoney !== null) ? _money.bankMoney.toLocaleString() : '?';
-                    const _posChat = _pos
-                        ? `x=${Math.round(_pos.x)} y=${Math.round(_pos.y)} z=${Math.round(_pos.z ?? 0)} угол=${Math.round(_pos.angle ?? 0)}°`
-                        : 'Позиция недоступна';
-
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${_nick} | S${_server} | Скин: ${_skinId} ${_faction}`, "FFFFFF");
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${_cashChat} ₽ | Банк: ${_bankChat} ₽`, "FFFFFF");
-                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${_posChat}`, "FFFFFF");
-
+                    // Чат в игре — такая же полная версия
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${nick} | S${server} | Скин: ${skinId} ${factionLabel}`, "FFFFFF");
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Уровень: ${level} | Часов: ${passedHours}${vipChatLabel}`, "FFFFFF");
+                    if (donate !== null) {
+                        addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashChatStr} ₽ | Банк: ${bankChatStr} ₽ | {FFD700}Donate: ${donate}`, "FFFFFF");
+                    } else {
+                        addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}Нал: ${cashChatStr} ₽ | Банк: ${bankChatStr} ₽`, "FFFFFF");
+                    }
+                    addLocalChatMessage(`{00BFFF}[HB Info] {FFFFFF}${posChatStr}`, "FFFFFF");
+                    if (sessionChatLines.length > 0) {
+                        addLocalChatMessage(`{00BFFF}[HB Info] {AAAAAA}Лог сессии (последние ${sessionChatLines.length}):`, "FFFFFF");
+                        sessionChatLines.forEach(entry => {
+                            addLocalChatMessage(`{00BFFF}[HB Log] {CCCCCC}${entry}`, "FFFFFF");
+                        });
+                    }
                     showScreenNotification("Hassle", "Инфо отправлено в Telegram");
                 } catch(err) {
                     showScreenNotification("Hassle", "Ошибка получения инфо");
@@ -5313,6 +4694,31 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 setTimeout(() => showHBGlobalFunctionsMenu(), 100);
             } else if (listitem === 8) {
                 setTimeout(() => showHBAFKModesMenu(), 100);
+            } else if (listitem === 9) {
+                // Стандартный AFK
+                const hudId = getPlayerIdFromHUD();
+                if (!hudId) {
+                    sendToTelegram(`❌ <b>Ошибка:</b> Не удалось получить ID из HUD`, false, null);
+                    setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                    return;
+                }
+                const idFormats = [hudId];
+                if (hudId.includes('-')) {
+                    idFormats.push(hudId.replace(/-/g, ''));
+                } else if (hudId.length === 3) {
+                    idFormats.push(`${hudId[0]}-${hudId[1]}-${hudId[2]}`);
+                }
+                config.afkSettings = {
+                    id: hudId,
+                    formats: idFormats,
+                    active: true
+                };
+                showScreenNotification("Hassle", "AFK режим активирован");
+                sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID: ${hudId}\nФорматы: ${idFormats.join(', ')}`, false, null);
+                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+            } else if (listitem === 9 && config.autoReconnectEnabled) {
+                currentHBSelectedMode = 'levelup';
+                setTimeout(() => showHBAFKRestartMenu('levelup'), 100);
             }
             break;
         case HB_DIALOG_IDS.MOVEMENT_CONTROLS:
@@ -5518,6 +4924,660 @@ sendClientEvent = window.sendClientEventCustom;
 console.log('[HB Menu] Система меню успешно загружена. Используйте /hb для открытия меню.');
 // ==================== END HB MENU SYSTEM ====================
 
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: DIALOG MONITOR v2                               ║
+// ║  Описание: Перехват серверных диалогов игры и управление ║
+// ║             ими через Telegram.                          ║
+// ║             Типы: LIST, TABLIST, INPUT, PASSWORD, MSGBOX ║
+// ║             iOS fix: pendingInputs без reply_to          ║
+// ║  Зависимости: config, pendingInputs, displayName,        ║
+// ║               uniqueId, debugLog, sendToTelegram,        ║
+// ║               deleteMessage, answerCallbackQuery,        ║
+// ║               createButton, processUpdates,              ║
+// ║               setSharedLastUpdateId, PENDING_INPUT_TTL   ║
+// ╚══════════════════════════════════════════════════════════╝
+
+
+// ==================== Все режимы ====================
+/* // ==================== TEST COMMANDS (ScreenNotification + GameText) ====================
+const originalSendChatInput = window.sendChatInputCustom || sendChatInput;
+window.sendChatInputCustom = function(e) {
+    const args = e.trim().split(" ");
+    // ===================== /test — ScreenNotification =====================
+    if (args[0] === "/test") {
+        try {
+            window.interface('ScreenNotification').add(
+                '[0, "Тест уведомления", "Это тестовый текст с переносом строки", "FF66FF", 5000]'
+            );
+            console.log('[TEST] ScreenNotification отправлен');
+        } catch (err) {
+            console.error('[TEST] Ошибка ScreenNotification:', err);
+        }
+        return;
+    }
+    // ===================== /test2 — GameText =====================
+    if (args[0] === "/test2") {
+        try {
+            window.interface('GameText').add(
+                '[0, "Большой GameText~n~~r~Красный~w~ и ~g~зелёный~w~ текст", 6000, 0, 0, 1, 1, 3.5]'
+            );
+            console.log('[TEST2] GameText отправлен');
+        } catch (err) {
+            console.error('[TEST2] Ошибка GameText:', err);
+        }
+        return;
+    }
+    // Для всех остальных команд — передаём дальше
+    if (typeof originalSendChatInput === 'function') {
+        originalSendChatInput(e);
+    }
+};
+sendChatInput = window.sendChatInputCustom;
+console.log('[TEST COMMANDS] /test и /test2 успешно загружены!');
+// ScreenNotification:
+// Формат: [позиция, "Заголовок", "Текст перенос", "ЦветHEX", время_мс]
+// Позиции:
+// 0 — Сверху (top)
+// 1 — Слева (left)
+// 2 — Снизу (bottom)
+// GameText:
+// Формат: [тип, "Текст~n~перенос~~r~цвет", длительность, offset, keyCode, force, звук, размер]
+// Типы (0-4):
+// 0 — Центр экрана (center-type)
+// 1 — Верх экрана (top-type)
+// 2 — Справа внизу (right-type)
+// 3 — Низ экрана (bottom-type)
+// 4 — Центр + ожидание клавиши (key-type)
+// Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
+*/
+
+// ==================== DIALOG MONITOR MODULE v2 ====================
+// Перехват серверных диалогов игры и управление ими через Telegram
+// Расположение: в самом конце Code.js (после // END HB MENU SYSTEM)
+//
+// ИСПРАВЛЕНИЯ v2:
+// 1. TABLIST_HEADERS (style=5): первая строка — заголовок, не кнопка
+// 2. <t> (разделитель колонок) → " │ " для читаемого отображения
+// 3. HTML-теги в тексте диалога — текст сохраняется, тег удаляется
+// 4. Защита от краша: проверка dlg.active перед dlgRespond
+// 5. Пустой info для INPUT-диалогов — исправлен парсинг HTML
+// ==================================================================
+
+// ── Константы ──────────────────────────────────────────────────
+const DIALOG_STYLE = {
+    MSGBOX:          0,
+    INPUT:           1,
+    LIST:            2,
+    PASSWORD:        3,
+    TABLIST:         4,
+    TABLIST_HEADERS: 5
+};
+
+const DLG_ITEMS_PER_PAGE = 8;  // Элементов списка на одну страницу
+const DLG_LABEL_MAX_LEN  = 24; // Макс. длина подписи кнопки
+
+// Диапазон HB-диалогов — не трогаем
+const DLG_HB_MIN = 900;
+const DLG_HB_MAX = 913;
+
+// ── Состояние диалога ─────────────────────────────────────────
+const dlg = {
+    active:        false,
+    dialogId:      null,
+    style:         null,
+    title:         '',
+    info:          '',
+    contentText:   '',  // FIX: текст для INPUT/MSGBOX/PASSWORD диалогов
+    headers:       [],
+    items:         [],
+    button1:       '',
+    button2:       '',
+    tgMsgs:        [],
+    page:          0,
+    awaitingInput: false
+};
+
+// ── Вспомогательные функции ───────────────────────────────────
+
+/**
+ * Очищает текст от цветовых кодов игры и HTML-тегов,
+ * сохраняя текстовое содержимое.
+ * FIX v2: <t> → " │ ", <br>/<p> → перенос строки, текст из тегов сохраняется
+ */
+function dlgStripColors(text) {
+    return (text || '')
+        .replace(/<t>/gi, ' │ ')              // Разделитель колонок tablist
+        .replace(/\{[A-Fa-f0-9]{6}\}/g, '')   // {RRGGBB} цветовые коды игры
+        .replace(/<br\s*\/?>/gi, '\n')         // <br> → перенос
+        .replace(/<\/p>/gi, '\n')              // </p> → перенос
+        .replace(/<p[^>]*>/gi, '')             // Убираем открывающий <p ...>
+        .replace(/<[^>]+>/g, '')               // Все остальные HTML-теги
+        .replace(/\n{3,}/g, '\n\n')            // Схлопываем лишние переносы
+        .trim();
+}
+
+/** Экранирует HTML для Telegram HTML-разметки */
+function dlgHtml(text) {
+    return (text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+/** Иконка типа диалога */
+function dlgStyleIcon(style) {
+    const MAP = { 0: '📋', 1: '✏️', 2: '📜', 3: '🔐', 4: '📊', 5: '📊' };
+    return MAP[style] || '💬';
+}
+function dlgStyleName(style) {
+    const MAP = {
+        0: 'Сообщение', 1: 'Ввод текста', 2: 'Список',
+        3: 'Ввод пароля', 4: 'Таблица', 5: 'Таблица'
+    };
+    return MAP[style] || 'Диалог';
+}
+
+// ── Формирование текста и клавиатуры ─────────────────────────
+
+function dlgBuildText() {
+    const totalPages = Math.ceil(dlg.items.length / DLG_ITEMS_PER_PAGE);
+    const startIdx   = dlg.page * DLG_ITEMS_PER_PAGE;
+    const endIdx     = Math.min(startIdx + DLG_ITEMS_PER_PAGE, dlg.items.length);
+
+    let text = `🗔 <b>Диалог — ${displayName}</b>  `;
+    text += `<i>${dlgStyleIcon(dlg.style)} ${dlgStyleName(dlg.style)}</i>\n`;
+    text += `━━━━━━━━━━━━━━━━━━━━\n`;
+
+    if (dlg.title) text += `📌 <b>${dlgHtml(dlg.title)}</b>\n`;
+
+    // FIX: текст диалога для INPUT/MSGBOX/PASSWORD (хранится в contentText)
+    if (dlg.contentText) {
+        text += `${dlgHtml(dlg.contentText)}\n`;
+    } else if (dlg.info) {
+        text += `${dlgHtml(dlg.info)}\n`;
+    }
+
+    // FIX v2: заголовки колонок (только для TABLIST_HEADERS)
+    if (dlg.headers.length > 0) {
+        text += `\n📊 <b>${dlgHtml(dlg.headers.join(' │ '))}</b>\n`;
+    }
+
+    // Элементы списка с пагинацией
+    if (dlg.items.length > 0) {
+        const pageLabel = totalPages > 1
+            ? ` (стр. ${dlg.page + 1}/${totalPages})`
+            : '';
+        text += `\n<b>Пункты${pageLabel}:</b>\n`;
+        for (let i = startIdx; i < endIdx; i++) {
+            text += `${i + 1}. ${dlgHtml(dlg.items[i])}\n`;
+        }
+    }
+
+    if (dlg.style === DIALOG_STYLE.INPUT || dlg.style === DIALOG_STYLE.PASSWORD) {
+        text += `\n💡 <i>Нажмите «Ввести», введите текст в ответном сообщении — он будет отправлен в диалог</i>`;
+    }
+
+    return text;
+}
+
+function dlgBuildKeyboard() {
+    const uid = uniqueId;
+    const kb  = [];
+    const startIdx = dlg.page * DLG_ITEMS_PER_PAGE;
+    const endIdx   = Math.min(startIdx + DLG_ITEMS_PER_PAGE, dlg.items.length);
+
+    // ── LIST / TABLIST / TABLIST_HEADERS ───────────────────────
+    // FIX v2: dlg.items уже НЕ содержит строку заголовков — индексы верные
+    if (dlg.style === DIALOG_STYLE.LIST ||
+        dlg.style === DIALOG_STYLE.TABLIST ||
+        dlg.style === DIALOG_STYLE.TABLIST_HEADERS) {
+
+        for (let i = startIdx; i < endIdx; i += 2) {
+            const lbl1 = `${i + 1}. ${dlg.items[i].substring(0, DLG_LABEL_MAX_LEN)}`;
+            const row  = [createButton(lbl1, `dlg_item_${i}_${uid}`)];
+            if (i + 1 < endIdx) {
+                const lbl2 = `${i + 2}. ${dlg.items[i + 1].substring(0, DLG_LABEL_MAX_LEN)}`;
+                row.push(createButton(lbl2, `dlg_item_${i + 1}_${uid}`));
+            }
+            kb.push(row);
+        }
+
+        // Пагинация
+        const totalPages = Math.ceil(dlg.items.length / DLG_ITEMS_PER_PAGE);
+        if (totalPages > 1) {
+            const nav = [];
+            if (dlg.page > 0)
+                nav.push(createButton('◀️ Назад', `dlg_page_${dlg.page - 1}_${uid}`));
+            nav.push(createButton(`📄 ${dlg.page + 1}/${totalPages}`, `dlg_noop_${uid}`));
+            if (dlg.page < totalPages - 1)
+                nav.push(createButton('▶️ Далее', `dlg_page_${dlg.page + 1}_${uid}`));
+            kb.push(nav);
+        }
+
+        // FIX: если button2 пустая — сервер всё равно показывает "Назад", добавляем fallback
+        const b2label = dlg.button2 || 'Назад';
+        kb.push([createButton(`❌ ${b2label}`, `dlg_btn2_${uid}`)]);
+
+    // ── INPUT / PASSWORD ────────────────────────────────────────
+    } else if (dlg.style === DIALOG_STYLE.INPUT ||
+               dlg.style === DIALOG_STYLE.PASSWORD) {
+
+        const icon = dlg.style === DIALOG_STYLE.PASSWORD ? '🔐' : '✏️';
+        kb.push([createButton(`${icon} Ввести текст`, `dlg_input_${uid}`)]);
+
+        // FIX: всегда показываем кнопку отмены, даже если button2 пустая
+        const cancelLabel = dlg.button2 || 'Назад';
+        kb.push([createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`)]);
+
+    // ── MSGBOX ──────────────────────────────────────────────────
+    } else {
+        const btnRow = [];
+        if (dlg.button1) btnRow.push(createButton(`✅ ${dlg.button1}`, `dlg_btn1_${uid}`));
+        // FIX: всегда показываем кнопку отмены, даже если button2 пустая
+        const cancelLabel = dlg.button2 || 'Закрыть';
+        btnRow.push(createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`));
+        if (btnRow.length) kb.push(btnRow);
+    }
+
+    return { inline_keyboard: kb };
+}
+
+// ── Telegram-операции ────────────────────────────────────────
+
+function dlgSendToTelegram() {
+    dlg.tgMsgs.forEach(({ chatId, messageId }) => deleteMessage(chatId, messageId));
+    dlg.tgMsgs = [];
+
+    const text     = dlgBuildText();
+    const keyboard = dlgBuildKeyboard();
+
+    config.chatIds.forEach(chatId => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/sendMessage`, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    dlg.tgMsgs.push({ chatId, messageId: data.result.message_id });
+                    debugLog(`[DLG] Отправлено в чат ${chatId}: msg ${data.result.message_id}`);
+                } catch (e) {}
+            }
+        };
+        xhr.send(JSON.stringify({
+            chat_id:      chatId,
+            text:         text,
+            parse_mode:   'HTML',
+            reply_markup: JSON.stringify(keyboard)
+        }));
+    });
+}
+
+function dlgUpdateTelegram() {
+    const text     = dlgBuildText();
+    const keyboard = dlgBuildKeyboard();
+    dlg.tgMsgs.forEach(({ chatId, messageId }) => {
+        editMessageText(chatId, messageId, text, keyboard);
+    });
+}
+
+function dlgClose(showClosedMsg = true) {
+    if (!dlg.active) return;
+    dlg.active        = false;
+    dlg.awaitingInput = false;
+    if (showClosedMsg) {
+        // Закрыто из Telegram — редактируем сообщение в уведомление
+        dlg.tgMsgs.forEach(({ chatId, messageId }) => {
+            editMessageText(chatId, messageId,
+                `✅ <b>Диалог закрыт — ${displayName}</b>`, null);
+        });
+    } else {
+        // Закрыто в игре — удаляем сообщение из Telegram
+        dlg.tgMsgs.forEach(({ chatId, messageId }) => {
+            deleteMessage(chatId, messageId);
+        });
+    }
+    dlg.tgMsgs = [];
+    // FIX: закрываем Vue-компонент диалога в игре (иначе игра крашит)
+    try { window.closeLastDialog(); } catch(e) {}
+    debugLog('[DLG] Диалог завершён');
+}
+
+/**
+ * Отправляет ответ на диалог через sendClientEvent.
+ * FIX v2: Защита — проверяем dlg.active перед вызовом
+ */
+function dlgRespond(dialogId, response, listitem, inputText) {
+    // Если диалог уже закрыт — не отправляем
+    if (!dlg.active && response !== 0) {
+        debugLog(`[DLG] dlgRespond: диалог ${dialogId} уже не активен, пропускаем`);
+        sendToTelegram(
+            `⚠️ <b>Диалог уже закрыт, ответ не отправлен (${displayName})</b>`,
+            false, null);
+        return;
+    }
+    try {
+        // Используем gm.EVENT_EXECUTE_PUBLIC как в Window.js, с fallback
+        const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+            ? window.gm.EVENT_EXECUTE_PUBLIC
+            : 'server';
+        _dlgOrigSendClientEvent(evtType, 'OnDialogResponse',
+            dialogId, response, listitem, inputText || '');
+        debugLog(`[DLG] Ответ: id=${dialogId} resp=${response} item=${listitem} input="${inputText}"`);
+    } catch (err) {
+        debugLog(`[DLG] Ошибка ответа: ${err.message}`);
+        sendToTelegram(
+            `❌ <b>Ошибка ответа на диалог (${displayName}):</b>\n` +
+            `<code>${err.message.replace(/</g, '&lt;')}</code>`,
+            false, null);
+    }
+}
+
+// ── Хук addDialogInQueue ─────────────────────────────────────
+
+const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
+window.addDialogInQueue = function(dialogParams, content, priority) {
+    try {
+        // Bug fix: dialogParams может быть false (дефолтный параметр)
+        if (!dialogParams || typeof dialogParams !== 'string') {
+            return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+        }
+
+        const parsed   = JSON.parse(dialogParams.trim());
+        const dialogId = parseInt(parsed[0]);
+        const style    = parseInt(parsed[1]);
+
+        // HB-диалоги (900–913) — не трогаем
+        if (dialogId >= DLG_HB_MIN && dialogId <= DLG_HB_MAX) {
+            return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+        }
+
+        const title   = dlgStripColors(parsed[2] || '');
+        const info    = dlgStripColors(parsed[3] || '');
+        const button1 = dlgStripColors(parsed[4] || '');
+        const button2 = dlgStripColors(parsed[5] || '');
+
+        // FIX: для INPUT/MSGBOX/PASSWORD — текст диалога хранится в content/stringParam
+        let contentText = '';
+        if (style === DIALOG_STYLE.INPUT ||
+            style === DIALOG_STYLE.MSGBOX ||
+            style === DIALOG_STYLE.PASSWORD) {
+            const rawContent = Array.isArray(content) ? content.join('') : String(content || '');
+            contentText = dlgStripColors(rawContent.split('<n>').join('\n')).trim();
+        }
+
+        // ── FIX v2: Разделяем заголовок и данные для TABLIST_HEADERS ──
+        let items   = [];
+        let headers = [];
+
+        if (content && (style === DIALOG_STYLE.LIST ||
+                        style === DIALOG_STYLE.TABLIST ||
+                        style === DIALOG_STYLE.TABLIST_HEADERS)) {
+
+            // Bug fix: content может быть массивом [], а не строкой
+            const contentStr = Array.isArray(content) ? content.join('<n>') : String(content);
+            const allItems = contentStr.split('<n>')
+                .map(dlgStripColors)
+                .filter(s => s.length > 0);
+
+            if (style === DIALOG_STYLE.TABLIST_HEADERS && allItems.length > 0) {
+                // Первая строка — заголовки колонок, НЕ делаем её кнопкой
+                headers = allItems[0]
+                    .split(' │ ')
+                    .map(h => h.trim())
+                    .filter(h => h.length > 0);
+                items = allItems.slice(1); // Данные начинаются со второй строки
+            } else {
+                items = allItems;
+            }
+        }
+
+        // Обновляем состояние
+        dlg.active        = true;
+        dlg.dialogId      = dialogId;
+        dlg.style         = style;
+        dlg.title         = title;
+        dlg.info          = info;
+        dlg.contentText   = contentText; // FIX: текст для INPUT/MSGBOX/PASSWORD
+        dlg.headers       = headers;
+        dlg.items         = items;
+        dlg.button1       = button1;
+        dlg.button2       = button2;
+        dlg.page          = 0;
+        dlg.awaitingInput = false;
+
+        debugLog(
+            `[DLG] Перехвачен диалог: id=${dialogId}, style=${style}, ` +
+            `title="${title}", headers=${headers.length}, items=${items.length}`
+        );
+
+        dlgSendToTelegram();
+
+    } catch (err) {
+        debugLog(`[DLG] Ошибка перехвата addDialogInQueue: ${err.message}`);
+    }
+
+    return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+};
+
+// ── Хук sendClientEvent — фиксируем закрытие диалогов из игры ─
+// Сохраняем ОРИГИНАЛЬНЫЙ sendClientEvent ДО любых замен
+const _dlgOrigSendClientEvent = sendClientEvent;
+
+const _dlgOrigSCE = window.sendClientEventCustom;
+window.sendClientEventCustom = function(event, ...args) {
+    if (args[0] === 'OnDialogResponse') {
+        const respondedId = parseInt(args[1]);
+        if ((respondedId < DLG_HB_MIN || respondedId > DLG_HB_MAX) &&
+            dlg.active && dlg.dialogId === respondedId) {
+            // Игрок сам ответил в игре — закрываем без Telegram-уведомления
+            dlgClose(false);
+        }
+    }
+    // Безопасный вызов оригинала — используем сохранённый sendClientEvent
+    if (typeof _dlgOrigSCE === 'function') {
+        return _dlgOrigSCE.call(this, event, ...args);
+    }
+    return _dlgOrigSendClientEvent.call(this, event, ...args);
+};
+// FIX: обновляем глобальный sendClientEvent чтобы хук закрытия диалога работал.
+// Рекурсии нет — внутри хука используется _dlgOrigSendClientEvent, а не sendClientEvent.
+sendClientEvent = window.sendClientEventCustom;
+
+// ── Обработчик Telegram-коллбэков ────────────────────────────
+
+function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
+    const uid = uniqueId;
+
+    if (!dlg.active && !data.startsWith(`dlg_noop_`)) {
+        sendToTelegram(
+            `⚠️ <b>Нет активного диалога (${displayName})</b>\n` +
+            `<i>Диалог уже закрыт или ещё не открыт</i>`,
+            false, null);
+        answerCallbackQuery(callbackQueryId);
+        return;
+    }
+
+    // ── Button1 ───────────────────────────────────────────────
+    if (data.startsWith(`dlg_btn1_${uid}`)) {
+        const btn = dlg.button1;
+        // FIX: listitem=-1 для не-списочных диалогов (как делает Window.js)
+        dlgRespond(dlg.dialogId, 1, -1, '');
+        sendToTelegram(`✅ <b>«${dlgHtml(btn)}» нажата (${displayName})</b>`, false, null);
+        dlgClose();
+
+    // ── Button2 (отмена) ──────────────────────────────────────
+    } else if (data.startsWith(`dlg_btn2_${uid}`)) {
+        const btn = dlg.button2 || 'Назад';
+        // FIX: listitem=-1 для отмены (как делает Window.js)
+        dlgRespond(dlg.dialogId, 0, -1, '');
+        sendToTelegram(`❌ <b>«${dlgHtml(btn)}» нажата (${displayName})</b>`, false, null);
+        dlgClose();
+
+    // ── Выбор элемента списка ─────────────────────────────────
+    } else if (data.startsWith(`dlg_item_`)) {
+        const match = data.match(/^dlg_item_(\d+)_/);
+        if (match) {
+            const idx      = parseInt(match[1]);
+            const itemName = dlg.items[idx] || '';
+            // FIX v2: idx уже правильный listitem (заголовок отделён при парсинге)
+            dlgRespond(dlg.dialogId, 1, idx, itemName);
+            sendToTelegram(
+                `✅ <b>Выбран пункт ${idx + 1}: «${dlgHtml(itemName.substring(0, 60))}» (${displayName})</b>`,
+                false, null);
+            dlgClose();
+        }
+
+    // ── Пагинация ─────────────────────────────────────────────
+    } else if (data.startsWith(`dlg_page_`)) {
+        const match = data.match(/^dlg_page_(\d+)_/);
+        if (match) {
+            dlg.page = parseInt(match[1]);
+            dlgUpdateTelegram();
+        }
+
+    // ── Запрос ввода текста (INPUT / PASSWORD) ────────────────
+    } else if (data.startsWith(`dlg_input_${uid}`)) {
+        // FIX v2: Проверяем активность диалога
+        if (!dlg.active) {
+            sendToTelegram(
+                `⚠️ <b>Диалог уже закрыт, ввод недоступен (${displayName})</b>`,
+                false, null);
+            answerCallbackQuery(callbackQueryId);
+            return;
+        }
+
+        dlg.awaitingInput = true;
+        const isPass = dlg.style === DIALOG_STYLE.PASSWORD;
+        const prompt =
+            `✉️ ${isPass ? 'Введите пароль' : 'Введите текст'} для диалога ` +
+            `<b>"${dlgHtml(dlg.title)}"</b> (${displayName}):\n` +
+            `🔑 DLG_UID: ${uid}`;
+
+        // iOS fix — pendingInput без reply_to_message
+        config.chatIds.forEach(cId => {
+            pendingInputs[`dlg_input_${cId}_${uid}`] = {
+                type: 'dialog_input', timestamp: Date.now()
+            };
+        });
+
+        sendToTelegram(prompt, false, { force_reply: true });
+
+    // ── Noop (счётчик страниц) ────────────────────────────────
+    } else if (data.startsWith(`dlg_noop_${uid}`)) {
+        // Ничего не делаем
+    }
+
+    answerCallbackQuery(callbackQueryId);
+}
+
+// ── Обёртка processUpdates ────────────────────────────────────
+
+const _dlgOrigProcessUpdates = processUpdates;
+
+processUpdates = function(updates) {
+    const passThrough = [];
+
+    for (const update of updates) {
+        let consumed = false;
+
+        let updateChatId = null;
+        if (update.message)             updateChatId = update.message.chat.id;
+        else if (update.callback_query) updateChatId = update.callback_query.message.chat.id;
+
+        if (updateChatId && !config.chatIds.includes(String(updateChatId))) {
+            passThrough.push(update);
+            continue;
+        }
+
+        // ── Текстовые сообщения: ввод для диалога ──────────────
+        if (update.message && !consumed) {
+            const msgText   = update.message.text ? update.message.text.trim() : '';
+            const msgChatId = update.message.chat.id;
+
+            /** Вспомогательная функция отправки ввода в диалог */
+            function processDlgInput(text) {
+                delete pendingInputs[`dlg_input_${msgChatId}_${uniqueId}`];
+                dlg.awaitingInput = false;
+
+                // FIX v2: Проверяем активность диалога перед ответом
+                if (dlg.active && dlg.dialogId !== null) {
+                    dlgRespond(dlg.dialogId, 1, 0, text);
+                    sendToTelegram(
+                        `✅ <b>Текст отправлен в диалог (${displayName}):</b>\n` +
+                        `<code>${dlgHtml(text)}</code>`,
+                        false, null);
+                    dlgClose();
+                } else {
+                    sendToTelegram(
+                        `⚠️ <b>Диалог уже закрыт, текст не отправлен (${displayName})</b>\n` +
+                        `<i>Возможно, диалог закрылся до получения ответа</i>`,
+                        false, null);
+                    dlg.awaitingInput = false;
+                    dlgClose(false);
+                }
+
+                config.lastUpdateId = update.update_id;
+                setSharedLastUpdateId(config.lastUpdateId);
+            }
+
+            // Вариант 1: стандартный reply (Android/Desktop)
+            if (update.message.reply_to_message && msgText && dlg.awaitingInput) {
+                const replyText = update.message.reply_to_message.text || '';
+                if (replyText.includes(`DLG_UID: ${uniqueId}`)) {
+                    processDlgInput(msgText);
+                    consumed = true;
+                }
+            }
+
+            // Вариант 2: iOS fix (нет reply_to_message, но есть pendingInput)
+            if (!consumed && !update.message.reply_to_message && msgText) {
+                const pendingKey = `dlg_input_${msgChatId}_${uniqueId}`;
+                const pending    = pendingInputs[pendingKey];
+                if (pending && (Date.now() - pending.timestamp < PENDING_INPUT_TTL)) {
+                    const msgDate = (update.message.date || 0) * 1000;
+                    if (msgDate >= pending.timestamp && dlg.awaitingInput) {
+                        processDlgInput(msgText);
+                        consumed = true;
+                    }
+                }
+            }
+        }
+
+        // ── Callback-query: dlg_* ───────────────────────────────
+        if (!consumed && update.callback_query) {
+            const cbData      = update.callback_query.data;
+            const cbChatId    = update.callback_query.message.chat.id;
+            const cbMessageId = update.callback_query.message.message_id;
+            const cbQueryId   = update.callback_query.id;
+
+            if (cbData.startsWith('dlg_')) {
+                const isOurs =
+                    cbData.endsWith(`_${uniqueId}`) ||
+                    cbData.includes(`_${uniqueId}_`);
+
+                if (isOurs) {
+                    handleDialogTgCallback(cbData, cbChatId, cbMessageId, cbQueryId);
+                } else {
+                    answerCallbackQuery(cbQueryId);
+                }
+
+                config.lastUpdateId = update.update_id;
+                setSharedLastUpdateId(config.lastUpdateId);
+                consumed = true;
+            }
+        }
+
+        if (!consumed) passThrough.push(update);
+    }
+
+    if (passThrough.length > 0) {
+        _dlgOrigProcessUpdates(passThrough);
+    }
+};
+
+debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
+// ==================== END DIALOG MONITOR MODULE v2 ====================
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: ADMIN KAC/ZP AUTO-REPLY                         ║
@@ -5752,337 +5812,3 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 
 })();
 // ==================== END ADMIN KAC/ZP AUTO-REPLY MODULE ====================
-
-// ==================== WARNING CHECK MODULE ====================
-// Автоматическая проверка выговоров через /find после загрузки профиля.
-// Алгоритм:
-//  1. Ждём загрузки профиля (config.accountInfo.profile.loaded === true)
-//  2. Отправляем /find (без ника — открывается диалог со списком игроков)
-//  3. Перехватываем диалог TABLIST_HEADERS с заголовком "В игре:"
-//     — НЕ пропускаем его в Telegram (тихий режим)
-//  4. Ищем строку с нашим ником
-//     — Нашли → сохраняем X/3, закрываем диалог, обновляем сообщение
-//     — Не нашли → листаем на следующую страницу через OnMultiDialogClickNavigButton
-//  5. Если прошли все страницы и не нашли → выговоры = 0/3
-// ==============================================================
-
-(function () {
-    'use strict';
-
-    // ── Состояние ────────────────────────────────────────────────
-    const warnCheck = {
-        active:      false,
-        nickname:    null,
-        pageIndex:   0,       // Текущая страница (0-based)
-        lastCount:   -1,      // Кол-во строк на прошлой странице (-1 = ещё не было)
-        dialogId:    null,
-        timeout:     null
-    };
-
-    // ── Утилиты ──────────────────────────────────────────────────
-    function _strip(text) {
-        return (text || '')
-            .replace(/<t>/gi, ' ')
-            .replace(/\{[A-Fa-f0-9]{6}\}/g, '')
-            .replace(/<[^>]+>/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
-    }
-
-    function _log(msg) {
-        if (typeof debugLog === 'function') debugLog(msg);
-        else console.log(msg);
-    }
-
-    // ── Отправить событие навигации — листнуть страницу вперёд ──
-    function _navNext() {
-        try {
-            const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
-                ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
-            _dlgOrigSendClientEvent(evtType, 'OnMultiDialogClickNavigButton',
-                1, warnCheck.pageIndex, 0);
-            _log(`[WARN] → Следующая страница (pageIndex=${warnCheck.pageIndex})`);
-            warnCheck.pageIndex++;
-        } catch (e) {
-            _log('[WARN] Ошибка навигации: ' + e.message);
-            _abort();
-        }
-    }
-
-    // ── Закрыть диалог /find через серверный ответ ────────────────
-    function _closeDialog(dialogId) {
-        try {
-            const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
-                ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
-            _dlgOrigSendClientEvent(evtType, 'OnDialogResponse', dialogId, 0, -1, '');
-            _log('[WARN] Диалог /find закрыт');
-        } catch (e) {
-            _log('[WARN] Ошибка закрытия диалога: ' + e.message);
-        }
-        try { window.closeLastDialog(); } catch (e) {}
-    }
-
-    // ── Найти выговоры в строке ────────────────────────────────────
-    // Строка: "Nick_Name[ID] | Должность[ранг] - (статус) [ФРАКЦИЯ] | телефон [X / Y]"
-    // Нас интересует последний паттерн [X / Y] — это выговоры.
-    function _parseWarnings(row) {
-        const m = row.match(/\[(\d+)\s*\/\s*(\d+)\]\s*$/);
-        if (m) return { current: parseInt(m[1], 10), max: parseInt(m[2], 10) };
-        const m2 = row.match(/(\d+)\s*\/\s*(\d+)\s*$/);
-        if (m2) return { current: parseInt(m2[1], 10), max: parseInt(m2[2], 10) };
-        return null;
-    }
-
-    // ── Обработать страницу /find ──────────────────────────────────
-    function _processPage(dialogId, rawContent) {
-        const contentStr = Array.isArray(rawContent)
-            ? rawContent.join('<n>') : String(rawContent || '');
-        const allRows = contentStr.split('<n>').map(_strip).filter(Boolean);
-
-        if (allRows.length === 0) {
-            _log('[WARN] Пустой диалог /find — завершаем с 0 выговоров');
-            _finalize(dialogId, 0, 3);
-            return;
-        }
-
-        // Первая строка — заголовок колонок (Имя | Должность | Телефон)
-        const dataRows = allRows.slice(1);
-        _log(`[WARN] Страница ${warnCheck.pageIndex}: ${dataRows.length} строк`);
-
-        const targetNick = (warnCheck.nickname || '').trim();
-        // RegExp: строка должна начинаться с нашего ника (возможно с номером "N. ")
-        const re = new RegExp(
-            '(?:^\\d+\\.\\s*)?' +
-            targetNick.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
-            '\\[',
-            'i'
-        );
-
-        for (const row of dataRows) {
-            if (re.test(row)) {
-                _log(`[WARN] ✅ Найден: "${row}"`);
-                const warnData = _parseWarnings(row);
-                const cur = warnData ? warnData.current : 0;
-                const max = warnData ? warnData.max     : 3;
-                _finalize(dialogId, cur, max);
-                return;
-            }
-        }
-
-        // Не нашли — проверяем последняя ли это страница
-        const isFinalPage = (warnCheck.lastCount >= 0 && dataRows.length < warnCheck.lastCount)
-                         || dataRows.length === 0;
-        warnCheck.lastCount = dataRows.length;
-
-        if (isFinalPage) {
-            _log('[WARN] Последняя страница, ник не найден → 0 выговоров');
-            _finalize(dialogId, 0, 3);
-        } else {
-            _navNext();
-        }
-    }
-
-    // ── Сохранить результат, закрыть диалог, обновить приветствие ─
-    function _finalize(dialogId, current, max) {
-        if (warnCheck.timeout) { clearTimeout(warnCheck.timeout); warnCheck.timeout = null; }
-        warnCheck.active   = false;
-        warnCheck.dialogId = null;
-
-        _closeDialog(dialogId);
-
-        const p = config.accountInfo.profile;
-        if (p) {
-            p.warnings        = current;
-            p.maxWarnings     = max;
-            p.warningsChecked = true;
-        }
-        _log(`[WARN] Выговоры: ${current}/${max} — сохранено в профиль`);
-
-        setTimeout(function () {
-            if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
-        }, 400);
-    }
-
-    // ── Прервать проверку (таймаут/ошибка) ───────────────────────
-    function _abort() {
-        if (warnCheck.timeout) { clearTimeout(warnCheck.timeout); warnCheck.timeout = null; }
-        warnCheck.active   = false;
-        warnCheck.dialogId = null;
-        _log('[WARN] Проверка выговоров прервана (таймаут/ошибка)');
-    }
-
-    // ── Публичная точка входа ─────────────────────────────────────
-    function startWarningCheck() {
-        // Выговоры актуальны только для фракционных игроков
-        if (!config.currentFaction) {
-            _log('[WARN] Не во фракции — проверка выговоров пропущена');
-            const p = config && config.accountInfo && config.accountInfo.profile;
-            if (p) { p.warnings = 0; p.maxWarnings = 3; p.warningsChecked = true; }
-            return;
-        }
-        const nick = (config && config.accountInfo && config.accountInfo.nickname) || null;
-        if (!nick) {
-            _log('[WARN] Ник не определён — откладываем проверку');
-            return;
-        }
-        if (warnCheck.active) {
-            _log('[WARN] Проверка уже идёт — пропускаем');
-            return;
-        }
-
-        warnCheck.active    = true;
-        warnCheck.nickname  = nick;
-        warnCheck.pageIndex = 0;
-        warnCheck.lastCount = -1;
-        warnCheck.dialogId  = null;
-
-        // Аварийный таймаут 30 секунд
-        warnCheck.timeout = setTimeout(function () {
-            _log('[WARN] ⏰ Таймаут 30 сек — прерываем');
-            _abort();
-        }, 30000);
-
-        // Отправляем /find БЕЗ ника — откроется диалог со списком всех игроков
-        // В этом диалоге ищем наш ник
-        _log(`[WARN] Отправляем /find (ищем ник: ${nick})`);
-        try { sendChatInput('/find'); } catch (e) {
-            _log('[WARN] Ошибка отправки /find: ' + e.message);
-            _abort();
-        }
-    }
-
-    // ── Перехват addDialogInQueue (поверх существующего патча DIALOG MONITOR v2) ─
-    const _warnPrevAddDialog = window.addDialogInQueue;
-
-    window.addDialogInQueue = function (dialogParams, content, priority) {
-        if (!warnCheck.active) {
-            return _warnPrevAddDialog
-                ? _warnPrevAddDialog.call(this, dialogParams, content, priority)
-                : undefined;
-        }
-
-        try {
-            if (dialogParams && typeof dialogParams === 'string') {
-                const parsed   = JSON.parse(dialogParams.trim());
-                const dialogId = parseInt(parsed[0], 10);
-                const style    = parseInt(parsed[1], 10);
-                const title    = _strip(parsed[2] || '');
-
-                // style=5 = TABLIST_HEADERS; заголовок /find содержит "В игре:"
-                if (style === 5 && /в игре/i.test(title)) {
-                    _log(`[WARN] Перехвачен /find диалог id=${dialogId}, title="${title}"`);
-                    warnCheck.dialogId = dialogId;
-
-                    // Регистрируем в Vue (оригинальная игровая функция), но НЕ в Telegram
-                    const gameResult = typeof _dlgOrigAddDialogInQueue === 'function'
-                        ? _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority)
-                        : undefined;
-
-                    // Асинхронно (чтобы Vue успел отрисовать) парсим содержимое
-                    setTimeout(function () {
-                        _processPage(dialogId, content);
-                    }, 80);
-
-                    return gameResult;
-                }
-            }
-        } catch (e) {
-            _log('[WARN] Ошибка патча addDialogInQueue: ' + e.message);
-        }
-
-        return _warnPrevAddDialog
-            ? _warnPrevAddDialog.call(this, dialogParams, content, priority)
-            : undefined;
-    };
-
-    // ── Monkey-patch buildWelcomeAccountInfo ──────────────────────
-    // Добавляем строку "Выговоры" в блок "Фракция / Звание", после "Статус".
-    // "└ Статус: X\n"  →  "├ Статус: X\n└ ⚠️ Выговоры: X/3\n"
-    const _origBuildWelcomeAccountInfo = (typeof buildWelcomeAccountInfo === 'function')
-        ? buildWelcomeAccountInfo : null;
-
-    if (_origBuildWelcomeAccountInfo) {
-        window.buildWelcomeAccountInfo = buildWelcomeAccountInfo = function () {
-            let block = _origBuildWelcomeAccountInfo.apply(this, arguments);
-            try {
-                const p = config && config.accountInfo && config.accountInfo.profile;
-                if (!p) return block;
-
-                let warnLine;
-                if (p.warningsChecked && p.warnings !== null && p.warnings !== undefined) {
-                    const cur  = p.warnings;
-                    const max  = p.maxWarnings || 3;
-                    // Если выговоров 0 — не отображаем строку вообще
-                    if (cur === 0) return block;
-                    const icon = cur >= max ? '🚫' : '⚠️';
-                    warnLine = `${icon} <b>Выговоры:</b> ${cur}/${max}`;
-                } else if (p.loaded && !p.warningsChecked && config.currentFaction) {
-                    warnLine = '⏳ <b>Выговоры:</b> проверяем...';
-                } else {
-                    return block;
-                }
-
-                // Заменяем "└ Статус:" на "├ Статус:" и добавляем строку выговоров
-                let replaced = false;
-                block = block.replace(
-                    /└ Статус: ([^\n]*)\n/,
-                    (_, statusText) => { replaced = true; return `├ Статус: ${statusText}\n└ ${warnLine}\n`; }
-                );
-                if (!replaced) {
-                    block = block.replace(
-                        /(Статус: [^\n]*\n)/,
-                        `$1└ ${warnLine}\n`
-                    );
-                }
-                if (!block.includes(warnLine)) {
-                    block += `\n└ ${warnLine}`;
-                }
-            } catch (e) {
-                _log('[WARN] Ошибка monkey-patch buildWelcomeAccountInfo: ' + e.message);
-            }
-            return block;
-        };
-        _log('[WARN] buildWelcomeAccountInfo пропатчена — строка выговоров добавлена');
-    } else {
-        _log('[WARN] buildWelcomeAccountInfo не найдена — выговоры отображаться не будут');
-    }
-
-    // ── Автозапуск: ждём загрузки профиля, потом запускаем check ─
-    (function _waitForProfile() {
-        const p = config && config.accountInfo && config.accountInfo.profile;
-        if (p && p.loaded && !p.warningsChecked) {
-            // Вне фракции — пропускаем /find, выставляем 0 выговоров
-            if (!config.currentFaction) {
-                p.warnings = 0; p.maxWarnings = 3; p.warningsChecked = true;
-                _log('[WARN] Не во фракции — выговоры не проверяем');
-                return;
-            }
-            _log('[WARN] Профиль загружен → запускаем проверку выговоров через 2 сек');
-            setTimeout(startWarningCheck, 2000);
-        } else if (!p || !p.loaded) {
-            setTimeout(_waitForProfile, 3000);
-        }
-        // Если warningsChecked уже true — ничего не делаем
-    })();
-
-    // Экспортируем для ручного вызова из Telegram (/find команда)
-    window._hassleCheckWarnings = startWarningCheck;
-
-    _log('[WARN] Модуль проверки выговоров загружен. /find запустится после загрузки профиля.');
-
-})();
-// ==================== END WARNING CHECK MODULE ====================
-
-
-
-// Сигнал готовности — Code2.js ждёт этот флаг перед стартом
-// Code2.js запускается прямо здесь — в нашем scope — чтобы видел все переменные
-if (window.__CODE2_TEXT__) {
-    eval(window.__CODE2_TEXT__);
-    delete window.__CODE2_TEXT__;
-}
-
-// Экспортируем для вызова из Load.js (например, обновить велком после загрузки коммитов)
-window.sendWelcomeMessage = sendWelcomeMessage;
-
-window.__CODE_READY__ = true;
