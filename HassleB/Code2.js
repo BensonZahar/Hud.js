@@ -1255,6 +1255,10 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 // eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
 
 
+// Code2.js — продолжение Code.js в отдельном файле
+// eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
+
+
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  MODULE: FRIEND TRACKER v2                                   ║
 // ║  Описание: Отслеживание входа друзей.                       ║
@@ -1510,7 +1514,11 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                             );
                         } else {
                             // Просто обновляем уровень (без уведомления)
-                            ft.lastLevel[watched] = currLevel;
+                            // FIX: не перезаписываем level > 0 нулём — Канал 1 на Hassle не несёт level
+                            if (currLevel > 0) {
+                                ft.lastLevel[watched] = currLevel;
+                            }
+                            // Если currLevel === 0 — это Канал 1 без данных, не трогаем
                         }
                     }
                     // level > 0 → 0 в норме невозможно, игнорируем
@@ -1572,6 +1580,8 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         clearInterval(ft.pollTimer);
         ft.pollTimer = null;
         debugLog('[TRACKER] Авто-опрос остановлен (watchList пуст)');
+        // getInterfaceStatus-хук сам перестанет подделывать статус,
+        // т.к. проверяет ft.watchList.size > 0
     }
 
 
@@ -1690,6 +1700,32 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
             debugLog('[TRACKER] Канал 2: window.interface Proxy установлен (PlayersOnline, Hassle-ready)');
         } catch (e) {
             debugLog(`[TRACKER] Ошибка установки interface Proxy: ${e.message}`);
+        }
+    })();
+
+
+    // ═══════════════════════════════════════════════════════════
+    //  ХУК getInterfaceStatus — говорим движку Hassle, что
+    //  PlayersOnline «открыт», пока watchList не пуст.
+    //  Это заставляет движок слать setPlayersOnlineData (с level)
+    //  даже когда вкладка физически закрыта.
+    // ═══════════════════════════════════════════════════════════
+    (function _ftHookInterfaceStatus() {
+        try {
+            const _origStatus = window.getInterfaceStatus;
+            if (typeof _origStatus !== 'function') {
+                debugLog('[TRACKER] getInterfaceStatus не найден — хук пропущен');
+                return;
+            }
+            window.getInterfaceStatus = function (name) {
+                if (name === 'PlayersOnline' && ft.watchList.size > 0) {
+                    return true; // движок будет слать level-данные через Канал 2
+                }
+                return _origStatus.apply(this, arguments);
+            };
+            debugLog('[TRACKER] getInterfaceStatus hook установлен (PlayersOnline always-open trick)');
+        } catch (e) {
+            debugLog(`[TRACKER] Ошибка хука getInterfaceStatus: ${e.message}`);
         }
     })();
 
