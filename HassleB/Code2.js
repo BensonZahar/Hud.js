@@ -1302,6 +1302,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         watchList:    new Set(), // нормализованные ники под наблюдением
         onlineNow:    new Set(), // кто из них сейчас онлайн (de-dup)
         lastNotifyTs: {},        // когда последний раз слали уведомление
+        lastSeenNick: {},        // оригинальный регистр ника (для уведомления о выходе)
         pollTimer:    null,      // ID интервала авто-опроса (канал 3)
     };
 
@@ -1442,8 +1443,9 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 const wasOnline = ft.onlineNow.has(watched);
 
                 if (match && !wasOnline) {
-                    // ── Друг только что появился ───────────────────
+                    // ── Игрок только что появился ──────────────────
                     ft.onlineNow.add(watched);
+                    ft.lastSeenNick[watched] = match; // запоминаем оригинальный регистр
                     const lastTs = ft.lastNotifyTs[watched] || 0;
                     if ((now - lastTs) > FT_COOLDOWN_MS) {
                         ft.lastNotifyTs[watched] = now;
@@ -1451,7 +1453,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                         debugLog(`[TRACKER] 🎉 "${displayNick}" зашёл в игру!`);
                         _ftChatNotify(`🎉 ${displayNick} зашёл в игру`);
                         sendToTelegram(
-                            `🎉 <b>Друг онлайн! — ${displayName}</b>\n` +
+                            `🎉 <b>Игрок онлайн! — ${displayName}</b>\n` +
                             `👤 <code>${displayNick}</code> зашёл в игру`,
                             false, null
                         );
@@ -1460,14 +1462,17 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                     }
 
                 } else if (!match && wasOnline) {
-                    // ── Друг вышел ─────────────────────────────────
+                    // ── Игрок вышел ────────────────────────────────
                     ft.onlineNow.delete(watched);
                     delete ft.lastNotifyTs[watched]; // FIX v3: сбрасываем cooldown — следующий вход всегда уведомит
-                    const leaveNick = watched.replace(/_/g, ' ');
+                    // FIX v4: берём оригинальный регистр ника из lastSeenNick
+                    const rawLeave = ft.lastSeenNick[watched] || watched;
+                    delete ft.lastSeenNick[watched];
+                    const leaveNick = rawLeave.replace(/_/g, ' ');
                     debugLog(`[TRACKER] 💤 "${leaveNick}" покинул игру`);
                     _ftChatNotify(`💤 ${leaveNick} покинул игру`);
                     sendToTelegram(                  // FIX v3: уведомление о выходе
-                        `💤 <b>Друг вышел — ${displayName}</b>\n` +
+                        `💤 <b>Игрок вышел — ${displayName}</b>\n` +
                         `👤 <code>${leaveNick}</code> покинул игру`,
                         false, null
                     );
