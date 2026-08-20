@@ -1473,53 +1473,32 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     };
 
     // ═══════════════════════════════════════════════════════════
-    //  ХУК 2: window.interface — Proxy-перехват PlayersOnline
+    //  ХУК 2: window.onUpdatePlayersList — данные PlayerList
     //
-    //  ПОЧЕМУ PROXY, А НЕ ПРЯМОЕ ПРИСВАИВАНИЕ:
-    //  Vue 3 expose() оборачивает объект в shallowReadonly().
-    //  Попытка inst.setPlayersOnlineData = fn бросает TypeError
-    //  или молча игнорируется (зависит от strict mode).
-    //  Proxy перехватывает GET на нужное свойство и возвращает
-    //  обёрнутую функцию — Vue-объект при этом не мутируется.
+    //  ПОЧЕМУ НЕ PROXY НА PlayersOnline:
+    //  Движок кэширует ссылку на PlayersOnline-компонент при
+    //  старте — ещё до того как Code2 подменяет window.interface.
+    //  После этого все вызовы setPlayersOnlineData/setInterfaceParams
+    //  идут напрямую в компонент, минуя любой Proxy.
     //
-    //  Движок вызывает window.interface('PlayersOnline') перед
-    //  каждым .setPlayersOnlineData(json), поэтому Proxy
-    //  гарантированно встаёт в цепочку каждый раз.
+    //  window.onUpdatePlayersList — глобальный колбэк, который
+    //  движок вызывает каждый раз при updatePlayerList().
+    //  PlayersOnline.js дёргает updatePlayerList() каждые 1 сек,
+    //  mvdF.js — каждые 30 сек. Итого данные приходят ~раз в сек.
+    //  mvdF использует этот же канал для чтения своего ID — он
+    //  гарантированно работает.
+    //
+    //  Формат данных: { local: {id, name, ping}, players: [{...}] }
+    //  — тот же что ожидает _ftCheck.
     // ═══════════════════════════════════════════════════════════
-    const _ftOrigIface = window.interface;
-    window.interface = function (name) {
-        const inst = _ftOrigIface.apply(this, arguments);
-        if (name === 'PlayersOnline' && inst) {
-            return new Proxy(inst, {
-                get (target, prop) {
-                    const val = target[prop];
-
-                    // Перехватываем setPlayersOnlineData (основной метод)
-                    // и setInterfaceParams (его алиас в PlayersOnline.js)
-                    // FIX: _ftCheck вызывается для ОБОИХ методов —
-                    // движок игры зовёт setInterfaceParams, а не setPlayersOnlineData
-                    if ((prop === 'setPlayersOnlineData' ||
-                         prop === 'setInterfaceParams') &&
-                        typeof val === 'function') {
-                        return function (data) {
-                            try { _ftCheck(data); } catch (e) {
-                                debugLog(`[TRACKER] Proxy err: ${e.message}`);
-                            }
-                            return val.apply(target, arguments);
-                        };
-                    }
-
-                    // Методы — биндим на target (иначе Vue реактивность ломается)
-                    return (typeof val === 'function') ? val.bind(target) : val;
-                },
-                set (target, prop, value) {
-                    // Проксируем запись на оригинал (может выбросить если readonly)
-                    try { target[prop] = value; } catch (e) { /* readonly — ок */ }
-                    return true;
-                }
-            });
+    const _ftOrigOnUpdatePlayers = window.onUpdatePlayersList;
+    window.onUpdatePlayersList = function (e) {
+        try { _ftCheck(e); } catch (err) {
+            debugLog(`[TRACKER] onUpdatePlayersList err: ${err.message}`);
         }
-        return inst;
+        if (typeof _ftOrigOnUpdatePlayers === 'function') {
+            return _ftOrigOnUpdatePlayers.apply(this, arguments);
+        }
     };
 
     // ═══════════════════════════════════════════════════════════
