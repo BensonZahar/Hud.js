@@ -1247,34 +1247,51 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
 })();
 // ==================== END ZAVOD MODULE ====================
-// ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: FRIEND TRACKER v1                               ║
-// ║  Описание: Отслеживание входа друзей через PlayersOnline.║
-// ║             При появлении ника в списке онлайн —        ║
-// ║             уведомление в Telegram.                      ║
-// ║                                                          ║
-// ║  Команды в ЧАТЕ ИГРЫ:                                   ║
-// ║    /check <ник>   — добавить в слежение                 ║
-// ║    /uncheck <ник> — убрать из слежения                  ║
-// ║    /checklist     — список онлайн → Telegram            ║
-// ║                                                          ║
-// ║  Команды в TELEGRAM:                                    ║
-// ║    /check_Иван_Петров  или  /check Иван Петров          ║
-// ║    /uncheck_Иван_Петров или  /uncheck Иван Петров       ║
-// ║    /checklist                                            ║
-// ║                                                          ║
-// ║  Как работает перехват:                                  ║
-// ║    Vue expose() создаёт shallowReadonly-прокси —        ║
-// ║    прямое inst.setPlayersOnlineData = fn СЛОМАЕТСЯ.     ║
-// ║    Поэтому оборачиваем возврат window.interface()       ║
-// ║    в JS Proxy — прозрачно, без мутации Vue-объекта.     ║
-// ║    Движок вызывает window.interface('PlayersOnline')     ║
-// ║    .setPlayersOnlineData(json) каждые ~1 сек.          ║
-// ║                                                          ║
-// ║  Зависимости: sendToTelegram, debugLog, config,         ║
-// ║               displayName, processUpdates,              ║
-// ║               setSharedLastUpdateId                     ║
-// ╚══════════════════════════════════════════════════════════╝
+// Code2.js — продолжение Code.js в отдельном файле
+// eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
+
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  MODULE: FRIEND TRACKER v2                                   ║
+// ║  Описание: Отслеживание входа друзей.                       ║
+// ║             При появлении ника в списке онлайн —            ║
+// ║             уведомление в Telegram.                          ║
+// ║                                                              ║
+// ║  Команды в ЧАТЕ ИГРЫ:                                       ║
+// ║    /check <ник>   — добавить в слежение                     ║
+// ║    /uncheck <ник> — убрать из слежения                      ║
+// ║    /checklist     — список онлайн → Telegram                ║
+// ║                                                              ║
+// ║  Команды в TELEGRAM:                                        ║
+// ║    /check_Иван_Петров  или  /check Иван Петров              ║
+// ║    /uncheck_Иван_Петров или  /uncheck Иван Петров           ║
+// ║    /checklist                                                ║
+// ║                                                              ║
+// ║  КАНАЛЫ ДАННЫХ (все три работают одновременно):             ║
+// ║                                                              ║
+// ║  1. window.onUpdatePlayersList                              ║
+// ║     Глобальный колбэк движка. Срабатывает когда кто-то     ║
+// ║     вызывает window.updatePlayerList() — PlayersOnline.vue  ║
+// ║     (~1 сек пока открыт) или mvdF.js (~30 сек).            ║
+// ║     На Hassle-мобилке без открытого списка — только 30 сек. ║
+// ║                                                              ║
+// ║  2. window.interface('PlayersOnline') Proxy                 ║
+// ║     Перехватывает setPlayersOnlineData / setInterfaceParams  ║
+// ║     на уровне window.interface(). Работает если движок НЕ   ║
+// ║     кэширует ссылку на компонент (Hassle / новый движок).   ║
+// ║     На PC legacy движке скорее всего не нужен (есть канал 1)║
+// ║     но добавлен как надёжный второй вариант.                ║
+// ║                                                              ║
+// ║  3. Авто-опрос window.updatePlayerList() [FIX HASSLE]       ║
+// ║     Code2.js сам вызывает updatePlayerList() каждые 3 сек   ║
+// ║     пока watchList не пуст. Это заставляет движок слать     ║
+// ║     данные через канал 1 независимо от того, открыт ли      ║
+// ║     список игроков. РЕШАЕТ проблему Hassle-мобилки.         ║
+// ║                                                              ║
+// ║  Зависимости: sendToTelegram, debugLog, config,             ║
+// ║               displayName, processUpdates,                  ║
+// ║               setSharedLastUpdateId                         ║
+// ╚══════════════════════════════════════════════════════════════╝
 
 // ==================== FRIEND TRACKER MODULE ====================
 (function () {
@@ -1282,27 +1299,27 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
     // ── Состояние модуля ───────────────────────────────────────
     const ft = {
-        watchList:   new Set(), // нормализованные ники под наблюдением
-        onlineNow:   new Set(), // кто из них сейчас онлайн (de-dup)
-        lastNotifyTs: {},       // когда последний раз слали уведомление
+        watchList:    new Set(), // нормализованные ники под наблюдением
+        onlineNow:    new Set(), // кто из них сейчас онлайн (de-dup)
+        lastNotifyTs: {},        // когда последний раз слали уведомление
+        pollTimer:    null,      // ID интервала авто-опроса (канал 3)
     };
 
-    // Cooldown между повторными уведомлениями об одном игроке (мс).
-    // Защищает от спама если игрок быстро выходит/заходит.
+    // Cooldown между повторными уведомлениями (защита от флуда)
     const FT_COOLDOWN_MS = 60 * 1000; // 1 минута
 
+    // Частота авто-опроса updatePlayerList() — канал 3.
+    // 3 сек: быстро реагируем на вход, но не спамим движок.
+    const FT_POLL_MS = 3 * 1000;
+
+
     // ── Нормализация ника ──────────────────────────────────────
-    // Игра хранит ники с _ вместо пробелов: Иван_Петров → "иван петров"
-    // Пользователь может написать и с пробелом, и с подчёркиванием —
-    // нормализуем оба в одно значение.
+    // "Иван_Петров" → "иван петров", "Иван Петров" → "иван петров"
     function _ftNorm(nick) {
         return (nick || '').replace(/_/g, ' ').trim().toLowerCase();
     }
 
-    // ── Сравнение ников ───────────────────────────────────────
-    // Поддерживает частичный ввод: "Иван" найдёт "Иван Петров".
-    // playerNick — строка из данных PlayersOnline (с _ или без)
-    // watched    — нормализованный ник из watchList
+    // ── Сравнение ников (поддерживает частичный ввод) ─────────
     function _ftMatch(playerNick, watched) {
         const pn = _ftNorm(playerNick);
         return pn === watched
@@ -1328,6 +1345,10 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         if (!norm) return;
         const isNew = !ft.watchList.has(norm);
         ft.watchList.add(norm);
+
+        // Запустить авто-опрос (канал 3) если ещё не запущен
+        _ftEnsurePoll();
+
         const listStr = [...ft.watchList].join(', ') || '—';
         _ftChatNotify(`Слежение: +${rawNick}`);
         sendToTelegram(
@@ -1346,6 +1367,9 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         ft.onlineNow.delete(norm);
         delete ft.lastNotifyTs[norm];
 
+        // Если список опустел — останавливаем авто-опрос
+        if (!ft.watchList.size) _ftStopPoll();
+
         if (existed) {
             _ftChatNotify(`Слежение: −${rawNick}`);
             sendToTelegram(
@@ -1362,7 +1386,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     // ── Показать список → Telegram ────────────────────────────
     function _ftList() {
         const list = [...ft.watchList];
-        if (list.length === 0) {
+        if (!list.length) {
             sendToTelegram(
                 `👁 <b>Список слежения пуст — ${displayName}</b>\n` +
                 `<i>Добавьте ник командой /check Имя_Фамилия</i>`,
@@ -1380,16 +1404,20 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
             );
         }
         _ftChatNotify('Список → Telegram');
-        debugLog(`[TRACKER] /checklist отправлен в Telegram (${ft.watchList.size} ников)`);
+        debugLog(`[TRACKER] /checklist отправлен (${ft.watchList.size} ников)`);
     }
 
-    // ── Анализ входящих данных PlayersOnline ──────────────────
-    // Вызывается при каждом обновлении списка (~1 раз в сек).
-    // rawData — JSON-строка или объект:
-    //   { count, serverName, local: {id, name, ping, ...},
-    //     players: [{id, name, ping, level, ...}, ...] }
+    // ── Анализ входящих данных ────────────────────────────────
+    // Принимает данные из любого канала.
+    // Формат (из PlayersOnline.js / onUpdatePlayersList):
+    //   JSON-строка или объект:
+    //   {
+    //     count?: number, serverName?: string,
+    //     local:   { id, name, ping, ... },
+    //     players: [{ id, name, ping, level?, ... }, ...]
+    //   }
     function _ftCheck(rawData) {
-        if (!ft.watchList.size) return; // список пуст — не разбираем
+        if (!ft.watchList.size) return;
 
         try {
             const data = (typeof rawData === 'string')
@@ -1397,7 +1425,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 : rawData;
             if (!data) return;
 
-            // Собираем все имена из текущего снимка
+            // Собираем все имена из снимка
             const allNames = [];
             if (data.local && data.local.name) {
                 allNames.push(data.local.name);
@@ -1408,15 +1436,14 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 });
             }
 
+            const now = Date.now();
             for (const watched of ft.watchList) {
                 const match     = allNames.find(n => _ftMatch(n, watched));
                 const wasOnline = ft.onlineNow.has(watched);
-                const now       = Date.now();
 
                 if (match && !wasOnline) {
                     // ── Друг только что появился ───────────────────
                     ft.onlineNow.add(watched);
-
                     const lastTs = ft.lastNotifyTs[watched] || 0;
                     if ((now - lastTs) > FT_COOLDOWN_MS) {
                         ft.lastNotifyTs[watched] = now;
@@ -1432,7 +1459,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                     }
 
                 } else if (!match && wasOnline) {
-                    // ── Друг вышел ────────────────────────────────
+                    // ── Друг вышел ─────────────────────────────────
                     ft.onlineNow.delete(watched);
                     debugLog(`[TRACKER] 💤 "${watched}" покинул игру`);
                 }
@@ -1443,8 +1470,149 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         }
     }
 
+
     // ═══════════════════════════════════════════════════════════
-    //  ХУК 1: window.sendChatInput — команды в чате игры
+    //  КАНАЛ 3: Авто-опрос window.updatePlayerList()
+    //
+    //  ЗАЧЕМ:
+    //  На Hassle-мобилке (engine !== "legacy" && isMobile) пользо-
+    //  ватель не открывает PlayersOnline.vue во время игры — оно
+    //  просто не монтируется. Значит updatePlayerList() никто не
+    //  дёргает, и window.onUpdatePlayersList не срабатывает.
+    //  mvdF.js вызывает его раз в 30 сек — слишком долго.
+    //
+    //  МЫ сами вызываем window.updatePlayerList() каждые 3 сек.
+    //  Движок реагирует → вызывает window.onUpdatePlayersList(data)
+    //  → наш Канал 1 отрабатывает → _ftCheck() ловит вход друга.
+    //
+    //  Таймер запускается при первом /check и останавливается
+    //  когда watchList становится пустым.
+    // ═══════════════════════════════════════════════════════════
+    function _ftEnsurePoll() {
+        if (ft.pollTimer !== null) return; // уже запущен
+        ft.pollTimer = setInterval(() => {
+            if (!ft.watchList.size) {
+                _ftStopPoll();
+                return;
+            }
+            try {
+                if (typeof window.updatePlayerList === 'function') {
+                    window.updatePlayerList();
+                }
+            } catch (e) {
+                debugLog(`[TRACKER] poll err: ${e.message}`);
+            }
+        }, FT_POLL_MS);
+        debugLog(`[TRACKER] Авто-опрос запущен (каждые ${FT_POLL_MS / 1000} сек)`);
+    }
+
+    function _ftStopPoll() {
+        if (ft.pollTimer === null) return;
+        clearInterval(ft.pollTimer);
+        ft.pollTimer = null;
+        debugLog('[TRACKER] Авто-опрос остановлен (watchList пуст)');
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
+    //  КАНАЛ 1: window.onUpdatePlayersList
+    //
+    //  Движок вызывает этот глобальный колбэк каждый раз когда
+    //  кто-то дёрнул window.updatePlayerList():
+    //    • PlayersOnline.vue — раз в 1 сек (когда открыт)
+    //    • mvdF.js           — раз в 30 сек (всегда)
+    //    • Наш авто-опрос   — раз в 3 сек (Канал 3, когда watchList не пуст)
+    //
+    //  Данные: { count?, serverName?, local: {name,...}, players: [{name,...}] }
+    // ═══════════════════════════════════════════════════════════
+    const _ftOrigOnUpdatePlayers = window.onUpdatePlayersList;
+    window.onUpdatePlayersList = function (e) {
+        try { _ftCheck(e); } catch (err) {
+            debugLog(`[TRACKER] onUpdatePlayersList err: ${err.message}`);
+        }
+        if (typeof _ftOrigOnUpdatePlayers === 'function') {
+            return _ftOrigOnUpdatePlayers.apply(this, arguments);
+        }
+    };
+
+
+    // ═══════════════════════════════════════════════════════════
+    //  КАНАЛ 2: window.interface('PlayersOnline') Proxy
+    //  (второй вариант через PlayersOnline)
+    //
+    //  КАК РАБОТАЕТ:
+    //  Оборачиваем window.interface() в Proxy. Когда кто-то
+    //  запрашивает window.interface('PlayersOnline'), возвращаем
+    //  обёртку компонента, где setPlayersOnlineData и
+    //  setInterfaceParams перед вызовом оригинала прогоняют
+    //  данные через _ftCheck().
+    //
+    //  КОГДА РАБОТАЕТ:
+    //  • Если движок вызывает window.interface() каждый раз
+    //    (не кэширует ссылку) — Hassle/новый движок.
+    //  • Когда пользователь открывает экран со списком игроков
+    //    (MainMenu → Statistics / Players) — любой движок.
+    //  • Когда любой другой скрипт дёргает interface('PlayersOnline').
+    //
+    //  КОГДА НЕ РАБОТАЕТ:
+    //  • Legacy PC-движок кэширует ссылку при старте — там
+    //    канал 1 + 3 покрывают всё без этого Proxy.
+    //
+    //  PlayersOnline.js expose():
+    //    { setPlayersOnlineData(json), setInterfaceParams(json) }
+    //  Формат данных: JSON-строка {count, serverName, local, players}
+    // ═══════════════════════════════════════════════════════════
+    (function _ftSetupInterfaceProxy() {
+        try {
+            const _origIface = window.interface;
+            if (typeof _origIface !== 'function') {
+                debugLog('[TRACKER] window.interface не найден — Proxy пропущен');
+                return;
+            }
+
+            window.interface = function (name) {
+                const inst = _origIface.apply(this, arguments);
+
+                // Перехватываем только PlayersOnline
+                if (name !== 'PlayersOnline' || inst == null) return inst;
+
+                // Если нужных методов нет — возвращаем как есть
+                const hasSPD = typeof inst.setPlayersOnlineData === 'function';
+                const hasSIP = typeof inst.setInterfaceParams    === 'function';
+                if (!hasSPD && !hasSIP) return inst;
+
+                // Возвращаем Proxy: перехватываем геттер нужных методов
+                return new Proxy(inst, {
+                    get(target, prop) {
+                        const val = target[prop];
+                        if (
+                            (prop === 'setPlayersOnlineData' ||
+                             prop === 'setInterfaceParams') &&
+                            typeof val === 'function'
+                        ) {
+                            return function () {
+                                // Сначала прогоняем данные через трекер
+                                try { _ftCheck(arguments[0]); } catch (e) {
+                                    debugLog(`[TRACKER] PO Proxy err: ${e.message}`);
+                                }
+                                // Потом вызываем оригинал (Vue-компонент обновляется)
+                                return val.apply(target, arguments);
+                            };
+                        }
+                        return val;
+                    }
+                });
+            };
+
+            debugLog('[TRACKER] Канал 2: window.interface Proxy установлен (PlayersOnline)');
+        } catch (e) {
+            debugLog(`[TRACKER] Ошибка установки interface Proxy: ${e.message}`);
+        }
+    })();
+
+
+    // ═══════════════════════════════════════════════════════════
+    //  ХУК: window.sendChatInput — команды в чате игры
     //  Цепочка: этот хук → ZAVOD-хук → оригинал sendChatInput
     // ═══════════════════════════════════════════════════════════
     const _ftOrigChat = window.sendChatInput;
@@ -1472,43 +1640,12 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
             : undefined;
     };
 
-    // ═══════════════════════════════════════════════════════════
-    //  ХУК 2: window.onUpdatePlayersList — данные PlayerList
-    //
-    //  ПОЧЕМУ НЕ PROXY НА PlayersOnline:
-    //  Движок кэширует ссылку на PlayersOnline-компонент при
-    //  старте — ещё до того как Code2 подменяет window.interface.
-    //  После этого все вызовы setPlayersOnlineData/setInterfaceParams
-    //  идут напрямую в компонент, минуя любой Proxy.
-    //
-    //  window.onUpdatePlayersList — глобальный колбэк, который
-    //  движок вызывает каждый раз при updatePlayerList().
-    //  PlayersOnline.js дёргает updatePlayerList() каждые 1 сек,
-    //  mvdF.js — каждые 30 сек. Итого данные приходят ~раз в сек.
-    //  mvdF использует этот же канал для чтения своего ID — он
-    //  гарантированно работает.
-    //
-    //  Формат данных: { local: {id, name, ping}, players: [{...}] }
-    //  — тот же что ожидает _ftCheck.
-    // ═══════════════════════════════════════════════════════════
-    const _ftOrigOnUpdatePlayers = window.onUpdatePlayersList;
-    window.onUpdatePlayersList = function (e) {
-        try { _ftCheck(e); } catch (err) {
-            debugLog(`[TRACKER] onUpdatePlayersList err: ${err.message}`);
-        }
-        if (typeof _ftOrigOnUpdatePlayers === 'function') {
-            return _ftOrigOnUpdatePlayers.apply(this, arguments);
-        }
-    };
 
     // ═══════════════════════════════════════════════════════════
-    //  ХУК 3: processUpdates — команды из Telegram
-    //  Поддерживаемые форматы сообщений в Telegram:
-    //    /check Иван Петров      — с пробелами
-    //    /check_Иван_Петров      — с подчёркиваниями (удобно на мобильном)
-    //    /uncheck Иван Петров
-    //    /uncheck_Иван_Петров
-    //    /checklist
+    //  ХУК: processUpdates — команды из Telegram
+    //  /check Иван Петров      /check_Иван_Петров
+    //  /uncheck Иван Петров    /uncheck_Иван_Петров
+    //  /checklist
     // ═══════════════════════════════════════════════════════════
     const _ftOrigProcUpd = processUpdates;
     processUpdates = function (updates) {
@@ -1521,10 +1658,9 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 const msgText   = upd.message.text.trim();
                 const msgChatId = String(upd.message.chat.id);
 
-                // Принимаем только из наших авторизованных чатов
                 if (config.chatIds.includes(msgChatId)) {
 
-                    // /check Иван Петров   или   /check_Иван_Петров
+                    // /check Иван Петров  или  /check_Иван_Петров
                     // Отрицательный lookahead: не матчить /checklist
                     const addM = msgText.match(/^\/check(?!list)[_ ](.+)$/i);
                     if (addM) {
@@ -1534,7 +1670,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                         consumed = true;
                     }
 
-                    // /uncheck Иван Петров   или   /uncheck_Иван_Петров
+                    // /uncheck Иван Петров  или  /uncheck_Иван_Петров
                     if (!consumed) {
                         const remM = msgText.match(/^\/uncheck[_ ](.+)$/i);
                         if (remM) {
@@ -1561,10 +1697,11 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         if (pass.length > 0) _ftOrigProcUpd(pass);
     };
 
+
     debugLog(
-        '[TRACKER] Friend Tracker v1 загружен.\n' +
-        '  Команды: /check <ник> | /uncheck <ник> | /checklist\n' +
-        '  Также работают из Telegram: /check_Ник, /uncheck_Ник, /checklist'
+        '[TRACKER] Friend Tracker v2 загружен.\n' +
+        '  Каналы: [1] onUpdatePlayersList  [2] interface Proxy  [3] авто-опрос\n' +
+        '  Команды: /check <ник> | /uncheck <ник> | /checklist'
     );
 
 })();
