@@ -1299,17 +1299,16 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
     // ── Состояние модуля ───────────────────────────────────────
     const ft = {
-        watchList:    new Set(), // нормализованные ники под наблюдением
-        onlineNow:    new Set(), // кто из них сейчас онлайн (de-dup)
-        lastNotifyTs: {},        // когда последний раз слали уведомление
-        pollTimer:    null,      // ID интервала авто-опроса (канал 3)
+        watchList:     new Set(), // нормализованные ники под наблюдением
+        onlineNow:     new Set(), // кто из них сейчас в списке (любой level)
+        authorizedNow: new Set(), // кто уже авторизован (level > 0)
+        onlineNames:   {},        // watched → displayNick оригинального регистра
+        lastNotifyTs:  {},        // когда последний раз слали уведомление
+        pollTimer:     null,      // ID интервала авто-опроса (канал 3)
     };
 
-    // Cooldown между повторными уведомлениями (защита от флуда)
-    const FT_COOLDOWN_MS = 60 * 1000; // 1 минута
-
     // Частота авто-опроса updatePlayerList() — канал 3.
-    // 1 сек: мгновенная реакция на вход/выход друга.
+    // 1 сек: мгновенная реакция на вход/выход.
     const FT_POLL_MS = 1 * 1000;
 
 
@@ -1365,6 +1364,8 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         const norm    = _ftNorm(rawNick);
         const existed = ft.watchList.delete(norm);
         ft.onlineNow.delete(norm);
+        ft.authorizedNow.delete(norm);
+        delete ft.onlineNames[norm];
         delete ft.lastNotifyTs[norm];
 
         // Если список опустел — останавливаем авто-опрос
@@ -1425,50 +1426,77 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 : rawData;
             if (!data) return;
 
-            // Собираем все имена из снимка
-            const allNames = [];
+            // Собираем все объекты игроков из снимка (нужен level)
+            const allPlayers = [];
             if (data.local && data.local.name) {
-                allNames.push(data.local.name);
+                allPlayers.push(data.local);
             }
             if (Array.isArray(data.players)) {
                 data.players.forEach(p => {
-                    if (p && p.name) allNames.push(p.name);
+                    if (p && p.name) allPlayers.push(p);
                 });
             }
 
-            const now = Date.now();
             for (const watched of ft.watchList) {
-                const match     = allNames.find(n => _ftMatch(n, watched));
-                const wasOnline = ft.onlineNow.has(watched);
+                const matchedPlayer = allPlayers.find(p => _ftMatch(p.name, watched));
+                const wasOnline     = ft.onlineNow.has(watched);
+                const wasAuthorized = ft.authorizedNow.has(watched);
+                const isOnline      = !!matchedPlayer;
+                const level         = matchedPlayer ? (parseInt(matchedPlayer.level) || 0) : 0;
+                const isAuthorized  = level > 0;
 
-                if (match && !wasOnline) {
-                    // ── Друг только что появился ───────────────────
+                if (isOnline && !wasOnline) {
+                    // ── Игрок появился в списке ─────────────────────
                     ft.onlineNow.add(watched);
-                    const lastTs = ft.lastNotifyTs[watched] || 0;
-                    if ((now - lastTs) > FT_COOLDOWN_MS) {
-                        ft.lastNotifyTs[watched] = now;
-                        const displayNick = match.replace(/_/g, ' ');
-                        debugLog(`[TRACKER] 🎉 "${displayNick}" зашёл в игру!`);
-                        _ftChatNotify(`🎉 ${displayNick} зашёл в игру`);
+                    const displayNick = matchedPlayer.name.replace(/_/g, ' ');
+                    ft.onlineNames[watched] = displayNick; // сохраняем оригинальный регистр
+
+                    if (isAuthorized) {
+                        // Сразу с уровнем (напр. переход между серверами)
+                        ft.authorizedNow.add(watched);
+                        debugLog(`[TRACKER] ✅ "${displayNick}" на сервере`);
+                        _ftChatNotify(`✅ ${displayNick} на сервере`);
                         sendToTelegram(
-                            `🎉 <b>Друг онлайн! — ${displayName}</b>\n` +
-                            `👤 <code>${displayNick}</code> зашёл в игру`,
+                            `✅ <b>На сервере — ${displayName}</b>\n` +
+                            `👤 <code>${displayNick}</code> находится на сервере`,
                             false, null
                         );
                     } else {
-                        debugLog(`[TRACKER] "${watched}" онлайн, но cooldown — не спамим`);
+                        // Level 0 — ещё не прошёл авторизацию
+                        debugLog(`[TRACKER] 🔄 "${displayNick}" зашёл, авторизация...`);
+                        _ftChatNotify(`🔄 ${displayNick} зашёл (авторизация...)`);
+                        sendToTelegram(
+                            `🔄 <b>Авторизация — ${displayName}</b>\n` +
+                            `👤 <code>${displayNick}</code> зашёл, ожидает авторизации`,
+                            false, null
+                        );
                     }
 
-                } else if (!match && wasOnline) {
-                    // ── Друг вышел ─────────────────────────────────
+                } else if (isOnline && wasOnline && !wasAuthorized && isAuthorized) {
+                    // ── Level 0 → > 0: авторизовался ───────────────
+                    ft.authorizedNow.add(watched);
+                    const displayNick = ft.onlineNames[watched]
+                        || matchedPlayer.name.replace(/_/g, ' ');
+                    debugLog(`[TRACKER] ✅ "${displayNick}" авторизовался`);
+                    _ftChatNotify(`✅ ${displayNick} находится на сервере`);
+                    sendToTelegram(
+                        `✅ <b>На сервере — ${displayName}</b>\n` +
+                        `👤 <code>${displayNick}</code> находится на сервере`,
+                        false, null
+                    );
+
+                } else if (!isOnline && wasOnline) {
+                    // ── Игрок покинул игру ──────────────────────────
                     ft.onlineNow.delete(watched);
-                    delete ft.lastNotifyTs[watched]; // FIX v3: сбрасываем cooldown — следующий вход всегда уведомит
-                    const leaveNick = watched.replace(/_/g, ' ');
-                    debugLog(`[TRACKER] 💤 "${leaveNick}" покинул игру`);
-                    _ftChatNotify(`💤 ${leaveNick} покинул игру`);
-                    sendToTelegram(                  // FIX v3: уведомление о выходе
-                        `💤 <b>Друг вышел — ${displayName}</b>\n` +
-                        `👤 <code>${leaveNick}</code> покинул игру`,
+                    ft.authorizedNow.delete(watched);
+                    const displayNick = ft.onlineNames[watched] || watched.replace(/_/g, ' ');
+                    delete ft.onlineNames[watched];
+                    delete ft.lastNotifyTs[watched];
+                    debugLog(`[TRACKER] 💤 "${displayNick}" покинул игру`);
+                    _ftChatNotify(`💤 ${displayNick} покинул игру`);
+                    sendToTelegram(
+                        `💤 <b>Покинул игру — ${displayName}</b>\n` +
+                        `👤 <code>${displayNick}</code> покинул игру`,
                         false, null
                     );
                 }
