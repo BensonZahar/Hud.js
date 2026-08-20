@@ -1291,6 +1291,10 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 // ║  Зависимости: sendToTelegram, debugLog, config,             ║
 // ║               displayName, processUpdates,                  ║
 // ║               setSharedLastUpdateId                         ║
+// ║                                                              ║
+// ║  FIX: authState заменён на lastLevel — отслеживаем         ║
+// ║  переход level 0 → >0 напрямую, без промежуточного         ║
+// ║  строкового стейта, который мог сбрасываться.              ║
 // ╚══════════════════════════════════════════════════════════════╝
 
 // ==================== FRIEND TRACKER MODULE ====================
@@ -1301,7 +1305,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     const ft = {
         watchList:    new Set(), // нормализованные ники под наблюдением
         onlineNow:    new Set(), // кто из них сейчас онлайн (de-dup)
-        authState:    {},        // { [watched]: 'auth' | 'server' } — статус авторизации
+        lastLevel:    {},        // { [watched]: number } — последний известный level (0 = авторизация)
         lastNotifyTs: {},        // когда последний раз слали уведомление
         lastSeenNick: {},        // оригинальный регистр ника (для уведомления о выходе)
         pollTimer:    null,      // ID интервала авто-опроса (канал 3)
@@ -1368,7 +1372,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         const existed = ft.watchList.delete(norm);
         ft.onlineNow.delete(norm);
         delete ft.lastNotifyTs[norm];
-        delete ft.authState[norm];
+        delete ft.lastLevel[norm];
         delete ft.lastSeenNick[norm];
 
         // Если список опустел — останавливаем авто-опрос
@@ -1450,22 +1454,21 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
             for (const watched of ft.watchList) {
                 const matchedPlayer = allPlayers.find(p => _ftMatch(p.name, watched));
                 const wasOnline     = ft.onlineNow.has(watched);
-                const prevAuthState = ft.authState[watched]; // 'auth' | 'server' | undefined
 
                 if (matchedPlayer) {
                     // ── Игрок в списке — обновляем регистр ника ──────
                     ft.lastSeenNick[watched] = matchedPlayer.name;
                     const displayNick = matchedPlayer.name.replace(/_/g, ' ');
-                    const currState   = matchedPlayer.level > 0 ? 'server' : 'auth';
+                    const currLevel   = Number(matchedPlayer.level) || 0;
 
                     if (!wasOnline) {
                         // ── Новый заход ───────────────────────────────
                         ft.onlineNow.add(watched);
-                        ft.authState[watched] = currState;
+                        ft.lastLevel[watched] = currLevel;
                         const lastTs = ft.lastNotifyTs[watched] || 0;
                         if ((now - lastTs) > FT_COOLDOWN_MS) {
                             ft.lastNotifyTs[watched] = now;
-                            if (currState === 'auth') {
+                            if (currLevel === 0) {
                                 debugLog(`[TRACKER] 🔐 "${displayNick}" зашёл — авторизация`);
                                 _ftChatNotify(`🔐 ${displayNick} зашёл (авторизация)`);
                                 sendToTelegram(
@@ -1475,7 +1478,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                                 );
                             } else {
                                 // Редкий случай: появился сразу авторизованным
-                                debugLog(`[TRACKER] ✅ "${displayNick}" зашёл — сразу на сервере`);
+                                debugLog(`[TRACKER] ✅ "${displayNick}" зашёл — сразу на сервере (level ${currLevel})`);
                                 _ftChatNotify(`✅ ${displayNick} зашёл в игру`);
                                 sendToTelegram(
                                     `✅ <b>Игрок зашёл — ${displayName}</b>\n` +
@@ -1487,24 +1490,30 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                             debugLog(`[TRACKER] "${watched}" онлайн, но cooldown — не спамим`);
                         }
 
-                    } else if (prevAuthState === 'auth' && currState === 'server') {
-                        // ── Авторизовался (level 0 → level > 0) ──────
-                        ft.authState[watched] = 'server';
-                        debugLog(`[TRACKER] ✅ "${displayNick}" авторизовался на сервере`);
-                        _ftChatNotify(`✅ ${displayNick} авторизовался`);
-                        sendToTelegram(
-                            `✅ <b>Игрок авторизовался — ${displayName}</b>\n` +
-                            `👤 <code>${displayNick}</code> находится на сервере`,
-                            false, null
-                        );
-
+                    } else {
+                        // ── Игрок уже онлайн — проверяем переход level 0 → >0 ──
+                        const prevLevel = ft.lastLevel[watched] ?? 0;
+                        if (prevLevel === 0 && currLevel > 0) {
+                            // ── Авторизовался (level 0 → level > 0) ──
+                            ft.lastLevel[watched] = currLevel;
+                            debugLog(`[TRACKER] ✅ "${displayNick}" авторизовался на сервере (level ${currLevel})`);
+                            _ftChatNotify(`✅ ${displayNick} авторизовался`);
+                            sendToTelegram(
+                                `✅ <b>Игрок авторизовался — ${displayName}</b>\n` +
+                                `👤 <code>${displayNick}</code> находится на сервере`,
+                                false, null
+                            );
+                        } else {
+                            // Просто обновляем уровень (без уведомления)
+                            ft.lastLevel[watched] = currLevel;
+                        }
                     }
-                    // prevState === 'server' && currState === 'auth' — невозможно в норме, игнорируем
+                    // level > 0 → 0 в норме невозможно, игнорируем
 
                 } else if (wasOnline) {
                     // ── Игрок вышел ──────────────────────────────────
                     ft.onlineNow.delete(watched);
-                    delete ft.authState[watched];
+                    delete ft.lastLevel[watched];
                     delete ft.lastNotifyTs[watched]; // сбрасываем cooldown — следующий вход всегда уведомит
                     const rawLeave = ft.lastSeenNick[watched] || watched;
                     delete ft.lastSeenNick[watched];
@@ -1755,7 +1764,8 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     debugLog(
         '[TRACKER] Friend Tracker v2 загружен.\n' +
         '  Каналы: [1] onUpdatePlayersList  [2] interface Proxy  [3] авто-опрос\n' +
-        '  Команды: /check <ник> | /uncheck <ник> | /checklist'
+        '  Команды: /check <ник> | /uncheck <ник> | /checklist\n' +
+        '  Детект авторизации: lastLevel (level 0 → >0)'
     );
 
 })();
