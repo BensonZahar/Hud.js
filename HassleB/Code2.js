@@ -1251,6 +1251,10 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 // eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
 
 
+// Code2.js — продолжение Code.js в отдельном файле
+// eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
+
+
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  MODULE: FRIEND TRACKER v2                                   ║
 // ║  Описание: Отслеживание входа друзей.                       ║
@@ -1271,26 +1275,31 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 // ║                                                              ║
 // ║  1. window.onUpdatePlayersList                              ║
 // ║     Глобальный колбэк движка. Срабатывает когда кто-то     ║
-// ║     вызывает window.updatePlayerList() — PlayersOnline.vue  ║
-// ║     (~1 сек пока открыт) или mvdF.js (~30 сек).            ║
-// ║     На Hassle-мобилке без открытого списка — только 30 сек. ║
+// ║     вызывает window.updatePlayerList(). Данные приходят     ║
+// ║     БЕЗ поля level на Hassle. Ловит присутствие/отсутствие.║
 // ║                                                              ║
 // ║  2. window.interface('PlayersOnline') Proxy                 ║
 // ║     Перехватывает setPlayersOnlineData / setInterfaceParams  ║
-// ║     на уровне window.interface(). Работает если движок НЕ   ║
-// ║     кэширует ссылку на компонент (Hassle / новый движок).   ║
-// ║     На PC legacy движке скорее всего не нужен (есть канал 1)║
-// ║     но добавлен как надёжный второй вариант.                ║
+// ║     на уровне window.interface(). Данные приходят С полем   ║
+// ║     level — это единственный источник level на Hassle.      ║
 // ║                                                              ║
-// ║  3. Авто-опрос window.updatePlayerList() [FIX HASSLE]       ║
-// ║     Code2.js сам вызывает updatePlayerList() каждые 3 сек   ║
-// ║     пока watchList не пуст. Это заставляет движок слать     ║
-// ║     данные через канал 1 независимо от того, открыт ли      ║
-// ║     список игроков. РЕШАЕТ проблему Hassle-мобилки.         ║
+// ║  FIX (Hassle mobile): раньше прокси возвращал inst=false   ║
+// ║  (компонент не смонтирован) и крашился на false.method.     ║
+// ║  Теперь прокси ВСЕГДА возвращает валидный объект — даже     ║
+// ║  когда PlayersOnline не открыт. Движок вызывает             ║
+// ║  setPlayersOnlineData() напрямую, мы перехватываем.         ║
+// ║                                                              ║
+// ║  3. Авто-опрос window.updatePlayerList()                    ║
+// ║     Вызываем каждые 1 сек пока watchList не пуст.           ║
+// ║     Даёт быстрое обнаружение входа/выхода через Канал 1     ║
+// ║     (без level, но с именем — этого достаточно для выхода). ║
 // ║                                                              ║
 // ║  Зависимости: sendToTelegram, debugLog, config,             ║
 // ║               displayName, processUpdates,                  ║
 // ║               setSharedLastUpdateId                         ║
+// ║                                                              ║
+// ║  Детект авторизации: lastLevel (level 0 → >0)              ║
+// ║  Level поступает только через Канал 2 (PlayersOnline Proxy).║
 // ╚══════════════════════════════════════════════════════════════╝
 
 // ==================== FRIEND TRACKER MODULE ====================
@@ -1301,6 +1310,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     const ft = {
         watchList:    new Set(), // нормализованные ники под наблюдением
         onlineNow:    new Set(), // кто из них сейчас онлайн (de-dup)
+        lastLevel:    {},        // { [watched]: number } — последний известный level (0 = авторизация)
         lastNotifyTs: {},        // когда последний раз слали уведомление
         lastSeenNick: {},        // оригинальный регистр ника (для уведомления о выходе)
         pollTimer:    null,      // ID интервала авто-опроса (канал 3)
@@ -1367,6 +1377,8 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         const existed = ft.watchList.delete(norm);
         ft.onlineNow.delete(norm);
         delete ft.lastNotifyTs[norm];
+        delete ft.lastLevel[norm];
+        delete ft.lastSeenNick[norm];
 
         // Если список опустел — останавливаем авто-опрос
         if (!ft.watchList.size) _ftStopPoll();
@@ -1414,7 +1426,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     //   JSON-строка или объект:
     //   {
     //     count?: number, serverName?: string,
-    //     local:   { id, name, ping, ... },
+    //     local:   { id, name, ping, level?, ... },
     //     players: [{ id, name, ping, level?, ... }, ...]
     //   }
     function _ftCheck(rawData) {
@@ -1426,52 +1438,94 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 : rawData;
             if (!data) return;
 
-            // Собираем все имена из снимка
-            const allNames = [];
+            // ── Собираем всех игроков из снимка (имя + уровень) ──
+            const allPlayers = [];
             if (data.local && data.local.name) {
-                allNames.push(data.local.name);
+                allPlayers.push({
+                    name:  data.local.name,
+                    level: Number(data.local.level) || 0
+                });
             }
             if (Array.isArray(data.players)) {
                 data.players.forEach(p => {
-                    if (p && p.name) allNames.push(p.name);
+                    if (p && p.name) allPlayers.push({
+                        name:  p.name,
+                        level: Number(p.level) || 0
+                    });
                 });
             }
 
             const now = Date.now();
             for (const watched of ft.watchList) {
-                const match     = allNames.find(n => _ftMatch(n, watched));
-                const wasOnline = ft.onlineNow.has(watched);
+                const matchedPlayer = allPlayers.find(p => _ftMatch(p.name, watched));
+                const wasOnline     = ft.onlineNow.has(watched);
 
-                if (match && !wasOnline) {
-                    // ── Игрок только что появился ──────────────────
-                    ft.onlineNow.add(watched);
-                    ft.lastSeenNick[watched] = match; // запоминаем оригинальный регистр
-                    const lastTs = ft.lastNotifyTs[watched] || 0;
-                    if ((now - lastTs) > FT_COOLDOWN_MS) {
-                        ft.lastNotifyTs[watched] = now;
-                        const displayNick = match.replace(/_/g, ' ');
-                        debugLog(`[TRACKER] 🎉 "${displayNick}" зашёл в игру!`);
-                        _ftChatNotify(`🎉 ${displayNick} зашёл в игру`);
-                        sendToTelegram(
-                            `🎉 <b>Игрок онлайн! — ${displayName}</b>\n` +
-                            `👤 <code>${displayNick}</code> зашёл в игру`,
-                            false, null
-                        );
+                if (matchedPlayer) {
+                    // ── Игрок в списке — обновляем регистр ника ──────
+                    ft.lastSeenNick[watched] = matchedPlayer.name;
+                    const displayNick = matchedPlayer.name.replace(/_/g, ' ');
+                    const currLevel   = Number(matchedPlayer.level) || 0;
+
+                    if (!wasOnline) {
+                        // ── Новый заход ───────────────────────────────
+                        ft.onlineNow.add(watched);
+                        ft.lastLevel[watched] = currLevel;
+                        const lastTs = ft.lastNotifyTs[watched] || 0;
+                        if ((now - lastTs) > FT_COOLDOWN_MS) {
+                            ft.lastNotifyTs[watched] = now;
+                            if (currLevel === 0) {
+                                debugLog(`[TRACKER] 🔐 "${displayNick}" зашёл — авторизация`);
+                                _ftChatNotify(`🔐 ${displayNick} зашёл (авторизация)`);
+                                sendToTelegram(
+                                    `🔐 <b>Игрок зашёл — ${displayName}</b>\n` +
+                                    `👤 <code>${displayNick}</code> находится на авторизации`,
+                                    false, null
+                                );
+                            } else {
+                                // Редкий случай: появился сразу авторизованным
+                                debugLog(`[TRACKER] ✅ "${displayNick}" зашёл — сразу на сервере (level ${currLevel})`);
+                                _ftChatNotify(`✅ ${displayNick} зашёл в игру`);
+                                sendToTelegram(
+                                    `✅ <b>Игрок зашёл — ${displayName}</b>\n` +
+                                    `👤 <code>${displayNick}</code> находится на сервере`,
+                                    false, null
+                                );
+                            }
+                        } else {
+                            debugLog(`[TRACKER] "${watched}" онлайн, но cooldown — не спамим`);
+                        }
+
                     } else {
-                        debugLog(`[TRACKER] "${watched}" онлайн, но cooldown — не спамим`);
+                        // ── Игрок уже онлайн — проверяем переход level 0 → >0 ──
+                        const prevLevel = ft.lastLevel[watched] ?? 0;
+                        if (prevLevel === 0 && currLevel > 0) {
+                            // ── Авторизовался (level 0 → level > 0) ──
+                            ft.lastLevel[watched] = currLevel;
+                            debugLog(`[TRACKER] ✅ "${displayNick}" авторизовался на сервере (level ${currLevel})`);
+                            _ftChatNotify(`✅ ${displayNick} авторизовался`);
+                            sendToTelegram(
+                                `✅ <b>Игрок авторизовался — ${displayName}</b>\n` +
+                                `👤 <code>${displayNick}</code> находится на сервере`,
+                                false, null
+                            );
+                        } else {
+                            // Просто обновляем уровень (без уведомления)
+                            ft.lastLevel[watched] = currLevel;
+                        }
                     }
+                    // level > 0 → 0 в норме невозможно, игнорируем
 
-                } else if (!match && wasOnline) {
-                    // ── Игрок вышел ────────────────────────────────
+                } else if (wasOnline) {
+                    // ── Игрок вышел ──────────────────────────────────
                     ft.onlineNow.delete(watched);
-                    delete ft.lastNotifyTs[watched]; // FIX v3: сбрасываем cooldown — следующий вход всегда уведомит
-                    // FIX v4: берём оригинальный регистр ника из lastSeenNick
+                    delete ft.lastLevel[watched];
+                    delete ft.lastNotifyTs[watched]; // сбрасываем cooldown — следующий вход всегда уведомит
                     const rawLeave = ft.lastSeenNick[watched] || watched;
                     delete ft.lastSeenNick[watched];
                     const leaveNick = rawLeave.replace(/_/g, ' ');
                     debugLog(`[TRACKER] 💤 "${leaveNick}" покинул игру`);
                     _ftChatNotify(`💤 ${leaveNick} покинул игру`);
-                    sendToTelegram(                  // FIX v3: уведомление о выходе
+                    sendToTelegram(
                         `💤 <b>Игрок вышел — ${displayName}</b>\n` +
                         `👤 <code>${leaveNick}</code> покинул игру`,
                         false, null
@@ -1488,16 +1542,9 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     // ═══════════════════════════════════════════════════════════
     //  КАНАЛ 3: Авто-опрос window.updatePlayerList()
     //
-    //  ЗАЧЕМ:
-    //  На Hassle-мобилке (engine !== "legacy" && isMobile) пользо-
-    //  ватель не открывает PlayersOnline.vue во время игры — оно
-    //  просто не монтируется. Значит updatePlayerList() никто не
-    //  дёргает, и window.onUpdatePlayersList не срабатывает.
-    //  mvdF.js вызывает его раз в 30 сек — слишком долго.
-    //
-    //  МЫ сами вызываем window.updatePlayerList() каждые 3 сек.
-    //  Движок реагирует → вызывает window.onUpdatePlayersList(data)
-    //  → наш Канал 1 отрабатывает → _ftCheck() ловит вход друга.
+    //  Вызываем updatePlayerList() каждую секунду пока watchList
+    //  не пуст. Это даёт быстрое срабатывание Канала 1 (вход/
+    //  выход без level). Level приходит отдельно через Канал 2.
     //
     //  Таймер запускается при первом /check и останавливается
     //  когда watchList становится пустым.
@@ -1535,9 +1582,10 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     //  кто-то дёрнул window.updatePlayerList():
     //    • PlayersOnline.vue — раз в 1 сек (когда открыт)
     //    • mvdF.js           — раз в 30 сек (всегда)
-    //    • Наш авто-опрос   — раз в 3 сек (Канал 3, когда watchList не пуст)
+    //    • Наш авто-опрос   — раз в 1 сек (Канал 3, когда watchList не пуст)
     //
-    //  Данные: { count?, serverName?, local: {name,...}, players: [{name,...}] }
+    //  На Hassle: данные приходят БЕЗ поля level.
+    //  Level детектируется только через Канал 2.
     // ═══════════════════════════════════════════════════════════
     const _ftOrigOnUpdatePlayers = window.onUpdatePlayersList;
     window.onUpdatePlayersList = function (e) {
@@ -1551,30 +1599,45 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
 
     // ═══════════════════════════════════════════════════════════
-    //  КАНАЛ 2: window.interface('PlayersOnline') Proxy
-    //  (второй вариант через PlayersOnline)
+    //  КАНАЛ 2: window.interface('PlayersOnline') Proxy  [FIXED]
     //
     //  КАК РАБОТАЕТ:
-    //  Оборачиваем window.interface() в Proxy. Когда кто-то
-    //  запрашивает window.interface('PlayersOnline'), возвращаем
-    //  обёртку компонента, где setPlayersOnlineData и
-    //  setInterfaceParams перед вызовом оригинала прогоняют
-    //  данные через _ftCheck().
+    //  Оборачиваем window.interface() в Proxy. При любом вызове
+    //  window.interface('PlayersOnline') — независимо от того,
+    //  смонтирован компонент или нет — возвращаем прокси-объект,
+    //  который перехватывает setPlayersOnlineData и
+    //  setInterfaceParams и прогоняет данные через _ftCheck().
+    //
+    //  ПОЧЕМУ БЫЛ БАГ НА HASSLE MOBILE:
+    //  Когда PlayersOnline не открыт, window.interface('PlayersOnline')
+    //  возвращает false (не null). Старый код проверял inst == null,
+    //  что не ловило false, и следующая строка
+    //    typeof inst.setPlayersOnlineData
+    //  бросала TypeError — движок замолкал и переставал слать данные.
+    //
+    //  ЧТО ИСПРАВЛЕНО:
+    //  Теперь прокси возвращается ВСЕГДА:
+    //    • Если компонент смонтирован (inst — Vue-объект) →
+    //      target = inst, методы перехватываются + форвардятся.
+    //    • Если не смонтирован (inst = false/null/undefined) →
+    //      target = {}, создаём виртуальный таргет.
+    //      Hassle-движок вызывает setPlayersOnlineData() на нём,
+    //      мы перехватываем данные с level и зовём _ftCheck().
     //
     //  КОГДА РАБОТАЕТ:
-    //  • Если движок вызывает window.interface() каждый раз
-    //    (не кэширует ссылку) — Hassle/новый движок.
-    //  • Когда пользователь открывает экран со списком игроков
-    //    (MainMenu → Statistics / Players) — любой движок.
-    //  • Когда любой другой скрипт дёргает interface('PlayersOnline').
+    //  • Hassle mobile — PlayersOnline НЕ открыт (основной кейс).
+    //  • Hassle/Legacy — PlayersOnline открыт пользователем.
+    //  • Любой движок, когда другой скрипт дёргает interface().
     //
     //  КОГДА НЕ РАБОТАЕТ:
-    //  • Legacy PC-движок кэширует ссылку при старте — там
-    //    канал 1 + 3 покрывают всё без этого Proxy.
+    //  • Legacy PC — кэширует ссылку на компонент при старте,
+    //    не вызывает window.interface() повторно. Там достаточно
+    //    Канала 1 + 3.
     //
     //  PlayersOnline.js expose():
     //    { setPlayersOnlineData(json), setInterfaceParams(json) }
-    //  Формат данных: JSON-строка {count, serverName, local, players}
+    //  Формат данных: JSON-строка или объект
+    //    { count, serverName, local: {name, level, ...}, players: [{name, level, ...}] }
     // ═══════════════════════════════════════════════════════════
     (function _ftSetupInterfaceProxy() {
         try {
@@ -1588,37 +1651,43 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 const inst = _origIface.apply(this, arguments);
 
                 // Перехватываем только PlayersOnline
-                if (name !== 'PlayersOnline' || inst == null) return inst;
+                if (name !== 'PlayersOnline') return inst;
 
-                // Если нужных методов нет — возвращаем как есть
-                const hasSPD = typeof inst.setPlayersOnlineData === 'function';
-                const hasSIP = typeof inst.setInterfaceParams    === 'function';
-                if (!hasSPD && !hasSIP) return inst;
+                // ── FIX: раньше здесь был `inst == null` — не ловило false.
+                // Теперь: если компонент смонтирован — используем его как таргет,
+                // иначе создаём пустой объект-заглушку. Прокси возвращается ВСЕГДА.
+                const realInst = (inst !== null && inst !== undefined && inst !== false)
+                    ? inst
+                    : null;
 
-                // Возвращаем Proxy: перехватываем геттер нужных методов
-                return new Proxy(inst, {
+                return new Proxy(realInst || {}, {
                     get(target, prop) {
-                        const val = target[prop];
                         if (
-                            (prop === 'setPlayersOnlineData' ||
-                             prop === 'setInterfaceParams') &&
-                            typeof val === 'function'
+                            prop === 'setPlayersOnlineData' ||
+                            prop === 'setInterfaceParams'
                         ) {
                             return function () {
-                                // Сначала прогоняем данные через трекер
+                                // Прогоняем данные через трекер (здесь есть level!)
                                 try { _ftCheck(arguments[0]); } catch (e) {
                                     debugLog(`[TRACKER] PO Proxy err: ${e.message}`);
                                 }
-                                // Потом вызываем оригинал (Vue-компонент обновляется)
-                                return val.apply(target, arguments);
+                                // Если компонент реально смонтирован — зовём оригинал
+                                // чтобы Vue-компонент тоже обновил UI
+                                if (realInst) {
+                                    const fn = realInst[prop];
+                                    if (typeof fn === 'function') {
+                                        return fn.apply(realInst, arguments);
+                                    }
+                                }
                             };
                         }
-                        return val;
+                        // Остальные свойства — из реального компонента или undefined
+                        return realInst ? realInst[prop] : undefined;
                     }
                 });
             };
 
-            debugLog('[TRACKER] Канал 2: window.interface Proxy установлен (PlayersOnline)');
+            debugLog('[TRACKER] Канал 2: window.interface Proxy установлен (PlayersOnline, Hassle-ready)');
         } catch (e) {
             debugLog(`[TRACKER] Ошибка установки interface Proxy: ${e.message}`);
         }
@@ -1714,8 +1783,9 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
     debugLog(
         '[TRACKER] Friend Tracker v2 загружен.\n' +
-        '  Каналы: [1] onUpdatePlayersList  [2] interface Proxy  [3] авто-опрос\n' +
-        '  Команды: /check <ник> | /uncheck <ник> | /checklist'
+        '  Каналы: [1] onUpdatePlayersList  [2] interface Proxy (fixed)  [3] авто-опрос\n' +
+        '  Команды: /check <ник> | /uncheck <ник> | /checklist\n' +
+        '  Детект авторизации: lastLevel (level 0 → >0) via Канал 2'
     );
 
 })();
