@@ -1496,14 +1496,14 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
                     // Перехватываем setPlayersOnlineData (основной метод)
                     // и setInterfaceParams (его алиас в PlayersOnline.js)
+                    // FIX: _ftCheck вызывается для ОБОИХ методов —
+                    // движок игры зовёт setInterfaceParams, а не setPlayersOnlineData
                     if ((prop === 'setPlayersOnlineData' ||
                          prop === 'setInterfaceParams') &&
                         typeof val === 'function') {
                         return function (data) {
-                            if (prop === 'setPlayersOnlineData') {
-                                try { _ftCheck(data); } catch (e) {
-                                    debugLog(`[TRACKER] Proxy err: ${e.message}`);
-                                }
+                            try { _ftCheck(data); } catch (e) {
+                                debugLog(`[TRACKER] Proxy err: ${e.message}`);
                             }
                             return val.apply(target, arguments);
                         };
