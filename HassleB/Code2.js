@@ -1303,6 +1303,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         onlineNow:    new Set(), // кто из них сейчас онлайн (de-dup)
         lastNotifyTs: {},        // когда последний раз слали уведомление
         lastSeenNick: {},        // оригинальный регистр ника (для уведомления о выходе)
+        authState:    {},        // true = игрок на авторизации (level===0), false = на сервере
         pollTimer:    null,      // ID интервала авто-опроса (канал 3)
     };
 
@@ -1414,9 +1415,13 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     //   JSON-строка или объект:
     //   {
     //     count?: number, serverName?: string,
-    //     local:   { id, name, ping, ... },
-    //     players: [{ id, name, ping, level?, ... }, ...]
+    //     local:   { id, name, ping, level, ... },
+    //     players: [{ id, name, ping, level, ... }, ...]
     //   }
+    //
+    // Логика статуса по уровню (level из PlayersOnline.js):
+    //   level === 0  →  игрок на экране авторизации (ещё не ввёл пароль)
+    //   level  > 0  →  игрок авторизован и находится на сервере
     function _ftCheck(rawData) {
         if (!ft.watchList.size) return;
 
@@ -1426,52 +1431,96 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 : rawData;
             if (!data) return;
 
-            // Собираем все имена из снимка
-            const allNames = [];
+            // Собираем всех игроков с именем и уровнем из снимка
+            const allPlayers = [];
             if (data.local && data.local.name) {
-                allNames.push(data.local.name);
+                allPlayers.push({
+                    name:  data.local.name,
+                    level: parseInt(data.local.level ?? 0, 10) || 0
+                });
             }
             if (Array.isArray(data.players)) {
                 data.players.forEach(p => {
-                    if (p && p.name) allNames.push(p.name);
+                    if (p && p.name) {
+                        allPlayers.push({
+                            name:  p.name,
+                            level: parseInt(p.level ?? 0, 10) || 0
+                        });
+                    }
                 });
             }
 
             const now = Date.now();
             for (const watched of ft.watchList) {
-                const match     = allNames.find(n => _ftMatch(n, watched));
-                const wasOnline = ft.onlineNow.has(watched);
+                const matchPlayer = allPlayers.find(p => _ftMatch(p.name, watched));
+                const wasOnline   = ft.onlineNow.has(watched);
 
-                if (match && !wasOnline) {
-                    // ── Игрок только что появился ──────────────────
-                    ft.onlineNow.add(watched);
-                    ft.lastSeenNick[watched] = match; // запоминаем оригинальный регистр
-                    const lastTs = ft.lastNotifyTs[watched] || 0;
-                    if ((now - lastTs) > FT_COOLDOWN_MS) {
-                        ft.lastNotifyTs[watched] = now;
-                        const displayNick = match.replace(/_/g, ' ');
-                        debugLog(`[TRACKER] 🎉 "${displayNick}" зашёл в игру!`);
-                        _ftChatNotify(`🎉 ${displayNick} зашёл в игру`);
-                        sendToTelegram(
-                            `🎉 <b>Игрок онлайн! — ${displayName}</b>\n` +
-                            `👤 <code>${displayNick}</code> зашёл в игру`,
-                            false, null
-                        );
+                if (matchPlayer) {
+                    const level         = matchPlayer.level;
+                    const isAuthorizing = level === 0;
+                    const statusText    = isAuthorizing
+                        ? '🔐 Находится на авторизации'
+                        : '🟢 Находится на сервере';
+
+                    if (!wasOnline) {
+                        // ── Игрок только что появился ──────────────────
+                        ft.onlineNow.add(watched);
+                        ft.lastSeenNick[watched] = matchPlayer.name; // оригинальный регистр
+                        ft.authState[watched]    = isAuthorizing;    // запоминаем статус
+
+                        const lastTs = ft.lastNotifyTs[watched] || 0;
+                        if ((now - lastTs) > FT_COOLDOWN_MS) {
+                            ft.lastNotifyTs[watched] = now;
+                            const displayNick = matchPlayer.name.replace(/_/g, ' ');
+                            debugLog(`[TRACKER] 🎉 "${displayNick}" зашёл — ${statusText}`);
+                            _ftChatNotify(`🎉 ${displayNick} — ${statusText}`);
+                            sendToTelegram(
+                                `🎉 <b>Игрок онлайн! — ${displayName}</b>\n` +
+                                `👤 <code>${displayNick}</code>\n` +
+                                `📊 Уровень: ${level}\n` +
+                                statusText,
+                                false, null
+                            );
+                        } else {
+                            debugLog(`[TRACKER] "${watched}" онлайн (${statusText}), но cooldown — не спамим`);
+                        }
+
                     } else {
-                        debugLog(`[TRACKER] "${watched}" онлайн, но cooldown — не спамим`);
+                        // ── Игрок уже был онлайн — проверяем смену статуса ──
+                        const wasAuthorizing = ft.authState[watched] === true;
+
+                        if (wasAuthorizing && !isAuthorizing) {
+                            // Авторизовался: level был 0, теперь > 0
+                            ft.authState[watched]    = false;
+                            ft.lastSeenNick[watched] = matchPlayer.name;
+                            const displayNick = matchPlayer.name.replace(/_/g, ' ');
+
+                            debugLog(`[TRACKER] ✅ "${displayNick}" авторизовался (уровень ${level})`);
+                            _ftChatNotify(`✅ ${displayNick} — 🟢 Находится на сервере`);
+                            sendToTelegram(
+                                `✅ <b>Игрок авторизовался — ${displayName}</b>\n` +
+                                `👤 <code>${displayNick}</code>\n` +
+                                `📊 Уровень: ${level}\n` +
+                                `🟢 Находится на сервере`,
+                                false, null
+                            );
+                        } else {
+                            // Просто обновляем уровень (на случай дальнейших изменений)
+                            ft.authState[watched] = isAuthorizing;
+                        }
                     }
 
-                } else if (!match && wasOnline) {
+                } else if (!matchPlayer && wasOnline) {
                     // ── Игрок вышел ────────────────────────────────
                     ft.onlineNow.delete(watched);
-                    delete ft.lastNotifyTs[watched]; // FIX v3: сбрасываем cooldown — следующий вход всегда уведомит
-                    // FIX v4: берём оригинальный регистр ника из lastSeenNick
+                    delete ft.authState[watched];
+                    delete ft.lastNotifyTs[watched]; // сбрасываем cooldown — следующий вход всегда уведомит
                     const rawLeave = ft.lastSeenNick[watched] || watched;
                     delete ft.lastSeenNick[watched];
                     const leaveNick = rawLeave.replace(/_/g, ' ');
                     debugLog(`[TRACKER] 💤 "${leaveNick}" покинул игру`);
                     _ftChatNotify(`💤 ${leaveNick} покинул игру`);
-                    sendToTelegram(                  // FIX v3: уведомление о выходе
+                    sendToTelegram(
                         `💤 <b>Игрок вышел — ${displayName}</b>\n` +
                         `👤 <code>${leaveNick}</code> покинул игру`,
                         false, null
