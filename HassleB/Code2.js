@@ -1461,7 +1461,13 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 } else if (!match && wasOnline) {
                     // ── Друг вышел ─────────────────────────────────
                     ft.onlineNow.delete(watched);
+                    delete ft.lastNotifyTs[watched]; // FIX v3: сбрасываем cooldown — следующий вход всегда уведомит
                     debugLog(`[TRACKER] 💤 "${watched}" покинул игру`);
+                    sendToTelegram(                  // FIX v3: уведомление о выходе
+                        `💤 <b>Друг вышел — ${displayName}</b>\n` +
+                        `👤 <code>${watched.replace(/_/g, ' ')}</code> покинул игру`,
+                        false, null
+                    );
                 }
             }
 
