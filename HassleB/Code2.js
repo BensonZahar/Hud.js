@@ -1309,8 +1309,8 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
     const FT_COOLDOWN_MS = 60 * 1000; // 1 минута
 
     // Частота авто-опроса updatePlayerList() — канал 3.
-    // 3 сек: быстро реагируем на вход, но не спамим движок.
-    const FT_POLL_MS = 3 * 1000;
+    // 1 сек: мгновенная реакция на вход/выход друга.
+    const FT_POLL_MS = 1 * 1000;
 
 
     // ── Нормализация ника ──────────────────────────────────────
@@ -1449,6 +1449,7 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                         ft.lastNotifyTs[watched] = now;
                         const displayNick = match.replace(/_/g, ' ');
                         debugLog(`[TRACKER] 🎉 "${displayNick}" зашёл в игру!`);
+                        _ftChatNotify(`🎉 ${displayNick} зашёл в игру`);
                         sendToTelegram(
                             `🎉 <b>Друг онлайн! — ${displayName}</b>\n` +
                             `👤 <code>${displayNick}</code> зашёл в игру`,
@@ -1462,10 +1463,12 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                     // ── Друг вышел ─────────────────────────────────
                     ft.onlineNow.delete(watched);
                     delete ft.lastNotifyTs[watched]; // FIX v3: сбрасываем cooldown — следующий вход всегда уведомит
-                    debugLog(`[TRACKER] 💤 "${watched}" покинул игру`);
+                    const leaveNick = watched.replace(/_/g, ' ');
+                    debugLog(`[TRACKER] 💤 "${leaveNick}" покинул игру`);
+                    _ftChatNotify(`💤 ${leaveNick} покинул игру`);
                     sendToTelegram(                  // FIX v3: уведомление о выходе
                         `💤 <b>Друг вышел — ${displayName}</b>\n` +
-                        `👤 <code>${watched.replace(/_/g, ' ')}</code> покинул игру`,
+                        `👤 <code>${leaveNick}</code> покинул игру`,
                         false, null
                     );
                 }
