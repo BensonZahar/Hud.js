@@ -1247,3 +1247,346 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
 })();
 // ==================== END ZAVOD MODULE ====================
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: FRIEND TRACKER v1                               ║
+// ║  Описание: Отслеживание входа друзей через PlayersOnline.║
+// ║             При появлении ника в списке онлайн —        ║
+// ║             уведомление в Telegram.                      ║
+// ║                                                          ║
+// ║  Команды в ЧАТЕ ИГРЫ:                                   ║
+// ║    /check <ник>   — добавить в слежение                 ║
+// ║    /uncheck <ник> — убрать из слежения                  ║
+// ║    /checklist     — список онлайн → Telegram            ║
+// ║                                                          ║
+// ║  Команды в TELEGRAM:                                    ║
+// ║    /check_Иван_Петров  или  /check Иван Петров          ║
+// ║    /uncheck_Иван_Петров или  /uncheck Иван Петров       ║
+// ║    /checklist                                            ║
+// ║                                                          ║
+// ║  Как работает перехват:                                  ║
+// ║    Vue expose() создаёт shallowReadonly-прокси —        ║
+// ║    прямое inst.setPlayersOnlineData = fn СЛОМАЕТСЯ.     ║
+// ║    Поэтому оборачиваем возврат window.interface()       ║
+// ║    в JS Proxy — прозрачно, без мутации Vue-объекта.     ║
+// ║    Движок вызывает window.interface('PlayersOnline')     ║
+// ║    .setPlayersOnlineData(json) каждые ~1 сек.          ║
+// ║                                                          ║
+// ║  Зависимости: sendToTelegram, debugLog, config,         ║
+// ║               displayName, processUpdates,              ║
+// ║               setSharedLastUpdateId                     ║
+// ╚══════════════════════════════════════════════════════════╝
+
+// ==================== FRIEND TRACKER MODULE ====================
+(function () {
+    'use strict';
+
+    // ── Состояние модуля ───────────────────────────────────────
+    const ft = {
+        watchList:   new Set(), // нормализованные ники под наблюдением
+        onlineNow:   new Set(), // кто из них сейчас онлайн (de-dup)
+        lastNotifyTs: {},       // когда последний раз слали уведомление
+    };
+
+    // Cooldown между повторными уведомлениями об одном игроке (мс).
+    // Защищает от спама если игрок быстро выходит/заходит.
+    const FT_COOLDOWN_MS = 60 * 1000; // 1 минута
+
+    // ── Нормализация ника ──────────────────────────────────────
+    // Игра хранит ники с _ вместо пробелов: Иван_Петров → "иван петров"
+    // Пользователь может написать и с пробелом, и с подчёркиванием —
+    // нормализуем оба в одно значение.
+    function _ftNorm(nick) {
+        return (nick || '').replace(/_/g, ' ').trim().toLowerCase();
+    }
+
+    // ── Сравнение ников ───────────────────────────────────────
+    // Поддерживает частичный ввод: "Иван" найдёт "Иван Петров".
+    // playerNick — строка из данных PlayersOnline (с _ или без)
+    // watched    — нормализованный ник из watchList
+    function _ftMatch(playerNick, watched) {
+        const pn = _ftNorm(playerNick);
+        return pn === watched
+            || pn.includes(watched)
+            || watched.includes(pn);
+    }
+
+    // ── Уведомление в чат игры ────────────────────────────────
+    function _ftChatNotify(msg) {
+        try {
+            if (typeof window.onChatMessage === 'function') {
+                window.onChatMessage(
+                    `{9999FF}[TRACKER] {FFFFFF}${msg}`,
+                    'FFFFFFFF'
+                );
+            }
+        } catch (e) { /* тихо */ }
+    }
+
+    // ── Добавить в слежение ───────────────────────────────────
+    function _ftAdd(rawNick) {
+        const norm = _ftNorm(rawNick);
+        if (!norm) return;
+        const isNew = !ft.watchList.has(norm);
+        ft.watchList.add(norm);
+        const listStr = [...ft.watchList].join(', ') || '—';
+        _ftChatNotify(`Слежение: +${rawNick}`);
+        sendToTelegram(
+            `👁 <b>Слежение добавлено — ${displayName}</b>\n` +
+            `🎯 Ник: <code>${rawNick}</code>\n` +
+            `📋 Список [${ft.watchList.size}]: ${listStr}`,
+            false, null
+        );
+        debugLog(`[TRACKER] Добавлен: "${norm}" (${isNew ? 'новый' : 'уже был в списке'})`);
+    }
+
+    // ── Убрать из слежения ────────────────────────────────────
+    function _ftRemove(rawNick) {
+        const norm    = _ftNorm(rawNick);
+        const existed = ft.watchList.delete(norm);
+        ft.onlineNow.delete(norm);
+        delete ft.lastNotifyTs[norm];
+
+        if (existed) {
+            _ftChatNotify(`Слежение: −${rawNick}`);
+            sendToTelegram(
+                `🗑 <b>Слежение удалено — ${displayName}</b>\n` +
+                `❌ Ник: <code>${rawNick}</code>`,
+                false, null
+            );
+        } else {
+            _ftChatNotify(`Не найден в списке: ${rawNick}`);
+        }
+        debugLog(`[TRACKER] Удалён: "${norm}" (был в списке: ${existed})`);
+    }
+
+    // ── Показать список → Telegram ────────────────────────────
+    function _ftList() {
+        const list = [...ft.watchList];
+        if (list.length === 0) {
+            sendToTelegram(
+                `👁 <b>Список слежения пуст — ${displayName}</b>\n` +
+                `<i>Добавьте ник командой /check Имя_Фамилия</i>`,
+                false, null
+            );
+        } else {
+            const rows = list.map((n, i) => {
+                const status = ft.onlineNow.has(n) ? ' 🟢 онлайн' : ' ⚫ офлайн';
+                return `${i + 1}. <code>${n}</code>${status}`;
+            });
+            sendToTelegram(
+                `👁 <b>Список слежения [${list.length}] — ${displayName}</b>\n` +
+                rows.join('\n'),
+                false, null
+            );
+        }
+        _ftChatNotify('Список → Telegram');
+        debugLog(`[TRACKER] /checklist отправлен в Telegram (${ft.watchList.size} ников)`);
+    }
+
+    // ── Анализ входящих данных PlayersOnline ──────────────────
+    // Вызывается при каждом обновлении списка (~1 раз в сек).
+    // rawData — JSON-строка или объект:
+    //   { count, serverName, local: {id, name, ping, ...},
+    //     players: [{id, name, ping, level, ...}, ...] }
+    function _ftCheck(rawData) {
+        if (!ft.watchList.size) return; // список пуст — не разбираем
+
+        try {
+            const data = (typeof rawData === 'string')
+                ? JSON.parse(rawData)
+                : rawData;
+            if (!data) return;
+
+            // Собираем все имена из текущего снимка
+            const allNames = [];
+            if (data.local && data.local.name) {
+                allNames.push(data.local.name);
+            }
+            if (Array.isArray(data.players)) {
+                data.players.forEach(p => {
+                    if (p && p.name) allNames.push(p.name);
+                });
+            }
+
+            for (const watched of ft.watchList) {
+                const match     = allNames.find(n => _ftMatch(n, watched));
+                const wasOnline = ft.onlineNow.has(watched);
+                const now       = Date.now();
+
+                if (match && !wasOnline) {
+                    // ── Друг только что появился ───────────────────
+                    ft.onlineNow.add(watched);
+
+                    const lastTs = ft.lastNotifyTs[watched] || 0;
+                    if ((now - lastTs) > FT_COOLDOWN_MS) {
+                        ft.lastNotifyTs[watched] = now;
+                        const displayNick = match.replace(/_/g, ' ');
+                        debugLog(`[TRACKER] 🎉 "${displayNick}" зашёл в игру!`);
+                        sendToTelegram(
+                            `🎉 <b>Друг онлайн! — ${displayName}</b>\n` +
+                            `👤 <code>${displayNick}</code> зашёл в игру`,
+                            false, null
+                        );
+                    } else {
+                        debugLog(`[TRACKER] "${watched}" онлайн, но cooldown — не спамим`);
+                    }
+
+                } else if (!match && wasOnline) {
+                    // ── Друг вышел ────────────────────────────────
+                    ft.onlineNow.delete(watched);
+                    debugLog(`[TRACKER] 💤 "${watched}" покинул игру`);
+                }
+            }
+
+        } catch (e) {
+            debugLog(`[TRACKER] Ошибка _ftCheck: ${e.message}`);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  ХУК 1: window.sendChatInput — команды в чате игры
+    //  Цепочка: этот хук → ZAVOD-хук → оригинал sendChatInput
+    // ═══════════════════════════════════════════════════════════
+    const _ftOrigChat = window.sendChatInput;
+    window.sendChatInput = function (input) {
+        if (typeof input === 'string') {
+            const raw   = input.trim();
+            const parts = raw.split(/\s+/);
+            const cmd   = (parts[0] || '').toLowerCase();
+
+            if (cmd === '/check' && parts.length >= 2) {
+                _ftAdd(parts.slice(1).join(' '));
+                return; // не передаём в игру
+            }
+            if (cmd === '/uncheck' && parts.length >= 2) {
+                _ftRemove(parts.slice(1).join(' '));
+                return;
+            }
+            if (cmd === '/checklist') {
+                _ftList();
+                return;
+            }
+        }
+        return (typeof _ftOrigChat === 'function')
+            ? _ftOrigChat.apply(this, arguments)
+            : undefined;
+    };
+
+    // ═══════════════════════════════════════════════════════════
+    //  ХУК 2: window.interface — Proxy-перехват PlayersOnline
+    //
+    //  ПОЧЕМУ PROXY, А НЕ ПРЯМОЕ ПРИСВАИВАНИЕ:
+    //  Vue 3 expose() оборачивает объект в shallowReadonly().
+    //  Попытка inst.setPlayersOnlineData = fn бросает TypeError
+    //  или молча игнорируется (зависит от strict mode).
+    //  Proxy перехватывает GET на нужное свойство и возвращает
+    //  обёрнутую функцию — Vue-объект при этом не мутируется.
+    //
+    //  Движок вызывает window.interface('PlayersOnline') перед
+    //  каждым .setPlayersOnlineData(json), поэтому Proxy
+    //  гарантированно встаёт в цепочку каждый раз.
+    // ═══════════════════════════════════════════════════════════
+    const _ftOrigIface = window.interface;
+    window.interface = function (name) {
+        const inst = _ftOrigIface.apply(this, arguments);
+        if (name === 'PlayersOnline' && inst) {
+            return new Proxy(inst, {
+                get (target, prop) {
+                    const val = target[prop];
+
+                    // Перехватываем setPlayersOnlineData (основной метод)
+                    // и setInterfaceParams (его алиас в PlayersOnline.js)
+                    if ((prop === 'setPlayersOnlineData' ||
+                         prop === 'setInterfaceParams') &&
+                        typeof val === 'function') {
+                        return function (data) {
+                            if (prop === 'setPlayersOnlineData') {
+                                try { _ftCheck(data); } catch (e) {
+                                    debugLog(`[TRACKER] Proxy err: ${e.message}`);
+                                }
+                            }
+                            return val.apply(target, arguments);
+                        };
+                    }
+
+                    // Методы — биндим на target (иначе Vue реактивность ломается)
+                    return (typeof val === 'function') ? val.bind(target) : val;
+                },
+                set (target, prop, value) {
+                    // Проксируем запись на оригинал (может выбросить если readonly)
+                    try { target[prop] = value; } catch (e) { /* readonly — ок */ }
+                    return true;
+                }
+            });
+        }
+        return inst;
+    };
+
+    // ═══════════════════════════════════════════════════════════
+    //  ХУК 3: processUpdates — команды из Telegram
+    //  Поддерживаемые форматы сообщений в Telegram:
+    //    /check Иван Петров      — с пробелами
+    //    /check_Иван_Петров      — с подчёркиваниями (удобно на мобильном)
+    //    /uncheck Иван Петров
+    //    /uncheck_Иван_Петров
+    //    /checklist
+    // ═══════════════════════════════════════════════════════════
+    const _ftOrigProcUpd = processUpdates;
+    processUpdates = function (updates) {
+        const pass = [];
+
+        for (const upd of updates) {
+            let consumed = false;
+
+            if (upd.message && upd.message.text) {
+                const msgText   = upd.message.text.trim();
+                const msgChatId = String(upd.message.chat.id);
+
+                // Принимаем только из наших авторизованных чатов
+                if (config.chatIds.includes(msgChatId)) {
+
+                    // /check Иван Петров   или   /check_Иван_Петров
+                    // Отрицательный lookahead: не матчить /checklist
+                    const addM = msgText.match(/^\/check(?!list)[_ ](.+)$/i);
+                    if (addM) {
+                        _ftAdd(addM[1].trim().replace(/_/g, ' '));
+                        config.lastUpdateId = upd.update_id;
+                        setSharedLastUpdateId(config.lastUpdateId);
+                        consumed = true;
+                    }
+
+                    // /uncheck Иван Петров   или   /uncheck_Иван_Петров
+                    if (!consumed) {
+                        const remM = msgText.match(/^\/uncheck[_ ](.+)$/i);
+                        if (remM) {
+                            _ftRemove(remM[1].trim().replace(/_/g, ' '));
+                            config.lastUpdateId = upd.update_id;
+                            setSharedLastUpdateId(config.lastUpdateId);
+                            consumed = true;
+                        }
+                    }
+
+                    // /checklist
+                    if (!consumed && /^\/checklist$/i.test(msgText)) {
+                        _ftList();
+                        config.lastUpdateId = upd.update_id;
+                        setSharedLastUpdateId(config.lastUpdateId);
+                        consumed = true;
+                    }
+                }
+            }
+
+            if (!consumed) pass.push(upd);
+        }
+
+        if (pass.length > 0) _ftOrigProcUpd(pass);
+    };
+
+    debugLog(
+        '[TRACKER] Friend Tracker v1 загружен.\n' +
+        '  Команды: /check <ник> | /uncheck <ник> | /checklist\n' +
+        '  Также работают из Telegram: /check_Ник, /uncheck_Ник, /checklist'
+    );
+
+})();
+// ==================== END FRIEND TRACKER MODULE ====================
