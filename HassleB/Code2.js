@@ -1,11 +1,15 @@
-// Code2.js — FRIEND TRACKER v3
-// Специально под Hassle mobile: уровень друга определяется постоянно, каждую секунду.
+// Code2.js — FRIEND TRACKER v4
+// FIX: не открывает TAB автоматически.
+// FIX: не ломает закрытие PlayersOnline.
+// FIX: на Hassle mobile использует updatePlayers + updatePlayerList + перехват интерфейса.
 //
-// Команды в чате игры:
-//   /check Nick_Name     — добавить в слежение
-//   /uncheck Nick_Name   — убрать из слежения
-//   /checklist           — список слежения
-//   /checklevel          — текущие уровни отслеживаемых
+// Команды в чате:
+//   /check Nick_Name
+//   /uncheck Nick_Name
+//   /checklist
+//   /checklevel
+//   /closetab
+//   /opentab
 //
 // Команды в Telegram:
 //   /check Nick_Name
@@ -14,27 +18,33 @@
 //   /uncheck_ Nick_Name
 //   /checklist
 //   /checklevel
-//
-// Важно:
-// - FT_POLL_MS = 1000, проверка каждую секунду.
-// - На Hassle mobile модуль может временно монтировать скрытый PlayersOnline,
-//   потому что именно оттуда приходит уровень.
-// - FT_SEND_LEVEL_EVERY_SECOND = false по умолчанию, чтобы не спамить Telegram.
-//   Если хочешь буквально каждую секунду получать уровень в Telegram — поставь true.
+//   /closetab
+//   /opentab
 //
 (function () {
     'use strict';
+
+    // Защита от двойной загрузки
+    if (window.__friendTrackerV4Loaded) {
+        try {
+            if (typeof debugLog === 'function') {
+                debugLog('[TRACKER] Friend Tracker v4 уже загружен — повторный запуск пропущен');
+            }
+        } catch (e) {}
+        return;
+    }
+    window.__friendTrackerV4Loaded = true;
 
     // ============================================================
     // ======================= НАСТРОЙКИ ==========================
     // ============================================================
 
-    const FT_POLL_MS = 1000;                       // период опроса, 1 секунда
-    const FT_COOLDOWN_MS = 60 * 1000;              // антифлуд на повторный вход
-    const FT_MOUNT_HIDDEN_FOR_LEVEL = true;        // монтировать скрытый PlayersOnline на Hassle mobile
-    const FT_UNMOUNT_AFTER_MS = 5000;              // через сколько скрыть источник, если все офлайн
+    const FT_POLL_MS = 1000;                       // проверка каждую секунду
+    const FT_COOLDOWN_MS = 60 * 1000;              // антифлуд на вход
+    const FT_CALL_UPDATE_PLAYER_LIST = true;       // window.updatePlayerList()
+    const FT_CALL_UPDATE_PLAYERS = true;           // window.updatePlayers() — важно для Hassle
     const FT_NOTIFY_LEVEL_CHANGE = true;           // уведомлять, если уровень изменился
-    const FT_SEND_LEVEL_EVERY_SECOND = false;      // true = слать уровень в TG каждую секунду (спам!)
+    const FT_SEND_LEVEL_EVERY_SECOND = false;      // true = спам уровнем в TG каждую секунду
     const FT_DEBUG_LEVEL_EVERY_SECOND = false;     // true = писать уровень в debugLog каждую секунду
 
     // ============================================================
@@ -42,19 +52,18 @@
     // ============================================================
 
     const ft = {
-        watchList: new Set(),       // нормализованные ники
-        onlineNow: new Set(),       // кто сейчас онлайн
-        lastLevel: {},              // последний известный уровень
-        lastNotifyTs: {},           // время последнего уведомления о входе
-        lastSeenNick: {},           // оригинальный регистр ника
-        levelUnknownSince: {},      // когда уровень начал быть неизвестным
-        lastLevelChangeTs: {},      // антифлуд на смену уровня
-        lastLevelReportTs: {},      // для FT_SEND_LEVEL_EVERY_SECOND
-        pollTimer: null,            // интервал опроса
-        hiddenMounted: false,       // мы сами подняли скрытый PlayersOnline
-        hiddenClosedByUserTs: 0,    // если пользователь закрыл наш скрытый интерфейс
-        lastAnyOnlineTs: 0          // когда последний раз кто-то из списка был онлайн
+        watchList: new Set(),
+        onlineNow: new Set(),
+        lastLevel: {},
+        lastNotifyTs: {},
+        lastSeenNick: {},
+        levelUnknownSince: {},
+        lastLevelChangeTs: {},
+        lastLevelReportTs: {},
+        pollTimer: null
     };
+
+    let _ftInsideUpdatePlayersList = false;
 
     // ============================================================
     // ======================= УТИЛИТЫ ============================
@@ -67,9 +76,7 @@
             } else {
                 console.log(msg);
             }
-        } catch (e) {
-            // тихо
-        }
+        } catch (e) {}
     }
 
     function _ftDisplayName() {
@@ -98,9 +105,24 @@
                     'FFFFFFFF'
                 );
             }
-        } catch (e) {
-            // тихо
-        }
+        } catch (e) {}
+    }
+
+    function _ftGetComponent(name) {
+        try {
+            if (typeof window.component === 'function') {
+                const c = window.component(name);
+                if (c) return c;
+            }
+        } catch (e) {}
+
+        try {
+            if (window.App && window.App.components) {
+                return window.App.components[name] || null;
+            }
+        } catch (e) {}
+
+        return null;
     }
 
     function _ftNorm(nick) {
@@ -132,167 +154,91 @@
         return 0;
     }
 
-    function _ftAppReady() {
-        return !!(
-            window.App &&
-            window.App.components &&
-            (typeof window.component === 'function' || window.App.components.PlayersOnline)
-        );
-    }
+    // ============================================================
+    // ================== ЗАКРЫТИЕ / ОТКРЫТИЕ TAB =================
+    // ============================================================
 
-    function _ftGetComponent(name) {
+    function _ftClosePlayersTab(silent) {
         try {
-            if (typeof window.component === 'function') {
-                const c = window.component(name);
-                if (c) return c;
+            // Сначала пытаемся закрыть штатно
+            try {
+                if (
+                    typeof window.getInterfaceStatus === 'function' &&
+                    typeof window.closeInterface === 'function' &&
+                    window.getInterfaceStatus('PlayersOnline')
+                ) {
+                    window.closeInterface('PlayersOnline');
+                }
+            } catch (e) {
+                _ftDebug(`[TRACKER] closeInterface error: ${e.message}`);
             }
-        } catch (e) {
-            // тихо
-        }
 
-        try {
-            if (window.App && window.App.components) {
-                return window.App.components[name] || null;
+            // Принудительно гасим состояние, если штатное закрытие не сработало
+            const c = _ftGetComponent('PlayersOnline');
+            if (c) {
+                c.show = false;
+                if (c.open) {
+                    c.open.status = false;
+                }
             }
-        } catch (e) {
-            // тихо
-        }
-
-        return null;
-    }
-
-    function _ftIsHassleMobile() {
-        try {
-            return !!(
-                window.App &&
-                window.App.isMobile &&
-                window.App.engine &&
-                window.App.engine !== 'legacy'
-            );
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // ============================================================
-    // ================== СКРЫТЫЙ PLAYERS ONLINE ==================
-    // ============================================================
-    //
-    // На Hassle mobile уровень приходит в PlayersOnline.
-    // Если интерфейс закрыт, движок может не отдавать level.
-    // Поэтому мы поднимаем PlayersOnline в скрытом режиме:
-    // open.status = true, show = false.
-    //
-    // Это даёт источник уровня, но не мешает чату/HUD.
-    // ============================================================
-
-    function _ftMountHiddenPlayersOnline() {
-        if (!_ftAppReady()) return;
-
-        const c = _ftGetComponent('PlayersOnline');
-        if (!c) {
-            _ftDebug('[TRACKER] PlayersOnline component not found');
-            return;
-        }
-
-        // Уже открыт пользователем или нашим прошлым циклом — не лезем.
-        if (c.open && c.open.status) {
-            return;
-        }
-
-        try {
-            c.show = false;
-            c.open.status = true;
 
             if (window.App && typeof window.App.$forceUpdate === 'function') {
                 window.App.$forceUpdate();
             }
 
-            ft.hiddenMounted = true;
-            _ftDebug('[TRACKER] Hidden PlayersOnline mounted (level source for Hassle mobile)');
+            if (!silent) {
+                _ftChatNotify('PlayersOnline закрыт');
+                _ftTg(
+                    `🧹 <b>PlayersOnline закрыт — ${_ftDisplayName()}</b>\n` +
+                    `TAB список игроков был принудительно закрыт трекером.`
+                );
+            }
+
+            _ftDebug('[TRACKER] PlayersOnline closed by command');
         } catch (e) {
-            _ftDebug(`[TRACKER] mount hidden PlayersOnline error: ${e.message}`);
+            _ftDebug(`[TRACKER] _ftClosePlayersTab error: ${e.message}`);
         }
     }
 
-    function _ftUnmountHiddenPlayersOnline() {
-        if (!ft.hiddenMounted) return;
-
-        const c = _ftGetComponent('PlayersOnline');
-        if (!c) {
-            ft.hiddenMounted = false;
-            return;
+    function _ftOpenPlayersTab() {
+        try {
+            if (typeof window.openInterface === 'function') {
+                window.openInterface('PlayersOnline');
+                _ftChatNotify('Открываю PlayersOnline');
+                _ftDebug('[TRACKER] PlayersOnline opened by command');
+            }
+        } catch (e) {
+            _ftDebug(`[TRACKER] _ftOpenPlayersTab error: ${e.message}`);
         }
+    }
 
-        // Если пользователь вдруг сделал интерфейс видимым — не закрываем.
-        if (c.show) {
-            ft.hiddenMounted = false;
-            return;
+    // ============================================================
+    // ======================= ОПРОС ДАННЫХ =======================
+    // ============================================================
+
+    function _ftRequestNow() {
+        try {
+            if (
+                FT_CALL_UPDATE_PLAYER_LIST &&
+                typeof window.updatePlayerList === 'function'
+            ) {
+                window.updatePlayerList();
+            }
+        } catch (e) {
+            _ftDebug(`[TRACKER] updatePlayerList error: ${e.message}`);
         }
 
         try {
-            if (c.open && c.open.status) {
-                c.open.status = false;
-
-                if (window.App && typeof window.App.$forceUpdate === 'function') {
-                    window.App.$forceUpdate();
-                }
-
-                _ftDebug('[TRACKER] Hidden PlayersOnline unmounted');
+            if (
+                FT_CALL_UPDATE_PLAYERS &&
+                typeof window.updatePlayers === 'function'
+            ) {
+                window.updatePlayers();
             }
         } catch (e) {
-            _ftDebug(`[TRACKER] unmount hidden PlayersOnline error: ${e.message}`);
-        }
-
-        ft.hiddenMounted = false;
-    }
-
-    function _ftMaintainLevelSource() {
-        const now = Date.now();
-
-        // Если наш скрытый интерфейс кто-то закрыл — запоминаем и не мешаем.
-        if (ft.hiddenMounted) {
-            const c = _ftGetComponent('PlayersOnline');
-            if (!c || !c.open || !c.open.status) {
-                ft.hiddenMounted = false;
-                ft.hiddenClosedByUserTs = now;
-                _ftDebug('[TRACKER] Hidden PlayersOnline was closed externally');
-            }
-        }
-
-        if (!ft.watchList.size) {
-            _ftUnmountHiddenPlayersOnline();
-            return;
-        }
-
-        const anyOnline = ft.onlineNow.size > 0;
-        if (anyOnline) {
-            ft.lastAnyOnlineTs = now;
-        }
-
-        if (!FT_MOUNT_HIDDEN_FOR_LEVEL) return;
-        if (!_ftIsHassleMobile()) return;
-
-        const c = _ftGetComponent('PlayersOnline');
-        const alreadyOpenedBySomeone = !!(c && c.open && c.open.status);
-
-        // Если кто-то из отслеживаемых онлайн — держим источник уровня.
-        if (anyOnline && !alreadyOpenedBySomeone) {
-            // Не открываем сразу после того, как пользователь закрыл руками.
-            if (now - ft.hiddenClosedByUserTs > 5000) {
-                _ftMountHiddenPlayersOnline();
-            }
-        }
-
-        // Если все офлайн и прошло достаточно времени — закрываем скрытый источник.
-        if (!anyOnline && now - ft.lastAnyOnlineTs > FT_UNMOUNT_AFTER_MS) {
-            _ftUnmountHiddenPlayersOnline();
+            _ftDebug(`[TRACKER] updatePlayers error: ${e.message}`);
         }
     }
-
-    // ============================================================
-    // ======================= ОПРОС ==============================
-    // ============================================================
 
     function _ftEnsurePoll() {
         if (ft.pollTimer !== null) return;
@@ -300,28 +246,13 @@
         ft.pollTimer = setInterval(() => {
             if (!ft.watchList.size) {
                 _ftStopPoll();
-                _ftUnmountHiddenPlayersOnline();
                 return;
             }
 
-            try {
-                const po = _ftGetComponent('PlayersOnline');
-                const playersOnlineOpened = !!(po && po.open && po.open.status);
-
-                // Если PlayersOnline уже открыт (пользователем или нашим скрытым mount),
-                // он сам опрашивает список раз в секунду.
-                // Если нет — опрашиваем вручную.
-                if (!playersOnlineOpened && typeof window.updatePlayerList === 'function') {
-                    window.updatePlayerList();
-                }
-            } catch (e) {
-                _ftDebug(`[TRACKER] updatePlayerList error: ${e.message}`);
-            }
-
-            _ftMaintainLevelSource();
+            _ftRequestNow();
         }, FT_POLL_MS);
 
-        _ftDebug(`[TRACKER] Level poll started: every ${FT_POLL_MS / 1000}s`);
+        _ftDebug(`[TRACKER] Poll started: every ${FT_POLL_MS / 1000}s`);
     }
 
     function _ftStopPoll() {
@@ -330,7 +261,7 @@
         clearInterval(ft.pollTimer);
         ft.pollTimer = null;
 
-        _ftDebug('[TRACKER] Level poll stopped');
+        _ftDebug('[TRACKER] Poll stopped');
     }
 
     // ============================================================
@@ -341,21 +272,10 @@
         const norm = _ftNorm(rawNick);
         if (!norm) return;
 
-        const isNew = !ft.watchList.has(norm);
         ft.watchList.add(norm);
 
         _ftEnsurePoll();
-
-        // Сразу запрашиваем список игроков.
-        try {
-            if (typeof window.updatePlayerList === 'function') {
-                window.updatePlayerList();
-            }
-        } catch (e) {
-            // тихо
-        }
-
-        _ftMaintainLevelSource();
+        _ftRequestNow();
 
         const listStr = [...ft.watchList].join(', ') || '—';
 
@@ -364,10 +284,11 @@
             `👁 <b>Слежение добавлено — ${_ftDisplayName()}</b>\n` +
             `🎯 Ник: <code>${rawNick}</code>\n` +
             `📋 Список [${ft.watchList.size}]: ${listStr}\n` +
-            `⏱ Проверка уровня: каждую секунду`
+            `⏱ Проверка: каждую секунду\n` +
+            `🧷 TAB автоматически не открывается`
         );
 
-        _ftDebug(`[TRACKER] Added "${norm}" (${isNew ? 'new' : 'already in list'})`);
+        _ftDebug(`[TRACKER] Added "${norm}"`);
     }
 
     function _ftRemove(rawNick) {
@@ -384,7 +305,6 @@
 
         if (!ft.watchList.size) {
             _ftStopPoll();
-            _ftUnmountHiddenPlayersOnline();
         }
 
         if (existed) {
@@ -397,7 +317,7 @@
             _ftChatNotify(`Не найден в списке: ${rawNick}`);
         }
 
-        _ftDebug(`[TRACKER] Removed "${norm}" (was in list: ${existed})`);
+        _ftDebug(`[TRACKER] Removed "${norm}"`);
     }
 
     function _ftList() {
@@ -432,7 +352,6 @@
         }
 
         _ftChatNotify('Список → Telegram');
-        _ftDebug(`[TRACKER] /checklist sent (${ft.watchList.size})`);
     }
 
     function _ftLevelReport() {
@@ -468,7 +387,6 @@
         );
 
         _ftChatNotify('Уровни → Telegram');
-        _ftDebug('[TRACKER] /checklevel sent');
     }
 
     // ============================================================
@@ -514,6 +432,7 @@
             data.forEach(pushPlayer);
         } else {
             if (data.local) pushPlayer(data.local);
+            if (data.player) pushPlayer(data.player);
             if (Array.isArray(data.players)) data.players.forEach(pushPlayer);
         }
 
@@ -572,7 +491,6 @@
                         delete ft.levelUnknownSince[watched];
 
                         if (prevLevel === 0) {
-                            // level 0 -> level > 0
                             _ftChatNotify(`✅ ${displayNick} авторизовался (уровень ${currLevel})`);
                             _ftTg(
                                 `✅ <b>Игрок авторизовался — ${_ftDisplayName()}</b>\n` +
@@ -582,7 +500,6 @@
 
                             _ftDebug(`[TRACKER] AUTH DONE: "${displayNick}", level=${currLevel}`);
                         } else if (prevLevel !== currLevel) {
-                            // уровень изменился
                             if (
                                 FT_NOTIFY_LEVEL_CHANGE &&
                                 (now - (ft.lastLevelChangeTs[watched] || 0)) > 5000
@@ -602,7 +519,6 @@
 
                         ft.lastLevel[watched] = currLevel;
 
-                        // Опциональный спам уровнем каждую секунду.
                         if (
                             FT_SEND_LEVEL_EVERY_SECOND &&
                             (now - (ft.lastLevelReportTs[watched] || 0)) >= 1000
@@ -618,7 +534,7 @@
                         }
                     } else {
                         // currLevel === 0
-                        // Не затираем известный уровень нулём, если это пришёл пустой канал.
+                        // Не затираем известный уровень нулём.
                         if (prevLevel === 0 && !ft.levelUnknownSince[watched]) {
                             ft.levelUnknownSince[watched] = now;
                         }
@@ -648,67 +564,92 @@
                 _ftDebug(`[TRACKER] LEAVE: "${leaveNick}"`);
             }
         }
-
-        if (ft.onlineNow.size > 0) {
-            ft.lastAnyOnlineTs = now;
-        }
     }
 
     // ============================================================
-    // ============ КАНАЛ 1: onUpdatePlayersList ==================
+    // ================== ХУК onUpdatePlayersList =================
     // ============================================================
 
-    let _ftInsideUpdate = false;
-
-    const _ftOrigOnUpdatePlayers = window.onUpdatePlayersList;
-    window.onUpdatePlayersList = function (e) {
-        try {
-            _ftCheck(e);
-        } catch (err) {
-            _ftDebug(`[TRACKER] onUpdatePlayersList error: ${err.message}`);
+    function _ftInstallUpdatePlayersListHook() {
+        if (typeof window.onUpdatePlayersList !== 'function') {
+            return false;
         }
 
-        if (typeof _ftOrigOnUpdatePlayers === 'function') {
-            _ftInsideUpdate = true;
+        if (window.onUpdatePlayersList.__ftPatched) {
+            return true;
+        }
+
+        const orig = window.onUpdatePlayersList;
+
+        const patched = function (e) {
             try {
-                return _ftOrigOnUpdatePlayers.apply(this, arguments);
+                _ftCheck(e);
+            } catch (err) {
+                _ftDebug(`[TRACKER] onUpdatePlayersList error: ${err.message}`);
+            }
+
+            _ftInsideUpdatePlayersList = true;
+            try {
+                return orig.apply(this, arguments);
             } finally {
-                _ftInsideUpdate = false;
+                _ftInsideUpdatePlayersList = false;
             }
-        }
-    };
-
-    // ============================================================
-    // ======= getInterfaceStatus hook (только на момент апдейта) =
-    // ============================================================
-    //
-    // Это нужно, чтобы оригинальный код:
-    //   window.getInterfaceStatus("PlayersOnline") && window.interface("PlayersOnline")...
-    // мог передать данные в наш перехватчик, даже если интерфейс не открыт.
-    //
-    // Важно: мы НЕ подделываем статус глобально, только внутри onUpdatePlayersList,
-    // чтобы не ломать TAB и другие проверки.
-    // ============================================================
-
-    const _ftOrigGetInterfaceStatus = window.getInterfaceStatus;
-    if (typeof _ftOrigGetInterfaceStatus === 'function') {
-        window.getInterfaceStatus = function (name) {
-            if (
-                name === 'PlayersOnline' &&
-                ft.watchList.size > 0 &&
-                _ftInsideUpdate
-            ) {
-                return true;
-            }
-
-            return _ftOrigGetInterfaceStatus.apply(this, arguments);
         };
 
-        _ftDebug('[TRACKER] getInterfaceStatus hook installed (scoped)');
+        patched.__ftPatched = true;
+        window.onUpdatePlayersList = patched;
+
+        _ftDebug('[TRACKER] onUpdatePlayersList hook installed');
+        return true;
     }
 
     // ============================================================
-    // ========== КАНАЛ 2: window.interface Proxy =================
+    // ================ ХУК getInterfaceStatus ====================
+    // ============================================================
+    //
+    // ВАЖНО:
+    // Мы НЕ подделываем PlayersOnline глобально.
+    // Иначе TAB ломается.
+    //
+    // true возвращаем только внутри onUpdatePlayersList,
+    // чтобы оригинальный код мог передать данные в наш перехватчик.
+    //
+    // Для TAB/closeInterface/openInterface возвращаем реальный статус.
+    // ============================================================
+
+    function _ftInstallInterfaceStatusHook() {
+        if (typeof window.getInterfaceStatus !== 'function') {
+            return false;
+        }
+
+        if (window.getInterfaceStatus.__ftPatched) {
+            return true;
+        }
+
+        const orig = window.getInterfaceStatus;
+
+        const patched = function (name) {
+            if (name === 'PlayersOnline') {
+                if (ft.watchList.size > 0 && _ftInsideUpdatePlayersList) {
+                    return true;
+                }
+
+                const c = _ftGetComponent('PlayersOnline');
+                return !!(c && c.open && c.open.status);
+            }
+
+            return orig.apply(this, arguments);
+        };
+
+        patched.__ftPatched = true;
+        window.getInterfaceStatus = patched;
+
+        _ftDebug('[TRACKER] getInterfaceStatus hook installed (safe for TAB)');
+        return true;
+    }
+
+    // ============================================================
+    // ================== ХУК window.interface ====================
     // ============================================================
 
     function _ftInstallInterfaceProxy() {
@@ -720,10 +661,10 @@
             return true;
         }
 
-        const _origIface = window.interface;
+        const orig = window.interface;
 
         const patched = function (name) {
-            const inst = _origIface.apply(this, arguments);
+            const inst = orig.apply(this, arguments);
 
             if (name !== 'PlayersOnline') {
                 return inst;
@@ -736,13 +677,35 @@
                     ? inst
                     : null;
 
-            // Если интерфейс реально не смонтирован и слежение пустое —
-            // не мешаем оригинальному поведению.
+            // Если слежения нет и компонент не смонтирован — не мешаем игре.
             if (!realInst && ft.watchList.size === 0) {
                 return inst;
             }
 
             const target = realInst || {};
+
+            function callRealMethod(method, args) {
+                if (!realInst) return;
+
+                try {
+                    const fn = realInst[method];
+                    if (typeof fn === 'function') {
+                        return fn.apply(realInst, args);
+                    }
+                } catch (e) {
+                    _ftDebug(`[TRACKER] interface proxy method error: ${e.message}`);
+                }
+
+                try {
+                    if (
+                        realInst.$ &&
+                        realInst.$.exposed &&
+                        typeof realInst.$.exposed[method] === 'function'
+                    ) {
+                        return realInst.$.exposed[method].apply(realInst, args);
+                    }
+                } catch (e) {}
+            }
 
             return new Proxy(target, {
                 get(t, prop) {
@@ -754,15 +717,10 @@
                             try {
                                 _ftCheck(arguments[0]);
                             } catch (e) {
-                                _ftDebug(`[TRACKER] PO proxy error: ${e.message}`);
+                                _ftDebug(`[TRACKER] PO proxy check error: ${e.message}`);
                             }
 
-                            if (realInst) {
-                                const fn = realInst[prop];
-                                if (typeof fn === 'function') {
-                                    return fn.apply(realInst, arguments);
-                                }
-                            }
+                            callRealMethod(prop, arguments);
                         };
                     }
 
@@ -797,67 +755,119 @@
         patched.__ftPatched = true;
         window.interface = patched;
 
-        _ftDebug('[TRACKER] window.interface proxy installed for PlayersOnline');
+        _ftDebug('[TRACKER] window.interface proxy installed');
         return true;
     }
 
-    if (!_ftInstallInterfaceProxy()) {
-        let tries = 0;
-        const proxyTimer = setInterval(() => {
-            if (_ftInstallInterfaceProxy()) {
-                clearInterval(proxyTimer);
-            } else {
-                tries++;
-                if (tries > 30) {
-                    clearInterval(proxyTimer);
-                    _ftDebug('[TRACKER] window.interface proxy not installed after 30 tries');
+    // ============================================================
+    // ===================== ХУК ЧАТА ИГРЫ ========================
+    // ============================================================
+
+    function _ftInstallChatHook() {
+        if (typeof window.sendChatInput !== 'function') {
+            return false;
+        }
+
+        if (window.sendChatInput.__ftPatched) {
+            return true;
+        }
+
+        const orig = window.sendChatInput;
+
+        const patched = function (input) {
+            if (typeof input === 'string') {
+                const raw = input.trim();
+                const parts = raw.split(/\s+/);
+                const cmd = (parts[0] || '').toLowerCase();
+
+                if (cmd === '/check' && parts.length >= 2) {
+                    _ftAdd(parts.slice(1).join(' '));
+                    return;
+                }
+
+                if (cmd === '/uncheck' && parts.length >= 2) {
+                    _ftRemove(parts.slice(1).join(' '));
+                    return;
+                }
+
+                if (cmd === '/checklist') {
+                    _ftList();
+                    return;
+                }
+
+                if (cmd === '/checklevel') {
+                    _ftLevelReport();
+                    return;
+                }
+
+                if (cmd === '/closetab') {
+                    _ftClosePlayersTab(false);
+                    return;
+                }
+
+                if (cmd === '/opentab') {
+                    _ftOpenPlayersTab();
+                    return;
                 }
             }
-        }, 1000);
+
+            if (typeof orig === 'function') {
+                return orig.apply(this, arguments);
+            }
+
+            return undefined;
+        };
+
+        patched.__ftPatched = true;
+        window.sendChatInput = patched;
+
+        _ftDebug('[TRACKER] sendChatInput hook installed');
+        return true;
     }
 
     // ============================================================
-    // ============ ХУК ЧАТА ИГРЫ: /check /uncheck ================
+    // ==================== ХУК TELEGRAM ==========================
     // ============================================================
 
-    const _ftOrigChat = window.sendChatInput;
-    window.sendChatInput = function (input) {
-        if (typeof input === 'string') {
-            const raw = input.trim();
-            const parts = raw.split(/\s+/);
-            const cmd = (parts[0] || '').toLowerCase();
+    function _ftHandleTelegramCommand(text) {
+        if (!text) return false;
 
-            if (cmd === '/check' && parts.length >= 2) {
-                _ftAdd(parts.slice(1).join(' '));
-                return;
-            }
+        let m;
 
-            if (cmd === '/uncheck' && parts.length >= 2) {
-                _ftRemove(parts.slice(1).join(' '));
-                return;
-            }
-
-            if (cmd === '/checklist') {
-                _ftList();
-                return;
-            }
-
-            if (cmd === '/checklevel') {
-                _ftLevelReport();
-                return;
-            }
+        if (/^\/closetab$/i.test(text)) {
+            _ftClosePlayersTab(false);
+            return true;
         }
 
-        if (typeof _ftOrigChat === 'function') {
-            return _ftOrigChat.apply(this, arguments);
+        if (/^\/opentab$/i.test(text)) {
+            _ftOpenPlayersTab();
+            return true;
         }
 
-        return undefined;
-    };
+        if (/^\/checklist$/i.test(text)) {
+            _ftList();
+            return true;
+        }
 
-    // ============================================================
-    // ============ ХУК TELEGRAM: processUpdates ==================
-    // ============================================================
+        if (/^\/checklevel$/i.test(text)) {
+            _ftLevelReport();
+            return true;
+        }
+
+        m = text.match(/^\/check(?!list|level|tab)[_ ](.+)$/i);
+        if (m) {
+            _ftAdd(m[1].trim().replace(/_/g, ' '));
+            return true;
+        }
+
+        m = text.match(/^\/uncheck[_ ](.+)$/i);
+        if (m) {
+            _ftRemove(m[1].trim().replace(/_/g, ' '));
+            return true;
+        }
+
+        return false;
+    }
 
     function _ftInstallProcessUpdatesHook() {
         if (typeof processUpdates !== 'function') {
@@ -868,7 +878,7 @@
             return true;
         }
 
-        const _ftOrigProcUpd = processUpdates;
+        const orig = processUpdates;
 
         const patched = function (updates) {
             const pass = [];
@@ -878,46 +888,16 @@
 
                 try {
                     if (upd && upd.message && upd.message.text) {
-                        const msgText = upd.message.text.trim();
-                        const msgChatId = String(
-                            upd.message.chat && upd.message.chat.id
-                        );
+                        const text = upd.message.text.trim();
+                        const chatId = String(upd.message.chat && upd.message.chat.id);
 
                         const allowed =
                             typeof config !== 'undefined' &&
                             Array.isArray(config.chatIds) &&
-                            config.chatIds.includes(msgChatId);
+                            config.chatIds.includes(chatId);
 
                         if (allowed) {
-                            let m;
-
-                            // /check Nick_Name
-                            // /check Nick Name
-                            // Но не /checklist и не /checklevel
-                            m = msgText.match(/^\/check(?!list|level)[_ ](.+)$/i);
-                            if (m) {
-                                _ftAdd(m[1].trim().replace(/_/g, ' '));
-                                consumed = true;
-                            }
-
-                            // /uncheck Nick_Name
-                            if (!consumed) {
-                                m = msgText.match(/^\/uncheck[_ ](.+)$/i);
-                                if (m) {
-                                    _ftRemove(m[1].trim().replace(/_/g, ' '));
-                                    consumed = true;
-                                }
-                            }
-
-                            if (!consumed && /^\/checklist$/i.test(msgText)) {
-                                _ftList();
-                                consumed = true;
-                            }
-
-                            if (!consumed && /^\/checklevel$/i.test(msgText)) {
-                                _ftLevelReport();
-                                consumed = true;
-                            }
+                            consumed = _ftHandleTelegramCommand(text);
 
                             if (consumed) {
                                 try {
@@ -925,9 +905,7 @@
                                     if (typeof setSharedLastUpdateId === 'function') {
                                         setSharedLastUpdateId(config.lastUpdateId);
                                     }
-                                } catch (e) {
-                                    // тихо
-                                }
+                                } catch (e) {}
                             }
                         }
                     }
@@ -941,7 +919,7 @@
             }
 
             if (pass.length > 0) {
-                return _ftOrigProcUpd.apply(this, [pass]);
+                return orig.call(this, pass);
             }
         };
 
@@ -952,31 +930,38 @@
         return true;
     }
 
-    if (!_ftInstallProcessUpdatesHook()) {
-        let tries = 0;
-        const puTimer = setInterval(() => {
-            if (_ftInstallProcessUpdatesHook()) {
-                clearInterval(puTimer);
-            } else {
-                tries++;
-                if (tries > 30) {
-                    clearInterval(puTimer);
-                    _ftDebug('[TRACKER] processUpdates hook not installed after 30 tries');
-                }
-            }
-        }, 1000);
+    // ============================================================
+    // ======================= ИНИЦИАЛИЗАЦИЯ ======================
+    // ============================================================
+
+    function _ftInstallAllHooks() {
+        const a = _ftInstallUpdatePlayersListHook();
+        const b = _ftInstallInterfaceStatusHook();
+        const c = _ftInstallInterfaceProxy();
+        const d = _ftInstallChatHook();
+        const e = _ftInstallProcessUpdatesHook();
+
+        return a && b && c && d && e;
     }
 
-    // ============================================================
-    // ======================= ФИНАЛЬНЫЙ ЛОГ ======================
-    // ============================================================
+    let _ftInitTries = 0;
+    const _ftInitTimer = setInterval(() => {
+        _ftInitTries++;
+
+        if (_ftInstallAllHooks()) {
+            clearInterval(_ftInitTimer);
+            _ftDebug('[TRACKER] Friend Tracker v4 fully installed');
+        } else if (_ftInitTries > 60) {
+            clearInterval(_ftInitTimer);
+            _ftDebug('[TRACKER] Friend Tracker v4: some hooks were not installed after 60 tries');
+        }
+    }, 500);
 
     _ftDebug(
-        '[TRACKER] Friend Tracker v3 loaded.\n' +
-        '  - Poll every 1 second\n' +
-        '  - Hassle mobile level source: hidden PlayersOnline\n' +
-        '  - Channels: onUpdatePlayersList + interface proxy + manual poll\n' +
-        '  - Commands: /check, /uncheck, /checklist, /checklevel'
+        '[TRACKER] Friend Tracker v4 loaded.\n' +
+        '  - TAB автоматически НЕ открывается\n' +
+        '  - updatePlayerList + updatePlayers каждую секунду\n' +
+        '  - Команды: /check /uncheck /checklist /checklevel /closetab /opentab'
     );
 })();
-// ==================== END FRIEND TRACKER v3 ====================
+// ==================== END FRIEND TRACKER v4 ====================
