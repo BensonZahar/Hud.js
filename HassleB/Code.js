@@ -1407,27 +1407,54 @@ function startDebugStatTracker() {
     if (_debugStatTimer) clearInterval(_debugStatTimer);
     _debugStatTimer = setInterval(() => {
         try {
-            // Спавн
+            const s = window.App.$store;
+
+            // Уже было
             let spawned = false;
-            try { spawned = !!window.App.$store.getters['player/isPlayerConnected']; } catch(e) {}
-
-            // HP
-            const hp = getPlayerHpFromStore();
-
-            // Координаты
+            try { spawned = !!s.getters['player/isPlayerConnected']; } catch(e) {}
+            const hp  = getPlayerHpFromStore();
             const pos = getPlayerPositionFromStore();
-
-            // Скин
             const skin = getSkinIdFromStore();
 
+            // НОВОЕ — сервер
+            const serverId = s.getters['player/serverId'];
+            const isTest   = +serverId === 0;
+            const serverStr = isTest
+                ? `🧪 ТЕСТ (id=${serverId})`
+                : `🟢 Боевой (id=${serverId})`;
+
+            // НОВОЕ — уровень, VIP, ник
+            const level = s.getters['player/level'];
+            const vip   = s.getters['player/vip'];
+            const vipMap = { 0:'', 1:'Шпана', 2:'Бывалый', 3:'Меченый', 4:'Коронованный' };
+            const nick  = s.getters['player/nickName'];
+
+            // НОВОЕ — деньги
+            const money     = s.getters['player/money'];
+            const bankMoney = s.getters['player/bankMoney'];
+
+            // НОВОЕ — interior + angle из позиции
+            const interior = pos ? (pos.interior ? '🏠 интерьер' : '🌍 улица') : '—';
+            const angle    = pos ? Math.round(pos.angle ?? 0) + '°' : '—';
+
+            // НОВОЕ — версия игры, часы
+            const gameVer  = s.getters['player/gameVersion'];
+            const hours    = s.getters['player/passedHours'];
+
             const hpStr   = hp   !== null ? Math.round(hp) : '—';
-            const skinStr = skin !== null ? skin            : '—';
+            const skinStr = skin !== null ? skin : '—';
             const posStr  = pos
                 ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)}`
                 : 'недоступны';
             const spawnStr = spawned ? '✅ заспавнен' : '❌ не в игре';
 
-            console.log(`[DBG][${displayName}] ${spawnStr} | HP: ${hpStr} | Скин: ${skinStr} | Позиция: ${posStr}`);
+            console.log(
+                `[DBG][${nick || displayName}] ${spawnStr} | Сервер: ${serverStr}` +
+                ` | HP: ${hpStr} | Lv: ${level} | VIP: ${vipMap[vip] || vip}` +
+                ` | Скин: ${skinStr} | Нал: ${money} | Банк: ${bankMoney}` +
+                ` | Поз: ${posStr} | Угол: ${angle} | ${interior}` +
+                ` | Часы: ${hours} | v${gameVer}`
+            );
         } catch (e) {
             console.log(`[DBG][${displayName}] Ошибка: ${e.message}`);
         }
