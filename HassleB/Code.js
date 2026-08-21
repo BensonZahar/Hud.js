@@ -1320,21 +1320,6 @@ function trackPlayerHp() {
         return;
     }
 
-    // Пока не в игре — сбрасываем baseline и ждём
-    try {
-        let _isConnected = false;
-        if (window.App && window.App.$store) {
-            _isConnected = window.App.$store.getters['player/isPlayerConnected'];
-        }
-        if (!_isConnected) {
-            globalState.hpLastValue    = null;
-            globalState._hpGraceUntil  = null;
-            globalState._hpGraceActive = false;
-            setTimeout(trackPlayerHp, 500);
-            return;
-        }
-    } catch(e) {}
-
     const currentHp = getPlayerHpFromStore();
 
     // Первый тик в игре — только ставим baseline, урон не считаем
