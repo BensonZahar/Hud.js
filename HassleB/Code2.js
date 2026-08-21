@@ -190,15 +190,17 @@
             const allPlayers = [];
             if (data.local && data.local.name) {
                 allPlayers.push({
-                    name:  data.local.name,
-                    level: Number(data.local.level) || 0
+                    name:     data.local.name,
+                    level:    Number(data.local.level) || 0,
+                    rawLevel: data.local.level  // сырое значение для диагностики
                 });
             }
             if (Array.isArray(data.players)) {
                 data.players.forEach(p => {
                     if (p && p.name) allPlayers.push({
-                        name:  p.name,
-                        level: Number(p.level) || 0
+                        name:     p.name,
+                        level:    Number(p.level) || 0,
+                        rawLevel: p.level  // сырое значение для диагностики
                     });
                 });
             }
@@ -213,6 +215,18 @@
                     ft.lastSeenNick[watched] = matchedPlayer.name;
                     const displayNick = matchedPlayer.name.replace(/_/g, ' ');
                     const currLevel   = Number(matchedPlayer.level) || 0;
+
+                    // ── Диагностика: логируем сырой и итоговый level ──
+                    const rawLvStr = (matchedPlayer.rawLevel === undefined || matchedPlayer.rawLevel === null)
+                        ? 'undef'
+                        : String(matchedPlayer.rawLevel);
+                    console.log(
+                        `[TRACKER] "${watched}"` +
+                        ` | raw=${rawLvStr}` +
+                        ` | curr=${currLevel}` +
+                        ` | prev=${ft.lastLevel[watched] ?? '–'}` +
+                        ` | online=${wasOnline}`
+                    );
 
                     if (!wasOnline) {
                         // ── Новый заход ───────────────────────────────
@@ -308,6 +322,18 @@
                 _ftStopPoll();
                 return;
             }
+
+            // ── Диагностика: состояние level для каждого онлайн-игрока ──
+            for (const w of ft.watchList) {
+                if (ft.onlineNow.has(w)) {
+                    console.log(
+                        `[POLL] "${w}"` +
+                        ` | lastLevel=${ft.lastLevel[w] ?? 0}` +
+                        ` | ch2=${ft.lastLevelData ? '✅fired' : '❌never'}`
+                    );
+                }
+            }
+
             try {
                 if (typeof window.updatePlayerList === 'function') {
                     window.updatePlayerList();
@@ -341,6 +367,23 @@
     // ═══════════════════════════════════════════════════════════
     const _ftOrigOnUpdatePlayers = window.onUpdatePlayersList;
     window.onUpdatePlayersList = function (e) {
+        // ── Диагностика Channel 1: логируем сырые level для отслеживаемых игроков ──
+        if (ft.watchList.size) {
+            try {
+                const raw1 = typeof e === 'string' ? JSON.parse(e) : (e || {});
+                const p1 = [];
+                if (raw1.local && raw1.local.name) p1.push({ name: raw1.local.name, lv: raw1.local.level });
+                if (Array.isArray(raw1.players)) raw1.players.forEach(p => p && p.name && p1.push({ name: p.name, lv: p.level }));
+                for (const w of ft.watchList) {
+                    const found = p1.find(x => _ftMatch(x.name, w));
+                    if (found) {
+                        const lvStr = (found.lv === undefined || found.lv === null) ? 'UNDEFINED' : String(found.lv);
+                        console.log(`[CH1] "${w}" level_raw=${lvStr}`);
+                    }
+                }
+            } catch (_) {}
+        }
+
         try { _ftCheck(e); } catch (err) {
             debugLog(`[TRACKER] onUpdatePlayersList err: ${err.message}`);
         }
@@ -433,8 +476,27 @@
                             return function () {
                                 // Прогоняем данные через трекер (здесь есть level!)
                                 // Сохраняем для реиграя при Канале 1 (Hassle FIX)
-                                if (arguments[0]) ft.lastLevelData = arguments[0];
-                                try { _ftCheck(arguments[0]); } catch (e) {
+                                const _arg0 = arguments[0];
+                                if (_arg0) ft.lastLevelData = _arg0;
+
+                                // ── Диагностика Channel 2: логируем каждое срабатывание ──
+                                try {
+                                    const raw2 = typeof _arg0 === 'string' ? JSON.parse(_arg0) : (_arg0 || {});
+                                    const onlineWatched = [...ft.watchList].filter(w => ft.onlineNow.has(w));
+                                    console.log(`[CH2] ${prop}() FIRED! Online watched: [${onlineWatched.join(', ') || 'none'}]`);
+                                    const p2 = [];
+                                    if (raw2.local && raw2.local.name) p2.push({ name: raw2.local.name, lv: raw2.local.level });
+                                    if (Array.isArray(raw2.players)) raw2.players.forEach(p => p && p.name && p2.push({ name: p.name, lv: p.level }));
+                                    for (const w of ft.watchList) {
+                                        const found = p2.find(x => _ftMatch(x.name, w));
+                                        if (found) {
+                                            const lvStr = (found.lv === undefined || found.lv === null) ? 'UNDEFINED' : String(found.lv);
+                                            console.log(`[CH2] "${w}" level_raw=${lvStr}`);
+                                        }
+                                    }
+                                } catch (_) {}
+
+                                try { _ftCheck(_arg0); } catch (e) {
                                     debugLog(`[TRACKER] PO Proxy err: ${e.message}`);
                                 }
                                 // Если компонент реально смонтирован — зовём оригинал
