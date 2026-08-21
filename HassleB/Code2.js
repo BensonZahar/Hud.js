@@ -1251,14 +1251,6 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 // eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
 
 
-// Code2.js — продолжение Code.js в отдельном файле
-// eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
-
-
-// Code2.js — продолжение Code.js в отдельном файле
-// eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
-
-
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  MODULE: FRIEND TRACKER v2                                   ║
 // ║  Описание: Отслеживание входа друзей.                       ║
@@ -1363,6 +1355,8 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
         // Запустить авто-опрос (канал 3) если ещё не запущен
         _ftEnsurePoll();
+        // Смонтировать PlayersOnline скрытым, чтобы движок слал level-данные
+        if (ft._mountPO) ft._mountPO();
 
         const listStr = [...ft.watchList].join(', ') || '—';
         _ftChatNotify(`Слежение: +${rawNick}`);
@@ -1564,6 +1558,8 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
                 _ftStopPoll();
                 return;
             }
+            // Восстанавливаем скрытый монтаж если компонент был закрыт (например, вторым TAB)
+            if (ft._mountPO) ft._mountPO();
             try {
                 if (typeof window.updatePlayerList === 'function') {
                     window.updatePlayerList();
@@ -1579,9 +1575,9 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
         if (ft.pollTimer === null) return;
         clearInterval(ft.pollTimer);
         ft.pollTimer = null;
+        // Демонтируем PlayersOnline если трекер держал его скрытым
+        if (ft._unmountPO) ft._unmountPO();
         debugLog('[TRACKER] Авто-опрос остановлен (watchList пуст)');
-        // getInterfaceStatus-хук сам перестанет подделывать статус,
-        // т.к. проверяет ft.watchList.size > 0
     }
 
 
@@ -1705,27 +1701,90 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
 
     // ═══════════════════════════════════════════════════════════
-    //  ХУК getInterfaceStatus — говорим движку Hassle, что
-    //  PlayersOnline «открыт», пока watchList не пуст.
-    //  Это заставляет движок слать setPlayersOnlineData (с level)
-    //  даже когда вкладка физически закрыта.
+    //  SILENT MOUNT — скрытый монтаж PlayersOnline-компонента
+    //
+    //  ПОЧЕМУ:
+    //  На Hassle движок шлёт setPlayersOnlineData (с level) только
+    //  когда компонент PlayersOnline реально смонтирован в DOM.
+    //  Подделка getInterfaceStatus ломает TAB и openInterface —
+    //  оба проверяют тот же статус и перестают работать.
+    //
+    //  КАК:
+    //  • open.status = true  → Vue включает компонент в openedComponents
+    //  • show = false        → добавляется класс interface_hidden (display:none)
+    //    Компонент в DOM (онмаунтед стреляет, поллер запускается),
+    //    но пользователь его не видит.
+    //  • Движок видит смонтированный экземпляр через window.interface()
+    //    и начинает слать setPlayersOnlineData с level-данными.
+    //
+    //  TAB:
+    //  • Если трекер держит компонент в скрытом режиме и пользователь
+    //    нажимает TAB — мы делаем компонент ВИДИМЫМ (вместо «закрыть»).
+    //  • Второй TAB закрывает его штатно через closeInterface.
+    //  • Через 1 секунду поллер снова монтирует его скрытым.
     // ═══════════════════════════════════════════════════════════
-    (function _ftHookInterfaceStatus() {
+    (function _ftSilentMount() {
+        const FT_MANAGED = '__ftManaged'; // маркер на компоненте
+
+        function _ftMountPO() {
+            try {
+                if (!window.App || !window.App.components) return;
+                const comp = window.App.components['PlayersOnline'];
+                if (!comp || comp.open.status) return; // уже открыт
+                comp[FT_MANAGED] = true;
+                comp.open.status = true;
+                comp.show = false; // скрыт, но Vue монтирует → onMounted запускает поллер
+                debugLog('[TRACKER] PlayersOnline смонтирован (скрытый режим)');
+            } catch (e) {
+                debugLog(`[TRACKER] Ошибка _ftMountPO: ${e.message}`);
+            }
+        }
+
+        function _ftUnmountPO() {
+            try {
+                if (!window.App || !window.App.components) return;
+                const comp = window.App.components['PlayersOnline'];
+                if (!comp || !comp[FT_MANAGED]) return;
+                delete comp[FT_MANAGED];
+                comp.open.status = false;
+                comp.show = true; // восстанавливаем дефолт
+                debugLog('[TRACKER] PlayersOnline демонтирован (watchList пуст)');
+            } catch (e) {
+                debugLog(`[TRACKER] Ошибка _ftUnmountPO: ${e.message}`);
+            }
+        }
+
+        // Экспортируем в ft — _ftAdd, _ftStopPoll и поллер используют их
+        ft._mountPO    = _ftMountPO;
+        ft._unmountPO  = _ftUnmountPO;
+        ft._FT_MANAGED = FT_MANAGED;
+
+        // ── ФИКс TAB: когда трекер держит PO скрытым,
+        //    первое нажатие TAB делает его ВИДИМЫМ, а не «закрывает».
         try {
-            const _origStatus = window.getInterfaceStatus;
-            if (typeof _origStatus !== 'function') {
-                debugLog('[TRACKER] getInterfaceStatus не найден — хук пропущен');
+            const _origKD = window.onKeyDown;
+            if (typeof _origKD !== 'function') {
+                debugLog('[TRACKER] window.onKeyDown не найден — TAB-фикс пропущен');
                 return;
             }
-            window.getInterfaceStatus = function (name) {
-                if (name === 'PlayersOnline' && ft.watchList.size > 0) {
-                    return true; // движок будет слать level-данные через Канал 2
+            window.onKeyDown = function (keyCode) {
+                if (keyCode === window.KEY_CODE_TAB) {
+                    const comp = window.App &&
+                                 window.App.components &&
+                                 window.App.components['PlayersOnline'];
+                    if (comp && comp[FT_MANAGED] && comp.open.status) {
+                        // Трекер держит PO в скрытом режиме → TAB делает его видимым
+                        delete comp[FT_MANAGED];
+                        comp.show = true;
+                        debugLog('[TRACKER] TAB: PlayersOnline показан пользователю');
+                        return; // не передаём в оригинальный onKeyDown
+                    }
                 }
-                return _origStatus.apply(this, arguments);
+                return _origKD.apply(this, arguments);
             };
-            debugLog('[TRACKER] getInterfaceStatus hook установлен (PlayersOnline always-open trick)');
+            debugLog('[TRACKER] window.onKeyDown хук установлен (TAB-фикс)');
         } catch (e) {
-            debugLog(`[TRACKER] Ошибка хука getInterfaceStatus: ${e.message}`);
+            debugLog(`[TRACKER] Ошибка хука onKeyDown: ${e.message}`);
         }
     })();
 
@@ -1819,7 +1878,9 @@ debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные д
 
     debugLog(
         '[TRACKER] Friend Tracker v2 загружен.\n' +
-        '  Каналы: [1] onUpdatePlayersList  [2] interface Proxy (fixed)  [3] авто-опрос\n' +
+        '  Каналы: [1] onUpdatePlayersList  [2] interface Proxy + silent mount  [3] авто-опрос\n' +
+        '  Silent mount: PlayersOnline монтируется скрытым → движок шлёт level-данные\n' +
+        '  TAB: первое нажатие показывает список, второе скрывает (через 1 сек снова скрытый монт)\n' +
         '  Команды: /check <ник> | /uncheck <ник> | /checklist\n' +
         '  Детект авторизации: lastLevel (level 0 → >0) via Канал 2'
     );
