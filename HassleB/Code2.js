@@ -3,7 +3,7 @@
 
 
 // ╔══════════════════════════════════════════════════════════════╗
-// ║  MODULE: FRIEND TRACKER v2                                   ║
+// ║  MODULE: FRIEND TRACKER v2.1 (Hassle auth-detection fix)    ║
 // ║  Описание: Отслеживание входа друзей.                       ║
 // ║             При появлении ника в списке онлайн —            ║
 // ║             уведомление в Telegram.                          ║
@@ -30,23 +30,38 @@
 // ║     на уровне window.interface(). Данные приходят С полем   ║
 // ║     level — это единственный источник level на Hassle.      ║
 // ║                                                              ║
-// ║  FIX (Hassle mobile): раньше прокси возвращал inst=false   ║
-// ║  (компонент не смонтирован) и крашился на false.method.     ║
-// ║  Теперь прокси ВСЕГДА возвращает валидный объект — даже     ║
-// ║  когда PlayersOnline не открыт. Движок вызывает             ║
-// ║  setPlayersOnlineData() напрямую, мы перехватываем.         ║
+// ║  HASSLE MOBILE FIX (3 слоя):                               ║
+// ║  Проблема: на Hassle mobile index.js вызывает               ║
+// ║    setInterfaceParams ТОЛЬКО когда PlayersOnline открыт:    ║
+// ║    getInterfaceStatus("PlayersOnline") && ...setInterfaceParams║
+// ║  → Channel 2 никогда не срабатывает → level всегда 0.      ║
+// ║                                                              ║
+// ║  Слой A: Принудительный вызов Channel 2 из Channel 1.      ║
+// ║    Вызываем window.interface('PlayersOnline').setInterfaceParams║
+// ║    напрямую из нашего хука, минуя getInterfaceStatus().     ║
+// ║    Данные из Channel 1 не несут level, но это страхует     ║
+// ║    на случай если движок всё же добавит level в будущем.    ║
+// ║                                                              ║
+// ║  Слой B: Stealth-монтирование PlayersOnline.               ║
+// ║    Когда игрок на авторизации (level=0), открываем           ║
+// ║    PlayersOnline невидимо (show=false). Компонент            ║
+// ║    монтируется и регистрирует собственные engine-хуки.      ║
+// ║    После монтирования перехватываем методы компонента        ║
+// ║    напрямую (через setupState). Если движок посылает level  ║
+// ║    через свои хуки компонента — мы его поймаем.             ║
+// ║                                                              ║
+// ║  Слой C: Time-based fallback (30 сек).                     ║
+// ║    Если Channel 2 так и не сработал и игрок всё ещё         ║
+// ║    присутствует в списке через 30 сек после уведомления     ║
+// ║    «авторизация» — считаем его авторизованным.              ║
 // ║                                                              ║
 // ║  3. Авто-опрос window.updatePlayerList()                    ║
 // ║     Вызываем каждые 1 сек пока watchList не пуст.           ║
-// ║     Даёт быстрое обнаружение входа/выхода через Канал 1     ║
-// ║     (без level, но с именем — этого достаточно для выхода). ║
 // ║                                                              ║
 // ║  Зависимости: sendToTelegram, debugLog, config,             ║
 // ║               displayName, processUpdates,                  ║
 // ║               setSharedLastUpdateId                         ║
 // ║                                                              ║
-// ║  Детект авторизации: lastLevel (level 0 → >0)              ║
-// ║  Level поступает только через Канал 2 (PlayersOnline Proxy).║
 // ╚══════════════════════════════════════════════════════════════╝
 
 // ==================== FRIEND TRACKER MODULE ====================
@@ -62,18 +77,24 @@
         lastSeenNick:  {},        // оригинальный регистр ника (для уведомления о выходе)
         pollTimer:     null,      // ID интервала авто-опроса (канал 3)
         lastLevelData: null,      // последние данные с level (Канал 2) — для реиграя при Канале 1
+        authEntryTs:   {},        // { [watched]: timestamp } — когда отправили уведомление «авторизация»
     };
 
     // Cooldown между повторными уведомлениями (защита от флуда)
     const FT_COOLDOWN_MS = 60 * 1000; // 1 минута
 
     // Частота авто-опроса updatePlayerList() — канал 3.
-    // 1 сек: мгновенная реакция на вход/выход друга.
     const FT_POLL_MS = 1 * 1000;
+
+    // Слой C: если за это время Channel 2 не дал level — считаем авторизованным
+    const FT_AUTH_FALLBACK_MS = 30 * 1000; // 30 секунд
+
+    // Слой B: stealth-монтирование PlayersOnline
+    let _ftStealthActive  = false; // сейчас выполняется stealth-монтирование
+    let _ftPatchedPO      = false; // уже патчили методы компонента
 
 
     // ── Нормализация ника ──────────────────────────────────────
-    // "Иван_Петров" → "иван петров", "Иван Петров" → "иван петров"
     function _ftNorm(nick) {
         return (nick || '').replace(/_/g, ' ').trim().toLowerCase();
     }
@@ -98,6 +119,21 @@
         } catch (e) { /* тихо */ }
     }
 
+    // ── Отправить уведомление «авторизовался» ─────────────────
+    function _ftSendAuthorizedNotify(watched, displayNick) {
+        // Сбрасываем таймер авторизации
+        delete ft.authEntryTs[watched];
+        ft.lastLevel[watched] = 1; // Помечаем как авторизованного (level > 0)
+
+        debugLog(`[TRACKER] ✅ "${displayNick}" авторизовался на сервере`);
+        _ftChatNotify(`✅ ${displayNick} авторизовался`);
+        sendToTelegram(
+            `✅ <b>Игрок авторизовался — ${displayName}</b>\n` +
+            `👤 <code>${displayNick}</code> находится на сервере`,
+            false, null
+        );
+    }
+
     // ── Добавить в слежение ───────────────────────────────────
     function _ftAdd(rawNick) {
         const norm = _ftNorm(rawNick);
@@ -105,7 +141,6 @@
         const isNew = !ft.watchList.has(norm);
         ft.watchList.add(norm);
 
-        // Запустить авто-опрос (канал 3) если ещё не запущен
         _ftEnsurePoll();
 
         const listStr = [...ft.watchList].join(', ') || '—';
@@ -127,8 +162,8 @@
         delete ft.lastNotifyTs[norm];
         delete ft.lastLevel[norm];
         delete ft.lastSeenNick[norm];
+        delete ft.authEntryTs[norm]; // Слой C: чистим таймер
 
-        // Если список опустел — останавливаем авто-опрос
         if (!ft.watchList.size) _ftStopPoll();
 
         if (existed) {
@@ -169,14 +204,6 @@
     }
 
     // ── Анализ входящих данных ────────────────────────────────
-    // Принимает данные из любого канала.
-    // Формат (из PlayersOnline.js / onUpdatePlayersList):
-    //   JSON-строка или объект:
-    //   {
-    //     count?: number, serverName?: string,
-    //     local:   { id, name, ping, level?, ... },
-    //     players: [{ id, name, ping, level?, ... }, ...]
-    //   }
     function _ftCheck(rawData) {
         if (!ft.watchList.size) return;
 
@@ -186,13 +213,12 @@
                 : rawData;
             if (!data) return;
 
-            // ── Собираем всех игроков из снимка (имя + уровень) ──
             const allPlayers = [];
             if (data.local && data.local.name) {
                 allPlayers.push({
                     name:     data.local.name,
                     level:    Number(data.local.level) || 0,
-                    rawLevel: data.local.level  // сырое значение для диагностики
+                    rawLevel: data.local.level
                 });
             }
             if (Array.isArray(data.players)) {
@@ -200,7 +226,7 @@
                     if (p && p.name) allPlayers.push({
                         name:     p.name,
                         level:    Number(p.level) || 0,
-                        rawLevel: p.level  // сырое значение для диагностики
+                        rawLevel: p.level
                     });
                 });
             }
@@ -211,12 +237,11 @@
                 const wasOnline     = ft.onlineNow.has(watched);
 
                 if (matchedPlayer) {
-                    // ── Игрок в списке — обновляем регистр ника ──────
                     ft.lastSeenNick[watched] = matchedPlayer.name;
                     const displayNick = matchedPlayer.name.replace(/_/g, ' ');
                     const currLevel   = Number(matchedPlayer.level) || 0;
 
-                    // ── Диагностика: логируем сырой и итоговый level ──
+                    // Диагностика
                     const rawLvStr = (matchedPlayer.rawLevel === undefined || matchedPlayer.rawLevel === null)
                         ? 'undef'
                         : String(matchedPlayer.rawLevel);
@@ -229,13 +254,15 @@
                     );
 
                     if (!wasOnline) {
-                        // ── Новый заход ───────────────────────────────
+                        // ── Новый заход ───────────────────────────────────
                         ft.onlineNow.add(watched);
                         ft.lastLevel[watched] = currLevel;
                         const lastTs = ft.lastNotifyTs[watched] || 0;
                         if ((now - lastTs) > FT_COOLDOWN_MS) {
                             ft.lastNotifyTs[watched] = now;
                             if (currLevel === 0) {
+                                // Авторизация — запускаем таймер Слоя C
+                                ft.authEntryTs[watched] = now;
                                 debugLog(`[TRACKER] 🔐 "${displayNick}" зашёл — авторизация`);
                                 _ftChatNotify(`🔐 ${displayNick} зашёл (авторизация)`);
                                 sendToTelegram(
@@ -243,8 +270,12 @@
                                     `👤 <code>${displayNick}</code> находится на авторизации`,
                                     false, null
                                 );
+                                // Слой B: запускаем stealth-монтирование для получения level
+                                if (!ft.lastLevelData) {
+                                    setTimeout(_ftStealthMountPO, 3000);
+                                }
                             } else {
-                                // Редкий случай: появился сразу авторизованным
+                                // Появился сразу авторизованным
                                 debugLog(`[TRACKER] ✅ "${displayNick}" зашёл — сразу на сервере (level ${currLevel})`);
                                 _ftChatNotify(`✅ ${displayNick} зашёл в игру`);
                                 sendToTelegram(
@@ -261,7 +292,8 @@
                         // ── Игрок уже онлайн — проверяем переход level 0 → >0 ──
                         const prevLevel = ft.lastLevel[watched] ?? 0;
                         if (prevLevel === 0 && currLevel > 0) {
-                            // ── Авторизовался (level 0 → level > 0) ──
+                            // Авторизовался через Channel 2 (реальный level пришёл)
+                            delete ft.authEntryTs[watched]; // Слой C: отменяем таймер
                             ft.lastLevel[watched] = currLevel;
                             debugLog(`[TRACKER] ✅ "${displayNick}" авторизовался на сервере (level ${currLevel})`);
                             _ftChatNotify(`✅ ${displayNick} авторизовался`);
@@ -271,21 +303,21 @@
                                 false, null
                             );
                         } else {
-                            // Просто обновляем уровень (без уведомления)
-                            // FIX Hassle: Канал 1 на Hassle не несёт level (всегда 0).
+                            // Просто обновляем уровень
+                            // FIX Hassle: Канал 1 не несёт level (всегда 0 или undef).
                             // Не перезаписываем реальный level нулём из Канала 1.
                             if (currLevel > 0) {
                                 ft.lastLevel[watched] = currLevel;
                             }
                         }
                     }
-                    // level > 0 → 0 в норме невозможно, игнорируем
 
                 } else if (wasOnline) {
-                    // ── Игрок вышел ──────────────────────────────────
+                    // ── Игрок вышел ──────────────────────────────────────
                     ft.onlineNow.delete(watched);
                     delete ft.lastLevel[watched];
-                    delete ft.lastNotifyTs[watched]; // сбрасываем cooldown — следующий вход всегда уведомит
+                    delete ft.lastNotifyTs[watched];
+                    delete ft.authEntryTs[watched]; // Слой C: чистим таймер
                     const rawLeave = ft.lastSeenNick[watched] || watched;
                     delete ft.lastSeenNick[watched];
                     const leaveNick = rawLeave.replace(/_/g, ' ');
@@ -306,40 +338,204 @@
 
 
     // ═══════════════════════════════════════════════════════════
+    //  СЛОЙ B: Stealth-монтирование PlayersOnline
+    //
+    //  На Hassle mobile Channel 2 не срабатывает потому что
+    //  index.js проверяет getInterfaceStatus("PlayersOnline")
+    //  и вызывает setInterfaceParams ТОЛЬКО когда интерфейс открыт.
+    //
+    //  Решение: временно монтируем PlayersOnline невидимо
+    //  (open.status=true, show=false), компонент монтируется
+    //  и может зарегистрировать свои engine-хуки. Затем
+    //  патчим его методы напрямую через setupState, чтобы
+    //  перехватить данные с level.
+    //
+    //  Даже если уровень через engine-хуки компонента
+    //  не придёт, через 30 сек сработает Слой C (fallback).
+    // ═══════════════════════════════════════════════════════════
+    function _ftStealthMountPO() {
+        if (_ftStealthActive) return;
+        if (typeof window.getInterfaceStatus !== 'function') return;
+        if (window.getInterfaceStatus('PlayersOnline')) return; // Уже открыт пользователем
+
+        // Проверяем, есть ли хоть один игрок на авторизации
+        const needsLevel = [...ft.watchList].some(
+            w => ft.onlineNow.has(w) && (ft.lastLevel[w] || 0) === 0
+        );
+        if (!needsLevel) return;
+
+        try {
+            const app = window.App;
+            if (!app || !app.components || !app.components.PlayersOnline) return;
+
+            _ftStealthActive = true;
+            _ftPatchedPO = false;
+
+            const comp = app.components.PlayersOnline;
+            debugLog('[TRACKER] 🔍 Stealth-монтирование PlayersOnline для получения level...');
+
+            // Монтируем невидимо: компонент рендерится но скрыт CSS
+            comp.show = false;
+            comp.open.status = true;
+
+            // Через 1.5 сек компонент должен смонтироваться
+            // Патчим его методы и вызываем updatePlayerList
+            setTimeout(() => {
+                try {
+                    // Попытка перехватить методы компонента
+                    _ftTryPatchPOInstance();
+
+                    // Вызываем updatePlayerList — теперь getInterfaceStatus("PlayersOnline")=true,
+                    // поэтому index.js вызовет window.interface("PlayersOnline").setInterfaceParams()
+                    // что сработает через наш Channel 2 proxy
+                    if (typeof window.updatePlayerList === 'function') {
+                        window.updatePlayerList();
+                    }
+                } catch(e) {}
+            }, 1500);
+
+            // Восстанавливаем через 5 сек
+            setTimeout(() => {
+                try {
+                    const c = window.App && window.App.components && window.App.components.PlayersOnline;
+                    if (c && _ftStealthActive) {
+                        c.open.status = false;
+                        c.show = true; // Восстанавливаем дефолт
+                        debugLog('[TRACKER] 🔍 Stealth-монтирование завершено. lastLevelData: ' +
+                            (ft.lastLevelData ? '✅' : '❌'));
+                    }
+                } catch(e) {}
+                _ftStealthActive = false;
+            }, 5000);
+
+        } catch (e) {
+            _ftStealthActive = false;
+            debugLog('[TRACKER] Stealth-монтирование: ошибка — ' + e.message);
+        }
+    }
+
+    // ── Патчинг методов компонента PlayersOnline напрямую ─────
+    // Пытаемся перехватить setPlayersOnlineData/setInterfaceParams
+    // на уровне Vue internal setupState — это позволяет поймать данные
+    // даже если движок вызывает методы напрямую на компоненте,
+    // минуя window.interface()
+    function _ftTryPatchPOInstance() {
+        if (_ftPatchedPO) return;
+        try {
+            const inst = window.interface('PlayersOnline');
+            if (!inst) return;
+
+            // В Vue 3 internal instance доступен через inst._
+            const internal = inst._ || inst.$;
+            if (!internal) return;
+
+            const setupState = internal.setupState;
+            if (!setupState) return;
+
+            const methodsToPatch = ['setPlayersOnlineData', 'setInterfaceParams'];
+            let patched = 0;
+
+            for (const method of methodsToPatch) {
+                if (typeof setupState[method] !== 'function') continue;
+                const orig = setupState[method];
+                setupState[method] = function(data) {
+                    if (data) {
+                        ft.lastLevelData = data;
+                        try { _ftCheck(data); } catch(e2) {}
+                        debugLog('[TRACKER] 🎯 Stealth-патч поймал ' + method + ' с данными!');
+                    }
+                    return orig.apply(this, arguments);
+                };
+                patched++;
+            }
+
+            if (patched > 0) {
+                _ftPatchedPO = true;
+                debugLog(`[TRACKER] 🎯 Stealth-патч: перехвачено ${patched} метод(ов) PlayersOnline`);
+            }
+        } catch(e) {
+            // Тихо — не все версии Vue доступны так
+        }
+    }
+
+
+    // ═══════════════════════════════════════════════════════════
     //  КАНАЛ 3: Авто-опрос window.updatePlayerList()
-    //
-    //  Вызываем updatePlayerList() каждую секунду пока watchList
-    //  не пуст. Это даёт быстрое срабатывание Канала 1 (вход/
-    //  выход без level). Level приходит отдельно через Канал 2.
-    //
-    //  Таймер запускается при первом /check и останавливается
-    //  когда watchList становится пустым.
     // ═══════════════════════════════════════════════════════════
     function _ftEnsurePoll() {
-        if (ft.pollTimer !== null) return; // уже запущен
+        if (ft.pollTimer !== null) return;
         ft.pollTimer = setInterval(() => {
             if (!ft.watchList.size) {
                 _ftStopPoll();
                 return;
             }
 
+            const now = Date.now();
+
             // ── Диагностика: состояние level для каждого онлайн-игрока ──
             for (const w of ft.watchList) {
                 if (ft.onlineNow.has(w)) {
+                    const authTs = ft.authEntryTs[w];
+                    const sinceAuth = authTs ? Math.round((now - authTs) / 1000) : '–';
                     console.log(
                         `[POLL] "${w}"` +
                         ` | lastLevel=${ft.lastLevel[w] ?? 0}` +
-                        ` | ch2=${ft.lastLevelData ? '✅fired' : '❌never'}`
+                        ` | ch2=${ft.lastLevelData ? '✅fired' : '❌never'}` +
+                        ` | authSec=${sinceAuth}`
                     );
                 }
             }
 
+            // ══ СЛОЙ C: Time-based fallback ══════════════════════════
+            // Если игрок в auth-состоянии > FT_AUTH_FALLBACK_MS — считаем авторизованным
+            for (const w of ft.watchList) {
+                if (!ft.onlineNow.has(w)) continue;
+                if ((ft.lastLevel[w] || 0) > 0) continue; // Уже авторизован
+                const authTs = ft.authEntryTs[w];
+                if (!authTs) continue;
+                if ((now - authTs) < FT_AUTH_FALLBACK_MS) continue;
+
+                // Fallback: считаем авторизованным через таймаут
+                const displayNick = (ft.lastSeenNick[w] || w).replace(/_/g, ' ');
+                debugLog(`[TRACKER] ⏱ "${displayNick}" авторизовался (таймаут ${FT_AUTH_FALLBACK_MS/1000}с, level не получен)`);
+                _ftChatNotify(`✅ ${displayNick} авторизовался (авто)`);
+                sendToTelegram(
+                    `✅ <b>Игрок авторизовался — ${displayName}</b>\n` +
+                    `👤 <code>${displayNick}</code> находится на сервере`,
+                    false, null
+                );
+                delete ft.authEntryTs[w];
+                ft.lastLevel[w] = 1; // Помечаем как авторизованного
+            }
+
+            // ── Авто-опрос updatePlayerList ──────────────────────────
             try {
                 if (typeof window.updatePlayerList === 'function') {
                     window.updatePlayerList();
                 }
             } catch (e) {
                 debugLog(`[TRACKER] poll err: ${e.message}`);
+            }
+
+            // ── Слой B: Попытка stealth-монтирования ─────────────────
+            // Если есть игроки на авторизации и channel 2 ни разу не сработал
+            if (!ft.lastLevelData && !_ftStealthActive) {
+                const hasAuthPlayers = [...ft.watchList].some(
+                    w => ft.onlineNow.has(w) && (ft.lastLevel[w] || 0) === 0 && ft.authEntryTs[w]
+                );
+                if (hasAuthPlayers) {
+                    _ftStealthMountPO();
+                }
+            }
+
+            // ── Replay lastLevelData для застрявших игроков ─────────
+            if (ft.lastLevelData) {
+                for (const w of ft.watchList) {
+                    if (ft.onlineNow.has(w) && (ft.lastLevel[w] || 0) === 0) {
+                        try { _ftCheck(ft.lastLevelData); } catch (err) {}
+                        break;
+                    }
+                }
             }
         }, FT_POLL_MS);
         debugLog(`[TRACKER] Авто-опрос запущен (каждые ${FT_POLL_MS / 1000} сек)`);
@@ -355,19 +551,10 @@
 
     // ═══════════════════════════════════════════════════════════
     //  КАНАЛ 1: window.onUpdatePlayersList
-    //
-    //  Движок вызывает этот глобальный колбэк каждый раз когда
-    //  кто-то дёрнул window.updatePlayerList():
-    //    • PlayersOnline.vue — раз в 1 сек (когда открыт)
-    //    • mvdF.js           — раз в 30 сек (всегда)
-    //    • Наш авто-опрос   — раз в 1 сек (Канал 3, когда watchList не пуст)
-    //
-    //  На Hassle: данные приходят БЕЗ поля level.
-    //  Level детектируется только через Канал 2.
     // ═══════════════════════════════════════════════════════════
     const _ftOrigOnUpdatePlayers = window.onUpdatePlayersList;
     window.onUpdatePlayersList = function (e) {
-        // ── Диагностика Channel 1: логируем сырые level для отслеживаемых игроков ──
+        // ── Диагностика Channel 1 ─────────────────────────────
         if (ft.watchList.size) {
             try {
                 const raw1 = typeof e === 'string' ? JSON.parse(e) : (e || {});
@@ -384,13 +571,31 @@
             } catch (_) {}
         }
 
+        // ── Channel 1: основная проверка ─────────────────────
         try { _ftCheck(e); } catch (err) {
             debugLog(`[TRACKER] onUpdatePlayersList err: ${err.message}`);
         }
-        // Hassle FIX: Канал 1 не несёт level. Если есть игроки онлайн с level=0
-        // (застряли на авторизации) и у нас есть сохранённые данные с level
-        // от Канала 2 — прогоняем их снова. Это поймает переход 0→>0 даже если
-        // Канал 2 стрелял редко или до того как игрок добавлен в watchList.
+
+        // ══ СЛОЙ A: Принудительный вызов Channel 2 ═══════════
+        // index.js вызывает setInterfaceParams ТОЛЬКО когда PlayersOnline открыт:
+        //   getInterfaceStatus("PlayersOnline") && window.interface("PlayersOnline").setInterfaceParams(e)
+        // Мы вызываем ВСЕГДА, минуя эту проверку.
+        // Наш proxy перехватит вызов. Данные из Channel 1 не несут level,
+        // но это помогает если движок вдруг добавит level в ответе.
+        if (ft.watchList.size) {
+            try {
+                const poProxy = window.interface('PlayersOnline');
+                if (poProxy && typeof poProxy.setInterfaceParams === 'function') {
+                    // Вызываем только если PlayersOnline НЕ открыт
+                    // (когда открыт — оригинал уже вызовет сам)
+                    if (!window.getInterfaceStatus('PlayersOnline')) {
+                        poProxy.setInterfaceParams(e);
+                    }
+                }
+            } catch(_) {}
+        }
+
+        // ── Replay lastLevelData если channel 2 уже срабатывал ─
         if (ft.lastLevelData) {
             for (const w of ft.watchList) {
                 if (ft.onlineNow.has(w) && (ft.lastLevel[w] || 0) === 0) {
@@ -399,6 +604,7 @@
                 }
             }
         }
+
         if (typeof _ftOrigOnUpdatePlayers === 'function') {
             return _ftOrigOnUpdatePlayers.apply(this, arguments);
         }
@@ -407,44 +613,6 @@
 
     // ═══════════════════════════════════════════════════════════
     //  КАНАЛ 2: window.interface('PlayersOnline') Proxy  [FIXED]
-    //
-    //  КАК РАБОТАЕТ:
-    //  Оборачиваем window.interface() в Proxy. При любом вызове
-    //  window.interface('PlayersOnline') — независимо от того,
-    //  смонтирован компонент или нет — возвращаем прокси-объект,
-    //  который перехватывает setPlayersOnlineData и
-    //  setInterfaceParams и прогоняет данные через _ftCheck().
-    //
-    //  ПОЧЕМУ БЫЛ БАГ НА HASSLE MOBILE:
-    //  Когда PlayersOnline не открыт, window.interface('PlayersOnline')
-    //  возвращает false (не null). Старый код проверял inst == null,
-    //  что не ловило false, и следующая строка
-    //    typeof inst.setPlayersOnlineData
-    //  бросала TypeError — движок замолкал и переставал слать данные.
-    //
-    //  ЧТО ИСПРАВЛЕНО:
-    //  Теперь прокси возвращается ВСЕГДА:
-    //    • Если компонент смонтирован (inst — Vue-объект) →
-    //      target = inst, методы перехватываются + форвардятся.
-    //    • Если не смонтирован (inst = false/null/undefined) →
-    //      target = {}, создаём виртуальный таргет.
-    //      Hassle-движок вызывает setPlayersOnlineData() на нём,
-    //      мы перехватываем данные с level и зовём _ftCheck().
-    //
-    //  КОГДА РАБОТАЕТ:
-    //  • Hassle mobile — PlayersOnline НЕ открыт (основной кейс).
-    //  • Hassle/Legacy — PlayersOnline открыт пользователем.
-    //  • Любой движок, когда другой скрипт дёргает interface().
-    //
-    //  КОГДА НЕ РАБОТАЕТ:
-    //  • Legacy PC — кэширует ссылку на компонент при старте,
-    //    не вызывает window.interface() повторно. Там достаточно
-    //    Канала 1 + 3.
-    //
-    //  PlayersOnline.js expose():
-    //    { setPlayersOnlineData(json), setInterfaceParams(json) }
-    //  Формат данных: JSON-строка или объект
-    //    { count, serverName, local: {name, level, ...}, players: [{name, level, ...}] }
     // ═══════════════════════════════════════════════════════════
     (function _ftSetupInterfaceProxy() {
         try {
@@ -457,12 +625,8 @@
             window.interface = function (name) {
                 const inst = _origIface.apply(this, arguments);
 
-                // Перехватываем только PlayersOnline
                 if (name !== 'PlayersOnline') return inst;
 
-                // ── FIX: раньше здесь был `inst == null` — не ловило false.
-                // Теперь: если компонент смонтирован — используем его как таргет,
-                // иначе создаём пустой объект-заглушку. Прокси возвращается ВСЕГДА.
                 const realInst = (inst !== null && inst !== undefined && inst !== false)
                     ? inst
                     : null;
@@ -474,12 +638,10 @@
                             prop === 'setInterfaceParams'
                         ) {
                             return function () {
-                                // Прогоняем данные через трекер (здесь есть level!)
-                                // Сохраняем для реиграя при Канале 1 (Hassle FIX)
                                 const _arg0 = arguments[0];
                                 if (_arg0) ft.lastLevelData = _arg0;
 
-                                // ── Диагностика Channel 2: логируем каждое срабатывание ──
+                                // ── Диагностика Channel 2 ──────────────────────────
                                 try {
                                     const raw2 = typeof _arg0 === 'string' ? JSON.parse(_arg0) : (_arg0 || {});
                                     const onlineWatched = [...ft.watchList].filter(w => ft.onlineNow.has(w));
@@ -499,8 +661,6 @@
                                 try { _ftCheck(_arg0); } catch (e) {
                                     debugLog(`[TRACKER] PO Proxy err: ${e.message}`);
                                 }
-                                // Если компонент реально смонтирован — зовём оригинал
-                                // чтобы Vue-компонент тоже обновил UI
                                 if (realInst) {
                                     const fn = realInst[prop];
                                     if (typeof fn === 'function') {
@@ -509,7 +669,6 @@
                                 }
                             };
                         }
-                        // Остальные свойства — из реального компонента или undefined
                         return realInst ? realInst[prop] : undefined;
                     }
                 });
@@ -524,7 +683,6 @@
 
     // ═══════════════════════════════════════════════════════════
     //  ХУК: window.sendChatInput — команды в чате игры
-    //  Цепочка: этот хук → ZAVOD-хук → оригинал sendChatInput
     // ═══════════════════════════════════════════════════════════
     const _ftOrigChat = window.sendChatInput;
     window.sendChatInput = function (input) {
@@ -535,7 +693,7 @@
 
             if (cmd === '/check' && parts.length >= 2) {
                 _ftAdd(parts.slice(1).join(' '));
-                return; // не передаём в игру
+                return;
             }
             if (cmd === '/uncheck' && parts.length >= 2) {
                 _ftRemove(parts.slice(1).join(' '));
@@ -554,9 +712,6 @@
 
     // ═══════════════════════════════════════════════════════════
     //  ХУК: processUpdates — команды из Telegram
-    //  /check Иван Петров      /check_Иван_Петров
-    //  /uncheck Иван Петров    /uncheck_Иван_Петров
-    //  /checklist
     // ═══════════════════════════════════════════════════════════
     const _ftOrigProcUpd = processUpdates;
     processUpdates = function (updates) {
@@ -572,7 +727,6 @@
                 if (config.chatIds.includes(msgChatId)) {
 
                     // /check Иван Петров  или  /check_Иван_Петров
-                    // Отрицательный lookahead: не матчить /checklist
                     const addM = msgText.match(/^\/check(?!list)[_ ](.+)$/i);
                     if (addM) {
                         _ftAdd(addM[1].trim().replace(/_/g, ' '));
@@ -610,10 +764,10 @@
 
 
     debugLog(
-        '[TRACKER] Friend Tracker v2 загружен.\n' +
+        '[TRACKER] Friend Tracker v2.1 загружен.\n' +
         '  Каналы: [1] onUpdatePlayersList  [2] interface Proxy (fixed)  [3] авто-опрос\n' +
-        '  Команды: /check <ник> | /uncheck <ник> | /checklist\n' +
-        '  Детект авторизации: lastLevel (level 0 → >0) via Канал 2'
+        '  Hassle auth-fix: [A] forced CH2 call  [B] stealth mount  [C] 30s fallback\n' +
+        '  Команды: /check <ник> | /uncheck <ник> | /checklist'
     );
 
 })();
