@@ -1717,7 +1717,7 @@ function trackNicknameAndServer() {
 // ║               displayName, getNotificationReplyMarkup   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM API MODULE //
-function createButton(text, command, style) {
+function createButton(text, command, style = null) {
     const btn = { text, callback_data: command };
     if (style) btn.style = style;
     return btn;
@@ -2156,7 +2156,7 @@ function buildWelcomeKeyboard() {
     return {
         inline_keyboard: [
             [createButton('⚙️ Управление', `show_controls_${uniqueId}`, 'primary')],
-            [createButton('💰 Инфо об аккаунте', `local_account_info_${uniqueId}`), settingsBtn]
+            [createButton('💰 Инфо об аккаунте', `local_account_info_${uniqueId}`, 'primary'), settingsBtn]
         ]
     };
 }
@@ -2690,11 +2690,11 @@ function showControlsMenu(chatId, messageId) {
     }
     const replyMarkup = {
         inline_keyboard: [
-            [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
-            [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
-            [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
+            [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`, 'primary')],
+            [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`, 'primary')],
+            [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`, 'primary')],
             [createButton("🔔 Настройки уведомлений", `show_welcome_settings_${uniqueId}`)],
-            [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`)],
+            [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`, 'danger')],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
@@ -2707,7 +2707,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
         [createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
         [createButton("📡 Рация", `show_radio_options_${uniqueIdParam}`)],
         [createButton("⚠️ Выговоры", `show_warning_options_${uniqueIdParam}`)],
-        [createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`)],
+        [createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`, 'primary')],
 
         [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_kac_options_${uniqueIdParam}`)],
     ];
@@ -2721,8 +2721,8 @@ function showPayDayOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `global_p_on_${uniqueIdParam}`),
-                createButton("🔕 ВЫКЛ", `global_p_off_${uniqueIdParam}`)
+                createButton("🔔 ВКЛ", `global_p_on_${uniqueIdParam}`, 'success'),
+                createButton("🔕 ВЫКЛ", `global_p_off_${uniqueIdParam}`, 'danger')
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2733,8 +2733,8 @@ function showSoobOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `global_soob_on_${uniqueIdParam}`),
-                createButton("🔕 ВЫКЛ", `global_soob_off_${uniqueIdParam}`)
+                createButton("🔔 ВКЛ", `global_soob_on_${uniqueIdParam}`, 'success'),
+                createButton("🔕 ВЫКЛ", `global_soob_off_${uniqueIdParam}`, 'danger')
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2745,8 +2745,8 @@ function showMestoOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `global_mesto_on_${uniqueIdParam}`),
-                createButton("🔕 ВЫКЛ", `global_mesto_off_${uniqueIdParam}`)
+                createButton("🔔 ВКЛ", `global_mesto_on_${uniqueIdParam}`, 'success'),
+                createButton("🔕 ВЫКЛ", `global_mesto_off_${uniqueIdParam}`, 'danger')
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2757,12 +2757,12 @@ function showRadioOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton(`📡 Все ${config.radioOfficialNotifications ? '🟢' : '🔴'}`, `global_radio_on_${uniqueIdParam}`),
-                createButton(`🔕 Выкл все`, `global_radio_off_${uniqueIdParam}`)
+                createButton(`📡 Все ${config.radioOfficialNotifications ? '🟢' : '🔴'}`, `global_radio_on_${uniqueIdParam}`, 'success'),
+                createButton(`🔕 Выкл все`, `global_radio_off_${uniqueIdParam}`, 'danger')
             ],
             [
-                createButton(`🎯 Фильтр ${config.radioImportantFilter ? '🟢' : '🔴'}`, `global_radio_filter_on_${uniqueIdParam}`),
-                createButton(`🚫 Фильтр выкл`, `global_radio_filter_off_${uniqueIdParam}`)
+                createButton(`🎯 Фильтр ${config.radioImportantFilter ? '🟢' : '🔴'}`, `global_radio_filter_on_${uniqueIdParam}`, 'success'),
+                createButton(`🚫 Фильтр выкл`, `global_radio_filter_off_${uniqueIdParam}`, 'danger')
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2773,8 +2773,8 @@ function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `global_warning_on_${uniqueIdParam}`),
-                createButton("🔕 ВЫКЛ", `global_warning_off_${uniqueIdParam}`)
+                createButton("🔔 ВКЛ", `global_warning_on_${uniqueIdParam}`, 'success'),
+                createButton("🔕 ВЫКЛ", `global_warning_off_${uniqueIdParam}`, 'danger')
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2785,8 +2785,8 @@ function showKacOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🟢 ВКЛ", `global_kac_on_${uniqueIdParam}`),
-                createButton("🔴 ВЫКЛ", `global_kac_off_${uniqueIdParam}`)
+                createButton("🟢 ВКЛ", `global_kac_on_${uniqueIdParam}`, 'success'),
+                createButton("🔴 ВЫКЛ", `global_kac_off_${uniqueIdParam}`, 'danger')
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2797,8 +2797,8 @@ function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("С паузами", `afk_n_with_pauses_${uniqueIdParam}`),
-                createButton("Без пауз", `afk_n_without_pauses_${uniqueIdParam}`)
+                createButton("С паузами", `afk_n_with_pauses_${uniqueIdParam}`, 'success'),
+                createButton("Без пауз", `afk_n_without_pauses_${uniqueIdParam}`, 'primary')
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -3069,7 +3069,7 @@ function getNotificationReplyMarkup() {
                 createButton("🚶 Движения", `show_movement_${uniqueId}`)
             ],
             [pauseBtn, autoLoginBtn],
-            [createButton("⚙️ Управление", `show_controls_${uniqueId}`, 'primary')]
+            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
         ]
     };
 }
@@ -4787,7 +4787,7 @@ function initializeChatMonitor() {
             const rateLimitMarkup = {
                 inline_keyboard: [
                     [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
-                    [createButton("⚙️ Управление", `show_controls_${uniqueId}`, 'primary')]
+                    [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
                 ]
             };
             sendToTelegram(
@@ -4812,7 +4812,7 @@ function initializeChatMonitor() {
                     const disconnectMarkup = {
                         inline_keyboard: [
                             [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
-                            [createButton("⚙️ Управление", `show_controls_${uniqueId}`, 'primary')]
+                            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
                         ]
                     };
                     sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>`, false, disconnectMarkup);
