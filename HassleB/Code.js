@@ -1717,8 +1717,10 @@ function trackNicknameAndServer() {
 // ║               displayName, getNotificationReplyMarkup   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM API MODULE //
-function createButton(text, command) {
-    return { text, callback_data: command };
+function createButton(text, command, style) {
+    const btn = { text, callback_data: command };
+    if (style) btn.style = style;
+    return btn;
 }
 // Универсальная функция для всех запросов к Telegram Bot API
 // FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
@@ -2153,7 +2155,7 @@ function buildWelcomeKeyboard() {
 
     return {
         inline_keyboard: [
-            [createButton('⚙️ Управление', `show_controls_${uniqueId}`)],
+            [createButton('⚙️ Управление', `show_controls_${uniqueId}`, 'primary')],
             [createButton('💰 Инфо об аккаунте', `local_account_info_${uniqueId}`), settingsBtn]
         ]
     };
@@ -3067,7 +3069,7 @@ function getNotificationReplyMarkup() {
                 createButton("🚶 Движения", `show_movement_${uniqueId}`)
             ],
             [pauseBtn, autoLoginBtn],
-            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+            [createButton("⚙️ Управление", `show_controls_${uniqueId}`, 'primary')]
         ]
     };
 }
@@ -4785,7 +4787,7 @@ function initializeChatMonitor() {
             const rateLimitMarkup = {
                 inline_keyboard: [
                     [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
-                    [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+                    [createButton("⚙️ Управление", `show_controls_${uniqueId}`, 'primary')]
                 ]
             };
             sendToTelegram(
@@ -4810,7 +4812,7 @@ function initializeChatMonitor() {
                     const disconnectMarkup = {
                         inline_keyboard: [
                             [createButton("🔄 Отправить /rec 5", `send_rec_cmd_${uniqueId}`)],
-                            [createButton("⚙️ Управление", `show_controls_${uniqueId}`)]
+                            [createButton("⚙️ Управление", `show_controls_${uniqueId}`, 'primary')]
                         ]
                     };
                     sendToTelegram(`🔌 <b>Вы были отключены от сервера (${displayName})</b>`, false, disconnectMarkup);
