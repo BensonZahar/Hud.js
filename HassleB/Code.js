@@ -1717,10 +1717,8 @@ function trackNicknameAndServer() {
 // ║               displayName, getNotificationReplyMarkup   ║
 // ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM API MODULE //
-function createButton(text, command, style = null) {
-    const btn = { text, callback_data: command };
-    if (style) btn.style = style;
-    return btn;
+function createButton(text, command) {
+    return { text, callback_data: command };
 }
 // Универсальная функция для всех запросов к Telegram Bot API
 // FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
@@ -2155,8 +2153,8 @@ function buildWelcomeKeyboard() {
 
     return {
         inline_keyboard: [
-            [createButton('⚙️ Управление', `show_controls_${uniqueId}`, 'primary')],
-            [createButton('💰 Инфо об аккаунте', `local_account_info_${uniqueId}`, 'primary'), settingsBtn]
+            [createButton('⚙️ Управление', `show_controls_${uniqueId}`)],
+            [createButton('💰 Инфо об аккаунте', `local_account_info_${uniqueId}`), settingsBtn]
         ]
     };
 }
@@ -2690,11 +2688,11 @@ function showControlsMenu(chatId, messageId) {
     }
     const replyMarkup = {
         inline_keyboard: [
-            [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`, 'primary')],
-            [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`, 'primary')],
-            [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`, 'primary')],
+            [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
+            [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
+            [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
             [createButton("🔔 Настройки уведомлений", `show_welcome_settings_${uniqueId}`)],
-            [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`, 'danger')],
+            [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`)],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
@@ -2707,7 +2705,7 @@ function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
         [createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
         [createButton("📡 Рация", `show_radio_options_${uniqueIdParam}`)],
         [createButton("⚠️ Выговоры", `show_warning_options_${uniqueIdParam}`)],
-        [createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`, 'primary')],
+        [createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`)],
 
         [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_kac_options_${uniqueIdParam}`)],
     ];
@@ -2721,8 +2719,8 @@ function showPayDayOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `global_p_on_${uniqueIdParam}`, 'success'),
-                createButton("🔕 ВЫКЛ", `global_p_off_${uniqueIdParam}`, 'danger')
+                createButton("🔔 ВКЛ", `global_p_on_${uniqueIdParam}`),
+                createButton("🔕 ВЫКЛ", `global_p_off_${uniqueIdParam}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2733,8 +2731,8 @@ function showSoobOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `global_soob_on_${uniqueIdParam}`, 'success'),
-                createButton("🔕 ВЫКЛ", `global_soob_off_${uniqueIdParam}`, 'danger')
+                createButton("🔔 ВКЛ", `global_soob_on_${uniqueIdParam}`),
+                createButton("🔕 ВЫКЛ", `global_soob_off_${uniqueIdParam}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2745,8 +2743,8 @@ function showMestoOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `global_mesto_on_${uniqueIdParam}`, 'success'),
-                createButton("🔕 ВЫКЛ", `global_mesto_off_${uniqueIdParam}`, 'danger')
+                createButton("🔔 ВКЛ", `global_mesto_on_${uniqueIdParam}`),
+                createButton("🔕 ВЫКЛ", `global_mesto_off_${uniqueIdParam}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2757,12 +2755,12 @@ function showRadioOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton(`📡 Все ${config.radioOfficialNotifications ? '🟢' : '🔴'}`, `global_radio_on_${uniqueIdParam}`, 'success'),
-                createButton(`🔕 Выкл все`, `global_radio_off_${uniqueIdParam}`, 'danger')
+                createButton(`📡 Все ${config.radioOfficialNotifications ? '🟢' : '🔴'}`, `global_radio_on_${uniqueIdParam}`),
+                createButton(`🔕 Выкл все`, `global_radio_off_${uniqueIdParam}`)
             ],
             [
-                createButton(`🎯 Фильтр ${config.radioImportantFilter ? '🟢' : '🔴'}`, `global_radio_filter_on_${uniqueIdParam}`, 'success'),
-                createButton(`🚫 Фильтр выкл`, `global_radio_filter_off_${uniqueIdParam}`, 'danger')
+                createButton(`🎯 Фильтр ${config.radioImportantFilter ? '🟢' : '🔴'}`, `global_radio_filter_on_${uniqueIdParam}`),
+                createButton(`🚫 Фильтр выкл`, `global_radio_filter_off_${uniqueIdParam}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2773,8 +2771,8 @@ function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🔔 ВКЛ", `global_warning_on_${uniqueIdParam}`, 'success'),
-                createButton("🔕 ВЫКЛ", `global_warning_off_${uniqueIdParam}`, 'danger')
+                createButton("🔔 ВКЛ", `global_warning_on_${uniqueIdParam}`),
+                createButton("🔕 ВЫКЛ", `global_warning_off_${uniqueIdParam}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2785,8 +2783,8 @@ function showKacOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("🟢 ВКЛ", `global_kac_on_${uniqueIdParam}`, 'success'),
-                createButton("🔴 ВЫКЛ", `global_kac_off_${uniqueIdParam}`, 'danger')
+                createButton("🟢 ВКЛ", `global_kac_on_${uniqueIdParam}`),
+                createButton("🔴 ВЫКЛ", `global_kac_off_${uniqueIdParam}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -2797,8 +2795,8 @@ function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
             [
-                createButton("С паузами", `afk_n_with_pauses_${uniqueIdParam}`, 'success'),
-                createButton("Без пауз", `afk_n_without_pauses_${uniqueIdParam}`, 'primary')
+                createButton("С паузами", `afk_n_with_pauses_${uniqueIdParam}`),
+                createButton("Без пауз", `afk_n_without_pauses_${uniqueIdParam}`)
             ],
             [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
         ]
@@ -6087,55 +6085,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 })();
 // ==================== END WARNING CHECK MODULE ====================
 
-// ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: MENU BRANDING                                   ║
-// ║  Описание: Вставка надписи «HASSLE BOT» сразу после      ║
-// ║             логотипа (.menu-main__logo) в главном меню   ║
-// ║             и меню паузы. Menu2.js не трогаем.           ║
-// ║  Зависимости: нет                                        ║
-// ╚══════════════════════════════════════════════════════════╝
-// START MENU BRANDING MODULE //
-(function () {
-    const BRAND_CLASS   = '__hassle-brand-label';
-    const LOGO_SELECTOR = '.menu-main__logo';
 
-    function injectBrand() {
-        document.querySelectorAll(LOGO_SELECTOR).forEach(function (logo) {
-            // Не дублируем: если следующий sibling уже наш — выходим
-            if (
-                logo.nextElementSibling &&
-                logo.nextElementSibling.classList.contains(BRAND_CLASS)
-            ) return;
-
-            const label = document.createElement('div');
-            label.className = BRAND_CLASS;
-            label.textContent = 'HASSLE BOT';
-            label.style.cssText = [
-                'color:#ffffff',
-                'font-size:1.4vh',
-                'font-weight:700',
-                'letter-spacing:0.25em',
-                'text-align:center',
-                'margin-top:0.5vh',
-                'pointer-events:none',
-                'user-select:none',
-                'font-family:inherit'
-            ].join(';');
-
-            // Вставляем сразу ПОСЛЕ тега <img> логотипа
-            logo.insertAdjacentElement('afterend', label);
-        });
-    }
-
-    // Попытка при старте (меню уже в DOM)
-    injectBrand();
-
-    // MutationObserver — Vue пересоздаёт DOM при смене страниц (main → settings → pause)
-    // Каждый раз при любом изменении DOM проверяем логотип и вставляем надпись снова
-    const _brandObserver = new MutationObserver(injectBrand);
-    _brandObserver.observe(document.body, { childList: true, subtree: true });
-})();
-// END MENU BRANDING MODULE //
 
 // Сигнал готовности — Code2.js ждёт этот флаг перед стартом
 // Code2.js запускается прямо здесь — в нашем scope — чтобы видел все переменные
