@@ -6087,7 +6087,55 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
 })();
 // ==================== END WARNING CHECK MODULE ====================
 
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: MENU BRANDING                                   ║
+// ║  Описание: Вставка надписи «HASSLE BOT» сразу после      ║
+// ║             логотипа (.menu-main__logo) в главном меню   ║
+// ║             и меню паузы. Menu2.js не трогаем.           ║
+// ║  Зависимости: нет                                        ║
+// ╚══════════════════════════════════════════════════════════╝
+// START MENU BRANDING MODULE //
+(function () {
+    const BRAND_CLASS   = '__hassle-brand-label';
+    const LOGO_SELECTOR = '.menu-main__logo';
 
+    function injectBrand() {
+        document.querySelectorAll(LOGO_SELECTOR).forEach(function (logo) {
+            // Не дублируем: если следующий sibling уже наш — выходим
+            if (
+                logo.nextElementSibling &&
+                logo.nextElementSibling.classList.contains(BRAND_CLASS)
+            ) return;
+
+            const label = document.createElement('div');
+            label.className = BRAND_CLASS;
+            label.textContent = 'HASSLE BOT';
+            label.style.cssText = [
+                'color:#ffffff',
+                'font-size:1.4vh',
+                'font-weight:700',
+                'letter-spacing:0.25em',
+                'text-align:center',
+                'margin-top:0.5vh',
+                'pointer-events:none',
+                'user-select:none',
+                'font-family:inherit'
+            ].join(';');
+
+            // Вставляем сразу ПОСЛЕ тега <img> логотипа
+            logo.insertAdjacentElement('afterend', label);
+        });
+    }
+
+    // Попытка при старте (меню уже в DOM)
+    injectBrand();
+
+    // MutationObserver — Vue пересоздаёт DOM при смене страниц (main → settings → pause)
+    // Каждый раз при любом изменении DOM проверяем логотип и вставляем надпись снова
+    const _brandObserver = new MutationObserver(injectBrand);
+    _brandObserver.observe(document.body, { childList: true, subtree: true });
+})();
+// END MENU BRANDING MODULE //
 
 // Сигнал готовности — Code2.js ждёт этот флаг перед стартом
 // Code2.js запускается прямо здесь — в нашем scope — чтобы видел все переменные
