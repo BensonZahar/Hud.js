@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗаво'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -731,13 +731,6 @@ function broadcastGlobalCommand(cmd, val) {
         debugLog(`[GLOBAL] BroadcastChannel недоступен: ${e.message}`);
     }
 
-    // 3. Лог в группу (информационно, другие боты это НЕ получат через getUpdates)
-    const tag = `${HBGLOBAL_TAG}:${cmd}:${val}`;
-    sendToTelegram(
-        `🌐 <b>Глобальная команда от ${displayName}</b>\n` +
-        `<code>${tag}</code>`,
-        true, null
-    );
     debugLog(`[GLOBAL] Broadcast отправлен: ${cmd} = ${val}`);
 }
 
@@ -769,7 +762,7 @@ function reloadAllAccounts() {
 }
 
 // Применить глобальную команду на текущем аккаунте
-function handleGlobalBroadcastCommand(cmd, val) {
+function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
     const isOn = val === 'on';
     switch (cmd) {
         case 'toggle_payday':
@@ -829,9 +822,10 @@ function handleGlobalBroadcastCommand(cmd, val) {
         default:
             debugLog(`[GLOBAL] Неизвестная команда: ${cmd}`);
     }
-    // ✅ ФИКС: обновляем кнопки приветственного сообщения у ВСЕХ аккаунтов-получателей
-    if (cmd !== 'reload') {
-        sendWelcomeMessage();
+    // ✅ ФИКС: обновляем welcome только на получателях broadcast (не на инициаторе — у него явный вызов в обработчике)
+    // editOnly=true — только редактируем существующий welcome, новый не создаём
+    if (cmd !== 'reload' && fromBroadcast) {
+        sendWelcomeMessage(true);
     }
     debugLog(`[GLOBAL] Применена команда: ${cmd} = ${val}`);
 }
@@ -844,7 +838,7 @@ function handleGlobalBroadcastCommand(cmd, val) {
                 const data = event.data;
                 if (!data || !data.cmd || !data.val) return;
                 debugLog(`[GLOBAL] BroadcastChannel получен от "${data.from}": ${data.cmd} = ${data.val}`);
-                handleGlobalBroadcastCommand(data.cmd, data.val);
+                handleGlobalBroadcastCommand(data.cmd, data.val, true);
             } catch(e) {
                 debugLog('[GLOBAL] Ошибка обработки BroadcastChannel: ' + e.message);
             }
@@ -2224,7 +2218,7 @@ function buildWelcomeKeyboard() {
     };
 }
 
-function sendWelcomeMessage() {
+function sendWelcomeMessage(editOnly = false) {
     if (!config.accountInfo.nickname) {
         debugLog('Ник не определен, откладываем отправку приветственного сообщения');
         return;
@@ -2242,6 +2236,9 @@ function sendWelcomeMessage() {
         if (existingId) {
             // Редактируем уже отправленное сообщение — не шлём новое
             editMessageText(chatId, existingId, message, replyMarkup);
+        } else if (editOnly) {
+            // Нет сохранённого ID — не создаём новое, просто пропускаем
+            debugLog(`[WELCOME] Чат ${chatId}: welcome ещё не отправлен, пропускаем обновление`);
         } else if (globalState.welcomeSending[chatId]) {
             // Уже летит запрос на отправку — не дублируем
             debugLog(`[WELCOME] Чат ${chatId}: отправка уже в процессе, пропускаем`);
@@ -3290,7 +3287,7 @@ function processUpdates(updates) {
                 if (globalMatch) {
                     const [, cmd, val] = globalMatch;
                     debugLog(`[GLOBAL] Channel broadcast получен: ${cmd} = ${val}`);
-                    handleGlobalBroadcastCommand(cmd, val);
+                    handleGlobalBroadcastCommand(cmd, val, true);
                     continue; // не передавать дальше
                 }
             }
@@ -3314,7 +3311,7 @@ function processUpdates(updates) {
             const globalMatch = update.message.text.match(/#HBGLOBAL:(\w+):(\w+)/);
             if (globalMatch) {
                 const [, cmd, val] = globalMatch;
-                handleGlobalBroadcastCommand(cmd, val);
+                handleGlobalBroadcastCommand(cmd, val, true);
                 config.lastUpdateId = update.update_id;
                 setSharedLastUpdateId(config.lastUpdateId);
                 continue; // не передавать дальше в обычный обработчик
