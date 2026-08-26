@@ -290,10 +290,10 @@ function dlgBuildKeyboard() {
         if (totalPages > 1) {
             const nav = [];
             if (dlg.page > 0)
-                nav.push(createButton('⬅️ Пред.', `dlg_page_${dlg.page - 1}_${uid}`));
+                nav.push(createButton('⬅️ Пред.', `dlg_page_${dlg.page - 1}_${uid}`, 'primary'));
             nav.push(createButton(`📄 ${dlg.page + 1}/${totalPages}`, `dlg_noop_${uid}`));
             if (dlg.page < totalPages - 1)
-                nav.push(createButton('➡️ След.', `dlg_page_${dlg.page + 1}_${uid}`));
+                nav.push(createButton('➡️ След.', `dlg_page_${dlg.page + 1}_${uid}`, 'primary'));
             kb.push(nav);
         }
 
@@ -302,36 +302,36 @@ function dlgBuildKeyboard() {
         if (dlg.paginate[0] || dlg.paginate[1]) {
             const srvNav = [];
             if (dlg.paginate[0])
-                srvNav.push(createButton('◀️ Пред. стр. (серв.)', `dlg_srv_prev_${uid}`));
+                srvNav.push(createButton('◀️ Пред. стр. (серв.)', `dlg_srv_prev_${uid}`, 'primary'));
             if (dlg.paginate[0] && dlg.paginate[1])
                 srvNav.push(createButton('📋', `dlg_noop_${uid}`));
             if (dlg.paginate[1])
-                srvNav.push(createButton('▶️ След. стр. (серв.)', `dlg_srv_next_${uid}`));
+                srvNav.push(createButton('▶️ След. стр. (серв.)', `dlg_srv_next_${uid}`, 'primary'));
             kb.push(srvNav);
         }
 
         // FIX: если button2 пустая — сервер всё равно показывает "Назад", добавляем fallback
         const b2label = dlg.button2 || 'Назад';
-        kb.push([createButton(`❌ ${b2label}`, `dlg_btn2_${uid}`)]);
+        kb.push([createButton(`❌ ${b2label}`, `dlg_btn2_${uid}`, 'danger')]);
 
     // ── INPUT / PASSWORD ────────────────────────────────────────
     } else if (dlg.style === DIALOG_STYLE.INPUT ||
                dlg.style === DIALOG_STYLE.PASSWORD) {
 
         const icon = dlg.style === DIALOG_STYLE.PASSWORD ? '🔐' : '✏️';
-        kb.push([createButton(`${icon} Ввести текст`, `dlg_input_${uid}`)]);
+        kb.push([createButton(`${icon} Ввести текст`, `dlg_input_${uid}`, 'primary')]);
 
         // FIX: всегда показываем кнопку отмены, даже если button2 пустая
         const cancelLabel = dlg.button2 || 'Назад';
-        kb.push([createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`)]);
+        kb.push([createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`, 'danger')]);
 
     // ── MSGBOX ──────────────────────────────────────────────────
     } else {
         const btnRow = [];
-        if (dlg.button1) btnRow.push(createButton(`✅ ${dlg.button1}`, `dlg_btn1_${uid}`));
+        if (dlg.button1) btnRow.push(createButton(`✅ ${dlg.button1}`, `dlg_btn1_${uid}`, 'success'));
         // FIX: всегда показываем кнопку отмены, даже если button2 пустая
         const cancelLabel = dlg.button2 || 'Закрыть';
-        btnRow.push(createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`));
+        btnRow.push(createButton(`❌ ${cancelLabel}`, `dlg_btn2_${uid}`, 'danger'));
         if (btnRow.length) kb.push(btnRow);
     }
 
