@@ -5811,7 +5811,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         try {
             const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
                 ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
-            _dlgOrigSendClientEvent(evtType, 'OnMultiDialogClickNavigButton',
+            window.sendClientEventHandle(evtType, 'OnMultiDialogClickNavigButton',
                 1, warnCheck.pageIndex, 0);
             _log(`[WARN] → Следующая страница (pageIndex=${warnCheck.pageIndex})`);
             warnCheck.pageIndex++;
@@ -5826,7 +5826,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         try {
             const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
                 ? window.gm.EVENT_EXECUTE_PUBLIC : 0;
-            _dlgOrigSendClientEvent(evtType, 'OnDialogResponse', dialogId, 0, -1, '');
+            window.sendClientEventHandle(evtType, 'OnDialogResponse', dialogId, 0, -1, '');
             _log('[WARN] Диалог /find закрыт');
         } catch (e) {
             _log('[WARN] Ошибка закрытия диалога: ' + e.message);
@@ -5986,8 +5986,11 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                     warnCheck.dialogId = dialogId;
 
                     // Регистрируем в Vue (оригинальная игровая функция), но НЕ в Telegram
-                    const gameResult = typeof _dlgOrigAddDialogInQueue === 'function'
-                        ? _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority)
+                    // FIX: _dlgOrigAddDialogInQueue не существовал → диалог не попадал в Vue-очередь
+                    //      и closeLastDialog() не мог его убрать корректно.
+                    //      Используем _warnPrevAddDialog (оригинальный addDialogInQueue до нашего патча).
+                    const gameResult = typeof _warnPrevAddDialog === 'function'
+                        ? _warnPrevAddDialog.call(this, dialogParams, content, priority)
                         : undefined;
 
                     // Асинхронно (чтобы Vue успел отрисовать) парсим содержимое
