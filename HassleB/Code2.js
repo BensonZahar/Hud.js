@@ -2,7 +2,7 @@
 // eval'ится изнутри Code.js — имеет доступ ко всем его переменным напрямую
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: DIALOG MONITOR v2                               ║
+// ║  MODULE: DIALOG MONITOR v2.1                             ║
 // ║  Описание: Перехват серверных диалогов игры и управление ║
 // ║             ими через Telegram.                          ║
 // ║             Типы: LIST, TABLIST, INPUT, PASSWORD, MSGBOX ║
@@ -10,6 +10,16 @@
 // ║               sendToTelegram, deleteMessage,             ║
 // ║               answerCallbackQuery, createButton,         ║
 // ║               processUpdates, setSharedLastUpdateId      ║
+// ║                                                          ║
+// ║  НОВОЕ в v2.1:                                           ║
+// ║  1. Захват parsed[6/7] → paginate[0/1] (серв. пагинация)║
+// ║  2. Захват priority (3-й аргумент addDialogInQueue)      ║
+// ║  3. Захват parsed[8] → prefillValue (для INPUT)          ║
+// ║  4. dlgBuildText: ID, priority, кнопки, prefill,        ║
+// ║     subtitle/info, статус серверной пагинации            ║
+// ║  5. dlgBuildKeyboard: кнопки ◀️/▶️ серверной пагинации  ║
+// ║  6. dlgSrvPaginate: OnMultiDialogClickNavigButton        ║
+// ║  7. Полный debugLog: все поля + каждый item по строке   ║
 // ╚══════════════════════════════════════════════════════════╝
 
 
@@ -66,7 +76,7 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // Цвета: ~r~красный ~y~жёлтый ~g~зелёный ~b~синий ~p~фиолетовый ~w~белый ~o~оранжевый
 */
 
-// ==================== DIALOG MONITOR MODULE v2 ====================
+// ==================== DIALOG MONITOR MODULE v2.1 ====================
 // Перехват серверных диалогов игры и управление ими через Telegram
 // Расположение: в самом конце Code.js (после // END HB MENU SYSTEM)
 //
@@ -76,6 +86,15 @@ console.log('[TEST COMMANDS] /test и /test2 успешно загружены!'
 // 3. HTML-теги в тексте диалога — текст сохраняется, тег удаляется
 // 4. Защита от краша: проверка dlg.active перед dlgRespond
 // 5. Пустой info для INPUT-диалогов — исправлен парсинг HTML
+//
+// НОВОЕ v2.1:
+// 6. Захват paginate[0/1] из parsed[6/7] — серверная навигация
+// 7. Захват priority из аргумента addDialogInQueue
+// 8. Захват prefillValue из parsed[8] (предзаполнение INPUT)
+// 9. Полный текст сообщения: ID, приоритет, subtitle, кнопки, prefill
+// 10. Кнопки ◀️/▶️ серверной пагинации в клавиатуре Telegram
+// 11. dlgSrvPaginate() → OnMultiDialogClickNavigButton
+// 12. Подробный debugLog: все поля + items построчно
 // ==================================================================
 
 // ── Константы ──────────────────────────────────────────────────
@@ -88,7 +107,19 @@ const DIALOG_STYLE = {
     TABLIST_HEADERS: 5
 };
 
-const DLG_ITEMS_PER_PAGE = 8;  // Элементов списка на одну страницу
+// Window.js TYPES: ["text","input","list_normal","input_private","list_title","list_title","image"]
+// Соответствие style → имя типа как в Window.js
+const DLG_WINDOW_TYPE_NAMES = {
+    0: 'text',
+    1: 'input',
+    2: 'list_normal',
+    3: 'input_private',
+    4: 'list_title',
+    5: 'list_title',
+    6: 'image'
+};
+
+const DLG_ITEMS_PER_PAGE = 8;  // Элементов списка на одну страницу (клиентская пагинация)
 const DLG_LABEL_MAX_LEN  = 24; // Макс. длина подписи кнопки
 
 // Диапазон HB-диалогов — не трогаем
@@ -101,15 +132,20 @@ const dlg = {
     dialogId:      null,
     style:         null,
     title:         '',
-    info:          '',
-    contentText:   '',  // FIX: текст для INPUT/MSGBOX/PASSWORD диалогов
-    headers:       [],
-    items:         [],
-    button1:       '',
-    button2:       '',
-    tgMsgs:        [],
-    page:          0,
-    awaitingInput: false
+    info:          '',         // subtitle / подзаголовок (parsed[3])
+    contentText:   '',         // FIX v2: текст для INPUT/MSGBOX/PASSWORD (из content)
+    headers:       [],         // заголовки колонок TABLIST_HEADERS
+    items:         [],         // строки списка
+    button1:       '',         // parsed[4]
+    button2:       '',         // parsed[5]
+    tgMsgs:        [],         // [{chatId, messageId}]
+    page:          0,          // текущая страница клиентской пагинации
+    awaitingInput: false,
+
+    // ── v2.1: новые поля ───────────────────────────────────────
+    paginate:      [false, false],  // [canPrev, canNext] — сервер-сайд навигация (parsed[6/7])
+    priority:      0,               // приоритет диалога (3-й аргумент addDialogInQueue)
+    prefillValue:  '',              // предзаполнение для INPUT/PASSWORD (parsed[8])
 };
 
 // ── Вспомогательные функции ───────────────────────────────────
@@ -147,7 +183,7 @@ function dlgStyleIcon(style) {
 function dlgStyleName(style) {
     const MAP = {
         0: 'Сообщение', 1: 'Ввод текста', 2: 'Список',
-        3: 'Ввод пароля', 4: 'Таблица', 5: 'Таблица'
+        3: 'Ввод пароля', 4: 'Таблица', 5: 'Таблица+Загол.'
     };
     return MAP[style] || 'Диалог';
 }
@@ -159,35 +195,67 @@ function dlgBuildText() {
     const startIdx   = dlg.page * DLG_ITEMS_PER_PAGE;
     const endIdx     = Math.min(startIdx + DLG_ITEMS_PER_PAGE, dlg.items.length);
 
-    let text = `🗔 <b>Диалог — ${displayName}</b>  `;
-    text += `<i>${dlgStyleIcon(dlg.style)} ${dlgStyleName(dlg.style)}</i>\n`;
+    // ── Заголовок блока ───────────────────────────────────────
+    let text = `🗔 <b>Диалог — ${displayName}</b>\n`;
+    text += `<i>${dlgStyleIcon(dlg.style)} ${dlgStyleName(dlg.style)}</i>`;
+    text += ` <code>style=${dlg.style} (${DLG_WINDOW_TYPE_NAMES[dlg.style] || '?'})</code>\n`;
+
+    // ── ID + приоритет ────────────────────────────────────────
+    text += `🆔 ID: <code>${dlg.dialogId}</code>`;
+    if (dlg.priority) text += `  📊 Приоритет: <code>${dlg.priority}</code>`;
+    text += `\n`;
     text += `━━━━━━━━━━━━━━━━━━━━\n`;
 
-    if (dlg.title) text += `📌 <b>${dlgHtml(dlg.title)}</b>\n`;
+    // ── Заголовок диалога ─────────────────────────────────────
+    if (dlg.title)  text += `📌 <b>${dlgHtml(dlg.title)}</b>\n`;
 
-    // FIX: текст диалога для INPUT/MSGBOX/PASSWORD (хранится в contentText)
+    // ── Подзаголовок (info / subtitle) ───────────────────────
+    if (dlg.info)   text += `ℹ️ <i>${dlgHtml(dlg.info)}</i>\n`;
+
+    // ── Текст диалога (INPUT / MSGBOX / PASSWORD — из content) ─
     if (dlg.contentText) {
-        text += `${dlgHtml(dlg.contentText)}\n`;
-    } else if (dlg.info) {
-        text += `${dlgHtml(dlg.info)}\n`;
+        text += `\n📝 ${dlgHtml(dlg.contentText)}\n`;
     }
 
-    // FIX v2: заголовки колонок (только для TABLIST_HEADERS)
+    // ── Предзаполнение для INPUT / PASSWORD ───────────────────
+    if (dlg.prefillValue &&
+        (dlg.style === DIALOG_STYLE.INPUT || dlg.style === DIALOG_STYLE.PASSWORD)) {
+        text += `✏️ Предзаполнение: <code>${dlgHtml(dlg.prefillValue)}</code>\n`;
+    }
+
+    // ── Кнопки (названия) ─────────────────────────────────────
+    if (dlg.button1 || dlg.button2) {
+        text += `\n🔘 `;
+        if (dlg.button1) text += `[${dlgHtml(dlg.button1)}]`;
+        if (dlg.button1 && dlg.button2) text += ` / `;
+        if (dlg.button2) text += `[${dlgHtml(dlg.button2)}]`;
+        text += `\n`;
+    }
+
+    // ── Статус серверной пагинации ────────────────────────────
+    if (dlg.paginate[0] || dlg.paginate[1]) {
+        const prev = dlg.paginate[0] ? '◀️ есть' : '— нет';
+        const next = dlg.paginate[1] ? '▶️ есть' : '— нет';
+        text += `📄 Серв. страницы: пред. ${prev} / след. ${next}\n`;
+    }
+
+    // ── Заголовки колонок (только для TABLIST_HEADERS) ────────
     if (dlg.headers.length > 0) {
         text += `\n📊 <b>${dlgHtml(dlg.headers.join(' │ '))}</b>\n`;
     }
 
-    // Элементы списка с пагинацией
+    // ── Элементы списка с клиентской пагинацией ───────────────
     if (dlg.items.length > 0) {
         const pageLabel = totalPages > 1
             ? ` (стр. ${dlg.page + 1}/${totalPages})`
             : '';
-        text += `\n<b>Пункты${pageLabel}:</b>\n`;
+        text += `\n<b>Пункты [${dlg.items.length}]${pageLabel}:</b>\n`;
         for (let i = startIdx; i < endIdx; i++) {
             text += `${i + 1}. ${dlgHtml(dlg.items[i])}\n`;
         }
     }
 
+    // ── Подсказка для ввода ───────────────────────────────────
     if (dlg.style === DIALOG_STYLE.INPUT || dlg.style === DIALOG_STYLE.PASSWORD) {
         text += `\n💡 <i>Нажмите «Ввести», введите текст в ответном сообщении — он будет отправлен в диалог</i>`;
     }
@@ -217,16 +285,29 @@ function dlgBuildKeyboard() {
             kb.push(row);
         }
 
-        // Пагинация
+        // ── Клиентская пагинация (по DLG_ITEMS_PER_PAGE) ──────
         const totalPages = Math.ceil(dlg.items.length / DLG_ITEMS_PER_PAGE);
         if (totalPages > 1) {
             const nav = [];
             if (dlg.page > 0)
-                nav.push(createButton('◀️ Назад', `dlg_page_${dlg.page - 1}_${uid}`));
+                nav.push(createButton('⬅️ Пред.', `dlg_page_${dlg.page - 1}_${uid}`));
             nav.push(createButton(`📄 ${dlg.page + 1}/${totalPages}`, `dlg_noop_${uid}`));
             if (dlg.page < totalPages - 1)
-                nav.push(createButton('▶️ Далее', `dlg_page_${dlg.page + 1}_${uid}`));
+                nav.push(createButton('➡️ След.', `dlg_page_${dlg.page + 1}_${uid}`));
             kb.push(nav);
+        }
+
+        // ── v2.1: Серверная пагинация (OnMultiDialogClickNavigButton) ──
+        // Отдельный ряд, только если сервер сообщил о наличии страниц
+        if (dlg.paginate[0] || dlg.paginate[1]) {
+            const srvNav = [];
+            if (dlg.paginate[0])
+                srvNav.push(createButton('◀️ Пред. стр. (серв.)', `dlg_srv_prev_${uid}`));
+            if (dlg.paginate[0] && dlg.paginate[1])
+                srvNav.push(createButton('📋', `dlg_noop_${uid}`));
+            if (dlg.paginate[1])
+                srvNav.push(createButton('▶️ След. стр. (серв.)', `dlg_srv_next_${uid}`));
+            kb.push(srvNav);
         }
 
         // FIX: если button2 пустая — сервер всё равно показывает "Назад", добавляем fallback
@@ -348,6 +429,42 @@ function dlgRespond(dialogId, response, listitem, inputText) {
     }
 }
 
+/**
+ * v2.1: Отправляет серверную навигацию (◀️/▶️ страницы от сервера).
+ * Соответствует Window.js onPaginateButton():
+ *   sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnMultiDialogClickNavigButton', direction, dialogId, priority)
+ * @param {number} direction — 0 = назад, 1 = вперёд
+ */
+function dlgSrvPaginate(direction) {
+    if (!dlg.active) {
+        debugLog('[DLG] dlgSrvPaginate: диалог не активен');
+        return;
+    }
+    try {
+        const evtType = (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
+            ? window.gm.EVENT_EXECUTE_PUBLIC
+            : 'server';
+        _dlgOrigSendClientEvent(evtType, 'OnMultiDialogClickNavigButton',
+            direction, dlg.dialogId, dlg.priority);
+        debugLog(
+            `[DLG] Серв. пагинация: direction=${direction}, ` +
+            `id=${dlg.dialogId}, priority=${dlg.priority}`
+        );
+        sendToTelegram(
+            `📄 <b>${direction === 0 ? '◀️ Предыдущая' : '▶️ Следующая'} страница — ${displayName}</b>\n` +
+            `<i>Сервер пришлёт обновлённый диалог...</i>`,
+            false, null
+        );
+    } catch (err) {
+        debugLog(`[DLG] Ошибка серв. пагинации: ${err.message}`);
+        sendToTelegram(
+            `❌ <b>Ошибка серверной пагинации (${displayName}):</b>\n` +
+            `<code>${err.message.replace(/</g, '&lt;')}</code>`,
+            false, null
+        );
+    }
+}
+
 // ── Хук addDialogInQueue ─────────────────────────────────────
 
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
@@ -371,6 +488,17 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         const info    = dlgStripColors(parsed[3] || '');
         const button1 = dlgStripColors(parsed[4] || '');
         const button2 = dlgStripColors(parsed[5] || '');
+
+        // v2.1: parsed[6/7] = paginate флаги от сервера (как в Window.js openParams[6/7])
+        const paginatePrev = !!(parsed[6]);
+        const paginateNext = !!(parsed[7]);
+
+        // v2.1: parsed[8] = prefillValue для INPUT (как в Window.js openParams[8])
+        const prefillValue = dlgStripColors(parsed[8] || '');
+
+        // v2.1: priority — третий аргумент addDialogInQueue (как в Window.js props.priority)
+        const dlgPriority = (typeof priority !== 'undefined' && priority !== null)
+            ? Number(priority) : 0;
 
         // FIX: для INPUT/MSGBOX/PASSWORD — текст диалога хранится в content/stringParam
         let contentText = '';
@@ -421,18 +549,39 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         dlg.style         = style;
         dlg.title         = title;
         dlg.info          = info;
-        dlg.contentText   = contentText; // FIX: текст для INPUT/MSGBOX/PASSWORD
+        dlg.contentText   = contentText;
         dlg.headers       = headers;
         dlg.items         = items;
         dlg.button1       = button1;
         dlg.button2       = button2;
         dlg.page          = 0;
         dlg.awaitingInput = false;
+        // v2.1
+        dlg.paginate      = [paginatePrev, paginateNext];
+        dlg.priority      = dlgPriority;
+        dlg.prefillValue  = prefillValue;
 
+        // ── v2.1: Подробный debugLog — ВСЕ поля диалога ──────────────
         debugLog(
-            `[DLG] Перехвачен диалог: id=${dialogId}, style=${style}, ` +
-            `title="${title}", headers=${headers.length}, items=${items.length}`
+            `[DLG] ═══════════════ Диалог перехвачен ═══════════════\n` +
+            `  ID:          ${dialogId}\n` +
+            `  Style:       ${style} → ${dlgStyleName(style)} (${DLG_WINDOW_TYPE_NAMES[style] || '?'})\n` +
+            `  Priority:    ${dlgPriority}\n` +
+            `  Title:       "${title}"\n` +
+            `  Info/Sub:    "${info}"\n` +
+            `  ContentText: "${contentText.replace(/\n/g, '\\n')}"\n` +
+            `  Button1:     "${button1}"\n` +
+            `  Button2:     "${button2}"\n` +
+            `  Paginate:    prev=${paginatePrev}  next=${paginateNext}\n` +
+            `  PrefillVal:  "${prefillValue}"\n` +
+            `  Headers[${headers.length}]:  [${headers.join(' | ')}]\n` +
+            `  Items[${items.length}]: (следующие строки)`
         );
+        // Логируем каждый item отдельной строкой
+        items.forEach((item, idx) => {
+            debugLog(`  [DLG]   item[${idx}]: "${item}"`);
+        });
+        debugLog(`[DLG] ════════════════════════════════════════════════`);
 
         // ── Диалог "Точное время" от /c 60 — не даём попасть в Vue вообще ──────
         if (title === "Точное время" && window._awaitC60Dialog) {
@@ -601,13 +750,23 @@ function handleDialogTgCallback(data, chatId, messageId, callbackQueryId) {
             dlgClose();
         }
 
-    // ── Пагинация ─────────────────────────────────────────────
+    // ── Клиентская пагинация (внутри одного вызова диалога) ───
     } else if (data.startsWith(`dlg_page_`)) {
         const match = data.match(/^dlg_page_(\d+)_/);
         if (match) {
             dlg.page = parseInt(match[1]);
             dlgUpdateTelegram();
         }
+
+    // ── v2.1: Серверная пагинация ◀️ — предыдущая страница ───
+    } else if (data.startsWith(`dlg_srv_prev_${uid}`)) {
+        dlgSrvPaginate(0);
+        dlgClose(false); // сервер пришлёт новый диалог через addDialogInQueue
+
+    // ── v2.1: Серверная пагинация ▶️ — следующая страница ────
+    } else if (data.startsWith(`dlg_srv_next_${uid}`)) {
+        dlgSrvPaginate(1);
+        dlgClose(false); // сервер пришлёт новый диалог через addDialogInQueue
 
     // ── Запрос ввода текста (INPUT / PASSWORD) ────────────────
     } else if (data.startsWith(`dlg_input_${uid}`)) {
@@ -727,7 +886,8 @@ processUpdates = function(updates) {
     }
 };
 
-debugLog('[DLG] Dialog Monitor v2 загружен. Все серверные диалоги отправляются в Telegram.');
+debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + серверная пагинация ◀️/▶️.');
+// ==================== END DIALOG MONITOR MODULE v2 ====================
 // ==================== END DIALOG MONITOR MODULE v2 ====================
 
 // ╔══════════════════════════════════════════════════════════╗
