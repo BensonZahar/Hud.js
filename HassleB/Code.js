@@ -698,8 +698,20 @@ function applyMainMenuTabPatch() {
 // Тег, по которому все аккаунты распознают broadcast-команду
 const HBGLOBAL_TAG = '#HBGLOBAL';
 
-// Отправить глобальную команду в Telegram — её подхватят все аккаунты
+// Отправить глобальную команду — через BroadcastChannel (все вкладки браузера) + Telegram (лог)
+// Примечание: Telegram-бот не получает сообщения от других ботов через getUpdates —
+//             это жёсткое ограничение Telegram API. BroadcastChannel решает это на уровне браузера.
 function broadcastGlobalCommand(cmd, val) {
+    // 1. BroadcastChannel — мгновенно, для всех вкладок в том же браузере
+    try {
+        const _bc = new BroadcastChannel('hassle_global_v1');
+        _bc.postMessage({ cmd, val, from: displayName });
+        _bc.close();
+        debugLog(`[GLOBAL] BroadcastChannel отправлен: ${cmd} = ${val}`);
+    } catch(e) {
+        debugLog(`[GLOBAL] BroadcastChannel недоступен: ${e.message}`);
+    }
+    // 2. Telegram — только для лога в чате (другие боты его НЕ получат через getUpdates)
     const tag = `${HBGLOBAL_TAG}:${cmd}:${val}`;
     sendToTelegram(
         `🌐 <b>Глобальная команда от ${displayName}</b>\n` +
@@ -791,6 +803,25 @@ function handleGlobalBroadcastCommand(cmd, val) {
     }
     debugLog(`[GLOBAL] Применена команда: ${cmd} = ${val}`);
 }
+// BroadcastChannel listener — получаем команды от других вкладок (других аккаунтов)
+(function setupGlobalBroadcastChannelListener() {
+    try {
+        const _bc = new BroadcastChannel('hassle_global_v1');
+        _bc.onmessage = function(event) {
+            try {
+                const data = event.data;
+                if (!data || !data.cmd || !data.val) return;
+                debugLog(`[GLOBAL] BroadcastChannel получен от "${data.from}": ${data.cmd} = ${data.val}`);
+                handleGlobalBroadcastCommand(data.cmd, data.val);
+            } catch(e) {
+                debugLog('[GLOBAL] Ошибка обработки BroadcastChannel: ' + e.message);
+            }
+        };
+        debugLog('[GLOBAL] BroadcastChannel listener установлен (канал: hassle_global_v1)');
+    } catch(e) {
+        debugLog('[GLOBAL] BroadcastChannel не поддерживается: ' + e.message);
+    }
+})();
 // END GLOBAL BROADCAST MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
