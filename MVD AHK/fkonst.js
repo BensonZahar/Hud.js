@@ -4,7 +4,8 @@ const NICK_CHECK_ENABLED = true; // ← поменяй на false чтобы в�
 const _ALLOWED_NICKS = [
     "Zahar_Konstov",
     "Fura_Morales",
-    "Casper_Paradise"
+    "Casper_Paradise",
+    "Maxim_Vortex"
 ];
 
 (function _nickCheck(callback) {
