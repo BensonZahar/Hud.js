@@ -5898,6 +5898,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     function _finalize(dialogId, current, max) {
         if (warnCheck.timeout) { clearTimeout(warnCheck.timeout); warnCheck.timeout = null; }
         warnCheck.active   = false;
+        window._warnCheckActive = false;
         warnCheck.dialogId = null;
 
         _closeDialog(dialogId);
@@ -5919,6 +5920,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
     function _abort() {
         if (warnCheck.timeout) { clearTimeout(warnCheck.timeout); warnCheck.timeout = null; }
         warnCheck.active   = false;
+        window._warnCheckActive = false;
         warnCheck.dialogId = null;
         _log('[WARN] Проверка выговоров прервана (таймаут/ошибка)');
     }
@@ -5943,6 +5945,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         }
 
         warnCheck.active    = true;
+        window._warnCheckActive = true;
         warnCheck.nickname  = nick;
         warnCheck.pageIndex = 0;
         warnCheck.lastCount = -1;

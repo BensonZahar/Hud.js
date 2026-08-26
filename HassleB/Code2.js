@@ -674,6 +674,15 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         }
         // ── END ────────────────────────────────────────────────────────────────
 
+        // ── Пропускаем /find диалог, если идёт проверка выговоров ──────────────
+        if (window._warnCheckActive &&
+            style === DIALOG_STYLE.TABLIST_HEADERS &&
+            /в игре/i.test(title)) {
+            debugLog('[DLG] /find диалог пропущен — проверка выговоров активна (Telegram не нужен)');
+            return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+        }
+        // ── END /find skip ──────────────────────────────────────────────────────
+
         dlgSendToTelegram();
 
     } catch (err) {
