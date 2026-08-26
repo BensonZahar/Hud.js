@@ -698,11 +698,30 @@ function applyMainMenuTabPatch() {
 // Тег, по которому все аккаунты распознают broadcast-команду
 const HBGLOBAL_TAG = '#HBGLOBAL';
 
-// Отправить глобальную команду — через BroadcastChannel (все вкладки браузера) + Telegram (лог)
-// Примечание: Telegram-бот не получает сообщения от других ботов через getUpdates —
-//             это жёсткое ограничение Telegram API. BroadcastChannel решает это на уровне браузера.
+// Отправить глобальную команду — через Telegram broadcast-канал (основной) + BroadcastChannel (резерв)
+// Telegram канал: бот пишет в приватный канал, где все боты — админы.
+// Другие боты получают это как channel_post (не от бота!) → ограничение Telegram обходится.
+// BroadcastChannel оставлен как резерв на случай одного браузера, но между разными
+// процессами игры (отдельные окна/приложения) он не работает.
 function broadcastGlobalCommand(cmd, val) {
-    // 1. BroadcastChannel — мгновенно, для всех вкладок в том же браузере
+    // 1. Telegram канал — главный метод для изолированных процессов игры
+    const bcChanId = window.BROADCAST_CHANNEL_ID;
+    if (bcChanId) {
+        const chanTag = `${HBGLOBAL_TAG}:${cmd}:${val}`;
+        const _chanXhr = new XMLHttpRequest();
+        _chanXhr.open('POST', `https://api.telegram.org/bot${config.botToken}/sendMessage`, true);
+        _chanXhr.setRequestHeader('Content-Type', 'application/json');
+        _chanXhr.send(JSON.stringify({
+            chat_id: bcChanId,
+            text: chanTag,
+            disable_notification: true
+        }));
+        debugLog(`[GLOBAL] Channel broadcast отправлен → ${bcChanId}: ${chanTag}`);
+    } else {
+        debugLog('[GLOBAL] BROADCAST_CHANNEL_ID не задан — channel broadcast пропущен');
+    }
+
+    // 2. BroadcastChannel — резерв для случая когда все вкладки в одном браузере
     try {
         const _bc = new BroadcastChannel('hassle_global_v1');
         _bc.postMessage({ cmd, val, from: displayName });
@@ -711,7 +730,8 @@ function broadcastGlobalCommand(cmd, val) {
     } catch(e) {
         debugLog(`[GLOBAL] BroadcastChannel недоступен: ${e.message}`);
     }
-    // 2. Telegram — только для лога в чате (другие боты его НЕ получат через getUpdates)
+
+    // 3. Лог в группу (информационно, другие боты это НЕ получат через getUpdates)
     const tag = `${HBGLOBAL_TAG}:${cmd}:${val}`;
     sendToTelegram(
         `🌐 <b>Глобальная команда от ${displayName}</b>\n` +
@@ -3248,6 +3268,23 @@ function processUpdates(updates) {
     for (const update of updates) {
         config.lastUpdateId = update.update_id;
         setSharedLastUpdateId(config.lastUpdateId); // Обновляем shared после обработки
+
+        // ===== CHANNEL BROADCAST: #HBGLOBAL из приватного broadcast-канала =====
+        // Проверяем ДО фильтра chatIds — channel ID не входит в chatIds
+        if (update.channel_post && update.channel_post.text) {
+            const bcChanId = window.BROADCAST_CHANNEL_ID;
+            if (bcChanId && String(update.channel_post.chat.id) === String(bcChanId)) {
+                const globalMatch = update.channel_post.text.match(/#HBGLOBAL:(\w+):(\w+)/);
+                if (globalMatch) {
+                    const [, cmd, val] = globalMatch;
+                    debugLog(`[GLOBAL] Channel broadcast получен: ${cmd} = ${val}`);
+                    handleGlobalBroadcastCommand(cmd, val);
+                    continue; // не передавать дальше
+                }
+            }
+        }
+        // ===== END CHANNEL BROADCAST =====
+
         let chatId = null;
         if (update.message) {
             chatId = update.message.chat.id;
