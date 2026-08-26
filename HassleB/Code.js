@@ -2297,7 +2297,7 @@ function activateAFKWithMode(mode, reconnect, restartAction, chatId, messageId) 
     startAFKCycle();
     sendToTelegram(`🔄 <b>AFK режим активирован для ${displayName}</b>\nID из HUD: ${hudId}\nФорматы: ${idFormats.join(', ')}\n🔁 <b>Запущен AFK цикл для PayDay</b>`, false, null);
     // Возвращаемся в главное меню или скрываем кнопки
-    showGlobalFunctionsMenu(chatId, messageId, uniqueId);
+    showFunctionsMenu(chatId, messageId, uniqueId);
 }
 function startAFKCycle() {
     config.afkCycle.active = true;
@@ -2690,30 +2690,82 @@ function showControlsMenu(chatId, messageId) {
     }
     const replyMarkup = {
         inline_keyboard: [
-            [createButton("⚙️ Функции", `show_local_functions_${uniqueId}`)],
-            [createButton("📋 Общие функции", `show_global_functions_${uniqueId}`)],
+            [createButton("⚙️ Функции", `show_functions_${uniqueId}`)],
             [createButton("💰 Инфо об аккаунте", `local_account_info_${uniqueId}`)],
-            [createButton("🔔 Настройки уведомлений", `show_welcome_settings_${uniqueId}`)],
+            [createButton("🔔 Настройки уведомлений", `show_notif_menu_${uniqueId}`)],
             [createButton("🔄 Перезагрузить скрипт", `global_reload_script_${uniqueId}`)],
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
-function showGlobalFunctionsMenu(chatId, messageId, uniqueIdParam) {
-    let inlineKeyboard = [
-        [createButton("🔔 PayDay", `show_payday_options_${uniqueIdParam}`)],
-        [createButton("🏛️ Сообщ.", `show_soob_options_${uniqueIdParam}`)],
-        [createButton("📍 Место", `show_mesto_options_${uniqueIdParam}`)],
-        [createButton("📡 Рация", `show_radio_options_${uniqueIdParam}`)],
-        [createButton("⚠️ Выговоры", `show_warning_options_${uniqueIdParam}`)],
-        [createButton("🌙 AFK Ночь", `global_afk_n_${uniqueIdParam}`)],
 
-        [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_kac_options_${uniqueIdParam}`)],
-    ];
-    inlineKeyboard.push([createButton("⬅️ Вернуться назад", `show_controls_${uniqueIdParam}`)]);
+// ── Единое меню всех функций (заменяет showLocalFunctionsMenu + showGlobalFunctionsMenu) ──
+function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
+    const uid = uniqueIdParam || uniqueId;
+    if (!config.accountInfo.nickname) {
+        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
+        return;
+    }
+    const isPaused = !!window.getInterfaceStatus("PauseMenu");
+    const isAutoLoginDisabled = !autoLoginConfig.enabled;
+    const pauseLabel     = isPaused            ? "▶️ Выйти с паузы" : "⏸️ Уйти на паузу";
+    const autoLoginLabel = isAutoLoginDisabled  ? "✅ Выйти с автр." : "🚫 Уйти на автр.";
     const replyMarkup = {
-        inline_keyboard: inlineKeyboard
+        inline_keyboard: [
+            [createButton("🚶 Движение",                                                    `func_select_movement_${uid}`)],
+            [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`,   `func_select_kac_${uid}`)],
+            [createButton("🌙 AFK Ночь",                                                   `func_select_afk_${uid}`)],
+            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaMode ? '🟢' : '🔴'}`, `func_select_otygrovka_${uid}`)],
+            [createButton("📝 Написать в чат",                                             `func_select_chat_${uid}`)],
+            [createButton(pauseLabel, `func_select_pause_${uid}`), createButton(autoLoginLabel, `func_select_autologin_${uid}`)],
+            [createButton("⬅️ Вернуться назад", `show_controls_${uid}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
+// ── Выбор скоупа: "Для этого аккаунта" / "Для всех аккаунтов" ──
+// Если функция поддерживает только один скоуп — всё равно показываем одну кнопку выбора.
+function showFuncScopeMenu(chatId, messageId, funcKey, uniqueIdParam) {
+    const uid = uniqueIdParam || uniqueId;
+    // Определяем доступные скоупы для каждой функции
+    const FUNC_SCOPES = {
+        movement:  ['local'],
+        kac:       ['local', 'global'],  // КАЧ/ЗП — работает для обоих
+        afk:       ['global'],           // AFK Ночь — общий для всех
+        otygrovka: ['local'],
+        chat:      ['local'],
+        pause:     ['local'],
+        autologin: ['local'],
+    };
+    const scopes = FUNC_SCOPES[funcKey];
+    if (!scopes) return;
+    const scopeRow = [];
+    if (scopes.includes('local'))  scopeRow.push(createButton("👤 Для этого аккаунта", `func_action_${funcKey}_local_${uid}`,  'primary'));
+    if (scopes.includes('global')) scopeRow.push(createButton("👥 Для всех аккаунтов", `func_action_${funcKey}_global_${uid}`, 'primary'));
+    const replyMarkup = {
+        inline_keyboard: [
+            scopeRow,
+            [createButton("⬅️ Вернуться назад", `show_functions_${uid}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
+// ── КАЧ/ЗП ВКЛ/ВЫКЛ (после выбора скоупа) ──
+function showFuncKacMenu(chatId, messageId, scope, uniqueIdParam) {
+    const uid = uniqueIdParam || uniqueId;
+    const onAction  = scope === 'global' ? `global_kac_on_${uid}`  : `local_kac_on_${uid}`;
+    const offAction = scope === 'global' ? `global_kac_off_${uid}` : `local_kac_off_${uid}`;
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton("🟢 ВКЛ",  onAction,  'success'),
+                createButton("🔴 ВЫКЛ", offAction, 'danger')
+            ],
+            [createButton("⬅️ Вернуться назад", `func_select_kac_${uid}`)]
+        ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
@@ -2781,6 +2833,65 @@ function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
+// ════════════════════════════════════════════════════════════════
+// ║          НАСТРОЙКИ УВЕДОМЛЕНИЙ — единое меню               ║
+// ════════════════════════════════════════════════════════════════
+
+// Список типов уведомлений
+function showNotifSettingsMenu(chatId, messageId, uniqueIdParam) {
+    const replyMarkup = {
+        inline_keyboard: [
+            [createButton("🔔 PayDay",          `show_notif_type_p_${uniqueIdParam}`)],
+            [createButton("🏛️ Сообщения",       `show_notif_type_soob_${uniqueIdParam}`)],
+            [createButton("📍 Место",            `show_notif_type_mesto_${uniqueIdParam}`)],
+            [createButton("📡 Рация",            `show_notif_type_radio_${uniqueIdParam}`)],
+            [createButton("⚠️ Выговоры",         `show_notif_type_warning_${uniqueIdParam}`)],
+            [createButton("⬅️ Вернуться назад",  `show_controls_${uniqueIdParam}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
+// ВКЛ/ВЫКЛ для конкретного типа
+function showNotifTypeMenu(chatId, messageId, type, uniqueIdParam) {
+    let rows = [];
+    if (type === 'radio') {
+        rows = [
+            [
+                createButton(`📡 Все ${config.radioOfficialNotifications ? '🟢' : '🔴'}`, `notif_scope_radio_on_${uniqueIdParam}`, 'success'),
+                createButton(`🔕 Выкл все`, `notif_scope_radio_off_${uniqueIdParam}`, 'danger')
+            ],
+            [
+                createButton(`🎯 Фильтр ${config.radioImportantFilter ? '🟢' : '🔴'}`, `notif_scope_radiofilter_on_${uniqueIdParam}`, 'success'),
+                createButton(`🚫 Фильтр выкл`, `notif_scope_radiofilter_off_${uniqueIdParam}`, 'danger')
+            ]
+        ];
+    } else {
+        rows = [[
+            createButton("🔔 ВКЛ",  `notif_scope_${type}_on_${uniqueIdParam}`,  'success'),
+            createButton("🔕 ВЫКЛ", `notif_scope_${type}_off_${uniqueIdParam}`, 'danger')
+        ]];
+    }
+    rows.push([createButton("⬅️ Вернуться назад", `show_notif_menu_${uniqueIdParam}`)]);
+    editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
+}
+
+// Выбор: этот аккаунт или все аккаунты
+function showNotifScopeMenu(chatId, messageId, type, action, uniqueIdParam) {
+    const backType = type === 'radiofilter' ? 'radio' : type;
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton("👤 Для этого аккаунта",  `notif_apply_local_${type}_${action}_${uniqueIdParam}`,  'primary'),
+                createButton("👥 Для всех аккаунтов",  `notif_apply_global_${type}_${action}_${uniqueIdParam}`, 'primary')
+            ],
+            [createButton("⬅️ Вернуться назад", `show_notif_type_${backType}_${uniqueIdParam}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+}
+
+// showKacOptionsMenu — используется как global KAC ВКЛ/ВЫКЛ (вызывается из legacy и из showFuncKacMenu)
 function showKacOptionsMenu(chatId, messageId, uniqueIdParam) {
     const replyMarkup = {
         inline_keyboard: [
@@ -2788,7 +2899,7 @@ function showKacOptionsMenu(chatId, messageId, uniqueIdParam) {
                 createButton("🟢 ВКЛ", `global_kac_on_${uniqueIdParam}`, 'success'),
                 createButton("🔴 ВЫКЛ", `global_kac_off_${uniqueIdParam}`, 'danger')
             ],
-            [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
+            [createButton("⬅️ Вернуться назад", `func_select_kac_${uniqueIdParam}`)]
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -2800,7 +2911,7 @@ function showAFKNightModesMenu(chatId, messageId, uniqueIdParam) {
                 createButton("С паузами", `afk_n_with_pauses_${uniqueIdParam}`, 'success'),
                 createButton("Без пауз", `afk_n_without_pauses_${uniqueIdParam}`, 'danger')
             ],
-            [createButton("⬅️ Вернуться назад", `show_global_functions_${uniqueIdParam}`)]
+            [createButton("⬅️ Вернуться назад", `show_functions_${uniqueIdParam}`)]
         ]
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
@@ -2841,35 +2952,7 @@ function showRestartActionMenu(chatId, messageId, uniqueIdParam, selectedMode) {
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
-function showLocalFunctionsMenu(chatId, messageId) {
-    if (!config.accountInfo.nickname) {
-        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
-        return;
-    }
-    const isPaused = !!window.getInterfaceStatus("PauseMenu");
-    const isAutoLoginDisabled = !autoLoginConfig.enabled;
-    const pauseBtn = isPaused
-        ? createButton("▶️ Выйти с паузы", `local_pause_toggle_${uniqueId}`, 'success')
-        : createButton("⏸️ Уйти на паузу", `local_pause_toggle_${uniqueId}`, 'danger');
-    const autoLoginBtn = isAutoLoginDisabled
-        ? createButton("✅ Выйти с автр.", `local_autologin_toggle_${uniqueId}`, 'success')
-        : createButton("🚫 Уйти на автр.", `local_autologin_toggle_${uniqueId}`, 'danger');
-    const replyMarkup = {
-        inline_keyboard: [
-            [createButton("🚶 Движение", `show_movement_controls_${uniqueId}`)],
-            [createButton("🏛️ Увед. правик", `show_local_soob_options_${uniqueId}`)],
-            [createButton("📍 Отслеживание", `show_local_mesto_options_${uniqueId}`)],
-            [createButton("📡 Рация", `show_local_radio_options_${uniqueId}`)],
-            [createButton("⚠️ Выговоры", `show_local_warning_options_${uniqueId}`)],
-            [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `show_local_kac_options_${uniqueId}`)],
-            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaMode ? '🟢' : '🔴'}`, `show_otygrovka_options_${uniqueId}`)],
-            [createButton("📝 Написать в чат", `request_chat_message_${uniqueId}`)],
-            [pauseBtn, autoLoginBtn],
-            [createButton("⬅️ Вернуться назад", `show_controls_${uniqueId}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
-}
+// showLocalFunctionsMenu — удалена, заменена на showFunctionsMenu (единое меню)
 function showMovementControlsMenu(chatId, messageId, isNotification = false) {
     if (!config.accountInfo.nickname) {
         sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
@@ -2877,7 +2960,7 @@ function showMovementControlsMenu(chatId, messageId, isNotification = false) {
     }
     const backButton = isNotification ?
         [[createButton("⬅️ Вернуться назад", `back_to_notification_${uniqueId}`)]] :
-        [[createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]];
+        [[createButton("⬅️ Вернуться назад", `show_functions_${uniqueId}`)]];
     const sitStandButton = config.isSitting ?
         createButton("🧍 Встать", `move_stand_${uniqueId}${isNotification ? '_notification' : ''}`, 'success')
         : createButton("🪑 Сесть", `move_sit_${uniqueId}${isNotification ? '_notification' : ''}`, 'danger');
@@ -2962,22 +3045,7 @@ function showLocalWarningOptionsMenu(chatId, messageId) {
     };
     editMessageReplyMarkup(chatId, messageId, replyMarkup);
 }
-function showLocalKacOptionsMenu(chatId, messageId) {
-    if (!config.accountInfo.nickname) {
-        sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
-        return;
-    }
-    const replyMarkup = {
-        inline_keyboard: [
-            [
-                createButton("🟢 ВКЛ", `local_kac_on_${uniqueId}`, 'success'),
-                createButton("🔴 ВЫКЛ", `local_kac_off_${uniqueId}`, 'danger')
-            ],
-            [createButton("⬅️ Вернуться назад", `show_local_functions_${uniqueId}`)]
-        ]
-    };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
-}
+// showLocalKacOptionsMenu — удалена, заменена на showFuncKacMenu(chatId, messageId, 'local', uid)
 function showOtygrovkaMenu(chatId, messageId) {
     if (!config.accountInfo.nickname) {
         sendToTelegram(`❌ <b>Ошибка ${displayName}</b>\nНик не определен`, false, null);
@@ -2998,7 +3066,7 @@ function showOtygrovkaMenu(chatId, messageId) {
                 createButton(`🎭 ВКЛ ${isAuto ? '🟢' : '⚪'}`, `otygrovka_on_${uniqueId}`, 'success'),
                 createButton(`⏹️ ВЫКЛ ${!isAuto ? '🔴' : '⚪'}`, `otygrovka_off_${uniqueId}`, 'danger')
             ],
-            [createButton(`⬅️ Вернуться назад`, `show_local_functions_${uniqueId}`)]
+            [createButton(`⬅️ Вернуться назад`, `show_functions_${uniqueId}`)]
         ]
     };
 
@@ -3335,7 +3403,18 @@ function processUpdates(updates) {
             let callbackUniqueId = null;
             if (message.startsWith('show_controls_')) {
                 callbackUniqueId = message.replace('show_controls_', '');
+            } else if (message.startsWith('show_functions_')) {
+                callbackUniqueId = message.replace('show_functions_', '');
+            } else if (message.startsWith('func_select_')) {
+                // func_select_{funcKey}_{uid} — funcKey без подчёркиваний
+                const _rest = message.replace('func_select_', '');
+                callbackUniqueId = _rest.substring(_rest.indexOf('_') + 1);
+            } else if (message.startsWith('func_action_')) {
+                // func_action_{funcKey}_{scope}_{uid}
+                const _parts = message.replace('func_action_', '').split('_');
+                callbackUniqueId = _parts.slice(2).join('_');
             } else if (message.startsWith('show_local_functions_')) {
+                // legacy — редирект на show_functions_
                 callbackUniqueId = message.replace('show_local_functions_', '');
             } else if (message.startsWith('show_movement_controls_')) {
                 callbackUniqueId = message.replace('show_movement_controls_', '');
@@ -3371,6 +3450,20 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('local_autologin_toggle_', '');
             } else if (message.startsWith('local_account_info_')) {
                 callbackUniqueId = message.replace('local_account_info_', '');
+            } else if (message.startsWith('show_notif_menu_')) {
+                callbackUniqueId = message.replace('show_notif_menu_', '');
+            } else if (message.startsWith('show_notif_type_')) {
+                // show_notif_type_${type}_${uid}  — type has no underscores
+                const _after = message.replace('show_notif_type_', '');
+                callbackUniqueId = _after.substring(_after.indexOf('_') + 1);
+            } else if (message.startsWith('notif_scope_')) {
+                // notif_scope_${type}_${action}_${uid}  — type & action each 1 token
+                const _parts = message.replace('notif_scope_', '').split('_');
+                callbackUniqueId = _parts.slice(2).join('_');
+            } else if (message.startsWith('notif_apply_')) {
+                // notif_apply_${scope}_${type}_${action}_${uid}
+                const _parts = message.replace('notif_apply_', '').split('_');
+                callbackUniqueId = _parts.slice(3).join('_');
             } else if (message.startsWith('show_welcome_settings_')) {
                 callbackUniqueId = message.replace('show_welcome_settings_', '');
             } else if (message.startsWith('hide_welcome_settings_')) {
@@ -3474,6 +3567,7 @@ function processUpdates(updates) {
             } else if (message.startsWith('global_kac_off_')) {
                 callbackUniqueId = message.replace('global_kac_off_', '');
             } else if (message.startsWith('show_global_functions_')) {
+                // legacy — редирект на show_functions_
                 callbackUniqueId = message.replace('show_global_functions_', '');
             } else if (message.startsWith('afk_n_reconnect_on_')) {
                 const parts = message.split('_');
@@ -3521,10 +3615,55 @@ function processUpdates(updates) {
             // Обработка команд
             if (message.startsWith(`show_controls_`)) {
                 showControlsMenu(chatId, messageId);
+            // ── Единое меню функций ────────────────────────────────────────────────
+            } else if (message.startsWith(`show_functions_`)) {
+                showFunctionsMenu(chatId, messageId, callbackUniqueId);
+            // ── Выбор скоупа для функции ───────────────────────────────────────────
+            } else if (message.startsWith(`func_select_`)) {
+                const _rest = message.replace('func_select_', '');
+                const _funcKey = _rest.substring(0, _rest.indexOf('_'));
+                showFuncScopeMenu(chatId, messageId, _funcKey, callbackUniqueId);
+            // ── Действие после выбора скоупа ───────────────────────────────────────
+            } else if (message.startsWith(`func_action_`)) {
+                const _fParts = message.replace('func_action_', '').split('_');
+                const _funcKey = _fParts[0]; // movement | kac | afk | otygrovka | chat | pause | autologin
+                const _scope   = _fParts[1]; // local | global
+                if (_funcKey === 'movement') {
+                    showMovementControlsMenu(chatId, messageId);
+                } else if (_funcKey === 'kac') {
+                    showFuncKacMenu(chatId, messageId, _scope, callbackUniqueId);
+                } else if (_funcKey === 'afk') {
+                    showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
+                } else if (_funcKey === 'otygrovka') {
+                    showOtygrovkaMenu(chatId, messageId);
+                } else if (_funcKey === 'chat') {
+                    const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)\n🔑 ID: ${uniqueId}`;
+                    _abortPollAndRestartFast();
+                    sendToTelegram(requestMsg, false, { force_reply: true });
+                } else if (_funcKey === 'pause') {
+                    const _isPaused = !!window.getInterfaceStatus("PauseMenu");
+                    try {
+                        if (_isPaused) { closeInterface("PauseMenu"); sendToTelegram(`▶️ <b>Вышли из паузы (${displayName})</b>`, true, null); }
+                        else           { openInterface("PauseMenu");  sendToTelegram(`⏸️ <b>Вошли в паузу (${displayName})</b>`,   true, null); }
+                    } catch(e) { sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null); }
+                    showFunctionsMenu(chatId, messageId, callbackUniqueId);
+                } else if (_funcKey === 'autologin') {
+                    if (autoLoginConfig.enabled) {
+                        autoLoginConfig.enabled = false;
+                        sendChatInput("/rec 5");
+                        sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                    } else {
+                        autoLoginConfig.enabled = true;
+                        sendChatInput("/rec 5");
+                        sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                    }
+                    showFunctionsMenu(chatId, messageId, callbackUniqueId);
+                }
+            // ── Legacy редиректы (старые кнопки из истории чата) ──────────────────
             } else if (message.startsWith(`show_global_functions_`)) {
-                showGlobalFunctionsMenu(chatId, messageId, callbackUniqueId);
+                showFunctionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`show_local_functions_`)) {
-                showLocalFunctionsMenu(chatId, messageId);
+                showFunctionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`show_movement_controls_`)) {
                 showMovementControlsMenu(chatId, messageId);
             } else if (message.startsWith("show_movement_")) {
@@ -3549,7 +3688,8 @@ function processUpdates(updates) {
             } else if (message.startsWith(`show_warning_options_`)) {
                 showWarningOptionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`show_kac_options_`)) {
-                showKacOptionsMenu(chatId, messageId, callbackUniqueId);
+                // legacy — редирект на новый scope-selector для KAC
+                showFuncScopeMenu(chatId, messageId, 'kac', callbackUniqueId);
             } else if (message.startsWith(`global_kac_on_`)) {
                 broadcastGlobalCommand('toggle_kac', 'on');
                 sendWelcomeMessage();
@@ -3785,7 +3925,8 @@ function processUpdates(updates) {
             } else if (message.startsWith("show_local_warning_options_")) {
                 showLocalWarningOptionsMenu(chatId, messageId);
             } else if (message.startsWith("show_local_kac_options_")) {
-                showLocalKacOptionsMenu(chatId, messageId);
+                // legacy — редирект на ВКЛ/ВЫКЛ KAC для этого аккаунта
+                showFuncKacMenu(chatId, messageId, 'local', callbackUniqueId);
             } else if (message.startsWith("local_kac_on_")) {
                 config.kacAutoReply = true;
                 sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП включён для ${displayName}</b>`, false, null);
@@ -3848,9 +3989,9 @@ function processUpdates(updates) {
                 } catch(e) {
                     sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null);
                 }
-                showLocalFunctionsMenu(chatId, messageId);
+                showFunctionsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith("local_autologin_toggle_")) {
-                // Переключение автовхода из меню Функции
+                // legacy — переключение автовхода (теперь через func_action_autologin_)
                 if (autoLoginConfig.enabled) {
                     autoLoginConfig.enabled = false;
                     sendChatInput("/rec 5");
@@ -3860,7 +4001,53 @@ function processUpdates(updates) {
                     sendChatInput("/rec 5");
                     sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 }
-                showLocalFunctionsMenu(chatId, messageId);
+                showFunctionsMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith('show_notif_menu_')) {
+                showNotifSettingsMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith('show_notif_type_')) {
+                const _after = message.replace('show_notif_type_', '');
+                const _type  = _after.substring(0, _after.indexOf('_'));
+                showNotifTypeMenu(chatId, messageId, _type, callbackUniqueId);
+            } else if (message.startsWith('notif_scope_')) {
+                const _p     = message.replace('notif_scope_', '').split('_');
+                const _type  = _p[0];
+                const _action= _p[1];
+                showNotifScopeMenu(chatId, messageId, _type, _action, callbackUniqueId);
+            } else if (message.startsWith('notif_apply_')) {
+                const _p     = message.replace('notif_apply_', '').split('_');
+                const _scope = _p[0];           // "local" | "global"
+                const _type  = _p[1];           // "p"|"soob"|"mesto"|"radio"|"radiofilter"|"warning"
+                const _action= _p[2];           // "on" | "off"
+                const _isOn  = _action === 'on';
+                const _label = _scope === 'global' ? 'для всех аккаунтов' : `для ${displayName}`;
+                switch (_type) {
+                    case 'p':
+                        config.paydayNotifications = _isOn;
+                        sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления о PayDay ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
+                        break;
+                    case 'soob':
+                        config.govMessagesEnabled = _isOn;
+                        sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления от сотрудников фракции ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
+                        break;
+                    case 'mesto':
+                        config.trackLocationRequests = _isOn;
+                        sendToTelegram(`${_isOn ? '📍' : '🔕'} <b>Отслеживание местоположения ${_isOn ? 'включено' : 'отключено'} ${_label}</b>`, false, null);
+                        break;
+                    case 'radio':
+                        config.radioOfficialNotifications = _isOn;
+                        sendToTelegram(`${_isOn ? '📡' : '🔕'} <b>Рация (все сообщения) ${_isOn ? 'включена' : 'отключена'} ${_label}</b>`, false, null);
+                        break;
+                    case 'radiofilter':
+                        config.radioImportantFilter = _isOn;
+                        sendToTelegram(`${_isOn ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${_isOn ? 'включён' : 'отключён'} ${_label}</b>`, false, null);
+                        break;
+                    case 'warning':
+                        config.warningNotifications = _isOn;
+                        sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления о выговорах ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
+                        break;
+                }
+                if (_scope === 'global') broadcastGlobalCommand(`notif_${_type}_${_action}`, _action);
+                sendWelcomeMessage();
             } else if (message.startsWith('show_welcome_settings_')) {
                 // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
                 globalState.welcomeShowSettings = true;
