@@ -829,6 +829,10 @@ function handleGlobalBroadcastCommand(cmd, val) {
         default:
             debugLog(`[GLOBAL] Неизвестная команда: ${cmd}`);
     }
+    // ✅ ФИКС: обновляем кнопки приветственного сообщения у ВСЕХ аккаунтов-получателей
+    if (cmd !== 'reload') {
+        sendWelcomeMessage();
+    }
     debugLog(`[GLOBAL] Применена команда: ${cmd} = ${val}`);
 }
 // BroadcastChannel listener — получаем команды от других вкладок (других аккаунтов)
