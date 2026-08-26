@@ -4046,7 +4046,19 @@ function processUpdates(updates) {
                         sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления о выговорах ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
                         break;
                 }
-                if (_scope === 'global') broadcastGlobalCommand(`notif_${_type}_${_action}`, _action);
+                if (_scope === 'global') {
+                    const _cmdMap = {
+                        'p':           'toggle_payday',
+                        'soob':        'toggle_soob',
+                        'mesto':       'toggle_mesto',
+                        'radio':       'toggle_radio',
+                        'radiofilter': 'toggle_radio_filter',
+                        'warning':     'toggle_warning',
+                        'kac':         'toggle_kac'
+                    };
+                    const _broadcastCmd = _cmdMap[_type];
+                    if (_broadcastCmd) broadcastGlobalCommand(_broadcastCmd, _action);
+                }
                 sendWelcomeMessage();
             } else if (message.startsWith('show_welcome_settings_')) {
                 // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
