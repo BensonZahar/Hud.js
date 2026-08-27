@@ -2787,6 +2787,9 @@ function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
     const autoLoginStyle = isAutoLoginDisabled  ? 'success' : 'danger';
     // КАЧ/ЗП: ВКЛ = зелёный, ВЫКЛ = красный
     const kacStyle       = config.kacAutoReply ? 'success' : 'danger';
+    // AFK Ночь: активна = зелёная, неактивна = красная
+    const afkActive      = !!(config.afkCycle && config.afkCycle.active);
+    const afkStyle       = afkActive ? 'success' : 'danger';
     // Отыгровка: активна = зелёная, неактивна = красная
     const otygrovkaStyle = globalState.otygrovkaAuto ? 'success' : 'danger';
     const replyMarkup = {
@@ -2795,7 +2798,7 @@ function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
             [createButton("🚶 Движение",                                                       `func_action_movement_local_${uid}`)],
             [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`,      `func_select_kac_${uid}`, kacStyle)],
             // AFK Ночь — выбор скоупа: для этого / для всех
-            [createButton("🌙 AFK Ночь",                                                      `func_select_afk_${uid}`)],
+            [createButton(`🌙 AFK Ночь ${afkActive ? '🟢' : '🔴'}`,                             `func_select_afk_${uid}`, afkStyle)],
             // Отыгровка — выбор скоупа: для этого / для всех
             [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaAuto ? '🟢' : '🔴'}`,  `func_select_otygrovka_${uid}`, otygrovkaStyle)],
             // Написать в чат — прямой запрос без выбора скоупа (только для этого аккаунта)
@@ -3875,7 +3878,7 @@ function processUpdates(updates) {
                         showOtygrovkaMenu(chatId, messageId);
                     }
                 } else if (_funcKey === 'chat') {
-                    const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)\n🔑 ID: ${uniqueId}`;
+                    const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
                     _abortPollAndRestartFast();
                     sendToTelegram(requestMsg, false, { force_reply: true });
                 } else if (_funcKey === 'pause') {
@@ -3925,7 +3928,7 @@ function processUpdates(updates) {
             } else if (message.startsWith(`hide_controls_`)) {
                 hideControlsMenu(chatId, messageId);
             } else if (message.startsWith(`request_chat_message_`)) {
-                const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)\n🔑 ID: ${uniqueId}`;
+                const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
                 // Прерываем текущий long-poll — освобождаем соединение для sendMessage
                 _abortPollAndRestartFast();
                 sendToTelegram(requestMsg, false, {
@@ -4037,7 +4040,7 @@ function processUpdates(updates) {
                     activateAFKWithMode('random', false, 'q', chatId, messageId);
                 }
             } else if (message.startsWith("admin_reply_")) {
-                const requestMsg = `✉️ Введите ответ для ${displayName}:\n🔑 ID: ${uniqueId}`;
+                const requestMsg = `✉️ Введите ответ для ${displayName}:`;
                 _abortPollAndRestartFast();
                 sendToTelegram(requestMsg, false, {
                     force_reply: true
