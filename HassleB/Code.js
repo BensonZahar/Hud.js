@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗавдо'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -1805,7 +1805,8 @@ function tgApi(method, payload, onSuccess, onError, _retryCount) {
     }
     // FIX: для edit* методов тоже нужен receiver_user_id —
     // без него Telegram возвращает 400, т.к. не может найти эфемерное сообщение.
-    if (method.startsWith('edit') && window.TELEGRAM_USER_ID && !payload.receiver_user_id) {
+    // FIX Bot API 10.2: editEphemeral* не принимают receiver_user_id — ephemeral_message_id уже идентифицирует получателя
+    if (method.startsWith('edit') && !method.startsWith('editEphemeral') && window.TELEGRAM_USER_ID && !payload.receiver_user_id) {
         payload = Object.assign({}, payload, { receiver_user_id: parseInt(window.TELEGRAM_USER_ID, 10) });
     }
     // THREAD: для send* добавляем message_thread_id если задан (тред Захара: 147390)
@@ -1848,9 +1849,59 @@ function deleteMessage(chatId, messageId) {
     tgApi('deleteMessage', { chat_id: chatId, message_id: messageId });
 }
 function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
+    // FIX Bot API 10.2: эфемерные сообщения требуют editEphemeralMessageReplyMarkup
+    if (!globalState.welcomeEphemeralMessageIds) globalState.welcomeEphemeralMessageIds = {};
+    const ephId = globalState.welcomeEphemeralMessageIds[chatId];
+    if (ephId) {
+        tgApi('editEphemeralMessageReplyMarkup', {
+            chat_id: chatId,
+            ephemeral_message_id: ephId,
+            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+        }, null, (status, resp) => {
+            debugLog(`[EPHEMERAL] editReplyMarkup error ${status}: ${resp}`);
+            if (status === 400) {
+                let desc = '';
+                try { desc = JSON.parse(resp).description || ''; } catch(e) {}
+                if (!desc.includes('message is not modified')) {
+                    delete globalState.welcomeEphemeralMessageIds[chatId];
+                }
+            }
+        });
+        return;
+    }
     tgApi('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined });
 }
 function editMessageText(chatId, messageId, text, replyMarkup = null) {
+    // FIX Bot API 10.2: эфемерные сообщения требуют editEphemeralMessageText
+    if (!globalState.welcomeEphemeralMessageIds) globalState.welcomeEphemeralMessageIds = {};
+    const ephId = globalState.welcomeEphemeralMessageIds[chatId];
+    if (ephId) {
+        tgApi('editEphemeralMessageText', {
+            chat_id: chatId,
+            ephemeral_message_id: ephId,
+            text,
+            parse_mode: 'HTML',
+            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+        }, () => debugLog(`[EPHEMERAL] editText OK для ${chatId}`),
+        (status, responseText) => {
+            if (status === 400) {
+                let desc = '';
+                try { desc = JSON.parse(responseText).description || ''; } catch(e) {}
+                if (desc.includes('message is not modified')) {
+                    debugLog(`[EPHEMERAL EDIT] Контент не изменился — пропускаем`);
+                    return;
+                }
+                debugLog(`[EPHEMERAL EDIT] ephemeral_message_id ${ephId} устарел — сбрасываем`);
+                delete globalState.welcomeEphemeralMessageIds[chatId];
+                if (globalState.welcomeMessageIds && globalState.welcomeMessageIds[chatId]) {
+                    delete globalState.welcomeMessageIds[chatId];
+                    if (globalState.welcomeSending) globalState.welcomeSending[chatId] = false;
+                }
+            }
+        });
+        return;
+    }
+    // Обычное (не эфемерное) сообщение — старое поведение
     tgApi('editMessageText', {
         chat_id: chatId,
         message_id: messageId,
@@ -2278,6 +2329,12 @@ function sendWelcomeMessage(editOnly = false) {
                 if (data && data.result) {
                     globalState.welcomeMessageIds[chatId] = data.result.message_id;
                     globalState.lastWelcomeMessageId = data.result.message_id;
+                    // FIX Bot API 10.2: сохраняем ephemeral_message_id для эфемерных сообщений
+                    if (data.result.ephemeral_message_id) {
+                        if (!globalState.welcomeEphemeralMessageIds) globalState.welcomeEphemeralMessageIds = {};
+                        globalState.welcomeEphemeralMessageIds[chatId] = data.result.ephemeral_message_id;
+                        debugLog(`[WELCOME] ephemeral_message_id сохранён: ${data.result.ephemeral_message_id}`);
+                    }
                     debugLog(`[WELCOME] Отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
                 }
             }, () => {
@@ -3607,6 +3664,14 @@ function processUpdates(updates) {
                         deleteMessage(cid, oldId);
                         delete globalState.welcomeMessageIds[cid];
                     }
+                    // FIX Bot API 10.2: удаляем эфемерное сообщение
+                    if (globalState.welcomeEphemeralMessageIds && globalState.welcomeEphemeralMessageIds[cid]) {
+                        tgApi('deleteEphemeralMessage', {
+                            chat_id: cid,
+                            ephemeral_message_id: globalState.welcomeEphemeralMessageIds[cid]
+                        });
+                        delete globalState.welcomeEphemeralMessageIds[cid];
+                    }
                 });
                 globalState.lastWelcomeMessageId = null;
                 sendWelcomeMessage(); // ← единственное место, где создаётся новый welcome
@@ -3614,15 +3679,8 @@ function processUpdates(updates) {
         } else if (update.callback_query) {
             const message = update.callback_query.data;
             const chatId = update.callback_query.message.chat.id;
-            let messageId = update.callback_query.message.message_id;
+            const messageId = update.callback_query.message.message_id;
             const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
-            // FIX: эфемерные сообщения (receiver_user_id) возвращают message_id=0 в callback.
-            // Кастомный сервер скрывает реальный ID эфемерного сообщения — используем
-            // сохранённый ID велком-сообщения как запасной вариант.
-            if (!messageId && globalState.welcomeMessageIds && globalState.welcomeMessageIds[chatId]) {
-                messageId = globalState.welcomeMessageIds[chatId];
-                debugLog(`[CALLBACK] message_id=0 (эфемерное) → используем сохранённый ID: ${messageId}`);
-            }
             // FIX: отвечаем на callback СРАЗУ — кнопка перестаёт крутиться мгновенно.
             // Раньше это делалось в конце после всей обработки → задержка до нескольких секунд.
             // dlg_* тоже нужно ответить здесь, иначе Dialog Monitor ответит позже сам.
