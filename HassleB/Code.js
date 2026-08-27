@@ -799,6 +799,22 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
             showScreenNotification("Hassle", `[Global] КАЧ/ЗП автоответ ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
             sendToTelegram(`🛡️ <b>КАЧ/ЗП автоответ ${isOn ? 'ВКЛ' : 'ВЫКЛ'} (${displayName})</b>`, true, null);
             break;
+        case 'toggle_pause':
+            // Глобальное переключение паузы: 'on' = входим в паузу, 'off' = выходим
+            try {
+                if (isOn) openInterface("PauseMenu");
+                else closeInterface("PauseMenu");
+            } catch(e) { debugLog('[GLOBAL] Ошибка переключения паузы: ' + e.message); }
+            showScreenNotification("Hassle", `[Global] Пауза ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            sendToTelegram(`${isOn ? '⏸️' : '▶️'} <b>Пауза ${isOn ? 'ВКЛ' : 'ВЫКЛ'} (${displayName})</b>`, true, null);
+            break;
+        case 'toggle_autologin':
+            // Глобальное переключение автовхода: 'on' = включить + /rec 5, 'off' = выключить + /rec 5
+            autoLoginConfig.enabled = isOn;
+            try { sendChatInput("/rec 5"); } catch(e) { debugLog('[GLOBAL] Ошибка /rec 5: ' + e.message); }
+            showScreenNotification("Hassle", `[Global] Автовход ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            sendToTelegram(`${isOn ? '✅' : '🚫'} <b>Автовход ${isOn ? 'ВКЛ' : 'ВЫКЛ'} (${displayName})</b>`, true, null);
+            break;
         case 'reload':
             // Перезагрузка скрипта — откладываем чтобы offset успел сохраниться
             debugLog(`[GLOBAL] Получена команда перезагрузки для ${displayName}`);
@@ -2752,16 +2768,28 @@ function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
     }
     const isPaused = !!window.getInterfaceStatus("PauseMenu");
     const isAutoLoginDisabled = !autoLoginConfig.enabled;
+    // Пауза: выйти с паузы = зелёный (success), уйти на паузу = красный (danger)
     const pauseLabel     = isPaused            ? "▶️ Выйти с паузы" : "⏸️ Уйти на паузу";
+    const pauseStyle     = isPaused            ? 'success' : 'danger';
+    // Авторизация: выйти с автр. = зелёный (success), уйти на автр. = красный (danger)
     const autoLoginLabel = isAutoLoginDisabled  ? "✅ Выйти с автр." : "🚫 Уйти на автр.";
+    const autoLoginStyle = isAutoLoginDisabled  ? 'success' : 'danger';
+    // КАЧ/ЗП: ВКЛ = зелёный, ВЫКЛ = красный
+    const kacStyle       = config.kacAutoReply ? 'success' : 'danger';
+    // Отыгровка: активна = зелёная, неактивна = красная
+    const otygrovkaStyle = globalState.otygrovkaAuto ? 'success' : 'danger';
     const replyMarkup = {
         inline_keyboard: [
-            [createButton("🚶 Движение",                                                    `func_select_movement_${uid}`)],
-            [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`,   `func_select_kac_${uid}`)],
-            [createButton("🌙 AFK Ночь",                                                   `func_select_afk_${uid}`)],
-            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaMode ? '🟢' : '🔴'}`, `func_select_otygrovka_${uid}`)],
-            [createButton("📝 Написать в чат",                                             `func_select_chat_${uid}`)],
-            [createButton(pauseLabel, `func_select_pause_${uid}`), createButton(autoLoginLabel, `func_select_autologin_${uid}`)],
+            [createButton("🚶 Движение",                                                       `func_select_movement_${uid}`)],
+            [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`,      `func_select_kac_${uid}`, kacStyle)],
+            // AFK — прямой переход без лишнего выбора скоупа
+            [createButton("🌙 AFK Ночь",                                                      `func_action_afk_local_${uid}`)],
+            // Отыгровка — прямой переход без выбора скоупа (только для этого аккаунта)
+            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaAuto ? '🟢' : '🔴'}`,  `show_otygrovka_options_${uid}`, otygrovkaStyle)],
+            // Написать в чат — прямой запрос без выбора скоупа (только для этого аккаунта)
+            [createButton("📝 Написать в чат",                                                `request_chat_message_${uid}`)],
+            // Пауза и Авторизация — через скоуп-меню (для этого / для всех)
+            [createButton(pauseLabel, `func_select_pause_${uid}`, pauseStyle), createButton(autoLoginLabel, `func_select_autologin_${uid}`, autoLoginStyle)],
             [createButton("⬅️ Вернуться назад", `show_controls_${uid}`)]
         ]
     };
@@ -2776,11 +2804,11 @@ function showFuncScopeMenu(chatId, messageId, funcKey, uniqueIdParam) {
     const FUNC_SCOPES = {
         movement:  ['local'],
         kac:       ['local', 'global'],  // КАЧ/ЗП — работает для обоих
-        afk:       ['global'],           // AFK Ночь — общий для всех
+        afk:       ['local', 'global'],  // AFK Ночь — и для этого, и для всех
         otygrovka: ['local'],
         chat:      ['local'],
-        pause:     ['local'],
-        autologin: ['local'],
+        pause:     ['local', 'global'],  // Пауза — и для этого, и для всех
+        autologin: ['local', 'global'],  // Авторизация — и для этого, и для всех
     };
     const scopes = FUNC_SCOPES[funcKey];
     if (!scopes) return;
@@ -3834,16 +3862,32 @@ function processUpdates(updates) {
                         if (_isPaused) { closeInterface("PauseMenu"); sendToTelegram(`▶️ <b>Вышли из паузы (${displayName})</b>`, true, null); }
                         else           { openInterface("PauseMenu");  sendToTelegram(`⏸️ <b>Вошли в паузу (${displayName})</b>`,   true, null); }
                     } catch(e) { sendToTelegram(`❌ <b>Ошибка паузы (${displayName}):</b> ${e.message}`, false, null); }
+                    // Для всех аккаунтов — рассылаем broadcast с тем же действием
+                    if (_scope === 'global') {
+                        const _bcVal = _isPaused ? 'off' : 'on'; // если были на паузе — выходим у всех, иначе — входим
+                        handleGlobalBroadcastCommand('toggle_pause', _bcVal); // применяем у себя (бот не получает свои channel_post)
+                        broadcastGlobalCommand('toggle_pause', _bcVal);
+                    }
                     showFunctionsMenu(chatId, messageId, callbackUniqueId);
                 } else if (_funcKey === 'autologin') {
                     if (autoLoginConfig.enabled) {
                         autoLoginConfig.enabled = false;
                         sendChatInput("/rec 5");
                         sendToTelegram(`🚫 <b>Автовход отключён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                        // Для всех аккаунтов — рассылаем broadcast
+                        if (_scope === 'global') {
+                            handleGlobalBroadcastCommand('toggle_autologin', 'off'); // применяем у себя (бот не получает свои channel_post)
+                            broadcastGlobalCommand('toggle_autologin', 'off');
+                        }
                     } else {
                         autoLoginConfig.enabled = true;
                         sendChatInput("/rec 5");
                         sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
+                        // Для всех аккаунтов — рассылаем broadcast
+                        if (_scope === 'global') {
+                            handleGlobalBroadcastCommand('toggle_autologin', 'on'); // применяем у себя (бот не получает свои channel_post)
+                            broadcastGlobalCommand('toggle_autologin', 'on');
+                        }
                     }
                     showFunctionsMenu(chatId, messageId, callbackUniqueId);
                 }
