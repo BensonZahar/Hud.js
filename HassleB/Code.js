@@ -1798,21 +1798,6 @@ function createButton(text, command, style) {
 // FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
 function tgApi(method, payload, onSuccess, onError, _retryCount) {
     _retryCount = _retryCount || 0;
-    // EPHEMERAL: для всех send* методов автоматически добавляем receiver_user_id,
-    // чтобы сообщения бота были видны только владельцу аккаунта в общей беседе.
-    if (method.startsWith('send') && window.TELEGRAM_USER_ID && !payload.receiver_user_id) {
-        payload = Object.assign({}, payload, { receiver_user_id: parseInt(window.TELEGRAM_USER_ID, 10) });
-    }
-    // FIX: для edit* методов тоже нужен receiver_user_id —
-    // без него Telegram возвращает 400, т.к. не может найти эфемерное сообщение.
-    // FIX Bot API 10.2: editEphemeral* не принимают receiver_user_id — ephemeral_message_id уже идентифицирует получателя
-    if (method.startsWith('edit') && !method.startsWith('editEphemeral') && window.TELEGRAM_USER_ID && !payload.receiver_user_id) {
-        payload = Object.assign({}, payload, { receiver_user_id: parseInt(window.TELEGRAM_USER_ID, 10) });
-    }
-    // THREAD: для send* добавляем message_thread_id если задан (тред Захара: 147390)
-    if (method.startsWith('send') && window.MESSAGE_THREAD_ID && !payload.message_thread_id) {
-        payload = Object.assign({}, payload, { message_thread_id: parseInt(window.MESSAGE_THREAD_ID, 10) });
-    }
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/${method}`, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
@@ -1849,64 +1834,9 @@ function deleteMessage(chatId, messageId) {
     tgApi('deleteMessage', { chat_id: chatId, message_id: messageId });
 }
 function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
-    // FIX Bot API 10.2: эфемерные сообщения требуют editEphemeralMessageReplyMarkup
-    if (!globalState.welcomeEphemeralMessageIds) globalState.welcomeEphemeralMessageIds = {};
-    const ephId = globalState.welcomeEphemeralMessageIds[chatId];
-    if (ephId) {
-        tgApi('editEphemeralMessageReplyMarkup', {
-            chat_id: chatId,
-            ephemeral_message_id: ephId,
-            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-        }, null, (status, resp) => {
-            debugLog(`[EPHEMERAL] editReplyMarkup error ${status}: ${resp}`);
-            if (status === 400) {
-                let desc = '';
-                try { desc = JSON.parse(resp).description || ''; } catch(e) {}
-                if (!desc.includes('message is not modified')) {
-                    delete globalState.welcomeEphemeralMessageIds[chatId];
-                    // FIX: также сбрасываем welcomeMessageIds (может быть 0 — falsy, поэтому безусловно)
-                    if (globalState.welcomeMessageIds) delete globalState.welcomeMessageIds[chatId];
-                    if (globalState.welcomeSending) globalState.welcomeSending[chatId] = false;
-                }
-            }
-        });
-        return;
-    }
     tgApi('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined });
 }
 function editMessageText(chatId, messageId, text, replyMarkup = null) {
-    // FIX Bot API 10.2: эфемерные сообщения требуют editEphemeralMessageText
-    if (!globalState.welcomeEphemeralMessageIds) globalState.welcomeEphemeralMessageIds = {};
-    const ephId = globalState.welcomeEphemeralMessageIds[chatId];
-    if (ephId) {
-        tgApi('editEphemeralMessageText', {
-            chat_id: chatId,
-            ephemeral_message_id: ephId,
-            text,
-            parse_mode: 'HTML',
-            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
-        }, () => debugLog(`[EPHEMERAL] editText OK для ${chatId}`),
-        (status, responseText) => {
-            if (status === 400) {
-                let desc = '';
-                try { desc = JSON.parse(responseText).description || ''; } catch(e) {}
-                if (desc.includes('message is not modified')) {
-                    debugLog(`[EPHEMERAL EDIT] Контент не изменился — пропускаем`);
-                    return;
-                }
-                debugLog(`[EPHEMERAL EDIT] ephemeral_message_id ${ephId} устарел — сбрасываем`);
-                delete globalState.welcomeEphemeralMessageIds[chatId];
-                // FIX: welcomeMessageIds[chatId] может быть 0 (falsy) — удаляем безусловно,
-                // иначе следующий sendWelcomeMessage тоже не отправит новое сообщение
-                if (globalState.welcomeMessageIds) {
-                    delete globalState.welcomeMessageIds[chatId];
-                }
-                if (globalState.welcomeSending) globalState.welcomeSending[chatId] = false;
-            }
-        });
-        return;
-    }
-    // Обычное (не эфемерное) сообщение — старое поведение
     tgApi('editMessageText', {
         chat_id: chatId,
         message_id: messageId,
@@ -2311,12 +2241,7 @@ function sendWelcomeMessage(editOnly = false) {
 
     config.chatIds.forEach(chatId => {
         const existingId = globalState.welcomeMessageIds[chatId];
-        // FIX: для эфемерных сообщений message_id = 0 (falsy в JS!).
-        // if (existingId) падал в false при ID=0 → отправлял новое сообщение вместо редактирования.
-        // Решение: также проверяем наличие ephemeral_message_id.
-        if (!globalState.welcomeEphemeralMessageIds) globalState.welcomeEphemeralMessageIds = {};
-        const existingEphId = globalState.welcomeEphemeralMessageIds[chatId];
-        if (existingId || existingEphId) {
+        if (existingId) {
             // Редактируем уже отправленное сообщение — не шлём новое
             editMessageText(chatId, existingId, message, replyMarkup);
         } else if (editOnly) {
@@ -2339,12 +2264,6 @@ function sendWelcomeMessage(editOnly = false) {
                 if (data && data.result) {
                     globalState.welcomeMessageIds[chatId] = data.result.message_id;
                     globalState.lastWelcomeMessageId = data.result.message_id;
-                    // FIX Bot API 10.2: сохраняем ephemeral_message_id для эфемерных сообщений
-                    if (data.result.ephemeral_message_id) {
-                        if (!globalState.welcomeEphemeralMessageIds) globalState.welcomeEphemeralMessageIds = {};
-                        globalState.welcomeEphemeralMessageIds[chatId] = data.result.ephemeral_message_id;
-                        debugLog(`[WELCOME] ephemeral_message_id сохранён: ${data.result.ephemeral_message_id}`);
-                    }
                     debugLog(`[WELCOME] Отправлено в чат ${chatId}, ID: ${data.result.message_id}`);
                 }
             }, () => {
@@ -3673,14 +3592,6 @@ function processUpdates(updates) {
                     if (oldId) {
                         deleteMessage(cid, oldId);
                         delete globalState.welcomeMessageIds[cid];
-                    }
-                    // FIX Bot API 10.2: удаляем эфемерное сообщение
-                    if (globalState.welcomeEphemeralMessageIds && globalState.welcomeEphemeralMessageIds[cid]) {
-                        tgApi('deleteEphemeralMessage', {
-                            chat_id: cid,
-                            ephemeral_message_id: globalState.welcomeEphemeralMessageIds[cid]
-                        });
-                        delete globalState.welcomeEphemeralMessageIds[cid];
                     }
                 });
                 globalState.lastWelcomeMessageId = null;

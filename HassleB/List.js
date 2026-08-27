@@ -1,19 +1,9 @@
 // List.js - Централизованные конфигурации
 
-// ┌─────────────────────────────────────────────────────────┐
-// │  ОБЩАЯ БЕСЕДА — одна для всех пользователей и ботов    │
-// │  Все боты шлют ephemeral-сообщения с receiver_user_id  │
-// │  → каждый видит только свои сообщения от бота          │
-// └─────────────────────────────────────────────────────────┘
-const SHARED_CHAT_ID = '-1003040555627'; // Беседа Захара (общая)
-
 const USER_CONFIGS = {
     'Zahar': {
-        CHAT_IDS: [SHARED_CHAT_ID],
-        TELEGRAM_USER_ID: '1046461621',          // Telegram ID Захара
-        BROADCAST_CHANNEL_ID: '-1003865576448',  // HAS TEST — приватный broadcast-канал
-        // FIX: сообщения Захара идут в тред https://t.me/c/3040555627/147390
-        MESSAGE_THREAD_ID: '147390',
+        CHAT_IDS: ['-1003040555627'],
+        BROADCAST_CHANNEL_ID: '-1003865576448', // HAS TEST — приватный broadcast-канал (все боты — админы)
         PASSWORD: 'zahar2007',
         RECONNECT_ENABLED_DEFAULT: true,
         BOT_TOKENS: {
@@ -24,10 +14,8 @@ const USER_CONFIGS = {
         }
     },
     'Kolya': {
-        CHAT_IDS: [SHARED_CHAT_ID],
-        TELEGRAM_USER_ID: '',                    // ← Telegram ID Коли (скинет позже)
-        BROADCAST_CHANNEL_ID: '-100YYYYYYYYYY',  // ← свой канал для Коли (уточнить)
-        MESSAGE_THREAD_ID: null,                 // Коля без треда (или задать отдельный)
+        CHAT_IDS: ['-1003102212423'],
+        BROADCAST_CHANNEL_ID: '-100YYYYYYYYYY', // ← свой канал для Коли
         PASSWORD: 'kol16052011',
         RECONNECT_ENABLED_DEFAULT: true,
         BOT_TOKENS: {

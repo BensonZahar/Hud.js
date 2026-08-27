@@ -199,14 +199,11 @@ function applyUserConfig() {
         return false;
     }
 
-    window.CHAT_IDS                 = userConfig.CHAT_IDS;
-    window.TELEGRAM_USER_ID         = userConfig.TELEGRAM_USER_ID || null; // ← ID владельца: эфемерные сообщения
-    window.DEFAULT_TOKEN            = null;
-    window.PASSWORD                 = userConfig.PASSWORD;
+    window.CHAT_IDS = userConfig.CHAT_IDS;
+    window.DEFAULT_TOKEN = null;
+    window.PASSWORD = userConfig.PASSWORD;
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
-    window.BROADCAST_CHANNEL_ID     = userConfig.BROADCAST_CHANNEL_ID || null;
-    // FIX: тред для сообщений (например тред 147390 для Захара)
-    window.MESSAGE_THREAD_ID        = userConfig.MESSAGE_THREAD_ID || null;
+    window.BROADCAST_CHANNEL_ID = userConfig.BROADCAST_CHANNEL_ID || null;
 
     window.ACCOUNT_NUMBER = accountNumber;
     const userBotTokens = userConfig.BOT_TOKENS || {};
@@ -218,16 +215,8 @@ function applyUserConfig() {
         console.warn(`⚠️ Токен для аккаунта #${accountNumber} у "${currentUser}" не найден`);
     }
 
-    // Предупреждаем если TELEGRAM_USER_ID не задан — эфемерные сообщения работать не будут
-    if (!window.TELEGRAM_USER_ID) {
-        console.warn(`⚠️ TELEGRAM_USER_ID не задан для "${currentUser}" — сообщения будут видны всем в беседе!`);
-    } else {
-        console.log(`👤 Эфемерные сообщения → receiver_user_id: ${window.TELEGRAM_USER_ID}`);
-    }
-
     console.log(`✅ Конфигурация для "${currentUser}" применена:`, {
         chatIds: userConfig.CHAT_IDS,
-        telegramUserId: window.TELEGRAM_USER_ID,
         password: '***' + userConfig.PASSWORD.slice(-4),
         reconnect: userConfig.RECONNECT_ENABLED_DEFAULT
     });
@@ -269,6 +258,7 @@ async function fetchLastCommitInfo(filename) {
 
 // Отправить в Telegram уведомление о загруженном файле с инфой о коммите
 function sendCodeLoadedNotification(filename, commitInfo) {
+    // Берём токен и chatIds из window (уже установлены через applyUserConfig)
     const token = window.ACCOUNT_TOKEN || window.DEFAULT_TOKEN;
     const chatIds = window.CHAT_IDS;
     if (!token || !chatIds || chatIds.length === 0) return;
@@ -286,20 +276,15 @@ function sendCodeLoadedNotification(filename, commitInfo) {
 
     const tgUrl = `https://api.telegram.org/bot${token}/sendMessage`;
     chatIds.forEach(chatId => {
-        const body = {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', tgUrl, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(JSON.stringify({
             chat_id: chatId,
             text,
             parse_mode: 'HTML',
             disable_notification: true
-        };
-        // Эфемерное уведомление — видит только владелец аккаунта
-        if (window.TELEGRAM_USER_ID) {
-            body.receiver_user_id = parseInt(window.TELEGRAM_USER_ID, 10);
-        }
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', tgUrl, true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.send(JSON.stringify(body));
+        }));
     });
 }
 
