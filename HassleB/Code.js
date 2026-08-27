@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗавдо'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗаво'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -1864,6 +1864,9 @@ function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
                 try { desc = JSON.parse(resp).description || ''; } catch(e) {}
                 if (!desc.includes('message is not modified')) {
                     delete globalState.welcomeEphemeralMessageIds[chatId];
+                    // FIX: также сбрасываем welcomeMessageIds (может быть 0 — falsy, поэтому безусловно)
+                    if (globalState.welcomeMessageIds) delete globalState.welcomeMessageIds[chatId];
+                    if (globalState.welcomeSending) globalState.welcomeSending[chatId] = false;
                 }
             }
         });
@@ -1893,10 +1896,12 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
                 }
                 debugLog(`[EPHEMERAL EDIT] ephemeral_message_id ${ephId} устарел — сбрасываем`);
                 delete globalState.welcomeEphemeralMessageIds[chatId];
-                if (globalState.welcomeMessageIds && globalState.welcomeMessageIds[chatId]) {
+                // FIX: welcomeMessageIds[chatId] может быть 0 (falsy) — удаляем безусловно,
+                // иначе следующий sendWelcomeMessage тоже не отправит новое сообщение
+                if (globalState.welcomeMessageIds) {
                     delete globalState.welcomeMessageIds[chatId];
-                    if (globalState.welcomeSending) globalState.welcomeSending[chatId] = false;
                 }
+                if (globalState.welcomeSending) globalState.welcomeSending[chatId] = false;
             }
         });
         return;
@@ -2306,7 +2311,12 @@ function sendWelcomeMessage(editOnly = false) {
 
     config.chatIds.forEach(chatId => {
         const existingId = globalState.welcomeMessageIds[chatId];
-        if (existingId) {
+        // FIX: для эфемерных сообщений message_id = 0 (falsy в JS!).
+        // if (existingId) падал в false при ID=0 → отправлял новое сообщение вместо редактирования.
+        // Решение: также проверяем наличие ephemeral_message_id.
+        if (!globalState.welcomeEphemeralMessageIds) globalState.welcomeEphemeralMessageIds = {};
+        const existingEphId = globalState.welcomeEphemeralMessageIds[chatId];
+        if (existingId || existingEphId) {
             // Редактируем уже отправленное сообщение — не шлём новое
             editMessageText(chatId, existingId, message, replyMarkup);
         } else if (editOnly) {
