@@ -4192,40 +4192,43 @@ function processUpdates(updates) {
             } else if (message.startsWith('notif_apply_')) {
                 const _p     = message.replace('notif_apply_', '').split('_');
                 const _scope = _p[0];           // "local" | "global"
-                const _type  = _p[1];           // "p"|"soob"|"mesto"|"radio"|"radiofilter"|"warning"
+                const _type  = _p[1];           // "p"|"soob"|"mesto"|"radio"|"radiofilter"|"warning"|"kac"
                 const _action= _p[2];           // "on" | "off"
                 const _isOn  = _action === 'on';
                 const _label = _scope === 'global' ? 'для всех аккаунтов' : `для ${displayName}`;
+                // 1. Применяем настройку локально (config)
+                // При global-scope: sendToTelegram пропускаем — handleGlobalBroadcastCommand сам отправит тихое сообщение
                 switch (_type) {
                     case 'p':
                         config.paydayNotifications = _isOn;
-                        sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления о PayDay ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
+                        if (_scope === 'local') sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления о PayDay ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
                         break;
                     case 'soob':
                         config.govMessagesEnabled = _isOn;
-                        sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления от сотрудников фракции ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
+                        if (_scope === 'local') sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления от сотрудников фракции ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
                         break;
                     case 'mesto':
                         config.trackLocationRequests = _isOn;
-                        sendToTelegram(`${_isOn ? '📍' : '🔕'} <b>Отслеживание местоположения ${_isOn ? 'включено' : 'отключено'} ${_label}</b>`, false, null);
+                        if (_scope === 'local') sendToTelegram(`${_isOn ? '📍' : '🔕'} <b>Отслеживание местоположения ${_isOn ? 'включено' : 'отключено'} ${_label}</b>`, false, null);
                         break;
                     case 'radio':
                         config.radioOfficialNotifications = _isOn;
-                        sendToTelegram(`${_isOn ? '📡' : '🔕'} <b>Рация (все сообщения) ${_isOn ? 'включена' : 'отключена'} ${_label}</b>`, false, null);
+                        if (_scope === 'local') sendToTelegram(`${_isOn ? '📡' : '🔕'} <b>Рация (все сообщения) ${_isOn ? 'включена' : 'отключена'} ${_label}</b>`, false, null);
                         break;
                     case 'radiofilter':
                         config.radioImportantFilter = _isOn;
-                        sendToTelegram(`${_isOn ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${_isOn ? 'включён' : 'отключён'} ${_label}</b>`, false, null);
+                        if (_scope === 'local') sendToTelegram(`${_isOn ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${_isOn ? 'включён' : 'отключён'} ${_label}</b>`, false, null);
                         break;
                     case 'warning':
                         config.warningNotifications = _isOn;
-                        sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления о выговорах ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
+                        if (_scope === 'local') sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления о выговорах ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
                         break;
                     case 'kac':
                         config.kacAutoReply = _isOn;
-                        sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП ${_isOn ? 'ВКЛ' : 'ВЫКЛ'} ${_label}</b>`, false, null);
+                        if (_scope === 'local') sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП ${_isOn ? 'ВКЛ' : 'ВЫКЛ'} ${_label}</b>`, false, null);
                         break;
                 }
+                // 2. Применяем глобально или показываем меню
                 if (_scope === 'global') {
                     const _cmdMap = {
                         'p':           'toggle_payday',
@@ -4237,10 +4240,15 @@ function processUpdates(updates) {
                         'kac':         'toggle_kac'
                     };
                     const _broadcastCmd = _cmdMap[_type];
-                    if (_broadcastCmd) broadcastGlobalCommand(_broadcastCmd, _action);
+                    if (_broadcastCmd) {
+                        handleGlobalBroadcastCommand(_broadcastCmd, _action); // FIX: применяем у себя (бот не получает свои channel_post)
+                        broadcastGlobalCommand(_broadcastCmd, _action);
+                    }
+                    sendWelcomeMessage(true); // обновляем welcome текущего бота
+                } else {
+                    // Показываем обновлённое меню настроек с актуальными статусами (сохраняем scope)
+                    showNotifSettingsMenu(chatId, messageId, callbackUniqueId, _scope);
                 }
-                // Показываем обновлённое меню настроек с актуальными статусами (сохраняем scope)
-                showNotifSettingsMenu(chatId, messageId, callbackUniqueId, _scope);
             } else if (message.startsWith('show_welcome_settings_')) {
                 // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
                 globalState.welcomeShowSettings = true;
