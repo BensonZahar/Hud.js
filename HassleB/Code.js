@@ -17,8 +17,6 @@ const globalState = {
     inPrison: false,       // Активный режим тюрьмы (скин 50)
     prisonTimeRequested: false, // Флаг: уже запросили /time
     prisonTimeTimer: null,  // Таймер периодического опроса /time
-    // Лог сессии (последние 20 событий)
-    sessionLog: [],
     sessionStartTime: null,
     // HP alert state
     hpAlertMessageIds: [],   // { chatId, messageId }
@@ -1149,13 +1147,6 @@ function addLocalChatMessage(text, color = "00FFFF") {
         return false;
     }
 }
-function addSessionLog(event) {
-    const timeStr = getCurrentTimeString();
-    const entry = `[${timeStr}] ${event}`;
-    globalState.sessionLog.push(entry);
-    if (globalState.sessionLog.length > 40) globalState.sessionLog.shift();
-    debugLog(`[SESSION] ${entry}`);
-}
 // END DEBUG AND UTILS MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
@@ -1412,8 +1403,6 @@ function trackPlayerHp() {
 
             if (damage >= 1) {
                 const now = Date.now();
-
-                addSessionLog(`💔 Урон: HP ${Math.round(globalState.hpLastValue)} → ${Math.round(currentHp)} (-${damage})`);
 
                 globalState.hpLastHitTime = now;
                 if (!globalState._dmgAccum) {
@@ -1717,7 +1706,6 @@ function trackNicknameAndServer() {
             uniqueId = `${nicknameStr}_${serverStr}`;
             sendWelcomeMessage();
             registerUser();
-            addSessionLog(`🔐 Вход: ${nicknameStr} [S${serverStr}]`);
             // Запуск отслеживания скина с задержкой 5с
             setTimeout(() => {
                 const initialSkin = getSkinIdFromStore();
@@ -1991,10 +1979,6 @@ function buildWelcomeAccountInfo() {
 
         // Если профиль ещё не готов (фракция не обязательна)
         if (!p || !p.loaded) {
-            const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
-                ? globalState.sessionLog.slice(-8).map(e => `<code>${e}</code>`).join('\n')
-                : '<i>Нет событий</i>';
-
             // Скин и фракция уже определены — показываем частичные данные
             if (config.currentFaction && config.accountInfo.skinId) {
                 const fLabel = getFactionLabel(config.currentFaction);
@@ -2008,12 +1992,10 @@ function buildWelcomeAccountInfo() {
                 return `\n\n📊 <b>Информация об аккаунте:</b>\n` +
                        `👤 <b>Ник:</b> ${nick}  |  <b>Сервер:</b> S${srv}\n` +
                        `🎭 <b>Скин:</b> ${skin}  [${fLabel}]` +
-                       retryTip +
-                       `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
+                       retryTip;
             }
 
-            return `\n\n📊 <i>Информация об аккаунте ещё не загружена</i>` +
-                   `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
+            return `\n\n📊 <i>Информация об аккаунте ещё не загружена</i>`;
         }
 
         const pos = getPlayerPositionFromStore();
@@ -2164,12 +2146,6 @@ function buildWelcomeAccountInfo() {
             block += `└ Наиграно: ${afkMins} мин  |  Накоплено: ₽${afkSal}`;
         }
 
-        // ── Лог сессии (последние 8 событий) ─────────────────────
-        const logLines = globalState.sessionLog && globalState.sessionLog.length > 0
-            ? globalState.sessionLog.slice(-8).map(e => `<code>${e}</code>`).join('\n')
-            : '<i>Нет событий</i>';
-        block += `\n\n📋 <b>Лог сессии:</b>\n${logLines}`;
-
         return block;
     } catch (e) {
         return `\n\n❌ <i>Ошибка получения инфо: ${e.message}</i>`;
@@ -2212,14 +2188,13 @@ function buildWelcomeText() {
 
 // ── Строит inline-клавиатуру приветственного сообщения ──
 function buildWelcomeKeyboard() {
-    const settingsBtn = globalState.welcomeShowSettings
-        ? createButton('🙈 Скрыть настройки уведомлений', `hide_welcome_settings_${uniqueId}`)
-        : createButton('🔔 Настройки уведомлений', `show_welcome_settings_${uniqueId}`);
-
     return {
         inline_keyboard: [
             [createButton('⚙️ Управление', `show_controls_${uniqueId}`)],
-            [createButton('💰 Инфо об аккаунте', `local_account_info_${uniqueId}`), settingsBtn]
+            [
+                createButton('💰 Инфо об аккаунте', `local_account_info_${uniqueId}`),
+                createButton('🔔 Настройки уведомлений', `show_notif_menu_${uniqueId}`)
+            ]
         ]
     };
 }
@@ -2905,23 +2880,90 @@ function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
 
 // Список типов уведомлений
 function showNotifSettingsMenu(chatId, messageId, uniqueIdParam) {
+    // Каждая кнопка показывает текущее состояние и при нажатии сразу переключает
     const replyMarkup = {
         inline_keyboard: [
-            [createButton("🔔 PayDay",          `show_notif_type_p_${uniqueIdParam}`)],
-            [createButton("🏛️ Сообщения",       `show_notif_type_soob_${uniqueIdParam}`)],
-            [createButton("📍 Место",            `show_notif_type_mesto_${uniqueIdParam}`)],
-            [createButton("📡 Рация",            `show_notif_type_radio_${uniqueIdParam}`)],
-            [createButton("⚠️ Выговоры",         `show_notif_type_warning_${uniqueIdParam}`)],
-            [createButton("⬅️ Вернуться назад",  `show_controls_${uniqueIdParam}`)]
+            [createButton(
+                config.paydayNotifications ? '🟢 PayDay ВКЛ' : '🔴 PayDay ВЫКЛ',
+                config.paydayNotifications
+                    ? `notif_apply_local_p_off_${uniqueIdParam}`
+                    : `notif_apply_local_p_on_${uniqueIdParam}`,
+                config.paydayNotifications ? 'success' : 'danger'
+            )],
+            [createButton(
+                config.govMessagesEnabled ? '🟢 Сообщения ВКЛ' : '🔴 Сообщения ВЫКЛ',
+                config.govMessagesEnabled
+                    ? `notif_apply_local_soob_off_${uniqueIdParam}`
+                    : `notif_apply_local_soob_on_${uniqueIdParam}`,
+                config.govMessagesEnabled ? 'success' : 'danger'
+            )],
+            [createButton(
+                config.trackLocationRequests ? '🟢 Место ВКЛ' : '🔴 Место ВЫКЛ',
+                config.trackLocationRequests
+                    ? `notif_apply_local_mesto_off_${uniqueIdParam}`
+                    : `notif_apply_local_mesto_on_${uniqueIdParam}`,
+                config.trackLocationRequests ? 'success' : 'danger'
+            )],
+            [
+                createButton(
+                    config.radioOfficialNotifications ? '🟢 Рация ВКЛ' : '🔴 Рация ВЫКЛ',
+                    config.radioOfficialNotifications
+                        ? `notif_apply_local_radio_off_${uniqueIdParam}`
+                        : `notif_apply_local_radio_on_${uniqueIdParam}`,
+                    config.radioOfficialNotifications ? 'success' : 'danger'
+                ),
+                createButton(
+                    config.radioImportantFilter ? '🟢 Фильтр ВКЛ' : '🔴 Фильтр ВЫКЛ',
+                    config.radioImportantFilter
+                        ? `notif_apply_local_radiofilter_off_${uniqueIdParam}`
+                        : `notif_apply_local_radiofilter_on_${uniqueIdParam}`,
+                    config.radioImportantFilter ? 'success' : 'danger'
+                )
+            ],
+            [createButton(
+                config.warningNotifications ? '🟢 Выговоры ВКЛ' : '🔴 Выговоры ВЫКЛ',
+                config.warningNotifications
+                    ? `notif_apply_local_warning_off_${uniqueIdParam}`
+                    : `notif_apply_local_warning_on_${uniqueIdParam}`,
+                config.warningNotifications ? 'success' : 'danger'
+            )],
+            [createButton(
+                config.kacAutoReply ? '🟢 КАЧ/ЗП ВКЛ' : '🔴 КАЧ/ЗП ВЫКЛ',
+                config.kacAutoReply
+                    ? `notif_apply_local_kac_off_${uniqueIdParam}`
+                    : `notif_apply_local_kac_on_${uniqueIdParam}`,
+                config.kacAutoReply ? 'success' : 'danger'
+            )],
+            [
+                createButton('🙈 Скрыть', `hide_controls_${uniqueIdParam}`),
+                createButton('⬅️ Назад',  `show_controls_${uniqueIdParam}`)
+            ]
         ]
     };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    editMessageText(chatId, messageId, '🔔 <b>Настройки уведомлений</b>', replyMarkup);
 }
 
 // ВКЛ/ВЫКЛ для конкретного типа
 function showNotifTypeMenu(chatId, messageId, type, uniqueIdParam) {
+    const typeNames = {
+        p: 'PayDay', soob: 'Сообщения', mesto: 'Место',
+        radio: 'Рация', warning: 'Выговоры', kac: 'КАЧ/ЗП автоответ'
+    };
+    const stateMap = {
+        p: config.paydayNotifications,
+        soob: config.govMessagesEnabled,
+        mesto: config.trackLocationRequests,
+        warning: config.warningNotifications,
+        kac: config.kacAutoReply
+    };
     let rows = [];
+    let headerText = '';
     if (type === 'radio') {
+        headerText =
+            `📡 <b>Рация</b>\n` +
+            `├ Все сообщения: ${config.radioOfficialNotifications ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n` +
+            `└ Фильтр (строй/место/ID): ${config.radioImportantFilter ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n\n` +
+            `Выберите настройку:`;
         rows = [
             [
                 createButton(`📡 Все ${config.radioOfficialNotifications ? '🟢' : '🔴'}`, `notif_scope_radio_on_${uniqueIdParam}`, 'success'),
@@ -2933,18 +2975,31 @@ function showNotifTypeMenu(chatId, messageId, type, uniqueIdParam) {
             ]
         ];
     } else {
+        const curState = stateMap[type];
+        headerText =
+            `<b>${typeNames[type] || type}</b>\n` +
+            `Сейчас: ${curState ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}\n\n` +
+            `Выберите действие:`;
         rows = [[
             createButton("🔔 ВКЛ",  `notif_scope_${type}_on_${uniqueIdParam}`,  'success'),
             createButton("🔕 ВЫКЛ", `notif_scope_${type}_off_${uniqueIdParam}`, 'danger')
         ]];
     }
     rows.push([createButton("⬅️ Вернуться назад", `show_notif_menu_${uniqueIdParam}`)]);
-    editMessageReplyMarkup(chatId, messageId, { inline_keyboard: rows });
+    editMessageText(chatId, messageId, headerText, { inline_keyboard: rows });
 }
 
 // Выбор: этот аккаунт или все аккаунты
 function showNotifScopeMenu(chatId, messageId, type, action, uniqueIdParam) {
     const backType = type === 'radiofilter' ? 'radio' : type;
+    const typeNames = {
+        p: 'PayDay', soob: 'Сообщения', mesto: 'Место',
+        radio: 'Рация (все)', radiofilter: 'Рация фильтр',
+        warning: 'Выговоры', kac: 'КАЧ/ЗП'
+    };
+    const scopeText =
+        `<b>${typeNames[type] || type} → ${action === 'on' ? '🟢 ВКЛ' : '🔴 ВЫКЛ'}</b>\n\n` +
+        `Для кого применить?`;
     const replyMarkup = {
         inline_keyboard: [
             [
@@ -2954,7 +3009,7 @@ function showNotifScopeMenu(chatId, messageId, type, action, uniqueIdParam) {
             [createButton("⬅️ Вернуться назад", `show_notif_type_${backType}_${uniqueIdParam}`)]
         ]
     };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    editMessageText(chatId, messageId, scopeText, replyMarkup);
 }
 
 // showKacOptionsMenu — используется как global KAC ВКЛ/ВЫКЛ (вызывается из legacy и из showFuncKacMenu)
@@ -4144,6 +4199,10 @@ function processUpdates(updates) {
                         config.warningNotifications = _isOn;
                         sendToTelegram(`${_isOn ? '🔔' : '🔕'} <b>Уведомления о выговорах ${_isOn ? 'включены' : 'отключены'} ${_label}</b>`, false, null);
                         break;
+                    case 'kac':
+                        config.kacAutoReply = _isOn;
+                        sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП ${_isOn ? 'ВКЛ' : 'ВЫКЛ'} ${_label}</b>`, false, null);
+                        break;
                 }
                 if (_scope === 'global') {
                     const _cmdMap = {
@@ -4158,7 +4217,8 @@ function processUpdates(updates) {
                     const _broadcastCmd = _cmdMap[_type];
                     if (_broadcastCmd) broadcastGlobalCommand(_broadcastCmd, _action);
                 }
-                sendWelcomeMessage(true);
+                // Показываем обновлённое меню настроек с актуальными статусами
+                showNotifSettingsMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith('show_welcome_settings_')) {
                 // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
                 globalState.welcomeShowSettings = true;
@@ -4966,7 +5026,6 @@ function initializeChatMonitor() {
                 window.playSound("https://raw.githubusercontent.com/ZaharQqqq/Sound/main/uved.mp3", false, 1.0);
                 // 9 пингов каждые 2 сек — каждый удаляет предыдущий, последний остаётся
                 sendAdminSpamAlert(msg);
-                addSessionLog(`🚨 Обнаружен администратор`);
             }
         }
         // ── Строй / сбор ───────────────────────────────────────────
@@ -5161,7 +5220,6 @@ function initializeChatMonitor() {
         debugLog('[Profile] 🚀 Запуск ожидания спавна для загрузки профиля через MainMenu...');
         setTimeout(waitForSpawnThenLoadProfile, 5000);
         globalState.sessionStartTime = Date.now();
-        addSessionLog('🟢 Сессия начата');
     }
     checkTelegramCommands();
     return true;
@@ -6018,7 +6076,6 @@ function handleKacAdminMessage(rawMsg) {
                 `<code>${reply}</code>`,
                 false, null
             );
-            addSessionLog(`🛡️ КАЧ/ЗП автоответ: ${reply}`);
         } catch (e) {
             debugLog(`[KAC] Ошибка отправки: ${e.message}`);
         }
