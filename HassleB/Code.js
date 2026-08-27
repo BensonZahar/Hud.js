@@ -815,6 +815,17 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
             showScreenNotification("Hassle", `[Global] Автовход ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
             sendToTelegram(`${isOn ? '✅' : '🚫'} <b>Автовход ${isOn ? 'ВКЛ' : 'ВЫКЛ'} (${displayName})</b>`, true, null);
             break;
+        case 'toggle_otygrovka':
+            // Глобальное переключение отыгровки: 'on' = включить, 'off' = выключить
+            globalState.otygrovkaAuto = isOn;
+            globalState.otygrovkaMode = isOn;
+            if (!isOn) {
+                if (globalState.otygrovkaTrackInterval) { clearInterval(globalState.otygrovkaTrackInterval); globalState.otygrovkaTrackInterval = null; }
+                if (globalState.otygrovkaExitTimer)     { clearTimeout(globalState.otygrovkaExitTimer);      globalState.otygrovkaExitTimer = null; }
+            }
+            showScreenNotification("Hassle", `[Global] Отыгровка ${isOn ? 'ВКЛ' : 'ВЫКЛ'}`);
+            sendToTelegram(`🎭 <b>Отыгровка 27 мин ${isOn ? 'ВКЛ' : 'ВЫКЛ'} (${displayName})</b>`, true, null);
+            break;
         case 'reload':
             // Перезагрузка скрипта — откладываем чтобы offset успел сохраниться
             debugLog(`[GLOBAL] Получена команда перезагрузки для ${displayName}`);
@@ -2780,12 +2791,13 @@ function showFunctionsMenu(chatId, messageId, uniqueIdParam) {
     const otygrovkaStyle = globalState.otygrovkaAuto ? 'success' : 'danger';
     const replyMarkup = {
         inline_keyboard: [
-            [createButton("🚶 Движение",                                                       `func_select_movement_${uid}`)],
+            // Движение — прямой переход без выбора скоупа (только для этого аккаунта)
+            [createButton("🚶 Движение",                                                       `func_action_movement_local_${uid}`)],
             [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`,      `func_select_kac_${uid}`, kacStyle)],
-            // AFK — прямой переход без лишнего выбора скоупа
-            [createButton("🌙 AFK Ночь",                                                      `func_action_afk_local_${uid}`)],
-            // Отыгровка — прямой переход без выбора скоупа (только для этого аккаунта)
-            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaAuto ? '🟢' : '🔴'}`,  `show_otygrovka_options_${uid}`, otygrovkaStyle)],
+            // AFK Ночь — выбор скоупа: для этого / для всех
+            [createButton("🌙 AFK Ночь",                                                      `func_select_afk_${uid}`)],
+            // Отыгровка — выбор скоупа: для этого / для всех
+            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaAuto ? '🟢' : '🔴'}`,  `func_select_otygrovka_${uid}`, otygrovkaStyle)],
             // Написать в чат — прямой запрос без выбора скоупа (только для этого аккаунта)
             [createButton("📝 Написать в чат",                                                `request_chat_message_${uid}`)],
             // Пауза и Авторизация — через скоуп-меню (для этого / для всех)
@@ -2805,7 +2817,7 @@ function showFuncScopeMenu(chatId, messageId, funcKey, uniqueIdParam) {
         movement:  ['local'],
         kac:       ['local', 'global'],  // КАЧ/ЗП — работает для обоих
         afk:       ['local', 'global'],  // AFK Ночь — и для этого, и для всех
-        otygrovka: ['local'],
+        otygrovka: ['local', 'global'],  // Отыгровка — и для этого, и для всех
         chat:      ['local'],
         pause:     ['local', 'global'],  // Пауза — и для этого, и для всех
         autologin: ['local', 'global'],  // Авторизация — и для этого, и для всех
@@ -3851,7 +3863,17 @@ function processUpdates(updates) {
                 } else if (_funcKey === 'afk') {
                     showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
                 } else if (_funcKey === 'otygrovka') {
-                    showOtygrovkaMenu(chatId, messageId);
+                    if (_scope === 'global') {
+                        // Для всех аккаунтов — включаем/выключаем отыгровку через broadcast
+                        const _otyVal = globalState.otygrovkaAuto ? 'off' : 'on';
+                        handleGlobalBroadcastCommand('toggle_otygrovka', _otyVal);
+                        broadcastGlobalCommand('toggle_otygrovka', _otyVal);
+                        const _otyLabel = _otyVal === 'on' ? 'включена' : 'выключена';
+                        sendToTelegram(`🎭 <b>Отыгровка 27 мин ${_otyLabel} для всех аккаунтов</b>`, false, null);
+                        showFunctionsMenu(chatId, messageId, callbackUniqueId);
+                    } else {
+                        showOtygrovkaMenu(chatId, messageId);
+                    }
                 } else if (_funcKey === 'chat') {
                     const requestMsg = `✉️ Введите сообщение для ${displayName}:\n(Будет отправлено как /chat${config.accountInfo.nickname}_${config.accountInfo.server} ваш_текст)\n🔑 ID: ${uniqueId}`;
                     _abortPollAndRestartFast();
@@ -4348,7 +4370,8 @@ function processUpdates(updates) {
                 deleteMessage(chatId, messageId);
                 sendChatInput("/q");
             } else if (message.startsWith('show_otygrovka_options_')) {
-                showOtygrovkaMenu(chatId, messageId);
+                // legacy — редирект на scope-меню отыгровки
+                showFuncScopeMenu(chatId, messageId, 'otygrovka', callbackUniqueId);
             } else if (message.startsWith('otygrovka_on_')) {
                 // Включаем авто-режим отыгровки — /c 60 считывает начальное время,
                 // затем трекинг сам считает in-game секунды и выходит в :59:20
