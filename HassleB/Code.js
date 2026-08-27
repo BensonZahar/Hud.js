@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗаво'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -3614,8 +3614,15 @@ function processUpdates(updates) {
         } else if (update.callback_query) {
             const message = update.callback_query.data;
             const chatId = update.callback_query.message.chat.id;
-            const messageId = update.callback_query.message.message_id;
+            let messageId = update.callback_query.message.message_id;
             const callbackQueryId = update.callback_query.id; // Для answerCallbackQuery
+            // FIX: эфемерные сообщения (receiver_user_id) возвращают message_id=0 в callback.
+            // Кастомный сервер скрывает реальный ID эфемерного сообщения — используем
+            // сохранённый ID велком-сообщения как запасной вариант.
+            if (!messageId && globalState.welcomeMessageIds && globalState.welcomeMessageIds[chatId]) {
+                messageId = globalState.welcomeMessageIds[chatId];
+                debugLog(`[CALLBACK] message_id=0 (эфемерное) → используем сохранённый ID: ${messageId}`);
+            }
             // FIX: отвечаем на callback СРАЗУ — кнопка перестаёт крутиться мгновенно.
             // Раньше это делалось в конце после всей обработки → задержка до нескольких секунд.
             // dlg_* тоже нужно ответить здесь, иначе Dialog Monitor ответит позже сам.
