@@ -715,7 +715,7 @@ class MEmuHudManager:
     # ──────────────────────────────────────────────────────────────────────────
     # Telegram
     # ──────────────────────────────────────────────────────────────────────────
-    def send_telegram_message(self, stage="launch", message_id=None, verdict=None, extra_ip=None):
+    def send_telegram_message(self, stage="launch", message_id=None, verdict=None):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         device_name = platform.node()
         hwid_str = self.hwid or "UNKNOWN"
@@ -1102,15 +1102,35 @@ class MEmuHudManager:
         combined = '-'.join(parts)
         return hashlib.sha256(combined.encode()).hexdigest()[:16].upper()
 
-    def fetch_keys_json(self):
-        """Загрузить keys.json с GitHub."""
-        url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/keys.json"
+    def check_hwid_in_list(self):
+        """Проверить HWID в List.js. Возвращает (имя, debug) или (None, None) или ('error', причина)."""
+        import re
+        url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/List.js"
         try:
             r = requests.get(url, timeout=10)
             r.raise_for_status()
-            return r.json(), None
+            content = r.text
         except Exception as e:
-            return None, str(e)
+            return "error", str(e)
+
+        # Ищем все блоки пользователей
+        user_pattern = re.compile(r"['\"](\w+)['\"]:\s*\{")
+        for m in user_pattern.finditer(content):
+            user = m.group(1)
+            # Берём кусок текста блока этого пользователя
+            chunk = content[m.start(): m.start() + 2000]
+            # Ищем HWID в блоке
+            hwid_m = re.search(r"HWID\s*:\s*['\"]([A-F0-9a-f]+)['\"]", chunk)
+            if not hwid_m:
+                continue
+            if hwid_m.group(1).upper() != self.hwid:
+                continue
+            # Совпадение — извлекаем DEBUG
+            debug_m = re.search(r"DEBUG\s*:\s*(true|false)", chunk)
+            debug = (debug_m.group(1) == "true") if debug_m else False
+            return user, debug
+
+        return None, None
 
     def show_no_access_screen(self, extra_msg=None):
         """Показать экран 'нет доступа' с возможностью скопировать HWID."""
@@ -1218,21 +1238,17 @@ class MEmuHudManager:
     def activate_launch_permission(self):
         self.hwid = self.get_hwid()
         self.log(f"HWID: {self.hwid}")
+        self.log("Проверка доступа в List.js...")
 
-        self.log("Проверка доступа...")
-        keys_data, err = self.fetch_keys_json()
+        name, debug = self.check_hwid_in_list()
 
-        if keys_data is None:
-            self.log(f"[X] Ошибка: Не удалось загрузить keys.json ({err})")
+        if name == "error":
+            self.log(f"[X] Ошибка: Не удалось загрузить List.js ({debug})")
             self.root.after(0, lambda: self.show_no_access_screen("Ошибка подключения к серверу"))
             return
 
-        keys = keys_data.get("keys", {})
-        config = keys.get(self.hwid)
-
-        if config is None:
-            self.log(f"[!] HWID не найден в базе — доступ запрещён")
-            # Уведомить владельца через Telegram (фоново)
+        if name is None:
+            self.log("[!] HWID не найден — доступ запрещён")
             threading.Thread(
                 target=lambda: self.send_telegram_message(stage="unknown_hwid"),
                 daemon=True,
@@ -1241,12 +1257,9 @@ class MEmuHudManager:
             return
 
         # HWID найден — авторизация
-        name  = config.get("name", "User")
-        debug = config.get("debug", False)
-
-        self.launch_allowed  = True
-        self.full_logging    = debug
-        self.debug_allowed   = debug
+        self.launch_allowed     = True
+        self.full_logging       = debug
+        self.debug_allowed      = debug
         self.selected_code_name = name
 
         self.log(f"[√] Доступ разрешён: {name}" + (" (с отладкой)" if debug else ""))
