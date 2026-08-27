@@ -72,35 +72,34 @@ class MEmuHudManager:
         self.skip_warning_file = self.script_dir / "skip_warning.json"
         self.skip_warning = self.load_skip_warning()
 
-        # ── Палитра Agora (тема форума) ────────────────────────
-        # Источник: css.php → :root { --xf-... } + dark variation
+        # ── Палитра: современная тёмная (чёрно-серая, без синего) ─
         self.C = {
-            # Фоны (dark mode values из css.php)
-            "bg":      "#0F1019",   # pageBg: hsl(240,10%,6%)
-            "surface": "#16171F",   # contentBg dark: hsl(240,6%,10%)
-            "card":    "#1E1F2D",   # contentAltBg dark: hsl(240,4%,16%)
+            # Фоны — чистые тёмные, нейтральные
+            "bg":      "#0A0A0A",   # почти чёрный
+            "surface": "#111111",   # тёмная поверхность
+            "card":    "#1A1A1A",   # карточка
             # Границы
-            "border":  "#2D2E42",   # paletteColor4 dark: hsl(240,4%,22%)
-            # Акценты (прямо из CSS переменных сайта)
-            "accent":  "#FFAA0D",   # paletteAccent1: hsl(40,100%,53%) — янтарь!
-            "accent2": "#4FAA7A",   # paletteAccent3: hsl(157,49%,52%) — зелёный
+            "border":  "#2A2A2A",   # разделитель
+            # Акценты — янтарь и зелёный (без синего)
+            "accent":  "#FFAA0D",   # янтарь
+            "accent2": "#4FAA7A",   # зелёный
             # Текст
-            "text":    "#EDEDF2",   # paletteNeutral3 dark: hsl(0,0%,93%)
-            "subtext": "#9596AB",   # paletteNeutral2 dark: hsl(180,4%,67%)
-            "muted":   "#64657B",   # textColorDimmed (между text и subtext)
+            "text":    "#F0F0F0",   # основной
+            "subtext": "#909090",   # вторичный
+            "muted":   "#606060",   # приглушённый
             # Семантика
-            "red":     "#CE6565",   # paletteAccent2: hsl(0,71%,66%)
-            "green":   "#4FAA7A",   # paletteAccent3 (тот же что accent2)
-            # Кнопка: текст на янтарном фоне — почти чёрный (как на сайте)
-            "btntext": "#18181B",   # цвет текста кнопок сайта: color:#18181B
-            # Шапка/хром: paletteColor1 hsl(240,4%,46%)
-            "chrome":  "#73748A",
+            "red":     "#CE6565",
+            "green":   "#4FAA7A",
+            # Кнопка на янтарном фоне
+            "btntext": "#0A0A0A",
+            # Хром
+            "chrome":  "#555555",
         }
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
-        W, H = 420, 590
+        W, H = 760, 500
         self.root = ctk.CTk()
         self.root.title("HassleBot")
         self.root.resizable(False, False)
@@ -120,31 +119,34 @@ class MEmuHudManager:
         self.root.grid_columnconfigure(0, weight=1)
         self.root.grid_rowconfigure(0, weight=1)
 
-        self.main_frame = ctk.CTkScrollableFrame(
+        self.main_frame = ctk.CTkFrame(
             self.root,
             fg_color=self.C["bg"],
             corner_radius=0,
-            scrollbar_button_color=self.C["border"],
-            scrollbar_button_hover_color=self.C["accent"],
         )
         self.main_frame.grid(sticky="nsew")
-        self.main_frame.grid_columnconfigure(0, weight=1)
+        # 3 колонки: левая (фиксированная) | разделитель | правая (расширяется)
+        self.main_frame.grid_columnconfigure(0, weight=0, minsize=318)
+        self.main_frame.grid_columnconfigure(1, weight=0, minsize=1)
+        self.main_frame.grid_columnconfigure(2, weight=1)
+        self.main_frame.grid_rowconfigure(0, weight=0)   # шапка
+        self.main_frame.grid_rowconfigure(1, weight=1)   # контент
 
-        # ── Шапка (стиль .p-header / chrome сайта) ────────────
+        # ── Шапка (на всю ширину, оба столбца) ────────────────
         C = self.C
         hdr = ctk.CTkFrame(
             self.main_frame,
             fg_color=C["surface"],
             corner_radius=0,
-            height=52,
+            height=48,
             border_width=0,
         )
-        hdr.grid(row=0, column=0, sticky="ew")
+        hdr.grid(row=0, column=0, columnspan=3, sticky="ew")
         hdr.grid_columnconfigure(1, weight=1)
         hdr.grid_propagate(False)
 
-        # Янтарная полоса слева — как .block-header border-color: paletteAccent1
-        accent_bar = ctk.CTkFrame(hdr, width=4, height=52, corner_radius=0,
+        # Янтарная полоса слева
+        accent_bar = ctk.CTkFrame(hdr, width=4, height=48, corner_radius=0,
                                    fg_color=C["accent"])
         accent_bar.grid(row=0, column=0, padx=(0, 0), pady=0, sticky="ns")
         accent_bar.grid_propagate(False)
@@ -168,21 +170,50 @@ class MEmuHudManager:
             hdr, width=8, height=8, corner_radius=4,
             fg_color=C["muted"],
         )
-        self._status_dot.grid(row=0, column=3, padx=(0, 16), pady=22)
+        self._status_dot.grid(row=0, column=3, padx=(0, 16), pady=20)
         self._status_dot.grid_propagate(False)
 
-        # ── Лог (стиль .blockMessage --alt сайта) ──────────────
-        log_wrap = ctk.CTkFrame(
+        # ── Левая колонка (настройки) ──────────────────────────
+        self.left_col = ctk.CTkScrollableFrame(
             self.main_frame,
+            fg_color=C["bg"],
+            corner_radius=0,
+            scrollbar_button_color=C["border"],
+            scrollbar_button_hover_color=C["accent"],
+        )
+        self.left_col.grid(row=1, column=0, sticky="nsew")
+        self.left_col.grid_columnconfigure(0, weight=1)
+
+        # ── Вертикальный разделитель ────────────────────────────
+        ctk.CTkFrame(
+            self.main_frame, width=1, corner_radius=0, fg_color=C["border"]
+        ).grid(row=1, column=1, sticky="nsew")
+
+        # ── Правая колонка (лог + действия) ────────────────────
+        self.right_col = ctk.CTkFrame(
+            self.main_frame,
+            fg_color=C["bg"],
+            corner_radius=0,
+        )
+        self.right_col.grid(row=1, column=2, sticky="nsew")
+        self.right_col.grid_columnconfigure(0, weight=1)
+        self.right_col.grid_rowconfigure(0, weight=1)   # лог растягивается
+        self.right_col.grid_rowconfigure(1, weight=0)   # действия фиксированы
+        self.right_col.grid_rowconfigure(2, weight=0)   # кнопка выхода
+
+        # ── Лог (в правой колонке) ──────────────────────────────
+        log_wrap = ctk.CTkFrame(
+            self.right_col,
             fg_color=C["card"],
             corner_radius=10,
             border_width=1,
             border_color=C["border"],
         )
-        log_wrap.grid(row=1, column=0, padx=14, pady=(12, 0), sticky="ew")
+        log_wrap.grid(row=0, column=0, padx=10, pady=(10, 4), sticky="nsew")
         log_wrap.grid_columnconfigure(0, weight=1)
+        log_wrap.grid_rowconfigure(1, weight=1)
 
-        # Заголовок лога — .block-minorHeader
+        # Заголовок лога
         log_hdr = ctk.CTkFrame(log_wrap, fg_color="transparent", height=26)
         log_hdr.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
         log_hdr.grid_columnconfigure(1, weight=1)
@@ -198,7 +229,7 @@ class MEmuHudManager:
 
         self.status_text = ctk.CTkTextbox(
             log_wrap,
-            height=86,
+            height=120,
             corner_radius=0,
             fg_color="transparent",
             text_color=C["accent2"],
@@ -207,7 +238,7 @@ class MEmuHudManager:
             scrollbar_button_color=C["border"],
             scrollbar_button_hover_color=C["accent"],
         )
-        self.status_text.grid(row=1, column=0, padx=4, pady=(0, 6), sticky="ew")
+        self.status_text.grid(row=1, column=0, padx=4, pady=(0, 6), sticky="nsew")
 
         # Контекстное меню лога
         import tkinter as tk
@@ -412,15 +443,13 @@ class MEmuHudManager:
     # GUI — основной экран
     # ──────────────────────────────────────────────────────────────────────────
     def setup_gui(self):
-        for w in list(self.main_frame.winfo_children()):
-            info = w.grid_info()
-            if info and info.get('row', 0) not in (0, 1):
-                w.destroy()
+        for w in list(self.left_col.winfo_children()):
+            w.destroy()
 
         C = self.C
 
         # ── Карточка: Устройство ───────────────────────────────
-        sect1 = self._card(self.main_frame, row=2, pad_top=10)
+        sect1 = self._card(self.left_col, row=0, pad_top=10)
         self._section_label(sect1, "УСТРОЙСТВО")
 
         self._row_label(sect1, "Тип", row=1)
@@ -444,7 +473,7 @@ class MEmuHudManager:
 
         # ── NOX-секция ─────────────────────────────────────────
         self.nox_sect = ctk.CTkFrame(
-            self.main_frame,
+            self.left_col,
             fg_color=C["surface"],
             corner_radius=10,
             border_width=1,
@@ -455,7 +484,7 @@ class MEmuHudManager:
         # ── Карточка: Профиль (только для владельца) ───────────
         if self.is_owner_ip() and self.code_files:
             user_names = [f.get('user', f['name'].replace('.js', '')) for f in self.code_files]
-            sect_u = self._card(self.main_frame, row=3)
+            sect_u = self._card(self.left_col, row=2)
             self._section_label(sect_u, "ПРОФИЛЬ")
 
             self._row_label(sect_u, "Игрок", row=1)
@@ -477,12 +506,12 @@ class MEmuHudManager:
         # ── Инфо о коммите ─────────────────────────────────────
         if self.full_logging and self.last_commit_info:
             ctk.CTkLabel(
-                self.main_frame,
+                self.left_col,
                 text=f"↑ {self.last_commit_info}",
                 font=("Segoe UI", 9),
                 text_color=C["muted"],
-                wraplength=370, justify="left",
-            ).grid(row=4, column=0, padx=14, pady=(0, 2), sticky="w")
+                wraplength=270, justify="left",
+            ).grid(row=3, column=0, padx=12, pady=(0, 4), sticky="w")
 
         self.update_gui()
 
@@ -500,7 +529,7 @@ class MEmuHudManager:
             w.destroy()
 
         if self.conn_var.get() == "NOX" and len(self.nox_active_devices) >= 2:
-            self.nox_sect.grid(row=3, column=0, padx=14, pady=4, sticky="ew")
+            self.nox_sect.grid(row=1, column=0, padx=10, pady=(0, 4), sticky="ew")
             self._section_label(self.nox_sect, "NOX — ВЫБОР ЭКЗЕМПЛЯРА")
 
             self._row_label(self.nox_sect, "Цель", row=1)
@@ -573,22 +602,22 @@ class MEmuHudManager:
     # GUI — блок действий
     # ──────────────────────────────────────────────────────────────────────────
     def update_gui(self):
-        for w in list(self.main_frame.winfo_children()):
+        for w in list(self.right_col.winfo_children()):
             info = w.grid_info()
-            if info and info.get('row', 0) == 5:
+            if info and info.get('row', 0) > 0:   # оставляем лог (row=0)
                 w.destroy()
 
         C = self.C
 
-        # ── Карточка: Действия (стиль .block-container сайта) ──
+        # ── Карточка: Действия ──────────────────────────────────
         acts = ctk.CTkFrame(
-            self.main_frame,
+            self.right_col,
             fg_color=C["surface"],
             corner_radius=10,
             border_width=1,
             border_color=C["border"],
         )
-        acts.grid(row=5, column=0, padx=14, pady=4, sticky="ew")
+        acts.grid(row=1, column=0, padx=10, pady=(0, 4), sticky="ew")
         acts.grid_columnconfigure((0, 1), weight=1)
 
         self._section_label(acts, "ДЕЙСТВИЯ", row=0)
@@ -670,9 +699,9 @@ class MEmuHudManager:
                 row=5, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 8)
             )
 
-        # ── Кнопка выхода (стиль .button--plain сайта) ─────────
+        # ── Кнопка выхода ──────────────────────────────────────
         ctk.CTkButton(
-            self.main_frame,
+            self.right_col,
             text="Выход",
             font=("Segoe UI", 10),
             fg_color="transparent",
@@ -680,7 +709,7 @@ class MEmuHudManager:
             text_color=C["muted"],
             height=28, corner_radius=6,
             command=self.on_close,
-        ).grid(row=6, column=0, padx=14, pady=(4, 12), sticky="e")
+        ).grid(row=2, column=0, padx=10, pady=(0, 8), sticky="e")
 
     # ──────────────────────────────────────────────────────────────────────────
     # Telegram
