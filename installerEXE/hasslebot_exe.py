@@ -328,8 +328,8 @@ class MEmuHudManager:
                 import re as _re
                 m = _re.search(r"BOT_TOKENS\s*:\s*\{([^}]+)\}", chunk, _re.DOTALL)
                 if m:
-                    keys = _re.findall(r"['\"]\\d+[\\'\"]]", m.group(1))
-                    self.user_token_counts[user] = len(keys)
+                    keys = _re.findall(r"['\"](\d+)['\"]", m.group(1))
+                    self.user_token_counts[user] = len(keys) if keys else 8
                 else:
                     self.user_token_counts[user] = 8
 
