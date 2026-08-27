@@ -2738,7 +2738,9 @@ function showControlsMenu(chatId, messageId) {
             [createButton("⬅️ Вернуться назад", `hide_controls_${uniqueId}`)]
         ]
     };
-    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+    // editMessageText (а не editMessageReplyMarkup) — восстанавливает и текст, и клавиатуру.
+    // Это нужно для корректного возврата из меню, которые перезаписывали текст (например, настройки уведомлений).
+    editMessageText(chatId, messageId, buildWelcomeText(), replyMarkup);
 }
 
 // ── Единое меню всех функций (заменяет showLocalFunctionsMenu + showGlobalFunctionsMenu) ──
@@ -2878,69 +2880,75 @@ function showWarningOptionsMenu(chatId, messageId, uniqueIdParam) {
 // ║          НАСТРОЙКИ УВЕДОМЛЕНИЙ — единое меню               ║
 // ════════════════════════════════════════════════════════════════
 
-// Список типов уведомлений
-function showNotifSettingsMenu(chatId, messageId, uniqueIdParam) {
+// Выбор скоупа перед входом в настройки уведомлений
+function showNotifScopeSelectMenu(chatId, messageId, uniqueIdParam) {
+    const replyMarkup = {
+        inline_keyboard: [
+            [
+                createButton('👤 Для этого аккаунта', `show_notif_menu_local_${uniqueIdParam}`, 'primary'),
+                createButton('👥 Для всех аккаунтов', `show_notif_menu_global_${uniqueIdParam}`, 'primary')
+            ],
+            [createButton('⬅️ Вернуться назад', `show_controls_${uniqueIdParam}`)]
+        ]
+    };
+    editMessageText(chatId, messageId, '🔔 <b>Настройки уведомлений</b>\n\nДля кого применить изменения?', replyMarkup);
+}
+
+// Список типов уведомлений (КАЧ/ЗП убран — это автоответ, а не уведомление; он в меню «Функции»)
+function showNotifSettingsMenu(chatId, messageId, uniqueIdParam, scope = 'local') {
+    const s = scope === 'global' ? 'global' : 'local';
+    const headerScope = s === 'global' ? '👥 Для всех аккаунтов' : '👤 Для этого аккаунта';
     // Каждая кнопка показывает текущее состояние и при нажатии сразу переключает
     const replyMarkup = {
         inline_keyboard: [
             [createButton(
                 config.paydayNotifications ? '🟢 PayDay ВКЛ' : '🔴 PayDay ВЫКЛ',
                 config.paydayNotifications
-                    ? `notif_apply_local_p_off_${uniqueIdParam}`
-                    : `notif_apply_local_p_on_${uniqueIdParam}`,
+                    ? `notif_apply_${s}_p_off_${uniqueIdParam}`
+                    : `notif_apply_${s}_p_on_${uniqueIdParam}`,
                 config.paydayNotifications ? 'success' : 'danger'
             )],
             [createButton(
                 config.govMessagesEnabled ? '🟢 Сообщения ВКЛ' : '🔴 Сообщения ВЫКЛ',
                 config.govMessagesEnabled
-                    ? `notif_apply_local_soob_off_${uniqueIdParam}`
-                    : `notif_apply_local_soob_on_${uniqueIdParam}`,
+                    ? `notif_apply_${s}_soob_off_${uniqueIdParam}`
+                    : `notif_apply_${s}_soob_on_${uniqueIdParam}`,
                 config.govMessagesEnabled ? 'success' : 'danger'
             )],
             [createButton(
                 config.trackLocationRequests ? '🟢 Место ВКЛ' : '🔴 Место ВЫКЛ',
                 config.trackLocationRequests
-                    ? `notif_apply_local_mesto_off_${uniqueIdParam}`
-                    : `notif_apply_local_mesto_on_${uniqueIdParam}`,
+                    ? `notif_apply_${s}_mesto_off_${uniqueIdParam}`
+                    : `notif_apply_${s}_mesto_on_${uniqueIdParam}`,
                 config.trackLocationRequests ? 'success' : 'danger'
             )],
             [
                 createButton(
                     config.radioOfficialNotifications ? '🟢 Рация ВКЛ' : '🔴 Рация ВЫКЛ',
                     config.radioOfficialNotifications
-                        ? `notif_apply_local_radio_off_${uniqueIdParam}`
-                        : `notif_apply_local_radio_on_${uniqueIdParam}`,
+                        ? `notif_apply_${s}_radio_off_${uniqueIdParam}`
+                        : `notif_apply_${s}_radio_on_${uniqueIdParam}`,
                     config.radioOfficialNotifications ? 'success' : 'danger'
                 ),
                 createButton(
                     config.radioImportantFilter ? '🟢 Фильтр ВКЛ' : '🔴 Фильтр ВЫКЛ',
                     config.radioImportantFilter
-                        ? `notif_apply_local_radiofilter_off_${uniqueIdParam}`
-                        : `notif_apply_local_radiofilter_on_${uniqueIdParam}`,
+                        ? `notif_apply_${s}_radiofilter_off_${uniqueIdParam}`
+                        : `notif_apply_${s}_radiofilter_on_${uniqueIdParam}`,
                     config.radioImportantFilter ? 'success' : 'danger'
                 )
             ],
             [createButton(
                 config.warningNotifications ? '🟢 Выговоры ВКЛ' : '🔴 Выговоры ВЫКЛ',
                 config.warningNotifications
-                    ? `notif_apply_local_warning_off_${uniqueIdParam}`
-                    : `notif_apply_local_warning_on_${uniqueIdParam}`,
+                    ? `notif_apply_${s}_warning_off_${uniqueIdParam}`
+                    : `notif_apply_${s}_warning_on_${uniqueIdParam}`,
                 config.warningNotifications ? 'success' : 'danger'
             )],
-            [createButton(
-                config.kacAutoReply ? '🟢 КАЧ/ЗП ВКЛ' : '🔴 КАЧ/ЗП ВЫКЛ',
-                config.kacAutoReply
-                    ? `notif_apply_local_kac_off_${uniqueIdParam}`
-                    : `notif_apply_local_kac_on_${uniqueIdParam}`,
-                config.kacAutoReply ? 'success' : 'danger'
-            )],
-            [
-                createButton('🙈 Скрыть', `hide_controls_${uniqueIdParam}`),
-                createButton('⬅️ Назад',  `show_controls_${uniqueIdParam}`)
-            ]
+            [createButton('⬅️ Назад', `show_notif_scope_select_${uniqueIdParam}`)]
         ]
     };
-    editMessageText(chatId, messageId, '🔔 <b>Настройки уведомлений</b>', replyMarkup);
+    editMessageText(chatId, messageId, `🔔 <b>Настройки уведомлений</b>\n${headerScope}`, replyMarkup);
 }
 
 // ВКЛ/ВЫКЛ для конкретного типа
@@ -3588,7 +3596,14 @@ function processUpdates(updates) {
                 callbackUniqueId = message.replace('local_autologin_toggle_', '');
             } else if (message.startsWith('local_account_info_')) {
                 callbackUniqueId = message.replace('local_account_info_', '');
+            } else if (message.startsWith('show_notif_scope_select_')) {
+                callbackUniqueId = message.replace('show_notif_scope_select_', '');
+            } else if (message.startsWith('show_notif_menu_local_')) {
+                callbackUniqueId = message.replace('show_notif_menu_local_', '');
+            } else if (message.startsWith('show_notif_menu_global_')) {
+                callbackUniqueId = message.replace('show_notif_menu_global_', '');
             } else if (message.startsWith('show_notif_menu_')) {
+                // legacy — редирект на выбор скоупа
                 callbackUniqueId = message.replace('show_notif_menu_', '');
             } else if (message.startsWith('show_notif_type_')) {
                 // show_notif_type_${type}_${uid}  — type has no underscores
@@ -4156,8 +4171,15 @@ function processUpdates(updates) {
                     sendToTelegram(`✅ <b>Автовход включён, отправлен /rec 5 (${displayName})</b>`, false, null);
                 }
                 showFunctionsMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith('show_notif_scope_select_')) {
+                showNotifScopeSelectMenu(chatId, messageId, callbackUniqueId);
+            } else if (message.startsWith('show_notif_menu_local_')) {
+                showNotifSettingsMenu(chatId, messageId, callbackUniqueId, 'local');
+            } else if (message.startsWith('show_notif_menu_global_')) {
+                showNotifSettingsMenu(chatId, messageId, callbackUniqueId, 'global');
             } else if (message.startsWith('show_notif_menu_')) {
-                showNotifSettingsMenu(chatId, messageId, callbackUniqueId);
+                // legacy — редирект на выбор скоупа
+                showNotifScopeSelectMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith('show_notif_type_')) {
                 const _after = message.replace('show_notif_type_', '');
                 const _type  = _after.substring(0, _after.indexOf('_'));
@@ -4217,8 +4239,8 @@ function processUpdates(updates) {
                     const _broadcastCmd = _cmdMap[_type];
                     if (_broadcastCmd) broadcastGlobalCommand(_broadcastCmd, _action);
                 }
-                // Показываем обновлённое меню настроек с актуальными статусами
-                showNotifSettingsMenu(chatId, messageId, callbackUniqueId);
+                // Показываем обновлённое меню настроек с актуальными статусами (сохраняем scope)
+                showNotifSettingsMenu(chatId, messageId, callbackUniqueId, _scope);
             } else if (message.startsWith('show_welcome_settings_')) {
                 // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
                 globalState.welcomeShowSettings = true;
