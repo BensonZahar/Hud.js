@@ -14,6 +14,7 @@ import threading
 import socket
 import platform
 from tkinter import messagebox, filedialog
+
 def resource_path(relative_path):
     """Получение абсолютного пути к ресурсу, работает как в разработке, так и в .exe"""
     try:
@@ -21,6 +22,7 @@ def resource_path(relative_path):
     except AttributeError:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
+
 class MEmuHudManager:
     def __init__(self):
         ctk.set_appearance_mode("dark")
@@ -48,9 +50,9 @@ class MEmuHudManager:
         self.selected_code_url = None
         self.selected_code_name = None
         self.selected_account_number = None
-        self.user_token_counts = {}  # кол-во токенов по пользователям
-        self.nox_active_devices = []   # [{"port": "62001", "label": "NOX 1"}, ...]
-        self.nox_target = "1"          # "1", "2", "both"
+        self.user_token_counts = {}
+        self.nox_active_devices = []
+        self.nox_target = "1"
         self.device_param = []
         self.storage_path = ""
         self.adb_path = ""
@@ -70,26 +72,35 @@ class MEmuHudManager:
         self.skip_warning_file = self.script_dir / "skip_warning.json"
         self.skip_warning = self.load_skip_warning()
 
-        # GUI Components
+        # ── Палитра Agora (тема форума) ────────────────────────
+        # Источник: css.php → :root { --xf-... } + dark variation
+        self.C = {
+            # Фоны (dark mode values из css.php)
+            "bg":      "#0F1019",   # pageBg: hsl(240,10%,6%)
+            "surface": "#16171F",   # contentBg dark: hsl(240,6%,10%)
+            "card":    "#1E1F2D",   # contentAltBg dark: hsl(240,4%,16%)
+            # Границы
+            "border":  "#2D2E42",   # paletteColor4 dark: hsl(240,4%,22%)
+            # Акценты (прямо из CSS переменных сайта)
+            "accent":  "#FFAA0D",   # paletteAccent1: hsl(40,100%,53%) — янтарь!
+            "accent2": "#4FAA7A",   # paletteAccent3: hsl(157,49%,52%) — зелёный
+            # Текст
+            "text":    "#EDEDF2",   # paletteNeutral3 dark: hsl(0,0%,93%)
+            "subtext": "#9596AB",   # paletteNeutral2 dark: hsl(180,4%,67%)
+            "muted":   "#64657B",   # textColorDimmed (между text и subtext)
+            # Семантика
+            "red":     "#CE6565",   # paletteAccent2: hsl(0,71%,66%)
+            "green":   "#4FAA7A",   # paletteAccent3 (тот же что accent2)
+            # Кнопка: текст на янтарном фоне — почти чёрный (как на сайте)
+            "btntext": "#18181B",   # цвет текста кнопок сайта: color:#18181B
+            # Шапка/хром: paletteColor1 hsl(240,4%,46%)
+            "chrome":  "#73748A",
+        }
+
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
 
-        # ── Палитра ────────────────────────────────────────────
-        self.C = {
-            "bg":       "#0e0e18",
-            "surface":  "#161625",
-            "card":     "#1c1c30",
-            "border":   "#2a2a45",
-            "accent":   "#6c63ff",
-            "accent2":  "#00d4aa",
-            "muted":    "#4a4a6a",
-            "text":     "#e2e2f0",
-            "subtext":  "#8888aa",
-            "red":      "#ff5c5c",
-            "green":    "#00d4aa",
-        }
-
-        W, H = 420, 580
+        W, H = 420, 590
         self.root = ctk.CTk()
         self.root.title("HassleBot")
         self.root.resizable(False, False)
@@ -119,55 +130,107 @@ class MEmuHudManager:
         self.main_frame.grid(sticky="nsew")
         self.main_frame.grid_columnconfigure(0, weight=1)
 
-        # ── Шапка ──────────────────────────────────────────────
-        hdr = ctk.CTkFrame(self.main_frame, fg_color=self.C["surface"],
-                           corner_radius=0, height=48)
+        # ── Шапка (стиль .p-header / chrome сайта) ────────────
+        C = self.C
+        hdr = ctk.CTkFrame(
+            self.main_frame,
+            fg_color=C["surface"],
+            corner_radius=0,
+            height=52,
+            border_width=0,
+        )
         hdr.grid(row=0, column=0, sticky="ew")
         hdr.grid_columnconfigure(1, weight=1)
         hdr.grid_propagate(False)
 
-        dot = ctk.CTkFrame(hdr, width=8, height=8, corner_radius=4,
-                           fg_color=self.C["accent"])
-        dot.grid(row=0, column=0, padx=(16, 6), pady=14)
-        dot.grid_propagate(False)
+        # Янтарная полоса слева — как .block-header border-color: paletteAccent1
+        accent_bar = ctk.CTkFrame(hdr, width=4, height=52, corner_radius=0,
+                                   fg_color=C["accent"])
+        accent_bar.grid(row=0, column=0, padx=(0, 0), pady=0, sticky="ns")
+        accent_bar.grid_propagate(False)
 
-        ctk.CTkLabel(hdr, text="HASSLE BOT",
-                     font=("Segoe UI", 13, "bold"),
-                     text_color=self.C["text"]).grid(row=0, column=1, sticky="w")
-        ctk.CTkLabel(hdr, text="by konst2",
-                     font=("Segoe UI", 10),
-                     text_color=self.C["muted"]).grid(row=0, column=2, padx=16)
+        ctk.CTkLabel(
+            hdr,
+            text="HASSLE BOT",
+            font=("Segoe UI", 14, "bold"),   # Maven Pro feel
+            text_color=C["text"],
+        ).grid(row=0, column=1, padx=(14, 6), sticky="w")
 
-        # ── Лог ────────────────────────────────────────────────
-        self.status_text = ctk.CTkTextbox(
-            self.main_frame,
-            height=90,
-            corner_radius=8,
-            fg_color=self.C["card"],
-            text_color=self.C["accent2"],
-            font=("Consolas", 10),
-            border_width=1,
-            border_color=self.C["border"],
-            scrollbar_button_color=self.C["border"],
+        ctk.CTkLabel(
+            hdr,
+            text="by konst2",
+            font=("Segoe UI", 10),
+            text_color=C["subtext"],
+        ).grid(row=0, column=2, padx=(0, 16))
+
+        # Статус-точка (зелёная = ready, как .node--newIndicator на сайте)
+        self._status_dot = ctk.CTkFrame(
+            hdr, width=8, height=8, corner_radius=4,
+            fg_color=C["muted"],
         )
-        self.status_text.grid(row=1, column=0, padx=14, pady=(12, 0), sticky="ew")
+        self._status_dot.grid(row=0, column=3, padx=(0, 16), pady=22)
+        self._status_dot.grid_propagate(False)
 
-        # Правое меню для копирования логов
+        # ── Лог (стиль .blockMessage --alt сайта) ──────────────
+        log_wrap = ctk.CTkFrame(
+            self.main_frame,
+            fg_color=C["card"],
+            corner_radius=10,
+            border_width=1,
+            border_color=C["border"],
+        )
+        log_wrap.grid(row=1, column=0, padx=14, pady=(12, 0), sticky="ew")
+        log_wrap.grid_columnconfigure(0, weight=1)
+
+        # Заголовок лога — .block-minorHeader
+        log_hdr = ctk.CTkFrame(log_wrap, fg_color="transparent", height=26)
+        log_hdr.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
+        log_hdr.grid_columnconfigure(1, weight=1)
+        log_hdr.grid_propagate(False)
+        ctk.CTkFrame(log_hdr, width=3, height=14, corner_radius=2,
+                     fg_color=C["accent2"]).grid(row=0, column=0, padx=(0, 6), pady=6)
+        ctk.CTkLabel(
+            log_hdr,
+            text="ЛОГ СОБЫТИЙ",
+            font=("Segoe UI", 9, "bold"),
+            text_color=C["subtext"],
+        ).grid(row=0, column=1, sticky="w")
+
+        self.status_text = ctk.CTkTextbox(
+            log_wrap,
+            height=86,
+            corner_radius=0,
+            fg_color="transparent",
+            text_color=C["accent2"],
+            font=("Consolas", 10),
+            border_width=0,
+            scrollbar_button_color=C["border"],
+            scrollbar_button_hover_color=C["accent"],
+        )
+        self.status_text.grid(row=1, column=0, padx=4, pady=(0, 6), sticky="ew")
+
+        # Контекстное меню лога
         import tkinter as tk
-        self._log_menu = tk.Menu(self.root, tearoff=0,
-                                 bg=self.C["card"], fg=self.C["text"],
-                                 activebackground=self.C["accent"],
-                                 activeforeground="white",
-                                 bd=0, relief="flat")
-        self._log_menu.add_command(label="  Копировать", command=self._log_copy)
-        self._log_menu.add_command(label="  Выделить всё", command=self._log_select_all)
+        self._log_menu = tk.Menu(
+            self.root, tearoff=0,
+            bg=C["card"], fg=C["text"],
+            activebackground=C["accent"],
+            activeforeground=C["btntext"],
+            bd=0, relief="flat",
+        )
+        self._log_menu.add_command(label="  Копировать",    command=self._log_copy)
+        self._log_menu.add_command(label="  Выделить всё",  command=self._log_select_all)
         self._log_menu.add_separator()
-        self._log_menu.add_command(label="  Очистить лог", command=self._log_clear)
+        self._log_menu.add_command(label="  Очистить лог",  command=self._log_clear)
 
         self.status_text._textbox.bind("<Button-3>", self._log_show_menu)
         self.status_text._textbox.bind("<Control-a>", lambda e: self._log_select_all())
 
         self.activate_launch_permission()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Вспомогательные утилиты
+    # ──────────────────────────────────────────────────────────────────────────
     def load_skip_warning(self):
         if self.skip_warning_file.exists():
             try:
@@ -177,36 +240,101 @@ class MEmuHudManager:
             except Exception:
                 return False
         return False
+
     def save_skip_warning(self, skip):
         try:
             with open(self.skip_warning_file, 'w', encoding='utf-8') as f:
                 json.dump({'skip': skip}, f)
         except Exception:
             pass
+
+    def _section_label(self, parent, text, row=0):
+        """Заголовок секции в стиле .block-header сайта (янтарный текст)."""
+        C = self.C
+        wrap = ctk.CTkFrame(parent, fg_color="transparent", height=30)
+        wrap.grid(row=row, column=0, columnspan=2, sticky="ew", padx=10, pady=(8, 2))
+        wrap.grid_propagate(False)
+        wrap.grid_columnconfigure(1, weight=1)
+        # Янтарный маркер
+        ctk.CTkFrame(wrap, width=3, height=14, corner_radius=2,
+                     fg_color=C["accent"]).grid(row=0, column=0, padx=(0, 7), pady=8)
+        ctk.CTkLabel(
+            wrap,
+            text=text,
+            font=("Segoe UI", 9, "bold"),
+            text_color=C["accent"],    # majorHeadingTextColor = amber на сайте
+        ).grid(row=0, column=1, sticky="w")
+
+    def _card(self, parent, row, pad_top=4, pad_bot=4):
+        """Карточка в стиле .block-container сайта."""
+        C = self.C
+        f = ctk.CTkFrame(
+            parent,
+            fg_color=C["surface"],
+            corner_radius=10,
+            border_width=1,
+            border_color=C["border"],
+        )
+        f.grid(row=row, column=0, padx=14, pady=(pad_top, pad_bot), sticky="ew")
+        f.grid_columnconfigure(1, weight=1)
+        return f
+
+    def _row_label(self, parent, text, row, col=0):
+        """Метка строки внутри карточки."""
+        ctk.CTkLabel(
+            parent,
+            text=text,
+            font=("Segoe UI", 11),
+            text_color=self.C["subtext"],
+            width=70, anchor="w",
+        ).grid(row=row, column=col, padx=(12, 6), pady=5, sticky="w")
+
+    def _combo(self, parent, values, variable, row, command=None):
+        """Выпадающий список в стиле .input сайта."""
+        C = self.C
+        kw = dict(
+            values=values,
+            variable=variable,
+            fg_color=C["card"],
+            button_color=C["accent"],
+            border_color=C["border"],
+            dropdown_fg_color=C["card"],
+            dropdown_hover_color=C["border"],
+            dropdown_text_color=C["text"],
+            text_color=C["text"],
+            font=("Segoe UI", 11),
+            height=32,
+            corner_radius=8,
+        )
+        if command:
+            kw["command"] = command
+        w = ctk.CTkComboBox(parent, **kw)
+        w.grid(row=row, column=1, padx=(0, 12), pady=5, sticky="ew")
+        return w
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Загрузка конфигураций
+    # ──────────────────────────────────────────────────────────────────────────
     def fetch_code_files(self):
         try:
             if not self.full_logging:
                 self.log("Загрузка конфигураций...")
             else:
                 self.log("Загрузка списка пользователей из List.js...")
-          
+
             list_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/List.js"
             response = requests.get(list_url, timeout=10)
             response.raise_for_status()
-          
             list_content = response.text
-          
-            # Парсим имена пользователей из List.js
+
             import re
-            # Ищем строки вида: 'Zahar': { или "Zahar": {
             user_pattern = r"['\"](\w+)['\"]:\s*\{"
             users = re.findall(user_pattern, list_content)
-          
+
             if not users:
                 self.log("[X] Ошибка: Пользователи не найдены в List.js")
                 return False
-          
-            # Парсим кол-во BOT_TOKENS на каждого пользователя
+
             self.user_token_counts = {}
             for user in users:
                 user_pos = list_content.find(f"'{user}'")
@@ -216,39 +344,38 @@ class MEmuHudManager:
                 import re as _re
                 m = _re.search(r"BOT_TOKENS\s*:\s*\{([^}]+)\}", chunk, _re.DOTALL)
                 if m:
-                    keys = _re.findall(r"['\"]\d+[\'\"]", m.group(1))
+                    keys = _re.findall(r"['\"]\\d+[\\'\"]]", m.group(1))
                     self.user_token_counts[user] = len(keys)
                 else:
-                    self.user_token_counts[user] = 8  # fallback
+                    self.user_token_counts[user] = 8
                 if self.full_logging:
                     self.log(f"[DEBUG] {user}: токенов = {self.user_token_counts[user]}")
 
-            # Формируем список "файлов" на основе пользователей
             self.code_files = []
             for idx, user in enumerate(users):
                 self.code_files.append({
                     'name': f'{user}.js',
                     'url': None,
                     'html_url': None,
-                    'user': user # Это ключевое поле!
+                    'user': user,
                 })
-              
                 if self.full_logging:
                     self.log(f"[DEBUG] Добавлен пользователь #{idx}: {user}")
-          
+
             if not self.full_logging:
                 self.log("[√] Успешно: Конфигурации загружены")
             else:
                 self.log(f"[√] Найдено {len(self.code_files)} пользователей: {', '.join(users)}")
                 self.log(f"[DEBUG] code_files: {self.code_files}")
-          
+
             return True
-          
+
         except Exception as e:
             self.log(f"[X] Ошибка: Не удалось загрузить конфигурации")
             if self.full_logging:
                 self.log(f"Детали ошибки: {e}")
             return False
+
     def fetch_last_commit(self, file_name, subdir=".js%2BLoad.js"):
         commit_cache_file = self.script_dir / f"commit_cache_{subdir}_{file_name}.json"
         current_time = time.time()
@@ -271,106 +398,91 @@ class MEmuHudManager:
                 json.dump(last_commit, f)
             self.cache_time = current_time
             return self.format_commit_info(last_commit)
-        except Exception as e:
+        except Exception:
             return "Ошибка загрузки коммита"
+
     def format_commit_info(self, commit):
         date_str = commit['author']['date']
         dt = datetime.fromisoformat(date_str.rstrip('Z'))
         formatted_date = dt.strftime("%Y-%m-%d %H:%M:%S")
         message = commit['message']
         return f"{formatted_date}: {message}"
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # GUI — основной экран
+    # ──────────────────────────────────────────────────────────────────────────
     def setup_gui(self):
-        # Убираем всё кроме шапки (row=0) и лога (row=1)
         for w in list(self.main_frame.winfo_children()):
             info = w.grid_info()
             if info and info.get('row', 0) not in (0, 1):
                 w.destroy()
 
         C = self.C
-        px = 14  # единый горизонтальный отступ
 
-        # ── Секция: Подключение ────────────────────────────────
-        sect1 = ctk.CTkFrame(self.main_frame, fg_color=C["surface"],
-                             corner_radius=10)
-        sect1.grid(row=2, column=0, padx=px, pady=(10, 4), sticky="ew")
-        sect1.grid_columnconfigure(1, weight=1)
+        # ── Карточка: Устройство ───────────────────────────────
+        sect1 = self._card(self.main_frame, row=2, pad_top=10)
+        self._section_label(sect1, "УСТРОЙСТВО")
 
-        ctk.CTkLabel(sect1, text="УСТРОЙСТВО",
-                     font=("Segoe UI", 9, "bold"),
-                     text_color=C["muted"]).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 4))
-
-        ctk.CTkLabel(sect1, text="Тип",
-                     font=("Segoe UI", 11),
-                     text_color=C["subtext"],
-                     width=70, anchor="w").grid(row=1, column=0, padx=(12, 6), pady=4, sticky="w")
+        self._row_label(sect1, "Тип", row=1)
         self.conn_var = ctk.StringVar(value="Физическое")
-        self.conn_menu = ctk.CTkComboBox(
+        self.conn_menu = self._combo(
             sect1,
             values=["Физическое", "Клон (999)", "MEmu", "NOX"],
             variable=self.conn_var,
-            fg_color=C["card"], button_color=C["accent"],
-            border_color=C["border"], dropdown_fg_color=C["card"],
-            font=("Segoe UI", 11), height=30
+            row=1,
         )
-        self.conn_menu.grid(row=1, column=1, padx=(0, 12), pady=4, sticky="ew")
         self.conn_var.trace("w", self.detect_app_folders)
 
-        ctk.CTkLabel(sect1, text="Папка",
-                     font=("Segoe UI", 11),
-                     text_color=C["subtext"],
-                     width=70, anchor="w").grid(row=2, column=0, padx=(12, 6), pady=(0, 8), sticky="w")
+        self._row_label(sect1, "Папка", row=2)
         self.app_var = ctk.StringVar(value="")
-        self.app_menu = ctk.CTkComboBox(
-            sect1, values=[],
-            variable=self.app_var,
-            fg_color=C["card"], button_color=C["accent"],
-            border_color=C["border"], dropdown_fg_color=C["card"],
-            font=("Segoe UI", 11), height=30
+        self.app_menu = self._combo(sect1, values=[], variable=self.app_var, row=2)
+
+        # Разделитель снизу карточки
+        ctk.CTkFrame(sect1, height=1, fg_color=C["border"]).grid(
+            row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=(4, 8)
         )
-        self.app_menu.grid(row=2, column=1, padx=(0, 12), pady=(0, 8), sticky="ew")
 
-        # ── Секция NOX (создаётся пустой, заполняется при обнаружении 2 экземпляров) ──
-        self.nox_sect = ctk.CTkFrame(self.main_frame, fg_color=C["surface"], corner_radius=10)
+        # ── NOX-секция ─────────────────────────────────────────
+        self.nox_sect = ctk.CTkFrame(
+            self.main_frame,
+            fg_color=C["surface"],
+            corner_radius=10,
+            border_width=1,
+            border_color=C["border"],
+        )
         self.nox_sect.grid_columnconfigure(1, weight=1)
-        # Не показываем — покажет _update_nox_selector
 
-        # ── Секция: Пользователь (только для владельца) ────────
+        # ── Карточка: Профиль (только для владельца) ───────────
         if self.is_owner_ip() and self.code_files:
-            user_names = [f.get('user', f['name'].replace('.js','')) for f in self.code_files]
-            sect_u = ctk.CTkFrame(self.main_frame, fg_color=C["surface"], corner_radius=10)
-            sect_u.grid(row=3, column=0, padx=px, pady=4, sticky="ew")
-            sect_u.grid_columnconfigure(1, weight=1)
+            user_names = [f.get('user', f['name'].replace('.js', '')) for f in self.code_files]
+            sect_u = self._card(self.main_frame, row=3)
+            self._section_label(sect_u, "ПРОФИЛЬ")
 
-            ctk.CTkLabel(sect_u, text="ПРОФИЛЬ",
-                         font=("Segoe UI", 9, "bold"),
-                         text_color=C["muted"]).grid(
-                row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 4))
-
-            ctk.CTkLabel(sect_u, text="Игрок",
-                         font=("Segoe UI", 11),
-                         text_color=C["subtext"],
-                         width=70, anchor="w").grid(row=1, column=0, padx=(12, 6), pady=(0, 8), sticky="w")
-            self.owner_user_var = ctk.StringVar(value=self.selected_code_name or user_names[0])
-            ctk.CTkComboBox(
-                sect_u, values=user_names,
+            self._row_label(sect_u, "Игрок", row=1)
+            self.owner_user_var = ctk.StringVar(
+                value=self.selected_code_name or user_names[0]
+            )
+            self._combo(
+                sect_u,
+                values=user_names,
                 variable=self.owner_user_var,
-                fg_color=C["card"], button_color=C["accent"],
-                border_color=C["border"], dropdown_fg_color=C["card"],
-                font=("Segoe UI", 11), height=30,
-                command=self._on_owner_user_change
-            ).grid(row=1, column=1, padx=(0, 12), pady=(0, 8), sticky="ew")
+                row=1,
+                command=self._on_owner_user_change,
+            )
+            ctk.CTkFrame(sect_u, height=1, fg_color=C["border"]).grid(
+                row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=(4, 8)
+            )
             self._on_owner_user_change(self.owner_user_var.get())
 
-        # ── Инфо о коммите (только с отладкой) ────────────────
+        # ── Инфо о коммите ─────────────────────────────────────
         if self.full_logging and self.last_commit_info:
             ctk.CTkLabel(
                 self.main_frame,
                 text=f"↑ {self.last_commit_info}",
                 font=("Segoe UI", 9),
                 text_color=C["muted"],
-                wraplength=370, justify="left"
-            ).grid(row=4, column=0, padx=px, pady=(0, 2), sticky="w")
+                wraplength=370, justify="left",
+            ).grid(row=4, column=0, padx=14, pady=(0, 2), sticky="w")
 
         self.update_gui()
 
@@ -380,30 +492,18 @@ class MEmuHudManager:
             self.log(f"Пользователь выбран: {value}")
 
     def _update_nox_selector(self):
-        """Показывает/скрывает секцию выбора NOX-экземпляра в зависимости от числа найденных."""
         if not hasattr(self, 'nox_sect'):
             return
         C = self.C
-        px = 14
 
-        # Очищаем содержимое секции
         for w in self.nox_sect.winfo_children():
             w.destroy()
 
         if self.conn_var.get() == "NOX" and len(self.nox_active_devices) >= 2:
-            # Показываем секцию между УСТРОЙСТВО (row=2) и ПРОФИЛЬ/ДЕЙСТВИЯ
-            self.nox_sect.grid(row=3, column=0, padx=px, pady=4, sticky="ew")
+            self.nox_sect.grid(row=3, column=0, padx=14, pady=4, sticky="ew")
+            self._section_label(self.nox_sect, "NOX — ВЫБОР ЭКЗЕМПЛЯРА")
 
-            ctk.CTkLabel(self.nox_sect, text="NOX — ВЫБОР ЭКЗЕМПЛЯРА",
-                         font=("Segoe UI", 9, "bold"),
-                         text_color=C["muted"]).grid(
-                row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 4))
-
-            ctk.CTkLabel(self.nox_sect, text="Цель",
-                         font=("Segoe UI", 11),
-                         text_color=C["subtext"],
-                         width=70, anchor="w").grid(row=1, column=0, padx=(12, 6), pady=(0, 8), sticky="w")
-
+            self._row_label(self.nox_sect, "Цель", row=1)
             labels = [d["label"] for d in self.nox_active_devices] + ["Оба сразу"]
             if not hasattr(self, 'nox_target_var') or self.nox_target_var is None:
                 self.nox_target_var = ctk.StringVar(value="Оба сразу")
@@ -415,37 +515,44 @@ class MEmuHudManager:
                     self.log(f"[√] NOX цель: {val}")
                 else:
                     self.device_param = self.nox_active_devices[0]["param"]
-                    self.log(f"[√] NOX цель: оба экземпляра")
+                    self.log("[√] NOX цель: оба экземпляра")
 
-            ctk.CTkComboBox(
-                self.nox_sect, values=labels,
-                variable=self.nox_target_var,
-                fg_color=C["card"], button_color=C["accent"],
-                border_color=C["border"], dropdown_fg_color=C["card"],
-                font=("Segoe UI", 11), height=30,
-                command=_on_nox_target
-            ).grid(row=1, column=1, padx=(0, 12), pady=(0, 8), sticky="ew")
+            self._combo(self.nox_sect, labels, self.nox_target_var, row=1,
+                        command=_on_nox_target)
 
-            # Показываем список портов
-            ports_text = "  ".join(f"{d['label']}: порт {d['port']}" for d in self.nox_active_devices)
-            ctk.CTkLabel(self.nox_sect, text=ports_text,
-                         font=("Segoe UI", 9),
-                         text_color=C["muted"]).grid(
-                row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
+            ports_text = "  ".join(
+                f"{d['label']}: порт {d['port']}" for d in self.nox_active_devices
+            )
+            ctk.CTkLabel(
+                self.nox_sect, text=ports_text,
+                font=("Segoe UI", 9), text_color=C["muted"],
+            ).grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
 
+            ctk.CTkFrame(self.nox_sect, height=1, fg_color=C["border"]).grid(
+                row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 0)
+            )
             _on_nox_target(self.nox_target_var.get())
         else:
             self.nox_sect.grid_remove()
             self.nox_target_var = None
+
     def detect_app_folders(self, *args):
         if self.select_connection():
             self.root.after(0, self._update_nox_selector)
             try:
-                cmd = [self.adb_path] + self.device_param + ["shell", "ls", "-1", self.storage_path]
-                result = subprocess.run(cmd, capture_output=True, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                cmd = [self.adb_path] + self.device_param + [
+                    "shell", "ls", "-1", self.storage_path
+                ]
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if platform.system() == "Windows" else 0,
+                )
                 if result.returncode == 0:
-                    folders = [f.strip() for f in result.stdout.splitlines() if f.strip().startswith("com.hassle.online")]
+                    folders = [
+                        f.strip() for f in result.stdout.splitlines()
+                        if f.strip().startswith("com.hassle.online")
+                    ]
                     self.app_menu.configure(values=folders)
                     if folders:
                         self.app_var.set(folders[0])
@@ -461,6 +568,10 @@ class MEmuHudManager:
             self.app_menu.configure(values=[])
             self.app_var.set("")
             self.root.after(0, self._update_nox_selector)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # GUI — блок действий
+    # ──────────────────────────────────────────────────────────────────────────
     def update_gui(self):
         for w in list(self.main_frame.winfo_children()):
             info = w.grid_info()
@@ -468,48 +579,56 @@ class MEmuHudManager:
                 w.destroy()
 
         C = self.C
-        px = 14
 
-        # ── Кнопки действий ────────────────────────────────────
-        acts = ctk.CTkFrame(self.main_frame, fg_color=C["surface"], corner_radius=10)
-        acts.grid(row=5, column=0, padx=px, pady=4, sticky="ew")
+        # ── Карточка: Действия (стиль .block-container сайта) ──
+        acts = ctk.CTkFrame(
+            self.main_frame,
+            fg_color=C["surface"],
+            corner_radius=10,
+            border_width=1,
+            border_color=C["border"],
+        )
+        acts.grid(row=5, column=0, padx=14, pady=4, sticky="ew")
         acts.grid_columnconfigure((0, 1), weight=1)
 
-        ctk.CTkLabel(acts, text="ДЕЙСТВИЯ",
-                     font=("Segoe UI", 9, "bold"),
-                     text_color=C["muted"]).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(8, 6))
+        self._section_label(acts, "ДЕЙСТВИЯ", row=0)
 
-        # Установить код
+        # ── Главная кнопка: янтарная (как .button--primary на сайте) ──
         ctk.CTkButton(
             acts,
             text="▶  Установить код",
             font=("Segoe UI", 12, "bold"),
-            fg_color=C["accent"], hover_color="#5a52e0",
-            text_color="white", height=36, corner_radius=8,
-            command=lambda: self.execute_action("1")
-        ).grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="ew")
+            fg_color=C["accent"],           # hsl(40,100%,53%) amber
+            hover_color="#E09500",          # чуть темнее янтарь
+            text_color=C["btntext"],        # #18181B (как на сайте)
+            height=40,
+            corner_radius=10,
+            command=lambda: self.execute_action("1"),
+        ).grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 6), sticky="ew")
 
-        # Убрать код
+        # ── Вторичные кнопки (стиль .button--link / .button--alt) ──
         ctk.CTkButton(
             acts,
             text="✕  Убрать код",
             font=("Segoe UI", 11),
-            fg_color=C["card"], hover_color=C["border"],
-            text_color=C["subtext"], height=30, corner_radius=8,
+            fg_color=C["card"],
+            hover_color=C["border"],
+            text_color=C["subtext"],
+            height=34, corner_radius=8,
             border_width=1, border_color=C["border"],
-            command=lambda: self.execute_action("2")
+            command=lambda: self.execute_action("2"),
         ).grid(row=2, column=0, padx=(10, 4), pady=(0, 4), sticky="ew")
 
-        # Проверка файлов
         ctk.CTkButton(
             acts,
             text="⟳  Проверить",
             font=("Segoe UI", 11),
-            fg_color=C["card"], hover_color=C["border"],
-            text_color=C["subtext"], height=30, corner_radius=8,
+            fg_color=C["card"],
+            hover_color=C["border"],
+            text_color=C["subtext"],
+            height=34, corner_radius=8,
             border_width=1, border_color=C["border"],
-            command=lambda: self.execute_action("3")
+            command=lambda: self.execute_action("3"),
         ).grid(row=2, column=1, padx=(4, 10), pady=(0, 4), sticky="ew")
 
         if self.full_logging:
@@ -518,9 +637,9 @@ class MEmuHudManager:
                 text="↓  Скачать Hud.js",
                 font=("Segoe UI", 11),
                 fg_color=C["card"], hover_color=C["border"],
-                text_color=C["subtext"], height=30, corner_radius=8,
+                text_color=C["subtext"], height=34, corner_radius=8,
                 border_width=1, border_color=C["border"],
-                command=lambda: self.execute_action("4")
+                command=lambda: self.execute_action("4"),
             ).grid(row=3, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="ew")
 
             ctk.CTkButton(
@@ -528,40 +647,56 @@ class MEmuHudManager:
                 text="📂  Скачать .js файлы",
                 font=("Segoe UI", 11),
                 fg_color=C["card"], hover_color=C["border"],
-                text_color=C["subtext"], height=30, corner_radius=8,
+                text_color=C["subtext"], height=34, corner_radius=8,
                 border_width=1, border_color=C["border"],
-                command=self.open_js_downloader
+                command=self.open_js_downloader,
             ).grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="ew")
 
         if self.debug_allowed:
+            # Кнопка отладки — accent2 (зелёный, как .button--provider--github)
             ctk.CTkButton(
                 acts,
                 text="🛠  Включить отладку",
                 font=("Segoe UI", 11),
-                fg_color=C["card"], hover_color=C["border"],
-                text_color=C["accent2"], height=30, corner_radius=8,
+                fg_color=C["card"],
+                hover_color=C["border"],
+                text_color=C["accent2"],
+                height=34, corner_radius=8,
                 border_width=1, border_color=C["accent2"],
-                command=self.activate_debug_mode
+                command=self.activate_debug_mode,
             ).grid(row=5, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
+        else:
+            ctk.CTkFrame(acts, height=1, fg_color=C["border"]).grid(
+                row=5, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 8)
+            )
 
-        # ── Выход ──────────────────────────────────────────────
+        # ── Кнопка выхода (стиль .button--plain сайта) ─────────
         ctk.CTkButton(
             self.main_frame,
             text="Выход",
             font=("Segoe UI", 10),
-            fg_color="transparent", hover_color=C["surface"],
-            text_color=C["muted"], height=28, corner_radius=6,
-            command=self.on_close
-        ).grid(row=6, column=0, padx=px, pady=(4, 10), sticky="e")
+            fg_color="transparent",
+            hover_color=C["surface"],
+            text_color=C["muted"],
+            height=28, corner_radius=6,
+            command=self.on_close,
+        ).grid(row=6, column=0, padx=14, pady=(4, 12), sticky="e")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Telegram
+    # ──────────────────────────────────────────────────────────────────────────
     def send_telegram_message(self, stage="launch", message_id=None, verdict=None, extra_ip=None):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         device_name = platform.node()
         device_ip = extra_ip if extra_ip else self.get_public_ip()
         if stage == "launch":
-            message_text = f"[{current_time}] Запрос на запуск HASSLE BOT by konst с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+            message_text = (
+                f"[{current_time}] Запрос на запуск HASSLE BOT by konst "
+                f"с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+            )
             buttons = [
                 {"text": "Разрешить ✅", "callback_data": "allow_launch"},
-                {"text": "Запретить 🚫", "callback_data": "deny_launch"}
+                {"text": "Запретить 🚫", "callback_data": "deny_launch"},
             ]
         elif stage == "unknown_ip":
             message_text = (
@@ -572,103 +707,103 @@ class MEmuHudManager:
             )
             buttons = [
                 {"text": "Разрешить ✅", "callback_data": "allow_launch"},
-                {"text": "Запретить 🚫", "callback_data": "deny_launch"}
+                {"text": "Запретить 🚫", "callback_data": "deny_launch"},
             ]
         elif stage == "debug_choice":
-            message_text = f"[{current_time}] Выберите режим отладки для HASSLE BOT с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+            message_text = (
+                f"[{current_time}] Выберите режим отладки для HASSLE BOT "
+                f"с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+            )
             buttons = [
                 {"text": "С отладкой 🛠️", "callback_data": "with_debug"},
-                {"text": "Без отладки 🚫", "callback_data": "without_debug"}
+                {"text": "Без отладки 🚫", "callback_data": "without_debug"},
             ]
         elif stage == "final":
-            message_text = f"[{current_time}] HASSLE BOT запущен {verdict} с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+            message_text = (
+                f"[{current_time}] HASSLE BOT запущен {verdict} "
+                f"с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+            )
             buttons = []
-        url = f"https://api.telegram.org/bot{self.bot_token}/" + ("editMessageText" if message_id else "sendMessage")
-        payload = {
-            "chat_id": self.chat_id,
-            "text": message_text,
-        }
+        url = f"https://api.telegram.org/bot{self.bot_token}/" + (
+            "editMessageText" if message_id else "sendMessage"
+        )
+        payload = {"chat_id": self.chat_id, "text": message_text}
         if message_id:
             payload["message_id"] = message_id
         if buttons:
-            payload["reply_markup"] = {
-                "inline_keyboard": [buttons]
-            }
+            payload["reply_markup"] = {"inline_keyboard": [buttons]}
         try:
             response = requests.post(url, json=payload, timeout=10)
             response.raise_for_status()
-            new_message_id = response.json().get("result", {}).get("message_id") or message_id
-            self.log(f"[√] Сообщение отправлено/обновлено в Telegram")
+            new_message_id = (
+                response.json().get("result", {}).get("message_id") or message_id
+            )
+            self.log("[√] Сообщение отправлено/обновлено в Telegram")
             self.telegram_message_id = new_message_id
             return new_message_id
-        except Exception as e:
-            self.log(f"[X] Ошибка: Не удалось отправить сообщение в Telegram")
+        except Exception:
+            self.log("[X] Ошибка: Не удалось отправить сообщение в Telegram")
             return None
+
     def send_code_choice_message(self, message_id):
         if not self.code_files:
             self.log("[X] Ошибка: Конфигурации не загружены")
             return None
-      
         message_text = "Выберите пользователя для HASSLE BOT:"
-      
-        # Создаем кнопки с именами пользователей
         buttons = []
         for i, f in enumerate(self.code_files):
             user_name = f.get('user', f['name'].replace('.js', ''))
             buttons.append({"text": f"{i+1} - {user_name}", "callback_data": f"code_{i}"})
-      
         keyboard = [buttons[i:i+3] for i in range(0, len(buttons), 3)]
-      
         url = f"https://api.telegram.org/bot{self.bot_token}/editMessageText"
         payload = {
             "chat_id": self.chat_id,
             "message_id": message_id,
             "text": message_text,
-            "reply_markup": {"inline_keyboard": keyboard}
+            "reply_markup": {"inline_keyboard": keyboard},
         }
-      
         try:
             response = requests.post(url, json=payload, timeout=10)
             response.raise_for_status()
             self.log("[√] Сообщение с выбором пользователя отправлено в Telegram")
             return message_id
-        except Exception as e:
-            self.log(f"[X] Ошибка: Не удалось отправить сообщение с выбором пользователя")
+        except Exception:
+            self.log("[X] Ошибка: Не удалось отправить сообщение с выбором пользователя")
             return None
+
     def send_account_choice_message(self, message_id):
-        message_text = f"Выберите номер аккаунта для пользователя {self.selected_code_name}:\n(каждый аккаунт = отдельный Telegram-бот)"
+        message_text = (
+            f"Выберите номер аккаунта для пользователя {self.selected_code_name}:\n"
+            f"(каждый аккаунт = отдельный Telegram-бот)"
+        )
         acc_count = self.user_token_counts.get(self.selected_code_name, 8)
-        buttons = []
-        for i in range(1, acc_count + 1):
-            buttons.append({"text": f"#{i}", "callback_data": f"account_{i}"})
+        buttons = [{"text": f"#{i}", "callback_data": f"account_{i}"} for i in range(1, acc_count + 1)]
         keyboard = [buttons[:4], buttons[4:]] if len(buttons) > 4 else [buttons]
         url = f"https://api.telegram.org/bot{self.bot_token}/editMessageText"
         payload = {
             "chat_id": self.chat_id,
             "message_id": message_id,
             "text": message_text,
-            "reply_markup": {"inline_keyboard": keyboard}
+            "reply_markup": {"inline_keyboard": keyboard},
         }
         try:
             response = requests.post(url, json=payload, timeout=10)
             response.raise_for_status()
             self.log("[√] Сообщение с выбором аккаунта отправлено в Telegram")
-        except Exception as e:
-            self.log(f"[X] Ошибка: Не удалось отправить сообщение с выбором аккаунта")
+        except Exception:
+            self.log("[X] Ошибка: Не удалось отправить сообщение с выбором аккаунта")
 
     def wait_for_account_choice(self):
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 60
         start_time = time.time()
         last_offset = self._get_fresh_offset()
-
         while time.time() - start_time < timeout:
             try:
                 params = {"offset": last_offset, "timeout": 5}
                 response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
-
                 for update in updates:
                     last_offset = update.get("update_id", last_offset) + 1
                     callback_query = update.get("callback_query")
@@ -678,23 +813,20 @@ class MEmuHudManager:
                         continue
                     callback_data = callback_query.get("data", "")
                     self.answer_callback_query(callback_query["id"])
-
                     if callback_data and callback_data.startswith("account_"):
-                            acc_num = callback_data.split("_")[1]
-                            self.selected_account_number = acc_num
-
-                            if not self.full_logging:
-                                self.root.after(0, lambda n=acc_num: self.update_waiting_message(f"Аккаунт #{n} выбран. Ожидание выбора режима отладки..."))
-                            else:
-                                self.root.after(0, lambda n=acc_num: self.update_waiting_message(f"Выбран аккаунт #{n}. Ожидание выбора режима отладки..."))
-
-                            self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
-                            threading.Thread(target=self.wait_for_debug_choice, daemon=True).start()
-                            return
-
-            except Exception as e:
-                self.root.after(0, lambda: self.log(f"[X] Ошибка: Не удалось получить ответ от Telegram"))
-
+                        acc_num = callback_data.split("_")[1]
+                        self.selected_account_number = acc_num
+                        if not self.full_logging:
+                            self.root.after(0, lambda n=acc_num: self.update_waiting_message(
+                                f"Аккаунт #{n} выбран. Ожидание выбора режима отладки..."))
+                        else:
+                            self.root.after(0, lambda n=acc_num: self.update_waiting_message(
+                                f"Выбран аккаунт #{n}. Ожидание выбора режима отладки..."))
+                        self.send_telegram_message(stage="debug_choice", message_id=self.telegram_message_id)
+                        threading.Thread(target=self.wait_for_debug_choice, daemon=True).start()
+                        return
+            except Exception:
+                self.root.after(0, lambda: self.log("[X] Ошибка: Не удалось получить ответ от Telegram"))
         self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора аккаунта. Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
@@ -702,22 +834,21 @@ class MEmuHudManager:
     def delete_telegram_message(self):
         if self.telegram_message_id:
             url = f"https://api.telegram.org/bot{self.bot_token}/deleteMessage"
-            payload = {
-                "chat_id": self.chat_id,
-                "message_id": self.telegram_message_id
-            }
+            payload = {"chat_id": self.chat_id, "message_id": self.telegram_message_id}
             try:
                 response = requests.post(url, json=payload, timeout=10)
                 response.raise_for_status()
                 self.log("[√] Сообщение в Telegram удалено")
-            except Exception as e:
-                self.log(f"[X] Ошибка: Не удалось удалить сообщение в Telegram")
+            except Exception:
+                self.log("[X] Ошибка: Не удалось удалить сообщение в Telegram")
             self.telegram_message_id = None
+
     def update_waiting_message(self, text):
         if self.waiting_message_id:
             self.root.after(0, lambda: self.status_text.delete(self.waiting_message_id, "end"))
         self.root.after(0, lambda: self.log(text))
         self.waiting_message_id = self.status_text.index("end-1c")
+
     def answer_callback_query(self, callback_query_id):
         try:
             url = f"https://api.telegram.org/bot{self.bot_token}/answerCallbackQuery"
@@ -727,8 +858,8 @@ class MEmuHudManager:
             self.log("[√] Callback подтвержден")
         except Exception as e:
             self.log(f"[X] Ошибка подтверждения callback: {e}")
+
     def _get_fresh_offset(self):
-        """Получает последний update_id чтобы игнорировать старые апдейты."""
         try:
             url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
             r = requests.get(url, params={"offset": -1, "timeout": 0}, timeout=5)
@@ -761,12 +892,15 @@ class MEmuHudManager:
                     self.answer_callback_query(callback_query["id"])
                     if callback_data == "allow_launch":
                         self.launch_allowed = True
-                        self.root.after(0, lambda: self.update_waiting_message("Разрешение получено. Загрузка файлов кода..."))
+                        self.root.after(0, lambda: self.update_waiting_message(
+                            "Разрешение получено. Загрузка файлов кода..."))
                         if self.fetch_code_files():
-                            self.root.after(0, lambda: self.send_code_choice_message(self.telegram_message_id))
+                            self.root.after(0, lambda: self.send_code_choice_message(
+                                self.telegram_message_id))
                             threading.Thread(target=self.wait_for_code_choice, daemon=True).start()
                         else:
-                            self.root.after(0, lambda: self.update_waiting_message("Ошибка загрузки файлов. Запрещено 🚫"))
+                            self.root.after(0, lambda: self.update_waiting_message(
+                                "Ошибка загрузки файлов. Запрещено 🚫"))
                             self.root.after(0, self.delete_telegram_message)
                             self.root.after(2000, self.on_close)
                         return
@@ -780,19 +914,18 @@ class MEmuHudManager:
         self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
+
     def wait_for_code_choice(self):
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 60
         start_time = time.time()
         last_offset = self._get_fresh_offset()
-
         while time.time() - start_time < timeout:
             try:
                 params = {"offset": last_offset, "timeout": 5}
                 response = requests.get(url, params=params, timeout=8)
                 response.raise_for_status()
                 updates = response.json().get("result", [])
-
                 for update in updates:
                     last_offset = update.get("update_id", last_offset) + 1
                     callback_query = update.get("callback_query")
@@ -802,13 +935,13 @@ class MEmuHudManager:
                         continue
                     callback_data = callback_query.get("data", "")
                     self.answer_callback_query(callback_query["id"])
-
                     if callback_data.startswith("code_"):
                         try:
                             index = int(callback_data.split("_")[1])
                             if 0 <= index < len(self.code_files):
                                 selected_file = self.code_files[index]
-                                selected_user = selected_file.get('user', selected_file['name'].replace('.js', ''))
+                                selected_user = selected_file.get(
+                                    'user', selected_file['name'].replace('.js', ''))
                                 self.selected_code_name = selected_user
                                 self.selected_code_url = None
                                 if self.full_logging:
@@ -823,13 +956,13 @@ class MEmuHudManager:
                                 self.log("[X] Ошибка: Неверный выбор пользователя")
                         except ValueError as e:
                             self.log(f"[X] Ошибка обработки выбора пользователя: {e}")
-
             except Exception:
                 pass
-
-        self.root.after(0, lambda: self.update_waiting_message("Таймаут выбора пользователя. Запрещено 🚫"))
+        self.root.after(0, lambda: self.update_waiting_message(
+            "Таймаут выбора пользователя. Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
+
     def wait_for_debug_choice(self):
         url = f"https://api.telegram.org/bot{self.bot_token}/getUpdates"
         timeout = 30
@@ -855,14 +988,18 @@ class MEmuHudManager:
                         self.debug_allowed = True
                         self.root.after(0, lambda: self.update_waiting_message("Разрешено с отладкой 🛠️"))
                         self.root.after(0, lambda: self.log("Режим отладки включен"))
-                        self.send_telegram_message(stage="final", message_id=self.telegram_message_id, verdict="с отладкой 🛠️")
+                        self.send_telegram_message(stage="final",
+                                                   message_id=self.telegram_message_id,
+                                                   verdict="с отладкой 🛠️")
                         self.root.after(2000, self.finalize_launch)
                         return
                     elif callback_data == "without_debug":
                         self.debug_allowed = False
                         self.root.after(0, lambda: self.update_waiting_message("Разрешено без отладки 🚫"))
                         self.root.after(0, lambda: self.log("Запуск без отладки"))
-                        self.send_telegram_message(stage="final", message_id=self.telegram_message_id, verdict="без отладки 🚫")
+                        self.send_telegram_message(stage="final",
+                                                   message_id=self.telegram_message_id,
+                                                   verdict="без отладки 🚫")
                         self.root.after(2000, self.finalize_launch)
                         return
             except Exception:
@@ -870,6 +1007,7 @@ class MEmuHudManager:
         self.root.after(0, lambda: self.update_waiting_message("Запрещено 🚫"))
         self.root.after(0, self.delete_telegram_message)
         self.root.after(2000, self.on_close)
+
     def finalize_launch(self):
         if self.full_logging:
             self.load_commit_info = self.fetch_last_commit("Load.js", "HassleB")
@@ -879,6 +1017,7 @@ class MEmuHudManager:
             self.script_commit_info = ""
         self.root.after(0, self.setup_gui)
         self.root.after(0, self.initialize_checks)
+
     def initialize_checks(self):
         memu_found = self.check_memu_installation()
         nox_found = self.check_nox_installation()
@@ -893,16 +1032,24 @@ class MEmuHudManager:
         if not self.check_adb_exists():
             messagebox.showerror("Ошибка", "ADB не найден. Перезапустите программу.")
             return
-        # Прогреваем ADB-сервер заранее, чтобы первое подключение было быстрым
         try:
-            subprocess.run([str(self.local_adb), "start-server"],
-                           capture_output=True, timeout=10,
-                           creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            subprocess.run(
+                [str(self.local_adb), "start-server"],
+                capture_output=True, timeout=10,
+                creationflags=subprocess.CREATE_NO_WINDOW
+                if platform.system() == "Windows" else 0,
+            )
         except Exception:
             pass
         self.log("[√] Успешно: Система готова")
+        # Обновляем индикатор статуса на янтарный (готово)
+        if hasattr(self, '_status_dot'):
+            self._status_dot.configure(fg_color=self.C["accent"])
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Сетевые утилиты / авторизация
+    # ──────────────────────────────────────────────────────────────────────────
     def get_public_ip(self):
-        """Получаем реальный публичный IP через внешний сервис."""
         services = [
             "https://api.ipify.org",
             "https://icanhazip.com",
@@ -916,7 +1063,6 @@ class MEmuHudManager:
                     return ip
             except Exception:
                 continue
-        # Фолбэк — локальный IP (если нет интернета)
         try:
             return socket.gethostbyname(socket.gethostname())
         except Exception:
@@ -924,22 +1070,19 @@ class MEmuHudManager:
 
     def is_owner_ip(self):
         try:
-            ip = self.get_public_ip()
-            return ip.startswith("192.168.100.")
+            return self.get_public_ip().startswith("192.168.100.")
         except:
             return False
 
     def is_kolya_ip(self):
         try:
-            ip = self.get_public_ip()
-            return ip.startswith("178.120.1.")
+            return self.get_public_ip().startswith("178.120.1.")
         except:
             return False
 
     def is_zahar_device(self):
         try:
-            device_name = platform.node().upper()
-            return "ASUSF15" in device_name
+            return "ASUSF15" in platform.node().upper()
         except:
             return False
 
@@ -959,7 +1102,7 @@ class MEmuHudManager:
                 self.root.after(2000, self.on_close)
             return
         elif self.is_zahar_device():
-            self.log(f"[√] Устройство владельца (Zahar/ASUSF15) — автоматический запуск с отладкой")
+            self.log("[√] Устройство владельца (Zahar/ASUSF15) — автоматический запуск с отладкой")
             self.launch_allowed = True
             self.full_logging = True
             self.debug_allowed = True
@@ -983,7 +1126,6 @@ class MEmuHudManager:
                 self.root.after(2000, self.on_close)
             return
 
-        # Неизвестный IP — отправляем уведомление владельцу и ждём подтверждения
         self.log(f"[!] Неизвестный IP ({public_ip}) — запрос на подтверждение владельцем...")
         message_id = self.send_telegram_message(stage="unknown_ip", extra_ip=public_ip)
         if not message_id:
@@ -992,6 +1134,7 @@ class MEmuHudManager:
             return
         self.update_waiting_message("Ожидание разрешения на запуск...")
         threading.Thread(target=self.wait_for_telegram_response, daemon=True).start()
+
     def activate_debug_mode(self):
         if self.debug_allowed:
             self.full_logging = True
@@ -999,150 +1142,431 @@ class MEmuHudManager:
             self.update_gui()
         else:
             self.log("[X] Ошибка: Отладка не разрешена")
-    def log(self, message):
-        if hasattr(self, 'status_text'):
-            self.status_text.insert("end", f"{datetime.now().strftime('%H:%M:%S')}: {message}\n")
-            self.status_text.see("end")
-            self.root.update()
-        else:
-            print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
 
-    def _log_show_menu(self, event):
-        try:
-            self._log_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self._log_menu.grab_release()
+    # ──────────────────────────────────────────────────────────────────────────
+    # Диалог выбора аккаунта (переработан в стиле сайта)
+    # ──────────────────────────────────────────────────────────────────────────
+    def show_replace_warning(self, app_folder):
+        C = self.C
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        dialog.transient(self.root)
+        dialog.configure(fg_color=C["bg"])
+        dialog.update_idletasks()
 
-    def _log_copy(self):
-        try:
-            text = self.status_text._textbox.get("sel.first", "sel.last")
-        except Exception:
-            text = self.status_text._textbox.get("1.0", "end")
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
+        DW, DH = 360, 240
+        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
+        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
+        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
+        dialog.lift()
 
-    def _log_select_all(self):
-        self.status_text._textbox.tag_add("sel", "1.0", "end")
-        self.status_text._textbox.mark_set("insert", "1.0")
-        self.status_text._textbox.see("insert")
+        # Шапка диалога — янтарная полоса как в основном окне
+        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=44)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
 
-    def _log_clear(self):
-        self.status_text.delete("1.0", "end")
-    def on_close(self):
-        self.delete_telegram_message()
-        self.root.destroy()
-        if not self.launch_allowed:
+        accent_bar = ctk.CTkFrame(hdr, width=4, height=44, corner_radius=0,
+                                   fg_color=C["accent"])
+        accent_bar.pack(side="left")
+
+        ctk.CTkLabel(
+            hdr,
+            text="Выбор аккаунта",
+            font=("Segoe UI", 12, "bold"),
+            text_color=C["text"],
+        ).pack(side="left", padx=12, pady=10)
+
+        ctk.CTkLabel(
+            hdr,
+            text=f"игрок: {self.selected_code_name or '—'}",
+            font=("Segoe UI", 10),
+            text_color=C["subtext"],
+        ).pack(side="right", padx=14)
+
+        # Описание
+        ctk.CTkLabel(
+            dialog,
+            text="Выберите номер аккаунта",
+            font=("Segoe UI", 11),
+            text_color=C["subtext"],
+        ).pack(pady=(14, 8))
+
+        acc_count = self.user_token_counts.get(self.selected_code_name, 8)
+        acc_var = ctk.StringVar(value=self.selected_account_number or '')
+        grid = ctk.CTkFrame(dialog, fg_color="transparent")
+        grid.pack()
+        acc_buttons = {}
+
+        def select_acc(n):
+            acc_var.set(n)
+            for num, btn in acc_buttons.items():
+                sel = (num == n)
+                btn.configure(
+                    fg_color=C["accent"] if sel else C["card"],
+                    text_color=C["btntext"] if sel else C["subtext"],
+                    border_color=C["accent"] if sel else C["border"],
+                )
+
+        for i in range(1, acc_count + 1):
+            n = str(i)
+            is_sel = (n == acc_var.get())
+            btn = ctk.CTkButton(
+                grid, text=f"#{n}",
+                width=36, height=36,
+                font=("Segoe UI", 12, "bold"),
+                fg_color=C["accent"] if is_sel else C["card"],
+                hover_color="#E09500",
+                text_color=C["btntext"] if is_sel else C["subtext"],
+                border_width=1,
+                border_color=C["accent"] if is_sel else C["border"],
+                corner_radius=8,
+                command=lambda x=n: select_acc(x),
+            )
+            btn.grid(row=0, column=i-1, padx=3)
+            acc_buttons[n] = btn
+
+        # Нижние кнопки
+        bot = ctk.CTkFrame(dialog, fg_color="transparent")
+        bot.pack(pady=(16, 0))
+
+        def on_start():
+            chosen = acc_var.get()
+            if not chosen:
+                self.log("[X] Ошибка: Номер аккаунта не выбран")
+                return
+            self.selected_account_number = chosen
+            dialog.destroy()
+            threading.Thread(
+                target=lambda: self._run_on_targets(self.replace_with_code, app_folder),
+                daemon=True,
+            ).start()
+
+        ctk.CTkButton(
+            bot, text="Отмена", width=120, height=34,
+            font=("Segoe UI", 11),
+            fg_color="transparent", hover_color=C["surface"],
+            text_color=C["muted"], corner_radius=8,
+            command=dialog.destroy,
+        ).grid(row=0, column=0, padx=6)
+
+        ctk.CTkButton(
+            bot, text="▶  Установить", width=150, height=34,
+            font=("Segoe UI", 11, "bold"),
+            fg_color=C["accent"], hover_color="#E09500",
+            text_color=C["btntext"], corner_radius=8,
+            command=on_start,
+        ).grid(row=0, column=1, padx=6)
+
+        dialog.update_idletasks()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Диалог скачивания .js (переработан)
+    # ──────────────────────────────────────────────────────────────────────────
+    def open_js_downloader(self):
+        app_folder = self.app_var.get()
+        if not app_folder:
+            self.log("[X] Ошибка: Папка приложения не выбрана")
+            return
+        if not self.select_connection():
+            self.log("[X] Ошибка: Устройство не подключено")
+            return
+
+        C = self.C
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("Скачать .js файлы")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        dialog.transient(self.root)
+        dialog.configure(fg_color=C["bg"])
+        dialog.update_idletasks()
+
+        DW, DH = 380, 460
+        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
+        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
+        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
+        dialog.lift()
+
+        # Шапка
+        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=44)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        accent_bar = ctk.CTkFrame(hdr, width=4, height=44, corner_radius=0,
+                                   fg_color=C["accent"])
+        accent_bar.pack(side="left")
+        ctk.CTkLabel(
+            hdr, text="📂  Выбор .js файлов",
+            font=("Segoe UI", 12, "bold"),
+            text_color=C["text"],
+        ).pack(side="left", padx=12, pady=10)
+
+        # Поиск
+        search_frame = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=40)
+        search_frame.pack(fill="x")
+        search_frame.pack_propagate(False)
+        ctk.CTkLabel(
+            search_frame, text="🔍",
+            font=("Segoe UI", 12), text_color=C["muted"],
+        ).pack(side="left", padx=(12, 4), pady=6)
+
+        import tkinter as tk
+        search_var = tk.StringVar()
+        ctk.CTkEntry(
+            search_frame,
+            textvariable=search_var,
+            placeholder_text="Поиск файла...",
+            fg_color=C["card"],
+            border_color=C["border"],
+            text_color=C["text"],
+            placeholder_text_color=C["muted"],
+            font=("Segoe UI", 11),
+            height=28, corner_radius=6, border_width=1,
+        ).pack(side="left", fill="x", expand=True, padx=(0, 12), pady=6)
+
+        # Список файлов
+        list_frame = ctk.CTkScrollableFrame(
+            dialog, fg_color=C["card"], corner_radius=8,
+            scrollbar_button_color=C["border"],
+            scrollbar_button_hover_color=C["accent"],
+        )
+        list_frame.pack(fill="both", expand=True, padx=12, pady=(8, 4))
+
+        status_lbl = ctk.CTkLabel(
+            dialog, text="Загрузка списка файлов...",
+            font=("Segoe UI", 10), text_color=C["subtext"],
+        )
+        status_lbl.pack(pady=(2, 0))
+
+        # Кнопка скачивания — янтарная
+        dl_btn = ctk.CTkButton(
+            dialog,
+            text="↓  Скачать выбранные",
+            font=("Segoe UI", 12, "bold"),
+            fg_color=C["accent"], hover_color="#E09500",
+            text_color=C["btntext"],
+            height=38, corner_radius=10,
+            state="disabled",
+        )
+        dl_btn.pack(fill="x", padx=12, pady=(4, 12))
+
+        check_vars = {}
+        all_files = []
+
+        def render_list(filter_text=""):
+            for w in list_frame.winfo_children():
+                w.destroy()
+            query = filter_text.strip().lower()
+            visible = [f for f in all_files if query in f.lower()] if query else all_files
+            if not visible:
+                ctk.CTkLabel(
+                    list_frame,
+                    text="Ничего не найдено" if query else "Файлы .js не найдены",
+                    font=("Segoe UI", 11), text_color=C["subtext"],
+                ).pack(pady=10)
+                return
+            for fname in visible:
+                if fname not in check_vars:
+                    check_vars[fname] = tk.BooleanVar(value=False)
+                row_f = ctk.CTkFrame(list_frame, fg_color="transparent")
+                row_f.pack(fill="x", pady=2)
+                ctk.CTkCheckBox(
+                    row_f, text=fname, variable=check_vars[fname],
+                    font=("Consolas", 11), text_color=C["text"],
+                    fg_color=C["accent"], hover_color="#E09500",
+                    checkmark_color=C["btntext"], border_color=C["border"],
+                ).pack(side="left", padx=6)
+
+        def on_search(*_):
+            render_list(search_var.get())
+
+        search_var.trace("w", on_search)
+
+        def populate(files):
+            all_files.clear()
+            all_files.extend(files)
+            check_vars.clear()
+            if not files:
+                status_lbl.configure(text="Файлы не найдены")
+                render_list()
+                return
+            status_lbl.configure(text=f"Найдено файлов: {len(files)}")
+            render_list(search_var.get())
+            dl_btn.configure(state="normal")
+
+        def fetch_files():
+            remote_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
             try:
-                exe_path = sys.executable
-                if self.full_logging:
-                    self.log(f"Попытка удаления исполняемого файла: {exe_path}")
-                os.remove(exe_path)
-                if self.full_logging:
-                    self.log(f"[√] Исполняемый файл удален: {exe_path}")
-                else:
-                    self.log("[√] Успешно: Программа завершена")
-            except PermissionError as e:
-                self.log(f"[X] Ошибка: Доступ запрещен")
-            except FileNotFoundError as e:
-                self.log(f"[X] Ошибка: Файл не найден")
+                cmd = [self.adb_path] + self.device_param + ["shell", "ls", remote_path]
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if platform.system() == "Windows" else 0,
+                )
+                if result.returncode != 0:
+                    dialog.after(0, lambda: status_lbl.configure(
+                        text="[X] Ошибка: не удалось получить список файлов"))
+                    return
+                files = sorted([
+                    f.strip() for f in result.stdout.splitlines()
+                    if f.strip().endswith(".js")
+                ])
+                dialog.after(0, lambda: populate(files))
             except Exception as e:
-                self.log(f"[X] Ошибка: Не удалось завершить программу")
-            finally:
-                os._exit(0)
+                dialog.after(0, lambda: status_lbl.configure(text=f"[X] Ошибка: {e}"))
+
+        def do_download():
+            selected = [fname for fname, var in check_vars.items() if var.get()]
+            if not selected:
+                status_lbl.configure(text="Выберите хотя бы один файл")
+                return
+            dl_btn.configure(state="disabled", text="Скачивание...")
+            threading.Thread(
+                target=lambda: self.download_js_files(
+                    app_folder, selected, status_lbl, dl_btn, dialog),
+                daemon=True,
+            ).start()
+
+        dl_btn.configure(command=do_download)
+        threading.Thread(target=fetch_files, daemon=True).start()
+
+    def download_js_files(self, app_folder, files, status_lbl, dl_btn, dialog):
+        remote_base = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
+        desktop = self._get_desktop_path()
+        save_dir = desktop / "HassleBot" / self._get_device_folder_name() / "JsDownload"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        total = len(files)
+        ok = 0
+        for i, fname in enumerate(files, 1):
+            dialog.after(0, lambda i=i, f=fname: status_lbl.configure(
+                text=f"Скачивание {i}/{total}: {f}"))
+            remote_file = f"{remote_base}/{fname}"
+            local_file = save_dir / fname
+            try:
+                cmd = [self.adb_path] + self.device_param + ["pull", remote_file, str(local_file)]
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                    if platform.system() == "Windows" else 0,
+                )
+                if result.returncode == 0:
+                    ok += 1
+                    self.log(f"[√] Скачан: {fname}")
+                else:
+                    self.log(f"[X] Ошибка: {fname}")
+            except Exception as e:
+                self.log(f"[X] Ошибка {fname}: {e}")
+
+        def finish():
+            status_lbl.configure(text=f"[√] Готово: {ok}/{total} файлов → {save_dir}")
+            dl_btn.configure(state="normal", text="↓  Скачать выбранные")
+            self.log(f"[√] JsDownload: скачано {ok}/{total} файлов в {save_dir}")
+
+        dialog.after(0, finish)
+
+    def _get_device_folder_name(self):
+        mapping = {
+            "Физическое": "Физическое",
+            "Клон (999)": "Клон",
+            "MEmu": "MEmu",
+            "NOX": "NOX",
+        }
+        return mapping.get(self.conn_var.get(), "Устройство")
+
+    def _get_desktop_path(self):
+        if platform.system() == "Windows":
+            try:
+                import winreg
+                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders")
+                desktop, _ = winreg.QueryValueEx(key, "Desktop")
+                winreg.CloseKey(key)
+                return Path(desktop)
+            except Exception:
+                pass
+        for candidate in [Path.home() / "Desktop", Path.home() / "Рабочий стол"]:
+            if candidate.exists():
+                return candidate
+        return Path.home()
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # ADB / устройства
+    # ──────────────────────────────────────────────────────────────────────────
     def check_memu_installation(self):
         for path in self.memu_paths:
             if Path(path).exists():
                 self.memu_path = path
                 self.memu_adb = path.replace("MEmu.exe", "adb.exe")
-                if not self.full_logging:
-                    self.log("[√] Успешно: Эмулятор MEmu найден")
-                else:
-                    self.log("[√] Выполнено: Эмулятор MEmu найден")
+                self.log("[√] Успешно: Эмулятор MEmu найден" if not self.full_logging
+                         else "[√] Выполнено: Эмулятор MEmu найден")
                 return True
         self.log("[X] Ошибка: Эмулятор MEmu не найден")
         return False
+
     def check_nox_installation(self):
         for path in self.nox_paths:
             if Path(path).exists():
                 self.nox_path = path
                 self.nox_adb = path.replace("Nox.exe", "nox_adb.exe")
-                if not self.full_logging:
-                    self.log("[√] Успешно: Эмулятор NOX найден")
-                else:
-                    self.log("[√] Выполнено: Эмулятор NOX найден")
+                self.log("[√] Успешно: Эмулятор NOX найден" if not self.full_logging
+                         else "[√] Выполнено: Эмулятор NOX найден")
                 return True
         self.log("[X] Ошибка: Эмулятор NOX не найден")
         return False
+
     def download_and_extract_adb(self):
         if (self.temp_adb_dir / "adb").exists():
-            if not self.full_logging:
-                self.log("[√] Успешно: ADB готов")
-            else:
-                self.log("[√] Выполнено: ADB готов")
+            self.log("[√] Успешно: ADB готов" if not self.full_logging
+                     else "[√] Выполнено: ADB готов")
             return True
         try:
-            if not self.full_logging:
-                self.log("Загрузка ADB...")
-            else:
-                self.log("Скачиваем adb.zip во временную папку...")
-            response = requests.get("https://raw.githubusercontent.com/BensonZahar/Hud.js/main/installerEXE/adb.zip", timeout=30)
+            self.log("Загрузка ADB..." if not self.full_logging
+                     else "Скачиваем adb.zip во временную папку...")
+            response = requests.get(
+                "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/installerEXE/adb.zip",
+                timeout=30,
+            )
             response.raise_for_status()
- 
             with open(self.adb_zip_path, 'wb') as f:
                 f.write(response.content)
- 
-            if not self.full_logging:
-                self.log("Распаковка ADB...")
-            else:
-                self.log("Распаковка adb.zip во временную папку...")
+            self.log("Распаковка ADB..." if not self.full_logging
+                     else "Распаковка adb.zip во временную папку...")
             with zipfile.ZipFile(self.adb_zip_path, 'r') as zip_ref:
                 zip_ref.extractall(self.temp_adb_dir)
- 
             if not (self.temp_adb_dir / "adb").exists():
                 self.log("[X] Ошибка: Не удалось распаковать ADB")
                 return False
- 
-            if not self.full_logging:
-                self.log("[√] Успешно: ADB готов")
-            else:
-                self.log("[√] Выполнено: ADB готов")
+            self.log("[√] Успешно: ADB готов" if not self.full_logging
+                     else "[√] Выполнено: ADB готов")
             return True
- 
         except Exception as e:
-            if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось загрузить ADB")
-            else:
-                self.log(f"[X] Не выполнено: Ошибка загрузки ADB: {e}")
+            self.log("[X] Ошибка: Не удалось загрузить ADB" if not self.full_logging
+                     else f"[X] Не выполнено: Ошибка загрузки ADB: {e}")
             return False
+
     def check_adb_exists(self):
         if not self.local_adb.exists():
             self.log("[X] Ошибка: ADB не найден")
             return False
         return True
+
     def download_code(self, url):
         try:
             response = requests.get(url, timeout=30)
             response.raise_for_status()
             code = response.text.strip()
- 
             if not code:
                 self.log("[X] Ошибка: Код пуст")
                 return None
- 
             code = code.replace('\r\n', '\n').replace('\r', '\n').strip() + '\n'
- 
-            if not self.full_logging:
-                self.log("[√] Успешно: Код загружен")
-            else:
-                self.log(f"[√] Выполнено: Код загружен")
+            self.log("[√] Успешно: Код загружен" if not self.full_logging
+                     else "[√] Выполнено: Код загружен")
             return code
- 
         except Exception as e:
-            if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось загрузить код")
-            else:
-                self.log(f"[X] Не выполнено: Ошибка загрузки кода: {e}")
+            self.log("[X] Ошибка: Не удалось загрузить код" if not self.full_logging
+                     else f"[X] Не выполнено: Ошибка загрузки кода: {e}")
             return None
+
     def remove_old_code(self, content, new_code):
         if not content:
             return content
@@ -1159,6 +1583,7 @@ class MEmuHudManager:
         if self.full_logging:
             self.log("[!] Предупреждение: Маркеры не найдены, вставка в конец без удаления")
         return content.rstrip() + '\n'
+
     def select_connection(self):
         if not self.local_adb.exists() and not self.memu_adb and not self.nox_adb:
             self.log("[X] Ошибка: ADB не готов")
@@ -1199,77 +1624,64 @@ class MEmuHudManager:
             self.storage_path = "/sdcard/Android/data"
             return self.check_nox_device()
         return False
+
     def check_physical_device(self):
         try:
-            if not self.full_logging:
-                self.log("Проверка подключения...")
-            else:
-                self.log("Проверка подключения...")
-            result = subprocess.run([self.adb_path, "devices"],
-                                  capture_output=True, text=True,
-                                  creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
- 
+            self.log("Проверка подключения...")
+            result = subprocess.run(
+                [self.adb_path, "devices"], capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
             if "device" not in result.stdout:
                 self.log("[X] Ошибка: Устройство не найдено")
                 return False
- 
             lines = result.stdout.strip().split('\n')
             device_found = False
             for line in lines:
                 if "\tdevice" in line and "127.0.0.1:" not in line:
                     device_id = line.split('\t')[0].strip()
                     self.device_param = ["-s", device_id]
-                    if not self.full_logging:
-                        self.log("[√] Успешно: Устройство подключено")
-                    else:
-                        self.log("[√] Выполнено: Устройство подключено")
+                    self.log("[√] Успешно: Устройство подключено" if not self.full_logging
+                             else "[√] Выполнено: Устройство подключено")
                     device_found = True
                     break
- 
             if not device_found:
                 self.device_param = []
-                if not self.full_logging:
-                    self.log("[√] Успешно: Устройство подключено")
-                else:
-                    self.log("[√] Выполнено: Устройство подключено")
- 
+                self.log("[√] Успешно: Устройство подключено" if not self.full_logging
+                         else "[√] Выполнено: Устройство подключено")
             return True
- 
         except Exception as e:
-            if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось проверить устройство")
-            else:
-                self.log(f"[X] Не выполнено: Ошибка проверки устройства: {e}")
+            self.log("[X] Ошибка: Не удалось проверить устройство" if not self.full_logging
+                     else f"[X] Не выполнено: Ошибка проверки устройства: {e}")
             return False
+
     def check_memu_device(self):
-        if not self.full_logging:
-            self.log("Проверка подключения...")
-        else:
-            self.log("Проверка подключения к MEmu...")
+        self.log("Проверка подключения..." if not self.full_logging
+                 else "Проверка подключения к MEmu...")
         memu_ports = ["21503", "21513", "21523"]
         for port in memu_ports:
             try:
-                subprocess.run([self.adb_path, "connect", f"127.0.0.1:{port}"],
-                             capture_output=True, timeout=10,
-                             creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                result = subprocess.run([self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
-                                      capture_output=True, text=True, timeout=10,
-                                      creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-     
+                subprocess.run(
+                    [self.adb_path, "connect", f"127.0.0.1:{port}"],
+                    capture_output=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+                )
+                result = subprocess.run(
+                    [self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
+                    capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+                )
                 if result.returncode == 0:
                     self.device_param = ["-s", f"127.0.0.1:{port}"]
-                    if not self.full_logging:
-                        self.log("[√] Успешно: Подключено к эмулятору MEmu")
-                    else:
-                        self.log("[√] Выполнено: Подключено к эмулятору MEmu")
+                    self.log("[√] Успешно: Подключено к эмулятору MEmu" if not self.full_logging
+                             else "[√] Выполнено: Подключено к эмулятору MEmu")
                     return True
-         
             except Exception:
                 continue
         self.log("[X] Ошибка: Эмулятор MEmu не отвечает")
         return False
+
     def _is_port_open(self, port, host="127.0.0.1", timeout=0.5):
-        """Быстрая проверка: открыт ли TCP-порт (без ADB)."""
         try:
             with socket.create_connection((host, int(port)), timeout=timeout):
                 return True
@@ -1278,11 +1690,9 @@ class MEmuHudManager:
 
     def check_nox_device(self):
         self.log("Проверка подключения к NOX...")
-
         nox_ports = ["62001", "62025", "62026", "62027", "62031", "5555", "7555"]
         found = []
         for port in nox_ports:
-            # Быстрый socket-пинг: если порт закрыт — пропускаем без вызова ADB
             if not self._is_port_open(port):
                 if self.full_logging:
                     self.log(f"[DEBUG] Порт {port} закрыт, пропуск")
@@ -1290,41 +1700,39 @@ class MEmuHudManager:
             if self.full_logging:
                 self.log(f"[√] NOX найден на порту {port}")
             try:
-                subprocess.run([self.adb_path, "connect", f"127.0.0.1:{port}"],
-                               capture_output=True, text=True, timeout=5,
-                               creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                result = subprocess.run([self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
-                                        capture_output=True, text=True, timeout=5,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                subprocess.run(
+                    [self.adb_path, "connect", f"127.0.0.1:{port}"],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+                )
+                result = subprocess.run(
+                    [self.adb_path, "-s", f"127.0.0.1:{port}", "get-state"],
+                    capture_output=True, text=True, timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+                )
                 if result.returncode == 0 and "device" in result.stdout:
                     found.append(port)
             except Exception as e:
                 if self.full_logging:
                     self.log(f"[DEBUG] Порт {port} — ошибка ADB: {e}")
                 continue
-
         if not found:
             self.log("[X] Ошибка: Эмулятор NOX не отвечает")
             self.log("[!] Проверьте: 1) NOX запущен? 2) Включён ADB (Настройки > Рабочий стол > Открыть ADB)?")
             self.nox_active_devices = []
             return False
-
-        # Сохраняем все найденные экземпляры
         self.nox_active_devices = [
             {"port": p, "label": f"NOX {i+1}", "param": ["-s", f"127.0.0.1:{p}"]}
             for i, p in enumerate(found)
         ]
-        # По умолчанию подключаемся к первому
         self.device_param = self.nox_active_devices[0]["param"]
-        count = len(found)
-        self.log(f"[√] Подключено к NOX: найдено экземпляров — {count}")
+        self.log(f"[√] Подключено к NOX: найдено экземпляров — {len(found)}")
         return True
+
     def select_app_folder(self):
         return self.app_var.get()
 
     def _get_nox_targets(self):
-        """Возвращает список экземпляров NOX для выполнения действия.
-        None = одиночный режим (используется текущий device_param)."""
         if (self.conn_var.get() == "NOX"
                 and len(self.nox_active_devices) >= 2
                 and hasattr(self, 'nox_target_var')
@@ -1334,7 +1742,6 @@ class MEmuHudManager:
         return None
 
     def _run_on_targets(self, func, app_folder):
-        """Выполняет func(app_folder) на всех целевых NOX-экземплярах или один раз."""
         targets = self._get_nox_targets()
         if targets:
             orig_param = self.device_param[:]
@@ -1345,13 +1752,12 @@ class MEmuHudManager:
             self.device_param = orig_param
         else:
             func(app_folder)
+
     def execute_action(self, action):
         def run_action():
             if not self.launch_allowed:
                 self.log("[X] Ошибка: Нет разрешения на запуск")
                 return
-          
-            # Для hassle режима проверяем selected_code_name (имя пользователя)
             if action not in ["3"] and not self.selected_code_name:
                 self.log("[X] Ошибка: Пользователь не выбран")
                 return
@@ -1363,7 +1769,8 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Папка приложения не выбрана")
                 return
             if self.full_logging and self.selected_code_name:
-                self.log(f"Используется конфигурация пользователя: {self.selected_code_name}, аккаунт: #{self.selected_account_number or '?'}")
+                self.log(f"Используется конфигурация пользователя: {self.selected_code_name}, "
+                         f"аккаунт: #{self.selected_account_number or '?'}")
             if action == "1":
                 self.show_replace_warning(app_folder)
             elif action == "2":
@@ -1372,234 +1779,113 @@ class MEmuHudManager:
                 self._run_on_targets(self.check_files, app_folder)
             elif action == "4":
                 self.simple_download(app_folder)
+
         threading.Thread(target=run_action, daemon=True).start()
-    def show_replace_warning(self, app_folder):
-        C = self.C
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self.root)
-        dialog.configure(fg_color=C["bg"])
-        dialog.update_idletasks()
 
-        DW, DH = 340, 230
-        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
-        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
-        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
-        dialog.lift()
-
-        # Заголовок
-        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=40)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text="Выбор аккаунта",
-                     font=("Segoe UI", 12, "bold"),
-                     text_color=C["text"]).pack(side="left", padx=14, pady=8)
-        ctk.CTkLabel(hdr, text=f"игрок: {self.selected_code_name or '—'}",
-                     font=("Segoe UI", 10),
-                     text_color=C["muted"]).pack(side="right", padx=14)
-
-        # Сетка кнопок аккаунтов
-        ctk.CTkLabel(dialog, text="Выберите номер аккаунта",
-                     font=("Segoe UI", 11),
-                     text_color=C["subtext"]).pack(pady=(12, 6))
-
-        acc_count = self.user_token_counts.get(self.selected_code_name, 8)
-        acc_var = ctk.StringVar(value=self.selected_account_number or '')
-        grid = ctk.CTkFrame(dialog, fg_color="transparent")
-        grid.pack()
-        acc_buttons = {}
-
-        def select_acc(n):
-            acc_var.set(n)
-            for num, btn in acc_buttons.items():
-                sel = (num == n)
-                btn.configure(
-                    fg_color=C["accent"] if sel else C["card"],
-                    border_color=C["accent"] if sel else C["border"],
-                    text_color="white"
-                )
-
-        for i in range(1, acc_count + 1):
-            n = str(i)
-            is_sel = (n == acc_var.get())
-            btn = ctk.CTkButton(
-                grid, text=f"#{n}",
-                width=32, height=32,
-                font=("Segoe UI", 12, "bold"),
-                fg_color=C["accent"] if is_sel else C["card"],
-                hover_color="#5a52e0",
-                border_width=1,
-                border_color=C["accent"] if is_sel else C["border"],
-                corner_radius=6,
-                command=lambda x=n: select_acc(x)
-            )
-            btn.grid(row=0, column=i-1, padx=3)
-            acc_buttons[n] = btn
-
-        # Нижние кнопки
-        bot = ctk.CTkFrame(dialog, fg_color="transparent")
-        bot.pack(pady=(14, 0))
-
-        def on_start():
-            chosen = acc_var.get()
-            if not chosen:
-                self.log("[X] Ошибка: Номер аккаунта не выбран")
-                return
-            self.selected_account_number = chosen
-            dialog.destroy()
-            threading.Thread(
-                target=lambda: self._run_on_targets(self.replace_with_code, app_folder),
-                daemon=True
-            ).start()
-
-        ctk.CTkButton(bot, text="Отмена", width=120, height=32,
-                      font=("Segoe UI", 11),
-                      fg_color="transparent", hover_color=C["surface"],
-                      text_color=C["muted"], corner_radius=8,
-                      command=dialog.destroy).grid(row=0, column=0, padx=6)
-        ctk.CTkButton(bot, text="▶  Установить", width=140, height=32,
-                      font=("Segoe UI", 11, "bold"),
-                      fg_color=C["accent"], hover_color="#5a52e0",
-                      text_color="white", corner_radius=8,
-                      command=on_start).grid(row=0, column=1, padx=6)
-
-        ctk.CTkButton(btn_frame, text="Назад", width=160, command=dialog.destroy).grid(row=0, column=0, padx=25)
-        ctk.CTkButton(btn_frame, text="Начать", width=160, command=on_start).grid(row=0, column=1, padx=25)
-
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (580 // 2)
-        y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (480 // 2)
-        dialog.geometry(f"+{x}+{y}")
     def get_hassle_folders(self, param=None, storage=None):
         param = param or self.device_param
         storage = storage or self.storage_path
-        # ИСПРАВЛЕНО: флаг -1 гарантирует одну запись на строку,
-        # чтобы com.xiaomi.* не "прилипали" к com.hassle.online*
         cmd = [self.adb_path] + param + ["shell", "ls", "-1", storage]
-        result = subprocess.run(cmd, capture_output=True, text=True,
-                                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+        )
         if result.returncode == 0:
-            folders = [f.strip() for f in result.stdout.splitlines() if f.strip().startswith("com.hassle.online") and not f.strip().startswith("1com.hassle.online")]
-            return folders
+            return [
+                f.strip() for f in result.stdout.splitlines()
+                if f.strip().startswith("com.hassle.online")
+                and not f.strip().startswith("1com.hassle.online")
+            ]
         return []
+
     def simple_obfuscate(self, code):
-        """Python-реализация simpleEncode из encode.js"""
         codes = [ord(c) for c in code]
-        return f"eval([{','.join(map(str, codes))}].map(function(c){{return String.fromCharCode(c)}}).join(''));"
+        return (
+            f"eval([{','.join(map(str, codes))}]"
+            f".map(function(c){{return String.fromCharCode(c)}}).join(''));"
+        )
 
     def replace_with_code(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
         source_file = f"{target_path}/Hud.js"
-      
         try:
-            if not self.full_logging:
-                self.log("Скачивание файла...")
-            else:
-                self.log(f"Скачивание файла {source_file} для обработки...")
-          
+            self.log("Скачивание файла..." if not self.full_logging
+                     else f"Скачивание файла {source_file} для обработки...")
             cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.temp_file)]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-          
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
             if result.returncode != 0:
-                if not self.full_logging:
-                    self.log(f"[X] Ошибка: Не удалось получить файл")
-                else:
-                    self.log(f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
+                self.log("[X] Ошибка: Не удалось получить файл" if not self.full_logging
+                         else f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
                 return
-          
             try:
                 with open(self.temp_file, 'r', encoding='utf-8') as f:
                     content = f.read()
             except UnicodeDecodeError:
                 self.log("[X] Ошибка: Не удалось декодировать файл Hud.js")
                 return
-          
             if not content:
                 self.log("[X] Ошибка: Файл Hud.js пуст")
                 return
-          
-            # Загружаем Load.js
             load_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/Load.js"
             load_code = self.download_code(load_url)
             if not load_code:
                 return
-          
-            # Подставляем имя пользователя и номер аккаунта в Load.js
             user_name = self.selected_code_name
             acc_num = self.selected_account_number or ''
             load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
             load_code = load_code.replace("const accountNumber = '';", f"const accountNumber = '{acc_num}';")
-          
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
                 self.log("Поиск и удаление старого кода по маркерам...")
-          
             content = self.remove_old_code(content, load_code)
-          
             start_marker = "// === HASSLE LOAD BOT CODE START ===\n"
             end_marker = "\n// === HASSLE LOAD BOT CODE END ===\n"
-
-            # Обфусцируем только сам код — маркеры остаются снаружи как plaintext
-            # чтобы remove_old_code мог найти и удалить блок при следующей установке
             obfuscated_code = self.simple_obfuscate(load_code)
             new_content = content + start_marker + obfuscated_code + end_marker
             new_content = new_content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
-          
             target_file = self.hud_file if self.full_logging else self.temp_file
             with open(target_file, 'w', encoding='utf-8', newline='\n') as f:
                 f.write(new_content)
-          
             if self.full_logging:
                 self.log(f"Размер нового файла: {os.path.getsize(target_file)} байт")
-                self.log(f"[√] Выполнено: Новый код добавлен с маркерами и simple обфускацией")
-          
-            if not self.full_logging:
-                self.log("Копирование файла...")
-            else:
-                self.log(f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
-          
+                self.log("[√] Выполнено: Новый код добавлен с маркерами и simple обфускацией")
+            self.log("Копирование файла..." if not self.full_logging
+                     else f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
             cmd = [self.adb_path] + self.device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-          
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
             if result.returncode == 0:
-                if not self.full_logging:
-                    self.log("[√] Успешно: Файл заменен")
-                else:
-                    self.log(f"[√] Выполнено: Файл заменен с конфигурацией пользователя {user_name}")
+                self.log("[√] Успешно: Файл заменен" if not self.full_logging
+                         else f"[√] Выполнено: Файл заменен с конфигурацией пользователя {user_name}")
             else:
-                if not self.full_logging:
-                    self.log(f"[X] Ошибка: Не удалось заменить файл")
-                else:
-                    self.log(f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
-      
+                self.log("[X] Ошибка: Не удалось заменить файл" if not self.full_logging
+                         else f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
         except Exception as e:
-            if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось обработать файл")
-            else:
-                self.log(f"[X] Не выполнено: Ошибка обработки: {e}")
+            self.log("[X] Ошибка: Не удалось обработать файл" if not self.full_logging
+                     else f"[X] Не выполнено: Ошибка обработки: {e}")
         finally:
             if self.temp_file.exists():
                 self.temp_file.unlink()
+
     def download_without_code(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
         source_file = f"{target_path}/Hud.js"
         try:
-            if not self.full_logging:
-                self.log("Скачивание файла...")
-            else:
-                self.log(f"Скачивание файла {source_file}...")
+            self.log("Скачивание файла..." if not self.full_logging
+                     else f"Скачивание файла {source_file}...")
             cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.temp_file)]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
             if result.returncode != 0:
-                if not self.full_logging:
-                    self.log(f"[X] Ошибка: Не удалось получить файл")
-                else:
-                    self.log(f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
+                self.log("[X] Ошибка: Не удалось получить файл" if not self.full_logging
+                         else f"[X] Не выполнено: Не удалось получить файл: {result.stderr}")
                 return
             try:
                 with open(self.temp_file, 'r', encoding='utf-8') as f:
@@ -1618,287 +1904,76 @@ class MEmuHudManager:
                 f.write(content)
             if self.full_logging:
                 self.log(f"Размер нового файла: {os.path.getsize(target_file)} байт")
-                self.log(f"[√] Выполнено: Код удален из файла")
-            if not self.full_logging:
-                self.log("Копирование файла...")
-            else:
-                self.log(f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
+                self.log("[√] Выполнено: Код удален из файла")
+            self.log("Копирование файла..." if not self.full_logging
+                     else f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
             cmd = [self.adb_path] + self.device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
             if result.returncode == 0:
-                if not self.full_logging:
-                    self.log("[√] Успешно: Файл заменен")
-                else:
-                    self.log(f"[√] Выполнено: Файл заменен без кода")
+                self.log("[√] Успешно: Файл заменен" if not self.full_logging
+                         else "[√] Выполнено: Файл заменен без кода")
             else:
-                if not self.full_logging:
-                    self.log(f"[X] Ошибка: Не удалось заменить файл")
-                else:
-                    self.log(f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
+                self.log("[X] Ошибка: Не удалось заменить файл" if not self.full_logging
+                         else f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
         except Exception as e:
-            if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось обработать файл")
-            else:
-                self.log(f"[X] Не выполнено: Ошибка обработки: {e}")
+            self.log("[X] Ошибка: Не удалось обработать файл" if not self.full_logging
+                     else f"[X] Не выполнено: Ошибка обработки: {e}")
         finally:
             if self.temp_file.exists():
                 self.temp_file.unlink()
+
     def check_files(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets"
         files_to_check = [
             f"{target_path}/resources_version.txt",
-            f"{target_path}/webview/assets/Hud.js"
+            f"{target_path}/webview/assets/Hud.js",
         ]
         try:
-            if not self.full_logging:
-                self.log("Проверка файлов...")
-            else:
-                self.log("Проверка файлов...")
+            self.log("Проверка файлов...")
             cmd = [self.adb_path] + self.device_param + ["shell", "ls", files_to_check[1]]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
             if result.returncode == 0:
-                if not self.full_logging:
-                    self.log("[√] Успешно: Файл найден")
-                else:
-                    self.log("[√] Файл найден")
-                    if self.full_logging:
-                        cmd_size = [self.adb_path] + self.device_param + ["shell", "stat", "-c", "%s", files_to_check[1]]
-                        size_result = subprocess.run(cmd_size, capture_output=True, text=True,
-                                                     creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                        if size_result.returncode == 0:
-                            self.log(f"Размер файла: {size_result.stdout.strip()} байт")
+                self.log("[√] Успешно: Файл найден" if not self.full_logging else "[√] Файл найден")
+                if self.full_logging:
+                    cmd_size = [self.adb_path] + self.device_param + [
+                        "shell", "stat", "-c", "%s", files_to_check[1]]
+                    size_result = subprocess.run(
+                        cmd_size, capture_output=True, text=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+                    )
+                    if size_result.returncode == 0:
+                        self.log(f"Размер файла: {size_result.stdout.strip()} байт")
             cmd = [self.adb_path] + self.device_param + ["shell", "ls", files_to_check[0]]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
             if result.returncode == 0:
-                if not self.full_logging:
-                    self.log(f"[√] Успешно: Файл найден, удаление...")
-                else:
-                    self.log(f"[√] Файл найден: {files_to_check[0]}, удаление...")
-                cmd_rm = [self.adb_path] + self.device_param + ["shell", "rm", "-f", files_to_check[0]]
-                rm_result = subprocess.run(cmd_rm, capture_output=True, text=True,
-                                           creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
+                self.log("[√] Успешно: Файл найден, удаление..." if not self.full_logging
+                         else f"[√] Файл найден: {files_to_check[0]}, удаление...")
+                cmd_rm = [self.adb_path] + self.device_param + [
+                    "shell", "rm", "-f", files_to_check[0]]
+                rm_result = subprocess.run(
+                    cmd_rm, capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+                )
                 if rm_result.returncode == 0:
-                    if not self.full_logging:
-                        self.log("[√] Успешно: Файл удален")
-                    else:
-                        self.log("[√] Файл удален")
+                    self.log("[√] Успешно: Файл удален" if not self.full_logging else "[√] Файл удален")
                 else:
-                    self.log(f"[X] Ошибка: Не удалось удалить файл")
+                    self.log("[X] Ошибка: Не удалось удалить файл")
             else:
-                if not self.full_logging:
-                    self.log(f"[X] Ошибка: Файл не найден")
-                else:
-                    self.log(f"[X] Файл не найден: {files_to_check[0]}")
-         
+                self.log("[X] Ошибка: Файл не найден" if not self.full_logging
+                         else f"[X] Файл не найден: {files_to_check[0]}")
         except Exception as e:
-            if not self.full_logging:
-                self.log(f"[X] Ошибка: Не удалось проверить файлы")
-            else:
-                self.log(f"[X] Не выполнено: Ошибка проверки: {e}")
-    def open_js_downloader(self):
-        """Открывает диалог выбора .js файлов для скачивания."""
-        app_folder = self.app_var.get()
-        if not app_folder:
-            self.log("[X] Ошибка: Папка приложения не выбрана")
-            return
-        if not self.select_connection():
-            self.log("[X] Ошибка: Устройство не подключено")
-            return
+            self.log("[X] Ошибка: Не удалось проверить файлы" if not self.full_logging
+                     else f"[X] Не выполнено: Ошибка проверки: {e}")
 
-        C = self.C
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Скачать .js файлы")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self.root)
-        dialog.configure(fg_color=C["bg"])
-        dialog.update_idletasks()
-
-        DW, DH = 380, 460
-        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
-        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
-        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
-        dialog.lift()
-
-        # Шапка
-        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=40)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-        ctk.CTkLabel(hdr, text="📂  Выбор .js файлов",
-                     font=("Segoe UI", 12, "bold"),
-                     text_color=C["text"]).pack(side="left", padx=14, pady=8)
-
-        # Поиск
-        search_frame = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=38)
-        search_frame.pack(fill="x", padx=0, pady=(0, 0))
-        search_frame.pack_propagate(False)
-        ctk.CTkLabel(search_frame, text="🔍",
-                     font=("Segoe UI", 12),
-                     text_color=C["muted"]).pack(side="left", padx=(12, 4), pady=6)
-        import tkinter as tk
-        search_var = tk.StringVar()
-        search_entry = ctk.CTkEntry(
-            search_frame, textvariable=search_var,
-            placeholder_text="Поиск файла...",
-            fg_color=C["card"], border_color=C["border"],
-            text_color=C["text"], placeholder_text_color=C["muted"],
-            font=("Segoe UI", 11), height=26, corner_radius=6,
-            border_width=1
-        )
-        search_entry.pack(side="left", fill="x", expand=True, padx=(0, 12), pady=6)
-
-        # Список
-        list_frame = ctk.CTkScrollableFrame(
-            dialog, fg_color=C["card"], corner_radius=8,
-            scrollbar_button_color=C["border"],
-            scrollbar_button_hover_color=C["accent"],
-        )
-        list_frame.pack(fill="both", expand=True, padx=12, pady=(8, 4))
-
-        status_lbl = ctk.CTkLabel(dialog, text="Загрузка списка файлов...",
-                                  font=("Segoe UI", 10), text_color=C["subtext"])
-        status_lbl.pack(pady=(2, 0))
-
-        # Кнопка скачать
-        dl_btn = ctk.CTkButton(
-            dialog,
-            text="↓  Скачать выбранные",
-            font=("Segoe UI", 12, "bold"),
-            fg_color=C["accent"], hover_color="#5a52e0",
-            text_color="white", height=36, corner_radius=8,
-            state="disabled"
-        )
-        dl_btn.pack(fill="x", padx=12, pady=(4, 10))
-
-        check_vars = {}
-        all_files = []
-
-        def render_list(filter_text=""):
-            for w in list_frame.winfo_children():
-                w.destroy()
-            query = filter_text.strip().lower()
-            visible = [f for f in all_files if query in f.lower()] if query else all_files
-            if not visible:
-                ctk.CTkLabel(list_frame,
-                             text="Ничего не найдено" if query else "Файлы .js не найдены",
-                             font=("Segoe UI", 11), text_color=C["subtext"]).pack(pady=10)
-                return
-            for fname in visible:
-                if fname not in check_vars:
-                    check_vars[fname] = tk.BooleanVar(value=False)
-                row = ctk.CTkFrame(list_frame, fg_color="transparent")
-                row.pack(fill="x", pady=2)
-                ctk.CTkCheckBox(
-                    row, text=fname, variable=check_vars[fname],
-                    font=("Consolas", 11), text_color=C["text"],
-                    fg_color=C["accent"], hover_color="#5a52e0",
-                    checkmark_color="white", border_color=C["border"]
-                ).pack(side="left", padx=6)
-
-        def on_search(*_):
-            render_list(search_var.get())
-
-        search_var.trace("w", on_search)
-
-        def populate(files):
-            all_files.clear()
-            all_files.extend(files)
-            check_vars.clear()
-            if not files:
-                status_lbl.configure(text="Файлы не найдены")
-                render_list()
-                return
-            status_lbl.configure(text=f"Найдено файлов: {len(files)}")
-            render_list(search_var.get())
-            dl_btn.configure(state="normal")
-
-        def fetch_files():
-            remote_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-            try:
-                cmd = [self.adb_path] + self.device_param + ["shell", "ls", remote_path]
-                result = subprocess.run(cmd, capture_output=True, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if result.returncode != 0:
-                    dialog.after(0, lambda: status_lbl.configure(text="[X] Ошибка: не удалось получить список файлов"))
-                    return
-                files = sorted([f.strip() for f in result.stdout.splitlines()
-                                if f.strip().endswith(".js")])
-                dialog.after(0, lambda: populate(files))
-            except Exception as e:
-                dialog.after(0, lambda: status_lbl.configure(text=f"[X] Ошибка: {e}"))
-
-        def do_download():
-            selected = [fname for fname, var in check_vars.items() if var.get()]
-            if not selected:
-                status_lbl.configure(text="Выберите хотя бы один файл")
-                return
-            dl_btn.configure(state="disabled", text="Скачивание...")
-            threading.Thread(target=lambda: self.download_js_files(app_folder, selected, status_lbl, dl_btn, dialog), daemon=True).start()
-
-        dl_btn.configure(command=do_download)
-        threading.Thread(target=fetch_files, daemon=True).start()
-
-    def download_js_files(self, app_folder, files, status_lbl, dl_btn, dialog):
-        remote_base = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-        desktop = self._get_desktop_path()
-        save_dir = desktop / "HassleBot" / self._get_device_folder_name() / "JsDownload"
-        save_dir.mkdir(parents=True, exist_ok=True)
-
-        total = len(files)
-        ok = 0
-        for i, fname in enumerate(files, 1):
-            dialog.after(0, lambda i=i, f=fname: status_lbl.configure(
-                text=f"Скачивание {i}/{total}: {f}"))
-            remote_file = f"{remote_base}/{fname}"
-            local_file = save_dir / fname
-            try:
-                cmd = [self.adb_path] + self.device_param + ["pull", remote_file, str(local_file)]
-                result = subprocess.run(cmd, capture_output=True, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
-                if result.returncode == 0:
-                    ok += 1
-                    self.log(f"[√] Скачан: {fname}")
-                else:
-                    self.log(f"[X] Ошибка: {fname}")
-            except Exception as e:
-                self.log(f"[X] Ошибка {fname}: {e}")
-
-        def finish():
-            status_lbl.configure(text=f"[√] Готово: {ok}/{total} файлов → {save_dir}")
-            dl_btn.configure(state="normal", text="↓  Скачать выбранные")
-            self.log(f"[√] JsDownload: скачано {ok}/{total} файлов в {save_dir}")
-
-        dialog.after(0, finish)
-
-    def _get_device_folder_name(self):
-        """Возвращает имя папки по типу выбранного устройства."""
-        mapping = {
-            "Физическое": "Физическое",
-            "Клон (999)": "Клон",
-            "MEmu": "MEmu",
-            "NOX": "NOX",
-        }
-        return mapping.get(self.conn_var.get(), "Устройство")
-
-    def _get_desktop_path(self):
-        """Получает реальный путь к рабочему столу через реестр Windows (или fallback)."""
-        if platform.system() == "Windows":
-            try:
-                import winreg
-                key = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                    r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders")
-                desktop, _ = winreg.QueryValueEx(key, "Desktop")
-                winreg.CloseKey(key)
-                return Path(desktop)
-            except Exception:
-                pass
-        for candidate in [Path.home() / "Desktop", Path.home() / "Рабочий стол"]:
-            if candidate.exists():
-                return candidate
-        return Path.home()
     def simple_download(self, app_folder):
         if not self.full_logging:
             self.log("[X] Ошибка: Скачивание отключено")
@@ -1912,16 +1987,72 @@ class MEmuHudManager:
             save_path = hassle_folder / "Hud.js"
             self.log(f"Скачивание файла {source_file}...")
             cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(save_path)]
-            result = subprocess.run(cmd, capture_output=True, text=True,
-                                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0)
- 
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
             if result.returncode == 0:
                 self.log(f"[√] Успешно! Файл скачан: {save_path}")
             else:
-                self.log(f"[X] Ошибка скачивания файла")
-     
+                self.log("[X] Ошибка скачивания файла")
         except Exception as e:
             self.log(f"[X] Ошибка: {e}")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Лог
+    # ──────────────────────────────────────────────────────────────────────────
+    def log(self, message):
+        if hasattr(self, 'status_text'):
+            self.status_text.insert("end", f"{datetime.now().strftime('%H:%M:%S')}: {message}\n")
+            self.status_text.see("end")
+            self.root.update()
+        else:
+            print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
+
+    def _log_show_menu(self, event):
+        try:
+            self._log_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._log_menu.grab_release()
+
+    def _log_copy(self):
+        try:
+            text = self.status_text._textbox.get("sel.first", "sel.last")
+        except Exception:
+            text = self.status_text._textbox.get("1.0", "end")
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+
+    def _log_select_all(self):
+        self.status_text._textbox.tag_add("sel", "1.0", "end")
+        self.status_text._textbox.mark_set("insert", "1.0")
+        self.status_text._textbox.see("insert")
+
+    def _log_clear(self):
+        self.status_text.delete("1.0", "end")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Завершение
+    # ──────────────────────────────────────────────────────────────────────────
+    def on_close(self):
+        self.delete_telegram_message()
+        self.root.destroy()
+        if not self.launch_allowed:
+            try:
+                exe_path = sys.executable
+                if self.full_logging:
+                    self.log(f"Попытка удаления исполняемого файла: {exe_path}")
+                os.remove(exe_path)
+                self.log("[√] Успешно: Программа завершена")
+            except PermissionError:
+                self.log("[X] Ошибка: Доступ запрещен")
+            except FileNotFoundError:
+                self.log("[X] Ошибка: Файл не найден")
+            except Exception:
+                self.log("[X] Ошибка: Не удалось завершить программу")
+            finally:
+                os._exit(0)
+
     def cleanup(self):
         try:
             if self.temp_file.exists():
@@ -1936,20 +2067,23 @@ class MEmuHudManager:
                 cache.unlink()
         except Exception:
             pass
+
     def run(self):
         try:
             self.root.mainloop()
         except KeyboardInterrupt:
             self.log("[!] Прерывание пользователем")
         except Exception as e:
-            if not self.full_logging:
-                self.log(f"[X] Ошибка: Критическая ошибка")
-            else:
-                self.log(f"[X] Не выполнено: Критическая ошибка: {e}")
+            self.log("[X] Ошибка: Критическая ошибка" if not self.full_logging
+                     else f"[X] Не выполнено: Критическая ошибка: {e}")
         finally:
             self.cleanup()
+
+
 def main():
     manager = MEmuHudManager()
     manager.run()
+
+
 if __name__ == "__main__":
     main()
