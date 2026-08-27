@@ -2902,21 +2902,21 @@ function showNotifSettingsMenu(chatId, messageId, uniqueIdParam, scope = 'local'
     const replyMarkup = {
         inline_keyboard: [
             [createButton(
-                config.paydayNotifications ? '🟢 PayDay ВКЛ' : '🔴 PayDay ВЫКЛ',
+                config.paydayNotifications ? '🟢 PayDay' : '🔴 PayDay',
                 config.paydayNotifications
                     ? `notif_apply_${s}_p_off_${uniqueIdParam}`
                     : `notif_apply_${s}_p_on_${uniqueIdParam}`,
                 config.paydayNotifications ? 'success' : 'danger'
             )],
             [createButton(
-                config.govMessagesEnabled ? '🟢 Сообщения ВКЛ' : '🔴 Сообщения ВЫКЛ',
+                config.govMessagesEnabled ? '🟢 Сообщения' : '🔴 Сообщения',
                 config.govMessagesEnabled
                     ? `notif_apply_${s}_soob_off_${uniqueIdParam}`
                     : `notif_apply_${s}_soob_on_${uniqueIdParam}`,
                 config.govMessagesEnabled ? 'success' : 'danger'
             )],
             [createButton(
-                config.trackLocationRequests ? '🟢 Место ВКЛ' : '🔴 Место ВЫКЛ',
+                config.trackLocationRequests ? '🟢 Место' : '🔴 Место',
                 config.trackLocationRequests
                     ? `notif_apply_${s}_mesto_off_${uniqueIdParam}`
                     : `notif_apply_${s}_mesto_on_${uniqueIdParam}`,
@@ -2924,14 +2924,14 @@ function showNotifSettingsMenu(chatId, messageId, uniqueIdParam, scope = 'local'
             )],
             [
                 createButton(
-                    config.radioOfficialNotifications ? '🟢 Рация ВКЛ' : '🔴 Рация ВЫКЛ',
+                    config.radioOfficialNotifications ? '🟢 Рация' : '🔴 Рация',
                     config.radioOfficialNotifications
                         ? `notif_apply_${s}_radio_off_${uniqueIdParam}`
                         : `notif_apply_${s}_radio_on_${uniqueIdParam}`,
                     config.radioOfficialNotifications ? 'success' : 'danger'
                 ),
                 createButton(
-                    config.radioImportantFilter ? '🟢 Фильтр ВКЛ' : '🔴 Фильтр ВЫКЛ',
+                    config.radioImportantFilter ? '🟢 Фильтр' : '🔴 Фильтр',
                     config.radioImportantFilter
                         ? `notif_apply_${s}_radiofilter_off_${uniqueIdParam}`
                         : `notif_apply_${s}_radiofilter_on_${uniqueIdParam}`,
@@ -2939,7 +2939,7 @@ function showNotifSettingsMenu(chatId, messageId, uniqueIdParam, scope = 'local'
                 )
             ],
             [createButton(
-                config.warningNotifications ? '🟢 Выговоры ВКЛ' : '🔴 Выговоры ВЫКЛ',
+                config.warningNotifications ? '🟢 Выговоры' : '🔴 Выговоры',
                 config.warningNotifications
                     ? `notif_apply_${s}_warning_off_${uniqueIdParam}`
                     : `notif_apply_${s}_warning_on_${uniqueIdParam}`,
@@ -4228,7 +4228,7 @@ function processUpdates(updates) {
                         if (_scope === 'local') sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП ${_isOn ? 'ВКЛ' : 'ВЫКЛ'} ${_label}</b>`, false, null);
                         break;
                 }
-                // 2. Применяем глобально или показываем меню
+                // 2. Для global — рассылаем остальным ботам
                 if (_scope === 'global') {
                     const _cmdMap = {
                         'p':           'toggle_payday',
@@ -4244,11 +4244,9 @@ function processUpdates(updates) {
                         handleGlobalBroadcastCommand(_broadcastCmd, _action); // FIX: применяем у себя (бот не получает свои channel_post)
                         broadcastGlobalCommand(_broadcastCmd, _action);
                     }
-                    sendWelcomeMessage(true); // обновляем welcome текущего бота
-                } else {
-                    // Показываем обновлённое меню настроек с актуальными статусами (сохраняем scope)
-                    showNotifSettingsMenu(chatId, messageId, callbackUniqueId, _scope);
                 }
+                // Показываем обновлённое меню настроек с актуальными статусами (сохраняем scope)
+                showNotifSettingsMenu(chatId, messageId, callbackUniqueId, _scope);
             } else if (message.startsWith('show_welcome_settings_')) {
                 // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
                 globalState.welcomeShowSettings = true;
