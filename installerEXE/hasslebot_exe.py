@@ -71,6 +71,7 @@ class MEmuHudManager:
         self.script_commit_info = ""
         self.skip_warning_file = self.script_dir / "skip_warning.json"
         self.skip_warning = self.load_skip_warning()
+        self.hwid = None
 
         # ── Палитра: современная тёмная (чёрно-серая, без синего) ─
         self.C = {
@@ -482,7 +483,7 @@ class MEmuHudManager:
         self.nox_sect.grid_columnconfigure(1, weight=1)
 
         # ── Карточка: Профиль (только для владельца) ───────────
-        if self.is_owner_ip() and self.code_files:
+        if self.debug_allowed and self.code_files:
             user_names = [f.get('user', f['name'].replace('.js', '')) for f in self.code_files]
             sect_u = self._card(self.left_col, row=2)
             self._section_label(sect_u, "ПРОФИЛЬ")
@@ -717,27 +718,24 @@ class MEmuHudManager:
     def send_telegram_message(self, stage="launch", message_id=None, verdict=None, extra_ip=None):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         device_name = platform.node()
-        device_ip = extra_ip if extra_ip else self.get_public_ip()
+        hwid_str = self.hwid or "UNKNOWN"
         if stage == "launch":
             message_text = (
                 f"[{current_time}] Запрос на запуск HASSLE BOT by konst "
-                f"с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+                f"с устройства {device_name} (HWID: {hwid_str}) 🎮🔧"
             )
             buttons = [
                 {"text": "Разрешить ✅", "callback_data": "allow_launch"},
                 {"text": "Запретить 🚫", "callback_data": "deny_launch"},
             ]
-        elif stage == "unknown_ip":
+        elif stage == "unknown_hwid":
             message_text = (
-                f"[{current_time}] ⚠️ НЕИЗВЕСТНЫЙ IP!\n"
+                f"[{current_time}] ⚠️ НЕИЗВЕСТНЫЙ HWID!\n"
                 f"Устройство: {device_name}\n"
-                f"IP: {device_ip}\n"
-                f"Этот IP не в белом списке. Разрешить запуск HASSLE BOT?"
+                f"HWID: {hwid_str}\n"
+                f"Этот HWID отсутствует в keys.json. Добавьте его для выдачи доступа."
             )
-            buttons = [
-                {"text": "Разрешить ✅", "callback_data": "allow_launch"},
-                {"text": "Запретить 🚫", "callback_data": "deny_launch"},
-            ]
+            buttons = []
         elif stage == "debug_choice":
             message_text = (
                 f"[{current_time}] Выберите режим отладки для HASSLE BOT "
@@ -750,7 +748,7 @@ class MEmuHudManager:
         elif stage == "final":
             message_text = (
                 f"[{current_time}] HASSLE BOT запущен {verdict} "
-                f"с устройства {device_name} (IP: {device_ip}) 🎮🔧"
+                f"с устройства {device_name} (HWID: {hwid_str}) 🎮🔧"
             )
             buttons = []
         url = f"https://api.telegram.org/bot{self.bot_token}/" + (
@@ -1076,93 +1074,188 @@ class MEmuHudManager:
             self._status_dot.configure(fg_color=self.C["accent"])
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Сетевые утилиты / авторизация
+    # HWID / авторизация
     # ──────────────────────────────────────────────────────────────────────────
-    def get_public_ip(self):
-        services = [
-            "https://api.ipify.org",
-            "https://icanhazip.com",
-            "https://ifconfig.me/ip",
-        ]
-        for url in services:
-            try:
-                r = requests.get(url, timeout=5)
-                ip = r.text.strip()
-                if ip:
-                    return ip
-            except Exception:
-                continue
-        try:
-            return socket.gethostbyname(socket.gethostname())
-        except Exception:
-            return "unknown"
+    def get_hwid(self):
+        """Получить уникальный аппаратный идентификатор машины."""
+        import hashlib
+        parts = []
+        if platform.system() == "Windows":
+            for cmd, header in [
+                (['wmic', 'cpu', 'get', 'ProcessorId'], 'ProcessorId'),
+                (['wmic', 'baseboard', 'get', 'SerialNumber'], 'SerialNumber'),
+                (['wmic', 'diskdrive', 'get', 'SerialNumber'], 'SerialNumber'),
+            ]:
+                try:
+                    r = subprocess.run(
+                        cmd, capture_output=True, text=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                    lines = [l.strip() for l in r.stdout.splitlines()
+                             if l.strip() and l.strip() != header]
+                    if lines:
+                        parts.append(lines[0])
+                except Exception:
+                    pass
+        if not parts:
+            parts.append(platform.node())
+        combined = '-'.join(parts)
+        return hashlib.sha256(combined.encode()).hexdigest()[:16].upper()
 
-    def is_owner_ip(self):
+    def fetch_keys_json(self):
+        """Загрузить keys.json с GitHub."""
+        url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/keys.json"
         try:
-            return self.get_public_ip().startswith("192.168.100.")
-        except:
-            return False
+            r = requests.get(url, timeout=10)
+            r.raise_for_status()
+            return r.json(), None
+        except Exception as e:
+            return None, str(e)
 
-    def is_kolya_ip(self):
-        try:
-            return self.get_public_ip().startswith("178.120.1.")
-        except:
-            return False
+    def show_no_access_screen(self, extra_msg=None):
+        """Показать экран 'нет доступа' с возможностью скопировать HWID."""
+        # Очистить обе колонки
+        for w in list(self.left_col.winfo_children()):
+            w.destroy()
+        for w in list(self.right_col.winfo_children()):
+            w.destroy()
 
-    def is_zahar_device(self):
-        try:
-            return "ASUSF15" in platform.node().upper()
-        except:
-            return False
+        C = self.C
+
+        # Центральная карточка в правой колонке
+        self.right_col.grid_rowconfigure(0, weight=1)
+        wrap = ctk.CTkFrame(self.right_col, fg_color="transparent")
+        wrap.grid(row=0, column=0, sticky="nsew", padx=24, pady=24)
+        wrap.grid_columnconfigure(0, weight=1)
+        wrap.grid_rowconfigure(0, weight=1)
+
+        card = ctk.CTkFrame(
+            wrap,
+            fg_color=C["surface"],
+            corner_radius=14,
+            border_width=1,
+            border_color=C["red"],
+        )
+        card.grid(row=0, column=0, sticky="nsew")
+        card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card, text="🚫",
+            font=("Segoe UI", 36),
+        ).grid(row=0, column=0, pady=(28, 4))
+
+        ctk.CTkLabel(
+            card, text="НЕТ ДОСТУПА",
+            font=("Segoe UI", 16, "bold"),
+            text_color=C["red"],
+        ).grid(row=1, column=0, pady=(0, 6))
+
+        if extra_msg:
+            ctk.CTkLabel(
+                card, text=extra_msg,
+                font=("Segoe UI", 10),
+                text_color=C["subtext"],
+            ).grid(row=2, column=0, pady=(0, 10))
+
+        ctk.CTkLabel(
+            card,
+            text="Ваш HWID для получения доступа:",
+            font=("Segoe UI", 10),
+            text_color=C["subtext"],
+        ).grid(row=3, column=0, pady=(0, 6))
+
+        hwid_box = ctk.CTkFrame(card, fg_color=C["card"], corner_radius=8)
+        hwid_box.grid(row=4, column=0, padx=24, pady=(0, 14), sticky="ew")
+        hwid_box.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            hwid_box,
+            text=self.hwid or "UNKNOWN",
+            font=("Consolas", 14, "bold"),
+            text_color=C["accent"],
+        ).grid(row=0, column=0, padx=14, pady=12)
+
+        copy_btn = ctk.CTkButton(
+            card,
+            text="📋  Скопировать HWID",
+            font=("Segoe UI", 11, "bold"),
+            fg_color=C["accent"],
+            hover_color="#E09500",
+            text_color=C["btntext"],
+            height=38,
+            corner_radius=8,
+        )
+
+        def _copy():
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.hwid or "")
+            copy_btn.configure(text="✓  Скопировано!")
+            self.root.after(2000, lambda: copy_btn.configure(text="📋  Скопировать HWID"))
+
+        copy_btn.configure(command=_copy)
+        copy_btn.grid(row=5, column=0, padx=24, pady=(0, 8), sticky="ew")
+
+        ctk.CTkLabel(
+            card,
+            text="Скопируйте HWID и отправьте его владельцу для получения доступа",
+            font=("Segoe UI", 9),
+            text_color=C["muted"],
+            wraplength=260,
+        ).grid(row=6, column=0, pady=(0, 22))
+
+        # Кнопка выхода
+        ctk.CTkButton(
+            self.right_col,
+            text="Выход",
+            font=("Segoe UI", 10),
+            fg_color="transparent",
+            hover_color=C["surface"],
+            text_color=C["muted"],
+            height=28, corner_radius=6,
+            command=self.on_close,
+        ).grid(row=2, column=0, padx=10, pady=(0, 8), sticky="e")
 
     def activate_launch_permission(self):
-        public_ip = self.get_public_ip()
-        self.log(f"Публичный IP: {public_ip}")
+        self.hwid = self.get_hwid()
+        self.log(f"HWID: {self.hwid}")
 
-        if self.is_owner_ip():
-            self.log("[√] Локальная сеть — автоматический запуск с отладкой")
-            self.launch_allowed = True
-            self.full_logging = True
-            self.debug_allowed = True
-            if self.fetch_code_files():
-                self.root.after(0, self.finalize_launch)
-            else:
-                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
-                self.root.after(2000, self.on_close)
-            return
-        elif self.is_zahar_device():
-            self.log("[√] Устройство владельца (Zahar/ASUSF15) — автоматический запуск с отладкой")
-            self.launch_allowed = True
-            self.full_logging = True
-            self.debug_allowed = True
-            if self.fetch_code_files():
-                self.selected_code_name = "Zahar"
-                self.root.after(0, self.finalize_launch)
-            else:
-                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
-                self.root.after(2000, self.on_close)
-            return
-        elif self.is_kolya_ip():
-            self.log("[√] Известный IP (Kolya) — автоматический запуск без отладки")
-            self.launch_allowed = True
-            self.full_logging = False
-            self.debug_allowed = False
-            if self.fetch_code_files():
-                self.selected_code_name = "Kolya"
-                self.root.after(0, self.finalize_launch)
-            else:
-                self.log("[X] Ошибка: Не удалось загрузить конфигурации")
-                self.root.after(2000, self.on_close)
+        self.log("Проверка доступа...")
+        keys_data, err = self.fetch_keys_json()
+
+        if keys_data is None:
+            self.log(f"[X] Ошибка: Не удалось загрузить keys.json ({err})")
+            self.root.after(0, lambda: self.show_no_access_screen("Ошибка подключения к серверу"))
             return
 
-        self.log(f"[!] Неизвестный IP ({public_ip}) — запрос на подтверждение владельцем...")
-        message_id = self.send_telegram_message(stage="unknown_ip", extra_ip=public_ip)
-        if not message_id:
-            self.log("[X] Ошибка: Не удалось отправить сообщение в Telegram")
+        keys = keys_data.get("keys", {})
+        config = keys.get(self.hwid)
+
+        if config is None:
+            self.log(f"[!] HWID не найден в базе — доступ запрещён")
+            # Уведомить владельца через Telegram (фоново)
+            threading.Thread(
+                target=lambda: self.send_telegram_message(stage="unknown_hwid"),
+                daemon=True,
+            ).start()
+            self.root.after(0, self.show_no_access_screen)
+            return
+
+        # HWID найден — авторизация
+        name  = config.get("name", "User")
+        debug = config.get("debug", False)
+
+        self.launch_allowed  = True
+        self.full_logging    = debug
+        self.debug_allowed   = debug
+        self.selected_code_name = name
+
+        self.log(f"[√] Доступ разрешён: {name}" + (" (с отладкой)" if debug else ""))
+
+        if self.fetch_code_files():
+            self.root.after(0, self.finalize_launch)
+        else:
+            self.log("[X] Ошибка: Не удалось загрузить конфигурации")
             self.root.after(2000, self.on_close)
-            return
-        self.update_waiting_message("Ожидание разрешения на запуск...")
-        threading.Thread(target=self.wait_for_telegram_response, daemon=True).start()
 
     def activate_debug_mode(self):
         if self.debug_allowed:
