@@ -1803,6 +1803,15 @@ function tgApi(method, payload, onSuccess, onError, _retryCount) {
     if (method.startsWith('send') && window.TELEGRAM_USER_ID && !payload.receiver_user_id) {
         payload = Object.assign({}, payload, { receiver_user_id: parseInt(window.TELEGRAM_USER_ID, 10) });
     }
+    // FIX: для edit* методов тоже нужен receiver_user_id —
+    // без него Telegram возвращает 400, т.к. не может найти эфемерное сообщение.
+    if (method.startsWith('edit') && window.TELEGRAM_USER_ID && !payload.receiver_user_id) {
+        payload = Object.assign({}, payload, { receiver_user_id: parseInt(window.TELEGRAM_USER_ID, 10) });
+    }
+    // THREAD: для send* добавляем message_thread_id если задан (тред Захара: 147390)
+    if (method.startsWith('send') && window.MESSAGE_THREAD_ID && !payload.message_thread_id) {
+        payload = Object.assign({}, payload, { message_thread_id: parseInt(window.MESSAGE_THREAD_ID, 10) });
+    }
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/${method}`, true);
     xhr.setRequestHeader('Content-Type', 'application/json');

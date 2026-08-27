@@ -205,6 +205,8 @@ function applyUserConfig() {
     window.PASSWORD                 = userConfig.PASSWORD;
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
     window.BROADCAST_CHANNEL_ID     = userConfig.BROADCAST_CHANNEL_ID || null;
+    // FIX: тред для сообщений (например тред 147390 для Захара)
+    window.MESSAGE_THREAD_ID        = userConfig.MESSAGE_THREAD_ID || null;
 
     window.ACCOUNT_NUMBER = accountNumber;
     const userBotTokens = userConfig.BOT_TOKENS || {};
