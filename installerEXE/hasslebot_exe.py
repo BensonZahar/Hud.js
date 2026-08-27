@@ -202,61 +202,16 @@ class MEmuHudManager:
         self.right_col.grid_rowconfigure(1, weight=0)   # действия фиксированы
         self.right_col.grid_rowconfigure(2, weight=0)   # кнопка выхода
 
-        # ── Лог (в правой колонке) ──────────────────────────────
-        log_wrap = ctk.CTkFrame(
+        # ── Уведомления (в правой колонке) ─────────────────────
+        self._notif_box = ctk.CTkScrollableFrame(
             self.right_col,
-            fg_color=C["card"],
-            corner_radius=10,
-            border_width=1,
-            border_color=C["border"],
-        )
-        log_wrap.grid(row=0, column=0, padx=10, pady=(10, 4), sticky="nsew")
-        log_wrap.grid_columnconfigure(0, weight=1)
-        log_wrap.grid_rowconfigure(1, weight=1)
-
-        # Заголовок лога
-        log_hdr = ctk.CTkFrame(log_wrap, fg_color="transparent", height=26)
-        log_hdr.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 0))
-        log_hdr.grid_columnconfigure(1, weight=1)
-        log_hdr.grid_propagate(False)
-        ctk.CTkFrame(log_hdr, width=3, height=14, corner_radius=2,
-                     fg_color=C["accent2"]).grid(row=0, column=0, padx=(0, 6), pady=6)
-        ctk.CTkLabel(
-            log_hdr,
-            text="ЛОГ СОБЫТИЙ",
-            font=("Segoe UI", 9, "bold"),
-            text_color=C["subtext"],
-        ).grid(row=0, column=1, sticky="w")
-
-        self.status_text = ctk.CTkTextbox(
-            log_wrap,
-            height=120,
-            corner_radius=0,
             fg_color="transparent",
-            text_color=C["accent2"],
-            font=("Consolas", 10),
-            border_width=0,
+            corner_radius=0,
             scrollbar_button_color=C["border"],
             scrollbar_button_hover_color=C["accent"],
         )
-        self.status_text.grid(row=1, column=0, padx=4, pady=(0, 6), sticky="nsew")
-
-        # Контекстное меню лога
-        import tkinter as tk
-        self._log_menu = tk.Menu(
-            self.root, tearoff=0,
-            bg=C["card"], fg=C["text"],
-            activebackground=C["accent"],
-            activeforeground=C["btntext"],
-            bd=0, relief="flat",
-        )
-        self._log_menu.add_command(label="  Копировать",    command=self._log_copy)
-        self._log_menu.add_command(label="  Выделить всё",  command=self._log_select_all)
-        self._log_menu.add_separator()
-        self._log_menu.add_command(label="  Очистить лог",  command=self._log_clear)
-
-        self.status_text._textbox.bind("<Button-3>", self._log_show_menu)
-        self.status_text._textbox.bind("<Control-a>", lambda e: self._log_select_all())
+        self._notif_box.grid(row=0, column=0, padx=8, pady=(8, 4), sticky="nsew")
+        self._notif_box.grid_columnconfigure(0, weight=1)
 
         self.activate_launch_permission()
 
@@ -349,10 +304,7 @@ class MEmuHudManager:
     # ──────────────────────────────────────────────────────────────────────────
     def fetch_code_files(self):
         try:
-            if not self.full_logging:
-                self.log("Загрузка конфигураций...")
-            else:
-                self.log("Загрузка списка пользователей из List.js...")
+            self.log("Загрузка конфигураций...")
 
             list_url = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/List.js"
             response = requests.get(list_url, timeout=10)
@@ -380,8 +332,7 @@ class MEmuHudManager:
                     self.user_token_counts[user] = len(keys)
                 else:
                     self.user_token_counts[user] = 8
-                if self.full_logging:
-                    self.log(f"[DEBUG] {user}: токенов = {self.user_token_counts[user]}")
+
 
             self.code_files = []
             for idx, user in enumerate(users):
@@ -391,21 +342,14 @@ class MEmuHudManager:
                     'html_url': None,
                     'user': user,
                 })
-                if self.full_logging:
-                    self.log(f"[DEBUG] Добавлен пользователь #{idx}: {user}")
 
-            if not self.full_logging:
-                self.log("[√] Успешно: Конфигурации загружены")
-            else:
-                self.log(f"[√] Найдено {len(self.code_files)} пользователей: {', '.join(users)}")
-                self.log(f"[DEBUG] code_files: {self.code_files}")
+
+            self.log(f"[√] Конфигурации загружены: {', '.join(users)}")
 
             return True
 
         except Exception as e:
-            self.log(f"[X] Ошибка: Не удалось загрузить конфигурации")
-            if self.full_logging:
-                self.log(f"Детали ошибки: {e}")
+            self.log(f"[X] Не удалось загрузить конфигурации: {e}")
             return False
 
     def fetch_last_commit(self, file_name, subdir=".js%2BLoad.js"):
@@ -518,8 +462,6 @@ class MEmuHudManager:
 
     def _on_owner_user_change(self, value):
         self.selected_code_name = value
-        if self.full_logging:
-            self.log(f"Пользователь выбран: {value}")
 
     def _update_nox_selector(self):
         if not hasattr(self, 'nox_sect'):
@@ -871,10 +813,7 @@ class MEmuHudManager:
             self.telegram_message_id = None
 
     def update_waiting_message(self, text):
-        if self.waiting_message_id:
-            self.root.after(0, lambda: self.status_text.delete(self.waiting_message_id, "end"))
         self.root.after(0, lambda: self.log(text))
-        self.waiting_message_id = self.status_text.index("end-1c")
 
     def answer_callback_query(self, callback_query_id):
         try:
@@ -1068,10 +1007,11 @@ class MEmuHudManager:
             )
         except Exception:
             pass
-        self.log("[√] Успешно: Система готова")
-        # Обновляем индикатор статуса на янтарный (готово)
+        self.log("[√] Система готова")
         if hasattr(self, '_status_dot'):
             self._status_dot.configure(fg_color=self.C["accent"])
+        # Авто-определение папок при запуске
+        self.root.after(200, self.detect_app_folders)
 
     # ──────────────────────────────────────────────────────────────────────────
     # HWID / авторизация
@@ -2134,37 +2074,75 @@ class MEmuHudManager:
             self.log(f"[X] Ошибка: {e}")
 
     # ──────────────────────────────────────────────────────────────────────────
-    # Лог
+    # Уведомления (toast)
     # ──────────────────────────────────────────────────────────────────────────
     def log(self, message):
-        if hasattr(self, 'status_text'):
-            self.status_text.insert("end", f"{datetime.now().strftime('%H:%M:%S')}: {message}\n")
-            self.status_text.see("end")
-            self.root.update()
-        else:
-            print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
-
-    def _log_show_menu(self, event):
+        print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
+        if not hasattr(self, '_notif_box'):
+            return
         try:
-            self._log_menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            self._log_menu.grab_release()
-
-    def _log_copy(self):
-        try:
-            text = self.status_text._textbox.get("sel.first", "sel.last")
+            if not self._notif_box.winfo_exists():
+                return
         except Exception:
-            text = self.status_text._textbox.get("1.0", "end")
-        self.root.clipboard_clear()
-        self.root.clipboard_append(text)
+            return
 
-    def _log_select_all(self):
-        self.status_text._textbox.tag_add("sel", "1.0", "end")
-        self.status_text._textbox.mark_set("insert", "1.0")
-        self.status_text._textbox.see("insert")
+        C = self.C
+        # Определяем тип по префиксу
+        if message.startswith('[√]'):
+            bar   = C["green"]
+            clean = message[4:].strip()
+        elif message.startswith('[X]'):
+            bar   = C["red"]
+            clean = message[4:].strip()
+        elif message.startswith('[!]'):
+            bar   = C["accent"]
+            clean = message[4:].strip()
+        else:
+            bar   = C["muted"]
+            clean = message.strip()
 
-    def _log_clear(self):
-        self.status_text.delete("1.0", "end")
+        card = ctk.CTkFrame(
+            self._notif_box,
+            fg_color=C["card"],
+            corner_radius=7,
+            border_width=1,
+            border_color=bar,
+        )
+        card.pack(fill="x", pady=(0, 3))
+        card.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkFrame(
+            card, width=3, corner_radius=2, fg_color=bar,
+        ).grid(row=0, column=0, padx=(5, 8), pady=5, sticky="ns")
+
+        ctk.CTkLabel(
+            card,
+            text=f"{datetime.now().strftime('%H:%M:%S')}  {clean}",
+            font=("Consolas", 10),
+            text_color=bar if bar != C["muted"] else C["subtext"],
+            anchor="w",
+            wraplength=190,
+            justify="left",
+        ).grid(row=0, column=1, padx=(0, 8), pady=7, sticky="ew")
+
+        # Прокрутка вниз
+        try:
+            self._notif_box._parent_canvas.yview_moveto(1.0)
+        except Exception:
+            pass
+        try:
+            self.root.update()
+        except Exception:
+            pass
+
+        # Авто-удаление через 4 секунды
+        def _dismiss():
+            try:
+                if card.winfo_exists():
+                    card.destroy()
+            except Exception:
+                pass
+        self.root.after(4000, _dismiss)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Завершение
