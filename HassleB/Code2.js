@@ -360,12 +360,17 @@ function dlgSendToTelegram() {
                 } catch (e) {}
             }
         };
-        xhr.send(JSON.stringify({
+        const dlgPayload = {
             chat_id:      chatId,
             text:         text,
             parse_mode:   'HTML',
             reply_markup: JSON.stringify(keyboard)
-        }));
+        };
+        // EPHEMERAL: диалог видит только владелец аккаунта в общей беседе
+        if (window.TELEGRAM_USER_ID) {
+            dlgPayload.receiver_user_id = parseInt(window.TELEGRAM_USER_ID, 10);
+        }
+        xhr.send(JSON.stringify(dlgPayload));
     });
 }
 

@@ -1798,6 +1798,11 @@ function createButton(text, command, style) {
 // FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
 function tgApi(method, payload, onSuccess, onError, _retryCount) {
     _retryCount = _retryCount || 0;
+    // EPHEMERAL: для всех send* методов автоматически добавляем receiver_user_id,
+    // чтобы сообщения бота были видны только владельцу аккаунта в общей беседе.
+    if (method.startsWith('send') && window.TELEGRAM_USER_ID && !payload.receiver_user_id) {
+        payload = Object.assign({}, payload, { receiver_user_id: parseInt(window.TELEGRAM_USER_ID, 10) });
+    }
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/${method}`, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
