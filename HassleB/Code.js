@@ -3303,10 +3303,45 @@ function _abortPollAndRestartFast() {
     setTimeout(checkTelegramCommands, 0);
 }
 
+// FIX: На свежем старте (перезагрузка страницы) пропускаем накопленную очередь старых обновлений.
+// window._hbOffset_* хранится в памяти и сбрасывается при каждом перезапуске игры,
+// поэтому без этого все старые нажатия кнопок воспроизводятся заново.
+function _skipOldUpdatesOnFreshStart(callback) {
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=-1&limit=1&timeout=0`;
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', url, true);
+    xhr.timeout = 5000;
+    xhr.onload = function() {
+        try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.ok && data.result.length > 0) {
+                const latestId = data.result[data.result.length - 1].update_id;
+                setSharedLastUpdateId(latestId);
+                config.lastUpdateId = latestId;
+                debugLog(`[POLL] Свежий старт: пропущена очередь старых обновлений, offset → ${latestId}`);
+            } else {
+                debugLog('[POLL] Свежий старт: очередь пуста, начинаем с нуля');
+            }
+        } catch (e) {
+            debugLog('[POLL] Ошибка пропуска старых обновлений: ' + e);
+        }
+        callback();
+    };
+    xhr.onerror   = function() { callback(); };
+    xhr.ontimeout = function() { callback(); };
+    xhr.send();
+}
+
 function checkTelegramCommands() {
     if (window._hassleReloading) return;
     _pollRestartScheduled = false;
     config.lastUpdateId = getSharedLastUpdateId();
+
+    // Свежий старт (перезагрузка страницы) — offset=0, пропускаем старые обновления
+    if (config.lastUpdateId === 0) {
+        _skipOldUpdatesOnFreshStart(() => checkTelegramCommands());
+        return;
+    }
 
     const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=25`;
     const xhr = new XMLHttpRequest();
