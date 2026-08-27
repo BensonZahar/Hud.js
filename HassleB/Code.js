@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗаво'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -1734,7 +1734,7 @@ function trackNicknameAndServer() {
             debugLog(`[NICK] Изменение: ${nicknameStr} [S${serverStr}]`);
             updateDisplayName();
             uniqueId = `${nicknameStr}_${serverStr}`;
-            sendWelcomeMessage(); // редактирует уже отправленное сообщение
+            sendWelcomeMessage(true); // редактирует уже отправленное сообщение
         }
     }
 
@@ -1838,12 +1838,11 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
                 debugLog(`[EDIT] Контент не изменился — пропускаем (${chatId})`);
                 return;
             }
-            // Сообщение удалено или недоступно — сбрасываем ID и шлём новое
-            debugLog(`[EDIT] Сообщение ${messageId} не найдено в чате ${chatId} — отправляем новое`);
+            // Сообщение удалено или недоступно — сбрасываем ID, новый welcome создаст /list
+            debugLog(`[EDIT] Сообщение ${messageId} не найдено в чате ${chatId} — сбрасываем ID`);
             if (globalState.welcomeMessageIds && globalState.welcomeMessageIds[chatId] === messageId) {
                 delete globalState.welcomeMessageIds[chatId];
                 if (globalState.welcomeSending) globalState.welcomeSending[chatId] = false;
-                sendWelcomeMessage();
             }
         }
     });
@@ -3379,27 +3378,27 @@ function processUpdates(updates) {
             } else if (message === '/p_off') {
                 config.paydayNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message === '/p_on') {
                 config.paydayNotifications = true;
                 sendToTelegram(`🔔 <b>Уведомления о PayDay включены для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message === '/soob_off') {
                 config.govMessagesEnabled = false;
                 sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message === '/soob_on') {
                 config.govMessagesEnabled = true;
                 sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message === '/mesto_on') {
                 config.trackLocationRequests = true;
                 sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message === '/mesto_off') {
                 config.trackLocationRequests = false;
                 sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`/chat${config.accountInfo.nickname}_${config.accountInfo.server} `)) {
                 const textToSend = message.replace(`/chat${config.accountInfo.nickname}_${config.accountInfo.server} `, '').trim();
                 debugLog(`[${displayName}] Получено сообщение: ${textToSend}`);
@@ -3455,7 +3454,7 @@ function processUpdates(updates) {
                     }
                 });
                 globalState.lastWelcomeMessageId = null;
-                sendWelcomeMessage();
+                sendWelcomeMessage(); // ← единственное место, где создаётся новый welcome
             }
         } else if (update.callback_query) {
             const message = update.callback_query.data;
@@ -3778,72 +3777,72 @@ function processUpdates(updates) {
                 handleGlobalBroadcastCommand('toggle_kac', 'on'); // FIX: применяем у себя (бот не получает свои channel_post)
                 broadcastGlobalCommand('toggle_kac', 'on');
                 sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП включён для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_kac_off_`)) {
                 handleGlobalBroadcastCommand('toggle_kac', 'off'); // FIX: применяем у себя (бот не получает свои channel_post)
                 broadcastGlobalCommand('toggle_kac', 'off');
                 sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП отключён для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_p_on_`)) {
                 config.paydayNotifications = true;
                 broadcastGlobalCommand('toggle_payday', 'on'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🔔 <b>Уведомления о PayDay включены для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_p_off_`)) {
                 config.paydayNotifications = false;
                 broadcastGlobalCommand('toggle_payday', 'off'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🔕 <b>Уведомления о PayDay отключены для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_soob_on_`)) {
                 config.govMessagesEnabled = true;
                 broadcastGlobalCommand('toggle_soob', 'on'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_soob_off_`)) {
                 config.govMessagesEnabled = false;
                 broadcastGlobalCommand('toggle_soob', 'off'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_mesto_on_`)) {
                 config.trackLocationRequests = true;
                 broadcastGlobalCommand('toggle_mesto', 'on'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_mesto_off_`)) {
                 config.trackLocationRequests = false;
                 broadcastGlobalCommand('toggle_mesto', 'off'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_radio_on_`)) {
                 config.radioOfficialNotifications = true;
                 broadcastGlobalCommand('toggle_radio', 'on'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🔔 <b>Рация (все сообщения) включена для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_radio_off_`)) {
                 config.radioOfficialNotifications = false;
                 broadcastGlobalCommand('toggle_radio', 'off'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🔕 <b>Рация (все сообщения) отключена для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_radio_filter_on_`)) {
                 config.radioImportantFilter = true;
                 broadcastGlobalCommand('toggle_radio_filter', 'on'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🎯 <b>Фильтр рации (строй/место/ID) включён для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_radio_filter_off_`)) {
                 config.radioImportantFilter = false;
                 broadcastGlobalCommand('toggle_radio_filter', 'off'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🚫 <b>Фильтр рации (строй/место/ID) отключён для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_warning_on_`)) {
                 config.warningNotifications = true;
                 broadcastGlobalCommand('toggle_warning', 'on'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🔔 <b>Уведомления о выговорах включены для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_warning_off_`)) {
                 config.warningNotifications = false;
                 broadcastGlobalCommand('toggle_warning', 'off'); // FIX: рассылаем остальным ботам
                 sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для всех аккаунтов</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith(`global_afk_n_`)) {
                 showAFKNightModesMenu(chatId, messageId, callbackUniqueId);
             } else if (message.startsWith(`afk_n_with_pauses_`)) {
@@ -4030,51 +4029,51 @@ function processUpdates(updates) {
             } else if (message.startsWith("local_kac_on_")) {
                 config.kacAutoReply = true;
                 sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП включён для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_kac_off_")) {
                 config.kacAutoReply = false;
                 sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП отключён для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_soob_on_")) {
                 config.govMessagesEnabled = true;
                 sendToTelegram(`🔔 <b>Уведомления от сотрудников фракции включены для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_soob_off_")) {
                 config.govMessagesEnabled = false;
                 sendToTelegram(`🔕 <b>Уведомления от сотрудников фракции отключены для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_mesto_on_")) {
                 config.trackLocationRequests = true;
                 sendToTelegram(`📍 <b>Отслеживание запросов местоположения включено для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_mesto_off_")) {
                 config.trackLocationRequests = false;
                 sendToTelegram(`🔕 <b>Отслеживание запросов местоположения отключено для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_radio_on_")) {
                 config.radioOfficialNotifications = true;
                 sendToTelegram(`🔔 <b>Рация (все сообщения) включена для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_radio_off_")) {
                 config.radioOfficialNotifications = false;
                 sendToTelegram(`🔕 <b>Рация (все сообщения) отключена для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_radio_filter_on_")) {
                 config.radioImportantFilter = true;
                 sendToTelegram(`🎯 <b>Фильтр рации (строй/место/ID) включён для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_radio_filter_off_")) {
                 config.radioImportantFilter = false;
                 sendToTelegram(`🚫 <b>Фильтр рации (строй/место/ID) отключён для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_warning_on_")) {
                 config.warningNotifications = true;
                 sendToTelegram(`🔔 <b>Уведомления о выговорах включены для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_warning_off_")) {
                 config.warningNotifications = false;
                 sendToTelegram(`🔕 <b>Уведомления о выговорах отключены для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith("local_pause_toggle_")) {
                 // Переключение паузы из меню Функции
                 const isPaused = !!window.getInterfaceStatus("PauseMenu");
@@ -4159,15 +4158,15 @@ function processUpdates(updates) {
                     const _broadcastCmd = _cmdMap[_type];
                     if (_broadcastCmd) broadcastGlobalCommand(_broadcastCmd, _action);
                 }
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith('show_welcome_settings_')) {
                 // Кнопка "🔔 Настройки" — раскрываем блок настроек в welcome-сообщении
                 globalState.welcomeShowSettings = true;
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith('hide_welcome_settings_')) {
                 // Кнопка "🙈 Скрыть настройки" — скрываем блок настроек в welcome-сообщении
                 globalState.welcomeShowSettings = false;
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
             } else if (message.startsWith('prison_reconnect_')) {
                 // Кнопка "Выйти с автр." — включаем автовход и делаем /rec 5
                 autoLoginConfig.enabled = true;
@@ -5533,7 +5532,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 const status = config.autoReconnectEnabled ? 'включен' : 'выключен';
                 showScreenNotification("Hassle", `Реконнект ${status}`);
                 sendToTelegram(`🔄 <b>Реконнект ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
                 setTimeout(() => showHBControlsMenu(), 100);
             }
             break;
@@ -5547,35 +5546,35 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 const status = config.govMessagesEnabled ? 'включены' : 'отключены';
                 showScreenNotification("Hassle", `Уведомления от сотрудников фракции ${status}`);
                 sendToTelegram(`${config.govMessagesEnabled ? '🔔' : '🔕'} <b>Уведомления от сотрудников фракции ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 3) {
                 config.trackLocationRequests = !config.trackLocationRequests;
                 const status = config.trackLocationRequests ? 'включено' : 'отключено';
                 showScreenNotification("Hassle", `Отслеживание местоположения ${status}`);
                 sendToTelegram(`${config.trackLocationRequests ? '📍' : '🔕'} <b>Отслеживание местоположения ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 4) {
                 config.radioOfficialNotifications = !config.radioOfficialNotifications;
                 const status = config.radioOfficialNotifications ? 'включены' : 'отключены';
                 showScreenNotification("Hassle", `Рация (все) ${status}`);
                 sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Рация (все) ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 5) {
                 config.radioImportantFilter = !config.radioImportantFilter;
                 const status = config.radioImportantFilter ? 'включён' : 'отключён';
                 showScreenNotification("Hassle", `Фильтр рации ${status}`);
                 sendToTelegram(`${config.radioImportantFilter ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 6) {
                 config.warningNotifications = !config.warningNotifications;
                 const status = config.warningNotifications ? 'включены' : 'отключены';
                 showScreenNotification("Hassle", `Уведомления выговоров ${status}`);
                 sendToTelegram(`${config.warningNotifications ? '⚠️' : '🔕'} <b>Уведомления выговоров ${status} для ${displayName}</b>`, false, null);
-                sendWelcomeMessage();
+                sendWelcomeMessage(true);
                 setTimeout(() => showHBLocalFunctionsMenu(), 100);
             } else if (listitem === 7) {
                 // Автоответ КАЧ/ЗП (локально)
@@ -6213,7 +6212,7 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
         _log(`[WARN] Выговоры: ${current}/${max} — сохранено в профиль`);
 
         setTimeout(function () {
-            if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
+            if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(true);
         }, 400);
     }
 
