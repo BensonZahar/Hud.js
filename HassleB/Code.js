@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗаво'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗавод'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -1806,7 +1806,7 @@ function tgApi(method, payload, onSuccess, onError, _retryCount) {
             setTimeout(() => tgApi(method, payload, onSuccess, onError, _retryCount + 1), retryAfter * 1000);
         } else {
             debugLog(`tgApi ${method} error: ${xhr.status} ${xhr.responseText}`);
-            if (onError) onError(xhr.status);
+            if (onError) onError(xhr.status, xhr.responseText);
         }
     };
     xhr.onerror = function() {
@@ -1829,9 +1829,16 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
         parse_mode: 'HTML',
         reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
     }, () => debugLog(`Сообщение отредактировано в Telegram чате ${chatId}`),
-    (status) => {
-        // 400 = сообщение удалено или недоступно — сбрасываем ID и шлём новое
+    (status, responseText) => {
         if (status === 400) {
+            // Проверяем тип ошибки — "not modified" это нормально, не требует нового сообщения
+            let desc = '';
+            try { desc = JSON.parse(responseText).description || ''; } catch(e) {}
+            if (desc.includes('message is not modified')) {
+                debugLog(`[EDIT] Контент не изменился — пропускаем (${chatId})`);
+                return;
+            }
+            // Сообщение удалено или недоступно — сбрасываем ID и шлём новое
             debugLog(`[EDIT] Сообщение ${messageId} не найдено в чате ${chatId} — отправляем новое`);
             if (globalState.welcomeMessageIds && globalState.welcomeMessageIds[chatId] === messageId) {
                 delete globalState.welcomeMessageIds[chatId];
