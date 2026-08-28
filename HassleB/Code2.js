@@ -1,999 +1,750 @@
-// Code2.js — АВТОШКОЛА v7 (только мобилка / Hassle)
-// - Запись и повтор: кнопки, джойстик, камера
-// - Камера: <Mouse>/delta
-// - Джойстик: <Gamepad>/leftStick
-// - Позиция: UpdatePlayerPosition + резервный интервал
-// - Контроль траектории: предупреждения, остановка только при сильном отклонении
+// Code2.js — АВТОШКОЛА v6 (без задержек, реалтайм координаты)
+// eval'ится из Code.js — имеет доступ к его переменным
+//
+// ╔══════════════════════════════════════════════════════════════════╗
+// ║  ИСПРАВЛЕНИЯ v6 vs v5:                                          ║
+// ║  ✅ УБРАН HOLD_REPEAT_INTERVAL — он был главным источником глюков║
+// ║     (повторный TouchStart сбивал движок при каждом повторе)     ║
+// ║  ✅ Один TouchStart + SetValue(1.0) при нажатии — как нативные  ║
+// ║     кнопки Hassle (см. UIMobileButton в Hud.js)                 ║
+// ║  ✅ POS_LOG_INTERVAL = 100мс (было 500мс) — больше точек пути   ║
+// ║  ✅ Реалтайм координаты при повторе — каждый кадр RAF (~16мс)   ║
+// ║  ✅ Мгновенный репорт при дрейфе > порога                       ║
+// ║  ✅ Оверлей обновляется каждый кадр без задержек                ║
+// ║  ✅ Упрощён детальный лог — O(1) вместо O(n) на каждое событие  ║
+// ║  ℹ️  Джойстик (leftStick/TouchMove) не записывается —           ║
+// ║     используйте кнопки A/D для поворота                         ║
+// ╚══════════════════════════════════════════════════════════════════╝
+
 (function () {
 'use strict';
 
-// ═══ Пути управления ТС ═══
+// ═══════════════════════════════════════════════════════════
+// ── Карта клавиш ───────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
 const KEY_MAP = {
-  87:  { label: 'Газ (W)',        path: '<Keyboard>/w' },
-  83:  { label: 'Тормоз (S)',     path: '<Keyboard>/s' },
-  65:  { label: 'Влево (A)',      path: '<Keyboard>/a' },
-  68:  { label: 'Вправо (D)',     path: '<Keyboard>/d' },
-  32:  { label: 'Ручник (Space)', path: '<Keyboard>/space' },
-  81:  { label: 'Пов.влево (Q)',  path: '<Keyboard>/q' },
-  69:  { label: 'Пов.вправо (E)', path: '<Keyboard>/e' },
-  72:  { label: 'Сигнал (H)',     path: '<Keyboard>/h' },
+    87: { label: 'Газ (W)',        path: '<Keyboard>/w'     },
+    83: { label: 'Тормоз (S)',     path: '<Keyboard>/s'     },
+    65: { label: 'Влево (A)',      path: '<Keyboard>/a'     },
+    68: { label: 'Вправо (D)',     path: '<Keyboard>/d'     },
+    32: { label: 'Ручник (Space)', path: '<Keyboard>/space' },
+    81: { label: 'Пов.влево (Q)', path: '<Keyboard>/q'     },
+    69: { label: 'Пов.вправо (E)',path: '<Keyboard>/e'     },
+    72: { label: 'Сигнал (H)',     path: '<Keyboard>/h'     },
 };
-
-const JOYSTICK_PATH = '<Gamepad>/leftStick';
-const CAMERA_PATH   = '<Mouse>/delta';
-
-const JOY_CODE    = 1000;
-const CAMERA_CODE = 1001;
-
 const RECORD_KEYS = new Set(Object.keys(KEY_MAP).map(Number));
+const PATH_MAP    = {};
+Object.keys(KEY_MAP).forEach(code => { PATH_MAP[KEY_MAP[code].path] = Number(code); });
 
-const PATH_MAP = {};
-Object.keys(KEY_MAP).forEach(function(code) {
-  PATH_MAP[KEY_MAP[code].path] = Number(code);
-});
+// ═══════════════════════════════════════════════════════════
+// ── Константы ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
 
-// Голос/рация/мегафон не пишем
-const IGNORE_PATHS = [
-  '<Keyboard>/x',
-  '<Keyboard>/u',
-  '<Keyboard>/x<Mouse>2'
-];
+const POS_THRESHOLD          = 1.5;  // Несовпадение старта (м)
+const END_POS_THRESHOLD      = 15;   // Несовпадение финиша (м)
+const ANGLE_THRESHOLD        = 3;    // Порог угла (°)
+const TIMING_WARN_THRESHOLD  = 50;   // Порог тайминг-дрифта (мс)
+const POS_LOG_INTERVAL       = 100;  // Запись позиции каждые 100мс (было 500)
+const POS_DRIFT_WARN         = 3;    // Предупреждение дрейфа (м)
+const POS_DRIFT_CRITICAL     = 8;    // Критический дрейф (м)
 
-// ═══ Пороги ═══
-const POS_LOG_INTERVAL    = 50;    // резервная запись позиции
-const POS_WARN            = 1.5;   // предупреждение, метры
-const POS_CRITICAL        = 50.0;  // остановка только если реально улетел далеко
-const POS_START_THRESHOLD = 2.0;   // допуск старта
-const ANGLE_START_THRESHOLD = 20;  // допуск угла старта
-const END_POS_THRESHOLD   = 10.0;  // допуск финиша
-const ANGLE_END_THRESHOLD = 45;    // допуск угла финиша
+// Реалтайм контроль при повторе (каждый кадр RAF)
+const RT_OVERLAY_THRESHOLD   = 0.2;  // Минимум для обновления оверлея (м)
+const RT_CHAT_THRESHOLD      = 0.5;  // Минимум для сообщения в чат (м)
+const RT_CHAT_COOLDOWN       = 500;  // Пауза между сообщениями чата (мс)
+const RT_CHAT_JUMP_THRESHOLD = 1.5;  // Внезапный скачок — репорт без паузы (м)
+
+// ═══════════════════════════════════════════════════════════
+// ── Состояние ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
 
 const avto = {
-  recording: false,
-  replaying: false,
-  events: [],
-  lastRoute: null,
-  startPerf: null,
-  replayRAF: null,
-
-  heldKeys: new Set(),
-
-  joyActive: false,
-  lastJoyX: 0,
-  lastJoyY: 0,
-
-  camActive: false,
-
-  startSnapshot: null,
-  endSnapshot: null,
-
-  posLog: [],
-  lastPosLog: [],
-  posLogIntervalId: null,
+    recording:     false,
+    events:        [],
+    startPerf:     null,
+    lastRoute:     null,
+    replaying:     false,
+    replayRAF:     null,
+    heldKeys:      new Set(),
+    startSnapshot: null,
+    endSnapshot:   null,
+    replayStats:   null,
+    posLog:        [],
+    lastPosLog:    [],
+    posLogIntId:   null,
+    maxPosDrift:   0,
+    detailedLog:   [],
+    keyPressTime:  {},   // code → время нажатия (для длительности)
 };
 
-let _posUpdateClear = null;
-
 // ═══════════════════════════════════════════════════════════
-// ── Позиция / математика ─────────────────────────────────
+// ── v6: ПРАВИЛЬНЫЙ ВВОД — один TouchStart, без повтора ────
 // ═══════════════════════════════════════════════════════════
-function _getSnapshot() {
-  let pos = null;
+// Нативные кнопки Hassle (UIMobileButton) посылают:
+//   touchstart → onScreenControlTouchStart (один раз)
+//   touchend   → onScreenControlTouchEnd   (один раз)
+// Никаких повторов! Движок держит состояние сам до TouchEnd.
+// Повторный TouchStart (как было в v5) сбивал движок.
 
-  try {
-    if (window.App && window.App.$store) {
-      const raw = window.App.$store.getters['player/position'];
-      if (raw && typeof raw.x === 'number' && typeof raw.y === 'number') {
-        pos = {
-          x: raw.x,
-          y: raw.y,
-          z: raw.z,
-          angle: raw.angle
-        };
-      }
+function _inputDown(path) {
+    window.onScreenControlTouchStart(path);
+    if (typeof window.onScreenControlSetValue === 'function') {
+        window.onScreenControlSetValue(path, 1.0);
     }
-  } catch (e) {}
+    // ✅ Всё. Никаких интервалов, никаких повторов.
+}
 
-  return { pos };
+function _inputUp(path) {
+    if (typeof window.onScreenControlSetValue === 'function') {
+        window.onScreenControlSetValue(path, 0.0);
+    }
+    window.onScreenControlTouchEnd(path);
+}
+
+function _releaseAllInputs() {
+    RECORD_KEYS.forEach(function(code) {
+        var info = KEY_MAP[code];
+        if (!info) return;
+        try {
+            if (typeof window.onScreenControlSetValue === 'function') {
+                window.onScreenControlSetValue(info.path, 0.0);
+            }
+            window.onScreenControlTouchEnd(info.path);
+        } catch(e) {}
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+// ── Позиция ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+function _getPos() {
+    try {
+        if (window.App && window.App.$store) {
+            var raw = window.App.$store.getters['player/position'];
+            if (raw) return { x: raw.x, y: raw.y, z: raw.z, angle: raw.angle, interior: raw.interior };
+        }
+    } catch(e) {}
+    return null;
+}
+
+function _getSnapshot() {
+    var pos = _getPos(), inVehicle = false;
+    try {
+        var h = (typeof window.interface === 'function') ? window.interface('Hud') : null;
+        if (h) {
+            var spd = (h.$data && h.$data.speedometer) || h.speedometer;
+            if (spd) inVehicle = !!spd.show;
+        }
+    } catch(e) {}
+    return { pos, inVehicle };
 }
 
 function _fmtPos(pos) {
-  if (!pos || typeof pos.x !== 'number') return '(нет)';
-  return 'X:' + pos.x.toFixed(2) + ' Y:' + pos.y.toFixed(2) + ' Z:' + pos.z.toFixed(2);
+    if (!pos) return '(нет)';
+    return 'X:' + pos.x.toFixed(2) + ' Y:' + pos.y.toFixed(2) + ' Z:' + pos.z.toFixed(2);
 }
-
-function _posDistance(p1, p2) {
-  if (!p1 || !p2) return 0;
-  return Math.hypot(p1.x - p2.x, p1.y - p2.y);
-}
-
+function _fmtAngle(a)     { return a != null ? a.toFixed(1) + '°' : '?'; }
 function _angleDiff(a, b) {
-  if (a == null || b == null) return null;
-  let d = Math.abs(a - b) % 360;
-  return d > 180 ? 360 - d : d;
+    if (a == null || b == null) return null;
+    var d = Math.abs(a - b) % 360;
+    return d > 180 ? 360 - d : d;
 }
-
-function _expectedPosAt(timeMs, posLog) {
-  if (!posLog.length) return null;
-  if (timeMs <= posLog[0].t) return posLog[0].pos;
-  if (timeMs >= posLog[posLog.length - 1].t) return posLog[posLog.length - 1].pos;
-
-  let lo = 0;
-  let hi = posLog.length - 1;
-
-  while (hi - lo > 1) {
-    const mid = (lo + hi) >> 1;
-    if (posLog[mid].t <= timeMs) lo = mid;
-    else hi = mid;
-  }
-
-  const a = posLog[lo];
-  const b = posLog[hi];
-  const dt = b.t - a.t;
-  const f = dt > 0 ? (timeMs - a.t) / dt : 0;
-
-  return {
-    x: a.pos.x + (b.pos.x - a.pos.x) * f,
-    y: a.pos.y + (b.pos.y - a.pos.y) * f,
-    z: a.pos.z + (b.pos.z - a.pos.z) * f,
-  };
+function _posDistance(p1, p2) {
+    if (!p1 || !p2) return null;
+    var dx = p1.x - p2.x, dy = p1.y - p2.y;
+    return Math.sqrt(dx * dx + dy * dy);
 }
 
 // ═══════════════════════════════════════════════════════════
-// ── Подписка на UpdatePlayerPosition ─────────────────────
+// ── Запись события ─────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
-function _subscribePosUpdates() {
-  if (!window.engine || typeof window.engine.on !== 'function') return;
+// Единая точка записи для хука (мобильные кнопки) и клавиатуры.
+// d=1 нажатие, d=0 отпускание.
 
-  const handle = window.engine.on('UpdatePlayerPosition', function(x, y, z, angle, interior) {
+function _recordEvent(d, code) {
+    var t   = performance.now() - avto.startPerf;
+    var pos = _getPos();
+    var lbl = KEY_MAP[code] ? KEY_MAP[code].label : 'Key' + code;
+    var dur = null;
+
+    avto.events.push({ t, d, k: code });
+
+    if (d === 1) {
+        avto.keyPressTime[code] = t;
+    } else if (d === 0) {
+        if (avto.keyPressTime[code] != null) {
+            dur = t - avto.keyPressTime[code];
+            delete avto.keyPressTime[code];
+        }
+    }
+
+    avto.detailedLog.push({ t, d, keyCode: code, key: lbl, pos, dur });
+    _overlaySetKey(code, d === 1);
+
+    var posStr = pos ? ' [' + _fmtPos(pos) + ']' : '';
+    var durStr = dur != null ? ' (' + dur.toFixed(0) + 'мс)' : '';
+    debugLog('[АВТОШКОЛА] ' + (d === 1 ? '⬇ ' : '⬆ ') + lbl + ' @' + t.toFixed(1) + 'мс' + posStr + durStr);
+}
+
+// ═══════════════════════════════════════════════════════════
+// ── ЗАПИСЬ ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+function onKeyDown(e) {
     if (!avto.recording) return;
-
-    avto.posLog.push({
-      t: performance.now() - avto.startPerf,
-      pos: { x: x, y: y, z: z, angle: angle }
-    });
-  });
-
-  if (handle && typeof handle.clear === 'function') {
-    _posUpdateClear = handle.clear;
-  }
+    var code = e.keyCode;
+    if (!RECORD_KEYS.has(code) || avto.heldKeys.has(code)) return;
+    avto.heldKeys.add(code);
+    _recordEvent(1, code);
 }
 
-function _unsubscribePosUpdates() {
-  if (_posUpdateClear) {
-    try { _posUpdateClear(); } catch (e) {}
-    _posUpdateClear = null;
-  }
+function onKeyUp(e) {
+    if (!avto.recording) return;
+    var code = e.keyCode;
+    if (!RECORD_KEYS.has(code) || !avto.heldKeys.has(code)) return;
+    avto.heldKeys.delete(code);
+    _recordEvent(0, code);
 }
 
-// ═══════════════════════════════════════════════════════════
-// ── Чат / лог / оверлей ──────────────────────────────────
-// ═══════════════════════════════════════════════════════════
-function _chat(coloredText) {
-  if (typeof window.onChatMessage === 'function') {
-    window.onChatMessage('{999999}АВТОШКОЛА — ' + coloredText, '999999FF');
-  }
-}
-
-function debugLog(msg) {
-  console.log(msg);
-}
-
-let _hudOverlay = null;
-let _hudOverlayMode = null;
-
-const _KEY_LABELS = [
-  [87, '⬆W'],
-  [68, '▶D'],
-  [65, '◀A'],
-  [83, '⬇S'],
-  [32, '🅿SP'],
-  [81, '↩Q'],
-  [69, '↪E'],
-  [72, '📯H'],
-  [JOY_CODE, '🕹'],
-  [CAMERA_CODE, '🎥']
-];
-
-function _createHudOverlay(mode) {
-  _hudOverlayMode = mode;
-
-  if (_hudOverlay) {
-    _updateOverlayHeader(mode);
-    return;
-  }
-
-  const wrap = document.createElement('div');
-  wrap.id = 'avto-overlay';
-  wrap.style.cssText = 'position:fixed;right:1.5vw;bottom:20vh;z-index:99999;display:flex;flex-direction:column;gap:2px;pointer-events:none;font-size:1.4vh;';
-
-  const header = document.createElement('div');
-  header.id = 'avto-hdr';
-  _applyHeaderStyle(header, mode);
-  wrap.appendChild(header);
-
-  _KEY_LABELS.forEach(function(p) {
-    const row = document.createElement('div');
-    row.id = 'avto-k-' + p[0];
-    row.textContent = p[1];
-    row.style.cssText = 'padding:2px 6px;border-radius:3px;background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.3);border:1px solid rgba(255,255,255,0.1);transition:all 0.05s;';
-    wrap.appendChild(row);
-  });
-
-  document.body.appendChild(wrap);
-  _hudOverlay = wrap;
-}
-
-function _applyHeaderStyle(el, mode) {
-  el.textContent = mode === 'record' ? '🔴 ЗАПИСЬ' : '▶ ПОВТОР';
-  el.style.cssText = 'padding:2px 6px;border-radius:3px;background:rgba(0,0,0,0.7);color:' +
-    (mode === 'record' ? '#F44' : '#3D7') +
-    ';border:1px solid ' + (mode === 'record' ? '#F44' : '#3D7') +
-    ';font-weight:bold;text-align:center;';
-}
-
-function _updateOverlayHeader(mode) {
-  const h = document.getElementById('avto-hdr');
-  if (h) _applyHeaderStyle(h, mode);
-}
-
-function _removeHudOverlay() {
-  if (_hudOverlay) {
-    _hudOverlay.remove();
-    _hudOverlay = null;
-  }
-}
-
-function _overlaySetKey(code, down) {
-  const el = document.getElementById('avto-k-' + code);
-  if (!el) return;
-
-  el.style.background = down
-    ? (_hudOverlayMode === 'record' ? 'rgba(210,100,0,0.8)' : 'rgba(30,180,80,0.75)')
-    : 'rgba(0,0,0,0.5)';
-
-  el.style.color = down ? '#fff' : 'rgba(255,255,255,0.3)';
-
-  el.style.borderColor = down
-    ? (_hudOverlayMode === 'record' ? '#F80' : '#3D7')
-    : 'rgba(255,255,255,0.1)';
-}
-
-function _overlayResetAll() {
-  RECORD_KEYS.forEach(function(c) { _overlaySetKey(c, false); });
-  _overlaySetKey(JOY_CODE, false);
-  _overlaySetKey(CAMERA_CODE, false);
-}
-
-// ═══════════════════════════════════════════════════════════
-// ── Запись: кнопки ───────────────────────────────────────
-// ═══════════════════════════════════════════════════════════
-function _recordDown(code) {
-  if (!avto.recording || avto.startPerf == null) return;
-  if (avto.heldKeys.has(code)) return;
-
-  avto.heldKeys.add(code);
-
-  const t = performance.now() - avto.startPerf;
-  const snap = _getSnapshot();
-
-  avto.events.push({ t: t, d: 1, k: code });
-
-  if (snap.pos) {
-    avto.posLog.push({
-      t: t,
-      pos: { x: snap.pos.x, y: snap.pos.y, z: snap.pos.z, angle: snap.pos.angle }
-    });
-  }
-
-  _overlaySetKey(code, true);
-  debugLog('[АВТОШКОЛА] ⬇ ' + KEY_MAP[code].label + ' @' + t.toFixed(2) + 'мс');
-}
-
-function _recordUp(code) {
-  if (!avto.recording || avto.startPerf == null) return;
-  if (!avto.heldKeys.has(code)) return;
-
-  avto.heldKeys.delete(code);
-
-  const t = performance.now() - avto.startPerf;
-  const snap = _getSnapshot();
-
-  avto.events.push({ t: t, d: 0, k: code });
-
-  if (snap.pos) {
-    avto.posLog.push({
-      t: t,
-      pos: { x: snap.pos.x, y: snap.pos.y, z: snap.pos.z, angle: snap.pos.angle }
-    });
-  }
-
-  _overlaySetKey(code, false);
-  debugLog('[АВТОШКОЛА] ⬆ ' + KEY_MAP[code].label + ' @' + t.toFixed(2) + 'мс');
-}
-
-// ═══════════════════════════════════════════════════════════
-// ── Запись: джойстик ─────────────────────────────────────
-// ═══════════════════════════════════════════════════════════
-function _recordJoyStart() {
-  if (!avto.recording || avto.startPerf == null) return;
-  if (avto.joyActive) return;
-
-  avto.joyActive = true;
-
-  const t = performance.now() - avto.startPerf;
-
-  avto.events.push({ t: t, d: 10, k: JOY_CODE });
-
-  const snap = _getSnapshot();
-  if (snap.pos) {
-    avto.posLog.push({
-      t: t,
-      pos: { x: snap.pos.x, y: snap.pos.y, z: snap.pos.z, angle: snap.pos.angle }
-    });
-  }
-
-  _overlaySetKey(JOY_CODE, true);
-  debugLog('[АВТОШКОЛА] 🕹 Джойстик START @' + t.toFixed(2) + 'мс');
-}
-
-function _recordJoyMove(x, y) {
-  if (!avto.recording || avto.startPerf == null) return;
-  if (!avto.joyActive) return;
-  if (typeof x !== 'number' || typeof y !== 'number') return;
-
-  if (x === avto.lastJoyX && y === avto.lastJoyY) return;
-
-  avto.lastJoyX = x;
-  avto.lastJoyY = y;
-
-  const t = performance.now() - avto.startPerf;
-  avto.events.push({ t: t, d: 11, k: JOY_CODE, x: x, y: y });
-}
-
-function _recordJoyEnd() {
-  if (!avto.recording || avto.startPerf == null) return;
-  if (!avto.joyActive) return;
-
-  avto.joyActive = false;
-
-  const t = performance.now() - avto.startPerf;
-
-  avto.events.push({ t: t, d: 12, k: JOY_CODE });
-
-  const snap = _getSnapshot();
-  if (snap.pos) {
-    avto.posLog.push({
-      t: t,
-      pos: { x: snap.pos.x, y: snap.pos.y, z: snap.pos.z, angle: snap.pos.angle }
-    });
-  }
-
-  _overlaySetKey(JOY_CODE, false);
-  avto.lastJoyX = 0;
-  avto.lastJoyY = 0;
-
-  debugLog('[АВТОШКОЛА] 🕹 Джойстик END @' + t.toFixed(2) + 'мс');
-}
-
-// ═══════════════════════════════════════════════════════════
-// ── Запись: камера ───────────────────────────────────────
-// ═══════════════════════════════════════════════════════════
-function _recordCamStart() {
-  if (!avto.recording || avto.startPerf == null) return;
-  if (avto.camActive) return;
-
-  avto.camActive = true;
-
-  const t = performance.now() - avto.startPerf;
-  avto.events.push({ t: t, d: 20, k: CAMERA_CODE });
-
-  _overlaySetKey(CAMERA_CODE, true);
-  debugLog('[АВТОШКОЛА] 🎥 Камера START @' + t.toFixed(2) + 'мс');
-}
-
-function _recordCamMove(x, y) {
-  if (!avto.recording || avto.startPerf == null) return;
-  if (!avto.camActive) return;
-  if (typeof x !== 'number' || typeof y !== 'number') return;
-
-  // Нулевые сдвиги камеры не нужны
-  if (x === 0 && y === 0) return;
-
-  const t = performance.now() - avto.startPerf;
-  avto.events.push({ t: t, d: 21, k: CAMERA_CODE, x: x, y: y });
-}
-
-function _recordCamEnd() {
-  if (!avto.recording || avto.startPerf == null) return;
-  if (!avto.camActive) return;
-
-  avto.camActive = false;
-
-  const t = performance.now() - avto.startPerf;
-  avto.events.push({ t: t, d: 22, k: CAMERA_CODE });
-
-  _overlaySetKey(CAMERA_CODE, false);
-  debugLog('[АВТОШКОЛА] 🎥 Камера END @' + t.toFixed(2) + 'мс');
-}
-
-// ═══════════════════════════════════════════════════════════
-// ── Управление записью ───────────────────────────────────
-// ═══════════════════════════════════════════════════════════
 function startRecording() {
-  if (!window.App || !window.App.$store) {
-    _chat('{EE4444}Нет App/Store');
-    return;
-  }
+    if (avto.recording) { _chat('{FFAA00}Запись уже идёт!'); return; }
+    if (avto.replaying) { _chat('{EE4444}Сначала дождись конца повтора'); return; }
 
-  if (!window.App.isMobile) {
-    _chat('{EE4444}Только для мобилки');
-    return;
-  }
+    avto.startSnapshot = _getSnapshot();
+    avto.recording     = true;
+    avto.events        = [];
+    avto.detailedLog   = [];
+    avto.posLog        = [];
+    avto.startPerf     = performance.now();
+    avto.heldKeys.clear();
+    avto.keyPressTime  = {};
 
-  if (window.App.engine === 'legacy') {
-    _chat('{EE4444}Не для legacy движка');
-    return;
-  }
+    // Запись позиции каждые 100мс (в v5 было 500мс)
+    avto.posLogIntId = setInterval(function() {
+        if (!avto.recording) return;
+        var pos = _getPos();
+        if (pos) {
+            avto.posLog.push({
+                t:   Math.round(performance.now() - avto.startPerf),
+                pos: { x: pos.x, y: pos.y, z: pos.z, angle: pos.angle }
+            });
+        }
+    }, POS_LOG_INTERVAL);
 
-  if (window.App.developmentMode) {
-    _chat('{FFAA00}⚠ developmentMode: управление может не работать');
-  }
+    document.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('keyup',   onKeyUp,   true);
+    _createHudOverlay('record');
+    _overlayResetAll();
 
-  if (typeof window.onScreenControlTouchStart !== 'function' ||
-      typeof window.onScreenControlTouchEnd !== 'function') {
-    _chat('{EE4444}Нет функций Touch управления');
-    return;
-  }
-
-  if (typeof window.onScreenControlTouchMove !== 'function') {
-    _chat('{FFAA00}⚠ Нет TouchMove — джойстик/камера не будут записаны');
-  }
-
-  if (avto.recording) {
-    _chat('{FFAA00}Запись уже идёт');
-    return;
-  }
-
-  if (avto.replaying) {
-    _chat('{EE4444}Сначала дождись конца повтора');
-    return;
-  }
-
-  avto.startSnapshot = _getSnapshot();
-
-  if (!avto.startSnapshot.pos) {
-    _chat('{EE4444}Позиция недоступна');
-    return;
-  }
-
-  avto.recording = true;
-  avto.events = [];
-  avto.posLog = [];
-  avto.startPerf = performance.now();
-
-  avto.heldKeys.clear();
-
-  avto.joyActive = false;
-  avto.lastJoyX = 0;
-  avto.lastJoyY = 0;
-
-  avto.camActive = false;
-
-  avto.endSnapshot = null;
-
-  avto.posLog.push({
-    t: 0,
-    pos: {
-      x: avto.startSnapshot.pos.x,
-      y: avto.startSnapshot.pos.y,
-      z: avto.startSnapshot.pos.z,
-      angle: avto.startSnapshot.pos.angle
-    }
-  });
-
-  _subscribePosUpdates();
-
-  avto.posLogIntervalId = setInterval(function() {
-    if (!avto.recording) return;
-
-    const s = _getSnapshot();
-    if (s.pos) {
-      avto.posLog.push({
-        t: performance.now() - avto.startPerf,
-        pos: { x: s.pos.x, y: s.pos.y, z: s.pos.z, angle: s.pos.angle }
-      });
-    }
-  }, POS_LOG_INTERVAL);
-
-  _createHudOverlay('record');
-  _overlayResetAll();
-
-  _chat('{33DD77}🔴 Запись НАЧАТА [' + _fmtPos(avto.startSnapshot.pos) + ']');
-  debugLog('[АВТОШКОЛА] Запись старт. Позиция: ' + _fmtPos(avto.startSnapshot.pos));
+    var snap = avto.startSnapshot;
+    _chat('{33DD77}🔴 Запись НАЧАТА [' + (snap.inVehicle ? '🚗' : '🚶') + '] ' + _fmtPos(snap.pos));
+    debugLog('[АВТОШКОЛА] Запись старт. pos=' + _fmtPos(snap.pos) + ' angle=' + _fmtAngle(snap.pos && snap.pos.angle));
 }
 
 function stopRecording() {
-  if (!avto.recording) {
-    _chat('{EE4444}Запись не активна');
-    return;
-  }
+    if (!avto.recording) { _chat('{EE4444}Запись не активна'); return; }
+    avto.recording = false;
+    document.removeEventListener('keydown', onKeyDown, true);
+    document.removeEventListener('keyup',   onKeyUp,   true);
 
-  avto.recording = false;
+    // Принудительно отпустить зажатые клавиши
+    avto.heldKeys.forEach(function(code) { _recordEvent(0, code); });
+    avto.heldKeys.clear();
+    avto.keyPressTime = {};
 
-  _unsubscribePosUpdates();
+    var stopT = performance.now() - avto.startPerf;
+    avto.events.push({ t: stopT, d: -1, k: -1 }); // маркер конца
 
-  if (avto.posLogIntervalId) {
-    clearInterval(avto.posLogIntervalId);
-    avto.posLogIntervalId = null;
-  }
+    if (avto.posLogIntId) { clearInterval(avto.posLogIntId); avto.posLogIntId = null; }
+    var finalPos = _getPos();
+    if (finalPos) {
+        avto.posLog.push({
+            t:   Math.round(stopT),
+            pos: { x: finalPos.x, y: finalPos.y, z: finalPos.z, angle: finalPos.angle }
+        });
+    }
 
-  const stopT = performance.now() - avto.startPerf;
+    avto.lastPosLog    = avto.posLog.slice();
+    avto.lastRoute     = avto.events.slice();
+    avto.endSnapshot   = _getSnapshot();
+    _removeHudOverlay();
 
-  // Отпускаем зажатые кнопки
-  avto.heldKeys.forEach(function(code) {
-    avto.events.push({ t: stopT, d: 0, k: code });
-    _overlaySetKey(code, false);
-  });
-  avto.heldKeys.clear();
-
-  // Отпускаем джойстик
-  if (avto.joyActive) {
-    avto.events.push({ t: stopT, d: 12, k: JOY_CODE });
-    avto.joyActive = false;
-    _overlaySetKey(JOY_CODE, false);
-  }
-
-  // Отпускаем камеру
-  if (avto.camActive) {
-    avto.events.push({ t: stopT, d: 22, k: CAMERA_CODE });
-    avto.camActive = false;
-    _overlaySetKey(CAMERA_CODE, false);
-  }
-
-  // Маркер конца
-  avto.events.push({ t: stopT, d: -1, k: -1 });
-
-  const finalSnap = _getSnapshot();
-  if (finalSnap.pos) {
-    avto.posLog.push({
-      t: stopT,
-      pos: {
-        x: finalSnap.pos.x,
-        y: finalSnap.pos.y,
-        z: finalSnap.pos.z,
-        angle: finalSnap.pos.angle
-      }
-    });
-  }
-
-  avto.lastPosLog = avto.posLog.slice();
-  avto.lastRoute = avto.events.slice();
-  avto.endSnapshot = finalSnap;
-
-  _removeHudOverlay();
-
-  const totalSec = (stopT / 1000).toFixed(2);
-  const realCount = avto.lastRoute.filter(function(ev) { return ev.k !== -1; }).length;
-
-  _chat('{EE4444}⏹ Запись: ' + realCount + ' соб., ' + totalSec + 'с, ' + avto.lastPosLog.length + ' точек');
-  _chat('{AAAAAA}🏁 Финиш: ' + _fmtPos(finalSnap.pos));
-
-  debugLog('[АВТОШКОЛА] Запись стоп. Событий:' + realCount + ' PosLog:' + avto.posLog.length);
+    var totalSec = (stopT / 1000).toFixed(2);
+    var cnt      = avto.lastRoute.filter(ev => ev.k !== -1).length;
+    _chat('{EE4444}⏹ Запись: ' + cnt + ' событий, ' + totalSec + 'с, ' + avto.lastPosLog.length + ' поз.');
+    _chat('{AAAAAA}🏁 Финиш: ' + _fmtPos(finalPos));
+    debugLog('[АВТОШКОЛА] Запись стоп. Событий:' + cnt + ' PosLog:' + avto.posLog.length);
+    _sendRecordingToTelegram(totalSec);
 }
 
 // ═══════════════════════════════════════════════════════════
-// ── Повтор ───────────────────────────────────────────────
+// ── ПОВТОР v6 — без задержек, реалтайм координаты ─────────
 // ═══════════════════════════════════════════════════════════
+
 function replayRoute() {
-  if (!window.App || !window.App.$store) {
-    _chat('{EE4444}Нет App/Store');
-    return;
-  }
+    if (avto.replaying)  { _chat('{FFAA00}Повтор уже идёт'); return; }
+    if (!avto.lastRoute || !avto.lastRoute.length) { _chat('{EE4444}Нет маршрута. /arec_on'); return; }
+    if (avto.recording)  { _chat('{EE4444}Сначала /arec_off'); return; }
 
-  if (!window.App.isMobile) {
-    _chat('{EE4444}Только для мобилки');
-    return;
-  }
+    _checkStartSnapshot().forEach(p => _chat(p));
 
-  if (window.App.engine === 'legacy') {
-    _chat('{EE4444}Не для legacy движка');
-    return;
-  }
+    avto.replaying   = true;
+    avto.replayRAF   = null;
+    avto.maxPosDrift = 0;
+    avto.replayStats = {
+        totalEvents:    avto.lastRoute.length,
+        processedEvents:0,
+        maxDrift:       0, totalDrift:    0, driftEvents: [],
+        posCheckCount:  0, posDriftTotal: 0, posDriftMax:  0,
+    };
 
-  if (window.App.developmentMode) {
-    _chat('{FFAA00}⚠ developmentMode: управление может не работать');
-  }
+    const events  = avto.lastRoute;
+    const posLog  = avto.lastPosLog || [];
+    const totalMs = events.length ? events[events.length - 1].t : 0;
 
-  if (typeof window.onScreenControlTouchStart !== 'function' ||
-      typeof window.onScreenControlTouchEnd !== 'function') {
-    _chat('{EE4444}Нет функций Touch управления');
-    return;
-  }
+    // Определяем метод ввода (нет проверки engine/isMobile — просто проверяем функции)
+    var hasTouchCtrl = typeof window.onScreenControlTouchStart === 'function' &&
+                       typeof window.onScreenControlTouchEnd   === 'function';
+    var hasSetValue  = typeof window.onScreenControlSetValue   === 'function';
+    var method = hasTouchCtrl
+        ? 'touch+SetValue(' + (hasSetValue ? '✅' : '❌') + ') v6'
+        : 'keyboard';
 
-  if (avto.replaying) {
-    _chat('{FFAA00}Повтор уже идёт');
-    return;
-  }
+    _chat('{33DD77}▶ Повтор (' + (totalMs / 1000).toFixed(2) + 'с) | ' + method);
+    debugLog('[АВТОШКОЛА v6] Повтор. Метод=' + method + ' posLog=' + posLog.length);
 
-  if (avto.recording) {
-    _chat('{EE4444}Сначала /arec_off');
-    return;
-  }
+    _createHudOverlay('replay');
+    _overlayResetAll();
+    _resetPosDriftOverlay();
 
-  if (!avto.lastRoute || !avto.lastRoute.length) {
-    _chat('{EE4444}Нет маршрута. Сначала /arec_on');
-    return;
-  }
+    const startPerf = performance.now();
+    var eventIndex  = 0;   // Следующее событие для выполнения
+    var posLogIdx   = 0;   // Следующая точка posLog для проверки
 
-  const sc = _checkStartSnapshot();
-  sc.msgs.forEach(function(p) { _chat(p); });
+    // Реалтайм контроль
+    var rtLastChatMs  = 0;   // Время последнего сообщения в чат
+    var rtLastDist    = 0;   // Последнее задокументированное расстояние
+    var rtPrevPos     = null; // Предыдущая позиция (для детекции телепорта)
 
-  if (!sc.ok) {
-    _chat('{EE4444}Вернись на стартовую позицию и угол, затем /apov');
-    return;
-  }
-
-  avto.replaying = true;
-  avto.replayRAF = null;
-
-  const events = avto.lastRoute;
-  const posLog = avto.lastPosLog || [];
-  const totalMs = events.length ? events[events.length - 1].t : 0;
-
-  const hasJoy = events.some(function(ev) { return ev.k === JOY_CODE; });
-  const hasCam = events.some(function(ev) { return ev.k === CAMERA_CODE; });
-
-  if ((hasJoy || hasCam) && typeof window.onScreenControlTouchMove !== 'function') {
-    _chat('{EE4444}Маршрут содержит джойстик/камеру, но нет TouchMove');
-    return;
-  }
-
-  let method = 'touch';
-  if (hasJoy) method += '+joy';
-  if (hasCam) method += '+cam';
-
-  _chat('{33DD77}▶ Повтор (' + (totalMs / 1000).toFixed(2) + 'с, ' + events.length + ' соб., ' + posLog.length + ' точек) | ' + method);
-  debugLog('[АВТОШКОЛА] Повтор. Метод=' + method);
-
-  _createHudOverlay('replay');
-  _overlayResetAll();
-
-  const startPerf = performance.now();
-  let eventIndex = 0;
-  let lastWarnTime = 0;
-
-  function _execEvent(ev) {
-    // Джойстик
-    if (ev.k === JOY_CODE) {
-      try {
-        if (ev.d === 10) {
-          window.onScreenControlTouchStart(JOYSTICK_PATH);
-          _overlaySetKey(JOY_CODE, true);
-        } else if (ev.d === 11) {
-          if (typeof ev.x === 'number' && typeof ev.y === 'number') {
-            window.onScreenControlTouchMove(JOYSTICK_PATH, ev.x, ev.y);
-          }
-        } else if (ev.d === 12) {
-          window.onScreenControlTouchEnd(JOYSTICK_PATH);
-          _overlaySetKey(JOY_CODE, false);
+    // ── Выполнение одного события ──
+    function _execEvent(ev) {
+        var info = KEY_MAP[ev.k];
+        if (!info) return;
+        try {
+            if (ev.d === 1) {
+                if (hasTouchCtrl) {
+                    _inputDown(info.path);
+                } else {
+                    document.dispatchEvent(new KeyboardEvent('keydown', {
+                        keyCode: ev.k, which: ev.k, bubbles: true, cancelable: true
+                    }));
+                }
+                _overlaySetKey(ev.k, true);
+            } else {
+                if (hasTouchCtrl) {
+                    _inputUp(info.path);
+                } else {
+                    document.dispatchEvent(new KeyboardEvent('keyup', {
+                        keyCode: ev.k, which: ev.k, bubbles: true, cancelable: true
+                    }));
+                }
+                _overlaySetKey(ev.k, false);
+            }
+        } catch(err) {
+            debugLog('[АВТОШКОЛА] exec err: ' + err.message);
         }
-      } catch (e) {
-        debugLog('[АВТОШКОЛА] joy exec err: ' + e.message);
-      }
-      return;
     }
 
-    // Камера
-    if (ev.k === CAMERA_CODE) {
-      try {
-        if (ev.d === 20) {
-          window.onScreenControlTouchStart(CAMERA_PATH);
-          _overlaySetKey(CAMERA_CODE, true);
-        } else if (ev.d === 21) {
-          if (typeof ev.x === 'number' && typeof ev.y === 'number') {
-            window.onScreenControlTouchMove(CAMERA_PATH, ev.x, ev.y);
-          }
-        } else if (ev.d === 22) {
-          window.onScreenControlTouchEnd(CAMERA_PATH);
-          _overlaySetKey(CAMERA_CODE, false);
-        }
-      } catch (e) {
-        debugLog('[АВТОШКОЛА] cam exec err: ' + e.message);
-      }
-      return;
-    }
-
-    // Кнопки
-    const info = KEY_MAP[ev.k];
-    if (!info) return;
-
-    try {
-      if (ev.d === 1) {
-        window.onScreenControlTouchStart(info.path);
-        _overlaySetKey(ev.k, true);
-      } else if (ev.d === 0) {
-        window.onScreenControlTouchEnd(info.path);
-        _overlaySetKey(ev.k, false);
-      }
-    } catch (e) {
-      debugLog('[АВТОШКОЛА] exec err: ' + e.message);
-    }
-  }
-
-  function _finish() {
-    avto.replaying = false;
-
-    if (avto.replayRAF !== null) {
-      cancelAnimationFrame(avto.replayRAF);
-      avto.replayRAF = null;
-    }
-
-    _releaseAllInputs();
-    _removeHudOverlay();
-
-    const endMsgs = _checkEndSnapshot();
-    endMsgs.forEach(function(p) { _chat(p); });
-
-    _chat('{33DD77}✅ Повтор завершён');
-  }
-
-  function _failReplay(msg) {
-    avto.replaying = false;
-
-    if (avto.replayRAF !== null) {
-      cancelAnimationFrame(avto.replayRAF);
-      avto.replayRAF = null;
-    }
-
-    _releaseAllInputs();
-    _removeHudOverlay();
-    _chat(msg);
-  }
-
-  function _rafLoop() {
-    if (!avto.replaying) {
-      _releaseAllInputs();
-      _removeHudOverlay();
-      return;
-    }
-
-    const elapsed = performance.now() - startPerf;
-
-    // 1. Выполняем все события без искусственной задержки
-    while (eventIndex < events.length && events[eventIndex].t <= elapsed) {
-      _execEvent(events[eventIndex]);
-      eventIndex++;
-    }
-
-    // 2. Постоянный контроль координат
-    const curSnap = _getSnapshot();
-
-    if (curSnap.pos) {
-      const exp = _expectedPosAt(elapsed, posLog);
-
-      if (exp) {
-        const dist = _posDistance(curSnap.pos, exp);
-
-        if (isFinite(dist)) {
-          if (dist >= POS_CRITICAL) {
-            _failReplay('{EE4444}❌ Критический сбой траектории! Δ' + dist.toFixed(2) + 'м @' + (elapsed / 1000).toFixed(2) + 'с');
+    // ── Основной цикл RAF ──
+    function _rafLoop() {
+        if (!avto.replaying) {
+            _releaseAllInputs();
+            _removeHudOverlay();
             return;
-          }
-
-          const now = performance.now();
-
-          if (dist >= POS_WARN && now - lastWarnTime > 1000) {
-            _chat('{FFAA00}⚠ Отклонение ' + dist.toFixed(2) + 'м @' + (elapsed / 1000).toFixed(2) + 'с');
-            lastWarnTime = now;
-          }
         }
-      }
-    }
 
-    // 3. Завершение
-    if (eventIndex >= events.length && elapsed >= totalMs) {
-      _finish();
-      return;
-    }
+        var elapsed = performance.now() - startPerf;
+        var nowPerf = performance.now();
+        var stats   = avto.replayStats;
 
-    if (elapsed > totalMs + 2000) {
-      _failReplay('{EE4444}❌ Таймаут повтора');
-      return;
+        // ── 1. Выполняем все события, время которых пришло ──
+        while (eventIndex < events.length && events[eventIndex].t <= elapsed) {
+            var ev    = events[eventIndex];
+            var drift = elapsed - ev.t;
+            stats.processedEvents++;
+            stats.totalDrift += drift;
+            if (drift > stats.maxDrift) stats.maxDrift = drift;
+            if (drift > TIMING_WARN_THRESHOLD) {
+                stats.driftEvents.push({ expected: ev.t, actual: elapsed, drift, k: ev.k, d: ev.d });
+            }
+            _execEvent(ev);
+            eventIndex++;
+        }
+
+        // ── 2. Плановые проверки по posLog (каждые 100мс) ──
+        while (posLogIdx < posLog.length && posLog[posLogIdx].t <= elapsed) {
+            var entry = posLog[posLogIdx];
+            var cur   = _getPos();
+            if (cur && entry.pos) {
+                var d = _posDistance(cur, entry.pos);
+                if (d !== null) {
+                    if (d > stats.posDriftMax)  stats.posDriftMax  = d;
+                    if (d > avto.maxPosDrift)   avto.maxPosDrift   = d;
+                    stats.posDriftTotal += d;
+                    stats.posCheckCount++;
+                    var tLbl = (entry.t / 1000).toFixed(1) + 'с';
+                    _updatePosDriftOverlay(d, tLbl);
+                    if (d >= POS_DRIFT_CRITICAL) {
+                        _chat('{EE4444}❌ ДРЕЙФ ' + d.toFixed(2) + 'м @' + tLbl);
+                        _chat('{EE4444}  факт: ' + _fmtPos(cur));
+                        _chat('{EE4444}  ожид: ' + _fmtPos(entry.pos));
+                    } else if (d >= POS_DRIFT_WARN) {
+                        _chat('{FFAA00}⚠ Дрейф ' + d.toFixed(2) + 'м @' + tLbl + ' | ' + _fmtPos(cur));
+                    }
+                }
+            }
+            posLogIdx++;
+        }
+
+        // ── 3. РЕАЛТАЙМ: проверка координат КАЖДЫЙ КАДР (без задержек) ──
+        var rtPos = _getPos();
+        if (rtPos && posLogIdx > 0) {
+            // Берём ближайшую пройденную точку posLog
+            var nearIdx = posLogIdx - 1;
+            // Уточняем: если следующая точка ближе по времени — берём её
+            if (posLogIdx < posLog.length &&
+                Math.abs(posLog[posLogIdx].t - elapsed) < Math.abs(posLog[nearIdx].t - elapsed)) {
+                nearIdx = posLogIdx;
+            }
+            var nearEntry = posLog[nearIdx];
+
+            if (nearEntry && nearEntry.pos) {
+                var rtDist = _posDistance(rtPos, nearEntry.pos);
+
+                if (rtDist !== null) {
+                    // Обновляем оверлей каждый кадр если отклонение > порога
+                    if (rtDist >= RT_OVERLAY_THRESHOLD) {
+                        _updatePosDriftOverlay(rtDist, (elapsed / 1000).toFixed(2) + 'с');
+                    }
+
+                    // Детекция резкого прыжка (машина телепортировалась / сбилась)
+                    var isJump = rtPrevPos && _posDistance(rtPos, rtPrevPos) > RT_CHAT_JUMP_THRESHOLD * 3;
+
+                    // Пишем в чат при значимом дрейфе
+                    if (rtDist >= RT_CHAT_THRESHOLD) {
+                        var tooSoon   = (nowPerf - rtLastChatMs) < RT_CHAT_COOLDOWN;
+                        var smallDiff = Math.abs(rtDist - rtLastDist) < 0.3;
+
+                        // Пишем если: достаточно времени прошло, ИЛИ резкий прыжок
+                        if (!tooSoon || isJump || !smallDiff) {
+                            rtLastChatMs = nowPerf;
+                            rtLastDist   = rtDist;
+                            var prefix   = isJump ? '{EE4444}🚨 ПРЫЖОК' : (rtDist >= POS_DRIFT_CRITICAL ? '{EE4444}❌ ДРЕЙФ' : '{FFAA00}⚡ Δ');
+                            _chat(prefix + ' ' + rtDist.toFixed(2) + 'м @' + (elapsed/1000).toFixed(2) + 'с');
+                            _chat('{AAAAAA}  ' + _fmtPos(rtPos));
+                        }
+                    } else if (rtLastDist >= RT_CHAT_THRESHOLD) {
+                        // Вернулись в норму
+                        rtLastDist = 0;
+                        _chat('{33DD77}✔ Координаты в норме @' + (elapsed/1000).toFixed(2) + 'с');
+                    }
+                }
+            }
+        }
+        rtPrevPos = rtPos;
+
+        // ── Конец повтора ──
+        if (elapsed < totalMs + 400) {
+            avto.replayRAF = requestAnimationFrame(_rafLoop);
+        } else {
+            _releaseAllInputs();
+            _removeHudOverlay();
+            avto.replaying = false;
+            avto.replayRAF = null;
+            var endMsgs    = _checkEndSnapshot();
+            endMsgs.forEach(p => _chat(p));
+            _chat('{33DD77}✅ Повтор завершён | Макс.дрейф: ' + avto.maxPosDrift.toFixed(2) + 'м');
+            _sendReplayResultToTelegram(stats, endMsgs, method);
+        }
     }
 
     avto.replayRAF = requestAnimationFrame(_rafLoop);
-  }
-
-  avto.replayRAF = requestAnimationFrame(_rafLoop);
 }
 
 function cancelReplay() {
-  if (!avto.replaying) return;
-
-  if (avto.replayRAF !== null) {
-    cancelAnimationFrame(avto.replayRAF);
-    avto.replayRAF = null;
-  }
-
-  avto.replaying = false;
-  _releaseAllInputs();
-  _removeHudOverlay();
-
-  _chat('{FFAA00}⏹ Повтор отменён');
+    if (!avto.replaying) return;
+    if (avto.replayRAF !== null) { cancelAnimationFrame(avto.replayRAF); avto.replayRAF = null; }
+    avto.replaying = false;
+    _releaseAllInputs();
+    _removeHudOverlay();
+    _chat('{FFAA00}⏹ Повтор отменён');
 }
 
 // ═══════════════════════════════════════════════════════════
-// ── Проверки позиций ─────────────────────────────────────
+// ── Проверки позиций ───────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
+
 function _checkStartSnapshot() {
-  const snap = avto.startSnapshot;
-  const current = _getSnapshot();
-  const msgs = [];
-  let ok = true;
-
-  if (!snap || !snap.pos || !current.pos) {
-    return { ok: false, msgs: ['{EE4444}Нет данных о позиции'] };
-  }
-
-  const d = _posDistance(current.pos, snap.pos);
-
-  if (d > POS_START_THRESHOLD) {
-    msgs.push('{EE4444}❌ Старт НЕ совпадает! Δ' + d.toFixed(2) + 'м');
-    ok = false;
-  } else {
-    msgs.push('{33DD77}✅ Старт OK: ' + _fmtPos(current.pos));
-  }
-
-  const da = _angleDiff(current.pos.angle, snap.pos.angle);
-
-  if (da !== null && da > ANGLE_START_THRESHOLD) {
-    msgs.push('{EE4444}❌ Угол Δ' + da.toFixed(1) + '°');
-    ok = false;
-  } else if (da !== null) {
-    msgs.push('{33DD77}✅ Угол OK');
-  }
-
-  return { ok: ok, msgs: msgs };
+    var snap = avto.startSnapshot, cur = _getSnapshot(), msgs = [];
+    if (snap && snap.pos && cur.pos) {
+        var dx = Math.abs(cur.pos.x - snap.pos.x), dy = Math.abs(cur.pos.y - snap.pos.y);
+        if (dx > POS_THRESHOLD || dy > POS_THRESHOLD)
+            msgs.push('{EE4444}❌ Старт НЕ совпадает! ΔX:' + dx.toFixed(1) + ' ΔY:' + dy.toFixed(1));
+        else
+            msgs.push('{33DD77}✅ Старт OK: ' + _fmtPos(cur.pos));
+        var da = _angleDiff(cur.pos.angle, snap.pos.angle);
+        if (da !== null && da > ANGLE_THRESHOLD)
+            msgs.push('{EE4444}❌ Угол Δ' + da.toFixed(1) + '°');
+        else if (da !== null)
+            msgs.push('{33DD77}✅ Угол OK: ' + _fmtAngle(cur.pos.angle));
+    }
+    return msgs;
 }
 
 function _checkEndSnapshot() {
-  const endSnap = avto.endSnapshot;
-
-  if (!endSnap || !endSnap.pos) {
-    return ['{FFAA00}⚠ Нет данных финиша'];
-  }
-
-  const current = _getSnapshot();
-
-  if (!current.pos) {
-    return ['{FFAA00}⚠ Позиция недоступна'];
-  }
-
-  const d = _posDistance(current.pos, endSnap.pos);
-  const da = _angleDiff(current.pos.angle, endSnap.pos.angle);
-
-  if (d > END_POS_THRESHOLD || (da !== null && da > ANGLE_END_THRESHOLD)) {
-    return ['{EE4444}❌ Финиш НЕ совпал! Δ' + d.toFixed(2) + 'м' + (da !== null ? ', угол Δ' + da.toFixed(1) + '°' : '')];
-  }
-
-  return ['{33DD77}✅ Финиш OK: ' + _fmtPos(current.pos)];
+    var endSnap = avto.endSnapshot;
+    if (!endSnap || !endSnap.pos) return ['{FFAA00}⚠ Нет данных финиша'];
+    var cur = _getSnapshot();
+    if (!cur.pos) return ['{FFAA00}⚠ Позиция недоступна'];
+    var dx = Math.abs(cur.pos.x - endSnap.pos.x), dy = Math.abs(cur.pos.y - endSnap.pos.y);
+    if (dx > END_POS_THRESHOLD || dy > END_POS_THRESHOLD)
+        return ['{EE4444}❌ Финиш НЕ совпал! ΔX:' + dx.toFixed(1) + ' ΔY:' + dy.toFixed(1) +
+                ' | факт: ' + _fmtPos(cur.pos)];
+    return ['{33DD77}✅ Финиш OK: ' + _fmtPos(cur.pos)];
 }
 
 // ═══════════════════════════════════════════════════════════
-// ── Освобождение всех вводов ─────────────────────────────
+// ── Telegram отчёты ────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
-function _releaseAllInputs() {
-  if (typeof window.onScreenControlTouchEnd !== 'function') return;
 
-  RECORD_KEYS.forEach(function(code) {
-    const info = KEY_MAP[code];
-    if (!info) return;
+function _sendRecordingToTelegram(totalSec) {
+    if (typeof sendToTelegram !== 'function') return;
+    var snap    = avto.startSnapshot, endSnap = avto.endSnapshot;
+    var msg     = '🏎 <b>АВТОШКОЛА v6 — Маршрут записан</b>\n\n';
+    msg += '⏱ Длительность: <b>' + totalSec + ' сек</b>\n';
+    msg += '📊 Событий: <b>' + avto.lastRoute.filter(ev => ev.k !== -1).length + '</b>\n';
+    msg += '📍 Точек позиции: <b>' + avto.lastPosLog.length + '</b> (каждые ' + POS_LOG_INTERVAL + 'мс)\n';
+    msg += '📍 Старт: <b>' + _fmtPos(snap && snap.pos) + '</b> ∠' + _fmtAngle(snap && snap.pos && snap.pos.angle) + '\n';
+    msg += '🏁 Финиш: <b>' + _fmtPos(endSnap && endSnap.pos) + '</b> ∠' + _fmtAngle(endSnap && endSnap.pos && endSnap.pos.angle) + '\n\n';
+    msg += '📋 <b>СОБЫТИЯ (нажатия/отпускания):</b>\n<code>\n';
 
-    try {
-      window.onScreenControlTouchEnd(info.path);
-    } catch (e) {}
-  });
+    var n = 0;
+    avto.detailedLog.forEach(function(e) {
+        n++;
+        var arrow = e.d === 1 ? '⬇' : '⬆';
+        var line  = '#' + String(n).padStart(3, '0') + ' ' + (e.t / 1000).toFixed(3) + 'с ' + arrow + ' ' + e.key;
+        if (e.dur != null) line += ' (' + (e.dur / 1000).toFixed(3) + 'с)';
+        if (e.pos) line += ' [' + _fmtPos(e.pos) + ']';
+        msg += line + '\n';
+    });
+    msg += '</code>';
 
-  try {
-    window.onScreenControlTouchEnd(JOYSTICK_PATH);
-  } catch (e) {}
+    var MAX = 3800;
+    if (msg.length <= MAX) {
+        sendToTelegram(msg, false, null);
+    } else {
+        var si = msg.indexOf('<code>');
+        if (si > 0 && si < MAX) {
+            sendToTelegram(msg.substring(0, si), false, null);
+            for (var i = si; i < msg.length; i += 3500) sendToTelegram(msg.substring(i, i + 3500), true, null);
+        } else {
+            for (var i = 0; i < msg.length; i += MAX) sendToTelegram(msg.substring(i, i + MAX), i > 0, null);
+        }
+    }
 
-  try {
-    window.onScreenControlTouchEnd(CAMERA_PATH);
-  } catch (e) {}
+    // Данные маршрута (для воспроизведения)
+    var rj = JSON.stringify(avto.events.map(ev => [+(ev.t.toFixed(2)), ev.d, ev.k]));
+    for (var i = 0; i < rj.length; i += 3800)
+        sendToTelegram('📦 Маршрут:\n<code>' + rj.slice(i, i + 3800) + '</code>', true, null);
+}
+
+function _sendReplayResultToTelegram(stats, endMsgs, method) {
+    if (typeof sendToTelegram !== 'function') return;
+    var avg = stats.processedEvents > 0 ? (stats.totalDrift / stats.processedEvents).toFixed(2) : '0';
+    var tq  = stats.maxDrift < 20  ? '🟢 Отлично (<20мс)'
+            : stats.maxDrift < 50  ? '🟡 Хорошо (<50мс)'
+            : stats.maxDrift < 100 ? '🟠 Удовл. (<100мс)'
+            : '🔴 Плохо (≥100мс)';
+    var msg = '🏁 <b>АВТОШКОЛА v6 — Повтор завершён</b>\n\n';
+    msg += '🎮 Метод: <b>' + method + '</b>\n';
+    msg += '🎯 Тайминг: ' + tq + '\n';
+    msg += '⏱ Макс.дрифт: <b>' + stats.maxDrift.toFixed(2) + 'мс</b> | Ср: ' + avg + 'мс\n';
+    msg += '📊 Событий: <b>' + stats.processedEvents + '/' + stats.totalEvents + '</b>\n';
+
+    if (stats.posCheckCount > 0) {
+        var avgPos = (stats.posDriftTotal / stats.posCheckCount).toFixed(2);
+        var pq = stats.posDriftMax < 1   ? '🟢 Идеально'
+               : stats.posDriftMax < POS_DRIFT_WARN ? '🟡 Хорошо'
+               : stats.posDriftMax < POS_DRIFT_CRITICAL ? '🟠 Заметный'
+               : '🔴 Критический';
+        msg += '\n📍 <b>Позиционный дрейф</b> (плановые проверки):\n';
+        msg += '  Макс: <b>' + stats.posDriftMax.toFixed(2) + 'м</b> | Ср: ' + avgPos + 'м\n';
+        msg += '  Оценка: <b>' + pq + '</b>\n';
+        msg += '  Проверок: ' + stats.posCheckCount + '\n';
+    }
+    if (stats.driftEvents.length === 0) {
+        msg += '\n✅ <b>Все события в тайминговом допуске!</b>\n';
+    } else {
+        msg += '\n⚠ Событий с дрифтом >' + TIMING_WARN_THRESHOLD + 'мс: <b>' + stats.driftEvents.length + '</b>\n';
+    }
+    msg += '\n📍 Финал:\n';
+    endMsgs.forEach(m => { msg += '• ' + m.replace(/\{[0-9A-Fa-f]{6}\}/g, '') + '\n'; });
+
+    if (msg.length <= 4000) sendToTelegram(msg, false, null);
+    else for (var i = 0; i < msg.length; i += 3800) sendToTelegram(msg.substring(i, i + 3800), i > 0, null);
 }
 
 // ═══════════════════════════════════════════════════════════
-// ── Хуки на управление ───────────────────────────────────
+// ── UI Overlay ─────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════
+
+function _chat(txt) {
+    if (typeof window.onChatMessage === 'function')
+        window.onChatMessage('{999999}АВТОШКОЛА — ' + txt, '999999FF');
+}
+function debugLog(msg) { console.log(msg); }
+
+var _hudOverlay    = null;
+var _hudMode       = null;
+var _KEY_LABELS    = [[87,'⬆W'],[68,'▶D'],[65,'◀A'],[83,'⬇S'],[32,'🅿SP'],[81,'↩Q'],[69,'↪E'],[72,'📯H']];
+
+function _createHudOverlay(mode) {
+    _hudMode = mode;
+    if (_hudOverlay) { _updateOverlayHeader(mode); return; }
+    var wrap = document.createElement('div');
+    wrap.id  = 'avto-overlay';
+    wrap.style.cssText = 'position:fixed;right:1.5vw;bottom:20vh;z-index:99999;display:flex;flex-direction:column;gap:2px;pointer-events:none;font-size:1.4vh;';
+
+    var hdr = document.createElement('div');
+    hdr.id  = 'avto-hdr';
+    _applyHeaderStyle(hdr, mode);
+    wrap.appendChild(hdr);
+
+    _KEY_LABELS.forEach(function(p) {
+        var row = document.createElement('div');
+        row.id  = 'avto-k-' + p[0];
+        row.textContent = p[1];
+        row.style.cssText = 'padding:2px 6px;border-radius:3px;background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.3);border:1px solid rgba(255,255,255,0.1);transition:all 0.05s;';
+        wrap.appendChild(row);
+    });
+
+    // Реалтайм дрейф (обновляется каждый кадр)
+    var drift = document.createElement('div');
+    drift.id  = 'avto-drift';
+    drift.style.cssText = 'padding:2px 6px;border-radius:3px;background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.4);font-size:1.1vh;';
+    drift.textContent = '📍 --';
+    wrap.appendChild(drift);
+
+    document.body.appendChild(wrap);
+    _hudOverlay = wrap;
+}
+
+function _applyHeaderStyle(el, mode) {
+    el.textContent = mode === 'record' ? '🔴 ЗАПИСЬ' : '▶ ПОВТОР';
+    var col = mode === 'record' ? '#F44' : '#3D7';
+    el.style.cssText = 'padding:2px 6px;border-radius:3px;background:rgba(0,0,0,0.7);color:' + col + ';border:1px solid ' + col + ';font-weight:bold;text-align:center;';
+}
+function _updateOverlayHeader(mode) {
+    var h = document.getElementById('avto-hdr');
+    if (h) _applyHeaderStyle(h, mode);
+}
+function _removeHudOverlay() {
+    if (_hudOverlay) { _hudOverlay.remove(); _hudOverlay = null; }
+}
+function _overlaySetKey(code, down) {
+    var el = document.getElementById('avto-k-' + code);
+    if (!el) return;
+    el.style.background  = down ? (_hudMode === 'record' ? 'rgba(210,100,0,0.8)' : 'rgba(30,180,80,0.75)') : 'rgba(0,0,0,0.5)';
+    el.style.color       = down ? '#fff' : 'rgba(255,255,255,0.3)';
+    el.style.borderColor = down ? (_hudMode === 'record' ? '#F80' : '#3D7') : 'rgba(255,255,255,0.1)';
+}
+function _overlayResetAll() { RECORD_KEYS.forEach(c => _overlaySetKey(c, false)); }
+
+function _updatePosDriftOverlay(dist, timeS) {
+    var el = document.getElementById('avto-drift');
+    if (!el) return;
+    var ok   = dist < RT_CHAT_THRESHOLD;
+    var warn = dist < POS_DRIFT_WARN;
+    el.style.background = ok   ? 'rgba(20,130,55,0.75)'
+                        : warn ? 'rgba(180,130,0,0.75)'
+                        :        'rgba(170,35,35,0.8)';
+    el.style.color = '#fff';
+    el.textContent = '📍' + (ok ? '✅' : warn ? '⚠' : '❌') +
+                     ' Δ' + dist.toFixed(2) + 'м @' + timeS;
+}
+function _resetPosDriftOverlay() {
+    var el = document.getElementById('avto-drift');
+    if (el) {
+        el.style.background = 'rgba(0,0,0,0.5)';
+        el.style.color      = 'rgba(255,255,255,0.4)';
+        el.textContent      = '📍 слежу...';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ── Хуки — перехват мобильных кнопок ──────────────────────
+// ═══════════════════════════════════════════════════════════
+
 (function hookTouchControls() {
-  const _origStart = window.onScreenControlTouchStart;
-
-  window.onScreenControlTouchStart = function(path) {
-    if (avto.recording) {
-      if (path === JOYSTICK_PATH) {
-        _recordJoyStart();
-      } else if (path === CAMERA_PATH) {
-        _recordCamStart();
-      } else {
-        const code = PATH_MAP[path];
-
-        if (code !== undefined && !avto.heldKeys.has(code)) {
-          _recordDown(code);
-        } else if (code === undefined && IGNORE_PATHS.indexOf(path) === -1) {
-          debugLog('[АВТОШКОЛА] Неизвестный путь нажатия: ' + path);
+    // Перехватываем TouchStart для записи нажатий мобильных кнопок
+    const _origStart = window.onScreenControlTouchStart;
+    window.onScreenControlTouchStart = function(path) {
+        if (avto.recording) {
+            const code = PATH_MAP[path];
+            // Записываем только если это наша клавиша И ещё не зажата
+            if (code !== undefined && !avto.heldKeys.has(code)) {
+                avto.heldKeys.add(code);
+                _recordEvent(1, code);
+            }
         }
-      }
-    }
+        // ⚠️ Всегда передаём оригинальному обработчику!
+        return (typeof _origStart === 'function') ? _origStart.apply(this, arguments) : undefined;
+    };
 
-    if (typeof _origStart === 'function') {
-      return _origStart.apply(this, arguments);
-    }
-  };
-
-  const _origEnd = window.onScreenControlTouchEnd;
-
-  window.onScreenControlTouchEnd = function(path) {
-    if (avto.recording) {
-      if (path === JOYSTICK_PATH) {
-        _recordJoyEnd();
-      } else if (path === CAMERA_PATH) {
-        _recordCamEnd();
-      } else {
-        const code = PATH_MAP[path];
-
-        if (code !== undefined && avto.heldKeys.has(code)) {
-          _recordUp(code);
+    // Перехватываем TouchEnd для записи отпускания
+    const _origEnd = window.onScreenControlTouchEnd;
+    window.onScreenControlTouchEnd = function(path) {
+        if (avto.recording) {
+            const code = PATH_MAP[path];
+            if (code !== undefined && avto.heldKeys.has(code)) {
+                avto.heldKeys.delete(code);
+                _recordEvent(0, code);
+            }
         }
-      }
-    }
-
-    if (typeof _origEnd === 'function') {
-      return _origEnd.apply(this, arguments);
-    }
-  };
-
-  const _origMove = window.onScreenControlTouchMove;
-
-  window.onScreenControlTouchMove = function(path, x, y) {
-    if (avto.recording) {
-      if (path === JOYSTICK_PATH) {
-        _recordJoyMove(x, y);
-      } else if (path === CAMERA_PATH) {
-        _recordCamMove(x, y);
-      }
-    }
-
-    if (typeof _origMove === 'function') {
-      return _origMove.apply(this, arguments);
-    }
-  };
+        return (typeof _origEnd === 'function') ? _origEnd.apply(this, arguments) : undefined;
+    };
+    // Примечание: onScreenControlTouchMove НЕ перехватываем —
+    // джойстик (<Gamepad>/leftStick) использует TouchMove для аналогового ввода.
+    // Для автошколы используйте кнопки A/D (TurnLeft/TurnRight).
 })();
 
-// ═══════════════════════════════════════════════════════════
-// ── Хук на команды чата ──────────────────────────────────
-// ═══════════════════════════════════════════════════════════
+// ── Хук команд чата ──
 (function hookSendChatInput() {
-  const _orig = window.sendChatInput;
-
-  window.sendChatInput = function(cmd) {
-    if (typeof cmd === 'string') {
-      const t = cmd.trim().toLowerCase();
-
-      if (t === '/arec_on')  { startRecording(); return; }
-      if (t === '/arec_off') { stopRecording();  return; }
-      if (t === '/apov')     { replayRoute();    return; }
-      if (t === '/apov_off') { cancelReplay();   return; }
-    }
-
-    if (typeof _orig === 'function') {
-      return _orig.apply(this, arguments);
-    }
-  };
+    const _orig = window.sendChatInput;
+    window.sendChatInput = function(cmd) {
+        if (typeof cmd === 'string') {
+            var t = cmd.trim().toLowerCase();
+            if (t === '/arec_on')  { startRecording(); return; }
+            if (t === '/arec_off') { stopRecording();  return; }
+            if (t === '/apov')     { replayRoute();    return; }
+            if (t === '/apov_off') { cancelReplay();   return; }
+        }
+        return (typeof _orig === 'function') ? _orig.apply(this, arguments) : undefined;
+    };
 })();
 
-_chat('{AAAAAA}v7 загружен | ТС + джойстик + камера | /arec_on /arec_off /apov /apov_off');
-debugLog('[АВТОШКОЛА v7] Загружен. Камера: ' + CAMERA_PATH + ', джойстик: ' + JOYSTICK_PATH);
+// ═══════════════════════════════════════════════════════════
+// ── Инициализация ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+
+_chat('{AAAAAA}v6 | без повторов | RT-координаты | /arec_on /arec_off /apov /apov_off');
+debugLog(
+    '[АВТОШКОЛА v6] загружен.' +
+    ' SetValue=' + (typeof window.onScreenControlSetValue === 'function') +
+    ' Touch=' + (typeof window.onScreenControlTouchStart === 'function') +
+    ' posInterval=' + POS_LOG_INTERVAL + 'мс'
+);
 
 })();
