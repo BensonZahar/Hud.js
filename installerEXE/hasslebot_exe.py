@@ -190,7 +190,7 @@ class MEmuHudManager:
             self.main_frame, width=1, corner_radius=0, fg_color=C["border"]
         ).grid(row=1, column=1, sticky="nsew")
 
-        # ── Правая колонка (лог + действия) ────────────────────
+        # ── Правая колонка (уведомления + действия) ────────────
         self.right_col = ctk.CTkFrame(
             self.main_frame,
             fg_color=C["bg"],
@@ -198,20 +198,16 @@ class MEmuHudManager:
         )
         self.right_col.grid(row=1, column=2, sticky="nsew")
         self.right_col.grid_columnconfigure(0, weight=1)
-        self.right_col.grid_rowconfigure(0, weight=1)   # лог растягивается
-        self.right_col.grid_rowconfigure(1, weight=0)   # действия фиксированы
+        self.right_col.grid_rowconfigure(0, weight=0)   # уведомления (авто-высота)
+        self.right_col.grid_rowconfigure(1, weight=1)   # действия (занимают всё)
         self.right_col.grid_rowconfigure(2, weight=0)   # кнопка выхода
 
-        # ── Уведомления (в правой колонке) ─────────────────────
-        self._notif_box = ctk.CTkScrollableFrame(
-            self.right_col,
-            fg_color="transparent",
-            corner_radius=0,
-            scrollbar_button_color=C["border"],
-            scrollbar_button_hover_color=C["accent"],
+        # ── Компактные уведомления сверху ───────────────────────
+        self._notif_strip = ctk.CTkFrame(
+            self.right_col, fg_color="transparent",
         )
-        self._notif_box.grid(row=0, column=0, padx=8, pady=(8, 4), sticky="nsew")
-        self._notif_box.grid_columnconfigure(0, weight=1)
+        self._notif_strip.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 0))
+        self._notif_strip.grid_columnconfigure(0, weight=1)
 
         self.activate_launch_permission()
 
@@ -556,29 +552,35 @@ class MEmuHudManager:
         acts = ctk.CTkFrame(
             self.right_col,
             fg_color=C["surface"],
-            corner_radius=10,
+            corner_radius=12,
             border_width=1,
             border_color=C["border"],
         )
-        acts.grid(row=1, column=0, padx=10, pady=(0, 4), sticky="ew")
+        acts.grid(row=1, column=0, padx=10, pady=(4, 4), sticky="nsew")
         acts.grid_columnconfigure((0, 1), weight=1)
+        acts.grid_rowconfigure(7, weight=1)   # filler — пустое место внизу карточки
 
         self._section_label(acts, "ДЕЙСТВИЯ", row=0)
 
-        # ── Главная кнопка: янтарная (как .button--primary на сайте) ──
+        # ── Главная кнопка ──────────────────────────────────────
         ctk.CTkButton(
             acts,
             text="▶  Установить код",
             font=("Segoe UI", 12, "bold"),
-            fg_color=C["accent"],           # hsl(40,100%,53%) amber
-            hover_color="#E09500",          # чуть темнее янтарь
-            text_color=C["btntext"],        # #18181B (как на сайте)
-            height=40,
+            fg_color=C["accent"],
+            hover_color="#E09500",
+            text_color=C["btntext"],
+            height=42,
             corner_radius=10,
             command=lambda: self.execute_action("1"),
-        ).grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 6), sticky="ew")
+        ).grid(row=1, column=0, columnspan=2, padx=12, pady=(0, 8), sticky="ew")
 
-        # ── Вторичные кнопки (стиль .button--link / .button--alt) ──
+        # ── Разделитель ─────────────────────────────────────────
+        ctk.CTkFrame(acts, height=1, fg_color=C["border"]).grid(
+            row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8)
+        )
+
+        # ── Вторичные кнопки ────────────────────────────────────
         ctk.CTkButton(
             acts,
             text="✕  Убрать код",
@@ -586,10 +588,10 @@ class MEmuHudManager:
             fg_color=C["card"],
             hover_color=C["border"],
             text_color=C["subtext"],
-            height=34, corner_radius=8,
+            height=36, corner_radius=8,
             border_width=1, border_color=C["border"],
             command=lambda: self.execute_action("2"),
-        ).grid(row=2, column=0, padx=(10, 4), pady=(0, 4), sticky="ew")
+        ).grid(row=3, column=0, padx=(12, 4), pady=(0, 6), sticky="ew")
 
         ctk.CTkButton(
             acts,
@@ -598,10 +600,10 @@ class MEmuHudManager:
             fg_color=C["card"],
             hover_color=C["border"],
             text_color=C["subtext"],
-            height=34, corner_radius=8,
+            height=36, corner_radius=8,
             border_width=1, border_color=C["border"],
             command=lambda: self.execute_action("3"),
-        ).grid(row=2, column=1, padx=(4, 10), pady=(0, 4), sticky="ew")
+        ).grid(row=3, column=1, padx=(4, 12), pady=(0, 6), sticky="ew")
 
         if self.full_logging:
             ctk.CTkButton(
@@ -609,23 +611,22 @@ class MEmuHudManager:
                 text="↓  Скачать Hud.js",
                 font=("Segoe UI", 11),
                 fg_color=C["card"], hover_color=C["border"],
-                text_color=C["subtext"], height=34, corner_radius=8,
+                text_color=C["subtext"], height=36, corner_radius=8,
                 border_width=1, border_color=C["border"],
                 command=lambda: self.execute_action("4"),
-            ).grid(row=3, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="ew")
+            ).grid(row=4, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
 
             ctk.CTkButton(
                 acts,
                 text="📂  Скачать .js файлы",
                 font=("Segoe UI", 11),
                 fg_color=C["card"], hover_color=C["border"],
-                text_color=C["subtext"], height=34, corner_radius=8,
+                text_color=C["subtext"], height=36, corner_radius=8,
                 border_width=1, border_color=C["border"],
                 command=self.open_js_downloader,
-            ).grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 4), sticky="ew")
+            ).grid(row=5, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
 
         if self.debug_allowed:
-            # Кнопка отладки — accent2 (зелёный, как .button--provider--github)
             ctk.CTkButton(
                 acts,
                 text="🛠  Включить отладку",
@@ -633,14 +634,10 @@ class MEmuHudManager:
                 fg_color=C["card"],
                 hover_color=C["border"],
                 text_color=C["accent2"],
-                height=34, corner_radius=8,
+                height=36, corner_radius=8,
                 border_width=1, border_color=C["accent2"],
                 command=self.activate_debug_mode,
-            ).grid(row=5, column=0, columnspan=2, padx=10, pady=(0, 8), sticky="ew")
-        else:
-            ctk.CTkFrame(acts, height=1, fg_color=C["border"]).grid(
-                row=5, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 8)
-            )
+            ).grid(row=6, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
 
         # ── Кнопка выхода ──────────────────────────────────────
         ctk.CTkButton(
@@ -1174,6 +1171,8 @@ class MEmuHudManager:
             height=28, corner_radius=6,
             command=self.on_close,
         ).grid(row=2, column=0, padx=10, pady=(0, 8), sticky="e")
+        # Сброс ссылки на старый notif_strip
+        self._notif_strip = None
 
     def activate_launch_permission(self):
         self.hwid = self.get_hwid()
@@ -2078,71 +2077,67 @@ class MEmuHudManager:
     # ──────────────────────────────────────────────────────────────────────────
     def log(self, message):
         print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
-        if not hasattr(self, '_notif_box'):
+        if not hasattr(self, '_notif_strip'):
             return
         try:
-            if not self._notif_box.winfo_exists():
+            if not self._notif_strip.winfo_exists():
                 return
         except Exception:
             return
 
         C = self.C
-        # Определяем тип по префиксу
         if message.startswith('[√]'):
-            bar   = C["green"]
-            clean = message[4:].strip()
+            bar, icon, clean = C["green"],  "●", message[4:].strip()
         elif message.startswith('[X]'):
-            bar   = C["red"]
-            clean = message[4:].strip()
+            bar, icon, clean = C["red"],    "●", message[4:].strip()
         elif message.startswith('[!]'):
-            bar   = C["accent"]
-            clean = message[4:].strip()
+            bar, icon, clean = C["accent"], "●", message[4:].strip()
         else:
-            bar   = C["muted"]
-            clean = message.strip()
+            bar, icon, clean = C["muted"],  "○", message.strip()
 
         card = ctk.CTkFrame(
-            self._notif_box,
-            fg_color=C["card"],
-            corner_radius=7,
+            self._notif_strip,
+            fg_color=C["surface"],
+            corner_radius=6,
             border_width=1,
             border_color=bar,
+            height=26,
         )
-        card.pack(fill="x", pady=(0, 3))
-        card.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkFrame(
-            card, width=3, corner_radius=2, fg_color=bar,
-        ).grid(row=0, column=0, padx=(5, 8), pady=5, sticky="ns")
+        card.pack(fill="x", pady=(0, 2))
+        card.pack_propagate(False)
+        card.grid_columnconfigure(2, weight=1)
 
         ctk.CTkLabel(
-            card,
-            text=f"{datetime.now().strftime('%H:%M:%S')}  {clean}",
-            font=("Consolas", 10),
+            card, text=icon,
+            font=("Segoe UI", 7),
+            text_color=bar, width=14,
+        ).grid(row=0, column=0, padx=(6, 0))
+
+        ctk.CTkLabel(
+            card, text=datetime.now().strftime('%H:%M:%S'),
+            font=("Consolas", 9),
+            text_color=C["muted"], width=54, anchor="w",
+        ).grid(row=0, column=1, padx=(3, 4))
+
+        ctk.CTkLabel(
+            card, text=clean,
+            font=("Segoe UI", 10),
             text_color=bar if bar != C["muted"] else C["subtext"],
             anchor="w",
-            wraplength=190,
-            justify="left",
-        ).grid(row=0, column=1, padx=(0, 8), pady=7, sticky="ew")
+        ).grid(row=0, column=2, padx=(0, 8), sticky="ew")
 
-        # Прокрутка вниз
-        try:
-            self._notif_box._parent_canvas.yview_moveto(1.0)
-        except Exception:
-            pass
         try:
             self.root.update()
         except Exception:
             pass
 
-        # Авто-удаление через 4 секунды
         def _dismiss():
             try:
                 if card.winfo_exists():
                     card.destroy()
             except Exception:
                 pass
-        self.root.after(4000, _dismiss)
+        self.root.after(3500, _dismiss)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Завершение
