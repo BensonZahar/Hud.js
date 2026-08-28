@@ -232,48 +232,46 @@ class MEmuHudManager:
             pass
 
     def _section_label(self, parent, text, row=0):
-        """Заголовок секции в стиле .block-header сайта (янтарный текст)."""
+        """Заголовок секции — янтарная полоса + текст."""
         C = self.C
-        wrap = ctk.CTkFrame(parent, fg_color="transparent", height=30)
-        wrap.grid(row=row, column=0, columnspan=2, sticky="ew", padx=10, pady=(8, 2))
+        wrap = ctk.CTkFrame(parent, fg_color=C["card"], corner_radius=0, height=34)
+        wrap.grid(row=row, column=0, columnspan=2, sticky="ew", padx=0, pady=(0, 6))
         wrap.grid_propagate(False)
         wrap.grid_columnconfigure(1, weight=1)
-        # Янтарный маркер
-        ctk.CTkFrame(wrap, width=3, height=14, corner_radius=2,
-                     fg_color=C["accent"]).grid(row=0, column=0, padx=(0, 7), pady=8)
+        ctk.CTkFrame(wrap, width=3, height=34, corner_radius=0,
+                     fg_color=C["accent"]).grid(row=0, column=0, sticky="ns")
         ctk.CTkLabel(
-            wrap,
-            text=text,
+            wrap, text=text,
             font=("Segoe UI", 9, "bold"),
-            text_color=C["accent"],    # majorHeadingTextColor = amber на сайте
-        ).grid(row=0, column=1, sticky="w")
+            text_color=C["accent"],
+        ).grid(row=0, column=1, padx=(10, 0), sticky="w")
 
-    def _card(self, parent, row, pad_top=4, pad_bot=4):
-        """Карточка в стиле .block-container сайта."""
+    def _card(self, parent, row, pad_top=6, pad_bot=6):
+        """Карточка секции — одна колонка, полная ширина."""
         C = self.C
         f = ctk.CTkFrame(
             parent,
             fg_color=C["surface"],
-            corner_radius=10,
+            corner_radius=12,
             border_width=1,
             border_color=C["border"],
         )
-        f.grid(row=row, column=0, padx=14, pady=(pad_top, pad_bot), sticky="ew")
-        f.grid_columnconfigure(1, weight=1)
+        f.grid(row=row, column=0, padx=12, pady=(pad_top, pad_bot), sticky="ew")
+        f.grid_columnconfigure(0, weight=1)
         return f
 
-    def _row_label(self, parent, text, row, col=0):
-        """Метка строки внутри карточки."""
+    def _field_label(self, parent, text, row):
+        """Метка поля над комбо — маленькая, приглушённая."""
         ctk.CTkLabel(
             parent,
             text=text,
-            font=("Segoe UI", 11),
-            text_color=self.C["subtext"],
-            width=70, anchor="w",
-        ).grid(row=row, column=col, padx=(12, 6), pady=5, sticky="w")
+            font=("Segoe UI", 9, "bold"),
+            text_color=self.C["muted"],
+            anchor="w",
+        ).grid(row=row, column=0, padx=14, pady=(8, 2), sticky="w")
 
-    def _combo(self, parent, values, variable, row, command=None):
-        """Выпадающий список в стиле .input сайта."""
+    def _combo(self, parent, values, variable, row, command=None, pad_bottom=10):
+        """Выпадающий список — полная ширина, метка над ним."""
         C = self.C
         kw = dict(
             values=values,
@@ -281,18 +279,18 @@ class MEmuHudManager:
             fg_color=C["card"],
             button_color=C["accent"],
             border_color=C["border"],
-            dropdown_fg_color=C["card"],
+            dropdown_fg_color=C["surface"],
             dropdown_hover_color=C["border"],
             dropdown_text_color=C["text"],
             text_color=C["text"],
             font=("Segoe UI", 11),
-            height=32,
+            height=34,
             corner_radius=8,
         )
         if command:
             kw["command"] = command
         w = ctk.CTkComboBox(parent, **kw)
-        w.grid(row=row, column=1, padx=(0, 12), pady=5, sticky="ew")
+        w.grid(row=row, column=0, padx=12, pady=(0, pad_bottom), sticky="ew")
         return w
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -393,34 +391,29 @@ class MEmuHudManager:
         sect1 = self._card(self.left_col, row=0, pad_top=10)
         self._section_label(sect1, "УСТРОЙСТВО")
 
-        self._row_label(sect1, "Тип", row=1)
+        self._field_label(sect1, "ТИП ПОДКЛЮЧЕНИЯ", row=1)
         self.conn_var = ctk.StringVar(value="Физическое")
         self.conn_menu = self._combo(
             sect1,
             values=["Физическое", "Клон (999)", "MEmu", "NOX"],
             variable=self.conn_var,
-            row=1,
+            row=2,
         )
         self.conn_var.trace("w", self.detect_app_folders)
 
-        self._row_label(sect1, "Папка", row=2)
+        self._field_label(sect1, "ПАПКА ПРИЛОЖЕНИЯ", row=3)
         self.app_var = ctk.StringVar(value="")
-        self.app_menu = self._combo(sect1, values=[], variable=self.app_var, row=2)
-
-        # Разделитель снизу карточки
-        ctk.CTkFrame(sect1, height=1, fg_color=C["border"]).grid(
-            row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=(4, 8)
-        )
+        self.app_menu = self._combo(sect1, values=[], variable=self.app_var, row=4, pad_bottom=12)
 
         # ── NOX-секция ─────────────────────────────────────────
         self.nox_sect = ctk.CTkFrame(
             self.left_col,
             fg_color=C["surface"],
-            corner_radius=10,
+            corner_radius=12,
             border_width=1,
             border_color=C["border"],
         )
-        self.nox_sect.grid_columnconfigure(1, weight=1)
+        self.nox_sect.grid_columnconfigure(0, weight=1)
 
         # ── Карточка: Профиль (только для владельца) ───────────
         if self.debug_allowed and self.code_files:
@@ -428,7 +421,7 @@ class MEmuHudManager:
             sect_u = self._card(self.left_col, row=2)
             self._section_label(sect_u, "ПРОФИЛЬ")
 
-            self._row_label(sect_u, "Игрок", row=1)
+            self._field_label(sect_u, "ИГРОК", row=1)
             self.owner_user_var = ctk.StringVar(
                 value=self.selected_code_name or user_names[0]
             )
@@ -436,11 +429,9 @@ class MEmuHudManager:
                 sect_u,
                 values=user_names,
                 variable=self.owner_user_var,
-                row=1,
+                row=2,
                 command=self._on_owner_user_change,
-            )
-            ctk.CTkFrame(sect_u, height=1, fg_color=C["border"]).grid(
-                row=2, column=0, columnspan=2, sticky="ew", padx=10, pady=(4, 8)
+                pad_bottom=12,
             )
             self._on_owner_user_change(self.owner_user_var.get())
 
@@ -468,13 +459,13 @@ class MEmuHudManager:
             w.destroy()
 
         if self.conn_var.get() == "NOX" and len(self.nox_active_devices) >= 2:
-            self.nox_sect.grid(row=1, column=0, padx=10, pady=(0, 4), sticky="ew")
+            self.nox_sect.grid(row=1, column=0, padx=12, pady=(0, 6), sticky="ew")
             self._section_label(self.nox_sect, "NOX — ВЫБОР ЭКЗЕМПЛЯРА")
 
-            self._row_label(self.nox_sect, "Цель", row=1)
-            labels = [d["label"] for d in self.nox_active_devices] + ["Оба сразу"]
             if not hasattr(self, 'nox_target_var') or self.nox_target_var is None:
                 self.nox_target_var = ctk.StringVar(value="Оба сразу")
+
+            labels = [d["label"] for d in self.nox_active_devices] + ["Оба сразу"]
 
             def _on_nox_target(val):
                 idx_map = {d["label"]: d for d in self.nox_active_devices}
@@ -485,7 +476,8 @@ class MEmuHudManager:
                     self.device_param = self.nox_active_devices[0]["param"]
                     self.log("[√] NOX цель: оба экземпляра")
 
-            self._combo(self.nox_sect, labels, self.nox_target_var, row=1,
+            self._field_label(self.nox_sect, "ЦЕЛЬ", row=1)
+            self._combo(self.nox_sect, labels, self.nox_target_var, row=2,
                         command=_on_nox_target)
 
             ports_text = "  ".join(
@@ -494,11 +486,9 @@ class MEmuHudManager:
             ctk.CTkLabel(
                 self.nox_sect, text=ports_text,
                 font=("Segoe UI", 9), text_color=C["muted"],
-            ).grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 8))
+                anchor="w",
+            ).grid(row=3, column=0, padx=14, pady=(0, 10), sticky="w")
 
-            ctk.CTkFrame(self.nox_sect, height=1, fg_color=C["border"]).grid(
-                row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=(0, 0)
-            )
             _on_nox_target(self.nox_target_var.get())
         else:
             self.nox_sect.grid_remove()
@@ -558,9 +548,18 @@ class MEmuHudManager:
         )
         acts.grid(row=1, column=0, padx=10, pady=(4, 4), sticky="nsew")
         acts.grid_columnconfigure((0, 1), weight=1)
-        acts.grid_rowconfigure(7, weight=1)   # filler — пустое место внизу карточки
+        acts.grid_rowconfigure(7, weight=1)
 
-        self._section_label(acts, "ДЕЙСТВИЯ", row=0)
+        # Заголовок (columnspan=2 чтоб перекрыл обе колонки кнопок)
+        C2 = self.C
+        hdr_wrap = ctk.CTkFrame(acts, fg_color=C2["card"], corner_radius=0, height=34)
+        hdr_wrap.grid(row=0, column=0, columnspan=2, sticky="ew", padx=0, pady=(0, 8))
+        hdr_wrap.grid_propagate(False)
+        hdr_wrap.grid_columnconfigure(1, weight=1)
+        ctk.CTkFrame(hdr_wrap, width=3, height=34, corner_radius=0,
+                     fg_color=C2["accent"]).grid(row=0, column=0, sticky="ns")
+        ctk.CTkLabel(hdr_wrap, text="ДЕЙСТВИЯ", font=("Segoe UI", 9, "bold"),
+                     text_color=C2["accent"]).grid(row=0, column=1, padx=(10, 0), sticky="w")
 
         # ── Главная кнопка ──────────────────────────────────────
         ctk.CTkButton(
