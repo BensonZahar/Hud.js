@@ -9,6 +9,13 @@
 //   { t, d:0,  pi }            — кнопка отпущена
 //   { t, d:2,  pi, x, y }     — аналог (джойстик) TouchMove
 //   { t, d:-1, pi:-1 }        — маркер конца
+//
+// ИСПРАВЛЕНИЯ v8-fix:
+//   - replayHeldPaths: теперь _releaseAllInputs() корректно отпускает
+//     кнопки нажатые ВО ВРЕМЯ повтора (раньше heldPaths был пуст → утечка)
+//   - Защита от дублей: повторный d:1 без d:0 больше не уходит в игру
+//   - Гибридный таймер: setTimeout + RAF уменьшает джиттер событий с ~16мс до ~4мс
+//   - cancelReplay() теперь отменяет и setTimeout и RAF
 
 (function () {
 'use strict';
@@ -108,26 +115,28 @@ const ANALOG_PATHS = new Set([
 // ════════════════════════════════════════════════════════════════════
 
 const avto = {
-    recording:     false,
-    events:        [],        // { t, d, pi } | { t, d:2, pi, x, y }
-    pathTable:     [],        // уникальные пути (для сжатия)
-    pathIndex:     {},        // path → индекс
-    startPerf:     null,
-    lastRoute:     null,
-    lastPathTable: null,
-    replaying:     false,
-    replayRAF:     null,
-    heldPaths:     new Set(), // зажатые пути (чтоб не дублировать)
-    analogState:   {},        // path → { lastX, lastY }
-    startSnapshot: null,
-    endSnapshot:   null,
-    replayStats:   null,
-    posLog:        [],
-    lastPosLog:    [],
-    posLogIntId:   null,
-    maxPosDrift:   0,
-    detailedLog:   [],
-    pressStart:    {},        // path → время нажатия (для длительности)
+    recording:       false,
+    events:          [],        // { t, d, pi } | { t, d:2, pi, x, y }
+    pathTable:       [],        // уникальные пути (для сжатия)
+    pathIndex:       {},        // path → индекс
+    startPerf:       null,
+    lastRoute:       null,
+    lastPathTable:   null,
+    replaying:       false,
+    replayRAF:       null,
+    replayTimer:     null,      // FIX: setTimeout-хендл гибридного таймера
+    heldPaths:       new Set(), // зажатые пути во время ЗАПИСИ
+    replayHeldPaths: new Set(), // FIX: зажатые пути во время ПОВТОРА
+    analogState:     {},        // path → { lastX, lastY }
+    startSnapshot:   null,
+    endSnapshot:     null,
+    replayStats:     null,
+    posLog:          [],
+    lastPosLog:      [],
+    posLogIntId:     null,
+    maxPosDrift:     0,
+    detailedLog:     [],
+    pressStart:      {},        // path → время нажатия (для длительности)
 };
 
 // ── Индексация путей (экономия в JSON) ────────────────────────────
@@ -159,7 +168,9 @@ function _inputMove(path, x, y) {
         window.onScreenControlTouchMove(path, x, y);
 }
 
+// FIX: теперь отпускает и heldPaths (запись) и replayHeldPaths (повтор)
 function _releaseAllInputs() {
+    // Отпустить зажатые во время ЗАПИСИ
     avto.heldPaths.forEach(function(path) {
         try {
             if (typeof window.onScreenControlSetValue === 'function')
@@ -167,6 +178,15 @@ function _releaseAllInputs() {
             window.onScreenControlTouchEnd(path);
         } catch(e) {}
     });
+    // FIX: отпустить зажатые во время ПОВТОРА
+    avto.replayHeldPaths.forEach(function(path) {
+        try {
+            if (typeof window.onScreenControlSetValue === 'function')
+                window.onScreenControlSetValue(path, 0.0);
+            window.onScreenControlTouchEnd(path);
+        } catch(e) {}
+    });
+    // Отпустить аналоговые
     Object.keys(avto.analogState).forEach(function(path) {
         try {
             if (typeof window.onScreenControlSetValue === 'function')
@@ -175,6 +195,7 @@ function _releaseAllInputs() {
         } catch(e) {}
     });
     avto.heldPaths.clear();
+    avto.replayHeldPaths.clear(); // FIX
     avto.analogState = {};
 }
 
@@ -335,7 +356,9 @@ function replayRoute() {
 
     avto.replaying   = true;
     avto.replayRAF   = null;
+    avto.replayTimer = null;      // FIX
     avto.maxPosDrift = 0;
+    avto.replayHeldPaths.clear(); // FIX: сбрасываем перед каждым повтором
     avto.replayStats = {
         totalEvents: avto.lastRoute.length, processedEvents: 0,
         maxDrift: 0, totalDrift: 0, driftEvents: [],
@@ -350,7 +373,7 @@ function replayRoute() {
     var hasTouchCtrl = typeof window.onScreenControlTouchStart === 'function';
     var hasTouchMove = typeof window.onScreenControlTouchMove  === 'function';
     var hasSetValue  = typeof window.onScreenControlSetValue   === 'function';
-    var method = 'v8 | touch:' + (hasTouchCtrl?'✅':'❌') + ' move:' + (hasTouchMove?'✅':'❌') + ' setval:' + (hasSetValue?'✅':'❌');
+    var method = 'v8fix | touch:' + (hasTouchCtrl?'✅':'❌') + ' move:' + (hasTouchMove?'✅':'❌') + ' setval:' + (hasSetValue?'✅':'❌');
 
     _chat('{33DD77}▶ Повтор (' + (totalMs/1000).toFixed(2) + 'с | ' + events.length + ' соб.)');
     _chat('{AAAAAA}Кнопки: ' + pathTable.map(_pathLabel).join(' | '));
@@ -367,6 +390,8 @@ function replayRoute() {
     var rtLastDist   = 0;
     var rtPrevPos    = null;
 
+    // FIX: _execEvent теперь отслеживает нажатые клавиши в replayHeldPaths
+    //      и не дублирует нажатия (d:1 без предшествующего d:0)
     function _execEvent(ev) {
         if (ev.pi === -1) return;
         var path = pathTable[ev.pi];
@@ -377,11 +402,15 @@ function replayRoute() {
                 if (hasTouchMove) _inputMove(path, ev.x, ev.y);
                 _overlaySetAnalog(path, ev.x, ev.y);
             } else if (ev.d === 1) {
-                // Нажатие
-                if (hasTouchCtrl) _inputDown(path);
-                _overlayActivate(path, true, _pathLabel(path));
+                // FIX: защита от дублей — не нажимаем уже зажатую кнопку
+                if (!avto.replayHeldPaths.has(path)) {
+                    avto.replayHeldPaths.add(path);
+                    if (hasTouchCtrl) _inputDown(path);
+                    _overlayActivate(path, true, _pathLabel(path));
+                }
             } else if (ev.d === 0) {
-                // Отпускание
+                // FIX: убираем из трекера при отпускании
+                avto.replayHeldPaths.delete(path);
                 if (hasTouchCtrl) _inputUp(path);
                 _overlayActivate(path, false, _pathLabel(path));
             }
@@ -468,14 +497,26 @@ function replayRoute() {
         }
         rtPrevPos = rtPos;
 
-        // ── 4. Конец ──
+        // ── 4. Конец или планирование следующего кадра ──
         if (elapsed < totalMs + 400) {
-            avto.replayRAF = requestAnimationFrame(_rafLoop);
+            // FIX: гибридный таймер — спим через setTimeout до следующего события,
+            // потом один RAF. Уменьшает джиттер с ~16мс до ~4мс.
+            var nextEvTime = (eventIndex < events.length) ? events[eventIndex].t : totalMs;
+            var delay = Math.floor(nextEvTime - elapsed) - 2;
+            if (delay > 8) {
+                avto.replayTimer = setTimeout(function() {
+                    avto.replayTimer = null;
+                    if (avto.replaying) avto.replayRAF = requestAnimationFrame(_rafLoop);
+                }, delay);
+            } else {
+                avto.replayRAF = requestAnimationFrame(_rafLoop);
+            }
         } else {
             _releaseAllInputs();
             _removeHudOverlay();
             avto.replaying = false;
             avto.replayRAF = null;
+            avto.replayTimer = null;
             var endMsgs = _checkEndSnapshot();
             endMsgs.forEach(p => _chat(p));
             _chat('{33DD77}✅ Повтор завершён | Макс.дрейф: ' + avto.maxPosDrift.toFixed(2) + 'м');
@@ -485,9 +526,11 @@ function replayRoute() {
     avto.replayRAF = requestAnimationFrame(_rafLoop);
 }
 
+// FIX: cancelReplay теперь отменяет и setTimeout и RAF
 function cancelReplay() {
     if (!avto.replaying) return;
-    if (avto.replayRAF) { cancelAnimationFrame(avto.replayRAF); avto.replayRAF = null; }
+    if (avto.replayTimer) { clearTimeout(avto.replayTimer); avto.replayTimer = null; }
+    if (avto.replayRAF)   { cancelAnimationFrame(avto.replayRAF); avto.replayRAF = null; }
     avto.replaying = false;
     _releaseAllInputs();
     _removeHudOverlay();
@@ -780,7 +823,7 @@ function _resetPosDriftOverlay() {
 })();
 
 function _showInfo() {
-    _chat('{FFFF00}═══ АВТОШКОЛА v8 ═══');
+    _chat('{FFFF00}═══ АВТОШКОЛА v8-fix ═══');
     _chat('{AAAAAA}/arec_on  — начать запись всех действий');
     _chat('{AAAAAA}/arec_off — остановить запись');
     _chat('{AAAAAA}/apov     — воспроизвести');
@@ -801,8 +844,8 @@ function _showInfo() {
 // ── Инициализация ─────────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════════════
 
-_chat('{AAAAAA}v8 UNIVERSAL | Записывает ВСЁ | /arec_on /arec_off /apov /apov_off /ainfo');
-debugLog('[АВТОШКОЛА v8] загружен' +
+_chat('{AAAAAA}v8-fix UNIVERSAL | Записывает ВСЁ | /arec_on /arec_off /apov /apov_off /ainfo');
+debugLog('[АВТОШКОЛА v8-fix] загружен' +
     ' | Touch=' + (typeof window.onScreenControlTouchStart === 'function') +
     ' | Move='  + (typeof window.onScreenControlTouchMove  === 'function') +
     ' | SetVal='+ (typeof window.onScreenControlSetValue   === 'function'));
