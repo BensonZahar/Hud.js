@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗав'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗв'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -3958,7 +3958,7 @@ function processUpdates(updates) {
                         showOtygrovkaMenu(chatId, messageId);
                     }
                 } else if (_funcKey === 'chat') {
-                    const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
+                    const requestMsg = `✉️ Введите сообщение для ${displayName}:\n🔑 ID: ${uniqueId}`;
                     _abortPollAndRestartFast();
                     sendToTelegram(requestMsg, false, { force_reply: true });
                 } else if (_funcKey === 'pause') {
@@ -4008,7 +4008,7 @@ function processUpdates(updates) {
             } else if (message.startsWith(`hide_controls_`)) {
                 hideControlsMenu(chatId, messageId);
             } else if (message.startsWith(`request_chat_message_`)) {
-                const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
+                const requestMsg = `✉️ Введите сообщение для ${displayName}:\n🔑 ID: ${uniqueId}`;
                 // Прерываем текущий long-poll — освобождаем соединение для sendMessage
                 _abortPollAndRestartFast();
                 sendToTelegram(requestMsg, false, {
@@ -4106,7 +4106,7 @@ function processUpdates(updates) {
                     activateAFKWithMode('random', false, 'q', chatId, messageId);
                 }
             } else if (message.startsWith("admin_reply_")) {
-                const requestMsg = `✉️ Введите ответ для ${displayName}:`;
+                const requestMsg = `✉️ Введите ответ для ${displayName}:\n🔑 ID: ${uniqueId}`;
                 _abortPollAndRestartFast();
                 sendToTelegram(requestMsg, false, {
                     force_reply: true
