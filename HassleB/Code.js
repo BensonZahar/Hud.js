@@ -69,6 +69,12 @@ function normalizeColor(color) {
     if (normalized.length === 8) normalized = normalized.slice(0, 6);
     return '0x' + normalized;
 }
+// Форматирует число с точками как разделителем тысяч: 1000 → 1.000, 100000 → 100.000
+function fmtMoney(n) {
+    if (n === null || n === undefined) return '—';
+    return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
 function getChatRadius(color) {
     const normalizedColor = normalizeColor(color);
     switch (normalizedColor) {
@@ -559,12 +565,12 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
             // Нал и банк берём из Vuex store — там актуальные значения
             var _liveMoneyData = (function() { try { return getPlayerMoneyFromStore(); } catch(e) { return null; } })();
             var cash = (_liveMoneyData && _liveMoneyData.money !== null)
-                ? _liveMoneyData.money.toLocaleString('ru-RU') + ' руб'
-                : (p.cash !== null ? p.cash.toLocaleString('ru-RU') + ' руб' : '—');
+                ? fmtMoney(_liveMoneyData.money) + ' ₽'
+                : (p.cash !== null ? fmtMoney(p.cash) + ' ₽' : '—');
             var bank = (_liveMoneyData && _liveMoneyData.bankMoney !== null)
-                ? _liveMoneyData.bankMoney.toLocaleString('ru-RU') + ' руб'
-                : (p.bank !== null ? p.bank.toLocaleString('ru-RU') + ' руб' : '—');
-            var simB = p.simBalance !== null ? p.simBalance.toLocaleString('ru-RU') + ' руб' : '—';
+                ? fmtMoney(_liveMoneyData.bankMoney) + ' ₽'
+                : (p.bank !== null ? fmtMoney(p.bank) + ' ₽' : '—');
+            var simB = p.simBalance !== null ? fmtMoney(p.simBalance) + ' ₽' : '—';
             var phone = p.phone  !== null ? String(p.phone) : '—';
             var lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ' (' + p.xpCurrent + '/' + p.xpTarget + ' XP)' : '';
             var buffsLine = p.buffs && p.buffs.length
@@ -583,7 +589,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 var _sn = window.App && window.App.$store;
                 if (_sn) {
                     var dn = _sn.getters['player/donate'];
-                    if (dn !== undefined && dn !== null && dn > 0) donateLineNotif = '├ 💎 Donate: ' + dn + '\n';
+                    if (dn !== undefined && dn !== null && dn > 0) donateLineNotif = '├ 💎 Donate: ' + fmtMoney(dn) + ' ₽\n';
                 }
             } catch(e) {}
 
@@ -608,6 +614,15 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                     '└ Машин: '    + (p.carsCount   || 0);
             }
 
+            // Последняя зарплата
+            var lastSalaryLine = '';
+            if (config.lastSalaryInfo && config.lastSalaryInfo.salary) {
+                var _ls = config.lastSalaryInfo;
+                var _timeStr = _ls.time ? ' (' + _ls.time + ')' : '';
+                lastSalaryLine = '├ Последняя зарплата: ' + _ls.salary + ' ₽' +
+                    (_ls.balance ? '  |  Банк: ' + _ls.balance + ' ₽' : '') + _timeStr + '\n';
+            }
+
             var msg =
                 '📋 <b>Профиль загружен — ' + displayName + '</b>\n' +
                 '\n<b>🏛 Фракция / Звание</b>\n' +
@@ -621,6 +636,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 '\n<b>💰 Финансы</b>\n' +
                 '├ Наличные: '  + cash  + '\n' +
                 '├ Банк: '      + bank  + '\n' +
+                lastSalaryLine +
                 donateLineNotif +
                 '├ Телефон: '         + phone       + '\n' +
                 '├ Баланс SIM: '      + simB        + '\n' +
@@ -1334,7 +1350,7 @@ function trackPlayerMoney() {
     if (data) {
         const nick = config.accountInfo.nickname || 'Unknown';
         console.log(
-            `[MONEY][${nick}] Нал=₽${data.money !== null ? data.money.toLocaleString() : '?'} Банк=₽${data.bankMoney !== null ? data.bankMoney.toLocaleString() : '?'}`
+            `[MONEY][${nick}] Нал=${data.money !== null ? fmtMoney(data.money) : '?'} ₽ Банк=${data.bankMoney !== null ? fmtMoney(data.bankMoney) : '?'} ₽`
         );
     } else {
         debugLog('[MONEY] Данные недоступны (store ещё не инициализирован?)');
@@ -2091,14 +2107,14 @@ function buildWelcomeAccountInfo() {
 
         // Нал и банк — приоритет live store
         const _lm = (function() { try { return getPlayerMoneyFromStore(); } catch(e) { return null; } })();
-        const pCash = (_lm && _lm.money !== null) ? `₽${_lm.money.toLocaleString()}` : (p.cash !== null ? `₽${p.cash.toLocaleString()}` : '—');
-        const pBank = (_lm && _lm.bankMoney !== null) ? `₽${_lm.bankMoney.toLocaleString()}` : (p.bank !== null ? `₽${p.bank.toLocaleString()}` : '—');
+        const pCash = (_lm && _lm.money !== null) ? `${fmtMoney(_lm.money)} ₽` : (p.cash !== null ? `${fmtMoney(p.cash)} ₽` : '—');
+        const pBank = (_lm && _lm.bankMoney !== null) ? `${fmtMoney(_lm.bankMoney)} ₽` : (p.bank !== null ? `${fmtMoney(p.bank)} ₽` : '—');
 
         const _vipNamesMap = { silver: '🥈 Silver VIP', gold: '🥇 Gold VIP', platinum: '💎 Platinum VIP' };
         const sub = (p.subscribe && _vipNamesMap[p.subscribe]) ? _vipNamesMap[p.subscribe] : '—';
         const lawLevelStr = p.lawLevel !== null ? String(p.lawLevel) : '—';
         const phone = p.phone !== null ? String(p.phone) : '—';
-        const simB = p.simBalance !== null ? `₽${p.simBalance.toLocaleString()}` : '—';
+        const simB = p.simBalance !== null ? `${fmtMoney(p.simBalance)} ₽` : '—';
         const lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ` (${p.xpCurrent}/${p.xpTarget} XP)` : '';
 
         // ── Заголовок ─────────────────────────────────────────────
@@ -2123,7 +2139,15 @@ function buildWelcomeAccountInfo() {
         block += `\n💰 <b>Финансы:</b>\n`;
         block += `├ Нал: ${pCash}\n`;
         block += `├ Банк: ${pBank}\n`;
-        if (donateVal !== null) block += `├ 💎 Donate: ${donateVal}\n`;
+        if (config.lastSalaryInfo && config.lastSalaryInfo.salary) {
+            const _ls = config.lastSalaryInfo;
+            const _timeStr = _ls.time ? ` (${_ls.time})` : '';
+            const _salStr = _ls.balance
+                ? `${_ls.salary} ₽  |  Банк: ${_ls.balance} ₽${_timeStr}`
+                : `${_ls.salary} ₽${_timeStr}`;
+            block += `├ 💼 Последняя з/п: ${_salStr}\n`;
+        }
+        if (donateVal !== null) block += `├ 💎 Donate: ${fmtMoney(donateVal)} ₽\n`;
         block += `├ Телефон: ${phone}\n`;
         block += `├ Баланс SIM: ${simB}\n`;
         block += `├ VIP: ${sub}\n`;
@@ -2206,11 +2230,11 @@ function buildWelcomeAccountInfo() {
         // ── AFK цикл (только если активен) ───────────────────────
         if (config.afkCycle && config.afkCycle.active) {
             const afkMins = Math.floor(config.afkCycle.totalPlayTime / 60000);
-            const afkSal  = (config.afkCycle.totalSalary || 0).toLocaleString('ru-RU');
+            const afkSal  = fmtMoney(config.afkCycle.totalSalary || 0);
             const modeNames = { fixed: '5/5 мин', random: 'Рандом', none: 'Без паузы' };
             const modeLabel = modeNames[config.afkCycle.mode] || config.afkCycle.mode;
             block += `\n\n🔄 <b>AFK цикл активен</b>  [${modeLabel}]\n`;
-            block += `└ Наиграно: ${afkMins} мин  |  Накоплено: ₽${afkSal}`;
+            block += `└ Наиграно: ${afkMins} мин  |  Накоплено: ${afkSal} ₽`;
         }
 
         return block;
@@ -2347,7 +2371,7 @@ function getAFKStatusText() {
         statusText += `${index + 1}. ${entry}\n`;
     });
     if (config.afkCycle.mode === 'none') {
-        statusText += `\n\n<b>Накоплено с зарплат:</b> ${config.afkCycle.totalSalary} руб`;
+        statusText += `\n\n<b>Накоплено с зарплат:</b> ${fmtMoney(config.afkCycle.totalSalary)} ₽`;
     }
     return statusText;
 }
@@ -4658,6 +4682,7 @@ function processSalaryAndBalance(msg) {
         debugLog(`Зарплата спарсена: ${salary}`);
         config.lastSalaryInfo = config.lastSalaryInfo || {};
         config.lastSalaryInfo.salary = salary;
+        config.lastSalaryInfo.time = getCurrentTimeString();
         debugLog(`Обнаружена зарплата: ${salary} руб`);
         // Для подсчета totalSalary убираем точки
         config.afkCycle.totalSalary += parseInt(salary.replace(/\./g, ''));
@@ -4676,7 +4701,7 @@ function processSalaryAndBalance(msg) {
     }
     
     if (config.lastSalaryInfo && config.lastSalaryInfo.salary && config.lastSalaryInfo.balance) {
-        let message = `+ PayDay | ${displayName}:\nЗарплата: ${config.lastSalaryInfo.salary} руб\nБаланс счета: ${config.lastSalaryInfo.balance} руб`;
+        let message = `+ PayDay | ${displayName}:\nЗарплата: ${config.lastSalaryInfo.salary} ₽\nБанк: ${config.lastSalaryInfo.balance} ₽`;
         
         if (config.afkCycle.active) {
             message += getAFKStatusText();
@@ -5767,8 +5792,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     const _server = config.accountInfo.server || '?';
                     const _skinId = (config.accountInfo.skinId !== null && config.accountInfo.skinId !== undefined) ? config.accountInfo.skinId : '?';
                     const _faction = config.currentFaction ? `[${getFactionLabel(config.currentFaction)}]` : '[не фракционный]';
-                    const _cashChat = (_money && _money.money !== null) ? _money.money.toLocaleString() : '?';
-                    const _bankChat = (_money && _money.bankMoney !== null) ? _money.bankMoney.toLocaleString() : '?';
+                    const _cashChat = (_money && _money.money !== null) ? fmtMoney(_money.money) : '?';
+                    const _bankChat = (_money && _money.bankMoney !== null) ? fmtMoney(_money.bankMoney) : '?';
                     const _posChat = _pos
                         ? `x=${Math.round(_pos.x)} y=${Math.round(_pos.y)} z=${Math.round(_pos.z ?? 0)} угол=${Math.round(_pos.angle ?? 0)}°`
                         : 'Позиция недоступна';
