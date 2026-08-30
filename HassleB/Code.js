@@ -283,42 +283,60 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 (function() {
     const _orig = window.sendChatInput;
     let _recInFlight = false;
+    let _recLastSent  = 0;           // мс с эпохи — когда был отправлен последний /rec
+    const REC_MIN_GAP     = 3000;    // минимальный интервал между /rec (мс)
+    const REC_INFLIGHT_TTL = 20000;  // сколько держим флаг после /rec (мс)
+    const REC_DEFER_MS    = 150;     // задержка перед реальным вызовом (мс)
 
     window.sendChatInput = function(cmd) {
         const isRec = typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim());
 
         if (isRec) {
-            // Защита: не пускаем второй /rec, пока первый ещё обрабатывается
+            // Защита 1: не пускаем второй /rec, пока первый ещё обрабатывается
             if (_recInFlight) {
                 debugLog('[REC] Повторный /rec во время реконнекта — проигнорирован');
                 return undefined;
             }
+
+            // Защита 2: rate-limit — не чаще раза в REC_MIN_GAP мс
+            const _now = Date.now();
+            if (_now - _recLastSent < REC_MIN_GAP) {
+                debugLog('[REC] /rec слишком часто (' + (_now - _recLastSent) + ' мс после предыдущего) — проигнорирован');
+                return undefined;
+            }
+
             _recInFlight = true;
             window.__afterRec5 = true;
 
-            // Сбрасываем hpLastValue и grace period — следующий тик после спавна
-            // только запишет baseline, без сравнения (как при первом входе).
-            // Grace period запустится заново в trackPlayerHp при первом connected тике.
+            // Сбрасываем HP-стейт — следующий тик после спавна только запишет baseline
             if (typeof globalState !== 'undefined') {
                 globalState.hpLastValue    = null;
                 globalState._hpGraceUntil  = null;
                 globalState._hpGraceActive = false;
             }
+
+            // ⚠️ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: откладываем реальный вызов на REC_DEFER_MS.
+            // Синхронный _orig() внутри обработчика события (чат, HP-трекер,
+            // колбэк Telegram) → движок получает "разорвать соединение" пока
+            // ещё выполняет другую операцию → дедлок / зависание / вылет.
+            // setTimeout даёт call stack время завершиться до того как движок
+            // получит команду.
+            var _self = this;
+            var _args = arguments;
+            setTimeout(function() {
+                _recLastSent = Date.now();
+                if (typeof _orig === 'function') _orig.apply(_self, _args);
+                // Сбрасываем флаг через REC_INFLIGHT_TTL — запас на весь реконнект
+                setTimeout(function() { _recInFlight = false; }, REC_INFLIGHT_TTL);
+            }, REC_DEFER_MS);
+
+            return undefined; // call sites не используют возврат /rec
         }
 
-        const result = typeof _orig === 'function'
+        // Для всех остальных команд — обычный синхронный вызов
+        return typeof _orig === 'function'
             ? _orig.apply(this, arguments)
-            : undefined; // FIX: защита от undefined если sendChatInput ещё не инициализирован
-
-        if (isRec) {
-            // ⚠️ НЕ вызываем setPlayerConnectedStatus(false)!
-            // Движок сам сменит статус при реальном дисконнекте.
-            // Ручной commit запускал второй параллельный disconnect-flow
-            // и двойное открытие Authorization → вылет.
-            setTimeout(() => { _recInFlight = false; }, 5000);
-        }
-
-        return result;
+            : undefined;
     };
 })();
 
