@@ -274,7 +274,12 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
 // │  Флаг подавления "потеряно соединение" после /rec 5     │
 // └─────────────────────────────────────────────────────────┘
 (function() {
-    const _orig = window.sendChatInput;
+    // FIX RELOAD: первый раз сохраняем настоящий оригинал игры, при перезагрузке откатываем к нему
+    // без этого каждый reload добавляет новый слой обёртки поверх предыдущего
+    const _sciKey = `_origSCI_${window.ACCOUNT_NUMBER || '0'}`;
+    if (!window[_sciKey]) window[_sciKey] = window.sendChatInput;
+    else window.sendChatInput = window[_sciKey]; // откат предыдущего слоя перед повторным патчем
+    const _orig = window[_sciKey];
     let _recInFlight = false;
 
     window.sendChatInput = function(cmd) {
@@ -652,7 +657,11 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 (function() {
 'use strict';
 function applyMainMenuTabPatch() {
-    var _origOI = window.openInterface;
+    // FIX RELOAD: сохраняем настоящий оригинал один раз, при перезагрузке откатываем к нему
+    const _oiMmKey = `_origOI_mm_${window.ACCOUNT_NUMBER || '0'}`;
+    if (!window[_oiMmKey]) window[_oiMmKey] = window.openInterface;
+    else window.openInterface = window[_oiMmKey]; // откат перед повторным патчем
+    var _origOI = window[_oiMmKey];
     window.openInterface = function(name) {
         var result = _origOI.apply(this, arguments);
         if (name === 'MainMenu' && !window._hassleProfileLoading) {
@@ -914,24 +923,26 @@ const autoLoginConfig = {
     attemptInterval: 1000 // Интервал между попытками (мс)
 };
 // Функция для автоматического ввода пароля
-let _autoLoginRunning = false;
+// FIX RELOAD: мьютекс на window — иначе каждый reload создаёт свой let и оба думают что они первые
+const _alrKey = `_autoLoginRunning_${window.ACCOUNT_NUMBER || '0'}`;
+if (window[_alrKey] === undefined) window[_alrKey] = false;
 
 function setupAutoLogin(attempt = 1) {
     if (!autoLoginConfig.enabled) {
         debugLog('Автовход отключен');
-        _autoLoginRunning = false;
+        window[_alrKey] = false;
         return;
     }
     // Мьютекс: только одна цепочка одновременно
     if (attempt === 1) {
-        if (_autoLoginRunning) {
+        if (window[_alrKey]) {
             debugLog('[AUTOLOGIN] Цепочка уже активна — дубль пропущен');
             return;
         }
-        _autoLoginRunning = true;
+        window[_alrKey] = true;
     }
     if (attempt > autoLoginConfig.maxAttempts) {
-        _autoLoginRunning = false;
+        window[_alrKey] = false;
         const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить автовход после ${autoLoginConfig.maxAttempts} попыток`;
         debugLog(errorMsg);
         sendToTelegram(errorMsg, false, null);
@@ -966,7 +977,7 @@ function setupAutoLogin(attempt = 1) {
             debugLog(`[${displayName}] Эмуляция нажатия кнопки "Войти"`);
             try {
                 loginInstance.onClickEvent("play");
-                _autoLoginRunning = false; // освобождаем мьютекс после клика
+                window[_alrKey] = false; // освобождаем мьютекс после клика
                 sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
                 // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
                 // hpLastValue = null означает: следующий тик после спавна
@@ -992,7 +1003,7 @@ function setupAutoLogin(attempt = 1) {
                 // /c 60 теперь отправляется только через кнопку «Отыгровка 27 мин» в Telegram
 
             } catch (err) {
-                _autoLoginRunning = false;
+                window[_alrKey] = false;
                 const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
                 debugLog(errorMsg);
                 sendToTelegram(errorMsg, false, null);
@@ -1021,15 +1032,21 @@ function initializeAutoLogin() {
     }
 }
 // Перехват window.openInterface для автоматического входа (хуком)
-const originalOpenInterface = window.openInterface;
-let _authHookScheduled = false;
+// FIX RELOAD: сохраняем оригинал один раз, при перезагрузке откатываем — иначе слои накапливаются
+const _oiAlKey = `_origOI_al_${window.ACCOUNT_NUMBER || '0'}`;
+if (!window[_oiAlKey]) window[_oiAlKey] = window.openInterface;
+else window.openInterface = window[_oiAlKey]; // откат предыдущего слоя
+const originalOpenInterface = window[_oiAlKey];
+// FIX RELOAD: флаг на window (не let) — иначе каждый reload имеет свой false и запускает дубль
+const _ahsKey = `_authHookSch_${window.ACCOUNT_NUMBER || '0'}`;
+if (window[_ahsKey] === undefined) window[_ahsKey] = false;
 window.openInterface = function(interfaceName, params, additionalParams) {
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);
-    if (interfaceName === "Authorization" && !_authHookScheduled) {
-        _authHookScheduled = true;
+    if (interfaceName === "Authorization" && !window[_ahsKey]) {
+        window[_ahsKey] = true;
         debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
         setTimeout(() => {
-            _authHookScheduled = false;
+            window[_ahsKey] = false;
             initializeAutoLogin();
         }, 500); // Дебаунс: даже если Authorization откроется несколько раз подряд,
                  // initializeAutoLogin вызовется только один раз
