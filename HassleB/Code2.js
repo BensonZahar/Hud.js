@@ -689,6 +689,23 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
         }
         // ── END /find skip ──────────────────────────────────────────────────────
 
+        // ── Авто-закрытие диалога "Время на авторизацию ограничено" ───────────
+        // Появляется когда висим на экране авторизации и время истекло.
+        // Закрываем ТОЛЬКО если autoLoginConfig.enabled=false — т.е. мы сами
+        // намеренно ушли на авторизацию (строй, отыгровка, ручной выход и т.д.)
+        // Если autoLogin включён — диалог пришёл в неожиданный момент, не трогаем.
+        if (style === DIALOG_STYLE.MSGBOX &&
+            _dlgAllText.includes('авторизацию ограничено') &&
+            !autoLoginConfig.enabled) {
+            debugLog('[DLG] ⚡ Авто-закрытие: диалог авторизации (тайм-аут, autoLogin=ВЫКЛ) — Vue/Telegram пропущены');
+            try { dlgRespond(dialogId, 1, -1, ''); } catch(e) {}  // Симулируем нажатие "Закрыть"
+            dlg.active = false;
+            dlg.tgMsgs = [];
+            try { window.closeLastDialog(); } catch(e) {}
+            return; // НЕ вызываем _dlgOrigAddDialogInQueue — диалог не попадает в Vue
+        }
+        // ── END авто-закрытие авторизации ─────────────────────────────────────
+
         dlgSendToTelegram();
 
     } catch (err) {
