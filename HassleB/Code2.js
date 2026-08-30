@@ -467,7 +467,13 @@ function dlgSrvPaginate(direction) {
 
 // ── Хук addDialogInQueue ─────────────────────────────────────
 
-const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
+// FIX: сохраняем оригинал до первого патча.
+// hassleCleanupHooks() восстановит его перед каждой перезагрузкой,
+// поэтому здесь всегда будет «чистый» оригинал игры.
+if (typeof window.addDialogInQueue === 'function' && !window._hassleOrig_addDialogInQueue) {
+    window._hassleOrig_addDialogInQueue = window.addDialogInQueue;
+}
+const _dlgOrigAddDialogInQueue = window._hassleOrig_addDialogInQueue || window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
     try {
         // Bug fix: dialogParams может быть false (дефолтный параметр)
@@ -696,7 +702,12 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 // Сохраняем ОРИГИНАЛЬНЫЙ sendClientEvent ДО любых замен
 const _dlgOrigSendClientEvent = sendClientEvent;
 
-const _dlgOrigSCE = window.sendClientEventCustom;
+// FIX: сохраняем оригинал sendClientEventCustom до первого патча.
+// hassleCleanupHooks() восстановит его перед каждой перезагрузкой.
+if (typeof window.sendClientEventCustom === 'function' && !window._hassleOrig_sendClientEventCustom) {
+    window._hassleOrig_sendClientEventCustom = window.sendClientEventCustom;
+}
+const _dlgOrigSCE = window._hassleOrig_sendClientEventCustom || window.sendClientEventCustom;
 window.sendClientEventCustom = function(event, ...args) {
     if (args[0] === 'OnDialogResponse') {
         const respondedId = parseInt(args[1]);

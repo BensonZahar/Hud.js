@@ -651,6 +651,12 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
 // чтобы не мешать невидимому считыванию данных.
 (function() {
 'use strict';
+// FIX: сохраняем оригинал до первого патча — только при первой загрузке.
+// hassleCleanupHooks() восстановит его перед каждой перезагрузкой,
+// поэтому здесь всегда будет «чистый» оригинал игры.
+if (typeof window.openInterface === 'function' && !window._hassleOrig_openInterface) {
+    window._hassleOrig_openInterface = window.openInterface;
+}
 function applyMainMenuTabPatch() {
     var _origOI = window.openInterface;
     window.openInterface = function(name) {
@@ -1021,7 +1027,10 @@ function initializeAutoLogin() {
     }
 }
 // Перехват window.openInterface для автоматического входа (хуком)
-const originalOpenInterface = window.openInterface;
+// FIX: берём оригинал из сохранённого _hassleOrig_openInterface,
+// чтобы не захватить уже обёрнутую версию от applyMainMenuTabPatch.
+// Это гарантирует, что цепочка обёрток не растёт при перезагрузках.
+const originalOpenInterface = window._hassleOrig_openInterface || window.openInterface;
 let _authHookScheduled = false;
 window.openInterface = function(interfaceName, params, additionalParams) {
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);

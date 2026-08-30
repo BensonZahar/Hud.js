@@ -25,12 +25,18 @@ function hookComponent(v, name) {
         typeof v.data === 'function' &&
         v.components
     ) {
+        // FIX: не вешаем хук повторно при перезагрузке скрипта
+        if (v.methods.__hassleHooked) {
+            console.log(`✅ Хук на чат уже установлен ("${name}"), пропускаем`);
+            return true;
+        }
         const originalAdd = v.methods.add;
         v.methods.add = function (e, s, t) {
             const result = originalAdd.call(this, e, s, t);
             window.OnChatAddMessage?.(e, s, t);
             return result;
         };
+        v.methods.__hassleHooked = true; // маркер: хук уже на месте
         console.log(`✅ Хук на чат установлен (переменная: "${name}")`);
         return true;
     }
@@ -288,9 +294,48 @@ function sendCodeLoadedNotification(filename, commitInfo) {
     });
 }
 
+// ============================================================
+// FIX: Очистка хуков перед повторной загрузкой скриптов.
+// Каждый eval Code.js/Code2.js оборачивает window-функции.
+// Без очистки после N перезагрузок накапливается N обёрток,
+// и каждое событие (чат, диалог, авторизация) срабатывает N раз.
+// ============================================================
+function hassleCleanupHooks() {
+    // openInterface: Code.js вешает 2 обёртки при каждом eval
+    if (typeof window._hassleOrig_openInterface === 'function') {
+        window.openInterface = window._hassleOrig_openInterface;
+        console.log('[Hassle Cleanup] openInterface восстановлен');
+    }
+    // addDialogInQueue: Code2.js вешает обёртку при каждом eval
+    if (typeof window._hassleOrig_addDialogInQueue === 'function') {
+        window.addDialogInQueue = window._hassleOrig_addDialogInQueue;
+        console.log('[Hassle Cleanup] addDialogInQueue восстановлен');
+    }
+    // sendClientEventCustom: Code2.js вешает обёртку при каждом eval
+    if (typeof window._hassleOrig_sendClientEventCustom === 'function') {
+        window.sendClientEventCustom = window._hassleOrig_sendClientEventCustom;
+        // sendClientEvent — глобальная переменная уровня модуля игры,
+        // Code2.js присваивает её напрямую: sendClientEvent = window.sendClientEventCustom
+        if (typeof sendClientEvent !== 'undefined') {
+            try { sendClientEvent = window._hassleOrig_sendClientEventCustom; } catch(e) {}
+        }
+        console.log('[Hassle Cleanup] sendClientEventCustom восстановлен');
+    }
+    // OnChatAddMessage: Code.js ставит новую функцию, Code2.js оборачивает её.
+    // Сбрасываем — Code.js поставит заново при следующем eval.
+    window.OnChatAddMessage = null;
+    // Сбрасываем флаг паузы бота, иначе __botInit не будет вызван повторно
+    window.__WAIT_CODE2__ = false;
+    window.__botInit = null;
+    console.log('[Hassle Cleanup] Хуки сброшены, готов к перезагрузке');
+}
+
 // Последовательная загрузка скриптов
 async function initializeScripts() {
     try {
+        // FIX: снимаем старые хуки перед повторным eval скриптов
+        hassleCleanupHooks();
+
         console.log(`🚀 Начало загрузки для пользователя: ${currentUser}`);
 
         console.log('📋 Загрузка List.js...');
