@@ -237,7 +237,8 @@ const config = {
             housesCount: null,   // property.houses        — кол-во домов
             bizCount:    null,   // property.businesses    — кол-во бизнесов
             carsCount:   null,   // property.cars          — кол-во машин
-            subscribe:   null,   // info.subscribe.type    — подписка
+            subscribe:   null,   // info.subscribe.type    — VIP-статус (silver/gold/platinum)
+            lawLevel:    null,   // statistics.about[0].value — законопослушность
             buffs:       [],     // активные баффы
             jobs:        [],     // работы
         }
@@ -433,7 +434,8 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                         isApartment: !!(pr.name && (pr.name.indexOf('Квартира') !== -1 || pr.name.indexOf('квартира') !== -1)),
                     };
                 }),
-                subscribe:   sub            || null,
+                subscribe:   (sub && sub !== 'none') ? sub : null,
+                lawLevel:    (ab[0] || {}).value != null ? (ab[0] || {}).value : null,
                 buffs:       (s.buffs       || []).map(function(b) { return { text: b.text, leftTime: b.leftTime, debuff: !!b.debuff }; }),
                 jobs:        (s.jobs        || []).map(function(j) { return { id: j.id, title: j.title, lvl: j.lvl }; }),
             };
@@ -551,7 +553,9 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
     // ── Отправляем карточку профиля в Telegram после загрузки ──
     function _sendProfileNotification(p) {
         try {
-            var sub = p.subscribe ? '✅ ' + p.subscribe : '❌ Нет';
+            var _vipNames = { silver: '🥈 Silver VIP', gold: '🥇 Gold VIP', platinum: '💎 Platinum VIP' };
+            var sub = (p.subscribe && _vipNames[p.subscribe]) ? _vipNames[p.subscribe] : '—';
+            var lawLevelStr = p.lawLevel !== null ? String(p.lawLevel) : '—';
             // Нал и банк берём из Vuex store — там актуальные значения
             var _liveMoneyData = (function() { try { return getPlayerMoneyFromStore(); } catch(e) { return null; } })();
             var cash = (_liveMoneyData && _liveMoneyData.money !== null)
@@ -618,9 +622,10 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 '├ Наличные: '  + cash  + '\n' +
                 '├ Банк: '      + bank  + '\n' +
                 donateLineNotif +
-                '├ Телефон: '   + phone + '\n' +
-                '├ Баланс SIM: '+ simB  + '\n' +
-                '└ Подписка: '  + sub   + '\n' +
+                '├ Телефон: '         + phone       + '\n' +
+                '├ Баланс SIM: '      + simB        + '\n' +
+                '├ VIP: '             + sub         + '\n' +
+                '└ Законопослушность: '+ lawLevelStr + '\n' +
                 '\n<b>🏠 Имущество</b>\n' +
                 propDetailLines + '\n' +
                 '\n<b>⚡ Баффы:</b> ' + buffsLine  + '\n' +
@@ -2089,7 +2094,9 @@ function buildWelcomeAccountInfo() {
         const pCash = (_lm && _lm.money !== null) ? `₽${_lm.money.toLocaleString()}` : (p.cash !== null ? `₽${p.cash.toLocaleString()}` : '—');
         const pBank = (_lm && _lm.bankMoney !== null) ? `₽${_lm.bankMoney.toLocaleString()}` : (p.bank !== null ? `₽${p.bank.toLocaleString()}` : '—');
 
-        const sub = p.subscribe ? '✅ ' + p.subscribe : '❌ Нет';
+        const _vipNamesMap = { silver: '🥈 Silver VIP', gold: '🥇 Gold VIP', platinum: '💎 Platinum VIP' };
+        const sub = (p.subscribe && _vipNamesMap[p.subscribe]) ? _vipNamesMap[p.subscribe] : '—';
+        const lawLevelStr = p.lawLevel !== null ? String(p.lawLevel) : '—';
         const phone = p.phone !== null ? String(p.phone) : '—';
         const simB = p.simBalance !== null ? `₽${p.simBalance.toLocaleString()}` : '—';
         const lvlBar = (p.xpCurrent !== null && p.xpTarget) ? ` (${p.xpCurrent}/${p.xpTarget} XP)` : '';
@@ -2119,7 +2126,8 @@ function buildWelcomeAccountInfo() {
         if (donateVal !== null) block += `├ 💎 Donate: ${donateVal}\n`;
         block += `├ Телефон: ${phone}\n`;
         block += `├ Баланс SIM: ${simB}\n`;
-        block += `└ Подписка: ${sub}\n`;
+        block += `├ VIP: ${sub}\n`;
+        block += `└ Законопослушность: ${lawLevelStr}\n`;
 
         // ── Имущество ─────────────────────────────────────────────
         block += `\n🏠 <b>Имущество:</b>\n`;
