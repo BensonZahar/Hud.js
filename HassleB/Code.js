@@ -759,6 +759,29 @@ function reloadAllAccounts() {
     }, 800);
 }
 
+// Перезагрузить ТОЛЬКО текущий аккаунт (без broadcast остальным)
+function reloadCurrentAccount() {
+    if (window._hassleReloading) {
+        debugLog(`[RELOAD] Уже выполняется, игнорируем`);
+        return;
+    }
+    window._hassleReloading = true;
+    sendToTelegram(`🔄 <b>Перезагрузка скрипта для ${displayName}...</b>`, false, null);
+    setTimeout(() => {
+        window._hassleReloading = false;
+        try {
+            if (typeof window.initializeScripts === 'function') {
+                window.initializeScripts();
+            } else {
+                sendToTelegram(`❌ <b>Ошибка ${displayName}:</b> initializeScripts не найден`, false, null);
+            }
+        } catch (e) {
+            window._hassleReloading = false;
+            sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${e.message}</code>`, false, null);
+        }
+    }, 800);
+}
+
 // Применить глобальную команду на текущем аккаунте
 function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
     const isOn = val === 'on';
@@ -4392,8 +4415,37 @@ function processUpdates(updates) {
                     sendToTelegram(`❌ <b>Ошибка получения инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
                 }
             } else if (message.startsWith('global_reload_script_')) {
-                // Кнопка "Перезагрузить скрипт" — текущий аккаунт + broadcast остальным
-                reloadAllAccounts();
+                // Показываем выбор: этот аккаунт или все
+                callbackUniqueId = message.replace('global_reload_script_', '');
+                if (callbackUniqueId === uniqueId) {
+                    const reloadMarkup = {
+                        inline_keyboard: [
+                            [
+                                createButton("🔄 Этот аккаунт", `reload_this_${uniqueId}`),
+                                createButton("🔄 Все аккаунты", `reload_all_${uniqueId}`)
+                            ],
+                            [createButton("⬅️ Назад", `show_controls_${uniqueId}`)]
+                        ]
+                    };
+                    editMessageText(chatId, messageId,
+                        `🔄 <b>Перезагрузка скрипта</b>\n\n` +
+                        `• <b>Этот аккаунт</b> — только ${displayName}\n` +
+                        `• <b>Все аккаунты</b> — broadcast всем`,
+                        reloadMarkup
+                    );
+                }
+            } else if (message.startsWith('reload_this_')) {
+                // Перезагрузить только этот аккаунт
+                callbackUniqueId = message.replace('reload_this_', '');
+                if (callbackUniqueId === uniqueId) {
+                    reloadCurrentAccount();
+                }
+            } else if (message.startsWith('reload_all_')) {
+                // Перезагрузить все аккаунты через broadcast
+                callbackUniqueId = message.replace('reload_all_', '');
+                if (callbackUniqueId === uniqueId) {
+                    reloadAllAccounts();
+                }
             } else if (message.startsWith('send_rec_cmd_')) {
                 // Кнопка "Отправить /rec 5" из уведомления rate-limit / disconnect
                 callbackUniqueId = message.replace('send_rec_cmd_', '');
@@ -5433,7 +5485,8 @@ const HB_DIALOG_IDS =  {
     AFK_MODES: 910,
     AFK_PAUSES: 911,
     AFK_RECONNECT: 912,
-    AFK_RESTART: 913
+    AFK_RESTART: 913,
+    RELOAD_CONFIRM: 914
 };
 let currentHBMenu = null;
 let currentHBPage = 0;
@@ -5498,6 +5551,21 @@ function showHBControlsMenu() {
         0
     );
 }
+// Меню выбора области перезагрузки скрипта
+function showHBReloadConfirmMenu() {
+    currentHBMenu = "reload_confirm";
+    currentHBPage = 0;
+    const menuList =
+        "{FFA500}< Назад<n>" +
+        "{00FF00}> {FFFFFF}Этот аккаунт<n>" +
+        "{FF6600}> {FFFFFF}Все аккаунты<n>";
+    window.addDialogInQueue(
+        `[${HB_DIALOG_IDS.RELOAD_CONFIRM},2,"{FF6600}Перезагрузка скрипта","Выберите область:","Выбрать","Закрыть",0,0]`,
+        menuList,
+        0
+    );
+}
+
 // Меню локальных функций
 function showHBLocalFunctionsMenu() {
     currentHBMenu = "local_functions";
@@ -5699,9 +5767,8 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 }
                 setTimeout(() => showHBControlsMenu(), 100);
             } else if (listitem === 4) {
-                // Перезагрузить скрипт — текущий + broadcast остальным
-                showScreenNotification("Hassle", "Перезагрузка всех скриптов...");
-                reloadAllAccounts();
+                // Перезагрузить скрипт — показываем выбор области
+                showHBReloadConfirmMenu();
             } else if (RECONNECT_ENABLED_DEFAULT && listitem === 5) {
                 config.autoReconnectEnabled = !config.autoReconnectEnabled;
                 const status = config.autoReconnectEnabled ? 'включен' : 'выключен';
@@ -5962,6 +6029,20 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 activateAFKWithMode(currentHBSelectedMode, true, 'rec', null, null);
                 showScreenNotification("Hassle", "AFK режим активирован (/rec при рестарте)");
                 currentHBSelectedMode = null;
+            }
+            break;
+        case HB_DIALOG_IDS.RELOAD_CONFIRM:
+            if (listitem === 0) {
+                // Назад
+                setTimeout(() => showHBControlsMenu(), 100);
+            } else if (listitem === 1) {
+                // Этот аккаунт — только текущий, без broadcast
+                showScreenNotification("Hassle", "Перезагрузка этого аккаунта...");
+                reloadCurrentAccount();
+            } else if (listitem === 2) {
+                // Все аккаунты — текущий + broadcast остальным
+                showScreenNotification("Hassle", "Перезагрузка всех аккаунтов...");
+                reloadAllAccounts();
             }
             break;
     }
