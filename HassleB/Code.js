@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗв'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗав'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -35,7 +35,8 @@ const globalState = {
     otygrovkaTrackInterval: null,  // setInterval — тикает каждую секунду
     otygrovkaExitTimer: null,      // setTimeout — выход в :59:20
     otygrovkaCurrentTime: null,    // «Текущее время» из последнего /c 60
-    scriptLoadTime: null // не используется (версия берётся из CODE_COMMIT_INFO)
+    scriptLoadTime: null, // не используется (версия берётся из CODE_COMMIT_INFO)
+    pendingPromptIds: {}  // { message_id: 'reply' | 'message' } — для определения типа промпта без текста
 };
 // END GLOBAL STATE MODULE //
 
@@ -2028,7 +2029,7 @@ function sendAdminSpamAlert(adminMsg) {
         sendPing();
     });
 }
-function sendToTelegram(message, silent = false, replyMarkup = null) {
+function sendToTelegram(message, silent = false, replyMarkup = null, onMessageSent = null) {
     config.chatIds.forEach(chatId => {
         tgApi('sendMessage', {
             chat_id: chatId,
@@ -2043,6 +2044,7 @@ function sendToTelegram(message, silent = false, replyMarkup = null) {
             if (message.includes('+ PayDay |')) {
                 globalState.lastPaydayMessageIds.push({ chatId, messageId });
             }
+            if (typeof onMessageSent === 'function') onMessageSent(chatId, messageId);
         });
     });
 }
@@ -3552,42 +3554,27 @@ function processUpdates(updates) {
             const message = update.message.text ? update.message.text.trim() : '';
             // Проверяем, является ли сообщение ответом на запрос ввода
             if (update.message.reply_to_message) {
-                const replyToText = update.message.reply_to_message.text || '';
-                // Ответ на запрос сообщения для чата
-                if (replyToText.includes(`✉️ Введите сообщение для ${displayName}:`) && 
-                    replyToText.includes(`🔑 ID: ${uniqueId}`)) {
-                    const textToSend = message;
-                    if (textToSend) {
-                        debugLog(`[${displayName}] Отправка сообщения: ${textToSend}`);
-                        try {
-                            sendChatInput(textToSend);
-                            sendToTelegram(`✅ <b>Сообщение отправлено ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
-                        } catch (err) {
-                            const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить сообщение\n<code>${err.message}</code>`;
-                            debugLog(errorMsg);
-                            sendToTelegram(errorMsg, false, null);
-                        }
-                    }
-                    continue;
-                }
-                // Ответ на запрос ответа администратору
-                if (replyToText.includes(`✉️ Введите ответ для ${displayName}:`) && 
-                    replyToText.includes(`🔑 ID: ${uniqueId}`)) {
-                    const textToSend = message;
-                    if (textToSend) {
-                        debugLog(`[${displayName}] Отправка ответа: ${textToSend}`);
-                        try {
-                            sendChatInput(textToSend);
-                            sendToTelegram(`✅ <b>Ответ отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
-                        } catch (err) {
-                            const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ответ\n<code>${err.message}</code>`;
-                            debugLog(errorMsg);
-                            sendToTelegram(errorMsg, false, null);
-                        }
-                    }
-                    continue;
-                }
+                const replyToMsgId = update.message.reply_to_message.message_id;
+                const promptType = globalState.pendingPromptIds && globalState.pendingPromptIds[replyToMsgId];
 
+                if (promptType === 'message' || promptType === 'reply') {
+                    delete globalState.pendingPromptIds[replyToMsgId];
+                    const textToSend = message;
+                    if (textToSend) {
+                        const isReply = promptType === 'reply';
+                        const label = isReply ? 'Ответ' : 'Сообщение';
+                        debugLog(`[${displayName}] Отправка ${label.toLowerCase()}: ${textToSend}`);
+                        try {
+                            sendChatInput(textToSend);
+                            sendToTelegram(`✅ <b>${label} отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
+                        } catch (err) {
+                            const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ${label.toLowerCase()}\n<code>${err.message}</code>`;
+                            debugLog(errorMsg);
+                            sendToTelegram(errorMsg, false, null);
+                        }
+                    }
+                    continue;
+                }
             }
             // Глобальные команды (работают на все аккаунты)
             if (message === '/reload') {
@@ -3958,9 +3945,11 @@ function processUpdates(updates) {
                         showOtygrovkaMenu(chatId, messageId);
                     }
                 } else if (_funcKey === 'chat') {
-                    const requestMsg = `✉️ Введите сообщение для ${displayName}:\n🔑 ID: ${uniqueId}`;
+                    const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
                     _abortPollAndRestartFast();
-                    sendToTelegram(requestMsg, false, { force_reply: true });
+                    sendToTelegram(requestMsg, false, { force_reply: true }, (chatId, msgId) => {
+                        globalState.pendingPromptIds[msgId] = 'message';
+                    });
                 } else if (_funcKey === 'pause') {
                     const _isPaused = !!window.getInterfaceStatus("PauseMenu");
                     try {
@@ -4008,11 +3997,11 @@ function processUpdates(updates) {
             } else if (message.startsWith(`hide_controls_`)) {
                 hideControlsMenu(chatId, messageId);
             } else if (message.startsWith(`request_chat_message_`)) {
-                const requestMsg = `✉️ Введите сообщение для ${displayName}:\n🔑 ID: ${uniqueId}`;
+                const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
                 // Прерываем текущий long-poll — освобождаем соединение для sendMessage
                 _abortPollAndRestartFast();
-                sendToTelegram(requestMsg, false, {
-                    force_reply: true
+                sendToTelegram(requestMsg, false, { force_reply: true }, (chatId, msgId) => {
+                    globalState.pendingPromptIds[msgId] = 'message';
                 });
             } else if (message.startsWith(`show_payday_options_`)) {
                 showPayDayOptionsMenu(chatId, messageId, callbackUniqueId);
@@ -4106,10 +4095,10 @@ function processUpdates(updates) {
                     activateAFKWithMode('random', false, 'q', chatId, messageId);
                 }
             } else if (message.startsWith("admin_reply_")) {
-                const requestMsg = `✉️ Введите ответ для ${displayName}:\n🔑 ID: ${uniqueId}`;
+                const requestMsg = `✉️ Введите ответ для ${displayName}:`;
                 _abortPollAndRestartFast();
-                sendToTelegram(requestMsg, false, {
-                    force_reply: true
+                sendToTelegram(requestMsg, false, { force_reply: true }, (chatId, msgId) => {
+                    globalState.pendingPromptIds[msgId] = 'reply';
                 });
             } else if (message.startsWith("move_forward_")) {
                 const isNotif = message.endsWith('_notification');
