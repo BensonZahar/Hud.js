@@ -515,7 +515,7 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 globalState.profileRetry = 0; // сбрасываем счётчик — успех
                 debugLog('[Profile] ✅ Профиль загружен: ' + data.rank + ' / ' + data.orgTitle + ' / Ур.' + data.level);
                 // Обновляем приветственное сообщение с полными данными профиля
-                setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
+                if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
             } else {
                 debugLog('[Profile] ⚠️ Профиль не получен — данные недоступны');
                 if (globalState.profileRetry < 3) {
@@ -523,13 +523,13 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                     var retryDelaySec = globalState.profileRetry * 15; // 15с, 30с, 45с
                     debugLog('[Profile] 🔄 Повтор через ' + retryDelaySec + 'с (попытка ' + globalState.profileRetry + '/3)');
                     // Обновляем сообщение — покажем частичные данные (фракция/скин уже известны)
-                    setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
+                    if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
                     setTimeout(function() { loadPlayerProfile(callback); }, retryDelaySec * 1000);
                 } else {
                     globalState.profileRetry = 0;
                     debugLog('[Profile] ❌ Все попытки загрузки профиля исчерпаны');
                     // Всё равно обновляем сообщение — хотя бы скин/фракция отобразятся
-                    setTimeout(function() { if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage(); }, 500);
+                    if (typeof sendWelcomeMessage === 'function') sendWelcomeMessage();
                 }
             }
             if (callback) callback(data ? config.accountInfo.profile : null);
@@ -569,10 +569,10 @@ const reconnectionCommand = RECONNECT_ENABLED_DEFAULT ? "/rec 5" : "/q";
                 }
                 if ((d && stable >= 2) || attempts >= 35) {
                     clearInterval(poll);
-                    setTimeout(function() { _finish(d || null); }, 150);
+                    _finish(d || null);
                 }
-            }, 200);
-        }, 600);
+            }, 100);
+        }, 100);
     }
 
     // ── Отправляем карточку профиля в Telegram после загрузки ──
@@ -703,14 +703,12 @@ function applyMainMenuTabPatch() {
         var result = _origOI.apply(this, arguments);
         if (name === 'MainMenu' && !window._hassleProfileLoading) {
             // Небольшая задержка: Vue-компонент должен смонтироваться
-            setTimeout(function() {
-                try {
-                    var mm = window.interface && window.interface('MainMenu');
-                    if (mm && typeof mm.selectTab === 'function') {
-                        mm.selectTab('Statistics');
-                    }
-                } catch(e) {}
-            }, 80);
+            try {
+                var mm = window.interface && window.interface('MainMenu');
+                if (mm && typeof mm.selectTab === 'function') {
+                    mm.selectTab('Statistics');
+                }
+            } catch(e) {}
         }
         return result;
     };
@@ -802,7 +800,7 @@ function reloadAllAccounts() {
             window._hassleReloading = false;
             sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${e.message}</code>`, false, null);
         }
-    }, 800);
+    }, 0);
 }
 
 // Перезагрузить ТОЛЬКО текущий аккаунт (без broadcast остальным)
@@ -825,7 +823,7 @@ function reloadCurrentAccount() {
             window._hassleReloading = false;
             sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${e.message}</code>`, false, null);
         }
-    }, 800);
+    }, 0);
 }
 
 // Применить глобальную команду на текущем аккаунте
@@ -910,7 +908,7 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
                         window._hassleReloading = false;
                         debugLog(`[GLOBAL] Ошибка перезагрузки: ${e.message}`);
                     }
-                }, 800);
+                }, 0);
             }
             break;
         default:
@@ -1027,14 +1025,12 @@ function setupAutoLogin(attempt = 1) {
                 globalState._spawnProfileLoaded = false;
                 config.accountInfo.profile.loaded = false;
                 // Уведомление через 3 секунды после успешного входа
-                setTimeout(() => {
-                    showScreenNotification(
-                        "HASSLE", 
-                        "Скрипт загружен.<br>Меню /hb или Телеграмм.", 
-                        "FFFF00",   // жёлтый цвет
-                        6000        // видно 6 секунд (можно изменить)
-                    );
-                }, 3000);
+                showScreenNotification(
+                    "HASSLE", 
+                    "Скрипт загружен.<br>Меню /hb или Телеграмм.", 
+                    "FFFF00",   // жёлтый цвет
+                    6000        // видно 6 секунд (можно изменить)
+                );
                 // /c 60 теперь отправляется только через кнопку «Отыгровка 27 мин» в Telegram
 
             } catch (err) {
@@ -1621,16 +1617,14 @@ function waitForSpawnThenLoadProfile() {
 
     // Спавн подтверждён — помечаем чтобы не запускать повторно в этой сессии
     globalState._spawnProfileLoaded = true;
-    debugLog('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль через 3 сек...');
+    debugLog('[Profile] 🎮 Спавн подтверждён (isPlayerConnected=true) — загружаем профиль...');
 
-    setTimeout(function() {
-        // Если профиль уже загружен (например, фракционный скин пришёл раньше спавна) — не дублируем
-        if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
-            window._hassleLoadPlayerProfile(null);
-        } else {
-            debugLog('[Profile] ℹ️ Профиль уже загружен (фракция определена раньше спавна), пропускаем дублирование.');
-        }
-    }, 3000);
+    // Если профиль уже загружен (например, фракционный скин пришёл раньше спавна) — не дублируем
+    if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
+        window._hassleLoadPlayerProfile(null);
+    } else {
+        debugLog('[Profile] ℹ️ Профиль уже загружен (фракция определена раньше спавна), пропускаем дублирование.');
+    }
 }
 
 
@@ -1646,12 +1640,10 @@ function updateFaction() {
                 // Именно здесь — сервер уже назначил скин, значит мы точно в игре
                 // и MainMenu отдаст реальные данные (не mock).
                 if (!config.accountInfo.profile.loaded && typeof window._hassleLoadPlayerProfile === 'function') {
-                    debugLog('[Profile] Фракция определена → загружаем профиль через 1 сек...');
+                    debugLog('[Profile] Фракция определена → загружаем профиль...');
                     // Помечаем спавн как обработанный — spawn-трекер дублировать не будет
                     globalState._spawnProfileLoaded = true;
-                    setTimeout(function() {
-                        window._hassleLoadPlayerProfile(null);
-                    }, 1000);
+                    window._hassleLoadPlayerProfile(null);
                 }
                 // Если профиль уже загружен (игрок был без фракции, потом надел форму) —
                 // пересчитываем: фракционный статус мог измениться.
@@ -1665,9 +1657,7 @@ function updateFaction() {
                     if (isConnected) {
                         debugLog('[Profile] 👔 Надета форма фракции → сбрасываем профиль и перезагружаем...');
                         config.accountInfo.profile.loaded = false;
-                        setTimeout(function() {
-                            window._hassleLoadPlayerProfile(null);
-                        }, 1500);
+                        window._hassleLoadPlayerProfile(null);
                     }
                 }
                 // /c 60 теперь запускается только через кнопку «Отыгровка 27 мин» в Telegram
@@ -1708,7 +1698,7 @@ window.setPlayerSkinId = function(skinId) {
     updateFaction(); // Обновляем фракцию при изменении скина
     // Проверка скина заключённого (50 = тюремный скин)
     if (Number(skinId) === 50) {
-        setTimeout(() => startPrisonMode(), 3000); // Небольшая задержка для стабилизации игры
+        startPrisonMode(); // Запускаем сразу без задержки
     } else if (globalState.inPrison) {
         globalState.inPrison = false;
         globalState.prisonTimeRequested = false;
@@ -1805,7 +1795,7 @@ function trackNicknameAndServer() {
             uniqueId = `${nicknameStr}_${serverStr}`;
             sendWelcomeMessage();
             registerUser();
-            // Запуск отслеживания скина с задержкой 5с
+            // Запуск отслеживания скина с небольшой задержкой 500мс
             setTimeout(() => {
                 const initialSkin = getSkinIdFromStore();
                 if (initialSkin !== null) {
@@ -1815,7 +1805,7 @@ function trackNicknameAndServer() {
                     if (Number(initialSkin) === 50) startPrisonMode();
                 }
                 trackSkinId();
-            }, 5000);
+            }, 500);
         } else {
             // Ник или сервер изменились — обновляем без перезахода
             debugLog(`[NICK] Изменение: ${nicknameStr} [S${serverStr}]`);
@@ -1978,7 +1968,7 @@ function sendAdminSpamAlert(adminMsg) {
             }, data => {
                 if (!data || !data.result) return;
                 const pid = data.result.message_id;
-                setTimeout(() => deleteMessage(chatId, pid), 1500);
+                deleteMessage(chatId, pid);
             });
         }
 
@@ -5423,20 +5413,20 @@ function initializeChatMonitor() {
         }
         if (config.locationLogging) {
             debugLog('[LOC] Запуск логирования координат персонажа...');
-            setTimeout(trackPlayerLocation, 5000); // небольшая задержка, чтобы store точно загрузился
+            trackPlayerLocation(); // запускаем сразу
         }
         if (config.moneyLogging) {
             debugLog('[MONEY] Запуск логирования Нала и Банка...');
-            setTimeout(trackPlayerMoney, 5000); // та же задержка для синхронизации со store
+            trackPlayerMoney(); // запускаем сразу
         }
         if (config.hpTracking) {
             debugLog('[HP] Запуск отслеживания HP персонажа...');
-            setTimeout(trackPlayerHp, 5000);
+            trackPlayerHp(); // запускаем сразу
         }
         // Запуск ожидания спавна для загрузки профиля (работает для всех аккаунтов,
         // не только фракционных — аналог HP-трекера, но для профиля).
         debugLog('[Profile] 🚀 Запуск ожидания спавна для загрузки профиля через MainMenu...');
-        setTimeout(waitForSpawnThenLoadProfile, 5000);
+        waitForSpawnThenLoadProfile(); // запускаем сразу
         globalState.sessionStartTime = Date.now();
     }
     checkTelegramCommands();
@@ -5773,16 +5763,16 @@ function handleHBMenuSelection(dialogId, button, listitem) {
     switch (dialogId) {
         case HB_DIALOG_IDS.MAIN:
             if (listitem === 0) {
-                setTimeout(() => showHBControlsMenu(), 100);
+                showHBControlsMenu();
             }
             break;
         case HB_DIALOG_IDS.CONTROLS:
             if (listitem === 0) {
-                setTimeout(() => showHBMainMenu(), 100);
+                showHBMainMenu();
             } else if (listitem === 1) {
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                showHBLocalFunctionsMenu();
             } else if (listitem === 2) {
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                showHBGlobalFunctionsMenu();
             } else if (listitem === 3) {
                 // Инфо об аккаунте — единый формат как в welcome-сообщении
                 try {
@@ -5814,7 +5804,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     showScreenNotification("Hassle", "Ошибка получения инфо");
                     sendToTelegram(`❌ <b>Ошибка инфо (${displayName}):</b>\n<code>${err.message}</code>`, false, null);
                 }
-                setTimeout(() => showHBControlsMenu(), 100);
+                showHBControlsMenu();
             } else if (listitem === 4) {
                 // Перезагрузить скрипт — показываем выбор области
                 showHBReloadConfirmMenu();
@@ -5824,103 +5814,103 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                 showScreenNotification("Hassle", `Реконнект ${status}`);
                 sendToTelegram(`🔄 <b>Реконнект ${status} для ${displayName}</b>`, false, null);
                 sendWelcomeMessage(true);
-                setTimeout(() => showHBControlsMenu(), 100);
+                showHBControlsMenu();
             }
             break;
         case HB_DIALOG_IDS.LOCAL_FUNCTIONS:
             if (listitem === 0) {
-                setTimeout(() => showHBControlsMenu(), 100);
+                showHBControlsMenu();
             } else if (listitem === 1) {
-                setTimeout(() => showHBMovementMenu(), 100);
+                showHBMovementMenu();
             } else if (listitem === 2) {
                 config.govMessagesEnabled = !config.govMessagesEnabled;
                 const status = config.govMessagesEnabled ? 'включены' : 'отключены';
                 showScreenNotification("Hassle", `Уведомления от сотрудников фракции ${status}`);
                 sendToTelegram(`${config.govMessagesEnabled ? '🔔' : '🔕'} <b>Уведомления от сотрудников фракции ${status} для ${displayName}</b>`, false, null);
                 sendWelcomeMessage(true);
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                showHBLocalFunctionsMenu();
             } else if (listitem === 3) {
                 config.trackLocationRequests = !config.trackLocationRequests;
                 const status = config.trackLocationRequests ? 'включено' : 'отключено';
                 showScreenNotification("Hassle", `Отслеживание местоположения ${status}`);
                 sendToTelegram(`${config.trackLocationRequests ? '📍' : '🔕'} <b>Отслеживание местоположения ${status} для ${displayName}</b>`, false, null);
                 sendWelcomeMessage(true);
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                showHBLocalFunctionsMenu();
             } else if (listitem === 4) {
                 config.radioOfficialNotifications = !config.radioOfficialNotifications;
                 const status = config.radioOfficialNotifications ? 'включены' : 'отключены';
                 showScreenNotification("Hassle", `Рация (все) ${status}`);
                 sendToTelegram(`${config.radioOfficialNotifications ? '📡' : '🔕'} <b>Рация (все) ${status} для ${displayName}</b>`, false, null);
                 sendWelcomeMessage(true);
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                showHBLocalFunctionsMenu();
             } else if (listitem === 5) {
                 config.radioImportantFilter = !config.radioImportantFilter;
                 const status = config.radioImportantFilter ? 'включён' : 'отключён';
                 showScreenNotification("Hassle", `Фильтр рации ${status}`);
                 sendToTelegram(`${config.radioImportantFilter ? '🎯' : '🚫'} <b>Фильтр рации (строй/место/ID) ${status} для ${displayName}</b>`, false, null);
                 sendWelcomeMessage(true);
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                showHBLocalFunctionsMenu();
             } else if (listitem === 6) {
                 config.warningNotifications = !config.warningNotifications;
                 const status = config.warningNotifications ? 'включены' : 'отключены';
                 showScreenNotification("Hassle", `Уведомления выговоров ${status}`);
                 sendToTelegram(`${config.warningNotifications ? '⚠️' : '🔕'} <b>Уведомления выговоров ${status} для ${displayName}</b>`, false, null);
                 sendWelcomeMessage(true);
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                showHBLocalFunctionsMenu();
             } else if (listitem === 7) {
                 // Автоответ КАЧ/ЗП (локально)
                 config.kacAutoReply = !config.kacAutoReply;
                 showScreenNotification("Hassle", `Автоответ КАЧ/ЗП: ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'}`);
                 sendToTelegram(`🛡️ <b>Автоответ КАЧ/ЗП ${config.kacAutoReply ? 'ВКЛ' : 'ВЫКЛ'} для ${displayName}</b>`, false, null);
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                showHBLocalFunctionsMenu();
             }
             break;
         case HB_DIALOG_IDS.GLOBAL_FUNCTIONS:
             if (listitem === 0) {
-                setTimeout(() => showHBControlsMenu(), 100);
+                showHBControlsMenu();
             } else if (listitem === 1) {
                 const newValPd = !config.paydayNotifications;
                 handleGlobalBroadcastCommand('toggle_payday', newValPd ? 'on' : 'off');
                 broadcastGlobalCommand('toggle_payday', newValPd ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                showHBGlobalFunctionsMenu();
             } else if (listitem === 2) {
                 const newValSoob = !config.govMessagesEnabled;
                 handleGlobalBroadcastCommand('toggle_soob', newValSoob ? 'on' : 'off');
                 broadcastGlobalCommand('toggle_soob', newValSoob ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                showHBGlobalFunctionsMenu();
             } else if (listitem === 3) {
                 const newValMesto = !config.trackLocationRequests;
                 handleGlobalBroadcastCommand('toggle_mesto', newValMesto ? 'on' : 'off');
                 broadcastGlobalCommand('toggle_mesto', newValMesto ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                showHBGlobalFunctionsMenu();
             } else if (listitem === 4) {
                 const newValRadio = !config.radioOfficialNotifications;
                 handleGlobalBroadcastCommand('toggle_radio', newValRadio ? 'on' : 'off');
                 broadcastGlobalCommand('toggle_radio', newValRadio ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                showHBGlobalFunctionsMenu();
             } else if (listitem === 5) {
                 const newValFilter = !config.radioImportantFilter;
                 handleGlobalBroadcastCommand('toggle_radio_filter', newValFilter ? 'on' : 'off');
                 broadcastGlobalCommand('toggle_radio_filter', newValFilter ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                showHBGlobalFunctionsMenu();
             } else if (listitem === 6) {
                 const newValWarn = !config.warningNotifications;
                 handleGlobalBroadcastCommand('toggle_warning', newValWarn ? 'on' : 'off');
                 broadcastGlobalCommand('toggle_warning', newValWarn ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                showHBGlobalFunctionsMenu();
             } else if (listitem === 7) {
                 // Автоответ КАЧ/ЗП (глобально)
                 const newValKac = !config.kacAutoReply;
                 handleGlobalBroadcastCommand('toggle_kac', newValKac ? 'on' : 'off');
                 broadcastGlobalCommand('toggle_kac', newValKac ? 'on' : 'off');
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                showHBGlobalFunctionsMenu();
             } else if (listitem === 8) {
-                setTimeout(() => showHBAFKModesMenu(), 100);
+                showHBAFKModesMenu();
             }
             break;
         case HB_DIALOG_IDS.MOVEMENT_CONTROLS:
             if (listitem === 0) {
-                setTimeout(() => showHBLocalFunctionsMenu(), 100);
+                showHBLocalFunctionsMenu();
             } else if (listitem === 1) {
                 // Вперед
                 try {
@@ -5931,7 +5921,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     }, 500);
                     showScreenNotification("Hassle", "Движение вперед выполнено");
                     sendToTelegram(`🚶 <b>Движение вперед для ${displayName}</b>`, false, null);
-                    setTimeout(() => showHBMovementMenu(), 100);
+                    showHBMovementMenu();
                 } catch (err) {
                     sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
                 }
@@ -5945,7 +5935,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     }, 500);
                     showScreenNotification("Hassle", "Движение влево выполнено");
                     sendToTelegram(`🚶 <b>Движение влево для ${displayName}</b>`, false, null);
-                    setTimeout(() => showHBMovementMenu(), 100);
+                    showHBMovementMenu();
                 } catch (err) {
                     sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
                 }
@@ -5959,7 +5949,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     }, 500);
                     showScreenNotification("Hassle", "Движение вправо выполнено");
                     sendToTelegram(`🚶 <b>Движение вправо для ${displayName}</b>`, false, null);
-                    setTimeout(() => showHBMovementMenu(), 100);
+                    showHBMovementMenu();
                 } catch (err) {
                     sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
                 }
@@ -5973,7 +5963,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     }, 500);
                     showScreenNotification("Hassle", "Движение назад выполнено");
                     sendToTelegram(`🚶 <b>Движение назад для ${displayName}</b>`, false, null);
-                    setTimeout(() => showHBMovementMenu(), 100);
+                    showHBMovementMenu();
                 } catch (err) {
                     sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
                 }
@@ -5986,7 +5976,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     }, 500);
                     showScreenNotification("Hassle", "Прыжок выполнен");
                     sendToTelegram(`🆙 <b>Прыжок для ${displayName}</b>`, false, null);
-                    setTimeout(() => showHBMovementMenu(), 100);
+                    showHBMovementMenu();
                 } catch (err) {
                     sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
                 }
@@ -5997,7 +5987,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     setTimeout(() => window.onScreenControlTouchEnd("<Mouse>/leftButton"), 100);
                     showScreenNotification("Hassle", "Удар выполнен");
                     sendToTelegram(`👊 <b>Удар для ${displayName}</b>`, false, null);
-                    setTimeout(() => showHBMovementMenu(), 100);
+                    showHBMovementMenu();
                 } catch (err) {
                     sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
                 }
@@ -6010,7 +6000,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
                     const actionText = config.isSitting ? 'Сесть' : 'Встать';
                     showScreenNotification("Hassle", `Команда "${actionText}" выполнена`);
                     sendToTelegram(`✅ <b>Команда "${actionText}" для ${displayName}</b>`, false, null);
-                    setTimeout(() => showHBMovementMenu(), 100);
+                    showHBMovementMenu();
                 } catch (err) {
                     sendToTelegram(`❌ <b>Ошибка:</b> ${err.message}`, false, null);
                 }
@@ -6018,13 +6008,13 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             break;
         case HB_DIALOG_IDS.AFK_MODES:
             if (listitem === 0) {
-                setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+                showHBGlobalFunctionsMenu();
             } else if (listitem === 1) {
-                setTimeout(() => showHBAFKPausesMenu(), 100);
+                showHBAFKPausesMenu();
             } else if (listitem === 2) {
                 if (config.autoReconnectEnabled) {
                     currentHBSelectedMode = 'none';
-                    setTimeout(() => showHBAFKReconnectMenu('none'), 100);
+                    showHBAFKReconnectMenu('none');
                 } else {
                     activateAFKWithMode('none', false, 'q', null, null);
                     showScreenNotification("Hassle", "AFK без пауз активирован");
@@ -6033,11 +6023,11 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             break;
         case HB_DIALOG_IDS.AFK_PAUSES:
             if (listitem === 0) {
-                setTimeout(() => showHBAFKModesMenu(), 100);
+                showHBAFKModesMenu();
             } else if (listitem === 1) {
                 if (config.autoReconnectEnabled) {
                     currentHBSelectedMode = 'fixed';
-                    setTimeout(() => showHBAFKReconnectMenu('fixed'), 100);
+                    showHBAFKReconnectMenu('fixed');
                 } else {
                     activateAFKWithMode('fixed', false, 'q', null, null);
                     showScreenNotification("Hassle", "AFK 5/5 мин активирован");
@@ -6045,7 +6035,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             } else if (listitem === 2) {
                 if (config.autoReconnectEnabled) {
                     currentHBSelectedMode = 'random';
-                    setTimeout(() => showHBAFKReconnectMenu('random'), 100);
+                    showHBAFKReconnectMenu('random');
                 } else {
                     activateAFKWithMode('random', false, 'q', null, null);
                     showScreenNotification("Hassle", "AFK рандом активирован");
@@ -6054,10 +6044,10 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             break;
         case HB_DIALOG_IDS.AFK_RECONNECT:
             if (listitem === 0) {
-                setTimeout(() => showHBAFKPausesMenu(), 100);
+                showHBAFKPausesMenu();
             } else if (listitem === 1) {
                 // Реконнект включен
-                setTimeout(() => showHBAFKRestartMenu(currentHBSelectedMode), 100);
+                showHBAFKRestartMenu(currentHBSelectedMode);
             } else if (listitem === 2) {
                 // Реконнект выключен
                 activateAFKWithMode(currentHBSelectedMode, false, 'q', null, null);
@@ -6067,7 +6057,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
             break;
         case HB_DIALOG_IDS.AFK_RESTART:
             if (listitem === 0) {
-                setTimeout(() => showHBAFKReconnectMenu(currentHBSelectedMode), 100);
+                showHBAFKReconnectMenu(currentHBSelectedMode);
             } else if (listitem === 1) {
                 // /q
                 activateAFKWithMode(currentHBSelectedMode, true, 'q', null, null);
@@ -6083,7 +6073,7 @@ function handleHBMenuSelection(dialogId, button, listitem) {
         case HB_DIALOG_IDS.RELOAD_CONFIRM:
             if (listitem === 0) {
                 // Назад
-                setTimeout(() => showHBControlsMenu(), 100);
+                showHBControlsMenu();
             } else if (listitem === 1) {
                 // Этот аккаунт — только текущий, без broadcast
                 showScreenNotification("Hassle", "Перезагрузка этого аккаунта...");
@@ -6680,9 +6670,9 @@ debugLog('[KAC] Auto-Reply загружен. Аккаунт #' + (window.ACCOUNT
                 return;
             }
             _log('[WARN] Профиль загружен → запускаем проверку выговоров через 2 сек');
-            setTimeout(startWarningCheck, 2000);
+            startWarningCheck();
         } else if (!p || !p.loaded) {
-            setTimeout(_waitForProfile, 3000);
+            setTimeout(_waitForProfile, 500);
         }
         // Если warningsChecked уже true — ничего не делаем
     })();
