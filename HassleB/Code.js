@@ -1963,9 +1963,38 @@ function deleteMessage(chatId, messageId) {
     tgApi('deleteMessage', { chat_id: chatId, message_id: messageId });
 }
 function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
+    // Bot API: message_id = 0 для эфемерных сообщений → используем editEphemeralMessageReplyMarkup
+    if (messageId === 0 && window.TELEGRAM_USER_ID) {
+        const ephId = (globalState.welcomeEphemeralIds || {})[chatId];
+        if (ephId) {
+            tgApi('editEphemeralMessageReplyMarkup', {
+                chat_id: chatId,
+                ephemeral_message_id: ephId,
+                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+            }, () => debugLog(`[EPH] ReplyMarkup эфемерного ${ephId} обновлён`),
+            (status, resp) => {
+                let desc = ''; try { desc = JSON.parse(resp).description || ''; } catch(e) {}
+                if (!desc.includes('message is not modified'))
+                    debugLog(`[EPH] Ошибка editEphemeralReplyMarkup ${ephId}: ${status} ${desc}`);
+            });
+            return;
+        }
+        debugLog(`[EPH] editMessageReplyMarkup: messageId=0 но нет welcomeEphemeralIds для ${chatId}`);
+        return;
+    }
     tgApi('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined });
 }
 function editMessageText(chatId, messageId, text, replyMarkup = null) {
+    // Bot API: message_id = 0 для эфемерных сообщений → используем editEphemeralMessageText
+    if (messageId === 0 && window.TELEGRAM_USER_ID) {
+        const ephId = (globalState.welcomeEphemeralIds || {})[chatId];
+        if (ephId) {
+            editEphemeralMessage(chatId, ephId, text, replyMarkup);
+            return;
+        }
+        debugLog(`[EPH] editMessageText: messageId=0 но нет welcomeEphemeralIds для ${chatId}`);
+        return;
+    }
     tgApi('editMessageText', {
         chat_id: chatId,
         message_id: messageId,
@@ -2093,7 +2122,8 @@ function sendToTelegram(message, silent = false, replyMarkup = null, onMessageSe
             text: message,
             parse_mode: 'HTML',
             disable_notification: silent,
-            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+            reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined,
+            message_thread_id: window.THREAD_ID || undefined
         };
 
         if (window.TELEGRAM_USER_ID) {
@@ -2414,7 +2444,8 @@ function sendWelcomeMessage(editOnly = false) {
                     text: message,
                     parse_mode: 'HTML',
                     disable_notification: false,
-                    reply_markup: JSON.stringify(replyMarkup)
+                    reply_markup: JSON.stringify(replyMarkup),
+                    message_thread_id: window.THREAD_ID || undefined
                 }, (cId, ephId, msgId) => {
                     globalState.welcomeSending[cId] = false;
                     if (ephId) {
@@ -2442,7 +2473,8 @@ function sendWelcomeMessage(editOnly = false) {
                     text: message,
                     parse_mode: 'HTML',
                     disable_notification: false,
-                    reply_markup: JSON.stringify(replyMarkup)
+                    reply_markup: JSON.stringify(replyMarkup),
+                    message_thread_id: window.THREAD_ID || undefined
                 }, data => {
                     globalState.welcomeSending[chatId] = false;
                     if (data && data.result) {
