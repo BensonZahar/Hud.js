@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗ'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -1935,12 +1935,14 @@ function editEphemeralMessage(chatId, ephemeralMsgId, text, replyMarkup) {
         debugLog('[EPH] editEphemeralMessage: нет ephemeral_message_id, пропускаем');
         return;
     }
+    // ВАЖНО: при Content-Type: application/json reply_markup передаётся как объект,
+    // НЕ как строка — иначе Telegram вернёт 400 Bad Request для эфемерных методов
     tgApi('editEphemeralMessageText', {
         chat_id: chatId,
         ephemeral_message_id: ephemeralMsgId,
         text,
         parse_mode: 'HTML',
-        reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+        reply_markup: replyMarkup || undefined
     }, () => debugLog(`[EPH] Эфемерное сообщение ${ephemeralMsgId} отредактировано`),
     (status, resp) => {
         let desc = '';
@@ -1967,10 +1969,11 @@ function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
     if (messageId === 0 && window.TELEGRAM_USER_ID) {
         const ephId = (globalState.welcomeEphemeralIds || {})[chatId];
         if (ephId) {
+            // reply_markup передаётся как объект (не строка) при application/json
             tgApi('editEphemeralMessageReplyMarkup', {
                 chat_id: chatId,
                 ephemeral_message_id: ephId,
-                reply_markup: replyMarkup ? JSON.stringify(replyMarkup) : undefined
+                reply_markup: replyMarkup || undefined
             }, () => debugLog(`[EPH] ReplyMarkup эфемерного ${ephId} обновлён`),
             (status, resp) => {
                 let desc = ''; try { desc = JSON.parse(resp).description || ''; } catch(e) {}
@@ -3821,6 +3824,19 @@ function processUpdates(updates) {
             const chatId = update.callback_query.message.chat.id;
             const messageId = update.callback_query.message.message_id;
             const callbackQueryId = update.callback_query.id;
+
+            // Bot API: message_id = 0 для эфемерных сообщений.
+            // Берём ephemeral_message_id прямо из апдейта — это всегда актуальный ID,
+            // даже если бот перезапустился и globalState был сброшен.
+            if (messageId === 0 && window.TELEGRAM_USER_ID) {
+                const ephIdFromCb = update.callback_query.message.ephemeral_message_id;
+                if (ephIdFromCb) {
+                    if (!globalState.welcomeEphemeralIds) globalState.welcomeEphemeralIds = {};
+                    globalState.welcomeEphemeralIds[chatId] = ephIdFromCb;
+                    debugLog(`[EPH] callback_query: ephemeral_id обновлён для чата ${chatId} → ${ephIdFromCb}`);
+                }
+            }
+
             // dlg_* обрабатываются исключительно Dialog Monitor
             if (message.startsWith('dlg_')) {
                 continue;
