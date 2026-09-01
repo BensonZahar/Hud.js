@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗ'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -1939,6 +1939,7 @@ function editEphemeralMessage(chatId, ephemeralMsgId, text, replyMarkup) {
     // НЕ как строка — иначе Telegram вернёт 400 Bad Request для эфемерных методов
     tgApi('editEphemeralMessageText', {
         chat_id: chatId,
+        receiver_user_id: window.TELEGRAM_USER_ID,  // ОБЯЗАТЕЛЕН для Bot API 10.2+
         ephemeral_message_id: ephemeralMsgId,
         text,
         parse_mode: 'HTML',
@@ -1972,6 +1973,7 @@ function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
             // reply_markup передаётся как объект (не строка) при application/json
             tgApi('editEphemeralMessageReplyMarkup', {
                 chat_id: chatId,
+                receiver_user_id: window.TELEGRAM_USER_ID,  // ОБЯЗАТЕЛЕН для Bot API 10.2+
                 ephemeral_message_id: ephId,
                 reply_markup: replyMarkup || undefined
             }, () => debugLog(`[EPH] ReplyMarkup эфемерного ${ephId} обновлён`),
