@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗ'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -36,7 +36,11 @@ const globalState = {
     otygrovkaExitTimer: null,      // setTimeout — выход в :59:20
     otygrovkaCurrentTime: null,    // «Текущее время» из последнего /c 60
     scriptLoadTime: null, // не используется (версия берётся из CODE_COMMIT_INFO)
-    pendingPromptIds: {}  // { message_id: 'reply' | 'message' } — для определения типа промпта без текста
+    pendingPromptIds: {},  // { ephemeral_message_id|message_id: 'reply'|'message' }
+    // FIX: Bot API может опустить reply_to_message для ответов на эфемерные сообщения
+    // (см. https://core.telegram.org/bots/api#message — поле reply_to_message).
+    // Fallback: запоминаем последний активный промпт по chatId + timestamp (окно 5 мин).
+    pendingPromptWaiting: null  // { type: 'message'|'reply', chatId, timestamp }
 };
 // END GLOBAL STATE MODULE //
 
@@ -1939,6 +1943,7 @@ function editEphemeralMessage(chatId, ephemeralMsgId, text, replyMarkup) {
     // НЕ как строка — иначе Telegram вернёт 400 Bad Request для эфемерных методов
     tgApi('editEphemeralMessageText', {
         chat_id: chatId,
+        receiver_user_id: window.TELEGRAM_USER_ID,  // ОБЯЗАТЕЛЕН для Bot API 10.2+
         ephemeral_message_id: ephemeralMsgId,
         text,
         parse_mode: 'HTML',
@@ -1949,14 +1954,6 @@ function editEphemeralMessage(chatId, ephemeralMsgId, text, replyMarkup) {
         try { desc = JSON.parse(resp).description || ''; } catch(e) {}
         if (desc.includes('message is not modified')) return;
         debugLog(`[EPH] Ошибка редактирования эфемерного ${ephemeralMsgId}: ${status} ${desc}`);
-        // FIX: эфемерное сообщение устарело — очищаем ID, следующий вызов пошлёт новое
-        if (status === 400) {
-            if (globalState.welcomeEphemeralIds && globalState.welcomeEphemeralIds[chatId] === ephemeralMsgId) {
-                delete globalState.welcomeEphemeralIds[chatId];
-                debugLog(`[EPH] Устаревший ephemeral_id ${ephemeralMsgId} очищен для чата ${chatId}`);
-                setTimeout(() => sendWelcomeMessage(), 500);
-            }
-        }
     });
 }
 
@@ -1980,6 +1977,7 @@ function editMessageReplyMarkup(chatId, messageId, replyMarkup) {
             // reply_markup передаётся как объект (не строка) при application/json
             tgApi('editEphemeralMessageReplyMarkup', {
                 chat_id: chatId,
+                receiver_user_id: window.TELEGRAM_USER_ID,  // ОБЯЗАТЕЛЕН для Bot API 10.2+
                 ephemeral_message_id: ephId,
                 reply_markup: replyMarkup || undefined
             }, () => debugLog(`[EPH] ReplyMarkup эфемерного ${ephId} обновлён`),
@@ -3713,45 +3711,47 @@ function processUpdates(updates) {
 
         if (update.message) {
             const message = update.message.text ? update.message.text.trim() : '';
-            // Проверяем, является ли сообщение ответом на запрос ввода
+            // ── Проверка ответа на промпт «Введите сообщение» ─────────────────────────
+            // FIX: Bot API ephemeral messages — два кейса:
+            // 1) reply_to_message присутствует, но message_id=0, зато есть ephemeral_message_id
+            // 2) reply_to_message полностью опущен (Bot API docs: «may be omitted»)
+            // Для обоих случаев проверяем pendingPromptIds по ephemeral_message_id и fallback.
+            let _resolvedPromptType = null;
             if (update.message.reply_to_message) {
-                const replyToMsgId = update.message.reply_to_message.message_id;
-                // FIX: для эфемерных reply_to_message.message_id = 0 — ищем по ephemeral_message_id
-                const replyToEphId = update.message.reply_to_message.ephemeral_message_id;
-                const lookupKey = (replyToMsgId === 0 && replyToEphId) ? replyToEphId : replyToMsgId;
-                const promptType = globalState.pendingPromptIds && globalState.pendingPromptIds[lookupKey];
-
-                if (promptType === 'message' || promptType === 'reply') {
-                    delete globalState.pendingPromptIds[lookupKey];
-                    // Убираем и запасной ключ если был
-                    if (globalState.pendingDirectInput) delete globalState.pendingDirectInput[String(chatId)];
-                    const textToSend = message;
-                    if (textToSend) {
-                        const isReply = promptType === 'reply';
-                        const label = isReply ? 'Ответ' : 'Сообщение';
-                        debugLog(`[${displayName}] Отправка ${label.toLowerCase()}: ${textToSend}`);
-                        try {
-                            sendChatInput(textToSend);
-                            sendToTelegram(`✅ <b>${label} отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
-                        } catch (err) {
-                            const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось отправить ${label.toLowerCase()}\n<code>${err.message}</code>`;
-                            debugLog(errorMsg);
-                            sendToTelegram(errorMsg, false, null);
-                        }
-                    }
-                    continue;
+                const rtm = update.message.reply_to_message;
+                const replyToEphId = rtm.ephemeral_message_id; // Bot API 10.2+
+                const replyToMsgId = rtm.message_id;
+                // Проверяем сначала по ephemeral_message_id (эфемерный режим),
+                // потом по обычному message_id (обычный режим)
+                _resolvedPromptType =
+                    (replyToEphId && globalState.pendingPromptIds[replyToEphId]) ||
+                    (replyToMsgId && globalState.pendingPromptIds[replyToMsgId]) ||
+                    null;
+                if (_resolvedPromptType === 'message' || _resolvedPromptType === 'reply') {
+                    if (replyToEphId) delete globalState.pendingPromptIds[replyToEphId];
+                    if (replyToMsgId) delete globalState.pendingPromptIds[replyToMsgId];
+                    globalState.pendingPromptWaiting = null;
                 }
             }
-            // FIX: эфемерный ответ — reply_to_message отсутствует (задокументированное поведение Bot API 10.2+)
-            // Проверяем запасной стейт pendingDirectInput
-            if (!update.message.reply_to_message && globalState.pendingDirectInput && globalState.pendingDirectInput[String(chatId)]) {
-                const promptType = globalState.pendingDirectInput[String(chatId)];
-                delete globalState.pendingDirectInput[String(chatId)];
+            // Fallback: reply_to_message опущен (Bot API: «may be omitted» для эфемерных)
+            // Если мы ждём ввода и пришло простое текстовое сообщение в тот же чат — считаем ответом
+            if (!_resolvedPromptType && !update.message.reply_to_message && globalState.pendingPromptWaiting) {
+                const _pw = globalState.pendingPromptWaiting;
+                const _PROMPT_TTL = 5 * 60 * 1000; // 5 минут
+                if (String(chatId) === String(_pw.chatId) &&
+                    Date.now() - _pw.timestamp < _PROMPT_TTL &&
+                    message) {
+                    _resolvedPromptType = _pw.type;
+                    globalState.pendingPromptWaiting = null;
+                    debugLog(`[PROMPT] Fallback: принимаем сообщение как ответ на промпт (тип: ${_resolvedPromptType})`);
+                }
+            }
+            if (_resolvedPromptType === 'message' || _resolvedPromptType === 'reply') {
                 const textToSend = message;
                 if (textToSend) {
-                    const isReply = promptType === 'reply';
+                    const isReply = _resolvedPromptType === 'reply';
                     const label = isReply ? 'Ответ' : 'Сообщение';
-                    debugLog(`[${displayName}] [EPH-fallback] Отправка ${label.toLowerCase()}: ${textToSend}`);
+                    debugLog(`[${displayName}] Отправка ${label.toLowerCase()}: ${textToSend}`);
                     try {
                         sendChatInput(textToSend);
                         sendToTelegram(`✅ <b>${label} отправлен ${displayName}:</b>\n<code>${textToSend.replace(/</g, '&lt;')}</code>`, false, null);
@@ -3763,6 +3763,7 @@ function processUpdates(updates) {
                 }
                 continue;
             }
+            // ── Конец обработки промпта ───────────────────────────────────────────────
             // Глобальные команды (работают на все аккаунты)
             if (message === '/reload') {
                 reloadAllAccounts();
@@ -4144,14 +4145,13 @@ function processUpdates(updates) {
                 } else if (_funcKey === 'chat') {
                     const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
                     _abortPollAndRestartFast();
-                    sendToTelegram(requestMsg, false, { force_reply: true }, (chatId, msgId, ephId) => {
-                        const key = ephId || msgId;
-                        globalState.pendingPromptIds[key] = 'message';
-                        // FIX: запасной ключ для эфемерных ответов, где reply_to_message может отсутствовать
-                        if (ephId) {
-                            if (!globalState.pendingDirectInput) globalState.pendingDirectInput = {};
-                            globalState.pendingDirectInput[String(chatId)] = 'message';
-                        }
+                    sendToTelegram(requestMsg, false, { force_reply: true }, (cId, msgId, ephId) => {
+                        // FIX: для эфемерных сообщений message_id=0, используем ephemeral_message_id
+                        const key = (ephId != null) ? ephId : msgId;
+                        if (key) globalState.pendingPromptIds[key] = 'message';
+                        // Fallback: reply_to_message может быть опущен для эфемерных (Bot API docs)
+                        globalState.pendingPromptWaiting = { type: 'message', chatId: cId, timestamp: Date.now() };
+                        debugLog(`[PROMPT] chat: ждём ввод, key=${key} ephId=${ephId} msgId=${msgId}`);
                     });
                 } else if (_funcKey === 'pause') {
                     const _isPaused = !!window.getInterfaceStatus("PauseMenu");
@@ -4201,16 +4201,13 @@ function processUpdates(updates) {
                 hideControlsMenu(chatId, messageId);
             } else if (message.startsWith(`request_chat_message_`)) {
                 const requestMsg = `✉️ Введите сообщение для ${displayName}:`;
-                // Прерываем текущий long-poll — освобождаем соединение для sendMessage
                 _abortPollAndRestartFast();
-                sendToTelegram(requestMsg, false, { force_reply: true }, (chatId, msgId, ephId) => {
-                    const key = ephId || msgId;
-                    globalState.pendingPromptIds[key] = 'message';
-                    // FIX: запасной ключ для эфемерных ответов, где reply_to_message может отсутствовать
-                    if (ephId) {
-                        if (!globalState.pendingDirectInput) globalState.pendingDirectInput = {};
-                        globalState.pendingDirectInput[String(chatId)] = 'message';
-                    }
+                sendToTelegram(requestMsg, false, { force_reply: true }, (cId, msgId, ephId) => {
+                    // FIX: для эфемерных сообщений message_id=0, используем ephemeral_message_id
+                    const key = (ephId != null) ? ephId : msgId;
+                    if (key) globalState.pendingPromptIds[key] = 'message';
+                    globalState.pendingPromptWaiting = { type: 'message', chatId: cId, timestamp: Date.now() };
+                    debugLog(`[PROMPT] request_chat: ждём ввод, key=${key}`);
                 });
             } else if (message.startsWith(`show_payday_options_`)) {
                 showPayDayOptionsMenu(chatId, messageId, callbackUniqueId);
@@ -4306,14 +4303,12 @@ function processUpdates(updates) {
             } else if (message.startsWith("admin_reply_")) {
                 const requestMsg = `✉️ Введите ответ для ${displayName}:`;
                 _abortPollAndRestartFast();
-                sendToTelegram(requestMsg, false, { force_reply: true }, (chatId, msgId, ephId) => {
-                    const key = ephId || msgId;
-                    globalState.pendingPromptIds[key] = 'reply';
-                    // FIX: запасной ключ для эфемерных ответов, где reply_to_message может отсутствовать
-                    if (ephId) {
-                        if (!globalState.pendingDirectInput) globalState.pendingDirectInput = {};
-                        globalState.pendingDirectInput[String(chatId)] = 'reply';
-                    }
+                sendToTelegram(requestMsg, false, { force_reply: true }, (cId, msgId, ephId) => {
+                    // FIX: для эфемерных сообщений message_id=0, используем ephemeral_message_id
+                    const key = (ephId != null) ? ephId : msgId;
+                    if (key) globalState.pendingPromptIds[key] = 'reply';
+                    globalState.pendingPromptWaiting = { type: 'reply', chatId: cId, timestamp: Date.now() };
+                    debugLog(`[PROMPT] admin_reply: ждём ввод, key=${key}`);
                 });
             } else if (message.startsWith("move_forward_")) {
                 const isNotif = message.endsWith('_notification');
