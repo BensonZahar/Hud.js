@@ -210,14 +210,6 @@ function applyUserConfig() {
     window.PASSWORD = userConfig.PASSWORD;
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
     window.BROADCAST_CHANNEL_ID = userConfig.BROADCAST_CHANNEL_ID || null;
-    // ── Эфемерные сообщения (Bot API 10.2 / 10.3) ────────────────
-    // Если задан TELEGRAM_USER_ID — все сообщения бота видны только
-    // этому пользователю в общей беседе (эфемерный режим).
-    // Если null — обычный режим (сообщения видны всем).
-    window.TELEGRAM_USER_ID = userConfig.TELEGRAM_USER_ID || null;
-    // ID темы (топика) форум-группы — сообщения пойдут в нужную тему, а не в общий чат
-    // Узнать: открыть нужную тему → t.me/c/{chat_id_без_минуса}/{THREAD_ID}
-    window.THREAD_ID = userConfig.THREAD_ID || null;
 
     window.ACCOUNT_NUMBER = accountNumber;
     const userBotTokens = userConfig.BOT_TOKENS || {};
