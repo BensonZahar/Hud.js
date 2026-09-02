@@ -1,5 +1,5 @@
 // dokladi.js — загрузчик. Берёт код из window.__prefetch_dokladi_js (префетч mvdF.js).
-import{r as resolveComponent,o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,h as renderList,n as normalizeClass,t as toDisplayString,f as createCommentVNode,g as createBlock,b as createVNode,_ as _export_sfc}from"./index.js";
+import{r as resolveComponent,o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,i as renderList,n as normalizeClass,t as toDisplayString,f as createCommentVNode,h as createBlock,b as createVNode,_ as _export_sfc}from"./index.js";
 import{C as ControlsContaineredButton}from"./ContaineredButton.js";
 
 const _GH_URL = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
