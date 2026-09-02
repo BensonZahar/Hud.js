@@ -690,9 +690,9 @@ class InstallerAPI:
             )
         parts = []
         if dd_parts:
-            parts.append(f'Object.assign(dd,{{{",".join(dd_parts)}}});')
+            parts.append(f'Object.assign(Dd,{{{",".join(dd_parts)}}});')
         if fd_parts:
-            parts.append(f'Object.assign(fd,{{{",".join(fd_parts)}}});')
+            parts.append(f'Object.assign(Rd,{{{",".join(fd_parts)}}});')
         parts.extend(side_effects)
         return "".join(parts)
 
