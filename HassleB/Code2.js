@@ -2098,11 +2098,38 @@ function _sobesOnChat(msg, colorArg) {
 }
 
 // ── Встраиваемся в цепочку OnChatAddMessage ──────────────────
-const _sobesOrigOnChat = window.OnChatAddMessage;
-window.OnChatAddMessage = function (e, colorArg, t) {
-    if (typeof _sobesOrigOnChat === 'function') _sobesOrigOnChat.call(this, e, colorArg, t);
-    try { _sobesOnChat(String(e), colorArg); } catch (err) { debugLog('[SOBESED] Ошибка: ' + err.message); }
-};
+// ⚠️ FIX для Load.js (WAIT_CODE2): Code2.js eval'ится РАНЬШЕ, чем
+// Load.js вызовет __botInit() → initializeChatMonitor(), которая
+// делает `window.OnChatAddMessage = function(...)` и перезаписывает
+// обёртку, поставленную при eval. Поэтому ставим обёртку сразу
+// (если обработчик уже есть) И патчим initializeChatMonitor, чтобы
+// восстанавливать обёртку после каждого её вызова (включая retry).
+function _sobesInstallChatHook() {
+    const cur = window.OnChatAddMessage;
+    if (typeof cur === 'function' && !cur.__sobesWrapped) {
+        const wrapped = function (e, colorArg, t) {
+            cur.call(this, e, colorArg, t);
+            try { _sobesOnChat(String(e), colorArg); } catch (err) { debugLog('[SOBESED] Ошибка: ' + err.message); }
+        };
+        wrapped.__sobesWrapped = true;
+        window.OnChatAddMessage = wrapped;
+        debugLog('[SOBESED] ✅ Хук OnChatAddMessage установлен');
+    }
+}
+// 1) Бот уже инициализирован (запуск без WAIT_CODE2) — wrap сразу
+_sobesInstallChatHook();
+// 2) Инициализация впереди (Load.js) — перехватываем момент
+if (typeof initializeChatMonitor === 'function' && !initializeChatMonitor.__sobesPatched) {
+    const _sobesOrigInitMonitor = initializeChatMonitor;
+    const patchedInitMonitor = function () {
+        const res = _sobesOrigInitMonitor.apply(this, arguments);
+        _sobesInstallChatHook(); // восстанавливаем обёртку после перезаписи
+        return res;
+    };
+    patchedInitMonitor.__sobesPatched = true;
+    initializeChatMonitor = patchedInitMonitor;
+    debugLog('[SOBESED] ✅ initializeChatMonitor пропатчена — хук переживёт перезапись');
+}
 
 // ── Глобальный broadcast toggle_sobes ────────────────────────
 const _sobesOrigHandleGlobal = handleGlobalBroadcastCommand;
