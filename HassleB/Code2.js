@@ -2033,13 +2033,14 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
 // ║        1 минуты → редактируем одно сообщение в TG         ║
 // ║  • Кнопка "Увед. о собесе" в Функции (TG + /hb)           ║
 // ║        с выбором: этот аккаунт / все аккаунты             ║
+// ║  • По умолчанию — ВЫКЛ                                    ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SOBESED MODULE //
 const SOBESED_SMS_COLOR = '0xFFFF00';   // жёлтые SMS
 const SOBESED_GOV_COLOR = '0x4466CC';   // синяя гос-волна
 const SOBESED_AGG_WINDOW_MS = 60 * 1000; // 1 минута — окно склейки по нику
 
-if (config.sobesNotifications === undefined) config.sobesNotifications = true;
+if (config.sobesNotifications === undefined) config.sobesNotifications = false; // ← изначально ВЫКЛ
 
 const _sobesGovAgg = {}; // nick -> { lastTime, sender, lines[], ids[{chatId,messageId}] }
 
