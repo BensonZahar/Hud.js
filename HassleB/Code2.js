@@ -2027,15 +2027,15 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
 // ║  MODULE: SOBESED (уведомления о собеседованиях/наборах)   ║
 // ║  • Жёлтое SMS (FFFF00) со словом "набор"                  ║
 // ║        → "Планируется собеседование: ..."                 ║
-// ║  • Синяя гос-волна (4466CC)                               ║
+// ║  • Синяя гос-волна (4466CC) с ником отправителя           ║
 // ║        → "Обнаружено собеседование: ..."                  ║
 // ║        несколько сообщений от одного ника в течение       ║
 // ║        1 минуты → редактируем одно сообщение в TG         ║
-// ║  • Кнопка "Увед. о собесе" в Функции (TG + /hb)           ║
+// ║  • Свалка и объявления без ника — игнорируются            ║
+//   • Кнопка "Увед. о собесе" в Функции (TG + /hb)           ║
 // ║        с выбором: этот аккаунт / все аккаунты             ║
 // ║  • По умолчанию — ВЫКЛ                                    ║
-// ║  • После ВКЛ/ВЫКЛ — возврат сообщения к исходному         ║
-// ║    виду (текст welcome + кнопки Управление и т.д.)        ║
+// ║  • После ВКЛ/ВЫКЛ — возврат к welcome-сообщению           ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SOBESED MODULE //
 const SOBESED_SMS_COLOR = '0xFFFF00';   // жёлтые SMS
@@ -2071,65 +2071,60 @@ function _sobesOnChat(msg, colorArg) {
 
     // 2) Синяя гос-волна — склейка по нику в течение 1 минуты
     if (color === SOBESED_GOV_COLOR) {
+        //  Мусорные объявления (городская свалка и т.п.) — игнорируем
+        if (/свалк/i.test(clean)) {
+            debugLog('[SOBESED] Гос-волна про свалку — игнорируем');
+            return;
+        }
         const m = clean.match(/^([^:]+?):\s*([\s\S]+)$/);
-        const senderFull = m ? m[1].trim() : clean;
+        const senderFull = m ? m[1].trim() : null;
         const text       = m ? m[2].trim() : clean;
-        const nickM = senderFull.match(/([A-Za-z]+_[A-Za-z]+)/);
-        const nick  = nickM ? nickM[1] : '__unknown__';
+        // Берём только сообщения от ника (Name_Surname) — безликие
+        // объявления (свалка и др.) не обрабатываем
+        const nickM = senderFull ? senderFull.match(/([A-Za-z]+_[A-Za-z]+)/) : null;
+        if (!nickM) {
+            debugLog('[SOBESED] Гос-волна без ника отправителя — игнорируем');
+            return;
+        }
+        const nick = nickM[1];
         const now = Date.now();
         let entry = _sobesGovAgg[nick];
 
-        if (entry && entry.ids.length && (now - entry.lastTime) <= SOBESED_AGG_WINDOW_MS) {
-            // Пришло ещё сообщение от того же ника в окно 1 мин → редактируем
+        if (entry && (now - entry.lastTime) <= SOBESED_AGG_WINDOW_MS) {
+            // Ещё сообщение от того же ника в окне 1 мин → дописываем и редактируем
             entry.lastTime = now;
             entry.lines.push(text);
-            const full = _sobesBuildGovMsg(entry);
-            entry.ids.forEach(function (id) { editMessageText(id.chatId, id.messageId, full); });
-            debugLog('[SOBESED] Гос-волна от ' + nick + ' → редактируем сообщение');
+            if (entry.ids.length) {
+                // ID уже есть — редактируем сразу
+                const full = _sobesBuildGovMsg(entry);
+                entry.ids.forEach(function (id) { editMessageText(id.chatId, id.messageId, full); });
+                debugLog('[SOBESED] Гос-волна от ' + nick + ' → редактируем сообщение');
+            } else {
+                // ID ещё летит — текст обновится в onMessageSent
+                debugLog('[SOBESED] Гос-волна от ' + nick + ' → строка добавлена, ждём ID сообщения');
+            }
         } else {
             entry = { lastTime: now, sender: senderFull, lines: [text], ids: [] };
             _sobesGovAgg[nick] = entry;
             debugLog('[SOBESED] Гос-волна от ' + nick + ' → новое сообщение');
             sendToTelegram(_sobesBuildGovMsg(entry), false, null, function (chatId, messageId) {
                 entry.ids.push({ chatId: chatId, messageId: messageId });
+                // FIX: пока первое сообщение летело, могли добавиться строки —
+                // сразу редактируем, чтобы не терять их и не слать дубли
+                if (entry.lines.length > 1) {
+                    editMessageText(chatId, messageId, _sobesBuildGovMsg(entry));
+                }
             });
         }
     }
 }
 
 // ── Встраиваемся в цепочку OnChatAddMessage ──────────────────
-// ⚠️ FIX для Load.js (WAIT_CODE2): Code2.js eval'ится РАНЬШЕ, чем
-// Load.js вызовет __botInit() → initializeChatMonitor(), которая
-// делает `window.OnChatAddMessage = function(...)` и перезаписывает
-// обёртку, поставленную при eval. Поэтому ставим обёртку сразу
-// (если обработчик уже есть) И патчим initializeChatMonitor, чтобы
-// восстанавливать обёртку после каждого её вызова (включая retry).
-function _sobesInstallChatHook() {
-    const cur = window.OnChatAddMessage;
-    if (typeof cur === 'function' && !cur.__sobesWrapped) {
-        const wrapped = function (e, colorArg, t) {
-            cur.call(this, e, colorArg, t);
-            try { _sobesOnChat(String(e), colorArg); } catch (err) { debugLog('[SOBESED] Ошибка: ' + err.message); }
-        };
-        wrapped.__sobesWrapped = true;
-        window.OnChatAddMessage = wrapped;
-        debugLog('[SOBESED] ✅ Хук OnChatAddMessage установлен');
-    }
-}
-// 1) Бот уже инициализирован (запуск без WAIT_CODE2) — wrap сразу
-_sobesInstallChatHook();
-// 2) Инициализация впереди (Load.js) — перехватываем момент
-if (typeof initializeChatMonitor === 'function' && !initializeChatMonitor.__sobesPatched) {
-    const _sobesOrigInitMonitor = initializeChatMonitor;
-    const patchedInitMonitor = function () {
-        const res = _sobesOrigInitMonitor.apply(this, arguments);
-        _sobesInstallChatHook(); // восстанавливаем обёртку после перезаписи
-        return res;
-    };
-    patchedInitMonitor.__sobesPatched = true;
-    initializeChatMonitor = patchedInitMonitor;
-    debugLog('[SOBESED] ✅ initializeChatMonitor пропатчена — хук переживёт перезапись');
-}
+const _sobesOrigOnChat = window.OnChatAddMessage;
+window.OnChatAddMessage = function (e, colorArg, t) {
+    if (typeof _sobesOrigOnChat === 'function') _sobesOrigOnChat.call(this, e, colorArg, t);
+    try { _sobesOnChat(String(e), colorArg); } catch (err) { debugLog('[SOBESED] Ошибка: ' + err.message); }
+};
 
 // ── Глобальный broadcast toggle_sobes ────────────────────────
 const _sobesOrigHandleGlobal = handleGlobalBroadcastCommand;
