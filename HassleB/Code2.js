@@ -2023,3 +2023,259 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
 
 })();
 // ==================== END FRIEND TRACKER MODULE ====================
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: SOBESED (уведомления о собеседованиях/наборах)   ║
+// ║  • Жёлтое SMS (FFFF00) со словом "набор"                  ║
+// ║        → "Планируется собеседование: ..."                 ║
+// ║  • Синяя гос-волна (4466CC)                               ║
+// ║        → "Обнаружено собеседование: ..."                  ║
+// ║        несколько сообщений от одного ника в течение       ║
+// ║        1 минуты → редактируем одно сообщение в TG         ║
+// ║  • Кнопка "Увед. о собесе" в Функции (TG + /hb)           ║
+// ║        с выбором: этот аккаунт / все аккаунты             ║
+// ╚══════════════════════════════════════════════════════════╝
+// START SOBESED MODULE //
+const SOBESED_SMS_COLOR = '0xFFFF00';   // жёлтые SMS
+const SOBESED_GOV_COLOR = '0x4466CC';   // синяя гос-волна
+const SOBESED_AGG_WINDOW_MS = 60 * 1000; // 1 минута — окно склейки по нику
+
+if (config.sobesNotifications === undefined) config.sobesNotifications = true;
+
+const _sobesGovAgg = {}; // nick -> { lastTime, sender, lines[], ids[{chatId,messageId}] }
+
+function _sobesEsc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function _sobesBuildGovMsg(entry) {
+    return '🏛 <b>Обнаружено собеседование (' + displayName + '):</b>\n' +
+           '👤 ' + _sobesEsc(entry.sender) + '\n' +
+           entry.lines.map(_sobesEsc).join('\n');
+}
+
+// ── Обработка чата ───────────────────────────────────────────
+function _sobesOnChat(msg, colorArg) {
+    if (!config.sobesNotifications) return;
+    const color = normalizeColor(colorArg);
+    const clean = String(msg).replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim();
+    if (!clean) return;
+
+    // 1) Жёлтое SMS со словом "набор"
+    if (color === SOBESED_SMS_COLOR && clean.toLowerCase().includes('набор')) {
+        debugLog('[SOBESED] Жёлтое SMS с "набор" → уведомление');
+        sendToTelegram('📅 <b>Планируется собеседование (' + displayName + '):</b>\n' + _sobesEsc(clean), false, null);
+        return;
+    }
+
+    // 2) Синяя гос-волна — склейка по нику в течение 1 минуты
+    if (color === SOBESED_GOV_COLOR) {
+        const m = clean.match(/^([^:]+?):\s*([\s\S]+)$/);
+        const senderFull = m ? m[1].trim() : clean;
+        const text       = m ? m[2].trim() : clean;
+        const nickM = senderFull.match(/([A-Za-z]+_[A-Za-z]+)/);
+        const nick  = nickM ? nickM[1] : '__unknown__';
+        const now = Date.now();
+        let entry = _sobesGovAgg[nick];
+
+        if (entry && entry.ids.length && (now - entry.lastTime) <= SOBESED_AGG_WINDOW_MS) {
+            // Пришло ещё сообщение от того же ника в окно 1 мин → редактируем
+            entry.lastTime = now;
+            entry.lines.push(text);
+            const full = _sobesBuildGovMsg(entry);
+            entry.ids.forEach(function (id) { editMessageText(id.chatId, id.messageId, full); });
+            debugLog('[SOBESED] Гос-волна от ' + nick + ' → редактируем сообщение');
+        } else {
+            entry = { lastTime: now, sender: senderFull, lines: [text], ids: [] };
+            _sobesGovAgg[nick] = entry;
+            debugLog('[SOBESED] Гос-волна от ' + nick + ' → новое сообщение');
+            sendToTelegram(_sobesBuildGovMsg(entry), false, null, function (chatId, messageId) {
+                entry.ids.push({ chatId: chatId, messageId: messageId });
+            });
+        }
+    }
+}
+
+// ── Встраиваемся в цепочку OnChatAddMessage ──────────────────
+const _sobesOrigOnChat = window.OnChatAddMessage;
+window.OnChatAddMessage = function (e, colorArg, t) {
+    if (typeof _sobesOrigOnChat === 'function') _sobesOrigOnChat.call(this, e, colorArg, t);
+    try { _sobesOnChat(String(e), colorArg); } catch (err) { debugLog('[SOBESED] Ошибка: ' + err.message); }
+};
+
+// ── Глобальный broadcast toggle_sobes ────────────────────────
+const _sobesOrigHandleGlobal = handleGlobalBroadcastCommand;
+handleGlobalBroadcastCommand = function (cmd, val, fromBroadcast) {
+    if (cmd === 'toggle_sobes') {
+        const isOn = val === 'on';
+        config.sobesNotifications = isOn;
+        showScreenNotification("Hassle", '[Global] Собес ' + (isOn ? 'ВКЛ' : 'ВЫКЛ'));
+        sendToTelegram((isOn ? '🔔' : '🔕') + ' <b>Увед. о собесе ' + (isOn ? 'ВКЛ' : 'ВЫКЛ') + ' (' + displayName + ')</b>', true, null);
+        if (fromBroadcast) sendWelcomeMessage(true);
+        debugLog('[GLOBAL] Применена команда: toggle_sobes = ' + val);
+        return;
+    }
+    return _sobesOrigHandleGlobal(cmd, val, fromBroadcast);
+};
+
+// ── Telegram-меню: кнопка в "Функции" + выбор скоупа ─────────
+showFunctionsMenu = function (chatId, messageId, uniqueIdParam) {
+    const uid = uniqueIdParam || uniqueId;
+    if (!config.accountInfo.nickname) {
+        sendToTelegram('❌ <b>Ошибка ' + displayName + '</b>\nНик не определен', false, null);
+        return;
+    }
+    const isPaused = !!window.getInterfaceStatus("PauseMenu");
+    const isAutoLoginDisabled = !autoLoginConfig.enabled;
+    const pauseLabel     = isPaused ? "▶️ Выйти с паузы" : "⏸️ Уйти на паузу";
+    const pauseStyle     = isPaused ? 'success' : 'danger';
+    const autoLoginLabel = isAutoLoginDisabled ? "✅ Выйти с автр." : "🚫 Уйти на автр.";
+    const autoLoginStyle = isAutoLoginDisabled ? 'success' : 'danger';
+    const kacStyle       = config.kacAutoReply ? 'success' : 'danger';
+    const afkActive      = !!(config.afkCycle && config.afkCycle.active);
+    const afkStyle       = afkActive ? 'success' : 'danger';
+    const otygrovkaStyle = globalState.otygrovkaAuto ? 'success' : 'danger';
+    const sobesStyle     = config.sobesNotifications ? 'success' : 'danger';
+    const replyMarkup = {
+        inline_keyboard: [
+            [createButton("🚶 Движение", `func_action_movement_local_${uid}`)],
+            [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `func_select_kac_${uid}`, kacStyle)],
+            [createButton(`🌙 AFK Ночь ${afkActive ? '🟢' : '🔴'}`, `func_select_afk_${uid}`, afkStyle)],
+            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaAuto ? '🟢' : '🔴'}`, `func_select_otygrovka_${uid}`, otygrovkaStyle)],
+            [createButton(`🏛 Увед. о собесе ${config.sobesNotifications ? '🟢' : '🔴'}`, `sobes_scope_${uid}`, sobesStyle)],
+            [createButton("📝 Написать в чат", `request_chat_message_${uid}`)],
+            [createButton(pauseLabel, `func_select_pause_${uid}`, pauseStyle), createButton(autoLoginLabel, `func_select_autologin_${uid}`, autoLoginStyle)],
+            [createButton("⬅️ Вернуться назад", `show_controls_${uid}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+};
+
+function showSobesScopeMenu(chatId, messageId, uid) {
+    editMessageText(chatId, messageId, '🏛 <b>Увед. о собесе</b>\n\nДля кого применить изменения?', {
+        inline_keyboard: [
+            [createButton("👤 Для этого аккаунта", `sobes_action_local_${uid}`, 'primary'),
+             createButton("👥 Для всех аккаунтов", `sobes_action_global_${uid}`, 'primary')],
+            [createButton("⬅️ Вернуться назад", `show_functions_${uid}`)]
+        ]
+    });
+}
+function showSobesToggleMenu(chatId, messageId, scope, uid) {
+    const on = config.sobesNotifications;
+    editMessageText(chatId, messageId,
+        '🏛 <b>Увед. о собесе</b>\nСейчас: ' + (on ? '🟢 ВКЛ' : '🔴 ВЫКЛ') +
+        '\nСкоуп: ' + (scope === 'global' ? '👥 все аккаунты' : '👤 ' + displayName), {
+        inline_keyboard: [
+            [createButton("🔔 ВКЛ", `sobes_on_${scope}_${uid}`, 'success'),
+             createButton("🔕 ВЫКЛ", `sobes_off_${scope}_${uid}`, 'danger')],
+            [createButton("⬅️ Вернуться назад", `sobes_scope_${uid}`)]
+        ]
+    });
+}
+
+// ── Перехват callback'ов sobes_* в processUpdates ────────────
+function _sobesParseUid(data) {
+    const prefixes = ['sobes_scope_', 'sobes_action_local_', 'sobes_action_global_',
+                      'sobes_on_local_', 'sobes_on_global_', 'sobes_off_local_', 'sobes_off_global_'];
+    for (const p of prefixes) {
+        if (data.startsWith(p)) return data.slice(p.length);
+    }
+    return null;
+}
+function _sobesHandleCallback(cq) {
+    const data = cq.data;
+    const chatId = cq.message.chat.id;
+    const messageId = cq.message.message_id;
+    const uid = _sobesParseUid(data);
+    answerCallbackQuery(cq.id);
+    if (data.startsWith('sobes_scope_')) { showSobesScopeMenu(chatId, messageId, uid); return; }
+    if (data.startsWith('sobes_action_')) {
+        const scope = data.startsWith('sobes_action_local_') ? 'local' : 'global';
+        showSobesToggleMenu(chatId, messageId, scope, uid);
+        return;
+    }
+    const isOn  = data.startsWith('sobes_on_');
+    const scope = data.includes('_global_') ? 'global' : 'local';
+    config.sobesNotifications = isOn;
+    if (scope === 'global') {
+        handleGlobalBroadcastCommand('toggle_sobes', isOn ? 'on' : 'off'); // применяем у себя
+        broadcastGlobalCommand('toggle_sobes', isOn ? 'on' : 'off');       // остальным
+    } else {
+        sendToTelegram((isOn ? '🔔' : '🔕') + ' <b>Увед. о собесе ' + (isOn ? 'ВКЛ' : 'ВЫКЛ') + ' для ' + displayName + '</b>', false, null);
+    }
+    showSobesToggleMenu(chatId, messageId, scope, uid);
+}
+const _sobesOrigProcessUpdates = processUpdates;
+processUpdates = function (updates) {
+    const rest = [];
+    for (const u of updates) {
+        const cq = u.callback_query;
+        if (cq && typeof cq.data === 'string' && cq.data.startsWith('sobes_') && _sobesParseUid(cq.data) === uniqueId) {
+            config.lastUpdateId = u.update_id;
+            setSharedLastUpdateId(config.lastUpdateId);
+            try { _sobesHandleCallback(cq); } catch (e) { debugLog('[SOBESED] callback error: ' + e.message); }
+            continue;
+        }
+        rest.push(u);
+    }
+    if (rest.length) _sobesOrigProcessUpdates(rest);
+};
+
+// ── /hb меню: переключатели в "Функции" и "Общие функции" ────
+showHBLocalFunctionsMenu = function () {
+    currentHBMenu = "local_functions";
+    currentHBPage = 0;
+    const statusOn = "{00FF00}[ВКЛ]";
+    const statusOff = "{FF0000}[ВЫКЛ]";
+    const menuItems = [
+        { name: "{FFD700} > {FFFFFF}Движение", action: "movement" },
+        { name: `{FFFFFF}Увед. правик ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob_local" },
+        { name: `{FFFFFF}Отслеживание ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto_local" },
+        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
+        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter_local" },
+        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" },
+        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_local" },
+        { name: `{FFFFFF}Увед. о собесе ${config.sobesNotifications ? statusOn : statusOff}`, action: "toggle_sobes_local" }
+    ];
+    let menuList = "{FFA500} < Назад <n>";
+    menuItems.forEach((item) => { menuList += `${item.name}<n>`; });
+    window.addDialogInQueue(`[${HB_DIALOG_IDS.LOCAL_FUNCTIONS},2,"{00BFFF}Функции","","Выбрать","Закрыть",0,0]`, menuList, 0);
+};
+showHBGlobalFunctionsMenu = function () {
+    currentHBMenu = "global_functions";
+    currentHBPage = 0;
+    const statusOn = "{00FF00}[ВКЛ]";
+    const statusOff = "{FF0000}[ВЫКЛ]";
+    const menuItems = [
+        { name: `{FFFFFF}PayDay ${config.paydayNotifications ? statusOn : statusOff}`, action: "toggle_payday" },
+        { name: `{FFFFFF}Сообщ. ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob" },
+        { name: `{FFFFFF}Место ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto" },
+        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
+        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter" },
+        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
+        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_global" },
+        { name: "{FFD700} > {FFFFFF}AFK Ночь", action: "afk_night" },
+        { name: `{FFFFFF}Увед. о собесе ${config.sobesNotifications ? statusOn : statusOff}`, action: "toggle_sobes_global" }
+    ];
+    let menuList = "{FFA500} < Назад <n>";
+    menuItems.forEach((item) => { menuList += `${item.name}<n>`; });
+    window.addDialogInQueue(`[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции","","Выбрать","Закрыть",0,0]`, menuList, 0);
+};
+const _sobesOrigHBSelection = handleHBMenuSelection;
+handleHBMenuSelection = function (dialogId, button, listitem) {
+    if (button === 1 && dialogId === HB_DIALOG_IDS.LOCAL_FUNCTIONS && listitem === 8) {
+        config.sobesNotifications = !config.sobesNotifications;
+        showScreenNotification("Hassle", `Увед. о собесе ${config.sobesNotifications ? 'включены' : 'отключены'}`);
+        sendToTelegram(`${config.sobesNotifications ? '🔔' : '🔕'} <b>Увед. о собесе ${config.sobesNotifications ? 'ВКЛ' : 'ВЫКЛ'} для ${displayName}</b>`, false, null);
+        setTimeout(() => showHBLocalFunctionsMenu(), 100);
+        return;
+    }
+    if (button === 1 && dialogId === HB_DIALOG_IDS.GLOBAL_FUNCTIONS && listitem === 9) {
+        const val = !config.sobesNotifications;
+        handleGlobalBroadcastCommand('toggle_sobes', val ? 'on' : 'off');
+        broadcastGlobalCommand('toggle_sobes', val ? 'on' : 'off');
+        setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+        return;
+    }
+    return _sobesOrigHBSelection(dialogId, button, listitem);
+};
+debugLog('[SOBESED] Модуль собеседований загружен. Статус: ' + (config.sobesNotifications ? 'ВКЛ' : 'ВЫКЛ'));
+// END SOBESED MODULE //
