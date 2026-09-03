@@ -2034,6 +2034,8 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
 // ║  • Кнопка "Увед. о собесе" в Функции (TG + /hb)           ║
 // ║        с выбором: этот аккаунт / все аккаунты             ║
 // ║  • По умолчанию — ВЫКЛ                                    ║
+// ║  • После ВКЛ/ВЫКЛ — возврат сообщения к исходному         ║
+// ║    виду (текст welcome + кнопки Управление и т.д.)        ║
 // ╚══════════════════════════════════════════════════════════╝
 // START SOBESED MODULE //
 const SOBESED_SMS_COLOR = '0xFFFF00';   // жёлтые SMS
@@ -2110,7 +2112,7 @@ handleGlobalBroadcastCommand = function (cmd, val, fromBroadcast) {
         config.sobesNotifications = isOn;
         showScreenNotification("Hassle", '[Global] Собес ' + (isOn ? 'ВКЛ' : 'ВЫКЛ'));
         sendToTelegram((isOn ? '🔔' : '🔕') + ' <b>Увед. о собесе ' + (isOn ? 'ВКЛ' : 'ВЫКЛ') + ' (' + displayName + ')</b>', true, null);
-        if (fromBroadcast) sendWelcomeMessage(true);
+        if (fromBroadcast) sendWelcomeMessage(true); // получатели тоже возвращаются к welcome
         debugLog('[GLOBAL] Применена команда: toggle_sobes = ' + val);
         return;
     }
@@ -2193,6 +2195,7 @@ function _sobesHandleCallback(cq) {
         showSobesToggleMenu(chatId, messageId, scope, uid);
         return;
     }
+    // ── ВКЛ / ВЫКЛ ──
     const isOn  = data.startsWith('sobes_on_');
     const scope = data.includes('_global_') ? 'global' : 'local';
     config.sobesNotifications = isOn;
@@ -2202,7 +2205,9 @@ function _sobesHandleCallback(cq) {
     } else {
         sendToTelegram((isOn ? '🔔' : '🔕') + ' <b>Увед. о собесе ' + (isOn ? 'ВКЛ' : 'ВЫКЛ') + ' для ' + displayName + '</b>', false, null);
     }
-    showSobesToggleMenu(chatId, messageId, scope, uid);
+    // ✅ Как остальные функции: возвращаем сообщение к исходному виду —
+    // текст welcome + клавиатура с "⚙️ Управление", "💰 Инфо", "🔔 Настройки"
+    sendWelcomeMessage(true);
 }
 const _sobesOrigProcessUpdates = processUpdates;
 processUpdates = function (updates) {
