@@ -749,18 +749,27 @@ const HBGLOBAL_TAG = '#HBGLOBAL';
 // процессами игры (отдельные окна/приложения) он не работает.
 function broadcastGlobalCommand(cmd, val) {
     // 1. Telegram канал — главный метод для изолированных процессов игры
+    // FIX: используем tgApi() вместо сырого XHR — встроенный retry при 429 (до 3 раз)
     const bcChanId = window.BROADCAST_CHANNEL_ID;
     if (bcChanId) {
         const chanTag = `${HBGLOBAL_TAG}:${cmd}:${val}`;
-        const _chanXhr = new XMLHttpRequest();
-        _chanXhr.open('POST', `https://api.telegram.org/bot${config.botToken}/sendMessage`, true);
-        _chanXhr.setRequestHeader('Content-Type', 'application/json');
-        _chanXhr.send(JSON.stringify({
+        tgApi('sendMessage', {
             chat_id: bcChanId,
             text: chanTag,
             disable_notification: true
-        }));
-        debugLog(`[GLOBAL] Channel broadcast отправлен → ${bcChanId}: ${chanTag}`);
+        },
+        () => debugLog(`[GLOBAL] Channel broadcast OK → ${bcChanId}: ${chanTag}`),
+        (statusOrErr) => {
+            debugLog(`[GLOBAL] ⚠️ Channel broadcast FAIL (${statusOrErr}) → ${chanTag}, повтор через 3с`);
+            setTimeout(() => tgApi('sendMessage', {
+                chat_id: bcChanId,
+                text: chanTag,
+                disable_notification: true
+            },
+            () => debugLog(`[GLOBAL] Channel broadcast OK (retry) → ${chanTag}`),
+            (s) => debugLog(`[GLOBAL] ❌ Channel broadcast окончательно не удался (${s}) → ${chanTag}`)
+            ), 3000);
+        });
     } else {
         debugLog('[GLOBAL] BROADCAST_CHANNEL_ID не задан — channel broadcast пропущен');
     }
@@ -780,15 +789,25 @@ function broadcastGlobalCommand(cmd, val) {
 
 // Перезагрузить ТЕКУЩИЙ аккаунт + broadcast для остальных
 // (боты не получают свои собственные сообщения, поэтому текущий перезагружаем напрямую)
+// FIX: broadcast только с аккаунта #1 (остальные получат /reload из чата напрямую).
+//      Стаггер N*800ms — аккаунты не стартуют одновременно и не создают rate-limit в канале.
 function reloadAllAccounts() {
     if (window._hassleReloading) {
         debugLog(`[RELOAD] Уже выполняется, игнорируем`);
         return;
     }
-    // Broadcast — другие аккаунты получат и перезагрузятся через handleGlobalBroadcastCommand('reload')
-    broadcastGlobalCommand('reload', 'on');
-    // Текущий аккаунт — перезагружаем сразу (не ждём своего же сообщения)
+
+    const myNum = parseInt(window.ACCOUNT_NUMBER) || 1;
+
+    // Broadcast нужен только аккаунту #1 — остальные и так получат /reload из общего чата
+    if (myNum === 1) {
+        broadcastGlobalCommand('reload', 'on');
+    }
+
     window._hassleReloading = true;
+
+    // Стаггер: аккаунт #N ждёт N*800ms — не перезагружаются все одновременно
+    const delayMs = (myNum - 1) * 800;
     sendToTelegram(`🔄 <b>Перезагрузка скриптов для ${displayName}...</b>`, false, null);
     setTimeout(() => {
         window._hassleReloading = false;
@@ -802,7 +821,7 @@ function reloadAllAccounts() {
             window._hassleReloading = false;
             sendToTelegram(`❌ <b>Ошибка перезагрузки ${displayName}:</b>\n<code>${e.message}</code>`, false, null);
         }
-    }, 0);
+    }, delayMs);
 }
 
 // Перезагрузить ТОЛЬКО текущий аккаунт (без broadcast остальным)
@@ -899,6 +918,8 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
             // Перезагрузка скрипта — откладываем чтобы offset успел сохраниться
             debugLog(`[GLOBAL] Получена команда перезагрузки для ${displayName}`);
             if (!window._hassleReloading) {
+                // FIX: сообщаем что именно этот бот получил broadcast и начинает перезагрузку
+                sendToTelegram(`🔄 <b>Перезагрузка ${displayName} (по broadcast)...</b>`, true, null);
                 window._hassleReloading = true;
                 setTimeout(() => {
                     window._hassleReloading = false;
@@ -3415,6 +3436,8 @@ function getNotificationReplyMarkup() {
 // ╚══════════════════════════════════════════════════════════╝
 // START TELEGRAM COMMANDS MODULE //
 // Ссылка на текущий long-poll XHR — для прерывания при необходимости
+// FIX: хранится на window — hassleCleanupHooks() обрывает его перед каждой перезагрузкой
+if (!window._hassleCurrentPollXhr) window._hassleCurrentPollXhr = null;
 let _pollXhr = null;
 let _pollRestartScheduled = false; // FIX: предотвращает двойной запуск poll-цикла
 
@@ -3478,10 +3501,11 @@ function checkTelegramCommands() {
     const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${effectiveOffset}&timeout=25`;
     const xhr = new XMLHttpRequest();
     _pollXhr = xhr;
+    window._hassleCurrentPollXhr = xhr; // FIX: для hassleCleanupHooks
     xhr.open('GET', url, true);
     xhr.timeout = 30000;
     xhr.onload = function() {
-        if (_pollXhr === xhr) _pollXhr = null;
+        if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
         if (xhr.status === 200) {
             try {
                 const data = JSON.parse(xhr.responseText);
@@ -3498,12 +3522,12 @@ function checkTelegramCommands() {
         }
     };
     xhr.onerror = function(error) {
-        if (_pollXhr === xhr) _pollXhr = null;
+        if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
         debugLog('Ошибка при проверке команд:', error);
         setTimeout(checkTelegramCommands, config.checkInterval);
     };
     xhr.ontimeout = function() {
-        if (_pollXhr === xhr) _pollXhr = null;
+        if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
         debugLog('Long-polling timeout, перезапуск...');
         setTimeout(checkTelegramCommands, 0);
     };

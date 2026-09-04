@@ -301,6 +301,13 @@ function sendCodeLoadedNotification(filename, commitInfo) {
 // и каждое событие (чат, диалог, авторизация) срабатывает N раз.
 // ============================================================
 function hassleCleanupHooks() {
+    // FIX: обрываем старый long-poll XHR — он не должен завершиться после перезагрузки
+    // и сдвинуть _hbOffset в неправильное место (пропуск обновлений)
+    if (window._hassleCurrentPollXhr) {
+        try { window._hassleCurrentPollXhr.abort(); } catch(e) {}
+        window._hassleCurrentPollXhr = null;
+        console.log('[Hassle Cleanup] Старый long-poll XHR оборван');
+    }
     // openInterface: Code.js вешает 2 обёртки при каждом eval
     if (typeof window._hassleOrig_openInterface === 'function') {
         window.openInterface = window._hassleOrig_openInterface;
