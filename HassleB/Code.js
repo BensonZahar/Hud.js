@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | Bot'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -1488,6 +1488,21 @@ function trackPlayerHp() {
         return;
     }
 
+    // FIX: На экране авторизации сервер сбрасывает HP→100 — это не реальный урон.
+    // Пока Authorization открыта — непрерывно сбрасываем baseline и выходим.
+    // После выхода из авторизации первый тик сам поставит реальный HP как baseline (с grace 4s).
+    try {
+        if (window.getInterfaceStatus && window.getInterfaceStatus('Authorization')) {
+            globalState.hpLastValue    = null;
+            globalState._hpGraceUntil  = null;
+            globalState._hpGraceActive = false;
+            if (globalState._dmgTimer)  { clearTimeout(globalState._dmgTimer);  globalState._dmgTimer  = null; }
+            globalState._dmgAccum      = null;
+            setTimeout(trackPlayerHp, 1000);
+            return;
+        }
+    } catch(e) {}
+
     const currentHp = getPlayerHpFromStore();
 
     // Первый тик в игре — только ставим baseline, урон не считаем
@@ -1760,6 +1775,10 @@ function _dbg3Tick() {
     }
     if (!d) return;
 
+    // FIX: запоминаем предыдущую фазу ДО её обновления в _dbg3Watch
+    // (нужно для подавления ложных HP-изменений при переходе auth → in-game)
+    const _prevPhase = _dbg3Last['phase'];
+
     // Фаза — критично, отправляем сразу
     _dbg3Watch('phase', '📋 Фаза', d.phase, true);
 
@@ -1784,7 +1803,19 @@ function _dbg3Tick() {
     _dbg3Watch('interior', '🏠 Интерьер', d.interior, true, v => v === null ? '—' : (v ? 'внутри' : 'снаружи'));
 
     // HP / броня / голод
-    _dbg3Watch('hp', '❤️ HP', d.hp, false);
+    // FIX: На авторизации сервер сбрасывает HP→100 — молча обновляем baseline, в ТГ не пишем.
+    // При выходе из auth (auth→in-game) сбрасываем baseline через undefined:
+    // _dbg3Watch считает undefined за «первый тик» и просто ставит новое значение без лога.
+    if (d.phase === 'auth') {
+        _dbg3Last['hp'] = d.hp; // тихое обновление, без уведомления
+    } else {
+        if (_prevPhase === 'auth') {
+            // Только что вышли из авторизации → сбрасываем baseline,
+            // чтобы не показать ложное «HP: 100 → 20»
+            _dbg3Last['hp'] = undefined;
+        }
+        _dbg3Watch('hp', '❤️ HP', d.hp, false);
+    }
     _dbg3Watch('armour', '🛡 Броня', d.armour, false);
     _dbg3Watch('hunger', '🍖 Голод', d.hunger, false);
     _dbg3Watch('weapon', '🔫 Оружие', d.weapon, false, v => v || 'нет');
