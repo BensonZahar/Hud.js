@@ -2075,23 +2075,49 @@ function _sobesOnChat(msg, colorArg) {
         const senderFull = m ? m[1].trim() : clean;
         const text       = m ? m[2].trim() : clean;
         const nickM = senderFull.match(/([A-Za-z]+_[A-Za-z]+)/);
-        const nick  = nickM ? nickM[1] : '__unknown__';
+        const nick  = nickM ? nickM[1] : null;
+
+        // FIX: игнорируем сообщения без ника (свалка, системные и т.д.)
+        if (!nick) {
+            debugLog('[SOBESED] Гос-волна без ника → игнорируем');
+            return;
+        }
+
         const now = Date.now();
         let entry = _sobesGovAgg[nick];
 
-        if (entry && entry.ids.length && (now - entry.lastTime) <= SOBESED_AGG_WINDOW_MS) {
-            // Пришло ещё сообщение от того же ника в окно 1 мин → редактируем
+        // FIX: убрали проверку entry.ids.length из условия.
+        // Причина: три части собеседования приходят за доли секунды. sendToTelegram
+        // асинхронный (XHR), поэтому callback с messageId ещё не вернулся когда
+        // приходят 2-е и 3-е сообщения → entry.ids пуст → старый код шёл в else
+        // и отправлял новое сообщение вместо редактирования существующего.
+        // Теперь: проверяем только окно времени; если IDs ещё нет — буферизуем
+        // строки, а callback сам сделает editMessageText после получения ID.
+        if (entry && (now - entry.lastTime) <= SOBESED_AGG_WINDOW_MS) {
+            // Пришло ещё сообщение от того же ника в окне 1 мин
             entry.lastTime = now;
             entry.lines.push(text);
-            const full = _sobesBuildGovMsg(entry);
-            entry.ids.forEach(function (id) { editMessageText(id.chatId, id.messageId, full); });
-            debugLog('[SOBESED] Гос-волна от ' + nick + ' → редактируем сообщение');
+            if (entry.ids.length) {
+                // ID уже есть → редактируем сразу
+                const full = _sobesBuildGovMsg(entry);
+                entry.ids.forEach(function (id) { editMessageText(id.chatId, id.messageId, full); });
+                debugLog('[SOBESED] Гос-волна от ' + nick + ' → редактируем сообщение');
+            } else {
+                // Callback ещё не вернул ID — строки уже в entry.lines,
+                // callback сам отредактирует когда получит ID
+                debugLog('[SOBESED] Гос-волна от ' + nick + ' → буферизуем (ID ещё не получен)');
+            }
         } else {
             entry = { lastTime: now, sender: senderFull, lines: [text], ids: [] };
             _sobesGovAgg[nick] = entry;
             debugLog('[SOBESED] Гос-волна от ' + nick + ' → новое сообщение');
             sendToTelegram(_sobesBuildGovMsg(entry), false, null, function (chatId, messageId) {
                 entry.ids.push({ chatId: chatId, messageId: messageId });
+                // FIX: если пока ждали callback накопились ещё строки → редактируем
+                if (entry.lines.length > 1) {
+                    editMessageText(chatId, messageId, _sobesBuildGovMsg(entry));
+                    debugLog('[SOBESED] Callback: редактируем после получения ID (строк: ' + entry.lines.length + ')');
+                }
             });
         }
     }
