@@ -1579,6 +1579,11 @@ let _dbg3TgQueue = [];           // очередь изменений для Т�
 let _dbg3TgFlushTimer = null;
 let _dbg3SubsInstalled = false;
 let _dbg3Unsubs = [];
+// ── ТГ-сессия: режим редактирования сообщения ────────────────
+let _dbg3TgActive   = false;    // ТГ-уведомления включены только после /dbg_on
+let _dbg3TgMsgIds   = {};       // { chatId: messageId } — ID активного debug-сообщения
+let _dbg3TgMsgTexts = {};       // { chatId: currentText } — текущее содержимое
+const _DBG3_TG_MAX_LEN = 3800;  // безопасный лимит (Telegram max 4096 символов)
 let _dbg3Rec = {                 // мониторинг реконнекта
     active: false,
     startTime: null,
@@ -1604,6 +1609,7 @@ function _dbg3Log(msg) {
 
 // ── ТГ батчинг ───────────────────────────────────────────────
 function _dbg3TgPush(text, critical = false) {
+    if (!_dbg3TgActive) return;           // тихо когда ТГ не включён (/dbg_on не вызван)
     _dbg3TgQueue.push({ t: _dbg3Ts(), text });
     if (critical) { _dbg3TgFlush(); }
     else if (!_dbg3TgFlushTimer) {
@@ -1611,14 +1617,68 @@ function _dbg3TgPush(text, critical = false) {
     }
 }
 
+// ── ТГ flush: редактируем одно сообщение, создаём новое только при переполнении ──
 function _dbg3TgFlush() {
     if (_dbg3TgFlushTimer) { clearTimeout(_dbg3TgFlushTimer); _dbg3TgFlushTimer = null; }
     if (_dbg3TgQueue.length === 0) return;
-    const lines = _dbg3TgQueue.map(q => `[${q.t}] ${q.text}`);
+    if (!_dbg3TgActive) { _dbg3TgQueue = []; return; }
+
+    const newLines = _dbg3TgQueue.map(q => `[${q.t}] ${q.text}`).join('\n');
     _dbg3TgQueue = [];
-    if (typeof sendToTelegram === 'function') {
-        sendToTelegram(`🔍 <b>Debug (${displayName})</b>\n${lines.join('\n')}`, true, null);
-    }
+
+    const header = () => `🔍 <b>Debug (${displayName})</b>`;
+    const chatIds = (typeof config !== 'undefined' && config.chatIds) ? config.chatIds : [];
+
+    chatIds.forEach(chatId => {
+        const existing = _dbg3TgMsgTexts[chatId] || '';
+        const combined = existing
+            ? existing + '\n' + newLines
+            : header() + '\n' + newLines;
+
+        function _sendNew() {
+            const txt = header() + '\n' + newLines;
+            tgApi('sendMessage', {
+                chat_id: chatId,
+                text: txt,
+                parse_mode: 'HTML',
+                disable_notification: true
+            }, data => {
+                if (!data || !data.result) return;
+                _dbg3TgMsgIds[chatId]   = data.result.message_id;
+                _dbg3TgMsgTexts[chatId] = txt;
+                _dbg3Log(`[TG] Создано debug-сообщение ${data.result.message_id} в чате ${chatId}`);
+            }, s => _dbg3Log(`[TG] Ошибка отправки debug: ${s}`));
+        }
+
+        if (!_dbg3TgMsgIds[chatId]) {
+            // Ещё нет активного сообщения — создаём первое
+            _sendNew();
+        } else if (combined.length <= _DBG3_TG_MAX_LEN) {
+            // Вписывается — редактируем существующее (без нового сообщения)
+            tgApi('editMessageText', {
+                chat_id: chatId,
+                message_id: _dbg3TgMsgIds[chatId],
+                text: combined,
+                parse_mode: 'HTML'
+            }, () => {
+                _dbg3TgMsgTexts[chatId] = combined;
+            }, (status) => {
+                if (status === 400) {
+                    // Сообщение удалено пользователем — создаём новое
+                    _dbg3Log(`[TG] Сообщение ${_dbg3TgMsgIds[chatId]} удалено — создаём новое`);
+                    _dbg3TgMsgIds[chatId]   = null;
+                    _dbg3TgMsgTexts[chatId] = '';
+                    _sendNew();
+                }
+            });
+        } else {
+            // Переполнено — создаём следующее сообщение
+            _dbg3Log(`[TG] Debug-сообщение переполнено (${combined.length} симв.) — создаём новое`);
+            _dbg3TgMsgIds[chatId]   = null;
+            _dbg3TgMsgTexts[chatId] = '';
+            _sendNew();
+        }
+    });
 }
 
 // ── Сравнение значений ───────────────────────────────────────
@@ -1904,8 +1964,18 @@ function _dbg3InstallSubs() {
 
 // ── Запуск / остановка ───────────────────────────────────────
 function startDebugStatTracker() {
+    // Включаем ТГ и сбрасываем историю сообщений (новая сессия = новые сообщения)
+    _dbg3TgActive    = true;
+    _dbg3TgMsgIds    = {};
+    _dbg3TgMsgTexts  = {};
+
     if (_debugStatTimer) {
-        sendToTelegram(`⚠️ Debug-трекер уже запущен для ${displayName}`, false, null);
+        // Трекер уже работал — ТГ включён, оповещаем через flush
+        _dbg3TgPush(
+            `🔍 <b>Debug-трекер уже запущен (${displayName})</b>\n` +
+            `📋 Мониторинг продолжается. /dbg_off — остановить`,
+            true
+        );
         return;
     }
 
@@ -1918,24 +1988,30 @@ function startDebugStatTracker() {
     _debugStatTimer = setInterval(_dbg3Tick, 1000);
     _dbg3Tick(); // первый тик сразу
 
-    sendToTelegram(
-        `🔍 <b>Debug-трекер v3 запущен для ${displayName}</b>\n` +
-        `📋 Работает в ЛЮБОМ состоянии (меню/авторизация/коннект/игра).\n` +
-        `🔄 Мониторинг /rec: активен.\n` +
-        `/dbg_off — остановить`,
-        false, null
+    // Первое сообщение debug-сессии (через _dbg3TgPush → создаёт сообщение в ТГ)
+    _dbg3TgPush(
+        `🔍 <b>Debug-трекер v3 запущен (${displayName})</b>\n` +
+        `📋 Режим: меню / авторизация / коннект / игра.\n` +
+        `🔄 Мониторинг /rec активен. /dbg_off — остановить`,
+        true
     );
 }
 
 function stopDebugStatTracker() {
     if (_debugStatTimer) { clearInterval(_debugStatTimer); _debugStatTimer = null; }
-    _dbg3TgFlush();
-    _dbg3Rec.active = false;
+    _dbg3TgFlush();               // сбрасываем остатки очереди
+    _dbg3TgActive    = false;     // выключаем ТГ-уведомления
+    _dbg3TgMsgIds    = {};        // сбрасываем ID сообщений
+    _dbg3TgMsgTexts  = {};
+    _dbg3Rec.active  = false;
     _dbg3Log('Трекер остановлен');
+    // Уведомление об остановке идёт напрямую через sendToTelegram (не через debug-flush)
+    // — это делается в обработчике команды /dbg_off
 }
 
 // ── АВТОЗАПУСК: стартуем сразу при загрузке скрипта ─────────
-// Не ждём /dbg_on, не ждём спавна, не ждём подключения
+// Трекинг данных — СРАЗУ (консоль всегда).
+// ТГ-уведомления — ТОЛЬКО после /dbg_on (_dbg3TgActive = false по умолчанию).
 (function _dbg3AutoStart() {
     // Ждём пока появится window.App (макс 30 сек)
     let attempts = 0;
@@ -1943,7 +2019,7 @@ function stopDebugStatTracker() {
         attempts++;
         if (window.App && window.App.$store) {
             clearInterval(waitApp);
-            _dbg3Log('App найден — автозапуск трекера');
+            _dbg3Log('App найден — автозапуск трекера (только консоль, ТГ выкл)');
             _dbg3InstallSubs();
             if (!_debugStatTimer) {
                 _dbg3Last = {};
@@ -1952,7 +2028,7 @@ function stopDebugStatTracker() {
             }
         } else if (attempts > 60) {
             clearInterval(waitApp);
-            _dbg3Log('App не найден за 30с — запускаем трекер без подписок');
+            _dbg3Log('App не найден за 30с — запускаем трекер без подписок (только консоль)');
             if (!_debugStatTimer) {
                 _dbg3Last = {};
                 _debugStatTimer = setInterval(_dbg3Tick, 1000);
@@ -3954,8 +4030,7 @@ function processUpdates(updates) {
             if (message === '/reload') {
                 reloadAllAccounts();
             } else if (message === '/dbg_on') {
-                startDebugStatTracker();
-                sendToTelegram(`🔍 <b>Debug-трекер запущен для ${displayName}</b>\nКаждую секунду в консоль: HP, координаты, скин, спавн.\n/dbg_off — остановить`, false, null);
+                startDebugStatTracker(); // сам отправляет стартовое сообщение через _dbg3TgPush
             } else if (message === '/dbg_off') {
                 stopDebugStatTracker();
                 sendToTelegram(`⏹ <b>Debug-трекер остановлен для ${displayName}</b>`, false, null);
