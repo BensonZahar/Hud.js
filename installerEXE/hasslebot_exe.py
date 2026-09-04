@@ -1935,6 +1935,7 @@ class MEmuHudManager:
             if result.returncode == 0:
                 self.log("[√] Успешно: Файл заменен" if not self.full_logging
                          else f"[√] Выполнено: Файл заменен с конфигурацией пользователя {user_name}")
+                self.replace_loader_files(target_path)
             else:
                 self.log("[X] Ошибка: Не удалось заменить файл" if not self.full_logging
                          else f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
@@ -1944,6 +1945,76 @@ class MEmuHudManager:
         finally:
             if self.temp_file.exists():
                 self.temp_file.unlink()
+
+    def replace_loader_files(self, target_path):
+        """Скачивает все файлы из папки Загрузчики на GitHub и заменяет их в assets на устройстве."""
+        from urllib.parse import quote
+        api_url = (
+            "https://api.github.com/repos/BensonZahar/Hud.js/contents/HassleB/"
+            + quote("Загрузчики")
+        )
+        self.log("Обновление файлов из Загрузчики..." if not self.full_logging
+                 else f"Запрос списка файлов: {api_url}...")
+        try:
+            resp = requests.get(api_url, timeout=10)
+            resp.raise_for_status()
+            entries = resp.json()
+        except Exception as e:
+            self.log("[X] Ошибка: Не удалось получить список файлов" if not self.full_logging
+                     else f"[X] Не выполнено: Ошибка запроса GitHub API Загрузчики: {e}")
+            return
+
+        # Только файлы, без подпапок
+        file_entries = [e for e in entries if e.get("type") == "file"]
+        if not file_entries:
+            self.log("[!] Загрузчики: файлы не найдены на GitHub")
+            return
+
+        if self.full_logging:
+            names = ", ".join(e["name"] for e in file_entries)
+            self.log(f"Найдено файлов в Загрузчики ({len(file_entries)}): {names}")
+
+        for entry in file_entries:
+            filename = entry["name"]
+            download_url = entry.get("download_url")
+            if not download_url:
+                self.log(f"[X] Ошибка: Нет ссылки для {filename}")
+                continue
+            # Уникальное имя временного файла на случай параллельных вызовов
+            temp_path = self.script_dir / f"temp_loader_{filename}.tmp"
+            self.log(f"Скачивание {filename}..." if not self.full_logging
+                     else f"Скачивание {filename}: {download_url}...")
+            try:
+                file_resp = requests.get(download_url, timeout=15)
+                file_resp.raise_for_status()
+                temp_path.write_bytes(file_resp.content)
+                if self.full_logging:
+                    self.log(f"Загружено {len(file_resp.content)} байт → {temp_path.name}")
+                cmd = [self.adb_path] + self.device_param + [
+                    "push", str(temp_path), f"{target_path}/{filename}",
+                ]
+                push_result = subprocess.run(
+                    cmd, capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+                )
+                if push_result.returncode == 0:
+                    self.log(f"[√] Успешно: {filename} заменён" if not self.full_logging
+                             else f"[√] Выполнено: {filename} заменён из Загрузчики")
+                else:
+                    self.log(f"[X] Ошибка: Не удалось заменить {filename}" if not self.full_logging
+                             else f"[X] Не выполнено: Ошибка замены {filename}: {push_result.stderr}")
+            except requests.HTTPError as e:
+                self.log(f"[X] Ошибка: {filename} недоступен на GitHub" if not self.full_logging
+                         else f"[X] Не выполнено: HTTP ошибка {filename}: {e}")
+            except Exception as e:
+                self.log(f"[X] Ошибка: Не удалось обработать {filename}" if not self.full_logging
+                         else f"[X] Не выполнено: Ошибка {filename}: {e}")
+            finally:
+                try:
+                    if temp_path.exists():
+                        temp_path.unlink()
+                except Exception:
+                    pass
 
     def download_without_code(self, app_folder):
         target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
