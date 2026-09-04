@@ -2023,242 +2023,292 @@ debugLog('[DLG] Dialog Monitor v2.1 загружен. Полный лог + се
 
 })();
 // ==================== END FRIEND TRACKER MODULE ====================
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: SOBESED (уведомления о собеседованиях/наборах)   ║
+// ║  • Жёлтое SMS (FFFF00) со словом "набор"                  ║
+// ║        → "Планируется собеседование: ..."                 ║
+// ║  • Синяя гос-волна (4466CC)                               ║
+// ║        → "Обнаружено собеседование: ..."                  ║
+// ║        несколько сообщений от одного ника в течение       ║
+// ║        1 минуты → редактируем одно сообщение в TG         ║
+// ║  • Кнопка "Увед. о собесе" в Функции (TG + /hb)           ║
+// ║        с выбором: этот аккаунт / все аккаунты             ║
+// ║  • По умолчанию — ВЫКЛ                                    ║
+// ║  • После ВКЛ/ВЫКЛ — возврат сообщения к исходному         ║
+// ║    виду (текст welcome + кнопки Управление и т.д.)        ║
+// ╚══════════════════════════════════════════════════════════╝
+// START SOBESED MODULE //
+const SOBESED_SMS_COLOR = '0xFFFF00';   // жёлтые SMS
+const SOBESED_GOV_COLOR = '0x4466CC';   // синяя гос-волна
+const SOBESED_AGG_WINDOW_MS = 60 * 1000; // 1 минута — окно склейки по нику
 
-// ╔══════════════════════════════════════════════════════════════════════════╗
-// ║  MODULE: INTERVIEW NOTIFICATIONS                                         ║
-// ║  Описание: Уведомления в Telegram о наборе/собеседовании                 ║
-// ║    • Кнопка «📋 Увед. о собесе.» в меню Функции (local / global)        ║
-// ║    • Жёлтый SMS FFFF00 + слово "набор" → «Планируется собеседование:»   ║
-// ║    • Синяя гос волна 4466CC → «Обнаружено собеседование:»               ║
-// ║    • Тот же ник за < 1 мин → редактируем существующее TG-сообщение     ║
-// ║  eval'ится внутри Code.js — доступ ко всем его переменным              ║
-// ║  Перехваты: OnChatAddMessage, showFunctionsMenu, showFuncScopeMenu,     ║
-// ║             handleGlobalBroadcastCommand, processUpdates                ║
-// ║  Load.js не требует изменений:                                          ║
-// ║    • hassleCleanupHooks() уже делает window.OnChatAddMessage = null     ║
-// ║    • Остальные функции переопределяются при каждом eval Code.js         ║
-// ╚══════════════════════════════════════════════════════════════════════════╝
-// ==================== START INTERVIEW NOTIFICATIONS MODULE ====================
-(function () {
-    'use strict';
+if (config.sobesNotifications === undefined) config.sobesNotifications = false; // ← изначально ВЫКЛ
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 0. Добавляем поля в существующие объекты Code.js
-    //    config и globalState переопределяются при каждом eval Code.js,
-    //    поэтому безопасно задавать значения здесь заново.
-    // ─────────────────────────────────────────────────────────────────────────
-    config.interviewNotifEnabled   = false;
-    globalState.interviewLastState = null;
-    // interviewLastState: { msgIds:[{cid,mid}...], text, time, sender }
+const _sobesGovAgg = {}; // nick -> { lastTime, sender, lines[], ids[{chatId,messageId}] }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 1. Перехват window.OnChatAddMessage
-    //    hassleCleanupHooks() → window.OnChatAddMessage = null до каждого
-    //    reload, затем initializeChatMonitor() выставляет его заново.
-    //    Ждём через setTimeout, оборачиваем только один раз.
-    // ─────────────────────────────────────────────────────────────────────────
-    function _ivPatchOnChat() {
-        if (typeof window.OnChatAddMessage !== 'function') {
-            setTimeout(_ivPatchOnChat, 300);
-            return;
-        }
-        const _orig = window.OnChatAddMessage;
-        window.OnChatAddMessage = function (e, i, t) {
-            _orig.call(this, e, i, t);
-            _ivCheckMessage(e, i);
-        };
-        debugLog('[INTERVIEW] OnChatAddMessage перехвачен');
+function _sobesEsc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function _sobesBuildGovMsg(entry) {
+    return '🏛 <b>Обнаружено собеседование (' + displayName + '):</b>\n' +
+           '👤 ' + _sobesEsc(entry.sender) + '\n' +
+           entry.lines.map(_sobesEsc).join('\n');
+}
+
+// ── Обработка чата ───────────────────────────────────────────
+function _sobesOnChat(msg, colorArg) {
+    if (!config.sobesNotifications) return;
+    const color = normalizeColor(colorArg);
+    const clean = String(msg).replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim();
+    if (!clean) return;
+
+    // 1) Жёлтое SMS со словом "набор"
+    if (color === SOBESED_SMS_COLOR && clean.toLowerCase().includes('набор')) {
+        debugLog('[SOBESED] Жёлтое SMS с "набор" → уведомление');
+        sendToTelegram('📅 <b>Планируется собеседование (' + displayName + '):</b>\n' + _sobesEsc(clean), false, null);
+        return;
     }
-    _ivPatchOnChat();
 
-    function _ivCheckMessage(e, i) {
-        if (!config.interviewNotifEnabled) return;
+    // 2) Синяя гос-волна — склейка по нику в течение 1 минуты
+    if (color === SOBESED_GOV_COLOR) {
+        const m = clean.match(/^([^:]+?):\s*([\s\S]+)$/);
+        const senderFull = m ? m[1].trim() : clean;
+        const text       = m ? m[2].trim() : clean;
+        const nickM = senderFull.match(/([A-Za-z]+_[A-Za-z]+)/);
+        const nick  = nickM ? nickM[1] : '__unknown__';
+        const now = Date.now();
+        let entry = _sobesGovAgg[nick];
 
-        const msg  = String(e);
-        const lc   = msg.toLowerCase();
-        const clr  = normalizeColor(i);                              // '0xFFFF00', '0x4466CC', ...
-        const clean = msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '').trim(); // без inline-цветов игры
-
-        // ── Жёлтый SMS (FFFF00) + слово "набор" ──────────────────────────────
-        if (clr === '0xFFFF00' && lc.includes('набор')) {
-            debugLog('[INTERVIEW] SMS о наборе: ' + clean);
-            const tgMsg =
-                `📋 <b>Планируется собеседование (${displayName}):</b>\n` +
-                `<code>${clean.replace(/</g, '&lt;')}</code>`;
-            // Сбрасываем state — SMS и гос волна независимы
-            globalState.interviewLastState = { msgIds: [], text: clean, time: Date.now(), sender: null };
-            sendToTelegram(tgMsg, false, null, function (cid, mid) {
-                if (globalState.interviewLastState)
-                    globalState.interviewLastState.msgIds.push({ cid: cid, mid: mid });
+        if (entry && entry.ids.length && (now - entry.lastTime) <= SOBESED_AGG_WINDOW_MS) {
+            // Пришло ещё сообщение от того же ника в окно 1 мин → редактируем
+            entry.lastTime = now;
+            entry.lines.push(text);
+            const full = _sobesBuildGovMsg(entry);
+            entry.ids.forEach(function (id) { editMessageText(id.chatId, id.messageId, full); });
+            debugLog('[SOBESED] Гос-волна от ' + nick + ' → редактируем сообщение');
+        } else {
+            entry = { lastTime: now, sender: senderFull, lines: [text], ids: [] };
+            _sobesGovAgg[nick] = entry;
+            debugLog('[SOBESED] Гос-волна от ' + nick + ' → новое сообщение');
+            sendToTelegram(_sobesBuildGovMsg(entry), false, null, function (chatId, messageId) {
+                entry.ids.push({ chatId: chatId, messageId: messageId });
             });
         }
-
-        // ── Синяя гос волна (4466CC) — любой текст ───────────────────────────
-        if (clr === '0x4466CC') {
-            // Извлекаем ник отправителя: формат «Звание Имя_Фамилия: текст»
-            const nickM  = clean.match(/([A-Za-z][A-Za-z0-9]*_[A-Za-z0-9]+)\s*:/);
-            const sender = nickM ? nickM[1] : null;
-            const now    = Date.now();
-            const last   = globalState.interviewLastState;
-
-            const sameNick   = last && sender && last.sender === sender;
-            const within1min = last && (now - last.time) < 60000;
-            const hasMsgIds  = last && last.msgIds && last.msgIds.length > 0;
-
-            if (sameNick && within1min && hasMsgIds) {
-                // ── Редактируем существующее TG-сообщение ────────────────────
-                last.text += '\n' + clean;
-                last.time  = now;
-                const upd =
-                    `📋 <b>Обнаружено собеседование (${displayName}):</b>\n` +
-                    `<code>${last.text.replace(/</g, '&lt;')}</code>`;
-                last.msgIds.forEach(function (e) {
-                    editMessageText(e.cid, e.mid, upd, null);
-                });
-                debugLog('[INTERVIEW] Редактируем — тот же ник: ' + sender);
-            } else {
-                // ── Новое TG-сообщение ────────────────────────────────────────
-                const tgMsg =
-                    `📋 <b>Обнаружено собеседование (${displayName}):</b>\n` +
-                    `<code>${clean.replace(/</g, '&lt;')}</code>`;
-                globalState.interviewLastState = { msgIds: [], text: clean, time: now, sender: sender };
-                debugLog('[INTERVIEW] Новое уведомление — ник: ' + (sender || '—'));
-                sendToTelegram(tgMsg, false, null, function (cid, mid) {
-                    if (globalState.interviewLastState)
-                        globalState.interviewLastState.msgIds.push({ cid: cid, mid: mid });
-                });
-            }
-        }
     }
+}
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 2. Перехват showFunctionsMenu — добавляем кнопку «📋 Увед. о собесе.»
-    //    Техника: на один вызов подменяем editMessageReplyMarkup — добавляем
-    //    строку с кнопкой в клавиатуру, затем немедленно восстанавливаем
-    //    (вызов EMRM внутри оригинала синхронный — patch одноразовый).
-    //    Используем локальную переменную Code.js, а не window.showFunctionsMenu.
-    // ─────────────────────────────────────────────────────────────────────────
-    const _ivOrigShowFunctions = (typeof showFunctionsMenu === 'function') ? showFunctionsMenu : null;
-    if (_ivOrigShowFunctions) {
-        showFunctionsMenu = function (chatId, messageId, uniqueIdParam) {
-            const uid       = uniqueIdParam || uniqueId;
-            const _origEMRM = editMessageReplyMarkup;
-
-            // Одноразовый патч editMessageReplyMarkup для этого вызова
-            editMessageReplyMarkup = function (cId, mId, rm) {
-                editMessageReplyMarkup = _origEMRM; // восстанавливаем немедленно
-                if (rm && Array.isArray(rm.inline_keyboard) && rm.inline_keyboard.length > 0) {
-                    const kb     = rm.inline_keyboard;
-                    const intBtn = createButton(
-                        '📋 Увед. о собесе. ' + (config.interviewNotifEnabled ? '🟢' : '🔴'),
-                        'func_select_interview_' + uid,
-                        config.interviewNotifEnabled ? 'success' : 'danger'
-                    );
-                    // Вставляем перед последней строкой («← Назад»)
-                    kb.splice(kb.length - 1, 0, [intBtn]);
-                }
-                _origEMRM.call(this, cId, mId, rm);
-            };
-
-            _ivOrigShowFunctions.call(this, chatId, messageId, uniqueIdParam);
+// ── Встраиваемся в цепочку OnChatAddMessage ──────────────────
+// ⚠️ FIX для Load.js (WAIT_CODE2): Code2.js eval'ится РАНЬШЕ, чем
+// Load.js вызовет __botInit() → initializeChatMonitor(), которая
+// делает `window.OnChatAddMessage = function(...)` и перезаписывает
+// обёртку, поставленную при eval. Поэтому ставим обёртку сразу
+// (если обработчик уже есть) И патчим initializeChatMonitor, чтобы
+// восстанавливать обёртку после каждого её вызова (включая retry).
+function _sobesInstallChatHook() {
+    const cur = window.OnChatAddMessage;
+    if (typeof cur === 'function' && !cur.__sobesWrapped) {
+        const wrapped = function (e, colorArg, t) {
+            cur.call(this, e, colorArg, t);
+            try { _sobesOnChat(String(e), colorArg); } catch (err) { debugLog('[SOBESED] Ошибка: ' + err.message); }
         };
-        debugLog('[INTERVIEW] showFunctionsMenu перехвачен');
+        wrapped.__sobesWrapped = true;
+        window.OnChatAddMessage = wrapped;
+        debugLog('[SOBESED] ✅ Хук OnChatAddMessage установлен');
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // 3. Перехват showFuncScopeMenu — обрабатываем funcKey === 'interview'
-    //    «func_select_interview_» уже корректно парсится в processUpdates
-    //    Code.js и попадает сюда с funcKey = 'interview'.
-    // ─────────────────────────────────────────────────────────────────────────
-    const _ivOrigShowFuncScope = (typeof showFuncScopeMenu === 'function') ? showFuncScopeMenu : null;
-    if (_ivOrigShowFuncScope) {
-        showFuncScopeMenu = function (chatId, messageId, funcKey, uniqueIdParam) {
-            if (funcKey !== 'interview') {
-                return _ivOrigShowFuncScope.call(this, chatId, messageId, funcKey, uniqueIdParam);
-            }
-            const uid = uniqueIdParam || uniqueId;
-            editMessageReplyMarkup(chatId, messageId, {
-                inline_keyboard: [
-                    [
-                        createButton('👤 Для этого аккаунта', 'func_action_interview_local_'  + uid, 'primary'),
-                        createButton('👥 Для всех аккаунтов', 'func_action_interview_global_' + uid, 'primary')
-                    ],
-                    [createButton('⬅️ Вернуться назад', 'show_functions_' + uid)]
-                ]
-            });
-        };
-        debugLog('[INTERVIEW] showFuncScopeMenu перехвачен');
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // 4. Перехват handleGlobalBroadcastCommand — добавляем toggle_interview
-    // ─────────────────────────────────────────────────────────────────────────
-    const _ivOrigHandleGBC = (typeof handleGlobalBroadcastCommand === 'function')
-        ? handleGlobalBroadcastCommand : null;
-    if (_ivOrigHandleGBC) {
-        handleGlobalBroadcastCommand = function (cmd, val, fromBroadcast) {
-            if (cmd !== 'toggle_interview')
-                return _ivOrigHandleGBC.call(this, cmd, val, fromBroadcast);
-            config.interviewNotifEnabled = (val === 'on');
-            const st = config.interviewNotifEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ';
-            showScreenNotification('Hassle', '[Global] Собес. ' + (config.interviewNotifEnabled ? 'ВКЛ' : 'ВЫКЛ'));
-            sendToTelegram(
-                `📋 <b>Уведомления о собеседовании ${st} (${displayName})</b>`, true, null
-            );
-            if (fromBroadcast && typeof sendWelcomeMessage === 'function') sendWelcomeMessage(true);
-            debugLog('[INTERVIEW] handleGlobalBroadcastCommand: toggle_interview = ' + val);
-        };
-        debugLog('[INTERVIEW] handleGlobalBroadcastCommand перехвачен');
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // 5. Перехват processUpdates — обрабатываем func_action_interview_*
-    //    Code.js уже корректно парсит callbackUniqueId и вызывает
-    //    answerCallbackQuery для этих коллбэков, но не имеет case 'interview'
-    //    → тихо проваливается. Наш перехват запускается ДО оригинала:
-    //    выполняет toggle + showFunctionsMenu, оригинал только отвечает
-    //    на callbackQuery.
-    //    Цепочка после всех eval: interview → FriendTracker → Code.js orig
-    // ─────────────────────────────────────────────────────────────────────────
-    const _ivOrigProcUpd = processUpdates;
-    processUpdates = function (updates) {
-        if (Array.isArray(updates)) {
-            updates.forEach(function (update) {
-                if (!update.callback_query) return;
-                const cbData = String(update.callback_query.data || '');
-                if (!cbData.startsWith('func_action_interview_')) return;
-
-                // func_action_interview_{local|global}_{uniqueId}
-                const parts  = cbData.replace('func_action_', '').split('_');
-                // parts[0]='interview'  parts[1]='local'|'global'  parts[2..]=uid
-                const scope  = parts[1];
-                const uid    = parts.slice(2).join('_');
-                if (uid !== uniqueId) return; // не наш бот
-
-                const chatId    = update.callback_query.message.chat.id;
-                const messageId = update.callback_query.message.message_id;
-
-                if (scope === 'global') {
-                    const val = config.interviewNotifEnabled ? 'off' : 'on';
-                    handleGlobalBroadcastCommand('toggle_interview', val);
-                    broadcastGlobalCommand('toggle_interview', val);
-                } else {
-                    config.interviewNotifEnabled = !config.interviewNotifEnabled;
-                }
-
-                const st = config.interviewNotifEnabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ';
-                sendToTelegram(
-                    `📋 <b>Уведомления о собеседовании ${st} (${displayName})</b>`, true, null
-                );
-                showFunctionsMenu(chatId, messageId, uid);
-                debugLog('[INTERVIEW] callback interview toggle → ' + st);
-            });
-        }
-        // Все апдейты уходят дальше по цепочке — FriendTracker → Code.js orig
-        _ivOrigProcUpd(updates);
+}
+// 1) Бот уже инициализирован (запуск без WAIT_CODE2) — wrap сразу
+_sobesInstallChatHook();
+// 2) Инициализация впереди (Load.js) — перехватываем момент
+if (typeof initializeChatMonitor === 'function' && !initializeChatMonitor.__sobesPatched) {
+    const _sobesOrigInitMonitor = initializeChatMonitor;
+    const patchedInitMonitor = function () {
+        const res = _sobesOrigInitMonitor.apply(this, arguments);
+        _sobesInstallChatHook(); // восстанавливаем обёртку после перезаписи
+        return res;
     };
-    debugLog('[INTERVIEW] processUpdates перехвачен');
+    patchedInitMonitor.__sobesPatched = true;
+    initializeChatMonitor = patchedInitMonitor;
+    debugLog('[SOBESED] ✅ initializeChatMonitor пропатчена — хук переживёт перезапись');
+}
 
-    debugLog('[INTERVIEW] ✅ Модуль уведомлений о собеседовании загружен');
-})();
-// ==================== END INTERVIEW NOTIFICATIONS MODULE ====================
+// ── Глобальный broadcast toggle_sobes ────────────────────────
+const _sobesOrigHandleGlobal = handleGlobalBroadcastCommand;
+handleGlobalBroadcastCommand = function (cmd, val, fromBroadcast) {
+    if (cmd === 'toggle_sobes') {
+        const isOn = val === 'on';
+        config.sobesNotifications = isOn;
+        showScreenNotification("Hassle", '[Global] Собес ' + (isOn ? 'ВКЛ' : 'ВЫКЛ'));
+        sendToTelegram((isOn ? '🔔' : '🔕') + ' <b>Увед. о собесе ' + (isOn ? 'ВКЛ' : 'ВЫКЛ') + ' (' + displayName + ')</b>', true, null);
+        if (fromBroadcast) sendWelcomeMessage(true); // получатели тоже возвращаются к welcome
+        debugLog('[GLOBAL] Применена команда: toggle_sobes = ' + val);
+        return;
+    }
+    return _sobesOrigHandleGlobal(cmd, val, fromBroadcast);
+};
+
+// ── Telegram-меню: кнопка в "Функции" + выбор скоупа ─────────
+showFunctionsMenu = function (chatId, messageId, uniqueIdParam) {
+    const uid = uniqueIdParam || uniqueId;
+    if (!config.accountInfo.nickname) {
+        sendToTelegram('❌ <b>Ошибка ' + displayName + '</b>\nНик не определен', false, null);
+        return;
+    }
+    const isPaused = !!window.getInterfaceStatus("PauseMenu");
+    const isAutoLoginDisabled = !autoLoginConfig.enabled;
+    const pauseLabel     = isPaused ? "▶️ Выйти с паузы" : "⏸️ Уйти на паузу";
+    const pauseStyle     = isPaused ? 'success' : 'danger';
+    const autoLoginLabel = isAutoLoginDisabled ? "✅ Выйти с автр." : "🚫 Уйти на автр.";
+    const autoLoginStyle = isAutoLoginDisabled ? 'success' : 'danger';
+    const kacStyle       = config.kacAutoReply ? 'success' : 'danger';
+    const afkActive      = !!(config.afkCycle && config.afkCycle.active);
+    const afkStyle       = afkActive ? 'success' : 'danger';
+    const otygrovkaStyle = globalState.otygrovkaAuto ? 'success' : 'danger';
+    const sobesStyle     = config.sobesNotifications ? 'success' : 'danger';
+    const replyMarkup = {
+        inline_keyboard: [
+            [createButton("🚶 Движение", `func_action_movement_local_${uid}`)],
+            [createButton(`🛡️ КАЧ/ЗП автоответ ${config.kacAutoReply ? '🟢' : '🔴'}`, `func_select_kac_${uid}`, kacStyle)],
+            [createButton(`🌙 AFK Ночь ${afkActive ? '🟢' : '🔴'}`, `func_select_afk_${uid}`, afkStyle)],
+            [createButton(`🎭 Отыгровка 27 мин ${globalState.otygrovkaAuto ? '🟢' : '🔴'}`, `func_select_otygrovka_${uid}`, otygrovkaStyle)],
+            [createButton(`🏛 Увед. о собесе ${config.sobesNotifications ? '🟢' : '🔴'}`, `sobes_scope_${uid}`, sobesStyle)],
+            [createButton("📝 Написать в чат", `request_chat_message_${uid}`)],
+            [createButton(pauseLabel, `func_select_pause_${uid}`, pauseStyle), createButton(autoLoginLabel, `func_select_autologin_${uid}`, autoLoginStyle)],
+            [createButton("⬅️ Вернуться назад", `show_controls_${uid}`)]
+        ]
+    };
+    editMessageReplyMarkup(chatId, messageId, replyMarkup);
+};
+
+function showSobesScopeMenu(chatId, messageId, uid) {
+    editMessageText(chatId, messageId, '🏛 <b>Увед. о собесе</b>\n\nДля кого применить изменения?', {
+        inline_keyboard: [
+            [createButton("👤 Для этого аккаунта", `sobes_action_local_${uid}`, 'primary'),
+             createButton("👥 Для всех аккаунтов", `sobes_action_global_${uid}`, 'primary')],
+            [createButton("⬅️ Вернуться назад", `show_functions_${uid}`)]
+        ]
+    });
+}
+function showSobesToggleMenu(chatId, messageId, scope, uid) {
+    const on = config.sobesNotifications;
+    editMessageText(chatId, messageId,
+        '🏛 <b>Увед. о собесе</b>\nСейчас: ' + (on ? '🟢 ВКЛ' : '🔴 ВЫКЛ') +
+        '\nСкоуп: ' + (scope === 'global' ? '👥 все аккаунты' : '👤 ' + displayName), {
+        inline_keyboard: [
+            [createButton("🔔 ВКЛ", `sobes_on_${scope}_${uid}`, 'success'),
+             createButton("🔕 ВЫКЛ", `sobes_off_${scope}_${uid}`, 'danger')],
+            [createButton("⬅️ Вернуться назад", `sobes_scope_${uid}`)]
+        ]
+    });
+}
+
+// ── Перехват callback'ов sobes_* в processUpdates ────────────
+function _sobesParseUid(data) {
+    const prefixes = ['sobes_scope_', 'sobes_action_local_', 'sobes_action_global_',
+                      'sobes_on_local_', 'sobes_on_global_', 'sobes_off_local_', 'sobes_off_global_'];
+    for (const p of prefixes) {
+        if (data.startsWith(p)) return data.slice(p.length);
+    }
+    return null;
+}
+function _sobesHandleCallback(cq) {
+    const data = cq.data;
+    const chatId = cq.message.chat.id;
+    const messageId = cq.message.message_id;
+    const uid = _sobesParseUid(data);
+    answerCallbackQuery(cq.id);
+    if (data.startsWith('sobes_scope_')) { showSobesScopeMenu(chatId, messageId, uid); return; }
+    if (data.startsWith('sobes_action_')) {
+        const scope = data.startsWith('sobes_action_local_') ? 'local' : 'global';
+        showSobesToggleMenu(chatId, messageId, scope, uid);
+        return;
+    }
+    // ── ВКЛ / ВЫКЛ ──
+    const isOn  = data.startsWith('sobes_on_');
+    const scope = data.includes('_global_') ? 'global' : 'local';
+    config.sobesNotifications = isOn;
+    if (scope === 'global') {
+        handleGlobalBroadcastCommand('toggle_sobes', isOn ? 'on' : 'off'); // применяем у себя
+        broadcastGlobalCommand('toggle_sobes', isOn ? 'on' : 'off');       // остальным
+    } else {
+        sendToTelegram((isOn ? '🔔' : '🔕') + ' <b>Увед. о собесе ' + (isOn ? 'ВКЛ' : 'ВЫКЛ') + ' для ' + displayName + '</b>', false, null);
+    }
+    // ✅ Как остальные функции: возвращаем сообщение к исходному виду —
+    // текст welcome + клавиатура с "⚙️ Управление", "💰 Инфо", "🔔 Настройки"
+    sendWelcomeMessage(true);
+}
+const _sobesOrigProcessUpdates = processUpdates;
+processUpdates = function (updates) {
+    const rest = [];
+    for (const u of updates) {
+        const cq = u.callback_query;
+        if (cq && typeof cq.data === 'string' && cq.data.startsWith('sobes_') && _sobesParseUid(cq.data) === uniqueId) {
+            config.lastUpdateId = u.update_id;
+            setSharedLastUpdateId(config.lastUpdateId);
+            try { _sobesHandleCallback(cq); } catch (e) { debugLog('[SOBESED] callback error: ' + e.message); }
+            continue;
+        }
+        rest.push(u);
+    }
+    if (rest.length) _sobesOrigProcessUpdates(rest);
+};
+
+// ── /hb меню: переключатели в "Функции" и "Общие функции" ────
+showHBLocalFunctionsMenu = function () {
+    currentHBMenu = "local_functions";
+    currentHBPage = 0;
+    const statusOn = "{00FF00}[ВКЛ]";
+    const statusOff = "{FF0000}[ВЫКЛ]";
+    const menuItems = [
+        { name: "{FFD700} > {FFFFFF}Движение", action: "movement" },
+        { name: `{FFFFFF}Увед. правик ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob_local" },
+        { name: `{FFFFFF}Отслеживание ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto_local" },
+        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio_local" },
+        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter_local" },
+        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning_local" },
+        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_local" },
+        { name: `{FFFFFF}Увед. о собесе ${config.sobesNotifications ? statusOn : statusOff}`, action: "toggle_sobes_local" }
+    ];
+    let menuList = "{FFA500} < Назад <n>";
+    menuItems.forEach((item) => { menuList += `${item.name}<n>`; });
+    window.addDialogInQueue(`[${HB_DIALOG_IDS.LOCAL_FUNCTIONS},2,"{00BFFF}Функции","","Выбрать","Закрыть",0,0]`, menuList, 0);
+};
+showHBGlobalFunctionsMenu = function () {
+    currentHBMenu = "global_functions";
+    currentHBPage = 0;
+    const statusOn = "{00FF00}[ВКЛ]";
+    const statusOff = "{FF0000}[ВЫКЛ]";
+    const menuItems = [
+        { name: `{FFFFFF}PayDay ${config.paydayNotifications ? statusOn : statusOff}`, action: "toggle_payday" },
+        { name: `{FFFFFF}Сообщ. ${config.govMessagesEnabled ? statusOn : statusOff}`, action: "toggle_soob" },
+        { name: `{FFFFFF}Место ${config.trackLocationRequests ? statusOn : statusOff}`, action: "toggle_mesto" },
+        { name: `{FFFFFF}Рация все ${config.radioOfficialNotifications ? statusOn : statusOff}`, action: "toggle_radio" },
+        { name: `{FFFFFF}Рация фильтр ${config.radioImportantFilter ? statusOn : statusOff}`, action: "toggle_radio_filter" },
+        { name: `{FFFFFF}Выговоры ${config.warningNotifications ? statusOn : statusOff}`, action: "toggle_warning" },
+        { name: `{FFFFFF}Автоответ КАЧ/ЗП ${config.kacAutoReply ? statusOn : statusOff}`, action: "toggle_kac_global" },
+        { name: "{FFD700} > {FFFFFF}AFK Ночь", action: "afk_night" },
+        { name: `{FFFFFF}Увед. о собесе ${config.sobesNotifications ? statusOn : statusOff}`, action: "toggle_sobes_global" }
+    ];
+    let menuList = "{FFA500} < Назад <n>";
+    menuItems.forEach((item) => { menuList += `${item.name}<n>`; });
+    window.addDialogInQueue(`[${HB_DIALOG_IDS.GLOBAL_FUNCTIONS},2,"{00BFFF}Общие функции","","Выбрать","Закрыть",0,0]`, menuList, 0);
+};
+const _sobesOrigHBSelection = handleHBMenuSelection;
+handleHBMenuSelection = function (dialogId, button, listitem) {
+    if (button === 1 && dialogId === HB_DIALOG_IDS.LOCAL_FUNCTIONS && listitem === 8) {
+        config.sobesNotifications = !config.sobesNotifications;
+        showScreenNotification("Hassle", `Увед. о собесе ${config.sobesNotifications ? 'включены' : 'отключены'}`);
+        sendToTelegram(`${config.sobesNotifications ? '🔔' : '🔕'} <b>Увед. о собесе ${config.sobesNotifications ? 'ВКЛ' : 'ВЫКЛ'} для ${displayName}</b>`, false, null);
+        setTimeout(() => showHBLocalFunctionsMenu(), 100);
+        return;
+    }
+    if (button === 1 && dialogId === HB_DIALOG_IDS.GLOBAL_FUNCTIONS && listitem === 9) {
+        const val = !config.sobesNotifications;
+        handleGlobalBroadcastCommand('toggle_sobes', val ? 'on' : 'off');
+        broadcastGlobalCommand('toggle_sobes', val ? 'on' : 'off');
+        setTimeout(() => showHBGlobalFunctionsMenu(), 100);
+        return;
+    }
+    return _sobesOrigHBSelection(dialogId, button, listitem);
+};
+debugLog('[SOBESED] Модуль собеседований загружен. Статус: ' + (config.sobesNotifications ? 'ВКЛ' : 'ВЫКЛ'));
+// END SOBESED MODULE //
