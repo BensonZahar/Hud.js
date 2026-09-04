@@ -5472,14 +5472,12 @@ function initializeChatMonitor() {
         };
     };
     window.OnChatAddMessage = function(e, i, t) {
-        debugLog(`Чат-сообщение: ${e.replace(/\{[0-9A-Fa-f]{6}\}/g, '')} | Цвет: ${normalizeColor(i).replace('0x', '')} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
+        debugLog(e);
         const msg = String(e);
         const normalizedMsg = normalizeToCyrillic(msg);
         const lowerCaseMessage = normalizedMsg.toLowerCase();
         const currentTime = Date.now();
         const chatRadius = getChatRadius(i);
-        // Для отладки, выводим сообщения в чат
-        console.log(msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '')); // сооб в чат (без цветовых кодов)
         // Проверка сообщения "Текущее время:" для AFK
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
             handlePayDayTimeMessage();
