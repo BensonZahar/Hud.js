@@ -14,7 +14,7 @@ const _ALLOWED_NICKS = [
 //  "Maksimka_DeMontana",
 	"Kirill_Dogadin",
 //	"Cooper_Lorenzo",
-	"Egor_Pudgh",
+	"Kiramo_Kamishiro",
 	"Victoria_West",
     "Murad_Sixseven",
 	// "Shine_Reinhartz",
