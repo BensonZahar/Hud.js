@@ -3438,24 +3438,27 @@ function _skipOldUpdatesOnFreshStart(callback) {
     const xhr = new XMLHttpRequest();
     xhr.open('GET', url, true);
     xhr.timeout = 5000;
+    function _markDone(id) {
+        // -1 = "свежий старт обработан, очередь была пуста"
+        // любой >0 = реальный последний update_id
+        setSharedLastUpdateId(id);
+        config.lastUpdateId = id;
+    }
     xhr.onload = function() {
         try {
             const data = JSON.parse(xhr.responseText);
             if (data.ok && data.result.length > 0) {
-                const latestId = data.result[data.result.length - 1].update_id;
-                setSharedLastUpdateId(latestId);
-                config.lastUpdateId = latestId;
-                debugLog(`[POLL] Свежий старт: пропущена очередь старых обновлений, offset → ${latestId}`);
+                _markDone(data.result[data.result.length - 1].update_id);
             } else {
-                debugLog('[POLL] Свежий старт: очередь пуста, начинаем с нуля');
+                _markDone(-1);
             }
         } catch (e) {
-            debugLog('[POLL] Ошибка пропуска старых обновлений: ' + e);
+            _markDone(-1);
         }
         callback();
     };
-    xhr.onerror   = function() { callback(); };
-    xhr.ontimeout = function() { callback(); };
+    xhr.onerror   = function() { _markDone(-1); callback(); };
+    xhr.ontimeout = function() { _markDone(-1); callback(); };
     xhr.send();
 }
 
@@ -3470,7 +3473,9 @@ function checkTelegramCommands() {
         return;
     }
 
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${config.lastUpdateId + 1}&timeout=25`;
+    // -1 = свежий старт с пустой очередью; слать Telegram offset=0 (получать всё новое)
+    const effectiveOffset = config.lastUpdateId < 0 ? 0 : config.lastUpdateId + 1;
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${effectiveOffset}&timeout=25`;
     const xhr = new XMLHttpRequest();
     _pollXhr = xhr;
     xhr.open('GET', url, true);
