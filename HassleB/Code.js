@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | Bot'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -1604,6 +1604,7 @@ function _dbg3Ts() {
 }
 
 function _dbg3Log(msg) {
+    if (!_dbg3TgActive) return;   // молчим пока /dbg_on не вызван
     console.log(`[${_dbg3Ts()}][DBG3][${displayName}] ${msg}`);
 }
 
@@ -1999,41 +2000,29 @@ function startDebugStatTracker() {
 
 function stopDebugStatTracker() {
     if (_debugStatTimer) { clearInterval(_debugStatTimer); _debugStatTimer = null; }
-    _dbg3TgFlush();               // сбрасываем остатки очереди
-    _dbg3TgActive    = false;     // выключаем ТГ-уведомления
-    _dbg3TgMsgIds    = {};        // сбрасываем ID сообщений
+    _dbg3Log('Трекер остановлен');  // ДО сброса флага — иначе _dbg3Log промолчит
+    _dbg3TgFlush();                 // сбрасываем остатки очереди (пока флаг ещё true)
+    _dbg3TgActive    = false;       // выключаем ТГ и консоль
+    _dbg3TgMsgIds    = {};          // сбрасываем ID сообщений
     _dbg3TgMsgTexts  = {};
     _dbg3Rec.active  = false;
-    _dbg3Log('Трекер остановлен');
     // Уведомление об остановке идёт напрямую через sendToTelegram (не через debug-flush)
     // — это делается в обработчике команды /dbg_off
 }
 
-// ── АВТОЗАПУСК: стартуем сразу при загрузке скрипта ─────────
-// Трекинг данных — СРАЗУ (консоль всегда).
-// ТГ-уведомления — ТОЛЬКО после /dbg_on (_dbg3TgActive = false по умолчанию).
+// ── АВТОЗАПУСК: только Vuex-подписки — без таймера и без логов ──
+// Таймер (_dbg3Tick) и вывод (консоль + ТГ) стартуют ТОЛЬКО после /dbg_on.
+// До этого скрипт полностью молчит.
 (function _dbg3AutoStart() {
-    // Ждём пока появится window.App (макс 30 сек)
     let attempts = 0;
     const waitApp = setInterval(() => {
         attempts++;
         if (window.App && window.App.$store) {
             clearInterval(waitApp);
-            _dbg3Log('App найден — автозапуск трекера (только консоль, ТГ выкл)');
-            _dbg3InstallSubs();
-            if (!_debugStatTimer) {
-                _dbg3Last = {};
-                _debugStatTimer = setInterval(_dbg3Tick, 1000);
-                _dbg3Tick();
-            }
+            _dbg3InstallSubs(); // только подписки, без таймера
         } else if (attempts > 60) {
             clearInterval(waitApp);
-            _dbg3Log('App не найден за 30с — запускаем трекер без подписок (только консоль)');
-            if (!_debugStatTimer) {
-                _dbg3Last = {};
-                _debugStatTimer = setInterval(_dbg3Tick, 1000);
-                _dbg3Tick();
-            }
+            // App не найден — ничего не делаем, /dbg_on запустит всё сам
         }
     }, 500);
 })();
