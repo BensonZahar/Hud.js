@@ -1551,73 +1551,387 @@ function trackPlayerHp() {
     setTimeout(trackPlayerHp, 500);
 }
 
-// ── DEBUG: каждую секунду пишет HP / координаты / скин / спавн ──
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: DEBUG TRACKER v3 — ВСЕГДА АКТИВЕН              ║
+// ║  Работает в любом состоянии: меню, авторизация,         ║
+// ║  коннект, спавн, реконнект, дисконнект                  ║
+// ╚══════════════════════════════════════════════════════════╝
+// START DEBUG TRACKER v3 //
+
 let _debugStatTimer = null;
+let _dbg3Last = {};              // последние значения для сравнения
+let _dbg3TgQueue = [];           // очередь изменений для ТГ
+let _dbg3TgFlushTimer = null;
+let _dbg3SubsInstalled = false;
+let _dbg3Unsubs = [];
+let _dbg3Rec = {                 // мониторинг реконнекта
+    active: false,
+    startTime: null,
+    posBefore: null,
+    hpBefore: null,
+    phase: null,
+    lastPhaseLog: 0,
+    spawnedAt: null,
+};
 
-function startDebugStatTracker() {
-    if (_debugStatTimer) clearInterval(_debugStatTimer);
-    _debugStatTimer = setInterval(() => {
-        try {
-            const s = window.App.$store;
+const _DBG3_TG_FLUSH_MS = 3000;
+const _DBG3_POS_EPS = 5;
 
-            // Уже было
-            let spawned = false;
-            try { spawned = !!s.getters['player/isPlayerConnected']; } catch(e) {}
-            const hp  = getPlayerHpFromStore();
-            const pos = getPlayerPositionFromStore();
-            const skin = getSkinIdFromStore();
+// ── Время ────────────────────────────────────────────────────
+function _dbg3Ts() {
+    const n = new Date();
+    return `${String(n.getHours()).padStart(2,'0')}:${String(n.getMinutes()).padStart(2,'0')}:${String(n.getSeconds()).padStart(2,'0')}.${String(n.getMilliseconds()).padStart(3,'0')}`;
+}
 
-            // НОВОЕ — сервер
-            const serverId = s.getters['player/serverId'];
-            const isTest   = +serverId === 0;
-            const serverStr = isTest
-                ? `🧪 ТЕСТ (id=${serverId})`
-                : `🟢 Боевой (id=${serverId})`;
+function _dbg3Log(msg) {
+    console.log(`[${_dbg3Ts()}][DBG3][${displayName}] ${msg}`);
+}
 
-            // НОВОЕ — уровень, VIP, ник
-            const level = s.getters['player/level'];
-            const vip   = s.getters['player/vip'];
-            const vipMap = { 0:'', 1:'Шпана', 2:'Бывалый', 3:'Меченый', 4:'Коронованный' };
-            const nick  = s.getters['player/nickName'];
+// ── ТГ батчинг ───────────────────────────────────────────────
+function _dbg3TgPush(text, critical = false) {
+    _dbg3TgQueue.push({ t: _dbg3Ts(), text });
+    if (critical) { _dbg3TgFlush(); }
+    else if (!_dbg3TgFlushTimer) {
+        _dbg3TgFlushTimer = setTimeout(_dbg3TgFlush, _DBG3_TG_FLUSH_MS);
+    }
+}
 
-            // НОВОЕ — деньги
-            const money     = s.getters['player/money'];
-            const bankMoney = s.getters['player/bankMoney'];
+function _dbg3TgFlush() {
+    if (_dbg3TgFlushTimer) { clearTimeout(_dbg3TgFlushTimer); _dbg3TgFlushTimer = null; }
+    if (_dbg3TgQueue.length === 0) return;
+    const lines = _dbg3TgQueue.map(q => `[${q.t}] ${q.text}`);
+    _dbg3TgQueue = [];
+    if (typeof sendToTelegram === 'function') {
+        sendToTelegram(`🔍 <b>Debug (${displayName})</b>\n${lines.join('\n')}`, true, null);
+    }
+}
 
-            // НОВОЕ — interior + angle из позиции
-            const interior = pos ? (pos.interior ? '🏠 интерьер' : '🌍 улица') : '—';
-            const angle    = pos ? Math.round(pos.angle ?? 0) + '°' : '—';
+// ── Сравнение значений ───────────────────────────────────────
+function _dbg3Watch(key, label, newVal, critical = false, fmt = v => v) {
+    const old = _dbg3Last[key];
+    _dbg3Last[key] = newVal;
+    if (old === undefined) return;   // первый тик
+    if (old === newVal) return;      // не изменилось
+    const msg = `${label}: <b>${fmt(old)}</b> → <b>${fmt(newVal)}</b>`;
+    _dbg3Log(`${label}: ${fmt(old)} → ${fmt(newVal)}`);
+    _dbg3TgPush(msg, critical);
+    return true;
+}
 
-            // НОВОЕ — версия игры, часы
-            const gameVer  = s.getters['player/gameVersion'];
-            const hours    = s.getters['player/passedHours'];
+// ── Безопасное чтение из любого источника ────────────────────
+function _safe(fn, fallback = null) {
+    try { return fn(); } catch(e) { return fallback; }
+}
 
-            const hpStr   = hp   !== null ? Math.round(hp) : '—';
-            const skinStr = skin !== null ? skin : '—';
-            const posStr  = pos
-                ? `x=${Math.round(pos.x)} y=${Math.round(pos.y)} z=${Math.round(pos.z ?? 0)}`
-                : 'недоступны';
-            const spawnStr = spawned ? '✅ заспавнен' : '❌ не в игре';
+// ── Сбор ВСЕХ данных — работает в любом состоянии ────────────
+function _dbg3Collect() {
+    const d = {};
 
-            console.log(
-                `[DBG][${nick || displayName}] ${spawnStr} | Сервер: ${serverStr}` +
-                ` | HP: ${hpStr} | Lv: ${level} | VIP: ${vipMap[vip] || vip}` +
-                ` | Скин: ${skinStr} | Нал: ${money} | Банк: ${bankMoney}` +
-                ` | Поз: ${posStr} | Угол: ${angle} | ${interior}` +
-                ` | Часы: ${hours} | v${gameVer}`
-            );
-        } catch (e) {
-            console.log(`[DBG][${displayName}] Ошибка: ${e.message}`);
+    // 1. Store (может быть недоступен до загрузки)
+    d.storeAvailable = false;
+    try {
+        const s = window.App && window.App.$store;
+        if (s) {
+            d.storeAvailable = true;
+            d.isPlayerConnected = !!s.getters['player/isPlayerConnected'];
+            d.nickName    = s.getters['player/nickName'] || null;
+            d.serverId    = s.getters['player/serverId'];
+            d.skinId      = s.getters['player/skinId'];
+            d.level       = s.getters['player/level'];
+            d.vip         = s.getters['player/vip'];
+            d.money       = s.getters['player/money'];
+            d.bankMoney   = s.getters['player/bankMoney'];
+            d.donate      = s.getters['player/donate'];
+            d.gameVersion = s.getters['player/gameVersion'];
+            d.passedHours = s.getters['player/passedHours'];
+            d.position    = s.getters['player/position'];
+            d.posX   = d.position ? Math.round(d.position.x) : null;
+            d.posY   = d.position ? Math.round(d.position.y) : null;
+            d.posZ   = d.position ? Math.round(d.position.z ?? 0) : null;
+            d.angle  = d.position ? Math.round(d.position.angle ?? 0) : null;
+            d.interior = d.position ? !!d.position.interior : null;
         }
-    }, 1000);
+    } catch(e) {}
+
+    // 2. HUD (может быть недоступен)
+    d.hudAvailable = false;
+    try {
+        const hud = window.interface('Hud');
+        if (hud && hud.info) {
+            d.hudAvailable = true;
+            d.hp      = hud.info.health !== undefined ? Math.round(hud.info.health) : null;
+            d.armour  = hud.info.armour !== undefined ? Math.round(hud.info.armour) : null;
+            d.hunger  = hud.info.hunger !== undefined ? Math.round(hud.info.hunger) : null;
+            d.weapon  = hud.info.weapon || null;
+            d.ammoClip = hud.info.ammoInClip ?? null;
+            d.ammoTotal = hud.info.totalAmmo ?? null;
+            d.breath  = hud.info.breath !== undefined ? Math.round(hud.info.breath) : null;
+            d.wanted  = hud.info.wanted ?? null;
+            d.hudMoney = hud.info.money ?? null;
+        }
+    } catch(e) {}
+
+    // 3. Интерфейсы — ВСЕГДА доступны
+    d.ifaceAuth      = _safe(() => !!window.getInterfaceStatus('Authorization'), false);
+    d.ifaceConnect   = _safe(() => !!window.getInterfaceStatus('Connect'), false);
+    d.ifacePause     = _safe(() => !!window.getInterfaceStatus('PauseMenu'), false);
+    d.ifaceMainMenu  = _safe(() => !!window.getInterfaceStatus('MainMenu'), false);
+    d.ifacePlayers   = _safe(() => !!window.getInterfaceStatus('PlayersOnline'), false);
+    d.ifaceHud       = _safe(() => !!window.getInterfaceStatus('Hud'), false);
+    d.ifaceInteract  = _safe(() => !!window.getInterfaceStatus('Interactions'), false);
+    d.ifacePhone     = _safe(() => !!window.getInterfaceStatus('Phone'), false);
+
+    // 4. Определяем ФАЗУ (главное — работает без подключения)
+    if (d.ifaceAuth)         d.phase = 'auth';
+    else if (d.ifaceConnect) d.phase = 'connect';
+    else if (d.isPlayerConnected) d.phase = 'in-game';
+    else if (d.ifaceMainMenu) d.phase = 'main-menu';
+    else if (d.ifacePause)   d.phase = 'paused';
+    else                      d.phase = 'unknown';
+
+    // 5. Чат
+    d.chatOpen = _safe(() => {
+        const hud = window.interface('Hud');
+        return !!(hud && hud.$refs && hud.$refs.chat && hud.$refs.chat.isOpen);
+    }, false);
+
+    // 6. Спидометр
+    d.spdShow = false;
+    try {
+        const hud = window.interface('Hud');
+        if (hud && hud.speedometer) d.spdShow = !!hud.speedometer.show;
+    } catch(e) {}
+
+    return d;
+}
+
+// ── Фазовый трекинг реконнекта ───────────────────────────────
+function _dbg3UpdateRec(d) {
+    if (!_dbg3Rec.active) return;
+
+    let newPhase = _dbg3Rec.phase;
+    if (d.ifaceAuth) newPhase = 'auth';
+    else if (d.ifaceConnect) newPhase = 'connect';
+    else if (d.isPlayerConnected) newPhase = 'spawned';
+
+    if (newPhase !== _dbg3Rec.phase) {
+        const el = ((Date.now() - _dbg3Rec.startTime) / 1000).toFixed(1);
+        _dbg3Rec.phase = newPhase;
+        _dbg3Log(`[REC] Фаза → ${newPhase} (${el}с)`);
+        _dbg3TgPush(`🔄 [REC] Фаза: <b>${newPhase}</b> (${el}с)`, true);
+
+        if (newPhase === 'spawned') {
+            _dbg3Rec.active = false;
+            const pb = _dbg3Rec.posBefore;
+            const pa = { x: d.posX, y: d.posY };
+            let posReport = 'недоступна';
+            if (pb && pa.x !== null) {
+                const dist = Math.round(Math.hypot(pa.x - pb.x, pa.y - pb.y));
+                posReport = dist > _DBG3_POS_EPS
+                    ? `ИЗМЕНИЛАСЬ (Δ${dist}м): (${pb.x},${pb.y}) → (${pa.x},${pa.y})`
+                    : `НЕ изменилась: (${pb.x},${pb.y})`;
+            }
+            const total = ((Date.now() - _dbg3Rec.startTime) / 1000).toFixed(1);
+            _dbg3TgPush(
+                `✅ [REC] Спавн через <b>${total}с</b>\n📍 Позиция ${posReport}\n❤️ HP: ${_dbg3Rec.hpBefore ?? '?'} → ${d.hp ?? '?'}`,
+                true
+            );
+        }
+    }
+
+    if (_dbg3Rec.active && Date.now() - _dbg3Rec.lastPhaseLog > 2000) {
+        _dbg3Rec.lastPhaseLog = Date.now();
+        const el = ((Date.now() - _dbg3Rec.startTime) / 1000).toFixed(1);
+        _dbg3Log(`[REC] ${el}с | фаза=${_dbg3Rec.phase} | spawn=${d.isPlayerConnected} auth=${d.ifaceAuth} conn=${d.ifaceConnect} pos=(${d.posX},${d.posY},${d.posZ})`);
+    }
+
+    if (_dbg3Rec.active && Date.now() - _dbg3Rec.startTime > 90000) {
+        _dbg3Rec.active = false;
+        _dbg3TgPush(`⚠️ [REC] Таймаут 90с — спавн не обнаружен`, true);
+    }
+}
+
+// ── Основной тик — ВСЕГДА работает ──────────────────────────
+function _dbg3Tick() {
+    let d;
+    try { d = _dbg3Collect(); } catch(e) {
+        _dbg3Log(`Ошибка сбора данных: ${e.message}`);
+        return;
+    }
+    if (!d) return;
+
+    // Фаза — критично, отправляем сразу
+    _dbg3Watch('phase', '📋 Фаза', d.phase, true);
+
+    // Интерфейсы — критично
+    _dbg3Watch('ifaceAuth',     '🔐 Authorization', d.ifaceAuth, true, v => v ? 'открыт' : 'закрыт');
+    _dbg3Watch('ifaceConnect',  '🔌 Connect', d.ifaceConnect, true, v => v ? 'открыт' : 'закрыт');
+    _dbg3Watch('ifacePause',    '⏸ PauseMenu', d.ifacePause, false, v => v ? 'открыт' : 'закрыт');
+    _dbg3Watch('ifaceMainMenu', '📋 MainMenu', d.ifaceMainMenu, false, v => v ? 'открыт' : 'закрыт');
+    _dbg3Watch('ifacePlayers',  '👥 PlayersOnline', d.ifacePlayers, false, v => v ? 'открыт' : 'закрыт');
+
+    // Спавн
+    _dbg3Watch('isPlayerConnected', '🎮 Спавн', d.isPlayerConnected, true, v => v ? '✅ в игре' : '❌ не в игре');
+
+    // Позиция
+    const posChanged = _dbg3Last.posX !== undefined && d.posX !== null &&
+        (Math.abs((_dbg3Last.posX || 0) - d.posX) > _DBG3_POS_EPS ||
+         Math.abs((_dbg3Last.posY || 0) - d.posY) > _DBG3_POS_EPS);
+    _dbg3Watch('posX', '📍 X', d.posX, posChanged);
+    _dbg3Watch('posY', '📍 Y', d.posY, posChanged);
+    _dbg3Watch('posZ', '📍 Z', d.posZ, posChanged);
+    _dbg3Watch('angle', '🧭 Угол', d.angle, false);
+    _dbg3Watch('interior', '🏠 Интерьер', d.interior, true, v => v === null ? '—' : (v ? 'внутри' : 'снаружи'));
+
+    // HP / броня / голод
+    _dbg3Watch('hp', '❤️ HP', d.hp, false);
+    _dbg3Watch('armour', '🛡 Броня', d.armour, false);
+    _dbg3Watch('hunger', '🍖 Голод', d.hunger, false);
+    _dbg3Watch('weapon', '🔫 Оружие', d.weapon, false, v => v || 'нет');
+    _dbg3Watch('breath', '🌊 Дыхание', d.breath, false);
+    _dbg3Watch('wanted', '🚨 Розыск', d.wanted, false);
+
+    // Деньги
+    _dbg3Watch('money', '💵 Нал', d.money, false, v => v !== null && v !== undefined ? fmtMoney(v) : '—');
+    _dbg3Watch('bankMoney', '🏦 Банк', d.bankMoney, false, v => v !== null && v !== undefined ? fmtMoney(v) : '—');
+    _dbg3Watch('donate', '💎 Donate', d.donate, false, v => v !== null && v !== undefined ? fmtMoney(v) : '—');
+
+    // Скин / сервер / ник
+    _dbg3Watch('skinId', '🎭 Скин', d.skinId, true);
+    _dbg3Watch('serverId', '🖥 Сервер', d.serverId, true);
+    _dbg3Watch('nickName', '👤 Ник', d.nickName, true);
+    _dbg3Watch('level', '⭐ Уровень', d.level, false);
+
+    // Чат
+    _dbg3Watch('chatOpen', '💬 Чат', d.chatOpen, false, v => v ? 'открыт' : 'закрыт');
+
+    // Фазовый мониторинг реконнекта
+    _dbg3UpdateRec(d);
+}
+
+// ── Подписки на Vuex (мгновенная реакция) ────────────────────
+function _dbg3InstallSubs() {
+    if (_dbg3SubsInstalled) return;
+    _dbg3SubsInstalled = true;
+
+    try {
+        const s = window.App && window.App.$store;
+        if (!s) { _dbg3Log('[SUBS] Store пока недоступен — подписки отложены'); return; }
+
+        _dbg3Unsubs.push(s.watch(
+            (state, getters) => getters['player/position'],
+            (nv, ov) => {
+                const np = nv ? `(${Math.round(nv.x)}, ${Math.round(nv.y)}, ${Math.round(nv.z ?? 0)})` : 'null';
+                const op = ov ? `(${Math.round(ov.x)}, ${Math.round(ov.y)}, ${Math.round(ov.z ?? 0)})` : 'null';
+                _dbg3Log(`[WATCH] Позиция: ${op} → ${np}`);
+                if (_dbg3Rec.active) _dbg3TgPush(`📍 [REC] Позиция: ${op} → ${np}`, true);
+            },
+            { deep: true }
+        ));
+
+        _dbg3Unsubs.push(s.watch(
+            (state, getters) => getters['player/isPlayerConnected'],
+            (nv, ov) => {
+                _dbg3Log(`[WATCH] Спавн: ${ov} → ${nv}`);
+                _dbg3TgPush(`🎮 [WATCH] Спавн: ${ov ? '✅' : '❌'} → ${nv ? '✅' : '❌'}`, true);
+            }
+        ));
+
+        _dbg3Unsubs.push(s.watch(
+            (state, getters) => getters['player/skinId'],
+            (nv, ov) => {
+                _dbg3Log(`[WATCH] Скин: ${ov} → ${nv}`);
+                _dbg3TgPush(`🎭 [WATCH] Скин: ${ov} → ${nv}`, true);
+            }
+        ));
+
+        _dbg3Log('[SUBS] Подписки установлены');
+    } catch(e) {
+        _dbg3Log('[SUBS] Ошибка: ' + e.message);
+    }
+}
+
+// ── Хук на /rec ──────────────────────────────────────────────
+(function() {
+    const _prev = window.sendChatInput;
+    window.sendChatInput = function(cmd) {
+        if (typeof cmd === 'string' && /^\/rec\b/i.test(cmd.trim()) && _debugStatTimer) {
+            const pos = getPlayerPositionFromStore();
+            const hp  = getPlayerHpFromStore();
+            _dbg3Rec = {
+                active: true, startTime: Date.now(),
+                posBefore: pos ? { x: Math.round(pos.x), y: Math.round(pos.y), z: Math.round(pos.z ?? 0) } : null,
+                hpBefore: hp, phase: 'sent', lastPhaseLog: Date.now(),
+            };
+            const ps = _dbg3Rec.posBefore ? `(${_dbg3Rec.posBefore.x}, ${_dbg3Rec.posBefore.y})` : 'нет';
+            _dbg3Log(`[REC] Старт мониторинга. Позиция: ${ps}, HP: ${hp}`);
+            _dbg3TgPush(`🔄 [REC] Отправлен <b>${cmd}</b>\n📍 Позиция: ${ps}\n❤️ HP: ${hp}`, true);
+        }
+        return _prev ? _prev.apply(this, arguments) : undefined;
+    };
+})();
+
+// ── Запуск / остановка ───────────────────────────────────────
+function startDebugStatTracker() {
+    if (_debugStatTimer) {
+        sendToTelegram(`⚠️ Debug-трекер уже запущен для ${displayName}`, false, null);
+        return;
+    }
+
+    _dbg3Last = {};
+    _dbg3TgQueue = [];
+    _dbg3Rec.active = false;
+
+    _dbg3InstallSubs();
+
+    _debugStatTimer = setInterval(_dbg3Tick, 1000);
+    _dbg3Tick(); // первый тик сразу
+
+    sendToTelegram(
+        `🔍 <b>Debug-трекер v3 запущен для ${displayName}</b>\n` +
+        `📋 Работает в ЛЮБОМ состоянии (меню/авторизация/коннект/игра).\n` +
+        `🔄 Мониторинг /rec: активен.\n` +
+        `/dbg_off — остановить`,
+        false, null
+    );
 }
 
 function stopDebugStatTracker() {
-    if (_debugStatTimer) {
-        clearInterval(_debugStatTimer);
-        _debugStatTimer = null;
-    }
+    if (_debugStatTimer) { clearInterval(_debugStatTimer); _debugStatTimer = null; }
+    _dbg3TgFlush();
+    _dbg3Rec.active = false;
+    _dbg3Log('Трекер остановлен');
 }
+
+// ── АВТОЗАПУСК: стартуем сразу при загрузке скрипта ─────────
+// Не ждём /dbg_on, не ждём спавна, не ждём подключения
+(function _dbg3AutoStart() {
+    // Ждём пока появится window.App (макс 30 сек)
+    let attempts = 0;
+    const waitApp = setInterval(() => {
+        attempts++;
+        if (window.App && window.App.$store) {
+            clearInterval(waitApp);
+            _dbg3Log('App найден — автозапуск трекера');
+            _dbg3InstallSubs();
+            if (!_debugStatTimer) {
+                _dbg3Last = {};
+                _debugStatTimer = setInterval(_dbg3Tick, 1000);
+                _dbg3Tick();
+            }
+        } else if (attempts > 60) {
+            clearInterval(waitApp);
+            _dbg3Log('App не найден за 30с — запускаем трекер без подписок');
+            if (!_debugStatTimer) {
+                _dbg3Last = {};
+                _debugStatTimer = setInterval(_dbg3Tick, 1000);
+                _dbg3Tick();
+            }
+        }
+    }, 500);
+})();
+
+// END DEBUG TRACKER v3 //
 
 // ── Ожидание спавна → загрузка профиля независимо от фракции ──────────────
 // Аналог trackPlayerHp: ждём player/isPlayerConnected = true, затем
