@@ -5472,7 +5472,19 @@ function initializeChatMonitor() {
         };
     };
     window.OnChatAddMessage = function(e, i, t) {
-        debugLog(e);
+        if (config.debug) {
+            const _baseHex = normalizeColor(i).replace('0x', '').toUpperCase();
+            const _msgStr  = String(e);
+            const _colorRx = /\{([A-Fa-f0-9]{6})\}/g;
+            let _lastIdx = 0, _curColor = _baseHex, _m, _out = '';
+            while ((_m = _colorRx.exec(_msgStr)) !== null) {
+                if (_m.index > _lastIdx) _out += `[${_curColor}]${_msgStr.slice(_lastIdx, _m.index)}`;
+                _curColor = _m[1].toUpperCase();
+                _lastIdx  = _colorRx.lastIndex;
+            }
+            _out += `[${_curColor}]${_msgStr.slice(_lastIdx)}`;
+            debugLog(_out);
+        }
         const msg = String(e);
         const normalizedMsg = normalizeToCyrillic(msg);
         const lowerCaseMessage = normalizedMsg.toLowerCase();
