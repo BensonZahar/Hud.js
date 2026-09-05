@@ -495,37 +495,49 @@ class MEmuHudManager:
             self.nox_target_var = None
 
     def detect_app_folders(self, *args):
-        if self.select_connection():
-            self.root.after(0, self._update_nox_selector)
-            try:
-                cmd = [self.adb_path] + self.device_param + [
-                    "shell", "ls", "-1", self.storage_path
-                ]
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW
-                    if platform.system() == "Windows" else 0,
-                )
-                if result.returncode == 0:
-                    folders = [
-                        f.strip() for f in result.stdout.splitlines()
-                        if f.strip().startswith("com.hassle.online")
+        # Всё блокирующее (ADB + select_connection) — в фоновый поток.
+        # GUI обновляем только через root.after, чтобы не было гонки с потоком установки.
+        def _run():
+            if self.select_connection():
+                self.root.after(0, self._update_nox_selector)
+                # Снимаем снапшот сразу после select_connection
+                adb_path = self.adb_path
+                device_param = list(self.device_param)
+                storage_path = self.storage_path
+                try:
+                    cmd = [adb_path] + device_param + [
+                        "shell", "ls", "-1", storage_path
                     ]
-                    self.app_menu.configure(values=folders)
-                    if folders:
-                        self.app_var.set(folders[0])
-                        self.log(f"[√] Обнаружено папок: {len(folders)}")
+                    result = subprocess.run(
+                        cmd, capture_output=True, text=True,
+                        creationflags=subprocess.CREATE_NO_WINDOW
+                        if platform.system() == "Windows" else 0,
+                    )
+                    if result.returncode == 0:
+                        folders = [
+                            f.strip() for f in result.stdout.splitlines()
+                            if f.strip().startswith("com.hassle.online")
+                        ]
+                        def _update(folders=folders):
+                            self.app_menu.configure(values=folders)
+                            if folders:
+                                self.app_var.set(folders[0])
+                                self.log(f"[√] Обнаружено папок: {len(folders)}")
+                            else:
+                                self.app_var.set("")
+                                self.log("[X] Папки com.hassle.online* не найдены")
+                        self.root.after(0, _update)
                     else:
-                        self.app_var.set("")
-                        self.log("[X] Папки com.hassle.online* не найдены")
-                else:
-                    self.log("[X] Ошибка при получении списка папок")
-            except Exception as e:
-                self.log(f"[X] Ошибка обнаружения папок: {e}")
-        else:
-            self.app_menu.configure(values=[])
-            self.app_var.set("")
-            self.root.after(0, self._update_nox_selector)
+                        self.root.after(0, lambda: self.log("[X] Ошибка при получении списка папок"))
+                except Exception as e:
+                    self.root.after(0, lambda e=e: self.log(f"[X] Ошибка обнаружения папок: {e}"))
+            else:
+                def _clear():
+                    self.app_menu.configure(values=[])
+                    self.app_var.set("")
+                    self._update_nox_selector()
+                self.root.after(0, _clear)
+        threading.Thread(target=_run, daemon=True).start()
 
     # ──────────────────────────────────────────────────────────────────────────
     # GUI — блок действий
@@ -1879,12 +1891,16 @@ class MEmuHudManager:
         )
 
     def replace_with_code(self, app_folder):
-        target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-        source_file = f"{target_path}/Hud.js"
+        # Снимаем снапшот ADB-состояния до старта операции —
+        # защита от гонки: detect_app_folders в фоне может изменить self.device_param
+        adb_path     = self.adb_path
+        device_param = list(self.device_param)
+        target_path  = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
+        source_file  = f"{target_path}/Hud.js"
         try:
             self.log("Скачивание файла..." if not self.full_logging
                      else f"Скачивание файла {source_file} для обработки...")
-            cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.temp_file)]
+            cmd = [adb_path] + device_param + ["pull", source_file, str(self.temp_file)]
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
@@ -1927,7 +1943,7 @@ class MEmuHudManager:
                 self.log("[√] Выполнено: Новый код добавлен с маркерами и simple обфускацией")
             self.log("Копирование файла..." if not self.full_logging
                      else f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
-            cmd = [self.adb_path] + self.device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
+            cmd = [adb_path] + device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
@@ -1935,7 +1951,7 @@ class MEmuHudManager:
             if result.returncode == 0:
                 self.log("[√] Успешно: Файл заменен" if not self.full_logging
                          else f"[√] Выполнено: Файл заменен с конфигурацией пользователя {user_name}")
-                self.replace_loader_files(target_path)
+                self.replace_loader_files(target_path, adb_path, device_param)
             else:
                 self.log("[X] Ошибка: Не удалось заменить файл" if not self.full_logging
                          else f"[X] Не выполнено: Ошибка замены файла: {result.stderr}")
@@ -1946,9 +1962,10 @@ class MEmuHudManager:
             if self.temp_file.exists():
                 self.temp_file.unlink()
 
-    def replace_loader_files(self, target_path):
-        """Скачивает все файлы из папки Загрузчики на GitHub и заменяет их в assets на устройстве."""
+    def replace_loader_files(self, target_path, adb_path, device_param):
+        """Параллельно скачивает все файлы из Загрузчики и заливает одной командой adb push."""
         from urllib.parse import quote
+        from concurrent.futures import ThreadPoolExecutor, as_completed
         api_url = (
             "https://api.github.com/repos/BensonZahar/Hud.js/contents/HassleB/"
             + quote("Загрузчики")
@@ -1964,52 +1981,68 @@ class MEmuHudManager:
                      else f"[X] Не выполнено: Ошибка запроса GitHub API Загрузчики: {e}")
             return
 
-        # Только файлы, без подпапок
         file_entries = [e for e in entries if e.get("type") == "file"]
         if not file_entries:
             self.log("[!] Загрузчики: файлы не найдены на GitHub")
             return
 
         if self.full_logging:
-            names = ", ".join(e["name"] for e in file_entries)
-            self.log(f"Найдено файлов в Загрузчики ({len(file_entries)}): {names}")
+            self.log(f"Найдено файлов в Загрузчики ({len(file_entries)}): "
+                     + ", ".join(e["name"] for e in file_entries))
 
-        for entry in file_entries:
+        # ── Параллельное скачивание ──────────────────────────────────────────
+        def download_one(entry):
             filename = entry["name"]
-            download_url = entry.get("download_url")
-            if not download_url:
-                self.log(f"[X] Ошибка: Нет ссылки для {filename}")
-                continue
-            # Уникальное имя временного файла на случай параллельных вызовов
+            url = entry.get("download_url")
+            if not url:
+                return filename, None, "Нет ссылки"
             temp_path = self.script_dir / f"temp_loader_{filename}.tmp"
-            self.log(f"Скачивание {filename}..." if not self.full_logging
-                     else f"Скачивание {filename}: {download_url}...")
             try:
-                file_resp = requests.get(download_url, timeout=15)
-                file_resp.raise_for_status()
-                temp_path.write_bytes(file_resp.content)
-                if self.full_logging:
-                    self.log(f"Загружено {len(file_resp.content)} байт → {temp_path.name}")
-                cmd = [self.adb_path] + self.device_param + [
-                    "push", str(temp_path), f"{target_path}/{filename}",
-                ]
-                push_result = subprocess.run(
-                    cmd, capture_output=True, text=True,
-                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-                )
-                if push_result.returncode == 0:
-                    self.log(f"[√] Успешно: {filename} заменён" if not self.full_logging
-                             else f"[√] Выполнено: {filename} заменён из Загрузчики")
+                r = requests.get(url, timeout=15)
+                r.raise_for_status()
+                temp_path.write_bytes(r.content)
+                return filename, temp_path, None
+            except Exception as exc:
+                return filename, None, str(exc)
+
+        downloaded = {}   # filename → temp_path
+        workers = min(4, len(file_entries))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {pool.submit(download_one, e): e["name"] for e in file_entries}
+            for future in as_completed(futures):
+                filename, temp_path, err = future.result()
+                if err:
+                    self.log(f"[X] Ошибка: {filename} — {err}" if not self.full_logging
+                             else f"[X] Не выполнено: Скачивание {filename}: {err}")
                 else:
-                    self.log(f"[X] Ошибка: Не удалось заменить {filename}" if not self.full_logging
-                             else f"[X] Не выполнено: Ошибка замены {filename}: {push_result.stderr}")
-            except requests.HTTPError as e:
-                self.log(f"[X] Ошибка: {filename} недоступен на GitHub" if not self.full_logging
-                         else f"[X] Не выполнено: HTTP ошибка {filename}: {e}")
-            except Exception as e:
-                self.log(f"[X] Ошибка: Не удалось обработать {filename}" if not self.full_logging
-                         else f"[X] Не выполнено: Ошибка {filename}: {e}")
-            finally:
+                    downloaded[filename] = temp_path
+                    if self.full_logging:
+                        self.log(f"Скачан: {filename} ({temp_path.stat().st_size} байт)")
+
+        if not downloaded:
+            self.log("[X] Ошибка: Ни один файл из Загрузчики не скачан")
+            return
+
+        # ── Один adb push — все файлы за раз ────────────────────────────────
+        try:
+            cmd = (
+                [adb_path] + device_param
+                + ["push"]
+                + [str(p) for p in downloaded.values()]
+                + [f"{target_path}/"]
+            )
+            push_result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+            )
+            if push_result.returncode == 0:
+                self.log("[√] Успешно: файлы из Загрузчики обновлены" if not self.full_logging
+                         else f"[√] Выполнено: {', '.join(downloaded)} → {target_path}")
+            else:
+                self.log("[X] Ошибка: Не удалось залить файлы из Загрузчики" if not self.full_logging
+                         else f"[X] Не выполнено: push ошибка: {push_result.stderr}")
+        finally:
+            for temp_path in downloaded.values():
                 try:
                     if temp_path.exists():
                         temp_path.unlink()
@@ -2017,12 +2050,14 @@ class MEmuHudManager:
                     pass
 
     def download_without_code(self, app_folder):
-        target_path = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
-        source_file = f"{target_path}/Hud.js"
+        adb_path     = self.adb_path
+        device_param = list(self.device_param)
+        target_path  = f"{self.storage_path}/{app_folder}/files/Assets/webview/assets"
+        source_file  = f"{target_path}/Hud.js"
         try:
             self.log("Скачивание файла..." if not self.full_logging
                      else f"Скачивание файла {source_file}...")
-            cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(self.temp_file)]
+            cmd = [adb_path] + device_param + ["pull", source_file, str(self.temp_file)]
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
@@ -2051,7 +2086,7 @@ class MEmuHudManager:
                 self.log("[√] Выполнено: Код удален из файла")
             self.log("Копирование файла..." if not self.full_logging
                      else f"Копирование файла {target_file} на устройство в {target_path}/Hud.js...")
-            cmd = [self.adb_path] + self.device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
+            cmd = [adb_path] + device_param + ["push", str(target_file), f"{target_path}/Hud.js"]
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
@@ -2070,6 +2105,8 @@ class MEmuHudManager:
                 self.temp_file.unlink()
 
     def check_files(self, app_folder):
+        adb_path     = self.adb_path
+        device_param = list(self.device_param)
         target_path = f"{self.storage_path}/{app_folder}/files/Assets"
         files_to_check = [
             f"{target_path}/resources_version.txt",
@@ -2077,7 +2114,7 @@ class MEmuHudManager:
         ]
         try:
             self.log("Проверка файлов...")
-            cmd = [self.adb_path] + self.device_param + ["shell", "ls", files_to_check[1]]
+            cmd = [adb_path] + device_param + ["shell", "ls", files_to_check[1]]
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
@@ -2085,7 +2122,7 @@ class MEmuHudManager:
             if result.returncode == 0:
                 self.log("[√] Успешно: Файл найден" if not self.full_logging else "[√] Файл найден")
                 if self.full_logging:
-                    cmd_size = [self.adb_path] + self.device_param + [
+                    cmd_size = [adb_path] + device_param + [
                         "shell", "stat", "-c", "%s", files_to_check[1]]
                     size_result = subprocess.run(
                         cmd_size, capture_output=True, text=True,
@@ -2093,7 +2130,7 @@ class MEmuHudManager:
                     )
                     if size_result.returncode == 0:
                         self.log(f"Размер файла: {size_result.stdout.strip()} байт")
-            cmd = [self.adb_path] + self.device_param + ["shell", "ls", files_to_check[0]]
+            cmd = [adb_path] + device_param + ["shell", "ls", files_to_check[0]]
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
@@ -2101,7 +2138,7 @@ class MEmuHudManager:
             if result.returncode == 0:
                 self.log("[√] Успешно: Файл найден, удаление..." if not self.full_logging
                          else f"[√] Файл найден: {files_to_check[0]}, удаление...")
-                cmd_rm = [self.adb_path] + self.device_param + [
+                cmd_rm = [adb_path] + device_param + [
                     "shell", "rm", "-f", files_to_check[0]]
                 rm_result = subprocess.run(
                     cmd_rm, capture_output=True, text=True,
@@ -2119,6 +2156,8 @@ class MEmuHudManager:
                      else f"[X] Не выполнено: Ошибка проверки: {e}")
 
     def simple_download(self, app_folder):
+        adb_path     = self.adb_path
+        device_param = list(self.device_param)
         if not self.full_logging:
             self.log("[X] Ошибка: Скачивание отключено")
             return
@@ -2130,7 +2169,7 @@ class MEmuHudManager:
             hassle_folder.mkdir(parents=True, exist_ok=True)
             save_path = hassle_folder / "Hud.js"
             self.log(f"Скачивание файла {source_file}...")
-            cmd = [self.adb_path] + self.device_param + ["pull", source_file, str(save_path)]
+            cmd = [adb_path] + device_param + ["pull", source_file, str(save_path)]
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
                 creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
