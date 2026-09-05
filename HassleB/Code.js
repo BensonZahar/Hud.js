@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | Bot'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -1604,7 +1604,6 @@ function _dbg3Ts() {
 }
 
 function _dbg3Log(msg) {
-    if (!_dbg3TgActive) return;   // молчим пока /dbg_on не вызван
     console.log(`[${_dbg3Ts()}][DBG3][${displayName}] ${msg}`);
 }
 
@@ -2000,29 +1999,41 @@ function startDebugStatTracker() {
 
 function stopDebugStatTracker() {
     if (_debugStatTimer) { clearInterval(_debugStatTimer); _debugStatTimer = null; }
-    _dbg3Log('Трекер остановлен');  // ДО сброса флага — иначе _dbg3Log промолчит
-    _dbg3TgFlush();                 // сбрасываем остатки очереди (пока флаг ещё true)
-    _dbg3TgActive    = false;       // выключаем ТГ и консоль
-    _dbg3TgMsgIds    = {};          // сбрасываем ID сообщений
+    _dbg3TgFlush();               // сбрасываем остатки очереди
+    _dbg3TgActive    = false;     // выключаем ТГ-уведомления
+    _dbg3TgMsgIds    = {};        // сбрасываем ID сообщений
     _dbg3TgMsgTexts  = {};
     _dbg3Rec.active  = false;
+    _dbg3Log('Трекер остановлен');
     // Уведомление об остановке идёт напрямую через sendToTelegram (не через debug-flush)
     // — это делается в обработчике команды /dbg_off
 }
 
-// ── АВТОЗАПУСК: только Vuex-подписки — без таймера и без логов ──
-// Таймер (_dbg3Tick) и вывод (консоль + ТГ) стартуют ТОЛЬКО после /dbg_on.
-// До этого скрипт полностью молчит.
+// ── АВТОЗАПУСК: стартуем сразу при загрузке скрипта ─────────
+// Трекинг данных — СРАЗУ (консоль всегда).
+// ТГ-уведомления — ТОЛЬКО после /dbg_on (_dbg3TgActive = false по умолчанию).
 (function _dbg3AutoStart() {
+    // Ждём пока появится window.App (макс 30 сек)
     let attempts = 0;
     const waitApp = setInterval(() => {
         attempts++;
         if (window.App && window.App.$store) {
             clearInterval(waitApp);
-            _dbg3InstallSubs(); // только подписки, без таймера
+            _dbg3Log('App найден — автозапуск трекера (только консоль, ТГ выкл)');
+            _dbg3InstallSubs();
+            if (!_debugStatTimer) {
+                _dbg3Last = {};
+                _debugStatTimer = setInterval(_dbg3Tick, 1000);
+                _dbg3Tick();
+            }
         } else if (attempts > 60) {
             clearInterval(waitApp);
-            // App не найден — ничего не делаем, /dbg_on запустит всё сам
+            _dbg3Log('App не найден за 30с — запускаем трекер без подписок (только консоль)');
+            if (!_debugStatTimer) {
+                _dbg3Last = {};
+                _debugStatTimer = setInterval(_dbg3Tick, 1000);
+                _dbg3Tick();
+            }
         }
     }, 500);
 })();
@@ -5472,24 +5483,14 @@ function initializeChatMonitor() {
         };
     };
     window.OnChatAddMessage = function(e, i, t) {
-        if (config.debug) {
-            const _baseHex = normalizeColor(i).replace('0x', '').toUpperCase();
-            const _msgStr  = String(e);
-            const _colorRx = /\{([A-Fa-f0-9]{6})\}/g;
-            let _lastIdx = 0, _curColor = _baseHex, _m, _out = '';
-            while ((_m = _colorRx.exec(_msgStr)) !== null) {
-                if (_m.index > _lastIdx) _out += `[${_curColor}]${_msgStr.slice(_lastIdx, _m.index)}`;
-                _curColor = _m[1].toUpperCase();
-                _lastIdx  = _colorRx.lastIndex;
-            }
-            _out += `[${_curColor}]${_msgStr.slice(_lastIdx)}`;
-            debugLog(_out);
-        }
+        debugLog(`Чат-сообщение: ${e.replace(/\{[0-9A-Fa-f]{6}\}/g, '')} | Цвет: ${normalizeColor(i).replace('0x', '')} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
         const msg = String(e);
         const normalizedMsg = normalizeToCyrillic(msg);
         const lowerCaseMessage = normalizedMsg.toLowerCase();
         const currentTime = Date.now();
         const chatRadius = getChatRadius(i);
+        // Для отладки, выводим сообщения в чат
+        console.log(msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '')); // сооб в чат (без цветовых кодов)
         // Проверка сообщения "Текущее время:" для AFK
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
             handlePayDayTimeMessage();
