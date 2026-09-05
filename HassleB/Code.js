@@ -1604,6 +1604,7 @@ function _dbg3Ts() {
 }
 
 function _dbg3Log(msg) {
+    if (!_dbg3TgActive) return;   // молчим пока /dbg_on не вызван
     console.log(`[${_dbg3Ts()}][DBG3][${displayName}] ${msg}`);
 }
 
