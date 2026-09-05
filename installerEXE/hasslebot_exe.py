@@ -1857,7 +1857,8 @@ class MEmuHudManager:
                 self.log(f"Используется конфигурация пользователя: {self.selected_code_name}, "
                          f"аккаунт: #{self.selected_account_number or '?'}")
             if action == "1":
-                self.show_replace_warning(app_folder)
+                # Диалог tkinter нельзя создавать из фонового потока
+                self.root.after(0, lambda: self.show_replace_warning(app_folder))
             elif action == "2":
                 self._run_on_targets(self.download_without_code, app_folder)
             elif action == "3":
@@ -2023,24 +2024,26 @@ class MEmuHudManager:
             self.log("[X] Ошибка: Ни один файл из Загрузчики не скачан")
             return
 
-        # ── Один adb push — все файлы за раз ────────────────────────────────
+        # ── Пушим каждый файл отдельно (совместимо с любой версией ADB) ──────
         try:
-            cmd = (
-                [adb_path] + device_param
-                + ["push"]
-                + [str(p) for p in downloaded.values()]
-                + [f"{target_path}/"]
-            )
-            push_result = subprocess.run(
-                cmd, capture_output=True, text=True,
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
-            )
-            if push_result.returncode == 0:
-                self.log("[√] Успешно: файлы из Загрузчики обновлены" if not self.full_logging
-                         else f"[√] Выполнено: {', '.join(downloaded)} → {target_path}")
-            else:
-                self.log("[X] Ошибка: Не удалось залить файлы из Загрузчики" if not self.full_logging
-                         else f"[X] Не выполнено: push ошибка: {push_result.stderr}")
+            ok_count = 0
+            for filename, temp_path in downloaded.items():
+                cmd = [adb_path] + device_param + [
+                    "push", str(temp_path), f"{target_path}/{filename}"
+                ]
+                push_result = subprocess.run(
+                    cmd, capture_output=True, text=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
+                )
+                if push_result.returncode == 0:
+                    ok_count += 1
+                    self.log(f"[√] Успешно: {filename} заменён" if not self.full_logging
+                             else f"[√] Выполнено: {filename} → {target_path}")
+                else:
+                    self.log(f"[X] Ошибка: Не удалось залить {filename}" if not self.full_logging
+                             else f"[X] Не выполнено: push {filename}: {push_result.stderr.strip()}")
+            if self.full_logging and ok_count == len(downloaded):
+                self.log(f"[√] Выполнено: все {ok_count} файлов из Загрузчики обновлены")
         finally:
             for temp_path in downloaded.values():
                 try:
@@ -2185,9 +2188,16 @@ class MEmuHudManager:
     # Уведомления (toast)
     # ──────────────────────────────────────────────────────────────────────────
     def log(self, message):
+        """Потокобезопасный лог: вывод в консоль сразу, GUI — только через main-thread."""
         print(f"{datetime.now().strftime('%H:%M:%S')}: {message}")
         if not hasattr(self, '_notif_strip'):
             return
+        # Никогда не трогаем tkinter-виджеты напрямую из фонового потока —
+        # только через root.after(), иначе рушится весь widget-tree.
+        self.root.after(0, lambda msg=message: self._log_gui(msg))
+
+    def _log_gui(self, message):
+        """Исполняется только на главном потоке (через root.after)."""
         try:
             if not self._notif_strip.winfo_exists():
                 return
@@ -2235,10 +2245,7 @@ class MEmuHudManager:
             anchor="w",
         ).grid(row=0, column=2, padx=(0, 8), sticky="ew")
 
-        try:
-            self.root.update()
-        except Exception:
-            pass
+        # root.update() здесь НЕ нужен — мы уже на main-thread
 
         def _dismiss():
             try:
