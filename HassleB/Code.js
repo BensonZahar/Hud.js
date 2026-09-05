@@ -1,7 +1,7 @@
 // ┌──────────────────────────────────────────────────────────┐
 // │  НАСТРОЙКИ — меняй здесь                                │
 // └──────────────────────────────────────────────────────────┘
-const BOT_NAME = 'Hassle | Bot'; // Имя бота в приветственном сообщении
+const BOT_NAME = 'Hassle | BotЗа2в'; // Имя бота в приветственном сообщении
 
 // ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: GLOBAL STATE                                    ║
@@ -5483,14 +5483,24 @@ function initializeChatMonitor() {
         };
     };
     window.OnChatAddMessage = function(e, i, t) {
-        debugLog(`Чат-сообщение: ${e.replace(/\{[0-9A-Fa-f]{6}\}/g, '')} | Цвет: ${normalizeColor(i).replace('0x', '')} | Тип: ${t} | Пауза: ${window.getInterfaceStatus("PauseMenu")}`);
+        if (config.debug) {
+            const _baseHex = normalizeColor(i).replace('0x', '').toUpperCase();
+            const _msgStr  = String(e);
+            const _colorRx = /\{([A-Fa-f0-9]{6})\}/g;
+            let _lastIdx = 0, _curColor = _baseHex, _m, _out = '';
+            while ((_m = _colorRx.exec(_msgStr)) !== null) {
+                if (_m.index > _lastIdx) _out += `[${_curColor}]${_msgStr.slice(_lastIdx, _m.index)}`;
+                _curColor = _m[1].toUpperCase();
+                _lastIdx  = _colorRx.lastIndex;
+            }
+            _out += `[${_curColor}]${_msgStr.slice(_lastIdx)}`;
+            debugLog(_out);
+        }
         const msg = String(e);
         const normalizedMsg = normalizeToCyrillic(msg);
         const lowerCaseMessage = normalizedMsg.toLowerCase();
         const currentTime = Date.now();
         const chatRadius = getChatRadius(i);
-        // Для отладки, выводим сообщения в чат
-        console.log(msg.replace(/\{[0-9A-Fa-f]{6}\}/g, '')); // сооб в чат (без цветовых кодов)
         // Проверка сообщения "Текущее время:" для AFK
         if (msg.includes("Текущее время:") && config.afkSettings.active) {
             handlePayDayTimeMessage();
