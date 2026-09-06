@@ -7165,3 +7165,205 @@ if (window.__CODE2_TEXT__) {
 window.sendWelcomeMessage = sendWelcomeMessage;
 
 window.__CODE_READY__ = true;
+
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  MODULE: AI CHAT (/ch команда)                                          ║
+// ║  Описание: Перехват processUpdates — обрабатывает /ch и /ch_reset       ║
+// ║             до основного обработчика. Запросы к api.b.ai (qwen).        ║
+// ║             /ch [текст] → текст в игровой чат + AI ответ в Telegram     ║
+// ║             /ch_reset   → сброс истории диалога                         ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+// START AI CHAT MODULE //
+
+(function () {
+    'use strict';
+
+    // ── Конфиг AI ──────────────────────────────────────────────────────────
+    const _AI = {
+        token:      'sk-7kmaj28mf8e6032s6x9eddh8ba19p8up',
+        url:        'https://api.b.ai/v1/chat/completions',
+        model:      'qwen3-8b-flash',
+        maxTokens:  1000,
+        temperature: 0.7,
+        system:     'Ты помощник в ролевой онлайн-игре (GTA RP). Отвечай кратко и по делу на русском языке.'
+    };
+
+    // История диалога (сбрасывается при перезагрузке страницы)
+    let _aiHistory = [];
+
+    // ── Запрос к AI API ─────────────────────────────────────────────────────
+    function _askAI(userText, onSuccess, onError) {
+        _aiHistory.push({ role: 'user', content: userText });
+        // Держим не больше 20 сообщений в истории
+        if (_aiHistory.length > 20) _aiHistory = _aiHistory.slice(-20);
+
+        const body = JSON.stringify({
+            model:       _AI.model,
+            messages:    [{ role: 'system', content: _AI.system }, ..._aiHistory],
+            max_tokens:  _AI.maxTokens,
+            temperature: _AI.temperature,
+            stream:      false
+        });
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', _AI.url, true);
+        xhr.setRequestHeader('Content-Type',  'application/json');
+        xhr.setRequestHeader('Authorization', 'Bearer ' + _AI.token);
+        xhr.timeout = 30000;
+
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                try {
+                    const data  = JSON.parse(xhr.responseText);
+                    const reply = data.choices &&
+                                  data.choices[0] &&
+                                  data.choices[0].message &&
+                                  data.choices[0].message.content;
+                    if (reply) {
+                        const clean = reply.trim();
+                        _aiHistory.push({ role: 'assistant', content: clean });
+                        if (onSuccess) onSuccess(clean);
+                    } else {
+                        console.warn('[AI] Пустой ответ:', xhr.responseText.slice(0, 300));
+                        if (onError) onError('empty');
+                    }
+                } catch (e) {
+                    console.error('[AI] JSON parse error:', e.message);
+                    if (onError) onError('parse');
+                }
+            } else {
+                console.error('[AI] HTTP', xhr.status, xhr.responseText.slice(0, 300));
+                if (onError) onError(xhr.status);
+            }
+        };
+        xhr.onerror   = function () { console.error('[AI] Network error'); if (onError) onError('net'); };
+        xhr.ontimeout = function () { console.error('[AI] Timeout');       if (onError) onError('timeout'); };
+        xhr.send(body);
+    }
+
+    // ── Перехват processUpdates ─────────────────────────────────────────────
+    // Ждём __CODE_READY__ — гарантируем что оригинальный processUpdates уже объявлен
+    function _installHook() {
+        if (typeof processUpdates !== 'function') {
+            setTimeout(_installHook, 200);
+            return;
+        }
+
+        const _origProcessUpdates = processUpdates;
+
+        // Переопределяем глобально (processUpdates вызывается внутри checkTelegramCommands)
+        window.processUpdates = processUpdates = function (updates) {
+            const pass = []; // апдейты, которые идут в оригинальный обработчик
+
+            for (const update of updates) {
+                let handled = false;
+
+                if (update.message && update.message.text) {
+                    const chatId = String(update.message.chat.id);
+                    const msg    = update.message.text.trim();
+
+                    // Только наши авторизованные чаты
+                    if (
+                        typeof config !== 'undefined' &&
+                        config.chatIds &&
+                        config.chatIds.includes(chatId)
+                    ) {
+                        // Обновляем offset — как делает оригинальный processUpdates
+                        if (typeof config !== 'undefined') config.lastUpdateId = update.update_id;
+                        if (typeof setSharedLastUpdateId === 'function') setSharedLastUpdateId(update.update_id);
+
+                        // ── /ch_reset ───────────────────────────────────────
+                        if (msg === '/ch_reset') {
+                            _aiHistory = [];
+                            if (typeof sendToTelegram === 'function') {
+                                const dn = (typeof displayName !== 'undefined') ? displayName : 'Bot';
+                                sendToTelegram(
+                                    `🔄 <b>История AI-чата сброшена (${dn})</b>`,
+                                    true, null
+                                );
+                            }
+                            handled = true;
+                        }
+
+                        // ── /ch [текст] ─────────────────────────────────────
+                        else if (msg.startsWith('/ch ') || msg === '/ch') {
+                            const text = msg.replace('/ch', '').trim();
+                            const dn   = (typeof displayName !== 'undefined') ? displayName : 'Bot';
+
+                            if (!text) {
+                                if (typeof sendToTelegram === 'function') {
+                                    sendToTelegram(
+                                        `ℹ️ <b>Использование /ch (${dn}):</b>\n` +
+                                        `<code>/ch Привет</code> — отправить в чат и получить ответ AI\n` +
+                                        `<code>/ch_reset</code> — сбросить историю диалога`,
+                                        false, null
+                                    );
+                                }
+                            } else {
+                                // 1. Отправляем текст в игровой чат
+                                if (typeof sendChatInput === 'function') {
+                                    try {
+                                        sendChatInput(text);
+                                        if (typeof sendToTelegram === 'function') {
+                                            sendToTelegram(
+                                                `💬 <b>Отправлено в чат (${dn}):</b>\n` +
+                                                `<code>${text.replace(/</g, '&lt;')}</code>`,
+                                                true, null
+                                            );
+                                        }
+                                    } catch (err) {
+                                        if (typeof sendToTelegram === 'function') {
+                                            sendToTelegram(
+                                                `⚠️ <b>Ошибка отправки в чат (${dn}):</b>\n` +
+                                                `<code>${err.message}</code>`,
+                                                false, null
+                                            );
+                                        }
+                                    }
+                                }
+
+                                // 2. Запрашиваем AI и шлём ответ в Telegram
+                                _askAI(
+                                    text,
+                                    function (reply) {
+                                        if (typeof sendToTelegram === 'function') {
+                                            sendToTelegram(
+                                                `🤖 <b>AI (${dn}):</b>\n` +
+                                                `${reply.replace(/</g, '&lt;')}`,
+                                                false, null
+                                            );
+                                        }
+                                    },
+                                    function (err) {
+                                        if (typeof sendToTelegram === 'function') {
+                                            sendToTelegram(
+                                                `❌ <b>AI не ответил (${dn})</b>\n` +
+                                                `Код: <code>${err}</code>`,
+                                                false, null
+                                            );
+                                        }
+                                    }
+                                );
+                            }
+                            handled = true;
+                        }
+                    }
+                }
+
+                if (!handled) pass.push(update);
+            }
+
+            // Передаём нeобработанные апдейты в оригинальный processUpdates
+            if (pass.length > 0) _origProcessUpdates(pass);
+        };
+
+        console.log('[AI Chat] ✅ Хук на processUpdates установлен. Команды: /ch, /ch_reset');
+    }
+
+    // Запускаем после небольшой задержки — убеждаемся что Code.js полностью выполнен
+    setTimeout(_installHook, 500);
+
+})();
+
+// END AI CHAT MODULE //
