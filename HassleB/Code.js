@@ -7176,63 +7176,53 @@ window.__CODE_READY__ = true;
 // ║             /ch [текст]   → текст в игровой чат + AI ответ в Telegram   ║
 // ║             /ch_reset     → сброс истории диалога                       ║
 // ║             /ch_models    → список доступных моделей от API             ║
+
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║  MODULE: AI CHAT (/ch команда)  v3 — stream:true + SSE парсинг         ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
 // START AI CHAT MODULE //
 
 (function () {
     'use strict';
 
-    // ── Конфиг AI ──────────────────────────────────────────────────────────
     const _AI = {
         token:       'sk-7kmaj28mf8e6032s6x9eddh8ba19p8up',
         baseUrl:     'https://api.b.ai/v1',
-        model:       'qwen3-8b-flash',   // ← меняй если /ch_models покажет другое имя
+        model:       'qwen3.8-flash',
         maxTokens:   1000,
         temperature: 0.7,
         system:      'Ты помощник в ролевой онлайн-игре (GTA RP). Отвечай кратко и по делу на русском языке.'
     };
 
-    // История диалога (сбрасывается при перезагрузке страницы)
     let _aiHistory = [];
 
-    // ── Вспомогательная XHR-обёртка ────────────────────────────────────────
-    function _xhr(method, url, headers, body, onDone) {
-        const xhr = new XMLHttpRequest();
-        xhr.open(method, url, true);
-        Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
-        xhr.timeout = 30000;
-        xhr.onload    = function () { onDone(xhr.status, xhr.responseText); };
-        xhr.onerror   = function () { onDone(0,   'network error'); };
-        xhr.ontimeout = function () { onDone(408, 'timeout'); };
-        xhr.send(body || null);
-    }
-
-    // ── Список моделей (/ch_models) ─────────────────────────────────────────
+    // ── Список моделей ──────────────────────────────────────────────────────
     function _fetchModels(onResult) {
-        _xhr(
-            'GET',
-            _AI.baseUrl + '/models',
-            { 'Authorization': 'Bearer ' + _AI.token },
-            null,
-            function (status, raw) {
-                if (status === 200) {
-                    try {
-                        const data   = JSON.parse(raw);
-                        const models = (data.data || data.models || data || [])
-                            .map(m => m.id || m.name || JSON.stringify(m))
-                            .join('\n• ');
-                        onResult('✅ Доступные модели:\n• ' + models);
-                    } catch (e) {
-                        onResult('⚠️ Ответ получен, но не JSON:\n<code>' + raw.slice(0, 500) + '</code>');
-                    }
-                } else {
-                    onResult('❌ HTTP ' + status + ':\n<code>' + raw.slice(0, 400) + '</code>');
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', _AI.baseUrl + '/models', true);
+        xhr.setRequestHeader('Authorization', 'Bearer ' + _AI.token);
+        xhr.timeout = 15000;
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                try {
+                    const data   = JSON.parse(xhr.responseText);
+                    const models = (data.data || data.models || data || [])
+                        .map(m => m.id || m.name || JSON.stringify(m))
+                        .join('\n• ');
+                    onResult('✅ Доступные модели:\n• ' + models);
+                } catch (e) {
+                    onResult('⚠️ Ответ:\n<code>' + xhr.responseText.slice(0, 500) + '</code>');
                 }
+            } else {
+                onResult('❌ HTTP ' + xhr.status + ':\n<code>' + xhr.responseText.slice(0, 300) + '</code>');
             }
-        );
+        };
+        xhr.onerror = xhr.ontimeout = function () { onResult('❌ Сетевая ошибка'); };
+        xhr.send(null);
     }
 
-    // ── Запрос к AI ─────────────────────────────────────────────────────────
+    // ── AI запрос через fetch + ReadableStream (SSE / stream:true) ──────────
     function _askAI(userText, onSuccess, onError) {
         _aiHistory.push({ role: 'user', content: userText });
         if (_aiHistory.length > 20) _aiHistory = _aiHistory.slice(-20);
@@ -7242,43 +7232,77 @@ window.__CODE_READY__ = true;
             messages:    [{ role: 'system', content: _AI.system }, ..._aiHistory],
             max_tokens:  _AI.maxTokens,
             temperature: _AI.temperature,
-            stream:      false
+            stream:      true
         });
 
-        _xhr(
-            'POST',
-            _AI.baseUrl + '/chat/completions',
-            {
+        fetch(_AI.baseUrl + '/chat/completions', {
+            method:  'POST',
+            headers: {
                 'Content-Type':  'application/json',
                 'Authorization': 'Bearer ' + _AI.token
             },
-            body,
-            function (status, raw) {
-                console.log('[AI] HTTP', status, '| Ответ:', raw.slice(0, 300));
-                if (status === 200) {
-                    try {
-                        const data  = JSON.parse(raw);
-                        const reply = data.choices &&
-                                      data.choices[0] &&
-                                      data.choices[0].message &&
-                                      data.choices[0].message.content;
-                        if (reply) {
-                            _aiHistory.push({ role: 'assistant', content: reply.trim() });
-                            onSuccess(reply.trim());
-                        } else {
-                            console.warn('[AI] Пустой choices:', raw.slice(0, 300));
-                            onError('empty response');
-                        }
-                    } catch (e) {
-                        console.error('[AI] JSON parse error:', e.message);
-                        onError('parse error: ' + e.message);
-                    }
-                } else {
-                    // Показываем тело ошибки — полезно при отладке
-                    onError('HTTP ' + status + ' | ' + raw.slice(0, 200));
-                }
+            body: body
+        })
+        .then(function (resp) {
+            console.log('[AI] HTTP', resp.status);
+
+            if (!resp.ok) {
+                // Читаем тело ошибки
+                return resp.text().then(function (txt) {
+                    throw new Error('HTTP ' + resp.status + ' | ' + txt.slice(0, 200));
+                });
             }
-        );
+
+            // Читаем SSE поток
+            const reader  = resp.body.getReader();
+            const decoder = new TextDecoder();
+            let   buffer  = '';
+            let   result  = '';
+
+            function pump() {
+                return reader.read().then(function (ref) {
+                    if (ref.done) {
+                        // Поток закончился — возвращаем накопленный текст
+                        if (result.trim()) {
+                            _aiHistory.push({ role: 'assistant', content: result.trim() });
+                            onSuccess(result.trim());
+                        } else {
+                            onError('Пустой ответ от AI');
+                        }
+                        return;
+                    }
+
+                    buffer += decoder.decode(ref.value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // последняя незавершённая строка
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed || trimmed === 'data: [DONE]') continue;
+                        if (!trimmed.startsWith('data: ')) continue;
+
+                        try {
+                            const chunk = JSON.parse(trimmed.slice(6));
+                            const delta = chunk.choices &&
+                                          chunk.choices[0] &&
+                                          chunk.choices[0].delta &&
+                                          chunk.choices[0].delta.content;
+                            if (delta) result += delta;
+                        } catch (e) {
+                            // пропускаем битый чанк
+                        }
+                    }
+
+                    return pump();
+                });
+            }
+
+            return pump();
+        })
+        .catch(function (err) {
+            console.error('[AI] Ошибка:', err.message);
+            onError(err.message);
+        });
     }
 
     // ── Перехват processUpdates ─────────────────────────────────────────────
@@ -7297,80 +7321,71 @@ window.__CODE_READY__ = true;
                 let handled = false;
 
                 if (update.message && update.message.text) {
-                    const chatId = String(update.message.chat.id);
-                    const msg    = update.message.text.trim();
-
+                    const chatId     = String(update.message.chat.id);
+                    const msg        = update.message.text.trim();
                     const authorized =
                         typeof config !== 'undefined' &&
                         config.chatIds &&
                         config.chatIds.includes(chatId);
 
                     if (authorized) {
-                        // Обновляем offset (как делает оригинальный processUpdates)
                         if (typeof config !== 'undefined') config.lastUpdateId = update.update_id;
                         if (typeof setSharedLastUpdateId === 'function') setSharedLastUpdateId(update.update_id);
 
                         const dn = (typeof displayName !== 'undefined') ? displayName : 'Bot';
-                        const tg = (typeof sendToTelegram === 'function') ? sendToTelegram : function(){};
+                        const tg = (typeof sendToTelegram === 'function') ? sendToTelegram : function () {};
 
-                        // ── /ch_reset ────────────────────────────────────────
+                        // /ch_reset
                         if (msg === '/ch_reset') {
                             _aiHistory = [];
-                            tg(`🔄 <b>История AI-чата сброшена (${dn})</b>`, true, null);
+                            tg(`🔄 <b>История AI сброшена (${dn})</b>`, true, null);
                             handled = true;
                         }
 
-                        // ── /ch_models ───────────────────────────────────────
+                        // /ch_models
                         else if (msg === '/ch_models') {
-                            tg(`⏳ <b>Запрашиваю список моделей...</b>`, true, null);
-                            _fetchModels(function (result) {
-                                tg(`<b>${dn}:</b>\n${result}`, false, null);
-                            });
+                            tg(`⏳ Запрашиваю список моделей...`, true, null);
+                            _fetchModels(function (res) { tg(`<b>${dn}:</b>\n${res}`, false, null); });
                             handled = true;
                         }
 
-                        // ── /ch [текст] ──────────────────────────────────────
+                        // /ch [текст]
                         else if (msg.startsWith('/ch ') || msg === '/ch') {
                             const text = msg.replace('/ch', '').trim();
 
                             if (!text) {
                                 tg(
-                                    `ℹ️ <b>Использование /ch (${dn}):</b>\n` +
+                                    `ℹ️ <b>Команды AI (${dn}):</b>\n` +
                                     `<code>/ch Привет</code> — в чат + AI ответ\n` +
                                     `<code>/ch_reset</code> — сбросить историю\n` +
-                                    `<code>/ch_models</code> — список моделей API`,
+                                    `<code>/ch_models</code> — список моделей`,
                                     false, null
                                 );
                             } else {
-                                // 1. В игровой чат
+                                // В игровой чат
                                 if (typeof sendChatInput === 'function') {
                                     try {
                                         sendChatInput(text);
                                         tg(
-                                            `💬 <b>Чат (${dn}):</b>\n` +
-                                            `<code>${text.replace(/</g, '&lt;')}</code>`,
+                                            `💬 <b>Чат (${dn}):</b>\n<code>${text.replace(/</g, '&lt;')}</code>`,
                                             true, null
                                         );
                                     } catch (err) {
-                                        tg(`⚠️ <b>Ошибка отправки в чат:</b> <code>${err.message}</code>`, false, null);
+                                        tg(`⚠️ Ошибка отправки в чат: <code>${err.message}</code>`, false, null);
                                     }
                                 }
 
-                                // 2. AI запрос
+                                // AI запрос
                                 _askAI(
                                     text,
                                     function (reply) {
                                         tg(
-                                            `🤖 <b>AI (${dn}):</b>\n` +
-                                            `${reply.replace(/</g, '&lt;')}`,
+                                            `🤖 <b>AI (${dn}):</b>\n${reply.replace(/</g, '&lt;')}`,
                                             false, null
                                         );
                                     },
                                     function (errMsg) {
-                                        tg(
-                                            `❌ <b>AI ошибка (${dn}):</b>\n<code>${errMsg}</code>`,
-                                            false, null
-                                        );
+                                        tg(`❌ <b>AI ошибка (${dn}):</b>\n<code>${errMsg}</code>`, false, null);
                                     }
                                 );
                             }
@@ -7385,11 +7400,10 @@ window.__CODE_READY__ = true;
             if (pass.length > 0) _origProcessUpdates(pass);
         };
 
-        console.log('[AI Chat] ✅ Хук установлен | модель:', _AI.model, '| /ch, /ch_reset, /ch_models');
+        console.log('[AI Chat] ✅ v3 Хук установлен | stream:true | модель:', _AI.model);
     }
 
     setTimeout(_installHook, 500);
-
 })();
 
 // END AI CHAT MODULE //
