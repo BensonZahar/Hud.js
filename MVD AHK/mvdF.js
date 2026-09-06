@@ -3556,17 +3556,22 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                     // ── 2. Принудительно убираем курсор (мог застрять из-за патча) ──
                     try { window.setCursorStatus('InventoryNew', false); } catch(e) {}
 
-                    // ── 3. Закрываем инвентарь ТОЛЬКО если он ещё открыт ──
-                    // OnInventoryItemUse автоматически закрывает инвентарь на сервере.
-                    // Если послать OnInventoryDisplayChange когда инвентарь уже закрыт —
-                    // это toggle и он откроется снова. Поэтому сначала проверяем.
-                    const isStillOpen = !!(
-                        window.getInterfaceStatus && window.getInterfaceStatus('InventoryNew')
-                    );
-                    console.log(`[АВТО-ТАЗЕР] после Use: инвентарь ${isStillOpen ? 'ещё открыт → закрываем' : 'уже закрыт → не трогаем'}`);
-                    if (isStillOpen) {
-                        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    }
+                    // ── 3. Закрываем инвентарь ТОЛЬКО на клиенте, БЕЗ серверного события ──
+                    // ВАЖНО: НЕ отправляем OnInventoryDisplayChange на сервер!
+                    // После OnInventoryItemUse сервер сам закрывает инвентарь (CloseInterface).
+                    // Если отправить DisplayChange когда сервер уже закрыл — он снова ОТКРОЕТ
+                    // (race condition: toggle-событие переключает закрытый инвентарь в открытый).
+                    // Вместо этого — даём серверу 200мс и закрываем только клиентски если нужно.
+                    setTimeout(() => {
+                        try {
+                            if (window.getInterfaceStatus && window.getInterfaceStatus('InventoryNew')) {
+                                console.log('[АВТО-ТАЗЕР] сервер не закрыл инвентарь — клиентское закрытие');
+                                window.closeInterface('InventoryNew');
+                            } else {
+                                console.log('[АВТО-ТАЗЕР] инвентарь уже закрыт сервером');
+                            }
+                        } catch(e) {}
+                    }, 200);
 
                     // ── 4. Переключаем состояние и уведомление ──
                     _taserEquipped = !_taserEquipped;
@@ -3588,7 +3593,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
     }
 
     window._mvdSwapTaserDeagle = swapTaserDeagle;
-    console.log('[АВТО-ТАЗЕР] v19 готов (USE action — без рюкзака)');
+    console.log('[АВТО-ТАЗЕР] v20 готов (USE action — без рюкзака, race-condition fix)');
 })();
 // ==================== END АВТО-ТАЗЕР: USE ACTION ====================
 
