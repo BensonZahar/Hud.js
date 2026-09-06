@@ -212,7 +212,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.8 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.999 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -3544,10 +3544,10 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                     return;
                 }
 
-                // Симулируем ПКМ "Использовать" (actionIndex 0 = первый пункт контекстного меню)
-                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemAction',
-                    itemLoc.cid, itemLoc.slot, 0);
-                console.log(`[АВТО-ТАЗЕР] OnInventoryItemAction: cid=${itemLoc.cid} slot=${itemLoc.slot} action=0`);
+                // Симулируем ПКМ "Использовать" — точно как движок: OnInventoryItemUse, cid, slot
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemUse',
+                    itemLoc.cid, itemLoc.slot);
+                console.log(`[АВТО-ТАЗЕР] OnInventoryItemUse: cid=${itemLoc.cid} slot=${itemLoc.slot}`);
 
                 setTimeout(() => {
                     // Закрываем инвентарь
