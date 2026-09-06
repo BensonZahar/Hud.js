@@ -212,7 +212,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // MVD AHK VERSION: 2.3 (NAPARNICK)
-console.log("[INIT] === MVD AHK v0.999 ЗАГРУЖЕН ===");
+console.log("[INIT] === MVD AHK v0.8 ЗАГРУЖЕН ===");
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
@@ -3550,14 +3550,29 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                 console.log(`[АВТО-ТАЗЕР] OnInventoryItemUse: cid=${itemLoc.cid} slot=${itemLoc.slot}`);
 
                 setTimeout(() => {
-                    // Закрываем инвентарь
-                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    // Переключаем состояние
+                    // ── 1. Восстанавливаем оригинальный setCursorStatus ──
+                    clearBusy();
+
+                    // ── 2. Принудительно убираем курсор (мог застрять из-за патча) ──
+                    try { window.setCursorStatus('InventoryNew', false); } catch(e) {}
+
+                    // ── 3. Закрываем инвентарь ТОЛЬКО если он ещё открыт ──
+                    // OnInventoryItemUse автоматически закрывает инвентарь на сервере.
+                    // Если послать OnInventoryDisplayChange когда инвентарь уже закрыт —
+                    // это toggle и он откроется снова. Поэтому сначала проверяем.
+                    const isStillOpen = !!(
+                        window.getInterfaceStatus && window.getInterfaceStatus('InventoryNew')
+                    );
+                    console.log(`[АВТО-ТАЗЕР] после Use: инвентарь ${isStillOpen ? 'ещё открыт → закрываем' : 'уже закрыт → не трогаем'}`);
+                    if (isStillOpen) {
+                        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                    }
+
+                    // ── 4. Переключаем состояние и уведомление ──
                     _taserEquipped = !_taserEquipped;
                     const label = _taserEquipped ? 'Тазер активен' : 'Дигл активен';
                     snAdd(`[1, "АВТО-ТАЗЕР", "${label}", "00CC44", 2000]`);
-                    clearBusy();
-                }, 150);
+                }, 300);
             }, 50);
         }
 
