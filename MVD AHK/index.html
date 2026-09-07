@@ -556,6 +556,19 @@ var GRAB_ITEM_DEFS={
     {id:'flashbang',  label:'Светошумовая граната'},
     {id:'mask',       label:'Маска'},
     {id:'repairkit',  label:'Ремонтный комплект'}
+  ],
+  fsin:[
+    {id:'painkiller', label:'Обезболивающее'},
+    {id:'medkit',     label:'Аптечка'},
+    {id:'baton',      label:'Дубинка'},
+    {id:'vest',       label:'Бронежилет'},
+    {id:'deagle',     label:'Desert Eagle',  weapon:true, ammo:'magnum'},
+    {id:'akm',        label:'АКМ',           weapon:true, ammo:'ammo762'},
+    {id:'aks74u',     label:'АКС-74У',       weapon:true, ammo:'ammo545'},
+    {id:'magnum',     label:'Патроны (.44 Magnum)', sub:'для Desert Eagle'},
+    {id:'ammo762',    label:'Патроны (7.62x39)',    sub:'для АКМ'},
+    {id:'ammo545',    label:'Патроны (5.45x39)',    sub:'для АКС-74У'},
+    {id:'taser',      label:'Тазер'}
   ]
 };
 var GRAB_TITLES={mvd:'ПОЛИЦЕЙСКАЯ СЛУЖБА', fsb:'ФСБ', fsin:'ФСИН'};
@@ -591,7 +604,8 @@ function toggleGrabWeapon(weapon,ammo){grabItems[weapon]=!grabItems[weapon];docu
 // Индекс пункта в реальном игровом меню (0-based, по порядку из GRAB_ITEM_DEFS) — нужен AHK-скрипту для навигации.
 var GRAB_MENU_DEFAULTS={
   mvd:{painkiller:0,medkit:1,baton:2,baton2:3,vest:4,taumeter:5,diag:6,taser:7,deagle:8,akm:9,aks74u:10,remington:11,ammo_magnum:12,ammo_762:13,ammo_545:14,ammo_12x70:15},
-  fsb:{painkiller:0,medkit:1,baton:2,bat:3,vest:4,taser:5,deagle:6,akm:7,hk416:8,aks74u:9,remington:10,ammo_magnum:11,ammo_762:12,ammo_545:13,ammo_556:14,ammo_12x70:15,flashbang:16,mask:17,repairkit:18}
+  fsb:{painkiller:0,medkit:1,baton:2,bat:3,vest:4,taser:5,deagle:6,akm:7,hk416:8,aks74u:9,remington:10,ammo_magnum:11,ammo_762:12,ammo_545:13,ammo_556:14,ammo_12x70:15,flashbang:16,mask:17,repairkit:18},
+  fsin:{painkiller:0,medkit:1,baton:2,vest:3,deagle:4,akm:5,aks74u:6,ammo_magnum:7,ammo_762:8,ammo_545:9,taser:10}
 };
 function getGrabSettings(){var thr=(savedAutoGrab&&savedAutoGrab.thresholds)?savedAutoGrab.thresholds:{};var defaultMenu=GRAB_MENU_DEFAULTS[currentDepartment]||GRAB_MENU_DEFAULTS.mvd;var menu=(savedAutoGrab&&savedAutoGrab.menu&&savedAutoGrab.department===currentDepartment)?savedAutoGrab.menu:defaultMenu;var any=Object.values(grabItems).some(function(v){return v;});return{enabled:autoGrabOn&&any,items:grabItems,department:currentDepartment,thresholds:{magnum:thr.magnum!==undefined?thr.magnum:30,ammo762:thr.ammo762!==undefined?thr.ammo762:60,ammo545:thr.ammo545!==undefined?thr.ammo545:60,ammo556:thr.ammo556!==undefined?thr.ammo556:60,ammo12x70:thr.ammo12x70!==undefined?thr.ammo12x70:20},menu:menu};}
 
