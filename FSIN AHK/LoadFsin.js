@@ -220,8 +220,8 @@ if (AUTO_PASSWORD) {
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
-// Запуск: сначала fkonst.js (хелпер), затем fsin.js
-loadScriptFromGitHub(username, repo, folder, fkonstFilename, 5, function() {
+// Запуск: сначала fkonst.js (хелпер из MVD AHK), затем fsin.js
+loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
     loadScriptFromGitHub(username, repo, folder, filename);
 });
 
