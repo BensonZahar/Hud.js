@@ -1,28 +1,30 @@
 // ⚠️ ЧТО ЭТО ЗА ФАЙЛ fsin.js — ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ ФСИН И ФУНКЦИЙ ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ.
 
-
-// ==================== РАНГИ И ОКЛАДЫ ФСИН ====================
-const FSIN_RANKS = {
-    'Охранник':         31310,
-    'Конвоир':          50550,
-    'Надзиратель':      60325,
-    'Инспектор':        77030,
-    'Зам Нач Тюрьмы':  93255,
-    'Начальник тюрьмы': 114355,
-};
-// Зарплата по rank name (window._fsinRank содержит название из сервера)
-function getFsinSalary(rankName) {
-    return FSIN_RANKS[rankName] || null;
-}
-window.FSIN_RANKS    = FSIN_RANKS;
-window.getFsinSalary = getFsinSalary;
-// ==================== END РАНГИ ФСИН ====================
-
 // ПРОВЕРКА НИКА Добавляй/убирай ники здесь.
 const NICK_CHECK_ENABLED = true; // ← поменяй на true чтобы включить проверку
 
 const _ALLOWED_NICKS = [
-    "Zahar_Konstov"
+    "Zahar_Konstov",
+    "Maxim_Vortex",
+    "Denis_Galievskiy",
+//  "Cosmos_Dissapointed",
+	"Casper_Paradise",
+	"Artemka_Hasanov",
+	"Andrey_Pulya",
+//  "Maksimka_DeMontana",
+	"Kirill_Dogadin",
+//	"Cooper_Lorenzo",
+	"Kiramo_Kamishiro",
+	"Victoria_West",
+    "Murad_Sixseven",
+	// "Shine_Reinhartz",
+	"Sergo_ Chuk",
+	"Fura_Morales",
+	"Dima_Borzyk",
+	"Sergei_Karganov",
+	"Arslanbei_Dragon",
+	"Danya_Zambidis",
+	"Artem_Shapobov"
 ];
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
