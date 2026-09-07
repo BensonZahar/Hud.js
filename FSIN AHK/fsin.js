@@ -3050,13 +3050,13 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
      MEDKIT:       1,  // Аптечка
      BATON:        2,  // Дубинка
      VEST:         3,  // Бронежилет
-     TASER:        4,  // Тазер
-     DEAGLE:       5,  // Desert Eagle
-     AKM:          6,  // АКМ
-     AKS74U:       7,  // АКС-74У
-     AMMO_MAGNUM:  8,  // Патроны .44 Magnum
-     AMMO_762:     9,  // Патроны 7.62x39
-     AMMO_545:    10,  // Патроны 5.45x39
+     DEAGLE:       4,  // Desert Eagle
+     AKM:          5,  // АКМ
+     AKS74U:       6,  // АКС-74У
+     AMMO_MAGNUM:  7,  // Патроны .44 Magnum
+     AMMO_762:     8,  // Патроны 7.62x39
+     AMMO_545:     9,  // Патроны 5.45x39
+     TASER:       10,  // Тазер
  };
 
  const DIALOG_ID = 0;
@@ -3339,13 +3339,13 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
          if (need.baton)       toTake.push({ name: "Дубинка",                                 idx: MENU.BATON });
          if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
-         if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
          if (need.deagle)      toTake.push({ name: "Desert Eagle (Дигл)",                     idx: MENU.DEAGLE });
          if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
          if (need.aks74u)      toTake.push({ name: "АКС-74У",                                 idx: MENU.AKS74U });
          if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
          if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
          if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
+         if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
 
          for (let i = 0; i < toTake.length; i++) {
              console.log(`[FSIN-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [МОМЕНТАЛЬНО]`);
