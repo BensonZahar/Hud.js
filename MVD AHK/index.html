@@ -87,6 +87,10 @@
             <svg viewBox="0 0 24 24"><path d="M12 2L2 7l2 9 8 6 8-6 2-9L12 2zm0 3.5l6.5 3.25-1.5 6.75L12 19l-5-3.5-1.5-6.75L12 5.5z"/></svg>
             <span>ФСБ</span>
           </button>
+          <button id="dept-fsin" class="dept-btn dept-fsin" onclick="setDepartment('fsin')">
+            <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <span>ФСИН</span>
+          </button>
         </div>
 
         <div class="card">
@@ -255,6 +259,7 @@
           </div>
         </div>
 
+        <div id="section-eject">
         <!-- Auto-eject toggle -->
         <div class="chk-row" onclick="toggleEject()">
           <div class="chk-box" id="chk-box-eject"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -277,6 +282,7 @@
             </div>
           </div>
         </div>
+        </div><!-- /section-eject -->
 
         <!-- Кнопка АХК-меню — всегда видна, стиль как у тазера -->
         <div id="menu-key-wrap">
@@ -397,20 +403,24 @@ function setDepartment(dept){
   currentDepartment=dept;
   document.getElementById('dept-mvd').classList.toggle('active',dept==='mvd');
   document.getElementById('dept-fsb').classList.toggle('active',dept==='fsb');
+  document.getElementById('dept-fsin').classList.toggle('active',dept==='fsin');
   applyDepartment(dept);
   if(api)api.save_department(dept);
 }
 function applyDepartment(dept){
   var isMvd=dept==='mvd';
-  // Позывной теперь используется и у МВД, и у ФСБ. Авто-снаряжение тоже есть
-  // у обеих структур, просто с разным заголовком и набором предметов (см. renderGrabItems).
-  var el;
+  var isFsin=dept==='fsin';
+  // Для ФСИН скрываем Позывной и Авто-выброс из авто
+  var sectionCallsign=document.getElementById('section-callsign');
+  if(sectionCallsign)sectionCallsign.style.display=isFsin?'none':'';
+  var sectionEject=document.getElementById('section-eject');
+  if(sectionEject)sectionEject.style.display=isFsin?'none':'';
   var lbl=document.getElementById('callsign-lbl');
   if(lbl)lbl.textContent=isMvd?'Позывной ОМОН':'Позывной';
   renderGrabItems(dept);
   // Обновляем подсказку на главной
   var infoEl=document.getElementById('info-dept');
-  if(infoEl)infoEl.textContent=isMvd?'МВД':'ФСБ';
+  if(infoEl)infoEl.textContent=isMvd?'МВД':(isFsin?'ФСИН':'ФСБ');
 }
 // action -> label для пунктов меню «Повседневная»
 var ALL_MENU_ITEMS=[
@@ -548,7 +558,7 @@ var GRAB_ITEM_DEFS={
     {id:'repairkit',  label:'Ремонтный комплект'}
   ]
 };
-var GRAB_TITLES={mvd:'ПОЛИЦЕЙСКАЯ СЛУЖБА', fsb:'ФСБ'};
+var GRAB_TITLES={mvd:'ПОЛИЦЕЙСКАЯ СЛУЖБА', fsb:'ФСБ', fsin:'ФСИН'};
 // Общий объект состояния чекбоксов — ключи предметов уникальны в рамках структуры,
 // пересекающиеся (painkiller, medkit, taser и т.д.) сохраняют своё состояние отдельно не требуется,
 // т.к. одновременно в DOM присутствуют только пункты активной структуры.
@@ -610,11 +620,12 @@ window.addEventListener('pywebviewready',function(){
       document.getElementById('st-code').textContent='Установлен';
       document.getElementById('st-code').className='cr-val ok';
     }
-    // Восстанавливаем выбор структуры (МВД/ФСБ)
-    if(s.department==='fsb'||s.department==='mvd'){
+    // Восстанавливаем выбор структуры (МВД/ФСБ/ФСИН)
+    if(s.department==='fsb'||s.department==='mvd'||s.department==='fsin'){
       currentDepartment=s.department;
       document.getElementById('dept-mvd').classList.toggle('active',s.department==='mvd');
       document.getElementById('dept-fsb').classList.toggle('active',s.department==='fsb');
+      document.getElementById('dept-fsin').classList.toggle('active',s.department==='fsin');
       applyDepartment(s.department);
     }
     // Если путь рабочий — сразу открываем страницу вставки

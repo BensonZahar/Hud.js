@@ -660,3 +660,8 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
   background:rgba(82,140,255,.12);border-color:rgba(82,140,255,.4);
   color:#7aa8ff;box-shadow:0 0 0 1px rgba(82,140,255,.12) inset
 }
+/* ФСИН — серебристый */
+.dept-fsin.active{
+  background:rgba(192,192,192,.12);border-color:rgba(192,192,192,.4);
+  color:#C0C0C0;box-shadow:0 0 0 1px rgba(192,192,192,.12) inset
+}
