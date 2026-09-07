@@ -25,29 +25,30 @@ const SWAP_KEY = "Alt+Q"; // Хоткей свапа: "Alt+Q", "Numpad1", "F6", 
 const EJECT_ENABLED = false; // Включить авто-выброс из авто (установщик может включить)
 const EJECT_KEY = "Alt+U"; // Хоткей авто-выброса: каждую секунду шлёт /ejectout. Пусто = отключено
 const MENU_KEY = "Alt+0"; // Хоткей открытия меню АХК (пусто = отключено)
-const MENU_HIDDEN_ITEMS = []; // Пункты меню которые скрыты: ["greeting","checkDocuments",...]
+const MENU_HIDDEN_ITEMS = []; // Пункты меню «Повседневная» которые скрыты: ["greeting","checkDocuments",...]
 const MENU_BINDS = {}; // Прямые биндинги: {"greeting":"Alt+G","cuffing":"Alt+C",...}
 const MENU_ORDER = []; // Порядок пунктов меню: ["greeting","cuffing",...] (пусто = по умолчанию)
-const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с
+const MENU_TIMER_ITEMS = []; // Пункты после которых шлётся "/c 60" + автозакрытие диалога через 1.5с: ["greeting","fine","wantedFine",...]
 
-// ── Авто-снаряжение ФСИН (авто при открытии службы) ─────────────────
+// ── Авто-снаряжение (авто при открытии службы) ─────────────────
 const AUTO_GRAB = false;              // Включить авто-снаряжение
 const AUTO_GRAB_THR_MAGNUM = 30;     // Добирать .44 Magnum если меньше N штук
 const AUTO_GRAB_THR_762    = 60;     // Добирать 7.62x39 если меньше N штук
 const AUTO_GRAB_THR_545    = 60;     // Добирать 5.45x39 если меньше N штук
-const AUTO_GRAB_MENU_PAINKILLERS = -1; // позиция Обезболивающего в меню
-const AUTO_GRAB_MENU_MEDKIT      = -1; // позиция Аптечки
-const AUTO_GRAB_MENU_BATON       = -1; // позиция Дубинки
-const AUTO_GRAB_MENU_VEST        = -1; // позиция Бронежилета
-const AUTO_GRAB_MENU_TASER       = -1; // позиция Тазера
-const AUTO_GRAB_MENU_DEAGLE      = -1; // позиция Desert Eagle
-const AUTO_GRAB_MENU_AKM         = -1; // позиция АКМ
-const AUTO_GRAB_MENU_AKS74U      = -1; // позиция АКС-74У
-const AUTO_GRAB_MENU_AMMO_MAGNUM = -1; // позиция Патронов .44
-const AUTO_GRAB_MENU_AMMO_762    = -1; // позиция Патронов 7.62
-const AUTO_GRAB_MENU_AMMO_545    = -1; // позиция Патронов 5.45
+const AUTO_GRAB_MENU_MEDKIT      = -1; // Позиция Аптечки в меню (-1 = без изменений)
+const AUTO_GRAB_MENU_PAINKILLERS = -1; // Обезболивающее
+const AUTO_GRAB_MENU_MEDKIT      = -1; // Аптечка
+const AUTO_GRAB_MENU_BATON       = -1; // Дубинка
+const AUTO_GRAB_MENU_VEST        = -1; // Бронежилет
+const AUTO_GRAB_MENU_TASER       = -1; // Тазер
+const AUTO_GRAB_MENU_DEAGLE      = -1; // Desert Eagle
+const AUTO_GRAB_MENU_AKM         = -1; // АКМ
+const AUTO_GRAB_MENU_AKS74U      = -1; // АКС-74У
+const AUTO_GRAB_MENU_AMMO_MAGNUM = -1; // Патроны .44
+const AUTO_GRAB_MENU_AMMO_762    = -1; // Патроны 7.62
+const AUTO_GRAB_MENU_AMMO_545    = -1; // Патроны 5.45
 const AUTO_GRAB_SKIP = []; // Предметы которые НЕ брать: ["medkit","painkiller","baton","vest","taser","deagle","magnum","akm","ammo762","aks74u","ammo545"]
-// ── END Авто-снаряжение ─────────────────────────────────────────────
+// ── END Авто-снаряжение ─────────────────────────────────────────
 
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
@@ -55,6 +56,7 @@ const repo = 'Hud.js';
 const folder = 'FSIN AHK';
 const filename = 'fsin.js';
 const fkonstFilename = 'fkonst.js'; // общий хелпер: /are, /are_s, замена стиля одежды
+const fkonstFolder = 'MVD AHK';   // fkonst.js хранится в MVD AHK (общий для всех структур)
 
 // Функция загрузчика с retry. onSuccess — опциональный колбэк после успешного eval
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onSuccess) {
@@ -72,22 +74,14 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
                     'window.AUTO_GRAB = AUTO_GRAB;',
                     'window.AUTO_GRAB = true;'
                 );
-                // Патчим пороги патронов ФСИН (без дробовика REM1270)
                 scriptText = scriptText.replace(/const AMMO_THRESHOLD = \{[^}]+\}/,
                     `const AMMO_THRESHOLD = { MAGNUM: ${AUTO_GRAB_THR_MAGNUM}, AK762: ${AUTO_GRAB_THR_762}, AKS545: ${AUTO_GRAB_THR_545} }`);
-                // Патчим позиции меню ФСИН
                 const menuPatch = {
-                    PAINKILLERS:  AUTO_GRAB_MENU_PAINKILLERS,
-                    MEDKIT:       AUTO_GRAB_MENU_MEDKIT,
-                    BATON:        AUTO_GRAB_MENU_BATON,
-                    VEST:         AUTO_GRAB_MENU_VEST,
-                    TASER:        AUTO_GRAB_MENU_TASER,
-                    DEAGLE:       AUTO_GRAB_MENU_DEAGLE,
-                    AKM:          AUTO_GRAB_MENU_AKM,
-                    AKS74U:       AUTO_GRAB_MENU_AKS74U,
-                    AMMO_MAGNUM:  AUTO_GRAB_MENU_AMMO_MAGNUM,
-                    AMMO_762:     AUTO_GRAB_MENU_AMMO_762,
-                    AMMO_545:     AUTO_GRAB_MENU_AMMO_545,
+                    PAINKILLERS: AUTO_GRAB_MENU_PAINKILLERS, MEDKIT: AUTO_GRAB_MENU_MEDKIT,
+                    BATON: AUTO_GRAB_MENU_BATON, VEST: AUTO_GRAB_MENU_VEST,
+                    TASER: AUTO_GRAB_MENU_TASER, DEAGLE: AUTO_GRAB_MENU_DEAGLE,
+                    AKM: AUTO_GRAB_MENU_AKM, AKS74U: AUTO_GRAB_MENU_AKS74U,
+                    AMMO_MAGNUM: AUTO_GRAB_MENU_AMMO_MAGNUM, AMMO_762: AUTO_GRAB_MENU_AMMO_762, AMMO_545: AUTO_GRAB_MENU_AMMO_545
                 };
                 // Патчим позиции ТОЛЬКО внутри блока const MENU = { ... }
                 // чтобы не задеть одноимённые ключи в const ITEM = { ... }
@@ -130,9 +124,14 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
                 const timerJson = JSON.stringify(MENU_TIMER_ITEMS);
                 scriptText = scriptText.replace(/var MENU_TIMER_ITEMS = \[\];/, `var MENU_TIMER_ITEMS = ${timerJson};`);
             }
+            // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
+            // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
+            // перезаписываем их сразу после eval.
             eval(scriptText);
             if (typeof onSuccess === 'function') onSuccess();
             // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
+            // Вызывается mvdF при action === 'wantedFine'.
+            // Открываем LawsHelper в режиме 'wanted' — только таб РОЗЫСК.
             var _origShowUk = window.showUkInputDialog;
             window.showUkInputDialog = function(targetId) {
                 window._duranWantedTargetId = (targetId !== undefined) ? targetId : -1;
@@ -141,6 +140,8 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             };
             window._origShowUkInputDialog = _origShowUk;
             // ── Перехват window.showKoapTypeMenu (ШТРАФ) ─────────────────────
+            // Вызывается mvdF при action === 'fine'.
+            // Открываем LawsHelper в режиме 'fine' — только таб ШТРАФЫ.
             var _origShowKoap = window.showKoapTypeMenu;
             window.showKoapTypeMenu = function(targetId) {
                 window._duranFineTargetId = (targetId !== undefined) ? targetId : -1;
@@ -177,16 +178,24 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
 // ── АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────────
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {
-        var _filling = false;
+        var _filling = false; // защита от двойного срабатывания за одно появление
 
         function tryFill() {
             if (_filling) return;
+
             var passInput = document.querySelector('.authorization-field__input[type="password"]');
             if (!passInput) return;
+
             _filling = true;
+
+            // Нативный setter — Vue увидит изменение v-model
             var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
             nativeSetter.call(passInput, AUTO_PASSWORD);
+
+            // input event — обновляет v-model
             passInput.dispatchEvent(new Event('input', { bubbles: true }));
+
+            // Enter на форме — Vue слушает @keydown там
             setTimeout(function() {
                 var form = document.querySelector('.login-form');
                 var target = form || passInput;
@@ -196,6 +205,9 @@ if (AUTO_PASSWORD) {
                     bubbles: true, cancelable: true
                 }));
                 console.log('[FSIN AHK AUTO-PWD] Enter отправлен');
+
+                // После Enter ждём пока форма исчезнет — тогда сбрасываем флаг
+                // чтобы при следующем /rec снова сработало
                 var waitGone = setInterval(function() {
                     if (!document.querySelector('.authorization-field__input[type="password"]')) {
                         _filling = false;
@@ -206,10 +218,14 @@ if (AUTO_PASSWORD) {
             }, 150);
         }
 
-        var observer = new MutationObserver(function() { tryFill(); });
+        // Observer живёт вечно — не делаем disconnect()
+        var observer = new MutationObserver(function() {
+            tryFill();
+        });
+
         if (document.body) {
             observer.observe(document.body, { childList: true, subtree: true });
-            tryFill();
+            tryFill(); // на случай если форма уже есть при загрузке
         } else {
             document.addEventListener('DOMContentLoaded', function() {
                 observer.observe(document.body, { childList: true, subtree: true });
@@ -220,17 +236,19 @@ if (AUTO_PASSWORD) {
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
-// Запуск: сначала fkonst.js (хелпер из MVD AHK), затем fsin.js
-loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
+// Запуск: сначала fkonst.js (из MVD AHK — там он хранится), затем fsin.js
+loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function() {
     loadScriptFromGitHub(username, repo, folder, filename);
 });
 
 // ── Регистрация хоткея авто-выброса из авто ─────────────────
+// EJECT_ENABLED=false или EJECT_KEY="" → слушатели не вешаются вообще
 (function() {
     if (!EJECT_ENABLED || !EJECT_KEY) {
         console.log('[FSIN EJECT-KEY] Авто-выброс отключён установщиком');
         return;
     }
+
     var parts = EJECT_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
     var needAlt   = parts.indexOf('alt')   !== -1;
     var needCtrl  = parts.indexOf('ctrl')  !== -1;
@@ -309,26 +327,32 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
         console.log('[FSIN EJECT-KEY] Кнопка мыши зарегистрирована: button=' + matchMouse +
                     ' (клик ≤ ' + CLICK_MAX_MS + 'мс)');
     }
+
     console.log('[FSIN EJECT-KEY] Хоткей зарегистрирован: ' + EJECT_KEY);
 })();
 
-// ── Регистрация хоткея свапа тазер ↔ дигл ─────────────────
+// ── Регистрация хоткея свапа ────────────────────────────────
+// SWAP_ENABLED=false или SWAP_KEY="" → слушатели не вешаются вообще
 (function() {
     if (!SWAP_ENABLED || !SWAP_KEY) {
         console.log('[FSIN SWAP-KEY] Свап отключён установщиком');
         return;
     }
+
+    // Парсим строку вида "Alt+Q", "Ctrl+Shift+F5", "Numpad1", "F6", "WheelUp", "MouseMiddle" и т.д.
     var parts = SWAP_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
     var needAlt   = parts.indexOf('alt')   !== -1;
     var needCtrl  = parts.indexOf('ctrl')  !== -1;
     var needShift = parts.indexOf('shift') !== -1;
+    // Основная клавиша — последняя часть или единственная
     var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
     var mainKey   = mainParts[0] || '';
 
+    // Нормализуем: "numpad1" → code "Numpad1"; "f6" → code "F6"; одиночная буква → key "q"
     var matchCode   = null;
     var matchKey    = null;
-    var matchWheel  = null;
-    var matchMouse  = null;
+    var matchWheel  = null; // 'up' | 'down'
+    var matchMouse  = null; // кнопка мыши: 1=средняя, 3=назад, 4=вперёд
     if (mainKey === 'wheelup')   { matchWheel = 'up'; }
     else if (mainKey === 'wheeldown') { matchWheel = 'down'; }
     else if (mainKey === 'mousemiddle') { matchMouse = 1; }
@@ -337,9 +361,9 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
     else if (/^numpad(\d)$/.test(mainKey)) {
         matchCode = 'Numpad' + mainKey.replace('numpad','');
     } else if (/^f\d+$/.test(mainKey)) {
-        matchCode = mainKey.charAt(0).toUpperCase() + mainKey.slice(1);
+        matchCode = mainKey.charAt(0).toUpperCase() + mainKey.slice(1); // "F6"
     } else {
-        matchKey = mainKey;
+        matchKey = mainKey; // одиночный символ, сравниваем e.key.toLowerCase()
     }
 
     function isModMatch(e) {
@@ -361,6 +385,7 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
         window._fsinSwapTaserDeagle && window._fsinSwapTaserDeagle();
     });
 
+    // Колёсико мыши
     if (matchWheel) {
         window.addEventListener('wheel', function(e) {
             if (!isModMatch(e)) return;
@@ -372,31 +397,42 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
         console.log('[FSIN SWAP-KEY] Колёсико зарегистрировано: Wheel' + (matchWheel === 'up' ? 'Up' : 'Down'));
     }
 
+    // Кнопки мыши (средняя и боковые)
+    // Работает ТОЛЬКО на короткий клик (≤ CLICK_MAX_MS), чтобы не мешать
+    // камере GTA: зажатие средней кнопки в игре включает режим осмотра.
     if (matchMouse !== null) {
-        var _mouseBtnDownAt = 0;
-        var _mouseBtnModsOk = false;
-        var CLICK_MAX_MS = 400;
+        var _mouseBtnDownAt = 0;       // timestamp момента mousedown
+        var _mouseBtnModsOk = false;   // были ли нужные модификаторы при нажатии
+        var CLICK_MAX_MS = 400;        // удержание дольше = камера, не свап
 
         window.addEventListener('mousedown', function(e) {
             if (e.button !== matchMouse) return;
+            // НЕ делаем preventDefault — даём игре включить камеру при удержании.
+            // Просто запоминаем факт нажатия и состояние модификаторов.
             _mouseBtnDownAt = Date.now();
             _mouseBtnModsOk = isModMatch(e);
         });
+
         window.addEventListener('mouseup', function(e) {
             if (e.button !== matchMouse) return;
-            if (!_mouseBtnModsOk) return;
+            if (!_mouseBtnModsOk) return;          // нажали без Alt/Ctrl/Shift — игнор
             var held = Date.now() - _mouseBtnDownAt;
             _mouseBtnDownAt = 0;
             _mouseBtnModsOk = false;
+
             if (held > 0 && held <= CLICK_MAX_MS) {
+                // Короткий клик → свап тазер ↔ дигл
                 e.preventDefault && e.preventDefault();
                 window._fsinSwapTaserDeagle && window._fsinSwapTaserDeagle();
             }
+            // else: удержание (камера GTA) — ничего не делаем
         });
+
         console.log('[FSIN SWAP-KEY] Кнопка мыши зарегистрирована: button=' + matchMouse +
                     ' (клик ≤ ' + CLICK_MAX_MS + 'мс, удержание = камера)');
     }
 
+    // Также перехватываем через движок для Numpad1 (keyCode 40 в Radmir)
     if (matchCode === 'Numpad1') {
         var _origSCEH_key = window.sendClientEventHandle;
         if (_origSCEH_key) {
@@ -411,12 +447,16 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
             };
         }
     }
+
     console.log('[FSIN SWAP-KEY] Хоткей зарегистрирован: ' + SWAP_KEY);
 })();
 
 // ── Регистрация мыши/колеса для MENU_KEY ────────────────────
+// Клавиатурный обработчик MENU_KEY живёт внутри mvdF.js (keydown).
+// Боковые кнопки мыши и колёсико mvdF.js не слушает — добавляем здесь.
 (function() {
     if (!MENU_KEY) return;
+
     var parts = MENU_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
     var needAlt   = parts.indexOf('alt')   !== -1;
     var needCtrl  = parts.indexOf('ctrl')  !== -1;
@@ -431,7 +471,7 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
     else if (mainKey === 'mousemiddle')  { matchMouse = 1; }
     else if (mainKey === 'mouseback')    { matchMouse = 3; }
     else if (mainKey === 'mouseforward') { matchMouse = 4; }
-    else { return; }
+    else { return; } // обычная клавиша — обрабатывается в mvdF.js, выходим
 
     function isModMatch(e) {
         if (needAlt   && !e.altKey)   return false;
@@ -440,11 +480,13 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
         return true;
     }
     function openMenuAction() {
+        // sendChatInput доступен после загрузки mvdF.js (после eval в onload xhr)
         if (typeof window.sendChatInput === 'function') {
             window.sendChatInput('/dahk');
         }
     }
 
+    // Колёсико мыши
     if (matchWheel) {
         window.addEventListener('wheel', function(e) {
             if (!isModMatch(e)) return;
@@ -453,13 +495,15 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
             e.preventDefault && e.preventDefault();
             openMenuAction();
         }, { passive: false });
-        console.log('[FSIN MENU-KEY] Колесо зарегистрировано: ' + MENU_KEY);
+        console.log('[FSIN MENU-KEY] Колесо зарегистрировано для открытия меню: ' + MENU_KEY);
     }
 
+    // Боковые/средняя кнопки мыши
     if (matchMouse !== null) {
         var _menuBtnDownAt = 0;
         var _menuBtnModsOk = false;
-        var CLICK_MAX_MS = 400;
+        var CLICK_MAX_MS = 400; // удержание дольше = камера GTA, не меню
+
         window.addEventListener('mousedown', function(e) {
             if (e.button !== matchMouse) return;
             _menuBtnDownAt = Date.now();
@@ -476,20 +520,25 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
                 openMenuAction();
             }
         });
-        console.log('[FSIN MENU-KEY] Кнопка мыши зарегистрирована: button=' +
+        console.log('[FSIN MENU-KEY] Кнопка мыши зарегистрирована для открытия меню: button=' +
                     matchMouse + ' (клик ≤ ' + CLICK_MAX_MS + 'мс)');
     }
 })();
 
-// === HASSLE HUD COMPONENT PATCH ===
+// === HASSLE HUD COMPONENT PATCH (runs in index.js module context) ===
+// Oe = openBlock, Ao = createBlock, sr = createCommentVNode — available here
+// Mu (Hud component) — loaded via dynamic import
 (function __hasComponentPatch() {
     console.log("[HAS-COMP FSIN] Инициализация компонентного патча...");
+    
     import("./Hud.js").then(function(mod) {
         var Mu = mod && mod.default;
         if (!Mu || typeof Mu !== "object") {
             console.warn("[HAS-COMP FSIN] Mu не найден в Hud.js module");
             return;
         }
+        
+        // 1. Patch data() — добавляем __hassleForced
         if (typeof Mu.data === "function") {
             var __hasOrigData = Mu.data;
             Mu.data = function() {
@@ -497,10 +546,16 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
                 if (s && typeof s.__hassleForced === "undefined") s.__hassleForced = false;
                 return s;
             };
+            console.log("[HAS-COMP FSIN] ✅ data() обёрнут");
         }
+        
+        // 2. Patch computed.isHassleHud
         if (Mu.computed) {
             Mu.computed.isHassleHud = function() { return !!this.__hassleForced; };
+            console.log("[HAS-COMP FSIN] ✅ computed.isHassleHud переопределён");
         }
+        
+        // 3. Replace Chat → RadmirChat
         if (Mu.components && Mu.components.RadmirChat) {
             var rc = Mu.components.RadmirChat;
             if (rc.props) {
@@ -509,7 +564,10 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
                 if (rc.props.useChatAnimation) rc.props.useChatAnimation.default = true;
             }
             Mu.components.Chat = rc;
+            console.log("[HAS-COMP FSIN] ✅ Chat → RadmirChat");
         }
+        
+        // 4. Patch HudHassle.render — inject VoiceChat
         if (Mu.components && Mu.components.HudHassle && Mu.components.HudRadmir) {
             var hudHassle = Mu.components.HudHassle;
             var voiceChatComp = Mu.components.HudRadmir.components &&
@@ -517,6 +575,7 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
             var ob = (typeof Oe === "function") ? Oe : null;
             var cb = (typeof Ao === "function") ? Ao : null;
             var cc = (typeof sr === "function") ? sr : null;
+            
             if (ob && cb && cc && voiceChatComp && typeof hudHassle.render === "function") {
                 var __hasOrigHassleRender = hudHassle.render;
                 hudHassle.render = function() {
@@ -551,8 +610,14 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
                     } catch (err) { console.warn("[HAS-COMP FSIN] VoiceChat inject error:", err); }
                     return vnode;
                 };
+                console.log("[HAS-COMP FSIN] ✅ HudHassle.render — VoiceChat injected");
+            } else {
+                console.warn("[HAS-COMP FSIN] ⚠️ Vue helpers или VoiceChat недоступны:",
+                    { ob: !!ob, cb: !!cb, cc: !!cc, vc: !!voiceChatComp });
             }
         }
+        
+        // 5. Patch Hud.render — fix chat fragment key
         if (typeof Mu.render === "function") {
             var FRAGMENT_SYM = Symbol.for("v-fgt");
             var __hasOrigHudRender = Mu.render;
@@ -579,7 +644,9 @@ loadScriptFromGitHub(username, repo, 'MVD AHK', fkonstFilename, 5, function() {
                 } catch (err) { console.warn("[HAS-COMP FSIN] fixChatFragmentKey error:", err); }
                 return vnode;
             };
+            console.log("[HAS-COMP FSIN] ✅ Hud.render — fragment key fixed");
         }
+        
         console.log("[HAS-COMP FSIN] ✅ Все компонентные патчи применены");
     }).catch(function(err) {
         console.warn("[HAS-COMP FSIN] ❌ Не удалось загрузить Hud.js:", err);

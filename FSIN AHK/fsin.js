@@ -29,8 +29,8 @@ const _ALLOWED_NICKS = [
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
 function _showAccessDenied(nick) {
-    var title = "AHK ФСИН — Доступ запрещён";
-    var text  = "Вашего никнейма (" + nick + ") нет в списке доступа AHK ФСИН. Обратитесь к создателю.";
+    var title = "AHK — Доступ запрещён";
+    var text  = "Вашего никнейма (" + nick + ") нет в списке доступа AHK. Обратитесь к создателю.";
     var shown = false;
 
     function tryShow() {
@@ -283,15 +283,15 @@ function trackSkinId() {
         // считает это "изменением" скина каждый цикл опроса
         if (numericSkin !== skinId) {
             skinId = numericSkin;
-            window._fsinSkinId = skinId;
+            window._fsinSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js (проверка исключения СОБР для greeting)
 
             console.log(`[SKIN] 🔍 Новый Skin ID обнаружен: ${skinId}`);
 
             // Проверяем, является ли скин МВД
             if (fsinSkins.includes(skinId)) {
-                console.log(`[SKIN] ✅ Скин ${skinId} - это ФСИН скин!`);
+                console.log(`[SKIN] ✅ Скин ${skinId} - это МВД скин!`);
             } else {
-                console.log(`[SKIN] ❌ Скин ${skinId} НЕ входит в список ФСИН`);
+                console.log(`[SKIN] ❌ Скин ${skinId} НЕ входит в список МВД`);
             }
         }
     }
@@ -299,18 +299,18 @@ function trackSkinId() {
 }
 // 5. ЗАПУСК после загрузки
 setTimeout(() => {
-    console.log('[SKIN] 🚀 Запуск отслеживания скина ФСИН...');
+    console.log('[SKIN] 🚀 Запуск отслеживания скина МВД...');
     const initialSkin = getSkinIdFromStore();
     if (initialSkin !== null) {
         // Приводим к числу сразу
         skinId = Number(initialSkin);
-        window._fsinSkinId = skinId;
+        window._fsinSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
         console.log(`[SKIN] 📌 Начальный Skin ID: ${skinId}`);
     
         if (fsinSkins.includes(skinId)) {
-            console.log(`[SKIN] ✅ Скин ${skinId} в списке ФСИН - меню /dahk доступно`);
+            console.log(`[SKIN] ✅ Скин ${skinId} в списке МВД - меню /dahk доступно`);
         } else {
-            console.log(`[SKIN] ⚠️ Скин ${skinId} не является ФСИН скином`);
+            console.log(`[SKIN] ⚠️ Скин ${skinId} не является МВД скином`);
         }
     } else {
         console.log('[SKIN] ❌ Не удалось получить начальный Skin ID');
@@ -539,8 +539,8 @@ window.addEventListener('keydown', function(e) {
             if (!_opt) break;
             currentAction = _action;
             currentMenu = "povsednev"; // FIX: устанавливаем currentMenu чтобы диалог 668 сработал
-            // ФСИН: isOmonSkin всегда false, ID требуется для greeting
-            var _isOmonSkin = false; // ФСИН: нет ОМОН
+            // FIX: СОБР-скин (15340) для greeting не требует ID — как в HandlePovsednevCommand
+            var _isOmonSkin = false /* ФСИН: нет ОМОН */;
             var _needsIdForThis = _opt.needsId && !(_action === 'greeting' && _isOmonSkin);
             if (_needsIdForThis) {
                 // FIX: открываем кастомный экран ввода ID внутри MvdMenu (а не нативный
@@ -1385,7 +1385,7 @@ setupChatHandler();
 (() => {
     const originalOnChatMessage = window.onChatMessage;
     if (typeof originalOnChatMessage !== 'function') {
-        console.log('[MVD-CHAT] window.onChatMessage не найден — раннее логирование не установлено');
+        console.log('[FSIN-CHAT] window.onChatMessage не найден — раннее логирование не установлено');
         return;
     }
     window.onChatMessage = function(message, args) {
@@ -1403,7 +1403,7 @@ setupChatHandler();
         }
         return originalOnChatMessage.apply(this, arguments);
     };
-    console.log('[MVD-CHAT] Раннее логирование чата установлено (onChatMessage)');
+    console.log('[FSIN-CHAT] Раннее логирование чата установлено (onChatMessage)');
 })();
 // ==================== КОНЕЦ РАННЕГО ЛОГИРОВАНИЯ ====================
 
@@ -1718,7 +1718,7 @@ const toggleAutoGrab = () => {
 Object.defineProperty(window, '_mvdCurrentScanId',   { get: () => currentScanId,   configurable: true });
 Object.defineProperty(window, '_mvdTrackingNick',    { get: () => trackingNickname, configurable: true });
 Object.defineProperty(window, '_mvdAutoCuffEnabled', { get: () => autoCuffEnabled, configurable: true });
-Object.defineProperty(window, '_mvdAutoGrabEnabled', { get: () => autoGrabEnabled, configurable: true });
+Object.defineProperty(window, '_fsinAutoGrabEnabled', { get: () => autoGrabEnabled, configurable: true });
 // Геттер метки напарника
 window._mvdGetPartnerLabel = function() {
     if (partnerTrackingEnabled && partnerNick && partnerId) {
@@ -1802,8 +1802,8 @@ const HandlePovsednevCommand = (optionIndex) => {
         const option = _visible[adjustedIndex];
         currentAction = option.action;
   
-        // Динамическая проверка needsId: для "greeting" ID всегда нужен (ФСИН)
-        const isOmonSkin = false; // ФСИН: нет ОМОН
+        // Динамическая проверка needsId: для "greeting" не запрашивать ID, если скин ОМОН (15340)
+        const isOmonSkin = false /* ФСИН: нет ОМОН */;
         const needsIdForThis = option.needsId && !(option.action === "greeting" && isOmonSkin);
   
         if (needsIdForThis) {
@@ -2058,7 +2058,7 @@ window.addEventListener('keydown', function(e) {
 
 const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
-    const isOmonSkin = false; // ФСИН: нет ОМОН
+    const isOmonSkin = false /* ФСИН: нет ОМОН */;
     switch (action) {
 	case "greeting":
 		const _rank = window._fsinRank || '';
@@ -2648,7 +2648,7 @@ window.sendChatInputCustom = e => {
     targetId = args[1];
     const freshSkin = getSkinIdFromStore();
     if (freshSkin !== null) skinId = Number(freshSkin);
-    window._fsinSkinId = skinId;
+    window._fsinSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
     if (fsinSkins.includes(skinId)) {
         
         const openMenu = () => {
@@ -2871,10 +2871,10 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 _lastPaginatedDialogId = null;
             }
 
-            // ── Авто-снаряжение МВД: LIST "ФСИН" (id=0) ──
+            // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
             if (style === 2 && dialogId === 0 && title.includes('ФСИН') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
                 if (!window._fsinGrabProcessing) {
-                    console.log('[FSIN-GRAB] === v1.0 🎯 ТРИГГЕР СРАБОТАЛ — ФСИН ===');
+                    console.log('[FSIN-GRAB] === v2.1 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
                 }
             }
@@ -3013,7 +3013,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 console.log('[DIALOG MONITOR] Загружен. Все диалоги выводятся в консоль.');
 // ==================== END DIALOG MONITOR ====================
 
-// АВТОБРАНИЕ ФСИН Авто-снаряжение — включается только если AUTO_GRAB === true (LoadAhk патчит константы ниже перед eval) Используем var чтоб...
+// АВТОБРАНИЕ МВД Авто-снаряжение — включается только если AUTO_GRAB === true (LoadAhk патчит константы ниже перед eval) Используем var чтоб...
 var AUTO_GRAB = false;
 var AUTO_GRAB_SKIP = [];
 // Явно пишем в window чтобы showMvdSubMenu (загруженный ДО eval) видел значение
@@ -3022,41 +3022,42 @@ window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
 // Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
 if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
-console.log('[FSIN-GRAB] === v1.0 🔫 БЛОК AUTO_GRAB ФСИН ЗАПУЩЕН ===');
+console.log('[FSIN-GRAB] === v2.2 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН (МОМЕНТАЛЬНЫЙ) ===');
 window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
 
 // ==================== ID ПРЕДМЕТОВ ====================
- // ==================== ID ПРЕДМЕТОВ ФСИН ====================
  const ITEM = {
-     DEAGLE:      19,   // Desert Eagle
-     AMMO_MAGNUM: 363,  // Патроны .44 Magnum
-     AKM:         21,   // АКМ
-     AMMO_762:    368,  // Патроны 7.62x39
-     BATON:       32,   // Дубинка
-     MEDKIT:      2,    // Аптечка
      PAINKILLERS: 379,  // Обезболивающее
+     MEDKIT:      2,    // Аптечка
+     BATON:       32,   // Дубинка
      TASER:       13,   // Тазер
+     DEAGLE:      19,   // Desert Eagle
+     AKM:         21,   // АКМ
      AKS74U:      18,   // АКС-74У
+     AMMO_MAGNUM: 363,  // Патроны .44 Magnum
+     AMMO_762:    368,  // Патроны 7.62x39
      AMMO_545:    366,  // Патроны 5.45x39
  };
 
  // ==================== ПОРОГИ ПАТРОНОВ ====================
- const AMMO_THRESHOLD = { MAGNUM: 30, AK762: 60, AKS545: 60 }; // ФСИН: нет дробовика
+ const AMMO_THRESHOLD = { MAGNUM: 30, AK762: 60, AKS545: 60 };
 
  // ==================== ПОЗИЦИИ В МЕНЮ МВД (0-based) ====================
- // ==================== ПОЗИЦИИ В МЕНЮ ФСИН (0-based) ====================
+ // ======= ПОЗИЦИИ В МЕНЮ ФСИН (0-based, по скриншоту) =======
+ // 0:Обезбол 1:Аптечка 2:Дубинка 3:Бронежилет 4:Desert Eagle
+ // 5:АКМ 6:АКС-74У 7:Патроны.44 8:Патроны7.62 9:Патроны5.45 10:Тазер
  const MENU = {
-     PAINKILLERS:  0,  // Обезболивающее
-     MEDKIT:       1,  // Аптечка
-     BATON:        2,  // Дубинка
-     VEST:         3,  // Бронежилет
-     DEAGLE:       4,  // Desert Eagle
-     AKM:          5,  // АКМ
-     AKS74U:       6,  // АКС-74У
-     AMMO_MAGNUM:  7,  // Патроны .44 Magnum
-     AMMO_762:     8,  // Патроны 7.62x39
-     AMMO_545:     9,  // Патроны 5.45x39
-     TASER:       10,  // Тазер
+     PAINKILLERS:  0,
+     MEDKIT:       1,
+     BATON:        2,
+     VEST:         3,
+     DEAGLE:       4,
+     AKM:          5,
+     AKS74U:       6,
+     AMMO_MAGNUM:  7,
+     AMMO_762:     8,
+     AMMO_545:     9,
+     TASER:       10,
  };
 
  const DIALOG_ID = 0;
@@ -3274,25 +3275,22 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          // ── Шаг 2: читаем что нужно ──
          logInventoryGrab('GRAB ДО ВЗЯТИЯ');
          const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._fsinGrabSkip !== 'undefined') ? window._fsinGrabSkip : []);
-         // ФСИН skip-ключи: "medkit","painkiller","baton","vest","taser","deagle","magnum","akm","ammo762","aks74u","ammo545"
          const skip = (key) => skipList.includes(key);
 
-         // ── Инвентарь ФСИН ──
          const has = {
+             painkillers: skip('painkiller')  ? 1   : (findItem(ITEM.PAINKILLERS) ? 1 : 0),
              medkit:      skip('medkit')      ? 999 : (findItemInInv(ITEM.MEDKIT)  ? 1 : 0),
              baton:       skip('baton')       ? 1   : (findItem(ITEM.BATON)       ? 1 : 0),
              vest:        skip('vest') ? 100 : armourVal,
-             deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
-             magnum:      skip('magnum')      ? 999 : countItem(ITEM.AMMO_MAGNUM),
-             akm:         skip('akm')         ? 1   : (findItem(ITEM.AKM)         ? 1 : 0),
-             ammo762:     skip('ammo762')     ? 999 : countItem(ITEM.AMMO_762),
-             painkillers: skip('painkiller')  ? 1   : (findItem(ITEM.PAINKILLERS) ? 1 : 0),
              taser:       skip('taser')       ? 1   : (findItem(ITEM.TASER)       ? 1 : 0),
+             deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
+             akm:         skip('akm')         ? 1   : (findItem(ITEM.AKM)         ? 1 : 0),
              aks74u:      skip('aks74u')      ? 1   : (findItem(ITEM.AKS74U)      ? 1 : 0),
+             magnum:      skip('magnum')      ? 999 : countItem(ITEM.AMMO_MAGNUM),
+             ammo762:     skip('ammo762')     ? 999 : countItem(ITEM.AMMO_762),
              ammo545:     skip('ammo545')     ? 999 : countItem(ITEM.AMMO_545),
          };
 
-         // ── Что нужно взять — ФСИН ──
          const need = {
              painkillers: !has.painkillers,
              medkit:      has.medkit < 1,
@@ -3300,10 +3298,10 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
              vest:        has.vest < 10,
              taser:       !has.taser,
              deagle:      !has.deagle,
-             magnum:      has.magnum < AMMO_THRESHOLD.MAGNUM,
              akm:         !has.akm,
-             ammo762:     has.ammo762 < AMMO_THRESHOLD.AK762,
              aks74u:      !has.aks74u,
+             magnum:      has.magnum < AMMO_THRESHOLD.MAGNUM,
+             ammo762:     has.ammo762 < AMMO_THRESHOLD.AK762,
              ammo545:     has.ammo545 < AMMO_THRESHOLD.AKS545,
          };
 
@@ -3328,24 +3326,24 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 
          // ── ВСЁ ЕСТЬ: выходим, инвентарь уже закрыт и невидим ──
          if (!Object.values(need).some(Boolean)) {
-             notify("ФСИН", "Всё снаряжение ФСИН есть ✓", "00FF00");
+             notify("ФСИН", "Всё снаряжение есть ✓", "00FF00");
              return; 
          }
 
          // ── Шаг 4: МОМЕНТАЛЬНО берём предметы из меню ──
-         // ── Список предметов ФСИН для взятия ──
+         // toTake: строго в порядке меню ФСИН (0→10) чтобы не было двойных нажатий
          const toTake = [];
-         if (need.painkillers) toTake.push({ name: "Обезболивающее",                          idx: MENU.PAINKILLERS });
-         if (need.medkit)      toTake.push({ name: "Аптечка",                                 idx: MENU.MEDKIT });
-         if (need.baton)       toTake.push({ name: "Дубинка",                                 idx: MENU.BATON });
-         if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,              idx: MENU.VEST });
-         if (need.deagle)      toTake.push({ name: "Desert Eagle (Дигл)",                     idx: MENU.DEAGLE });
-         if (need.akm)         toTake.push({ name: "АКМ",                                     idx: MENU.AKM });
-         if (need.aks74u)      toTake.push({ name: "АКС-74У",                                 idx: MENU.AKS74U });
-         if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,       idx: MENU.AMMO_MAGNUM });
-         if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`,     idx: MENU.AMMO_762 });
-         if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`,     idx: MENU.AMMO_545 });
-         if (need.taser)       toTake.push({ name: "Тазер",                                   idx: MENU.TASER });
+         if (need.painkillers) toTake.push({ name: "Обезболивающее",                      idx: MENU.PAINKILLERS });
+         if (need.medkit)      toTake.push({ name: "Аптечка",                             idx: MENU.MEDKIT });
+         if (need.baton)       toTake.push({ name: "Дубинка",                             idx: MENU.BATON });
+         if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,          idx: MENU.VEST });
+         if (need.deagle)      toTake.push({ name: "Desert Eagle",                        idx: MENU.DEAGLE });
+         if (need.akm)         toTake.push({ name: "АКМ",                                 idx: MENU.AKM });
+         if (need.aks74u)      toTake.push({ name: "АКС-74У",                             idx: MENU.AKS74U });
+         if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,   idx: MENU.AMMO_MAGNUM });
+         if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`, idx: MENU.AMMO_762 });
+         if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`, idx: MENU.AMMO_545 });
+         if (need.taser)       toTake.push({ name: "Тазер",                               idx: MENU.TASER });
 
          for (let i = 0; i < toTake.length; i++) {
              console.log(`[FSIN-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [МОМЕНТАЛЬНО]`);
@@ -3377,7 +3375,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          } catch(e) {}
          restoreGrabPatches();
          isProcessing = false;
-         console.log('[FSIN-GRAB] ✅ снаряжение взято');
+         console.log('[FSIN-GRAB] готов (моментальный + закрытие меню)');
      }
  }
 
@@ -3387,10 +3385,10 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
      get: () => isProcessing,
      configurable: true
  });
- console.log('[FSIN-GRAB] === v1.0 ✅ ГОТОВ — жду диалог ФСИН ===');
+ console.log('[FSIN-GRAB] === v2.2 ✅ ГОТОВ — жду диалог Полицейская служба ===');
 })();
 } // end if (AUTO_GRAB)
-// ==================== END АВТОБРАНИЕ ФСИН ====================
+// ==================== END АВТОБРАНИЕ МВД ====================
 
 // ==================== АВТО-ТАЗЕР v19 — USE ACTION (без рюкзака) ====================
 // Вместо физического перемещения между контейнерами — симулируем ПКМ "Использовать".
@@ -4138,7 +4136,7 @@ function applyCursorPatch() {
     // ники над головами пропадают. Подменяем функцию: false — игнорируем, true — пропускаем как есть.
     window.setDrawLabelStatus = function(status) {
         if (_patchesActive && !status) {
-            console.log('[Profile-FSIN] 🔒 setDrawLabelStatus(false) заблокировано — ники остаются видны');
+            console.log('[Profile] 🔒 setDrawLabelStatus(false) заблокировано — ники остаются видны');
             return;
         }
         return _origSetDrawLabelStatus && _origSetDrawLabelStatus.apply(this, arguments);
@@ -4222,7 +4220,7 @@ function extractProfileData(mm) {
         // organization содержит mock-значения "Officer" / "Police departament".
         // Принимать их нельзя — ждём настоящий ответ сервера.
         if (org.rangName === 'Officer' || org.title === 'Police departament') {
-            console.log('[Profile-FSIN] ⏳ Пропускаем mock-данные (Officer / Police departament) — ждём сервер...');
+            console.log('[Profile] ⏳ Пропускаем mock-данные (Officer / Police departament) — ждём сервер...');
             return null;
         }
 
@@ -4245,7 +4243,7 @@ function extractProfileData(mm) {
 function loadPlayerProfile(callback) {
     // Если данные уже загружены — НЕ открываем профиль повторно
     if (window._fsinFirstName && window._fsinLastName && window._fsinRank) {
-        console.log('[Profile-FSIN] Данные уже загружены — использую сохранённые');
+        console.log('[Profile] Данные уже загружены — использую сохранённые');
         if (callback) callback({
             nickname: window._fsinCallsign,
             orgRangName: window._fsinRank
@@ -4268,8 +4266,8 @@ function loadPlayerProfile(callback) {
     }
     
     _fetching = true;
-    window._fsinProfileLoading = true; // блокируем патч вкладки пока читаем профиль
-    console.log('[Profile-FSIN] Загрузка данных персонажа (первый раз)...');
+    window._mvdProfileLoading = true; // блокируем патч вкладки пока читаем профиль
+    console.log('[Profile] Загрузка данных персонажа (первый раз)...');
 
     var _done = false;
     var _watchdog = null;
@@ -4302,7 +4300,7 @@ function loadPlayerProfile(callback) {
         restoreCursorPatch();
         removeProfileStyles();
         _fetching = false;
-        window._fsinProfileLoading = false; // разблокируем патч вкладки
+        window._mvdProfileLoading = false; // разблокируем патч вкладки
         if (callback) callback(result);
     }
 
@@ -4310,7 +4308,7 @@ function loadPlayerProfile(callback) {
     // (подвисший поллинг, ошибка в чужом коде, перерендер интерфейса),
     // авточтение не может провисеть дольше 8 секунд. ──
     _watchdog = setTimeout(function() {
-        console.warn('[Profile-FSIN] Watchdog — принудительно завершаю чтение профиля');
+        console.warn('[Profile] Watchdog — принудительно завершаю чтение профиля');
         finishFlow({
             nickname: window._fsinCallsign || '',
             orgRangName: window._fsinRank || ''
@@ -4325,7 +4323,7 @@ function loadPlayerProfile(callback) {
         try {
             window.openInterface('MainMenu');
         } catch(e) {
-            console.error('[Profile-FSIN] Ошибка открытия профиля:', e);
+            console.error('[Profile] Ошибка открытия профиля:', e);
             finishFlow(null);
             return;
         }
@@ -4335,7 +4333,7 @@ function loadPlayerProfile(callback) {
         if (_done) return; // watchdog уже всё снял — дальше не лезем
         var mm = window.interface('MainMenu');
         if (!mm) {
-            console.error('[Profile-FSIN] Профиль не найден');
+            console.error('[Profile] Профиль не найден');
             finishFlow(null);
             return;
         }
@@ -4371,7 +4369,7 @@ function loadPlayerProfile(callback) {
                 clearInterval(poll);
 
                 if (stats && isReal) {
-                    console.log('[Profile-FSIN] Данные успешно загружены:', stats);
+                    console.log('[Profile] Данные успешно загружены:', stats);
 
                     // Сохраняем в window НАВСЕГДА
                     window._fsinCallsign = stats.nickname || '';
@@ -4382,9 +4380,9 @@ function loadPlayerProfile(callback) {
                     window._fsinFirstName = nickParts[0] || '';
                     window._fsinLastName = nickParts[1] || '';
 
-                    console.log('[Profile-FSIN] Запомнено: ' + window._fsinRank + ' ' + window._fsinFirstName + ' ' + window._fsinLastName);
+                    console.log('[Profile] Запомнено: ' + window._fsinRank + ' ' + window._fsinFirstName + ' ' + window._fsinLastName);
                 } else {
-                    console.warn('[Profile-FSIN] Таймаут — данные не получены');
+                    console.warn('[Profile] Таймаут — данные не получены');
                 }
 
                 setTimeout(function() {
@@ -4430,20 +4428,20 @@ waitForApp(function() {
         }
         return _origSendChatInput.apply(this, arguments);
     };
-    console.log('[Profile-FSIN] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
+    console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
 
     // ── Фоновая предзагрузка профиля при старте ──────────────────────────────
     // Запускаем loadPlayerProfile сразу после готовности App — невидимо для
     // игрока — чтобы к первому /dahk данные уже лежали в window._fsinRank /
-    // _fsinFirstName / _fsinLastName и MvdMenu открывалось мгновенно.
+    // _mvdFirstName / _mvdLastName и MvdMenu открывалось мгновенно.
     setTimeout(function() {
         if (window._fsinFirstName && window._fsinLastName && window._fsinRank) return;
-        console.log('[Profile-FSIN] 🔄 Фоновая предзагрузка профиля при старте...');
+        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
         loadPlayerProfile(function(data) {
             if (data && data.orgRangName) {
-                console.log('[Profile-FSIN] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._fsinFirstName||'') + ' ' + (window._fsinLastName||''));
+                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._fsinFirstName||'') + ' ' + (window._fsinLastName||''));
             } else {
-                console.warn('[Profile-FSIN] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
             }
         });
     }, 1500);
@@ -4456,7 +4454,7 @@ window._fsinLoadPlayerProfile = loadPlayerProfile;
 // ==================== ПАТЧ: MainMenu открывается сразу на «Персонаж» ====================
 // Когда игрок нажимает M (или любой другой код открывает MainMenu напрямую),
 // автоматически переключаем на вкладку Statistics («Персонаж»).
-// Пока работает loadPlayerProfile (_fsinProfileLoading = true) — патч пассивен,
+// Пока работает loadPlayerProfile (_mvdProfileLoading = true) — патч пассивен,
 // чтобы не мешать невидимому считыванию данных.
 (function() {
 'use strict';
@@ -4464,7 +4462,7 @@ function applyMainMenuTabPatch() {
     var _origOI = window.openInterface;
     window.openInterface = function(name) {
         var result = _origOI.apply(this, arguments);
-        if (name === 'MainMenu' && !window._fsinProfileLoading) {
+        if (name === 'MainMenu' && !window._mvdProfileLoading) {
             // Небольшая задержка: Vue-компонент должен смонтироваться
             setTimeout(function() {
                 try {
