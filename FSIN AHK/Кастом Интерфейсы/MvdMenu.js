@@ -193,42 +193,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                   ],64))
                 : createCommentVNode("",true),
 
-            // ══════════════════════════════════════════════════════════════════
-            // ЭКРАН: partner — Меню напарника (кастомный, без старого диалога)
-            // ══════════════════════════════════════════════════════════════════
-            $data.screen==="partner"
-                ? (openBlock(),createElementBlock(Fragment,{key:"partner"},[
-                    createBaseVNode("div",{class:"mvdmenu__list"},[
-                        (openBlock(true),createElementBlock(Fragment,null,
-                            renderList($options.partnerMenuItems,(item,i)=>(
-                                openBlock(),createElementBlock("div",{
-                                    key:item.id,
-                                    class:normalizeClass(["mvdmenu__item",{
-                                        "mvdmenu__item_toggle_on": item.toggleOn===true,
-                                        "mvdmenu__item_toggle_off": item.toggleOn===false,
-                                        "mvdmenu__item_selected": $data.selectedIndex===i,
-                                    }]),
-                                    onClick:$event=>{$data.selectedIndex=i;$options[item.onClick]();}
-                                },[
-                                    createBaseVNode("div",{class:"mvdmenu__item-num"},
-                                        toDisplayString(String(i+1).padStart(2,"0")), 1 /* TEXT */
-                                    ),
-                                    createBaseVNode("div",{class:"mvdmenu__item-label"},
-                                        toDisplayString(item.label), 1 /* TEXT */
-                                    ),
-                                    createBaseVNode("div",{
-                                        class:normalizeClass(["mvdmenu__item-status",
-                                            item.toggleOn?"mvdmenu__item-status_on":"mvdmenu__item-status_off"
-                                        ])
-                                    }, toDisplayString(item.toggleOn?"Вкл":"Выкл"), 3)
-                                ],10,["onClick"])
-                            ))
-                        ,128))
-                    ]),
-                  ],64))
-                : createCommentVNode("",true),
-
-            // ── Footer: Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
+ Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
             createBaseVNode("div",{class:"mvdmenu__footer"},[
                 (openBlock(),createBlock(_component_ControlsContaineredButton,{
                     key:0,
@@ -258,7 +223,7 @@ const _sfc_main={
     components:{ControlsContaineredButton},
     data(){
         return{
-            // screen: "main" | "povsednev" | "partner" | "id-input"
+            // screen: "main" | "povsednev" | "id-input"
             screen:"main",
             search:"",
             targetId:null,
@@ -267,26 +232,16 @@ const _sfc_main={
             // ── Навигация по списку стрелочками/Enter ──
             selectedIndex:0,
             // ── Реактивные флаги тоглов главного меню (читаем из window сразу) ──
-            trackingOn: !!(typeof window._mvdTrackingActive!=="undefined"
-                ? window._mvdTrackingActive
-                : (window._mvdCurrentScanId != null)),
-            trackingNick: (typeof window._mvdTrackingNick!=="undefined" ? window._mvdTrackingNick : null),
             autocuffOn: !!(typeof window._mvdAutoCuffEnabled!=="undefined"
                 ? window._mvdAutoCuffEnabled : false),
             autograbOn: !!(typeof window._mvdAutoGrabEnabled!=="undefined"
                 ? window._mvdAutoGrabEnabled : true),
-            // ── Напарник (читаем из window сразу, как trackingOn/autocuffOn) ──
-            partnerTracking: (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return !!(s&&s.tracking); }catch(e){ return false; } })(),
-            partnerMessage:  (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return !!(s&&s.message);  }catch(e){ return false; } })(),
-            partnerNick:     (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return (s&&s.nick)||null;  }catch(e){ return null;  } })(),
-            partnerId:       (()=>{ try{ const s=window._mvdPartnerGetState&&window._mvdPartnerGetState(); return (s&&s.id)||null;    }catch(e){ return null;  } })(),
             // ── ID-input ──
             idInputValue:"",
             idInputLabel:"Введите ID игрока",
-            // "action" | "tracking" | "partner"
+            // "action"
             idInputContext:null,
             _idPrevScreen:null,
-            // ── DEBUG: уникальный id инстанса для отладки napaарника ──
             _debugInstanceId: Math.random().toString(36).slice(2,8),
         }
     },
@@ -294,26 +249,16 @@ const _sfc_main={
         headerSubtitle(){
             if(this.screen==="main")            return "";
             if(this.screen==="povsednev")       return "ПОВСЕДНЕВНАЯ";
-            if(this.screen==="partner")         return "НАПАРНИК";
-            if(this.screen==="id-input")        return this.idInputContext==="tracking"?"ОТСЛЕЖИВАНИЕ":this.idInputContext==="partner"?"НАПАРНИК":"ВВОД ID";
+            if(this.screen==="id-input")        return "ВВОД ID";
             return "";
         },
         mainMenuItems(){
             const items=[];
             items.push({id:"povsednev", label:"Повседневная", arrow:true});
-            const trackingLabel = this.trackingOn && this.trackingNick
-                ? "Отслеживание: "+this.trackingNick+"["+(window._mvdCurrentScanId??"")+"]"
-                : "Отслеживание";
-            items.push({id:"tracking", label: trackingLabel, toggleOn: this.trackingOn});
             items.push({id:"autocuff", label:"Auto-cuff", toggleOn: this.autocuffOn});
             if(typeof window.AUTO_GRAB!=="undefined"&&window.AUTO_GRAB===true){
                 items.push({id:"autograb", label:"Авто-снаряжение", toggleOn: this.autograbOn});
             }
-            // Напарник — показываем текущий статус
-            const partnerLabel = this.partnerTracking && this.partnerNick
-                ? "Напарник: "+this.partnerNick+"["+this.partnerId+"]"
-                : "Напарник";
-            items.push({id:"naparnick", label: partnerLabel, arrow:true});
             items.push({id:"laws", label:"Законы", arrow:true});
             items.push({id:"advokat", label:"Вызов адвоката", arrow:true});
             items.push({id:"doklady", label:"Доклады", arrow:true});
@@ -339,30 +284,10 @@ const _sfc_main={
             if(!q)return this.visibleOptions;
             return this.visibleOptions.filter(o=>o.label.toLowerCase().includes(q)||o.action.toLowerCase().includes(q));
         },
-        // ── Список пунктов меню напарника (через computed — как mainMenuItems) ──
-        partnerMenuItems(){
-            return [
-                {
-                    id:"tracking",
-                    label: this.partnerTracking && this.partnerNick
-                        ? "Следить: "+this.partnerNick+"["+this.partnerId+"]"
-                        : "Следить за напарником",
-                    toggleOn: this.partnerTracking,
-                    onClick: "togglePartnerTracking"
-                },
-                {
-                    id:"message",
-                    label: "Сообщение для напарника",
-                    toggleOn: this.partnerMessage,
-                    onClick: "togglePartnerMessage"
-                }
-            ];
-        },
-        // ── Текущий список пунктов для клавиатурной навигации (зависит от экрана) ──
+ (зависит от экрана) ──
         currentListItems(){
             if(this.screen==="main")      return this.mainMenuItems;
             if(this.screen==="povsednev") return this.filteredOptions;
-            if(this.screen==="partner")   return this.partnerMenuItems;
             return [];
         },
         // ── Футер (Enter/ESC), как в нижней панели Window.js ──────────────────
@@ -420,7 +345,7 @@ const _sfc_main={
             const item=items[idx];
             if(this.screen==="main") this.selectMain(item);
             else if(this.screen==="povsednev") this.selectOption(item);
-            else if(this.screen==="partner" && typeof this[item.onClick]==="function") this[item.onClick]();
+
         },
         // ── Кнопка футера Enter: ведёт на confirmIdInput на экране ввода ID,
         // на остальных экранах — на confirmSelected ──────────────────────────
@@ -438,8 +363,6 @@ const _sfc_main={
             } else if(this.screen==="povsednev"){
                 this.screen="main";
                 this.search="";
-            } else if(this.screen==="partner"){
-                this.screen="main";
             } else if(this.screen==="main"){
                 this.close();
             }
@@ -448,31 +371,12 @@ const _sfc_main={
         selectMain(item){
             if(item.id==="povsednev"){
                 this.screen="povsednev";
-            } else if(item.id==="tracking"){
-                if(this.trackingOn || window._mvdCurrentScanId){
-                    this.trackingOn=false;
-                    this.close();
-                    setTimeout(()=>{
-                        if(typeof window._mvdToggleTracking==="function") window._mvdToggleTracking();
-                    },80);
-                } else {
-                    // Собственный экран ввода ID для отслеживания
-                    this.idInputLabel="Введите ID для отслеживания";
-                    this.idInputValue=this.targetId!==null&&this.targetId!==-1?String(this.targetId):"";
-                    this.idInputContext="tracking";
-                    this._idPrevScreen="main";
-                    this.screen="id-input";
-                    this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
-                }
             } else if(item.id==="autocuff"){
                 this.autocuffOn=!this.autocuffOn;
                 if(typeof window._mvdToggleAutoCuff==="function") window._mvdToggleAutoCuff();
             } else if(item.id==="autograb"){
                 this.autograbOn=!this.autograbOn;
                 if(typeof window._mvdToggleAutoGrab==="function") window._mvdToggleAutoGrab();
-            } else if(item.id==="naparnick"){
-                this._syncPartnerState();
-                this.screen="partner";
             } else if(item.id==="laws"){
                 window._duranOpenMode="laws";
                 this.close();
@@ -493,58 +397,12 @@ const _sfc_main={
         },
         // ── Синхронизация тоглов главного меню из window ─────────────────────
         _syncToggleState(){
-            this.trackingOn = !!(typeof window._mvdTrackingActive!=="undefined"
-                ? window._mvdTrackingActive
-                : (window._mvdCurrentScanId != null));
-            this.trackingNick = (typeof window._mvdTrackingNick!=="undefined" ? window._mvdTrackingNick : null);
             this.autocuffOn = !!(typeof window._mvdAutoCuffEnabled!=="undefined"
                 ? window._mvdAutoCuffEnabled : false);
             this.autograbOn = !!(typeof window._mvdAutoGrabEnabled!=="undefined"
                 ? window._mvdAutoGrabEnabled : true);
         },
-        // ── Синхронизация состояния напарника из window ───────────────────────
-        _syncPartnerState(){
-            if(typeof window._mvdPartnerGetState==="function"){
-                const s=window._mvdPartnerGetState();
-                this.partnerTracking = !!s.tracking;
-                this.partnerMessage  = !!s.message;
-                this.partnerNick     = s.nick || null;
-                this.partnerId       = s.id   || null;
-                // Без $forceUpdate() пункт "Напарник: ..." в списке не перерисовывается,
-                // когда _syncPartnerState() вызывается извне (через
-                // window._mvdMenuRefreshPartner, пока меню уже открыто) — данные
-                // меняются, а DOM не обновляется до переоткрытия меню.
-                try{
-                    if(typeof this.$forceUpdate==="function") this.$forceUpdate();
-                }catch(_fuErr){}
-            }
-        },
-        // ── Напарник — переключить слежку ────────────────────────────────────
-        togglePartnerTracking(){
-            this._syncPartnerState();
-            if(this.partnerTracking){
-                if(typeof window._mvdPartnerDisable==="function") window._mvdPartnerDisable();
-                this.partnerTracking=false;
-                this.partnerNick=null;
-                this.partnerId=null;
-            } else {
-                // Собственный экран ввода ID напарника
-                const cur=(this.partnerNick&&this.partnerId)?`Текущий: ${this.partnerNick}[${this.partnerId}]`:`Не задан`;
-                this.idInputLabel=`Введите ID напарника (${cur})`;
-                this.idInputValue=this.targetId!==null&&this.targetId!==-1?String(this.targetId):"";
-                this.idInputContext="partner";
-                this._idPrevScreen="partner";
-                this.screen="id-input";
-                this.$nextTick(()=>{ const f=document.getElementById("mvdmenu-id-field");if(f)f.focus(); });
-            }
-        },
-        // ── Напарник — переключить сообщение ─────────────────────────────────
-        togglePartnerMessage(){
-            const newVal=!this.partnerMessage;
-            if(typeof window._mvdPartnerSetMessage==="function") window._mvdPartnerSetMessage(newVal);
-            this.partnerMessage=newVal;
-            if(typeof this.$forceUpdate==="function") this.$forceUpdate();
-        },
+
         // ── Повседневная — реально ли действию нужен ID (с учётом исключения СОБР) ──
         // FIX: СОБР-скин (15340) для greeting не требует ID — как в HandlePovsednevCommand/HandleBinds (mvdF.js)
         optNeedsId(opt){
@@ -616,30 +474,6 @@ const _sfc_main={
                     },80);
                 } else {
                     this.screen=this._idPrevScreen||"povsednev";
-                    this.idInputValue="";
-                }
-            } else if(ctx==="tracking"){
-                if(id>0){
-                    this.targetId=id;
-                    this.close();
-                    setTimeout(()=>{
-                        if(typeof window._mvdStartTracking==="function") window._mvdStartTracking(id);
-                    },80);
-                } else {
-                    this.screen="main";
-                    this.idInputValue="";
-                }
-            } else if(ctx==="partner"){
-                if(id>0){
-                    this.targetId=id;
-                    this.close();
-                    setTimeout(()=>{
-                        // Эмулируем ответ диалога 683 вручную
-                        if(typeof window.sendClientEventCustom==="function")
-                            window.sendClientEventCustom("custom","OnDialogResponse",683,1,0,String(id),"");
-                    },80);
-                } else {
-                    this.screen="partner";
                     this.idInputValue="";
                 }
             }
@@ -812,21 +646,7 @@ const _sfc_main={
             }
         }
 
-        // Синхронизируем состояние напарника при монтировании
         this._syncToggleState();
-        this._syncPartnerState();
-        // Колбэк для мгновенного обновления из mvdF.js (когда ID меняется пока меню открыто)
-        window._mvdMenuRefreshPartner = () => {
-            this._syncPartnerState();
-        };
-        // Подстраховка: колбэк выше может не успеть сработать, если ответ "/id"
-        // от сервера придёт чуть раньше монтирования компонента или позже того,
-        // как _partnerNickSearch уже сброшен по таймауту в mvdF.js. Поэтому пока
-        // меню открыто — дополнительно сами раз в 700мс подтягиваем актуальное
-        // состояние напарника напрямую из window, без ожидания внешнего вызова.
-        this._partnerPollId = setInterval(() => {
-            this._syncPartnerState();
-        }, 700);
 
         // ESC/Enter теперь обрабатываются самими кнопками футера (ControlsContaineredButton
         // слушает document keydown/keyup по своему keyCode так же, как в нативных Window/Modal),
@@ -838,7 +658,7 @@ const _sfc_main={
         // зажатие стрелки никак не двигало список. keydown подхватывает системный
         // автоповтор браузера — зажал стрелку и список листается сам, как в нативных окнах.
         this._onArrowKeyDown=(e)=>{
-            if(this.screen!=="main"&&this.screen!=="povsednev"&&this.screen!=="partner") return;
+            if(this.screen!=="main"&&this.screen!=="povsednev") return;
             if(e.keyCode===window.KEY_CODE_ARROW_TOP){
                 e.preventDefault();
                 this.moveSelection(-1);
@@ -992,8 +812,6 @@ const _sfc_main={
         if(this._altHoldTimer)clearTimeout(this._altHoldTimer);
         const s=document.getElementById("mvdmenu-style");
         if(s)s.remove();
-        window._mvdMenuRefreshPartner=null; // сбрасываем колбэк при закрытии меню
-        if(this._partnerPollId){ clearInterval(this._partnerPollId); this._partnerPollId=null; }
     }
 };
 
