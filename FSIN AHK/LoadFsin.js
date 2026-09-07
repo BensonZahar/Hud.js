@@ -78,6 +78,7 @@ const repo = 'Hud.js';
 const folder = 'FSIN AHK';
 const filename = 'fsin.js';
 const fkonstFilename = 'fkonst.js'; // общий хелпер: /are, /are_s, замена стиля одежды
+const fkonstFolder = 'MVD AHK';   // fkonst.js хранится в MVD AHK (общий для всех структур)
 
 // Функция загрузчика с retry. onSuccess — опциональный колбэк после успешного eval
 function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onSuccess) {
@@ -243,8 +244,8 @@ if (AUTO_PASSWORD) {
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
 
-// Запуск: сначала fkonst.js (хелпер), затем fsin.js
-loadScriptFromGitHub(username, repo, folder, fkonstFilename, 5, function() {
+// Запуск: сначала fkonst.js (из MVD AHK — там он хранится), затем fsin.js
+loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function() {
     loadScriptFromGitHub(username, repo, folder, filename);
 });
 
