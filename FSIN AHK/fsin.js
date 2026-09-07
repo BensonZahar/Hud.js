@@ -317,7 +317,6 @@ setTimeout(() => {
     }
     trackSkinId();
 }, 500);
-let trackingName = `Отслеживание | {FF0000}Выкл`;
 let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
 let autoGrabEnabled = true;
 let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`;
@@ -368,19 +367,10 @@ let targetId = null;
 let currentMenu = null;
 let currentSubMenu = null;
 let currentAction = null;
-let scanInterval = null;
-let setmarkInterval = null;
-let pgInterval = null;
-let trackingNotificationOpen = false;
-let chaseNotificationOpen = false;
-let trackingNickname = null;
-let trackingLevel  = null;   // уровень отслеживаемого игрока (из списка)
-let trackingDevice = null;   // 'Radmir' (ПК) или 'Hassle' (телефон)
 let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
 let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
 const FINE_CD_TIMER_ENABLED = false; // [ВЫКЛ] таймер КД штрафа временно отключён (убрали КД)
 let _lastWantedChatAt = 0;   // защита от дубля при цитировании розыска (аналог lastFineTimerOpenAt)
-let currentScanId = null;
 let autoCuffEnabled = false;
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
@@ -395,51 +385,6 @@ window._mvdSetLastWantedCode = function(code) {
     setTimeout(function() { _autoWantedActive = false; }, 5000);
     console.log('[AUTO-РОЗЫСК] lastWantedCode="' + code + '", _autoWantedActive=true (через LawsHelper)');
 };
-// ==================== НАПАРНИК ====================
-let partnerNick = null;            // Ник напарника (из ответа /id)
-let partnerId = null;              // ID напарника
-let partnerTrackingEnabled = false; // "Следить за напарником" включено
-let partnerMessageEnabled = false;  // "Сообщение для напарника" включено
-let _awaitingPartnerId = false;    // Ждём ответ /id для установки напарника
-let partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
-function getPartnerTrackingLabel() {
-    if (partnerTrackingEnabled && partnerNick && partnerId) {
-        return `Следить: {00FF00}${partnerNick}[${partnerId}]`;
-    }
-    return `Следить за напарником | {FF0000}Выкл`;
-}
-function getPartnerMenuLabel() {
-    if (partnerTrackingEnabled && partnerNick && partnerId) {
-        return `Напарник | {00FF00}${partnerNick}[${partnerId}]`;
-    }
-    return `Напарник | {FF0000}Выкл`;
-}
-// КОНЕЦ НАПАРНИК STATE Обновление ID напарника по нику (/id ник) При открытии меню отправляем /id partnerNick вместо /id partnerId.
-let _partnerNickSearch = false;       // идёт поиск напарника по нику
-let _partnerNickSearchTarget = null;  // ник, который ищём сейчас
-function refreshPartnerNickSilent() {
-    if (!partnerTrackingEnabled || !partnerNick) return; // нужен ник для поиска
-    if (_partnerNickSearch) return; // уже ищем
-
-    // Сначала ищем актуальный ID напарника в списке игроков — без /id в чат
-    const foundId = getIdByNickFromList(partnerNick);
-    if (foundId !== null) {
-        if (String(foundId) !== String(partnerId)) {
-            const _oldId = partnerId;
-            partnerId = String(foundId);
-            console.log(`[PARTNER] 🔄 ID напарника обновлён из списка: ${_oldId} → ${partnerId} (${partnerNick})`);
-            snAdd(`[1, "Напарник", "${partnerNick}: ID ${_oldId}→${partnerId}", "00FF00", 3000]`);
-        } else {
-            console.log(`[PARTNER] ✅ Напарник в сети (список): ${partnerNick}[${partnerId}]`);
-        }
-        return;
-    }
-
-    // Напарник не найден в списке игроков — возможно, вышел из игры
-    console.log(`[PARTNER] ⚠️ Напарник ${partnerNick} не найден в списке игроков (возможно, не в сети)`);
-    snAdd(`[1, "Напарник", "${partnerNick} — не в сети", "FF4444", 3000]`);
-}
-// ── END обновление по нику ────────────────────────────────────────────────────
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
 // Хоткей авто-выброса из авто — настраивается установщиком через EJECT_KEY
@@ -723,353 +668,11 @@ const setupChatHandler = () => {
                     _docCheckAbortedAt = Date.now();
                 }
             }
-            // КОНЕЦ ОТМЕНЫ ПОДТВЕРЖДЕНИЯ ОБНОВЛЕНИЕ ID НАПАРНИКА ПО НИКУ (/id ник) Ловим ответ /id partnerNick при авто-обновлении, скрываем из чата.
-            if (_partnerNickSearch && _partnerNickSearchTarget && typeof message === 'string') {
-                // Формат: "1. {COLOR}Nick{COLOR}, ID: X, ..." или "1. Nick, ID: X, ..."
-                const _pNickMatch = message.match(
-                    /^\d+\.\s*(?:\{[A-Fa-f0-9]{6,8}\})*([A-Za-z0-9_]+)(?:\{[A-Fa-f0-9]{6,8}\})?,\s*ID:\s*(\d+),/
-                );
-                if (_pNickMatch) {
-                    const _foundNick = _pNickMatch[1];
-                    const _foundId   = _pNickMatch[2];
-                    if (_foundNick === _partnerNickSearchTarget) {
-                        // Это наш напарник — обновляем ID если изменился после рекоша
-                        _partnerNickSearch = false;
-                        _partnerNickSearchTarget = null;
-                        if (String(_foundId) !== String(partnerId)) {
-                            const _oldId = partnerId;
-                            partnerId = _foundId;
-                            console.log(`[PARTNER] 🔄 ID напарника обновлён: ${_oldId} → ${_foundId} (${partnerNick})`);
-                            snAdd(`[1, "Напарник", "${partnerNick}: ID ${_oldId}→${_foundId}", "00FF00", 3000]`);
-                        } else {
-                            console.log(`[PARTNER] ✅ Напарник в сети: ${partnerNick}[${partnerId}]`);
-                        }
-                    } else {
-                        // Другой игрок с похожим ником — ждём дальше (может прийти несколько строк)
-                        console.log(`[PARTNER] /id ник — пропуск: ${_foundNick} ≠ ${_partnerNickSearchTarget}`);
-                    }
-                    return; // Блокируем строку numbered-list из чата (любую, пока ищем)
-                }
-                // "Совпадений не найдено" — напарник вышел из игры
-                if (message.includes('Совпадений не найдено')) {
-                    _partnerNickSearch = false;
-                    _partnerNickSearchTarget = null;
-                    console.log(`[PARTNER] ⚠️ Не удалось определить напарника: "${partnerNick}" не найден`);
-                    snAdd('[1, "Напарник", "Не удалось определить напарника", "FF4400", 5000]');
-                    return; // Блокируем "Совпадений не найдено" из чата
-                }
-            }
-            // ==================== КОНЕЦ ОБНОВЛЕНИЯ ID ПО НИКУ ====================
             // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
             if (shouldBlockMessage(message)) {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
                 return;
             }
-            // ==================== ОТСЛЕЖИВАНИЕ ПОГОНИ ====================
-            if (typeof message === 'string' && currentScanId) {
-                // Погоня началась или присоединились
-                if (message.includes('Вы начали погоню за игроком') ||
-                    message.includes('Вы присоединились к погоне')) {
-                  
-                    isInActiveChase = true;
-                    console.log('[CHASE] 🚨 Погоня активна - /pg отключен');
-                  
-                    // Открываем синее уведомление
-                    openChaseNotification(currentScanId);
-                }
-              
-                // Преступник ушел от погони
-                if (message.includes('Разыскиваемый ушел от погони!')) {
-                    isInActiveChase = false;
-                    console.log('[CHASE] ⚠️ Преступник ушел - /pg возобновлен');
-                  
-                    // Возвращаем красное уведомление
-                    openTrackingNotification(currentScanId);
-                }
-
-                // ── Игрок вышел из игры во время погони: показываем обратный отсчёт ──
-                // Сообщение сервера: "Игрок за которым Вы вели погоню вышел из игры.
-                //                    У него есть X секунд, чтобы вернуться в игру."
-                const exitChaseMatch = message.match(
-                    /Игрок за которым Вы вели погоню вышел из игры[^.]*\.\s*У него есть (\d+) секунд/
-                );
-                if (exitChaseMatch) {
-                    const returnSecs = parseInt(exitChaseMatch[1]);
-                    const exitLabel  = trackingNickname
-                        ? `${trackingNickname} — вернётся через`
-                        : `Подозреваемый — вернётся через`;
-                    console.log(`[CHASE] ⚠️ Игрок вышел из игры — ${returnSecs} сек на возвращение`);
-                    try {
-                        const _snExit = getZkmSN();
-                        if (_snExit && typeof _snExit.addTimer === 'function') {
-                            _snExit.addTimer(`[1, "Вышел из игры", "${exitLabel}", "FF6729", ${returnSecs}]`);
-                        }
-                    } catch(_e) {}
-                }
-            }
-            // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ПОГОНИ ====================
-
-            // ==================== ПИК НИКА ИЗ /id ====================
-            // Ловим ответ сервера на /id: "Ник, ID: 43, уровень: 44, PING: 59, клиент: RADMIR (PC)"
-            // Поддержка CLEO-префикса времени: "[17:59:42:606]: Ник, ID: ..."
-            if (typeof message === 'string' && currentScanId) {
-                const idInfoMatch = message.match(/(?:^\[\d{2}:\d{2}:\d{2}(?::\d+)?\]:\s*)?([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
-                if (idInfoMatch && idInfoMatch[2] === String(currentScanId)) {
-                    const nick = idInfoMatch[1];
-                    if (nick !== trackingNickname) {
-                        trackingNickname = nick;
-                        trackingName = `Отслеживание | {00FF00}${nick}[${currentScanId}]`;
-                        console.log(`[TRACKING] 👤 Ник получен: ${nick}`);
-                        // Если уведомление уже открыто без ника — обновляем
-                        if (trackingNotificationOpen || chaseNotificationOpen) {
-                            openTrackingNotification(currentScanId);
-                        }
-                    }
-                }
-            }
-            // ==================== КОНЕЦ ПИКА НИКА ====================
-
-            // ==================== ПИК НИКА НАПАРНИКА ИЗ /id ====================
-            if (typeof message === 'string' && _awaitingPartnerId && window._pendingPartnerId) {
-                const idPartnerMatch = message.match(/(?:^\[\d{2}:\d{2}:\d{2}(?::\d+)?\]:\s*)?([A-Za-z0-9_]+),\s*ID:\s*(\d+),/);
-                if (idPartnerMatch && idPartnerMatch[2] === String(window._pendingPartnerId)) {
-                    const nick = idPartnerMatch[1];
-                    partnerNick = nick;
-                    partnerTrackingEnabled = true;
-                    _awaitingPartnerId = false;
-                    window._pendingPartnerId = null;
-                    snAdd(`[1, "Напарник", "Напарник: ${nick}[${partnerId}]", "00FF00", 3000]`);
-                    console.log(`[PARTNER] ✅ Напарник установлен: ${nick}[${partnerId}]`);
-                }
-            }
-            // ==================== КОНЕЦ ПИКА НИКА НАПАРНИКА ====================
-
-            // ОБНАРУЖЕНИЕ FM-СООБЩЕНИЙ <Интерпол> Ловим /fm от любого члена семьи <Интерпол>: {FFCF00}<Интерпол> NickName [ID]: Отслеживаю жетон 232 Ни...
-            if (typeof message === 'string' && partnerTrackingEnabled) {
-                const _fmRaw = String(message);
-                const _fmM   = _fmRaw.match(/<Интерпол>\s+([A-Za-z0-9_]+)\s*\[(\d+)\]:\s*([\s\S]+)/);
-                if (_fmM) {
-                    const _fmNick = _fmM[1];
-                    const _fmId   = _fmM[2];
-                    const _fmBody = _fmM[3];
-
-                    // Тихая синхронизация ID напарника если ник совпадает с сохранённым
-                    if (partnerNick && _fmNick === partnerNick && String(_fmId) !== String(partnerId)) {
-                        const _oldFmId = partnerId;
-                        partnerId = _fmId;
-                        console.log(`[PARTNER-FM] ID обновлён из <Интерпол> /fm: ${_oldFmId} -> ${_fmId} (${_fmNick})`);
-                        snAdd(`[1, "Напарник", "${_fmNick}: ID ${_oldFmId ?? '?'}->${_fmId}", "00FF00", 3000]`);
-                    }
-
-                    const _fmTrack = _fmBody.match(/Отслеживаю жетон\s+(\d+)/);
-                    if (_fmTrack) {
-                        const _fmSid    = _fmTrack[1];
-                        const _fmSInfo  = getPlayerInfoFromList(_fmSid);
-                        const _fmSLabel = _fmSInfo.nick ? `${_fmSInfo.nick}[${_fmSid}]` : `ID ${_fmSid}`;
-                        const _fmSExtra = _fmSInfo.nick ? ` | Лвл ${_fmSInfo.level ?? '?'} | ${_fmSInfo.device}` : '';
-                        console.log(`[PARTNER-FM] <Интерпол> ${_fmNick}[${_fmId}] -> отслеживание ${_fmSLabel}${_fmSExtra}`);
-                        snAdd(`[1, "Напарник отслеживает", "${_fmSLabel}${_fmSExtra}", "00AAFF", 5000]`);
-                        if (currentScanId === _fmSid || currentScanId === String(_fmSid)) {
-                            console.log('[PARTNER-FM] Уже отслеживаем эту же цель — перезапуск пропущен');
-                        } else {
-                            setTimeout(() => startTracking(_fmSid), 600);
-                        }
-                        console.log('[FILTER] ℹ️ /fm отслеживание — показываем в чате семьи');
-                        // return; // ОТКЛЮЧЕНО: больше не скрываем "Отслеживаю жетон X" из семейного чата
-                    }
-
-                    const _fmStop = _fmBody.match(/Закончил отслеживание за жетоном\s+(\d+)/);
-                    if (_fmStop) {
-                        const _fmSid = _fmStop[1];
-                        console.log(`[PARTNER-FM] <Интерпол> ${_fmNick}[${_fmId}] закончил отслеживание ID: ${_fmSid}`);
-                        snAdd(`[1, "Напарник", "${_fmNick}[${_fmId}]: закончил отслеживание ${_fmSid}", "FF4444", 3000]`);
-                        if (currentScanId === _fmSid || currentScanId === String(_fmSid)) {
-                            stopTracking();
-                        }
-                        console.log('[FILTER] ℹ️ /fm конец отслеживания — показываем в чате семьи');
-                        // return; // ОТКЛЮЧЕНО: больше не скрываем "Закончил отслеживание за жетоном X" из семейного чата
-                    }
-                }
-            }
-            // ==================== КОНЕЦ FM-СООБЩЕНИЙ <Интерпол> ====================
-
-            // РЕЗЕРВНЫЙ ФИЛЬТР /FM ОТСЛЕЖИВАНИЯ (ОТКЛЮЧЁН) ОТКЛЮЧЕНО: сообщения об отслеживании теперь показываются в чате семьи.
-
-            // ОБНАРУЖЕНИЕ СООБЩЕНИЯ НАПАРНИКА Реальный формат в консоли: [CLOSE|#CECECE] - Отслеживаю 395 {0000FF}({v:Calvin_Miller})[294] Сервер сам д...
-            if (typeof message === 'string' && partnerTrackingEnabled && partnerNick && !String(message).includes('<Интерпол>')) {
-                const msgStr = String(message);
-                const _escNick = escapeRegex(partnerNick);
-
-                // Ник напарника + любой ID рядом: ({v:NICK})[ID] / {v:NICK}[ID] / NICK[ID] / NICK [ID]
-                // \\s* — позволяет ловить FM-формат "<Семья> Nick [ID]: сообщение" (пробел перед [ID])
-                const partnerTagRe = new RegExp(
-                    `(?:\\(\\{v:${_escNick}\\}\\)|\\{v:${_escNick}\\}|\\b${_escNick})\\s*\\[(\\d+)\\]`
-                );
-                const partnerTagMatch = msgStr.match(partnerTagRe);
-
-                // Маска: ник скрыт (Mask_XXXXX), но ID в [] совпадает с последним
-                // известным partnerId — такие сообщения тоже считаем напарниковыми
-                // (по нику в этом случае сматчить нельзя, т.к. ника не видно).
-                const hasMaskedPartner = !!partnerId && (
-                    (new RegExp(`\\{v:Mask_[^}]+\\}\\s*\\[${partnerId}\\]`)).test(msgStr) ||
-                    (new RegExp(`\\bMask_[A-Za-z0-9_]+\\s*\\[${partnerId}\\]`)).test(msgStr)
-                );
-
-                const hasPartnerTag = !!partnerTagMatch || hasMaskedPartner;
-
-                if (hasPartnerTag) {
-                    // ── Тихая синхронизация ID напарника прямо из сообщения чата ──
-                    // (без /id-запроса и без открытия меню МВД)
-                    if (partnerTagMatch) {
-                        const seenId = partnerTagMatch[1];
-                        if (String(seenId) !== String(partnerId)) {
-                            const _oldId = partnerId;
-                            partnerId = seenId;
-                            console.log(`[PARTNER] 🔄 ID напарника обновлён из чата: ${_oldId} → ${seenId} (${partnerNick})`);
-                            snAdd(`[1, "Напарник", "${partnerNick}: ID ${_oldId == null ? '?' : _oldId}→${seenId}", "00FF00", 3000]`);
-                        }
-                    }
-
-                    const trackMatch = msgStr.match(/Отслеживаю жетон\s+(\d+)/);
-                    if (trackMatch) {
-                        const suspectId = trackMatch[1];
-                        // Берём полную инфу из списка игроков — ник, уровень, устройство
-                        const _spInfo   = getPlayerInfoFromList(suspectId);
-                        const _spNick   = _spInfo.nick;
-                        const _spLabel  = _spNick ? `${_spNick}[${suspectId}]` : `ID ${suspectId}`;
-                        const _spExtra  = _spNick
-                            ? ` | Лвл ${_spInfo.level ?? '?'} | ${_spInfo.device}`
-                            : '';
-                        console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] начал отслеживание: ${_spLabel}${_spExtra}`);
-                        snAdd(`[1, "Напарник отслеживает", "${_spLabel}${_spExtra}", "00AAFF", 5000]`);
-                        // Если мы УЖЕ отслеживаем именно этого подозреваемого (например, сами выбрали его из /WANTED и ник уже известен) — НЕ перезапускаем startTr...
-                        if (currentScanId === suspectId || currentScanId === String(suspectId)) {
-                            console.log('[PARTNER] ⏭️ Уже отслеживаем эту же цель — перезапуск пропущен (ник сохранён)');
-                        } else {
-                            setTimeout(() => startTracking(suspectId), 600);
-                        }
-                    }
-                    const stopMatch = msgStr.match(/Закончил отслеживание за жетоном\s+(\d+)/);
-                    if (stopMatch) {
-                        const suspectId = stopMatch[1];
-                        console.log(`[PARTNER] 🔔 Напарник ${partnerNick}[${partnerId}] закончил отслеживание ID: ${suspectId}`);
-                        snAdd(`[1, "Напарник", "${partnerNick}: закончил отслеживание ${suspectId}", "FF4444", 3000]`);
-                        if (currentScanId === suspectId || currentScanId === String(suspectId)) {
-                            stopTracking();
-                        }
-                    }
-                }
-            }
-            // ==================== КОНЕЦ ОБНАРУЖЕНИЯ СООБЩЕНИЯ НАПАРНИКА ====================
-
-            // ==================== АВТО-СТОП: НЕВОЗМОЖНО ОПРЕДЕЛИТЬ / ТАКОГО ИГРОКА НЕТ ====================
-            if (typeof message === 'string' && currentScanId && !window._trackingStopPending) {
-                const isNoLocation = message.includes('Невозможно определить местоположение игрока');
-                const isNoPlayer   = message.includes('Такого игрока нет');
-
-                if (isNoLocation || isNoPlayer) {
-                    const reason = isNoPlayer
-                        ? 'Такого игрока нет'
-                        : 'Невозможно определить местоположение';
-                    console.log(`[TRACKING] ⚠️ ${reason} — стоп немедленно`);
-                    window._trackingStopPending = true;
-
-                    // Останавливаем всё сразу (интервалы, флаги) — но БЕЗ hideAll
-                    // чтобы серое уведомление успело показаться и догореть само
-                    if (scanInterval)    { clearInterval(scanInterval);    scanInterval    = null; }
-                    if (setmarkInterval) { clearTimeout(setmarkInterval);  setmarkInterval = null; } // setTimeout-цепочка
-                    if (pgInterval)      { clearInterval(pgInterval);      pgInterval      = null; }
-                    _cdTimerActive = false;
-                    trackingNotificationOpen = false;
-                    chaseNotificationOpen    = false;
-                    currentScanId            = null;
-                    trackingNickname         = null;
-                    trackingName             = `Отслеживание | {FF0000}Выкл`;
-                    isInActiveChase          = false;
-                    lastSetmarkSentAt        = 0;
-
-                    // Показываем серое уведомление синхронно — без setTimeout,
-                    // чтобы никакой другой snAdd не успел сделать hideAll между hideAll и add
-                    try {
-                        const sn = getZkmSN();
-                        if (sn) {
-                            if (typeof sn.hideAll === 'function') sn.hideAll();
-                            hideTrackingTimer();   // гасим таймер-уведомление отслеживания (timerQueue)
-                            clearSetmarkCdTimer(); // и КД-таймер, если он был активен
-                            sn.add(`[1, "Отслеживание", "${reason}", "CECECE", 5000]`);
-                        }
-                    } catch(e) {}
-
-                    setTimeout(() => { window._trackingStopPending = false; }, 3000);
-                    console.log(`[TRACKING] 🛑 Авто-стоп: ${reason}`);
-                }
-            }
-            // ==================== КОНЕЦ АВТО-СТОП ====================
-
-            // ==================== АВТО-СТОП: ИГРОК НЕ В РОЗЫСКЕ ====================
-            // "Этот игрок не в розыске" с цветом #CECECE (CLOSE) — отменяем погоню и закрываем меню
-            if (typeof message === 'string' && currentScanId &&
-                message.includes('Этот игрок не в розыске')) {
-                const _wantedColor = normalizeColor(args[0]);
-                if (_wantedColor === '0xCECECE') {
-                    console.log('[TRACKING] ⚠️ Игрок не в розыске (#CECECE) — стоп отслеживания + закрытие меню');
-                    stopTracking();
-                    // Закрываем открытые МВД интерфейсы
-                    try { window.closeInterface('MvdMenu'); } catch(e) {}
-                    try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
-                    snAdd('[1, "Погоня", "Игрок не в розыске — погоня отменена", "FF4400", 5000]');
-                }
-            }
-            // ==================== КОНЕЦ АВТО-СТОП: ИГРОК НЕ В РОЗЫСКЕ ====================
-
-            // ==================== КД /setmark: ПОВТОР ЧЕРЕЗ N СЕКУНД ====================
-            if (typeof message === 'string' && currentScanId) {
-                // Сервер пишет на /setmark: "Система отслеживания ещё загружает актуальное местоположение подозреваемого. Подождите X сек."
-                const cdMatch = message.match(/[Пп]одождите\s+(\d+)\s*сек/);
-                if (cdMatch) {
-                    const waitSec = parseInt(cdMatch[1]);
-                    console.log(`[TRACKING] ⏳ КД /setmark: ${waitSec} сек`);
-                    // Блокируем восстановление красного таймера пока идёт жёлтый КД
-                    _cdTimerActive = true;
-                    // Прячем таймер обычного отслеживания и показываем жёлтый
-                    // таймер-уведомление с реальным обратным отсчётом КД
-                    hideTrackingTimer();
-                    try {
-                        const sn = getZkmSN();
-                        if (sn && typeof sn.hideAll === 'function') sn.hideAll();
-                    } catch(e) {}
-                    setTimeout(() => {
-                        try {
-                            clearSetmarkCdTimer();
-                            setmarkCdTimerId = getZkmSN()?.addTimer(
-                                `[1, "Система загружает", "Обновление /setmark через", "FFAA00", ${waitSec}]`
-                            );
-                        } catch(e) {}
-                    }, 100);
-                    // Приостанавливаем setmarkInterval на время КД чтобы не спамить
-                    if (setmarkInterval) {
-                        clearTimeout(setmarkInterval); // setTimeout-цепочка → clearTimeout
-                        setmarkInterval = null;
-                        console.log('[TRACKING] setmarkInterval приостановлен на время КД');
-                    }
-                    // Через waitSec секунд повторяем /setmark, прячем КД-таймер
-                    // и возвращаем обычный таймер отслеживания (31с)
-                    setTimeout(() => {
-                        _cdTimerActive = false; // разрешаем восстановление красного таймера
-                        clearSetmarkCdTimer();
-                        if (currentScanId) {
-                            console.log(`[TRACKING] 🔄 Повтор /setmark после КД (${waitSec}с)`);
-                            sendSetmarkCommand(currentScanId);
-                            // Возобновляем цепочку /setmark
-                            if (!setmarkInterval) {
-                                scheduleSetmark();
-                            }
-                        }
-                    }, waitSec * 1000);
-                }
-            }
-            // ==================== КОНЕЦ КД /setmark ====================
-
             // Auto-cuff logic
             if (autoCuffEnabled && typeof message === 'string') {
                 const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
@@ -1372,8 +975,6 @@ if (typeof message === 'string' && _MSG_REPLACE_RULES.length) {
             return originalAddFunction.apply(this, [message, ...args]);
         };
         console.log('[Auto-cuff] Обработчик чата успешно установлен');
-        console.log('[CHASE] Отслеживание погони активировано');
-        console.log('[FINE] Отслеживание штрафов активировано');
         _mainChatHandlerReady = true;
     } else {
         setTimeout(setupChatHandler, 100);
@@ -1410,268 +1011,14 @@ setupChatHandler();
 // ФУНКЦИИ SCREENNOTIFICATION ВАЖНО: используем ТОЛЬКО изолированный window.ZkmScreenNotification (см.
 const getZkmSN = () => window.ZkmScreenNotification || null;
 
-// ТАЙМЕР-УВЕДОМЛЕНИЕ ОТСЛЕЖИВАНИЯ Основное уведомление "Идет отслеживание/Начата погоня" теперь живёт как addTimer() (timerQueue), а не как...
-const SETMARK_INTERVAL_SEC = 31;
-let trackingTimerId   = null;  // id addTimer() для "Идет отслеживание/Начата погоня"
-let setmarkCdTimerId  = null;  // id addTimer() для жёлтого КД /setmark
-let lastSetmarkSentAt = 0;     // Date.now() последней реальной отправки /setmark
-let _cdTimerActive    = false; // true пока активен жёлтый КД-таймер — блокирует восстановление красного таймера
-
-const getSetmarkRemainingSec = () => {
-    if (!lastSetmarkSentAt) return SETMARK_INTERVAL_SEC;
-    const elapsed   = Math.floor((Date.now() - lastSetmarkSentAt) / 1000);
-    const remaining = SETMARK_INTERVAL_SEC - elapsed;
-    return remaining > 0 ? remaining : SETMARK_INTERVAL_SEC;
-};
-
-const hideTrackingTimer = () => {
-    if (trackingTimerId !== null) {
-        try { getZkmSN()?.hideTimer(trackingTimerId); } catch(e) {}
-        trackingTimerId = null;
-    }
-};
-
-const clearSetmarkCdTimer = () => {
-    if (setmarkCdTimerId !== null) {
-        try { getZkmSN()?.hideTimer(setmarkCdTimerId); } catch(e) {}
-        setmarkCdTimerId = null;
-    }
-};
-
-// Показывает/обновляет таймер-уведомление, используя АКТУАЛЬНОЕ состояние
-// на момент вызова (а не закэшированное на момент постановки в setTimeout)
-const showTrackingTimer = () => {
-    if (!currentScanId) return;
-    if (!(trackingNotificationOpen || chaseNotificationOpen)) return;
-    if (_cdTimerActive) return; // жёлтый КД-таймер активен — не перекрываем его
-
-    // Строка с ником/ID + уровень + устройство + суффикс "через"
-    // Пример: "Ivan_Petrov [42] | Лвл 35 | Hassle — метка через MM:SS"
-    let _extraTrkInfo = '';
-    if (trackingNickname) {
-        if (trackingLevel != null) _extraTrkInfo += ` | Лвл ${trackingLevel}`;
-        if (trackingDevice)        _extraTrkInfo += ` | ${trackingDevice}`;
-    }
-    const label   = trackingNickname
-        ? `${trackingNickname} [${currentScanId}]${_extraTrkInfo} — метка через`
-        : `[${currentScanId}] — метка через`;
-    const isChase = chaseNotificationOpen;
-    const title   = isChase ? 'Начата погоня' : 'Идет отслеживание';
-    const accent  = isChase ? '0000FF' : 'FF0000';
-    const secs    = Math.max(2, getSetmarkRemainingSec());
-    // 6-й параметр — полная длительность цикла /setmark (31с).
-    const payload = `[1, "${title}", "${label}", "${accent}", ${secs}, ${SETMARK_INTERVAL_SEC}]`;
-
-    try {
-        const sn = getZkmSN();
-
-        // Если уведомление уже висит на экране — просто обновляем текст/
-        // таймер в существующем DOM-узле, БЕЗ leave+enter анимации.
-        if (trackingTimerId !== null && sn?.updateTimer(trackingTimerId, payload) !== null) {
-            return;
-        }
-
-        // Узла ещё нет (или он уже был закрыт) — создаём заново, тут
-        // анимация появления оправдана.
-        hideTrackingTimer();
-        trackingTimerId = sn?.addTimer(payload);
-    } catch(e) {}
-};
-
-// Отложенное восстановление таймер-уведомления после показа мелкого snAdd
-const restoreTrackingTimer = (delay = 150) => {
-    setTimeout(showTrackingTimer, delay);
-};
-
 const snAdd = (payload) => {
     try {
-        // Если показывается финальное уведомление (серое) — не трогаем его через hideAll
-        if (window._trackingStopPending) return;
         const sn = getZkmSN();
         if (sn && typeof sn.hideAll === 'function') sn.hideAll();
-
-        // ZkmScreenNotification.js теперь сам стекует уведомления в одной точке экрана (см.
         setTimeout(() => {
             try { getZkmSN()?.add(payload); } catch(e) {}
         }, 100);
     } catch(e) {}
-};
-let currentNotificationId = 0;
-let isInActiveChase = false; // Флаг активной погони
-const openTrackingNotification = (id) => {
-    currentNotificationId++;
-    trackingNotificationOpen = true;
-    chaseNotificationOpen = false;
-    if (!lastSetmarkSentAt) lastSetmarkSentAt = Date.now();
-    // Скрываем любые временные уведомления (например "Напарник: отслеживает")
-    // чтобы они не перекрывали таймер-уведомление отслеживания
-    try { getZkmSN()?.hideAll(); } catch(e) {}
-    showTrackingTimer();
-    console.log('[TRACKING] Таймер-уведомление открыто (красное)');
-};
-const openChaseNotification = (id) => {
-    currentNotificationId++;
-    trackingNotificationOpen = false;
-    chaseNotificationOpen = true;
-    if (!lastSetmarkSentAt) lastSetmarkSentAt = Date.now();
-    try { getZkmSN()?.hideAll(); } catch(e) {}
-    showTrackingTimer();
-    console.log('[CHASE] Таймер-уведомление открыто (синее)');
-};
-const closeTrackingNotifications = () => {
-    try {
-        const screenNotif = getZkmSN();
-        if (screenNotif && typeof screenNotif.hideAll === 'function') {
-            screenNotif.hideAll();
-        }
-        hideTrackingTimer();
-        clearSetmarkCdTimer();
-        trackingNotificationOpen = false;
-        chaseNotificationOpen = false;
-        console.log('[TRACKING] Все уведомления закрыты (включая таймер)');
-    } catch (err) {
-        console.error('[TRACKING] Ошибка закрытия ScreenNotification:', err);
-    }
-};
-
-// Обёртка над отправкой /setmark: фиксирует момент отправки (для точного
-// обратного отсчёта в showTrackingTimer) и, если сейчас не идёт КД-таймер,
-// сразу обновляет таймер-уведомление на свежие 31с
-const sendSetmarkCommand = (id) => {
-    if (!id) return; // защита от гонки: отслеживание уже остановлено к моменту вызова
-    lastSetmarkSentAt = Date.now();
-    sendChatInput(`/setmark ${id}`);
-    if (setmarkCdTimerId === null) {
-        showTrackingTimer();
-    }
-};
-
-// scheduleSetmark: цепочка setTimeout вместо setInterval.
-const scheduleSetmark = () => {
-    setmarkInterval = setTimeout(() => {
-        if (!currentScanId) return;
-        sendSetmarkCommand(currentScanId);
-        scheduleSetmark(); // следующий через 31с
-    }, SETMARK_INTERVAL_SEC * 1000);
-};
-
-const startTracking = (id, knownNick = null) => {
-    // Очищаем старые таймеры
-    if (scanInterval) {
-        clearInterval(scanInterval);
-        scanInterval = null;
-    }
-    if (setmarkInterval) {
-        clearTimeout(setmarkInterval); // setTimeout-цепочка → clearTimeout
-        setmarkInterval = null;
-    }
-    if (pgInterval) {
-        clearInterval(pgInterval);
-        pgInterval = null;
-    }
-    _cdTimerActive = false; // сброс флага КД при перезапуске отслеживания
- 
-    // Немедленно гасим старое уведомление погони openTrackingNotification сбросит chaseNotificationOpen только через 800мс, из-за чего синий та...
-    if (chaseNotificationOpen || trackingNotificationOpen) {
-        chaseNotificationOpen    = false;
-        trackingNotificationOpen = false;
-        isInActiveChase          = false;
-        hideTrackingTimer();
-        clearSetmarkCdTimer();
-        console.log('[TRACKING] 🔄 Старое уведомление погони закрыто (смена цели)');
-    }
- 
-    currentScanId = id;
-    // Ник, уровень и устройство берём из списка игроков — /id в чат не отправляем.
-    // Приоритет knownNick (явно передан из /WANTED-диалога и т.п.), затем список.
-    const _pInfo    = getPlayerInfoFromList(id);
-    const nickFromList = knownNick || _pInfo.nick;
-    trackingNickname = nickFromList || null;
-    trackingLevel    = _pInfo.level;
-    trackingDevice   = _pInfo.device;
-    trackingName = nickFromList
-        ? `Отслеживание | {00FF00}${nickFromList}[${id}]`
-        : `Отслеживание | {00FF00}ID: ${id}`;
-    if (nickFromList) {
-        const _devStr = trackingDevice ? ` | ${trackingDevice}` : '';
-        const _lvlStr = trackingLevel != null ? ` | Лвл ${trackingLevel}` : '';
-        console.log(`[TRACKING] ✅ Игрок из списка: ${nickFromList}[${id}]${_lvlStr}${_devStr}`);
-    }
-    isInActiveChase = false; // Сброс флага погони
-    lastSetmarkSentAt = 0;
-    setTimeout(() => {
-        openTrackingNotification(id);
-    }, 800);
-
-    // СООБЩЕНИЕ НАПАРНИКУ (через /fm — семейное радио) Если включено "Сообщение для напарника" — шлём в семью (/fm), чтобы напарник получил соб...
-    if (partnerMessageEnabled) {
-        setTimeout(() => {
-            if (!currentScanId) {
-                console.log(`[PARTNER] ⛔ Сообщение не отправлено — отслеживание уже остановлено`);
-                return;
-            }
-            sendChatInput(`/fm Отслеживаю жетон ${id}`);
-            console.log(`[PARTNER] 📡 Отправлено в /fm: Отслеживаю жетон ${id}`);
-        }, 1200);
-    }
-    // ==================== КОНЕЦ СООБЩЕНИЯ НАПАРНИКУ ====================
- 
-    // Начальные команды (без /id — обработан выше) /setmark идёт через sendSetmarkCommand, чтобы зафиксировать время отправки.
-    setTimeout(() => {
-        if (!currentScanId) return; // защита от гонки: отслеживание уже остановлено (например "невозможно определить местоположение")
-        sendSetmarkCommand(currentScanId);
-        scheduleSetmark(); // следующий /setmark ровно через 31с (синхронно с таймером)
-        setTimeout(() => {
-            if (currentScanId) {                 // повторная проверка — стоп мог произойти за эту секунду
-                sendChatInput(`/pg ${currentScanId}`);
-            }
-        }, 1000);
-    }, 500);
- 
-    // Интервал /pg каждые 2 секунды (только если НЕ в активной погоне)
-    pgInterval = setInterval(() => {
-        if (currentScanId && !isInActiveChase) {
-            sendChatInput(`/pg ${currentScanId}`);
-        }
-    }, 2000);
- 
-};
-const stopTracking = () => {
-    // Очищаем все таймеры
-    if (scanInterval) {
-        clearInterval(scanInterval);
-        scanInterval = null;
-    }
-    if (setmarkInterval) {
-        clearTimeout(setmarkInterval); // setTimeout-цепочка → clearTimeout
-        setmarkInterval = null;
-    }
-    if (pgInterval) {
-        clearInterval(pgInterval);
-        pgInterval = null;
-    }
-    _cdTimerActive = false; // сброс флага КД
- 
-    // Закрываем все уведомления (включая таймер-уведомление и КД-таймер)
-    closeTrackingNotifications();
-
-    // ==================== СООБЩЕНИЕ НАПАРНИКУ О КОНЦЕ ОТСЛЕЖИВАНИЯ (через /fm) ====================
-    if (partnerMessageEnabled && currentScanId) {
-        const stoppedId = currentScanId;
-        sendChatInput(`/fm Закончил отслеживание за жетоном ${stoppedId}`);
-        console.log(`[PARTNER] 📡 Отправлено в /fm: Закончил отслеживание за жетоном ${stoppedId}`);
-    }
-    // ==================== КОНЕЦ СООБЩЕНИЯ О КОНЦЕ ОТСЛЕЖИВАНИЯ ====================
- 
-    currentScanId    = null;
-    trackingNickname = null;
-    trackingLevel    = null;
-    trackingDevice   = null;
-    trackingName     = `Отслеживание | {FF0000}Выкл`;
-    isInActiveChase  = false;
-    lastSetmarkSentAt = 0;
- 
-    console.log('[TRACKING] Отслеживание остановлено');
 };
 const toggleAutoCuff = () => {
     autoCuffEnabled = !autoCuffEnabled;
@@ -1713,75 +1060,6 @@ const toggleAutoGrab = () => {
         console.warn('[FSIN-GRAB] toggleAutoGrab notify error:', e);
     }
 };
-// ── Публичные флаги состояния для MvdMenu ─────────────────────────────────────
-// MvdMenu читает эти свойства при каждом открытии mainMenuItems
-Object.defineProperty(window, '_mvdCurrentScanId',   { get: () => currentScanId,   configurable: true });
-Object.defineProperty(window, '_mvdTrackingNick',    { get: () => trackingNickname, configurable: true });
-Object.defineProperty(window, '_mvdAutoCuffEnabled', { get: () => autoCuffEnabled, configurable: true });
-Object.defineProperty(window, '_fsinAutoGrabEnabled', { get: () => autoGrabEnabled, configurable: true });
-// Геттер метки напарника
-window._mvdGetPartnerLabel = function() {
-    if (partnerTrackingEnabled && partnerNick && partnerId) {
-        return 'Напарник: ' + partnerNick + '[' + partnerId + ']';
-    }
-    return 'Напарник | Выкл';
-};
-// Toggle-обёртки для MvdMenu
-window._mvdToggleAutoCuff = () => { toggleAutoCuff(); };
-window._mvdToggleAutoGrab = () => { toggleAutoGrab(); };
-// Отслеживание: если активно — останавливает; иначе открывает диалог ввода
-window._mvdToggleTracking = () => {
-    if (currentScanId) {
-        stopTracking();
-    } else {
-        setTimeout(() => showTrackingInputDialog(giveLicenseTo), 50);
-    }
-};
-// Запуск отслеживания по ID напрямую (для кастомного экрана MvdMenu)
-window._mvdStartTracking = (id) => { startTracking(id); };
-
-// ── Публичные API напарника для MvdMenu (кастомный интерфейс) ────────────────
-window._mvdPartnerGetState = function() {
-    return {
-        tracking: partnerTrackingEnabled,
-        message:  partnerMessageEnabled,
-        nick:     partnerNick,
-        id:       partnerId,
-    };
-};
-window._mvdPartnerDisable = function() {
-    partnerNick = null;
-    partnerId = null;
-    partnerTrackingEnabled = false;
-    _awaitingPartnerId = false;
-    snAdd('[1, "Напарник", "Слежка за напарником отключена", "FF0000", 2500]');
-};
-window._mvdPartnerSetId = function(rawId) {
-    partnerId = rawId;
-    partnerNick = null;
-    partnerTrackingEnabled = true;
-
-    // Пробуем найти ник из актуального списка игроков — без /id в чат
-    const nickFromList = getNickByIdFromList(rawId);
-    if (nickFromList) {
-        partnerNick = nickFromList;
-        _awaitingPartnerId = false;
-        window._pendingPartnerId = null;
-        snAdd(`[1, "Напарник", "Напарник: ${nickFromList}[${rawId}]", "00FF00", 3000]`);
-        console.log(`[PARTNER] ✅ Напарник из списка: ${nickFromList}[${rawId}]`);
-    } else {
-        // Игрок с таким ID не найден в списке — возможно, не в сети
-        snAdd(`[1, "Напарник", "ID ${rawId} — не найден в списке", "FF4444", 3000]`);
-        console.log(`[PARTNER] ⚠️ ID ${rawId} не найден в списке игроков`);
-    }
-};
-window._mvdPartnerSetMessage = function(val) {
-    partnerMessageEnabled = val;
-    partnerMessageName = `Сообщение для напарника | ${val ? '{00FF00}Вкл' : '{FF0000}Выкл'}`;
-    snAdd(`[1, "Напарник", "Сообщение: ${val ? 'Вкл' : 'Выкл'}", "${val ? '00FF00' : 'FF0000'}", 2500]`);
-};
-// ── END публичные флаги ───────────────────────────────────────────────────────
-
 const SendGiveLicenseCommand = (to, index) => {
     if (index < 0 || index >= shownLicenseTypes.length)
         return;
@@ -1835,18 +1113,6 @@ const HandleMvdSubCommand = (index) => {
                 showPovsednevMenuPage(giveLicenseTo);
             }, 50);
             break;
-        case "tracking":
-            if (currentScanId) {
-                stopTracking();
-                setTimeout(() => {
-                    showMvdSubMenu(giveLicenseTo);
-                }, 50);
-            } else {
-                setTimeout(() => {
-                    showTrackingInputDialog(giveLicenseTo);
-                }, 100);
-            }
-            break;
         case "autocuff":
             toggleAutoCuff();
             setTimeout(() => {
@@ -1858,9 +1124,6 @@ const HandleMvdSubCommand = (index) => {
             setTimeout(() => {
                 showMvdSubMenu(giveLicenseTo);
             }, 50);
-            break;
-        case "naparnick":
-            setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
             break;
         case "laws":
             window._duranOpenMode = 'laws';
@@ -2421,12 +1684,10 @@ window.showMvdSubMenu = (e) => {
     let availableSub = [
         { name: "Повседневная", id: "povsednev" }
     ];
-    availableSub.push({ name: trackingName, id: "tracking" });
     availableSub.push({ name: autoCuffName, id: "autocuff" });
     if (window.AUTO_GRAB === true) {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
-    availableSub.push({ name: getPartnerMenuLabel(), id: "naparnick" });
     availableSub.push({ name: "Законы", id: "laws" });
     shownMvdSubTypes = availableSub;
     let licenseList = '';
@@ -2435,26 +1696,6 @@ window.showMvdSubMenu = (e) => {
     });
     window.addDialogInQueue(`[677,2,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
-// ==================== МЕНЮ НАПАРНИКА ====================
-window.showPartnerMenu = (e) => {
-    giveLicenseTo = e;
-    // Тихо обновляем ник напарника каждый раз при открытии раздела
-    refreshPartnerNickSilent();
-    const trackLabel = getPartnerTrackingLabel();
-    const menuList =
-        `1. ${trackLabel}<n>` +
-        `2. ${partnerMessageName}`;
-    window.addDialogInQueue(`[682,2,"Напарник","","Выбрать","Назад",0,0]`, menuList, 0);
-};
-window.showPartnerIdInputDialog = (e) => {
-    giveLicenseTo = e;
-    const cur = (partnerNick && partnerId) ? `Текущий: ${partnerNick}[${partnerId}]` : `Не задан`;
-    window.addDialogInQueue(
-        `[683,1,"Напарник — Ввод ID","Введите ID напарника (${cur}):","Подтвердить","Отмена",0,0]`,
-        "", 0
-    );
-};
-// ==================== КОНЕЦ МЕНЮ НАПАРНИКА ====================
 window.showKoapTypeMenu = (e) => {
     giveLicenseTo = e;
     window._duranOpenMode = 'fine';
@@ -2475,10 +1716,6 @@ window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
     window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
 };
-window.showTrackingInputDialog = (e) => {
-    giveLicenseTo = e;
-    window.addDialogInQueue(`[669,1,"Отслеживание","Введите ID для отслеживания:","Начать","Отмена",0,0]`, "", 0);
-};
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`[EVENT] Событие: ${event}, Аргументы:`, args);
 
@@ -2492,7 +1729,6 @@ window.sendClientEventCustom = (event, ...args) => {
             } else {
                 lastMenuType = null;
                 currentMenu = null;
-                restoreTrackingTimer();
             }
         }
         else if (args[1] === 667) { // Меню Повседневная
@@ -2507,7 +1743,6 @@ window.sendClientEventCustom = (event, ...args) => {
                 currentPage = 0;
                 lastMenuType = null; currentMenu = null;
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-                restoreTrackingTimer();
                 return;
             }
         }
@@ -2529,83 +1764,14 @@ window.sendClientEventCustom = (event, ...args) => {
             currentAction = null;
             window._mvdMenuPendingAction = null;
         }
-        else if (args[1] === 669) { // Диалог ввода ID для отслеживания
-            const inputId = args[4];
-            if (args[2] === 1 && giveLicenseTo !== -1) {
-                startTracking(inputId);
-            } else {
-                stopTracking();
-                setTimeout(() => {
-                    showMvdSubMenu(giveLicenseTo);
-                }, 50);
-            }
-        }
         else if (args[1] === 677) { // Меню МВД sub
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleMvdSubCommand(listitem);
             } else if (args[2] === 0) {
-                // Отмена / ESC — закрываем меню, восстанавливаем уведомление
-                restoreTrackingTimer();
+                // Отмена / ESC — закрываем меню
             }
         }
-        // ==================== НАПАРНИК ДИАЛОГИ ====================
-        else if (args[1] === 682) { // Меню Напарник
-            const listitem = args[3];
-            if (args[2] === 1) {
-                if (listitem === 0) {
-                    // "Следить за напарником" — если уже включено, отключаем; иначе запрашиваем ID
-                    if (partnerTrackingEnabled) {
-                        partnerNick = null;
-                        partnerId = null;
-                        partnerTrackingEnabled = false;
-                        _awaitingPartnerId = false;
-                        snAdd('[1, "Напарник", "Слежка за напарником отключена", "FF0000", 2500]');
-                        console.log('[PARTNER] Слежка отключена');
-                        setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
-                    } else {
-                        setTimeout(() => showPartnerIdInputDialog(giveLicenseTo), 50);
-                    }
-                } else if (listitem === 1) {
-                    // "Сообщение для напарника" — переключатель
-                    partnerMessageEnabled = !partnerMessageEnabled;
-                    partnerMessageName = `Сообщение для напарника | ${partnerMessageEnabled ? '{00FF00}Вкл' : '{FF0000}Выкл'}`;
-                    snAdd(`[1, "Напарник", "Сообщение: ${partnerMessageEnabled ? 'Вкл' : 'Выкл'}", "${partnerMessageEnabled ? '00FF00' : 'FF0000'}", 2500]`);
-                    console.log(`[PARTNER] Сообщение для напарника: ${partnerMessageEnabled ? 'вкл' : 'выкл'}`);
-                    setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
-                }
-            } else if (args[2] === 0) {
-                // Назад — в МВД подменю
-                setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-            }
-        }
-        else if (args[1] === 683) { // Ввод ID напарника
-            const inputId = args[4];
-            if (args[2] === 1 && inputId && inputId.trim()) {
-                const rawId = inputId.trim();
-                partnerId = rawId;
-                partnerNick = null;
-                partnerTrackingEnabled = true;
-
-                // Пробуем найти ник из актуального списка игроков — без /id в чат
-                const nickFromList = getNickByIdFromList(rawId);
-                if (nickFromList) {
-                    partnerNick = nickFromList;
-                    _awaitingPartnerId = false;
-                    window._pendingPartnerId = null;
-                    snAdd(`[1, "Напарник", "Напарник: ${nickFromList}[${rawId}]", "00FF00", 3000]`);
-                    console.log(`[PARTNER] ✅ Напарник из списка: ${nickFromList}[${rawId}]`);
-                } else {
-                    // Игрок с таким ID не найден в списке — возможно, не в сети
-                    snAdd(`[1, "Напарник", "ID ${rawId} — не найден в списке", "FF4444", 3000]`);
-                    console.log(`[PARTNER] ⚠️ ID ${rawId} не найден в списке игроков`);
-                }
-            } else {
-                // Отмена — возврат в меню напарника
-                setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
-            }
-        }
-        // ==================== КОНЕЦ НАПАРНИК ДИАЛОГИ ====================
         else if (args[1] === 684) { // Причина изъятия прав (статья КоАП)
             const reason = args[4];
             if (args[2] === 1 && reason && reason.trim()) {
@@ -2625,9 +1791,8 @@ window.sendClientEventCustom = (event, ...args) => {
             const listitem = parseInt(args[3]);
             const player = _wantedPlayers[listitem];
             if (player) {
-                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}] — запускаем отслеживание`);
+                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}]`);
                 _wantedDialogId = null;
-                setTimeout(() => startTracking(player.id, player.nick), 100);
             } else {
                 console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
                 _wantedDialogId = null;
@@ -2653,8 +1818,6 @@ window.sendChatInputCustom = e => {
         
         const openMenu = () => {
             snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
-            restoreTrackingTimer();
-            refreshPartnerNickSilent();
             showMvdMainMenuPage(args[1]);
         };
 
@@ -2708,17 +1871,8 @@ window.sendChatInputCustom = e => {
         currentSubMenu = null;
         currentAction = null;
         currentPage = 0;
-        stopTracking();
         autoCuffEnabled = false;
-        trackingName = `Отслеживание | {FF0000}Выкл`;
         autoCuffName = `Auto-cuff | {FF0000}Выкл`;
-        // Сброс напарника
-        partnerNick = null;
-        partnerId = null;
-        partnerTrackingEnabled = false;
-        partnerMessageEnabled = false;
-        _awaitingPartnerId = false;
-        partnerMessageName = `Сообщение для напарника | {FF0000}Выкл`;
         sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
     } else if (args[0] == "/int") {
         // Просмотрщик интерфейсов (см.
@@ -2896,30 +2050,6 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 console.log(`[WANTED] Диалог id=${dialogId}, игроков: ${_wantedPlayers.length}`, _wantedPlayers.map(p => p.nick + '[' + p.id + ']').join(', '));
             }
 
-            // ── Авто-"Да" при смене цели погони: MSGBOX "Подтверждение → хотите окончить погоню за X?" ──
-            // Если ник в диалоге НЕ совпадает с текущим trackingNickname → авто-подтверждаем смену
-            if (style === 0 && title.includes('Подтверждение') && contentText.includes('хотите окончить погоню за')) {
-                const _chaseMsgNickM = contentText.match(/погоню за ([A-Za-z0-9_]+)/);
-                if (_chaseMsgNickM && currentScanId) {
-                    const _chaseMsgNick = _chaseMsgNickM[1];
-                    const _isCurrentNick = trackingNickname && _chaseMsgNick === trackingNickname;
-                    if (!_isCurrentNick) {
-                        console.log(`[CHASE-MSGBOX] ✅ Авто-"Да": диалог для "${_chaseMsgNick}", наш ник="${trackingNickname||'ещё нет'}" (id=${currentScanId}) — подтверждаем`);
-                        const _chaseMsgDlgId = dialogId;
-                        setTimeout(() => {
-                            sendClientEvent(
-                                (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined) ? window.gm.EVENT_EXECUTE_PUBLIC : 0,
-                                'OnDialogResponse', _chaseMsgDlgId, 1, -1, ''
-                            );
-                            console.log('[CHASE-MSGBOX] "Да" отправлен — старая погоня прекращена');
-                            try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
-                        }, 150);
-                    } else {
-                        console.log(`[CHASE-MSGBOX] Ник совпадает (${_chaseMsgNick}) — не трогаем`);
-                    }
-                }
-            }
-
             // ── Авто-розыск: LIST "Причина выдачи розыска" → выбрать "Ввести вручную" ──
             // Срабатывает ТОЛЬКО если /su был отправлен через наш диалог (пункт 14 меню)
             if (style === 2 && title.includes('Причина выдачи розыска') && _autoWantedActive) {
@@ -2977,6 +2107,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                     }, 100);
                 }, 300);
             }
+
 
             // ── Авто-розыск: INPUT "Причина выдачи розыска" → вставить причину и закрыть диалог ──
             if (style === 1 && title.includes('Причина выдачи розыска') && _awaitingRoziskInput) {
