@@ -37,7 +37,6 @@ const AUTO_GRAB_THR_762    = 60;     // Добирать 7.62x39 если мен
 const AUTO_GRAB_THR_545    = 60;     // Добирать 5.45x39 если меньше N штук
 const AUTO_GRAB_MENU_MEDKIT      = -1; // Позиция Аптечки в меню (-1 = без изменений)
 const AUTO_GRAB_MENU_PAINKILLERS = -1; // Обезболивающее
-const AUTO_GRAB_MENU_MEDKIT      = -1; // Аптечка
 const AUTO_GRAB_MENU_BATON       = -1; // Дубинка
 const AUTO_GRAB_MENU_VEST        = -1; // Бронежилет
 const AUTO_GRAB_MENU_TASER       = -1; // Тазер
