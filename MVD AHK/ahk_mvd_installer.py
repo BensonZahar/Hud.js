@@ -670,7 +670,42 @@ class InstallerAPI:
             return []
 
     @staticmethod
-    def _build_interfaces_block(ifaces: list) -> str:
+    def _detect_var_names(content: str) -> tuple:
+        """
+        Определяет актуальные имена переменных словарей компонентов в Index.js.
+
+        Словарь импортов (dd_var) — содержит ленивые f(()=>d(()=>import(...)))
+        Ищем: VAR={Preloader:  — Preloader всегда первый ключ этого объекта.
+
+        Словарь конфигов (fd_var) — содержит open/show/options для каждого компонента
+        Ищем: VAR={FirstPersonConfig:{open:  — первый ключ конфиг-объекта.
+
+        Возвращает (dd_var, fd_var). Fallback: ('Id', 'bd').
+        """
+        import re
+        dd_var, fd_var = 'Id', 'bd'
+
+        m = re.search(r'([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\{Preloader\s*:', content)
+        if m:
+            dd_var = m.group(1)
+            _log_to_file(f'_detect_var_names: dd_var="{dd_var}" (найден по Preloader:)')
+        else:
+            _log_to_file('_detect_var_names: dd_var не найден, используем fallback "Id"')
+
+        m = re.search(
+            r'([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\{FirstPersonConfig\s*:\s*\{open\s*:',
+            content
+        )
+        if m:
+            fd_var = m.group(1)
+            _log_to_file(f'_detect_var_names: fd_var="{fd_var}" (найден по FirstPersonConfig:{{open:)')
+        else:
+            _log_to_file('_detect_var_names: fd_var не найден, используем fallback "bd"')
+
+        return dd_var, fd_var
+
+    @staticmethod
+    def _build_interfaces_block(ifaces: list, dd_var: str = 'Id', fd_var: str = 'bd') -> str:
         if not ifaces:
             return ""
         native_names = {
@@ -703,9 +738,9 @@ class InstallerAPI:
             )
         parts = []
         if dd_parts:
-            parts.append(f'Object.assign(Id,{{{",".join(dd_parts)}}});')
+            parts.append(f'Object.assign({dd_var},{{{",".join(dd_parts)}}});')
         if fd_parts:
-            parts.append(f'Object.assign(bd,{{{",".join(fd_parts)}}});')
+            parts.append(f'Object.assign({fd_var},{{{",".join(fd_parts)}}});')
         parts.extend(side_effects)
         return "".join(parts)
 
@@ -859,7 +894,19 @@ class InstallerAPI:
                 code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                 code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
             try:
-                interfaces_block = self._build_interfaces_block(ifaces)
+                # Читаем Index.js и определяем актуальные имена переменных.
+                # Это нужно делать до _build_interfaces_block, потому что
+                # имена меняются при каждой сборке игры.
+                try:
+                    with open(idx, 'r', encoding='utf-8') as _f:
+                        _idx_raw = _f.read()
+                    dd_var, fd_var = self._detect_var_names(_idx_raw)
+                    print(f'[Installer] Переменные Index.js: dd_var="{dd_var}", fd_var="{fd_var}"')
+                except Exception:
+                    dd_var, fd_var = 'Id', 'bd'
+                    _log_to_file('_detect_var_names: не удалось прочитать Index.js, используем fallback')
+
+                interfaces_block = self._build_interfaces_block(ifaces, dd_var, fd_var)
             except Exception:
                 traceback.print_exc(file=sys.stdout)
                 _log_to_file(f'_build_interfaces_block ИСКЛЮЧЕНИЕ:\n{traceback.format_exc()}')
