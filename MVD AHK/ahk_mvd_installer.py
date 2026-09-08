@@ -49,13 +49,6 @@ FSB_INTLOAD_URL   = f"{FSB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0
 FSB_CUSTOM_UI_URL = f"{FSB_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
 FSB_LOADERS_URL   = f"{FSB_CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
 
-# ── Кастом-интерфейсы ФСИН (в FSIN AHK) ──
-FSIN_RAW          = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSIN%20AHK"
-FSIN_AHK_URL      = f"{FSIN_RAW}/LoadFsin.js"
-FSIN_INTLOAD_URL  = f"{FSIN_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
-FSIN_CUSTOM_UI_URL= f"{FSIN_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
-FSIN_LOADERS_URL  = f"{FSIN_CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
-
 RETRY_COUNT = 5
 RETRY_DELAY = 4
 
@@ -63,18 +56,12 @@ USE_LOADERS   = True
 
 
 def _intload_url(department: str) -> str:
-    if department == 'fsb':  return FSB_INTLOAD_URL
-    if department == 'fsin': return FSIN_INTLOAD_URL
-    return MVD_INTLOAD_URL
+    return FSB_INTLOAD_URL if department == 'fsb' else MVD_INTLOAD_URL
 
 
 def _deploy_ui_url(department: str) -> str:
-    if department == 'fsb':
-        custom_url, loaders_url = FSB_CUSTOM_UI_URL, FSB_LOADERS_URL
-    elif department == 'fsin':
-        custom_url, loaders_url = FSIN_CUSTOM_UI_URL, FSIN_LOADERS_URL
-    else:
-        custom_url, loaders_url = MVD_CUSTOM_UI_URL, MVD_LOADERS_URL
+    custom_url  = FSB_CUSTOM_UI_URL if department == 'fsb' else MVD_CUSTOM_UI_URL
+    loaders_url = FSB_LOADERS_URL if department == 'fsb' else MVD_LOADERS_URL
     return loaders_url if USE_LOADERS else custom_url
 
 NATIVE_INTERFACE_NAMES = {
@@ -743,10 +730,8 @@ class InstallerAPI:
         return {"ok": True, "path": str(self.radmir_path)}
 
     def save_department(self, department: str) -> bool:
-        """Сохраняет выбранную структуру (mvd/fsb/fsin) в settings.json."""
-        if department == 'fsb':   dept = 'fsb'
-        elif department == 'fsin': dept = 'fsin'
-        else:                       dept = 'mvd'
+        """Сохраняет выбранную структуру (mvd/fsb) в settings.json."""
+        dept = 'fsb' if department == 'fsb' else 'mvd'
         save_settings({'department': dept})
         return True
 
@@ -763,9 +748,7 @@ class InstallerAPI:
                 ifaces = self._fetch_custom_interfaces(department)
                 self._deploy_custom_ui_files(ifaces, department)
                 
-                if department == 'fsb':    loader_url = FSB_AHK_URL
-                elif department == 'fsin':  loader_url = FSIN_AHK_URL
-                else:                        loader_url = AHK_URL
+                loader_url = FSB_AHK_URL if department == 'fsb' else AHK_URL
                 code = None
                 for attempt in range(3):
                     try:
@@ -904,7 +887,7 @@ class InstallerAPI:
                     'menu_binds': binds_dict,
                     'menu_order': order_list,
                     'menu_timer_items': timer_list,
-                    'department': 'fsb' if department == 'fsb' else ('fsin' if department == 'fsin' else 'mvd'),
+                    'department': 'fsb' if department == 'fsb' else 'mvd',
                 })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"
