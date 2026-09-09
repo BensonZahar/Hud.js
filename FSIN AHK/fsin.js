@@ -111,7 +111,6 @@ function _showAccessDenied(nick) {
              + encodeURIComponent('Кастом Интерфейсы') + '/';
     var FILES = {
         mvdmenu_js:  BASE + 'MvdMenu.js',
-        advmenu_js:  BASE + 'AdvMenu.js',
         zkm_js:      BASE + 'zkm.js',
         zkm_css:     BASE + 'zkm.css',
         zkmsn_js:    BASE + 'ZkmScreenNotification.js',
