@@ -28,7 +28,6 @@ const POVSEDNEV_OPTIONS=[
     {action:"breakGlass",    label:"Разбитие стекла",          needsId:true},
     {action:"removeMask",    label:"Снятие маски",             needsId:false},
     {action:"fingerprint",   label:"Сканирование отпечатков",  needsId:false},
-    {action:"takeLicense",   label:"Изъятие прав",             needsId:true},
     {action:"miranda",       label:"Права Миранды",            needsId:false},
 ];
 
