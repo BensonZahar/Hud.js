@@ -99,7 +99,7 @@ const FAKE_WB = {
     jobs:           []
 };
 
-window.showFakeWorkBook = (playerId) => {
+window.showFakeWorkBook = (playerId, showRoleplay = true) => {
     const EMPLOYMENT_HISTORY = 15;
     const autoNick = window.App?.$store?.getters["player/nickName"] || 'Name_Surname';
     const autoSkin = window.App?.$store?.getters["player/skinId"]  || 206;
@@ -113,11 +113,13 @@ window.showFakeWorkBook = (playerId) => {
     ];
     try {
         window.openInterface('Docs', JSON.stringify([[EMPLOYMENT_HISTORY, JSON.stringify(data)]]));
-        setTimeout(() => {
-            const nick = window.App?.$store?.getters["player/nickName"] || autoNick;
-            const fakeMsg = `{v:${nick}}${playerId ? `[${playerId}]` : ''} просматривает свою трудовую книгу`;
-            if (typeof window.onChatMessage === 'function') window.onChatMessage(fakeMsg, 'FFDD90FF');
-        }, 300);
+        if (showRoleplay) {
+            setTimeout(() => {
+                const nick = window.App?.$store?.getters["player/nickName"] || autoNick;
+                const fakeMsg = `{v:${nick}}${playerId ? `[${playerId}]` : ''} просматривает свою трудовую книгу`;
+                if (typeof window.onChatMessage === 'function') window.onChatMessage(fakeMsg, 'FFDD90FF');
+            }, 300);
+        }
     } catch (e) { console.error('[WBoo] Ошибка:', e); }
 };
 
@@ -176,7 +178,7 @@ const FAKE_WB2 = {
     ]
 };
 
-window.showFakeWorkBook2 = (playerId) => {
+window.showFakeWorkBook2 = (playerId, showRoleplay = true) => {
     const EMPLOYMENT_HISTORY = 15;
     const autoNick = window.App?.$store?.getters["player/nickName"] || 'Name_Surname';
     const autoSkin = window.App?.$store?.getters["player/skinId"]  || 206;
@@ -190,11 +192,13 @@ window.showFakeWorkBook2 = (playerId) => {
     ];
     try {
         window.openInterface('Docs', JSON.stringify([[EMPLOYMENT_HISTORY, JSON.stringify(data)]]));
-        setTimeout(() => {
-            const nick = window.App?.$store?.getters["player/nickName"] || autoNick;
-            const fakeMsg = `{v:${nick}}${playerId ? `[${playerId}]` : ''} просматривает свою трудовую книгу`;
-            if (typeof window.onChatMessage === 'function') window.onChatMessage(fakeMsg, 'FFDD90FF');
-        }, 300);
+        if (showRoleplay) {
+            setTimeout(() => {
+                const nick = window.App?.$store?.getters["player/nickName"] || autoNick;
+                const fakeMsg = `{v:${nick}}${playerId ? `[${playerId}]` : ''} просматривает свою трудовую книгу`;
+                if (typeof window.onChatMessage === 'function') window.onChatMessage(fakeMsg, 'FFDD90FF');
+            }, 300);
+        }
     } catch (e) { console.error('[WBoo2] Ошибка:', e); }
 };
 
@@ -312,7 +316,7 @@ const init = () => {
                     const id = (_expectCmd === 'wbook') ? _expectId : -1;
                     _clearExpect();
                     console.log('[JSK] Перехват /wbook → showFakeWorkBook2', id);
-                    window.showFakeWorkBook2(id);
+                    window.showFakeWorkBook2(id, false); // сервер сам пишет "просматривает" — не дублируем
                     return; // блокируем оригинальный вызов
                 }
             } catch (_) { /* не валидный JSON — пропускаем */ }
