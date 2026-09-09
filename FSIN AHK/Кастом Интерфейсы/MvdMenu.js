@@ -260,7 +260,6 @@ const _sfc_main={
                 items.push({id:"autograb", label:"Авто-снаряжение", toggleOn: this.autograbOn});
             }
             items.push({id:"laws", label:"Законы", arrow:true});
-            items.push({id:"advokat", label:"Вызов адвоката", arrow:true});
             items.push({id:"doklady", label:"Доклады", arrow:true});
             return items;
         },
@@ -382,11 +381,6 @@ const _sfc_main={
                 this.close();
                 setTimeout(()=>{
                     window.openInterface("Zkm");
-                },80);
-            } else if(item.id==="advokat"){
-                this.close();
-                setTimeout(()=>{
-                    window.openInterface("AdvMenu");
                 },80);
             } else if(item.id==="doklady"){
                 this.close();
