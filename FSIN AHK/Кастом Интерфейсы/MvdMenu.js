@@ -24,11 +24,6 @@ const POVSEDNEV_OPTIONS=[
     {action:"clearWanted",   label:"Снятие розыска",           needsId:true},
     {action:"fine",          label:"Выдача штрафа",            needsId:false, special:"fine"},
     {action:"wantedFine",    label:"Выдача розыска",           needsId:false, special:"wanted"},
-    {action:"confiscate",    label:"Изъятие веществ",          needsId:true},
-    {action:"breakGlass",    label:"Разбитие стекла",          needsId:true},
-    {action:"removeMask",    label:"Снятие маски",             needsId:false},
-    {action:"fingerprint",   label:"Сканирование отпечатков",  needsId:false},
-    {action:"miranda",       label:"Права Миранды",            needsId:false},
 ];
 
 const ACTION_TAGS={
