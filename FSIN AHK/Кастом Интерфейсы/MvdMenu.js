@@ -193,7 +193,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                   ],64))
                 : createCommentVNode("",true),
 
- Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
+            // ── Enter = подтвердить, ESC = назад/закрыть (как в Window.js) ──
             createBaseVNode("div",{class:"mvdmenu__footer"},[
                 (openBlock(),createBlock(_component_ControlsContaineredButton,{
                     key:0,
@@ -284,7 +284,7 @@ const _sfc_main={
             if(!q)return this.visibleOptions;
             return this.visibleOptions.filter(o=>o.label.toLowerCase().includes(q)||o.action.toLowerCase().includes(q));
         },
- (зависит от экрана) ──
+        // ── Список (зависит от экрана) ──
         currentListItems(){
             if(this.screen==="main")      return this.mainMenuItems;
             if(this.screen==="povsednev") return this.filteredOptions;
