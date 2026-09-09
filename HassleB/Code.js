@@ -314,6 +314,10 @@ let uniqueId = `${config.accountInfo.nickname}_${config.accountInfo.server}`;
                 globalState.hpLastValue    = null;
                 globalState._hpGraceUntil  = null;
                 globalState._hpGraceActive = false;
+                // FIX: отменяем отложенный таймер урона — без этого уведомление
+                // об уроне, накопленное ДО /rec, всё равно уходило через 1500мс после реконнекта
+                if (globalState._dmgTimer) { clearTimeout(globalState._dmgTimer); globalState._dmgTimer = null; }
+                globalState._dmgAccum = null;
             }
 
             // ⚠️ КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: откладываем реальный вызов на REC_DEFER_MS.
@@ -1509,10 +1513,12 @@ function trackPlayerHp() {
     if (currentHp !== null && globalState.hpLastValue === null) {
         globalState.hpLastValue   = currentHp;
         // Grace period: HUD после спавна/rec ещё может показывать 100
-        // пока сервер не прислал реальный HP — ждём 4 сек без учёта урона
-        globalState._hpGraceUntil  = Date.now() + 4000;
+        // пока сервер не прислал реальный HP — ждём 8 сек без учёта урона
+        // FIX: увеличено с 4000 до 8000 — при нагрузке (строй и т.д.) сервер
+        // иногда синхронизирует реальный HP дольше 4 секунд
+        globalState._hpGraceUntil  = Date.now() + 8000;
         globalState._hpGraceActive = true;
-        debugLog('[HP] ✅ В игре — baseline HP=' + Math.round(currentHp) + ', grace 4s');
+        debugLog('[HP] ✅ В игре — baseline HP=' + Math.round(currentHp) + ', grace 8s');
         setTimeout(trackPlayerHp, 500);
         return;
     }
@@ -1527,10 +1533,17 @@ function trackPlayerHp() {
             return;
         }
         // Grace period истёк — сбрасываем флаг
+        // FIX: в тике окончания grace обновляем baseline до текущего HP и выходим
+        // без проверки урона. Иначе: последний grace-тик видел HP=100, а в этом
+        // тике сервер только что прислал реальный HP (напр. 63) — код засчитывал
+        // это как урон (100→63). Следующий тик уже сравнит корректно.
         if (globalState._hpGraceActive) {
             globalState._hpGraceActive = false;
             globalState._hpGraceUntil  = null;
+            globalState.hpLastValue    = currentHp; // FIX: baseline = реальный HP
             debugLog('[HP] Grace period завершён, baseline HP=' + Math.round(currentHp));
+            setTimeout(trackPlayerHp, 500);
+            return; // FIX: не проверяем урон в тике окончания grace
         }
 
         if (currentHp < globalState.hpLastValue) {
