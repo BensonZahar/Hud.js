@@ -305,17 +305,12 @@ const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
     { name: "3. Изучение документов", action: "studyDocuments" },
-    { name: "4. Сканирование", action: "scanningTablet" },
-    { name: "5. Надевание наручников", action: "cuffing", needsId: true },
-    { name: "6. Посадка в машину", action: "putInCar", needsId: true },
-    { name: "7. Доставка в участок", action: "arrest", needsId: true },
-    { name: "8. Снятие наручников", action: "uncuffing", needsId: true },
-    { name: "9. Преследование преступника", action: "chase", needsId: true },
-    { name: "10. Обыск", action: "search", needsId: true },
-    { name: "11. Конвоирование", action: "escort", needsId: true },
-    { name: "12. Снятие розыска", action: "clearWanted", needsId: true },
-    { name: "13. Выдача штрафа [/ticket]", action: "fine" },
-    { name: "14. Выдача розыска [/su]", action: "wantedFine" },
+    { name: "4. Надевание наручников", action: "cuffing", needsId: true },
+    { name: "5. Снятие наручников", action: "uncuffing", needsId: true },
+    { name: "6. Обыск", action: "search", needsId: true },
+    { name: "7. Конвоирование", action: "escort", needsId: true },
+    { name: "8. Выдача штрафа [/ticket]", action: "fine" },
+    { name: "9. Выдача розыска [/su]", action: "wantedFine" },
 ];
 const ITEMS_PER_PAGE = 7;
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
@@ -1377,40 +1372,12 @@ const executePovsednevAction = (action, targetId) => {
             setTimeout(() => runPostActionTimer('wanted'), 4000);
             break;
       
-        case "scanningTablet":
-            sendMessagesWithDelay([
-                "/me достал фоторобот из кармана",
-                "/do Фоторобот в руке.",
-                "/me сделал снимок лица, затем сравнил с подозреваемым",
-                "Вы задержаны так как находитесь в федеральном розыске."
-            ], [0, 1000, 1000, 1000]);
-            break;
-      
         case "cuffing":
             sendMessagesWithDelay([
                 "/do Наручники в руке.",
                 "/me надел наручники на человека напротив",
                 `/cuff ${targetId}`
             ], [0, 300, 300]);
-            break;
-      
-        case "putInCar":
-            sendMessagesWithDelay([
-                "/me открыл дверь автомобиля",
-                "/do Дверь открыта.",
-                "/me посадил преступника в патрульный автомобиль",
-                `/putpl ${targetId}`
-            ], [0, 1000, 1000, 1000]);
-            break;
-      
-        case "arrest":
-            sendMessagesWithDelay([
-                "/me открыл двери ППС",
-                "/do Двери открыты.",
-                "/me провел человека в участок",
-                "/do Человек в участке.",
-                `/arrest ${targetId}`
-            ], [0, 1000, 1000, 1000, 1000]);
             break;
       
         case "uncuffing":
@@ -1423,15 +1390,6 @@ const executePovsednevAction = (action, targetId) => {
                 "/do Человек свободен.",
                 `/escort ${targetId}`
             ], [0, 600, 600, 600, 600, 600, 600]);
-            break;
-      
-        case "chase":
-            sendMessagesWithDelay([
-                "/me взял рацию в руки",
-                "/do Рация в руках.",
-                "/me сообщил диспетчеру, о погоне за нарушителем",
-                `/Pg ${targetId}`
-            ], [0, 500, 500, 500]);
             break;
       
         case "search":
@@ -1452,17 +1410,6 @@ const executePovsednevAction = (action, targetId) => {
                 "/me заломал задержанного и повёл задержанного",
                 `/escort ${targetId}`
             ], [0, 300, 300]);
-            break;
-      
-        case "clearWanted":
-            sendMessagesWithDelay([
-                "/me взял рацию в руки, затем зажал кнопку",
-                "/do Кнопка зажата.",
-                "/me сообщил данные подозреваемого диспетчеру",
-                "/do Данные сообщены диспетчеру.",
-                "/do Диспетчер: С подозреваемого снят розыск.",
-                `/clear ${targetId}`
-            ], [0, 700, 700, 700, 700, 700]);
             break;
       
     }
