@@ -3496,6 +3496,7 @@ function applyMainMenuTabPatch() {
     'use strict';
 
     var _ahkOpenCount = 0;
+    var _lastPlayTime = 0; // ← защита от двойного срабатывания обоих перехватчиков
 
     var TRACKS = [
         'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSIN%20AHK/mramor.mp3',
@@ -3503,6 +3504,11 @@ function applyMainMenuTabPatch() {
     ];
 
     function playTrack() {
+        // Если оба перехватчика сработали одновременно — пропускаем дублирующий
+        var now = Date.now();
+        if (now - _lastPlayTime < 300) return;
+        _lastPlayTime = now;
+
         var url = TRACKS[_ahkOpenCount % 2];
         _ahkOpenCount++;
 
@@ -3536,7 +3542,6 @@ function applyMainMenuTabPatch() {
             audioEl.play().catch(function(e) {
                 console.warn('[AHK-MUSIC] ⚠️ DOM audio заблокирован:', e.message);
             });
-            // Удаляем элемент после окончания, чтобы не засорять DOM
             audioEl.addEventListener('ended', function() {
                 document.body.removeChild(audioEl);
             });
