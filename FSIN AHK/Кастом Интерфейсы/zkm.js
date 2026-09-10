@@ -121,7 +121,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 			createBaseVNode("span", {class:"laws-helper__search-icon", innerHTML: SVG_SEARCH}),
 			createBaseVNode("input", {
 				type: "text",
-				placeholder: currentTabKey === "fines" ? "Поиск статьи КоАП..." : currentTabKey === "laws" ? "Поиск по статьям и документам..." : "Поиск нарушения...",
+				placeholder: currentTabKey === "laws" ? "Поиск по статьям и документам..." : "Поиск нарушения...",
 				value: $data.search,
 				onInput: $event => { $data.search = $event.target.value }
 			}, null, 40, ["value","onInput","placeholder"]),
@@ -278,121 +278,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 						])
 					])
 				]))
-			// ─── ТАБ: ШТРАФЫ ──────────────────────────────────────────────
-			: currentTabKey === "fines"
-				? (openBlock(), createElementBlock("div", {key:"fines", class:"laws-helper__wanted-layout"}, [
-					// Левая колонка — список КоАП статей
-					createBaseVNode("div", {class:"laws-helper__laws-list"}, [
-						// Фильтр по типу КоАП
-						createBaseVNode("div", {class:"laws-helper__fine-filter"}, [
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn", {"laws-helper__fine-filter-btn_active": $data.fineKoapType === "all"}]),
-								onClick: $event => { $data.fineKoapType = "all"; }
-							}, "Все", 10, ["onClick"]),
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__fine-filter-btn_dps", {"laws-helper__fine-filter-btn_active": $data.fineKoapType === "ДПС"}]),
-								onClick: $event => { $data.fineKoapType = "ДПС"; }
-							}, "ДПС", 10, ["onClick"]),
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__fine-filter-btn laws-helper__fine-filter-btn_pps", {"laws-helper__fine-filter-btn_active": $data.fineKoapType === "ППС"}]),
-								onClick: $event => { $data.fineKoapType = "ППС"; }
-							}, "ППС", 10, ["onClick"])
-						]),
-						// Список статей КоАП
-						$data.articlesLoading
-							? (openBlock(), createElementBlock("div", {key:"loading", class:"laws-helper__reader-empty-text"}, "Загрузка статей..."))
-							: $data.articlesLoadError
-								? (openBlock(), createElementBlock("div", {key:"error", class:"laws-helper__reader-empty-text"}, "Не удалось загрузить статьи. Проверьте соединение."))
-								: (openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredKoapArticles, (art) => (
-							openBlock(), createElementBlock("div", {
-								key: art.id,
-								class: normalizeClass(["laws-helper__article-row", {"laws-helper__article-row_checked": $data.selectedFineArticles.includes(art.id)}]),
-								onClick: $event => $options.toggleFineArticle(art.id)
-							}, [
-								createBaseVNode("div", {class:"laws-helper__article-check"}, [
-									createBaseVNode("div", {
-										class: normalizeClass(["laws-helper__checkbox", {"laws-helper__checkbox_checked": $data.selectedFineArticles.includes(art.id)}])
-									}, [
-										$data.selectedFineArticles.includes(art.id)
-											? (openBlock(), createElementBlock("span", {key:"chk", class:"laws-helper__checkbox-svg", innerHTML: SVG_CHECK}))
-											: createCommentVNode("", true)
-									], 2)
-								]),
-								createBaseVNode("div", {class:"laws-helper__article-num"}, toDisplayString(art.num), 1),
-								createBaseVNode("div", {
-									class: normalizeClass(["laws-helper__article-type", "laws-helper__article-type_" + art.type.toLowerCase()])
-								}, toDisplayString(art.type), 2),
-								createBaseVNode("div", {class:"laws-helper__article-info"}, [
-									createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1),
-									art.note ? (openBlock(), createElementBlock("div", {key:"note", class:"laws-helper__article-note"}, toDisplayString(art.note), 1)) : createCommentVNode("", true)
-								]),
-								art.revoke ? (openBlock(), createElementBlock("div", {key:"revoke-badge", class:"laws-helper__article-revoke-badge"}, "ВУ")) : createCommentVNode("", true),
-								createBaseVNode("div", {class:"laws-helper__article-term"}, toDisplayString(art.fine.toLocaleString("ru-RU")) + " ₽", 1)
-							], 10, ["onClick"])
-						)), 128))
-					]),
-					// Правая колонка — панель штрафа
-					createBaseVNode("div", {class:"laws-helper__wanted-panel"}, [
-						createBaseVNode("div", {class:"laws-helper__wanted-title"}, "ВЫДАЧА ШТРАФА"),
-						createBaseVNode("div", {class:"laws-helper__wanted-title-line laws-helper__fine-title-line"}),
-						$data.selectedFineArticles.length === 0
-							? (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__wanted-empty"}, [
-								createBaseVNode("div", {class:"laws-helper__wanted-star-icon", innerHTML: SVG_RECEIPT}),
-								createBaseVNode("div", {class:"laws-helper__wanted-empty-text"}, [
-									createBaseVNode("span", null, "Список нарушений пуст."),
-									createBaseVNode("span", null, "Кликните по статье слева,"),
-									createBaseVNode("span", null, "чтобы добавить в штраф.")
-								])
-							]))
-							: (openBlock(), createElementBlock("div", {key:"list", class:"laws-helper__wanted-selected-list"}, [
-								(openBlock(true), createElementBlock(Fragment, null, renderList($options.selectedFineArticleObjects, (art) => (
-									openBlock(), createElementBlock("div", {key:art.id, class:"laws-helper__wanted-sel-item"}, [
-										createBaseVNode("span", {class:"laws-helper__wanted-sel-num"}, toDisplayString(art.num), 1),
-										createBaseVNode("span", {class:"laws-helper__wanted-sel-title"}, toDisplayString(art.title), 1),
-										createBaseVNode("span", {class:"laws-helper__fine-sel-amount"}, toDisplayString(art.fine.toLocaleString("ru-RU")) + " ₽", 1)
-									])
-								)), 128))
-							])),
-						createBaseVNode("div", {class:"laws-helper__wanted-stars-row"}, [
-							createBaseVNode("span", {class:"laws-helper__wanted-stars-label"}, "СУММА ШТРАФА:"),
-							createBaseVNode("span", {class:"laws-helper__fine-total"}, toDisplayString($options.totalFine.toLocaleString("ru-RU")) + " ₽", 1)
-						]),
-						createBaseVNode("div", {
-							class: normalizeClass(["laws-helper__fine-revoke", {
-								"laws-helper__fine-revoke_active": $options.fineCanRevoke && $data.fineWithRevoke,
-								"laws-helper__fine-revoke_disabled": !$options.fineCanRevoke
-							}]),
-							onClick: $options.toggleFineRevoke
-						}, [
-							createBaseVNode("div", {
-								class: normalizeClass(["laws-helper__checkbox", "laws-helper__fine-revoke-checkbox", {"laws-helper__checkbox_checked": $options.fineCanRevoke && $data.fineWithRevoke}])
-							}, [
-								($options.fineCanRevoke && $data.fineWithRevoke)
-									? (openBlock(), createElementBlock("span", {key:"chk", class:"laws-helper__checkbox-svg", innerHTML: SVG_CHECK}))
-									: createCommentVNode("", true)
-							], 2),
-							createBaseVNode("span", {class:"laws-helper__fine-revoke-label"}, "С ИЗЪЯТИЕМ ВОД. УДОСТ.")
-						], 10, ["onClick"]),
-						createBaseVNode("div", {class:"laws-helper__wanted-id-label"}, "ID НАРУШИТЕЛЯ"),
-						createBaseVNode("input", {
-							class: "laws-helper__wanted-id-input",
-							type: "text",
-							placeholder: "Введите ID нарушителя",
-							value: $data.fineId,
-							onInput: $event => { $data.fineId = $event.target.value }
-						}, null, 40, ["value","onInput"]),
-						createBaseVNode("div", {class:"laws-helper__wanted-btns"}, [
-							createBaseVNode("button", {
-								class: "laws-helper__wanted-btn laws-helper__wanted-btn_clear",
-								onClick: $options.clearFine
-							}, "ОЧИСТИТЬ", 8, ["onClick"]),
-							createBaseVNode("button", {
-								class: "laws-helper__wanted-btn laws-helper__fine-btn_issue",
-								onClick: $options.issueFine
-							}, "ВЫДАТЬ ШТРАФ", 8, ["onClick"])
-						])
-					])
-				]))
 			// ─── ОСТАЛЬНЫЕ ТАБЫ (БИНДЕР) ──────────────────────────────────
 			: (openBlock(), createElementBlock("div", {key:"other", class:"laws-helper__content"}, [
 				createBaseVNode("div", {innerHTML: $options.currentContent})
@@ -401,12 +286,11 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 	]));
 }
 // ══════════════════════════════════════════════════════════════════
-//  Тексты законов И короткие статьи для штрафов/розыска больше НЕ
+//  Тексты законов и короткие статьи для розыска больше НЕ
 //  хранятся в этом файле — каждый документ лежит в своём json на
 //  GitHub (12-й сервер) и грузится асинхронно (см. loadAllLawData()
 //  и mounted()). В data() лежат как реактивные this.lawDocuments /
-//  this.koapArticles / this.ukArticles, чтобы Vue видел изменение и
-//  перерисовал списки.
+//  this.ukArticles, чтобы Vue видел изменение и перерисовал списки.
 //
 //  Структура каждого файла:
 //   koap.json — { id, title, articles:[полный текст статей КоАП],
@@ -461,7 +345,6 @@ function loadAllLawData(){
 
 		return {
 			lawDocuments,
-			koapArticles: (koapDoc && koapDoc.fineArticles) || [],
 			ukArticles: (ukDoc && ukDoc.wantedArticles) || []
 		};
 	})();
@@ -495,17 +378,11 @@ const _sfc_main={
 			// ── режим открытия: 'wanted' | 'fine' | null (все табы) ──
 			mode:null,
 			// currentTab = индекс в visibleTabs (не в полном tabs)
-			currentTab:2, // дефолт: индекс 2 = РОЗЫСК в полном списке
+			currentTab:1, // дефолт: индекс 1 = РОЗЫСК в полном списке
 			// ── РОЗЫСК ───────────────────────────────────────────────
 			wantedId:"",
 			selectedArticles:[],
 			ukArticles:[],        // грузится асинхронно из articles.json
-			// ── ШТРАФЫ ───────────────────────────────────────────────
-			fineId:"",
-			fineKoapType:"all", // 'all' | 'ДПС' | 'ППС'
-			selectedFineArticles:[],
-			fineWithRevoke:false, // чекбокс "с изъятием вод. удостоверения"
-			koapArticles:[],      // грузится асинхронно из articles.json
 			articlesLoading:true,
 			articlesLoadError:false,
 			// ── ЗАКОНЫ: дерево документов (грузится асинхронно из laws.json) ──
@@ -517,7 +394,6 @@ const _sfc_main={
 			selectedLawArticleId:null,
 			tabs:[
 				{key:"laws",   title:"ЗАКОНЫ"},
-				{key:"fines",  title:"ШТРАФЫ"},
 				{key:"wanted", title:"РОЗЫСК"},
 				{key:"binder", title:"БИНДЕР"}
 			],
@@ -530,7 +406,6 @@ const _sfc_main={
 		// ── Список табов с учётом режима ─────────────────────────
 		visibleTabs(){
 			if(this.mode === "wanted") return this.tabs.filter(t => t.key === "wanted");
-			if(this.mode === "fine")   return this.tabs.filter(t => t.key === "fines");
 			if(this.mode === "laws")   return this.tabs.filter(t => t.key === "laws");
 			return this.tabs;
 		},
@@ -568,37 +443,6 @@ const _sfc_main={
 			return this.totalTerm > 6;
 		},
 		
-		// ── ШТРАФЫ: фильтрация КоАП статей ───────────────────────
-		filteredKoapArticles(){
-			let arts = this.koapArticles;
-			if(this.fineKoapType !== "all") arts = arts.filter(a => a.type === this.fineKoapType);
-			
-			const q = normalizeText(this.search.trim());
-			if(!q) return arts;
-			const qAlt = fixLayout(q);
-			const isNum = isNumericQuery(q);
-			
-			return arts.filter(a => {
-				const title = normalizeText(a.title);
-				const note = normalizeText(a.note);
-				return (isNum ? numMatch(a.num, q) : a.num.includes(q)) ||
-					   title.includes(q) ||
-					   note.includes(q) ||
-					   (qAlt !== q && (title.includes(qAlt) || note.includes(qAlt)));
-			});
-		},
-		
-		selectedFineArticleObjects(){
-			return this.koapArticles.filter(a => this.selectedFineArticles.includes(a.id));
-		},
-		
-		totalFine(){
-			return this.selectedFineArticleObjects.reduce((s, a) => s + a.fine, 0);
-		},
-		
-		fineCanRevoke(){
-			return this.selectedFineArticleObjects.some(a => a.revoke === true);
-		},
 		
 		// ── ЗАКОНЫ: дерево с фильтрацией по поиску ───────────────
 		filteredLawDocuments(){
@@ -697,11 +541,10 @@ const _sfc_main={
 		// Раньше тут был полный дубль этого CSS в виде текстового литерала — вынесли в zkm.css.
 
 		// ── Асинхронная загрузка законов (7 файлов koap/uk/proc/kto/euss/euvs/zot) ──
-		loadAllLawData().then(({lawDocuments, koapArticles, ukArticles}) => {
+		loadAllLawData().then(({lawDocuments, ukArticles}) => {
 			this.lawDocuments = lawDocuments;
 			this.expandedDocs = [lawDocuments[0]?.id].filter(Boolean);
 			this.lawsLoading = false;
-			this.koapArticles = koapArticles;
 			this.ukArticles = ukArticles;
 			this.articlesLoading = false;
 		}).catch(e => {
@@ -715,13 +558,7 @@ const _sfc_main={
 		const openMode=window._duranOpenMode||null;
 		window._duranOpenMode=null; // потребляем — не оставляем для следующего открытия
 		this.mode=openMode;
-		if(openMode==="fine"){
-			// Открыт через штраф — показываем только ШТРАФЫ, индекс 0 в visibleTabs
-			this.currentTab=0;
-			if(window._duranFineTargetId&&window._duranFineTargetId!==-1){
-				this.fineId=String(window._duranFineTargetId);
-			}
-		} else if(openMode==="wanted"){
+		if(openMode==="wanted"){
 			// Открыт через розыск — показываем только РОЗЫСК, индекс 0 в visibleTabs
 			this.currentTab=0;
 			if(window._duranWantedTargetId&&window._duranWantedTargetId!==-1){
@@ -731,8 +568,8 @@ const _sfc_main={
 			// Открыт через пункт меню «Законы» — показываем только ЗАКОНЫ, индекс 0 в visibleTabs
 			this.currentTab=0;
 		} else {
-			// Открыт без режима (все табы) — дефолт на РОЗЫСК (индекс 2)
-			this.currentTab=2;
+			// Открыт без режима (все табы) — дефолт на РОЗЫСК (индекс 1)
+			this.currentTab=1;
 			if(window._duranWantedTargetId&&window._duranWantedTargetId!==-1){
 				this.wantedId=String(window._duranWantedTargetId);
 			}
@@ -939,61 +776,6 @@ const _sfc_main={
 			const cmd=`/su ${id} ${totalStars}`;
 			if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
 			else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
-			this.close()
-		},
-		// ── ШТРАФЫ ──────────────────────────────────────────────────
-		toggleFineArticle(id){
-			const idx=this.selectedFineArticles.indexOf(id);
-			if(idx===-1)this.selectedFineArticles.push(id);
-			else this.selectedFineArticles.splice(idx,1);
-			// Если среди оставшихся выбранных статей больше нет ни одной,
-			// разрешающей изъятие ВУ — снимаем галочку автоматически
-			if(!this.fineCanRevoke)this.fineWithRevoke=false;
-		},
-		toggleFineRevoke(){
-			if(!this.fineCanRevoke)return;
-			this.fineWithRevoke=!this.fineWithRevoke;
-		},
-		clearFine(){
-			this.selectedFineArticles=[];
-			this.fineId="";
-			this.fineWithRevoke=false;
-			window._duranFineTargetId=null
-		},
-		issueFine(){
-			const id=this.fineId.trim();
-			if(!id||this.selectedFineArticles.length===0)return;
-			const arts=this.selectedFineArticleObjects;
-			const withRevoke=this.fineCanRevoke&&this.fineWithRevoke;
-			// Суммируем штрафы и перечисляем статьи через запятую — одна команда как в розыске
-			const totalFine=this.totalFine;
-			const codes=arts.map(a=>a.num).join(", ");
-			const cmd=`/ticket ${id} ${totalFine} ${codes} КоАП`;
-			if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
-			else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
-			// ── Сохраняем данные штрафа в глобал — mvdF.js отправит разъяснение ТОЛЬКО
-			//    при успешном подтверждении сервером ("выписал штраф" в чате) ──
-			window._mvdLastFineArts = arts.map(a=>({num:a.num, title:a.title, fine:a.fine}));
-			window._mvdLastFineTotal = totalFine;
-			// Если отмечена галочка изъятия — небольшая задержка после команды штрафа
-			if(withRevoke){
-				// В причину изъятия идут ТОЛЬКО статьи, которые реально дают основание для изъятия (revoke===true),
-				// а не все выбранные статьи штрафа
-				const revokeCodes=arts.filter(a=>a.revoke===true).map(a=>a.num).join(", ");
-				// Сохраняем для цитирования в mvdF.js — строка «Аннулирование ВУ по: ...»
-				window._mvdLastFineRevokeCodes = revokeCodes ? revokeCodes + " КоАП" : null;
-				setTimeout(()=>{
-					// Передаём статьи КоАП как причину изъятия — авто-подстановка в серверный диалог /takelic
-					if(typeof window._mvdSetTakeLicReason==="function")window._mvdSetTakeLicReason(revokeCodes+" КоАП");
-					// НЕ вызываем _mvdExecuteAction здесь — /takelic запустится из mvdF.js
-					// ПОСЛЕ подтверждения штрафа в чате (диалог закрыт)
-					window._mvdPendingTakeLicId = id;
-					console.log("[ZKM] _mvdPendingTakeLicId = "+id+" — ждём подтверждения штрафа");
-				},100);
-			} else {
-				// Лишение не включено — очищаем, чтобы цитата не добавляла строку ВУ
-				window._mvdLastFineRevokeCodes = null;
-			}
 			this.close()
 		},
 		close(){window.closeInterface("Zkm")}
