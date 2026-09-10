@@ -3489,8 +3489,14 @@ function applyMainMenuTabPatch() {
 }); // конец callback _nickCheck
 // ==================== 🎵 МУЗЫКА ПРИ ПЕРВОМ ОТКРЫТИИ AHK (mramor.mp3) ====================
 // ⚠️ БЛОК ДЛЯ ЛЕГКОГО УДАЛЕНИЯ: удалите всё от START до END, если музыка надоест.
-// Воспроизводит трек ОДИН РАЗ при первом успешном открытии меню МВД (/dahk).
-// Защита от "Audio is not defined" — использует window.playSound как приоритет.
+
+// ┌─────────────────────────────────────────────────────────┐
+// │  🔊 НАСТРОЙКА ГРОМКОСТИ                                 │
+// │  Значение от 0.1 (10%) до 1.0 (100%)                    │
+// │  Например: 0.5 = 50%, 0.3 = 30%, 1.0 = максимум         │
+// └─────────────────────────────────────────────────────────┘
+var AHK_MUSIC_VOLUME = 1.0;  // ← МЕНЯЙ ЗДЕСЬ (сейчас 100%)
+
 (function() {
     'use strict';
     
@@ -3502,36 +3508,36 @@ function applyMainMenuTabPatch() {
         _ahkMusicPlayed = true;
         
         try {
-            // ── ПРИОРИТЕТ 1: нативная функция лаунчера (работает через движок игры) ──
+            // ── ПРИОРИТЕТ 1: нативная функция лаунчера ──
             if (typeof window.playSound === 'function') {
-                window.playSound(MUSIC_URL, false, 0.5);
-                console.log('[AHK-MUSIC] 🎵 mramor.mp3 → window.playSound');
+                window.playSound(MUSIC_URL, false, AHK_MUSIC_VOLUME);
+                console.log('[AHK-MUSIC] 🎵 mramor.mp3 → window.playSound (громкость: ' + AHK_MUSIC_VOLUME + ')');
                 return;
             }
             
-            // ── ПРИОРИТЕТ 2: HTML5 Audio API (с поиском конструктора) ──
+            // ── ПРИОРИТЕТ 2: HTML5 Audio API ──
             var AudioCtx = window.Audio || window.webkitAudio || 
                            (typeof Audio !== 'undefined' ? Audio : null);
             if (AudioCtx) {
                 var audio = new AudioCtx(MUSIC_URL);
-                audio.volume = 0.5;
+                audio.volume = AHK_MUSIC_VOLUME;
                 audio.play().catch(function(e) {
                     console.warn('[AHK-MUSIC] ⚠️ Audio API заблокирован:', e.message);
                 });
-                console.log('[AHK-MUSIC] 🎵 mramor.mp3 → new Audio()');
+                console.log('[AHK-MUSIC] 🎵 mramor.mp3 → new Audio() (громкость: ' + AHK_MUSIC_VOLUME + ')');
                 return;
             }
             
-            // ── ПРИОРИТЕТ 3: DOM-элемент <audio> (крайний фолбэк) ──
+            // ── ПРИОРИТЕТ 3: DOM-элемент <audio> ──
             var audioEl = document.createElement('audio');
             audioEl.src = MUSIC_URL;
-            audioEl.volume = 0.5;
+            audioEl.volume = AHK_MUSIC_VOLUME;
             audioEl.style.display = 'none';
             document.body.appendChild(audioEl);
             audioEl.play().catch(function(e) {
                 console.warn('[AHK-MUSIC] ⚠️ DOM audio заблокирован:', e.message);
             });
-            console.log('[AHK-MUSIC] 🎵 mramor.mp3 → DOM <audio>');
+            console.log('[AHK-MUSIC] 🎵 mramor.mp3 → DOM <audio> (громкость: ' + AHK_MUSIC_VOLUME + ')');
             
         } catch (e) {
             console.error('[AHK-MUSIC] ❌ Критическая ошибка:', e);
@@ -3564,6 +3570,6 @@ function applyMainMenuTabPatch() {
         }
     }, 500);
     
-    console.log('[AHK-MUSIC] ✅ Блок mramor.mp3 загружен (с тройной защитой)');
+    console.log('[AHK-MUSIC] ✅ Блок mramor.mp3 загружен | Громкость: ' + (AHK_MUSIC_VOLUME * 100) + '%');
 })();
 // ==================== END 🎵 МУЗЫКА ПРИ ПЕРВОМ ОТКРЫТИИ AHK ====================
