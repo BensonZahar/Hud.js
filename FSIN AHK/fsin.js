@@ -309,8 +309,7 @@ const povsednevOptions = [
     { name: "5. Снятие наручников", action: "uncuffing", needsId: true },
     { name: "6. Обыск", action: "search", needsId: true },
     { name: "7. Конвоирование", action: "escort", needsId: true },
-    { name: "8. Выдача штрафа [/ticket]", action: "fine" },
-    { name: "9. Выдача розыска [/su]", action: "wantedFine" },
+    { name: "8. Выдача розыска [/su]", action: "wantedFine" },
 ];
 const ITEMS_PER_PAGE = 7;
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
@@ -337,10 +336,7 @@ let targetId = null;
 let currentMenu = null;
 let currentSubMenu = null;
 let currentAction = null;
-let lastFineTimerOpenAt = 0; // защита от повторного открытия таймера на радио-дубль сообщения
-let fineTimerSnId = null;    // id текущего ZKM-таймера КД штрафа (для возможной ручной отмены)
-const FINE_CD_TIMER_ENABLED = false; // [ВЫКЛ] таймер КД штрафа временно отключён (убрали КД)
-let _lastWantedChatAt = 0;   // защита от дубля при цитировании розыска (аналог lastFineTimerOpenAt)
+let _lastWantedChatAt = 0;   // защита от дубля при цитировании розыска
 let autoCuffEnabled = false;
 let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
 let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
@@ -460,8 +456,6 @@ window.addEventListener('keydown', function(e) {
                 window._mvdMenuTargetId = null;
                 window._mvdMenuDirectAction = _action;
                 setTimeout(function(){ window.openInterface('MvdMenu'); }, 50);
-            } else if (_action === 'fine') {
-                setTimeout(function(){ showKoapTypeMenu(giveLicenseTo || -1); }, 50);
             } else if (_action === 'wantedFine') {
                 setTimeout(function(){ showUkInputDialog(giveLicenseTo || -1); }, 50);
             } else {
@@ -668,90 +662,6 @@ const setupChatHandler = () => {
                             `/escort ${id}`
                         ], [0, 700]);
                     }, 1000);
-                }
-            }
-            // ==================== ОТСЛЕЖИВАНИЕ ШТРАФОВ ====================
-            if (typeof message === 'string') {
-                if (message.includes('выписал штраф')) {
-                    console.log('[FINE-LOG] ✅ Нашли "выписал штраф"!');
-                    try {
-                        const ownNick = window.App?.$store?.getters?.['player/nickName'];
-
-                        // Извлекаем НИК ИМЕННО ТОГО, КТО ВЫПИСАЛ штраф — он стоит в формате {v:НИК}[ID] выписал штраф ПОЛУЧАТЕЛЬ.
-                        const issuerMatch = message.match(/\{v:([^}]+)\}\s*\[\d+\]\s*выписал штраф/);
-                        const issuerNick = issuerMatch ? issuerMatch[1] : null;
-
-                        console.log(`[FINE-LOG] ownNick из store: "${ownNick}"`);
-                        console.log(`[FINE-LOG] issuerNick из сообщения: "${issuerNick}"`);
-
-                        if (ownNick && issuerNick && issuerNick === ownNick) {
-                            const now = Date.now();
-                            if (now - lastFineTimerOpenAt < 3000) {
-                                // Это дубль того же события (например, радио-эхо "{v:...}"),
-                                // пришедший в течение 3с после первого срабатывания — пропускаем
-                                console.log('[FINE-LOG] ⏭ Пропускаем дубль сообщения о штрафе (повтор < 3с)');
-                            } else {
-                                lastFineTimerOpenAt = now;
-                                runPostActionTimer('fine');
-                                if (FINE_CD_TIMER_ENABLED) {
-                                    console.log('[FINE-LOG] 🚀 Показываем таймер-уведомление КД штрафа...');
-                                    try {
-                                        const sn = getZkmSN();
-                                        if (sn && typeof sn.addTimer === 'function') {
-                                            fineTimerSnId = sn.addTimer('[2, "ШТРАФ К/Д", "Повторная выдача будет доступна через", "f9b701", 300]');
-                                            console.log(`[FINE] ZKM-таймер запущен ✅ (id=${fineTimerSnId})`);
-                                        } else {
-                                            console.warn('[FINE] ZKM ScreenNotification.addTimer ещё не загружен — fallback на InformationTimer');
-                                            window.openInterface('InformationTimer', ['К/Д Выдача штрафа', 300, false]);
-                                        }
-                                    } catch (snErr) {
-                                        console.error('[FINE] Ошибка ZKM addTimer:', snErr);
-                                    }
-                                } else {
-                                    console.log('[FINE-LOG] ⏭ Таймер КД штрафа отключён (FINE_CD_TIMER_ENABLED=false)');
-                                }
-                                // ── Разъяснение причин штрафа после успешного подтверждения сервером ──
-                                // Данные сохранены в zkm.js → window._mvdLastFineArts / _mvdLastFineTotal
-                                try {
-                                    const _fineArts  = window._mvdLastFineArts;
-                                    const _fineTotal = window._mvdLastFineTotal;
-                                    if (_fineArts && _fineArts.length) {
-                                        // Собираем текст одним блоком (как в C++ хелпере) и режем по 83 символа
-                                        const _codes = _fineArts.map(a => a.num).join(', ');
-                                        let _citeText = `Выписан штраф по: ${_codes} КоАП\n`;
-                                        _fineArts.forEach((art) => {
-                                            _citeText += `${art.num} КоАП - ${art.title} - ${art.fine.toLocaleString()} руб.\n`;
-                                        });
-                                        // Строка лишения ВУ — если галочка была включена
-                                        const _revokeStr = window._mvdLastFineRevokeCodes;
-                                        if (_revokeStr) {
-                                            _citeText += `Аннулирование ВУ по: ${_revokeStr}\n`;
-                                        }
-                                        _citeText += `Итого: ${_fineTotal.toLocaleString()} руб.`;
-                                        // 83 символа в строке, 500 мс начальная пауза, 100 мс между строками
-                                        const _msgs   = _splitCitation83(_citeText);
-                                        const _delays = _msgs.map((_, i) => i === 0 ? 500 : 100);
-                                        showCiteOffer('Цитировать штраф?', _msgs, _delays);
-                                        console.log(`[FINE-LOG] 💬 Предложение цитирования штрафа: ${_fineArts.length} ст.`);
-                                    }
-                                    // Очищаем — не повторять при радио-дубле
-                                    window._mvdLastFineArts  = null;
-                                    window._mvdLastFineTotal = null;
-                                } catch (_fe) {
-                                    console.warn('[FINE-LOG] Ошибка разъяснения штрафа:', _fe);
-                                }
-                            }
-                        } else {
-                            console.log(`[FINE-LOG] ⏭ Штраф выписан не нами (issuer="${issuerNick}", ownNick="${ownNick}") — таймер не запускаем`);
-                        }
-                    } catch (err) {
-                        console.error('[FINE] Ошибка InformationTimer:', err);
-                    }
-                }
-
-                if (message.includes('Вы недавно выдавали штраф')) {
-                    snAdd('[1, "Выдача штрафа", "У вас еще к/д на выдачу штрафа", "FF0000", 5000]');
-                    console.log('[FINE] ScreenNotification: кулдаун штрафа');
                 }
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
@@ -1047,10 +957,6 @@ const HandlePovsednevCommand = (optionIndex) => {
             setTimeout(() => {
                 showIdInputDialog(giveLicenseTo);
             }, 50);
-        } else if (option.action === "fine") {
-            setTimeout(() => {
-                showKoapTypeMenu(giveLicenseTo);
-            }, 50);
         } else if (option.action === "wantedFine") {
             setTimeout(() => {
                 showUkInputDialog(giveLicenseTo);
@@ -1204,7 +1110,7 @@ window.addEventListener('keydown', function (e) {
 });
 // ==================== КОНЕЦ ПОДТВЕРЖДЕНИЯ ПРОВЕРКИ ДОКУМЕНТОВ ====================
 
-// ==================== ЦИТИРОВАНИЕ ШТРАФА / РОЗЫСКА (Alt×1 — отмена, Alt×2 — цитировать) ====================
+// ==================== ЦИТИРОВАНИЕ РОЗЫСКА (Alt×1 — отмена, Alt×2 — цитировать) ====================
 let _citeOfferSnId         = null;   // id addOfferChoice в ZKM
 let _citeOfferActive       = false;  // слушатель Alt активен
 let _citeOfferAltPressedAt = 0;      // время первого Alt
@@ -1537,12 +1443,6 @@ window.showMvdSubMenu = (e) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
     window.addDialogInQueue(`[677,2,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
-};
-window.showKoapTypeMenu = (e) => {
-    giveLicenseTo = e;
-    window._duranOpenMode = 'fine';
-    window._duranFineTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('Zkm');
 };
 window.showUkInputDialog = (e) => {
     giveLicenseTo = e;
