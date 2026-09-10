@@ -4699,3 +4699,97 @@ function applyMainMenuTabPatch() {
 
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
+// ==================== 🎵 МУЗЫКА ПРИ ОТКРЫТИИ AHK (mramor.mp3 / sunduki.mp3) ====================
+// ⚠️ БЛОК ДЛЯ ЛЕГКОГО УДАЛЕНИЯ: удалите всё от START до END, если музыка надоест.
+// Чередует два трека при каждом открытии меню МВД (/dahk):
+//   Открытие 1, 3, 5... → mramor.mp3
+//   Открытие 2, 4, 6... → sunduki.mp3
+(function() {
+    'use strict';
+
+    var _ahkOpenCount = 0;
+    var _lastPlayTime = 0; // ← защита от двойного срабатывания обоих перехватчиков
+
+    var TRACKS = [
+        'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSIN%20AHK/mramor.mp3',
+        'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSIN%20AHK/sunduki.mp3'
+    ];
+
+    function playTrack() {
+        // Если оба перехватчика сработали одновременно — пропускаем дублирующий
+        var now = Date.now();
+        if (now - _lastPlayTime < 300) return;
+        _lastPlayTime = now;
+
+        var url = TRACKS[_ahkOpenCount % 2];
+        _ahkOpenCount++;
+
+        try {
+            // ── ПРИОРИТЕТ 1: нативная функция лаунчера ──
+            if (typeof window.playSound === 'function') {
+                window.playSound(url, false, 0.5);
+                console.log('[AHK-MUSIC] 🎵 ' + url + ' → window.playSound (#' + _ahkOpenCount + ')');
+                return;
+            }
+
+            // ── ПРИОРИТЕТ 2: HTML5 Audio API ──
+            var AudioCtx = window.Audio || window.webkitAudio ||
+                           (typeof Audio !== 'undefined' ? Audio : null);
+            if (AudioCtx) {
+                var audio = new AudioCtx(url);
+                audio.volume = 0.5;
+                audio.play().catch(function(e) {
+                    console.warn('[AHK-MUSIC] ⚠️ Audio API заблокирован:', e.message);
+                });
+                console.log('[AHK-MUSIC] 🎵 ' + url + ' → new Audio() (#' + _ahkOpenCount + ')');
+                return;
+            }
+
+            // ── ПРИОРИТЕТ 3: DOM-элемент <audio> (крайний фолбэк) ──
+            var audioEl = document.createElement('audio');
+            audioEl.src = url;
+            audioEl.volume = 0.5;
+            audioEl.style.display = 'none';
+            document.body.appendChild(audioEl);
+            audioEl.play().catch(function(e) {
+                console.warn('[AHK-MUSIC] ⚠️ DOM audio заблокирован:', e.message);
+            });
+            audioEl.addEventListener('ended', function() {
+                document.body.removeChild(audioEl);
+            });
+            console.log('[AHK-MUSIC] 🎵 ' + url + ' → DOM <audio> (#' + _ahkOpenCount + ')');
+
+        } catch (e) {
+            console.error('[AHK-MUSIC] ❌ Критическая ошибка:', e);
+        }
+    }
+
+    // ── Перехват 1: showMvdMainMenuPage (через /dahk) ──
+    var _waitInterval = setInterval(function() {
+        if (typeof window.showMvdMainMenuPage === 'function') {
+            clearInterval(_waitInterval);
+            var _orig = window.showMvdMainMenuPage;
+            window.showMvdMainMenuPage = function(e) {
+                playTrack();
+                return _orig.apply(this, arguments);
+            };
+        }
+    }, 500);
+
+    // ── Перехват 2: openInterface('MvdMenu') (хоткеи/бинды) ──
+    var _waitInterval2 = setInterval(function() {
+        if (typeof window.openInterface === 'function') {
+            clearInterval(_waitInterval2);
+            var _origOI = window.openInterface;
+            window.openInterface = function(name) {
+                if (name === 'MvdMenu') {
+                    playTrack();
+                }
+                return _origOI.apply(this, arguments);
+            };
+        }
+    }, 500);
+
+    console.log('[AHK-MUSIC] ✅ Блок двух треков загружен (mramor ↔ sunduki)');
+})();
+// ==================== END 🎵 МУЗЫКА ПРИ ОТКРЫТИИ AHK ====================
