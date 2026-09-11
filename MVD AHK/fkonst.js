@@ -1095,4 +1095,113 @@ window.onChatMessage = function(text, color) {
 
     console.log('[GT] 📋 Логгер GameText загружен (полный формат в консоли)');
 })();
+// ================================================================
+// [FKONST DIALOG-LOG BLOCK] — вставить в самый низ файла
+// Логирует каждое открытие диалога (Window) в консоль в ПОЛНОМ формате:
+//   RAW dialogData + расшифровка всех полей openParams (id/type/title/
+//   subtitle/buttons/paginate/prefill) + тело по строкам <n> и колонкам
+//   <t> с цветами строк {RRGGBB}/{RRGGBBAA} (учитывает перенос цвета,
+//   как setRowsColors в Window.js: carry для text/input, без carry для list)
+// Последний диалог всегда доступен в window._dlgLogLast
+// ================================================================
+(function () {
+    if (window.__dlgLogLoaded) return;
+    window.__dlgLogLoaded = true;
+
+    const TYPE_NAMES = ['TEXT', 'INPUT', 'LIST (normal)', 'INPUT PRIVATE', 'LIST (title)', 'LIST (title)', 'IMAGE'];
+    const COLOR_RE = /{([a-zA-Z0-9]{6}|[a-zA-Z0-9]{8})}/g;
+
+    const stripColors = s => String(s).replace(COLOR_RE, '');
+    const extractColors = s => {
+        const out = [];
+        String(s).replace(COLOR_RE, (m, c) => { if (!out.includes(c)) out.push(c); return m; });
+        return out;
+    };
+
+    // Декодер тела: carry=true → цвет тянется через строки/колонки (text/input/image),
+    // carry=false → цвет только от кода, стоящего перед текстом (list)
+    function decodeBody(body, carry) {
+        const rows = String(body).split('<n>');
+        let cur = '';
+        return rows.map((raw, ri) => {
+            const cols = raw.split('<t>').map(colRaw => {
+                if (!carry) cur = '';
+                const segs = [];
+                let last = 0, prev = null, m;
+                const re = new RegExp(COLOR_RE.source, 'g');
+                while ((m = re.exec(colRaw))) {
+                    const text = colRaw.slice(last, m.index);
+                    if (text.length) segs.push({ color: carry ? cur : (prev || ''), text });
+                    prev = m[1]; cur = m[1];
+                    last = m.index + m[0].length;
+                }
+                const tail = colRaw.slice(last);
+                if (tail.length) segs.push({ color: carry ? cur : (prev || ''), text: tail });
+                return segs;
+            });
+            return { index: ri, raw, cols };
+        });
+    }
+
+    const fmtSegs = segs => segs.length
+        ? segs.map(s => s.color ? `[#${s.color}]${JSON.stringify(s.text)}` : `[без цвета]${JSON.stringify(s.text)}`).join(' + ')
+        : '(пусто)';
+
+    function logDialog(dialogData, body, priority) {
+        let params = null;
+        try { params = dialogData ? JSON.parse(dialogData) : null; } catch (_) {}
+        const id       = params ? params[0] : '?';
+        const typeIdx  = params ? params[1] : -1;
+        const title    = params ? String(params[2] ?? '') : '';
+        const subtitle = params ? String(params[3] ?? '') : '';
+        const btn1     = params ? String(params[4] ?? '') : '';
+        const btn2     = params ? String(params[5] ?? '') : '';
+        const pagPrev  = params ? !!params[6] : false;
+        const pagNext  = params ? !!params[7] : false;
+        const prefill  = params ? String(params[8] ?? '') : '';
+        const typeName = TYPE_NAMES[typeIdx] || `UNKNOWN(${typeIdx})`;
+        const isList   = typeIdx === 2 || typeIdx === 4 || typeIdx === 5;
+        const carry    = !isList;
+
+        console.groupCollapsed(`[DLG] #${id} ${typeName} — ${stripColors(title) || '(без заголовка)'}`);
+        console.log(`[DLG] RAW dialogData: ${dialogData}`);
+        console.log(`[DLG] id=${id} | type=${typeIdx} (${typeName}) | priority=${priority === undefined ? 0 : priority}`);
+        console.log(`[DLG] title:    raw=${JSON.stringify(title)} | цвета=${JSON.stringify(extractColors(title))}`);
+        console.log(`[DLG] subtitle: raw=${JSON.stringify(subtitle)} | цвета=${JSON.stringify(extractColors(subtitle))}`);
+        console.log(`[DLG] buttons:  [${JSON.stringify(btn1)}, ${JSON.stringify(btn2)}] | paginate: [${pagPrev}, ${pagNext}] | prefill: ${JSON.stringify(prefill)}`);
+        console.log(`[DLG] RAW body: ${JSON.stringify(body)}`);
+        decodeBody(body ?? '', carry).forEach(r => {
+            const rowColors = [];
+            r.cols.forEach(segs => segs.forEach(s => { if (s.color && !rowColors.includes(s.color)) rowColors.push(s.color); }));
+            console.log(`[DLG] строка ${r.index}: цвет строки=${rowColors[0] ? '#' + rowColors[0] : 'нет'} | все цвета=${JSON.stringify(rowColors)}`);
+            console.log(`[DLG]   raw: ${JSON.stringify(r.raw)}`);
+            if (isList || r.cols.length > 1) {
+                r.cols.forEach((segs, ci) => console.log(`[DLG]   колонка ${ci}: ${fmtSegs(segs)}`));
+            } else {
+                console.log(`[DLG]   сегменты: ${fmtSegs(r.cols[0] || [])}`);
+            }
+        });
+        console.groupEnd();
+        window._dlgLogLast = { dialogData, body, priority, params };
+    }
+
+    // Патчим ЕДИНУЮ точку входа всех диалогов — App.addDialogInQueue
+    function install() {
+        if (!window.App || typeof window.App.addDialogInQueue !== 'function') return false;
+        if (window.App.__dlgLogPatched) return true;
+        const orig = window.App.addDialogInQueue;
+        window.App.addDialogInQueue = function (dialogData, body, priority) {
+            try { logDialog(dialogData, body, priority); } catch (e) { console.warn('[DLG] ошибка лога:', e); }
+            return orig.apply(this, arguments);
+        };
+        window.App.__dlgLogPatched = true;
+        console.log('[DLG] ✅ перехват App.addDialogInQueue установлен — диалоги логируются');
+        return true;
+    }
+    if (!install()) {
+        const p = setInterval(() => { if (install()) clearInterval(p); }, 200);
+        setTimeout(() => clearInterval(p), 60000);
+    }
+    console.log('[DLG] 📋 Логгер диалогов загружен (полный формат + цвета строк)');
+})();
 }); // конец callback _nickCheck
