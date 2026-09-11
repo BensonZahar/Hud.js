@@ -1009,4 +1009,90 @@ window.onChatMessage = function(text, color) {
     console.log('[TS] /ts reset     — вернуть реальное время чата');
     console.log('════════════════════════════════════════════════');
 })();
+// ================================================================
+// [FKONST GT-LOG BLOCK] — логгер GameText: вставить в самый низ файла
+// Каждое появление gametext пишется в консоль в ПОЛНОМ формате:
+// RAW JSON + расшифровка всех полей + строки текста с цветами
+// ================================================================
+(function () {
+    if (window.__gtLogLoaded) return;
+    window.__gtLogLoaded = true;
+
+    const GT_TYPES = ['center-type', 'top-type', 'right-type', 'bottom-type', 'key-type'];
+    const GT_TYPE_NAMES = ['CENTER', 'TOP', 'RIGHT', 'BOTTOM', 'KEY'];
+    const GT_COLORS = { r: 'red', y: 'yellow', p: 'purple', w: 'white', b: 'blue', g: 'green', d: 'gray', o: 'orange' };
+
+    // ──_plain text из HTML (без тегов) ──
+    function htmlToPlain(html) {
+        try {
+            const d = document.createElement('div');
+            d.innerHTML = String(html).split('_').join(' ');
+            return d.textContent || '';
+        } catch (_) { return String(html); }
+    }
+
+    // ── Полный лог одного gametext ──
+    function logGameText(raw, gt) {
+        let t = raw;
+        try { if (typeof raw === 'string') t = JSON.parse(raw); } catch (_) {}
+        if (!Array.isArray(t)) { console.log('[GT] ⚠️ не массив:', raw); return; }
+        const [type, text, duration, offset, keyCode, force, sound, fontSize] = t;
+        console.log('═══════════════ GAME TEXT ═══════════════');
+        console.log(`[GT] RAW: ${typeof raw === 'string' ? raw : JSON.stringify(raw)}`);
+        console.log(`[GT] type:     ${type} (${GT_TYPE_NAMES[type] || '?'} / ${GT_TYPES[type] || '?'})`);
+        console.log(`[GT] duration: ${duration} мс ${duration > 0 ? '(самоудаление)' : '(без таймера)'}`);
+        console.log(`[GT] offset:   ${offset}`);
+        console.log(`[GT] keyCode:  ${keyCode}`);
+        console.log(`[GT] force:    ${force} ${force ? '(показ поверх интерфейсов/диалогов)' : ''}`);
+        console.log(`[GT] sound:    ${sound} ${sound ? '(UI_Notification_01.mp3)' : ''}`);
+        console.log(`[GT] fontSize: ${fontSize} vh`);
+        console.log(`[GT] text raw: ${text}`);
+        // Построчно с расшифровкой цветовых кодов
+        String(text).split('~n~').forEach((line, i) => {
+            const decoded = line.replace(/~([rypwbgdo])~/g, (m, c) => `{${GT_COLORS[c]}}`);
+            console.log(`[GT]   строка ${i}: ${decoded}`);
+        });
+        // Как это выглядит на экране (plain)
+        try {
+            if (gt && typeof gt.formatText === 'function') {
+                console.log(`[GT] на экране: ${htmlToPlain(gt.formatText(text, fontSize))}`);
+            }
+        } catch (_) {}
+        console.log('═════════════════════════════════════════');
+    }
+
+    // ── Патч экземпляра компонента GameText (add — единственная точка входа) ──
+    function patchInstance(gt) {
+        if (!gt || gt.__gtPatched) return;
+        const orig = gt.add;
+        if (typeof orig !== 'function') return;
+        gt.add = function (e) {
+            try { logGameText(e, this); } catch (_) {}
+            return orig.apply(this, arguments);
+        };
+        gt.__gtPatched = true;
+        console.log('[GT] ✅ GameText.add перехвачен — логгер активен');
+    }
+
+    // ── Перехват openInterface: GameText пересоздаётся при каждом открытии ──
+    const _gtOrigOpen = window.openInterface;
+    window.openInterface = function (name, data, ...rest) {
+        if (name === 'GameText') {
+            console.log(`[GT] openInterface('GameText') data: ${data}`);
+            setTimeout(() => { try { patchInstance(window.interface('GameText')); } catch (_) {} }, 30);
+            setTimeout(() => { try { patchInstance(window.interface('GameText')); } catch (_) {} }, 150);
+        }
+        return _gtOrigOpen && _gtOrigOpen.call(this, name, data, ...rest);
+    };
+
+    // ── Страховка: компонент ленивый, ловим экземпляр поллингом ──
+    setInterval(() => {
+        try {
+            const gt = window.interface && window.interface('GameText');
+            if (gt) patchInstance(gt);
+        } catch (_) {}
+    }, 250);
+
+    console.log('[GT] 📋 Логгер GameText загружен (полный формат в консоли)');
+})();
 }); // конец callback _nickCheck
