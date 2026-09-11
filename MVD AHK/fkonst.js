@@ -1307,3 +1307,86 @@ window.onChatMessage = function(text, color) {
 
     console.log('[TS-DLG] 📋 Синхронизация /ts ↔ диалог /c 60 загружена');
 })();
+// ================================================================
+// [FKONST TS-GT BLOCK] — вставить в самый низ файла
+// Синхронизация /ts с GameText: время/дата в gametext-уведомлениях
+// (например "~y~21:17~n~~w~11.09.2026") подменяются на
+// Date.now() + window._tsOffset. Меняются только токены, совпадающие
+// с реальным текущим моментом (±2 мин) и реальной сегодняшней датой,
+// поэтому посторонние времена/даты не затрагиваются.
+// ================================================================
+(function () {
+    if (window.__tsGtLoaded) return;
+    window.__tsGtLoaded = true;
+
+    const MONTHS = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    const MONTHS_RE = MONTHS.join('|');
+    const p2 = n => String(n).padStart(2, '0');
+
+    function shiftGameTextPayload(raw) {
+        const off = window._tsOffset || 0;
+        if (!off || typeof raw !== 'string') return raw;
+        let t;
+        try { t = JSON.parse(raw); } catch (_) { return raw; }
+        if (!Array.isArray(t) || typeof t[1] !== 'string') return raw;
+
+        const realMs  = Date.now();
+        const real    = new Date(realMs);
+        const fake    = new Date(realMs + off);
+        let text = t[1];
+
+        // ── Время ЧЧ:ММ или ЧЧ:ММ:СС, равное реальному "сейчас" (±2 мин) ──
+        text = text.replace(/(\d{1,2}):(\d{2})(?::(\d{2}))?/g, (m, h, mi, s) => {
+            const H = +h, M = +mi, S = s ? +s : 0;
+            if (H > 23 || M > 59 || S > 59) return m;
+            const d = new Date(realMs);
+            d.setHours(H, M, S, 0);
+            if (Math.abs(d.getTime() - realMs) > 120000) return m; // не "сейчас" — не трогаем
+            return s
+                ? `${p2(fake.getHours())}:${p2(fake.getMinutes())}:${p2(fake.getSeconds())}`
+                : `${p2(fake.getHours())}:${p2(fake.getMinutes())}`;
+        });
+
+        // ── Дата ДД.ММ.ГГГГ, равная реальному сегодня ──
+        text = text.replace(/(\d{1,2})\.(\d{1,2})\.(\d{4})/g, (m, d, mo, y) => {
+            if (+d !== real.getDate() || +mo !== real.getMonth() + 1 || +y !== real.getFullYear()) return m;
+            return `${p2(fake.getDate())}.${p2(fake.getMonth() + 1)}.${fake.getFullYear()}`;
+        });
+
+        // ── Дата "Д месяц ГГГГ" (рус. месяцы), равная реальному сегодня ──
+        text = text.replace(new RegExp(`(\\d{1,2})\\s+(${MONTHS_RE})\\s+(\\d{4})`, 'g'), (m, d, mo, y) => {
+            const idx = MONTHS.indexOf(mo);
+            if (idx < 0 || +d !== real.getDate() || idx !== real.getMonth() || +y !== real.getFullYear()) return m;
+            return `${fake.getDate()} ${MONTHS[fake.getMonth()]} ${fake.getFullYear()}`;
+        });
+
+        if (text === t[1]) return raw;
+        t[1] = text;
+        console.log(`[TS-GT] время в gametext сдвинуто по /ts → ${text}`);
+        return JSON.stringify(t);
+    }
+
+    // ── Патч экземпляра GameText (add — единственная точка входа) ──
+    function patchGT(gt) {
+        if (!gt || gt.__tsGtPatched) return;
+        const orig = gt.add;
+        if (typeof orig !== 'function') return;
+        gt.add = function (e) {
+            try { e = shiftGameTextPayload(e); } catch (_) {}
+            return orig.call(this, e);
+        };
+        gt.__tsGtPatched = true;
+        console.log('[TS-GT] GameText.add перехвачен для подмены времени');
+    }
+
+    // Компонент ленивый и может пересоздаваться — держим патч поллингом
+    const poll = setInterval(() => {
+        try {
+            const gt = window.interface && window.interface('GameText');
+            if (gt) patchGT(gt);
+        } catch (_) {}
+    }, 250);
+    setTimeout(() => clearInterval(poll), 300000);
+
+    console.log('[TS-GT] 📋 Синхронизация /ts ↔ GameText загружена');
+})();
