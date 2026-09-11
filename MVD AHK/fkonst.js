@@ -1766,3 +1766,260 @@ window.onChatMessage = function(text, color) {
 
     console.log('[TS-PT] v4: пробел между "ч" и минутами больше не склеивается');
 })();
+// ================================================================
+// [FKONST TS-CLICK v2] — вставить в самый низ файла
+// /ts          → сам отправляет /c 60, открывается диалог "Точное время"
+// /ts reset    → сброс оффсета на реальное время
+// В диалоге (режим включается автоматически после /ts):
+//   клик по "Текущее время" → стираются ЧАСЫ → набор цифр
+//   Enter ИЛИ повторный клик → часы фикс., стираются МИНУТЫ → набор
+//   Enter → СОХРАНИТЬ (оффсет, чат, gametext, дата/день/время)
+//   Escape → отмена
+//   клик по дате → ввод даты, клик по дню недели → +1 день
+// ================================================================
+(function () {
+    if (window.__tsClick2Loaded) return;
+    window.__tsClick2Loaded = true;
+
+    const MONTHS  = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    const WEEKDAYS = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
+    const p2 = n => String(n).padStart(2, '0');
+
+    let stage = null;      // null | 'h' | 'm'
+    let buf = '';
+    let origH = 0, origM = 0, committedH = 0;
+    let pendingSwallow = null;
+
+    function getTimeDialog() {
+        try {
+            const dlg = window.currentDialog && window.currentDialog();
+            if (dlg && typeof dlg.stringParam === 'string' && dlg.stringParam.includes('Текущее время:')) return dlg;
+        } catch (_) {}
+        return null;
+    }
+    function findRow(dlg, label) {
+        if (!dlg || !dlg.$el) return null;
+        const rows = dlg.$el.querySelectorAll('.window-text__item');
+        for (const row of rows) {
+            const cols = row.querySelectorAll('.window-text__item-col');
+            if (cols.length < 2) continue;
+            if ((cols[0].textContent || '').trim().indexOf(label) === 0) return row;
+        }
+        return null;
+    }
+    function valCol(row) { const c = row.querySelectorAll('.window-text__item-col'); return c.length ? c[c.length - 1] : null; }
+    function fakeNow() { return new Date(Date.now() + (window._tsOffset || 0)); }
+    function timeSpans(dlg) {
+        const row = findRow(dlg, 'Текущее время:');
+        if (!row) return null;
+        const val = valCol(row);
+        if (!val) return null;
+        return { val, h: val.querySelector('[data-tse="h"]'), m: val.querySelector('[data-tse="m"]') };
+    }
+    // ── Обёртка значения времени в два кликабельных span (часы: / минуты) ──
+    function wrapTime(dlg) {
+        const row = findRow(dlg, 'Текущее время:');
+        if (!row) return;
+        const val = valCol(row);
+        if (!val || val.querySelector('[data-tse]')) return;
+        const m = val.textContent.match(/(\d{1,2}):(\d{2})/);
+        if (!m) return;
+        const color = (val.innerHTML.match(/#([0-9A-Fa-f]{6,8})/) || [])[1] || '3399FF';
+        val.innerHTML =
+            `<p style="color: #${color}">` +
+            `<span data-tse="h" style="cursor:pointer">${p2(+m[1])}:</span>` +
+            `<span data-tse="m" style="cursor:pointer">${p2(+m[2])}</span>` +
+            `</p>`;
+    }
+    function setRowHtml(dlg, label, html) {
+        const row = findRow(dlg, label);
+        if (row) { const v = valCol(row); if (v) v.innerHTML = html; }
+    }
+    function refreshDialogDom() {
+        const dlg = getTimeDialog();
+        if (!dlg) return;
+        const f = fakeNow();
+        setRowHtml(dlg, 'Сегодняшняя дата:', `<p style="color: #66CC00">${f.getDate()} ${MONTHS[f.getMonth()]} ${f.getFullYear()} г.</p>`);
+        setRowHtml(dlg, 'День недели:', `<p style="color: #66CC00">${WEEKDAYS[f.getDay()]}</p>`);
+        const row = findRow(dlg, 'Текущее время:');
+        if (row) { const v = valCol(row); if (v) v.innerHTML = `<p style="color: #3399FF">${p2(f.getHours())}:${p2(f.getMinutes())}</p>`; }
+    }
+    // ── Применение оффсета ко всему ──
+    function applyOffset(newOff) {
+        const old = window._tsOffset || 0;
+        window._tsOffset = newOff;
+        try {
+            const hud = window.interface && window.interface('Hud');
+            const chat = hud && hud.$refs && hud.$refs.chat;
+            if (chat && Array.isArray(chat.messages)) {
+                for (const m of chat.messages) {
+                    if (m && typeof m.time === 'number') {
+                        if (m._tsOrig === undefined) m._tsOrig = m.time - old;
+                        m.time = m._tsOrig + newOff;
+                    }
+                }
+            }
+        } catch (_) {}
+        stage = null; buf = '';
+        refreshDialogDom();
+        console.log(`[TS-CLICK] оффсет ${newOff} мс → фейк-время ${fakeNow().toLocaleString('ru-RU')}`);
+    }
+    function notify(text) {
+        if (typeof window.onChatMessage !== 'function') return;
+        window.onChatMessage(text, '999999FF');
+        setTimeout(() => {
+            try {
+                const hud = window.interface && window.interface('Hud');
+                const chat = hud && hud.$refs && hud.$refs.chat;
+                if (!chat || !Array.isArray(chat.messages)) return;
+                chat.messages = chat.messages.filter(m =>
+                    !m.content || !m.content.some(c => c.text && c.text.includes('FKONST /ts')));
+            } catch (_) {}
+        }, 3000);
+    }
+    // ── Стадии правки времени ──
+    function startH(dlg) {
+        const s = timeSpans(dlg);
+        if (!s || !s.h || !s.m) return;
+        origH = parseInt(s.h.textContent, 10) || 0;
+        origM = parseInt(s.m.textContent, 10) || 0;
+        stage = 'h'; buf = '';
+        s.h.textContent = ':';                 // часы стёрты
+        s.h.style.textDecoration = 'underline';
+        s.m.style.textDecoration = '';
+    }
+    function renderH(dlg) { const s = timeSpans(dlg); if (s && s.h) s.h.textContent = buf + ':'; }
+    function commitH() {
+        const v = parseInt(buf, 10);
+        committedH = (buf.length && !isNaN(v) && v <= 23) ? v : origH;
+    }
+    function startM(dlg) {
+        const s = timeSpans(dlg);
+        if (!s || !s.h || !s.m) return;
+        stage = 'm'; buf = '';
+        s.h.textContent = p2(committedH) + ':';
+        s.h.style.textDecoration = '';
+        s.m.textContent = '';                  // минуты стёрты
+        s.m.style.textDecoration = 'underline';
+    }
+    function renderM(dlg) { const s = timeSpans(dlg); if (s && s.m) s.m.textContent = buf; }
+    function saveM() {
+        const v = parseInt(buf, 10);
+        const M = (buf.length && !isNaN(v) && v <= 59) ? v : origM;
+        const f = fakeNow();
+        f.setHours(committedH, M, f.getSeconds(), 0);
+        applyOffset(f.getTime() - Date.now());
+        notify(`{999999}FKONST /ts — {33DD77}время установлено: ${p2(committedH)}:${p2(M)}`);
+    }
+    function cancelStage() {
+        stage = null; buf = '';
+        refreshDialogDom();                    // вернуть как было
+    }
+    // ── Правка даты / дня недели ──
+    function editDate() {
+        const f = fakeNow();
+        const inp = prompt('Новая дата (ДД.ММ.ГГГГ или "11 сентября 2026"):', `${p2(f.getDate())}.${p2(f.getMonth() + 1)}.${f.getFullYear()}`);
+        if (inp === null) return;
+        let d, mo, y;
+        let m = inp.trim().match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/);
+        if (m) { d = +m[1]; mo = +m[2] - 1; y = +m[3]; }
+        else {
+            m = inp.trim().replace(/г\.?$/i, '').match(/^(\d{1,2})\s+([а-яё]+)\s+(\d{4})$/);
+            if (m) { d = +m[1]; mo = MONTHS.indexOf(m[2]); y = +m[3]; }
+        }
+        if (!m || d < 1 || d > 31 || mo < 0 || mo > 11) { console.log('[TS-CLICK] ⚠️ формат: ДД.ММ.ГГГГ'); return; }
+        const f2 = fakeNow(); f2.setFullYear(y, mo, d);
+        applyOffset(f2.getTime() - Date.now());
+    }
+    function editWeekday() {
+        const f = fakeNow(); f.setDate(f.getDate() + 1);
+        applyOffset(f.getTime() - Date.now());
+    }
+    // ── Клики ──
+    document.addEventListener('click', (e) => {
+        if (!window._tsEdit2) return;
+        const dlg = getTimeDialog();
+        if (!dlg) return;
+        const span = e.target && e.target.closest ? e.target.closest('[data-tse]') : null;
+        if (span) {
+            e.preventDefault(); e.stopPropagation();
+            if (!stage) startH(dlg);
+            else if (stage === 'h') { commitH(); startM(dlg); }
+            return; // в стадии 'm' клики игнорируются — сохранение только Enter
+        }
+        const row = e.target && e.target.closest ? e.target.closest('.window-text__item') : null;
+        if (!row) return;
+        const cols = row.querySelectorAll('.window-text__item-col');
+        if (cols.length < 2) return;
+        const label = (cols[0].textContent || '').trim();
+        if (label.indexOf('Сегодняшняя дата:') === 0) { e.preventDefault(); e.stopPropagation(); editDate(); }
+        else if (label.indexOf('День недели:') === 0)  { e.preventDefault(); e.stopPropagation(); editWeekday(); }
+    }, true);
+    // ── Клавиатура ──
+    function digitOf(e) {
+        if (/^\d$/.test(e.key || '')) return e.key;
+        const c = e.keyCode;
+        if (c >= 48 && c <= 57) return String(c - 48);
+        if (c >= 96 && c <= 105) return String(c - 96);
+        return null;
+    }
+    document.addEventListener('keydown', (e) => {
+        if (!stage) return;
+        const dlg = getTimeDialog();
+        let handled = true;
+        const d = digitOf(e);
+        if (d !== null) { if (buf.length < 2) { buf += d; stage === 'h' ? renderH(dlg) : renderM(dlg); } }
+        else if (e.key === 'Backspace' || e.keyCode === 8) { buf = buf.slice(0, -1); stage === 'h' ? renderH(dlg) : renderM(dlg); }
+        else if (e.key === 'Enter' || e.keyCode === 13) {
+            pendingSwallow = 'Enter';
+            if (stage === 'h') { commitH(); startM(dlg); }   // Enter = "следующее нажатие" → минуты
+            else saveM();                                     // Enter в минутах = сохранить
+        }
+        else if (e.key === 'Escape' || e.keyCode === 27) { pendingSwallow = 'Escape'; cancelStage(); }
+        else handled = false;
+        if (handled) { e.preventDefault(); e.stopImmediatePropagation(); }
+    }, true);
+    document.addEventListener('keyup', (e) => {
+        const active = stage !== null;
+        const sw = pendingSwallow !== null && (pendingSwallow === e.key ||
+            (pendingSwallow === 'Enter' && e.keyCode === 13) || (pendingSwallow === 'Escape' && e.keyCode === 27));
+        if (sw) pendingSwallow = null;
+        if (!active && !sw) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+    }, true);
+    // ── Поллинг: держим span-ы готовыми, сбрас при закрытии диалога ──
+    setInterval(() => {
+        const dlg = getTimeDialog();
+        if (!dlg) { stage = null; buf = ''; return; }
+        if (!stage && window._tsEdit2) wrapTime(dlg);
+    }, 300);
+    // ── Хук sendChatInput: /ts → отправляет /c 60 вместо ввода времени ──
+    const hook = function (text) {
+        if (typeof text === 'string' && /^\/ts(\s|$)/i.test(text)) {
+            const arg = text.trim().split(/\s+/)[1];
+            if (arg === 'reset') { applyOffset(0); notify('{999999}FKONST /ts — {EE4444}сброшено на реальное время'); return; }
+            if (arg === 'off') { window._tsEdit2 = false; notify('{999999}FKONST /ts — {EE4444}правка выключена'); return; }
+            window._tsEdit2 = true;
+            console.log('[TS-CLICK] /ts → отправляю /c 60, правка времени кликом в диалоге');
+            return hook._prev ? hook._prev.call(this, '/c 60') : undefined; // /ts на сервер НЕ уходит
+        }
+        return hook._prev ? hook._prev.apply(this, arguments) : undefined;
+    };
+    hook._prev = null;
+    hook.__tsClick2Hook = true;
+    function install() {
+        const cur = window.sendChatInput;
+        if (cur === hook) return true;
+        if (!(typeof cur === 'function' && '_prev' in cur && !cur.__tsClick2Hook)) return false;
+        hook._prev = cur;
+        window.sendChatInput = hook;
+        console.log('[TS-CLICK] хук sendChatInput установлен');
+        return true;
+    }
+    if (!install()) {
+        const p = setInterval(() => { if (install()) clearInterval(p); }, 100);
+        setTimeout(() => clearInterval(p), 60000);
+    }
+    console.log('[TS-CLICK] /ts → откроет /c 60; клик по времени → часы → Enter/клик → минуты → Enter = сохранить');
+})();
