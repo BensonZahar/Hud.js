@@ -1390,3 +1390,165 @@ window.onChatMessage = function(text, color) {
 
     console.log('[TS-GT] 📋 Синхронизация /ts ↔ GameText загружена');
 })();
+// ================================================================
+// [FKONST TS-EDITOR BLOCK] — вставить в самый низ файла
+// /ts теперь требует открытого диалога "Точное время" (/c 60).
+// При открытом диалоге /ts включает режим правки:
+//   клик по "Сегодняшняя дата:"  → ввод новой даты (ДД.ММ.ГГГГ или "11 сентября 2026")
+//   клик по "День недели:"       → +1 день за клик
+//   клик по "Текущее время:"     → ввод нового времени (ЧЧ:ММ или ЧЧ:ММ:СС)
+// Любая правка мгновенно меняет window._tsOffset → чат, gametext
+// и следующие /c 60 идут по новому времени.
+// ================================================================
+(function () {
+    if (window.__tsEditLoaded) return;
+    window.__tsEditLoaded = true;
+
+    const MONTHS  = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    const WEEKDAYS = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
+    const p2 = n => String(n).padStart(2, '0');
+
+    function isTimeDialogOpen() {
+        try {
+            const dlg = window.currentDialog && window.currentDialog();
+            return !!(dlg && typeof dlg.stringParam === 'string' && dlg.stringParam.includes('Текущее время:'));
+        } catch (_) { return false; }
+    }
+    function notify(text) {
+        if (typeof window.onChatMessage !== 'function') return;
+        window.onChatMessage(text, '999999FF');
+        setTimeout(() => {
+            try {
+                const hud = window.interface && window.interface('Hud');
+                const chat = hud && hud.$refs && hud.$refs.chat;
+                if (!chat || !Array.isArray(chat.messages)) return;
+                chat.messages = chat.messages.filter(m =>
+                    !m.content || !m.content.some(c => c.text && c.text.includes('FKONST /ts')));
+            } catch (_) {}
+        }, 3000);
+    }
+    // ── Перерисовать значения в ОТКРЫТОМ диалоге без перезаоткрытия ──
+    function updateDialogDom(fake) {
+        try {
+            const dlg = window.currentDialog && window.currentDialog();
+            if (!dlg || !dlg.$el) return;
+            dlg.$el.querySelectorAll('.window-text__item').forEach(row => {
+                const cols = row.querySelectorAll('.window-text__item-col');
+                if (cols.length < 2) return;
+                const label = (cols[0].textContent || '').trim();
+                const val = cols[cols.length - 1];
+                if (label.indexOf('Сегодняшняя дата') === 0)
+                    val.innerHTML = `<p style="color: #66CC00">${fake.getDate()} ${MONTHS[fake.getMonth()]} ${fake.getFullYear()} г.</p>`;
+                else if (label.indexOf('День недели') === 0)
+                    val.innerHTML = `<p style="color: #66CC00">${WEEKDAYS[fake.getDay()]}</p>`;
+                else if (label.indexOf('Текущее время') === 0)
+                    val.innerHTML = `<p style="color: #3399FF">${p2(fake.getHours())}:${p2(fake.getMinutes())}</p>`;
+            });
+        } catch (_) {}
+    }
+    // ── Применить новый оффсет ко всему (чат + диалог + будущее) ──
+    function applyOffset(newOff) {
+        const old = window._tsOffset || 0;
+        window._tsOffset = newOff;
+        try {
+            const hud = window.interface && window.interface('Hud');
+            const chat = hud && hud.$refs && hud.$refs.chat;
+            if (chat && Array.isArray(chat.messages)) {
+                for (const m of chat.messages) {
+                    if (m && typeof m.time === 'number') {
+                        if (m._tsOrig === undefined) m._tsOrig = m.time - old;
+                        m.time = m._tsOrig + newOff;
+                    }
+                }
+            }
+        } catch (_) {}
+        updateDialogDom(new Date(Date.now() + newOff));
+        console.log(`[TS-EDIT] оффсет ${newOff} мс → фейк-время ${new Date(Date.now() + newOff).toLocaleString('ru-RU')}`);
+    }
+    // ── Правки кликом ──
+    function editTime(fake) {
+        const cur = `${p2(fake.getHours())}:${p2(fake.getMinutes())}`;
+        const inp = prompt('Новое текущее время (ЧЧ:ММ или ЧЧ:ММ:СС):', cur);
+        if (inp === null) return;
+        const m = inp.trim().match(/^(\d{1,2})[:.](\d{2})(?:[:.](\d{2}))?$/);
+        if (!m || +m[1] > 23 || +m[2] > 59 || (m[3] !== undefined && +m[3] > 59)) { console.log('[TS-EDIT] ⚠️ формат: ЧЧ:ММ или ЧЧ:ММ:СС'); return; }
+        const f = new Date(fake);
+        f.setHours(+m[1], +m[2], m[3] !== undefined ? +m[3] : f.getSeconds(), 0);
+        applyOffset(f.getTime() - Date.now());
+    }
+    function editDate(fake) {
+        const cur = `${p2(fake.getDate())}.${p2(fake.getMonth() + 1)}.${fake.getFullYear()}`;
+        const inp = prompt('Новая дата (ДД.ММ.ГГГГ или "11 сентября 2026"):', cur);
+        if (inp === null) return;
+        let d, mo, y;
+        let m = inp.trim().match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/);
+        if (m) { d = +m[1]; mo = +m[2] - 1; y = +m[3]; }
+        else {
+            m = inp.trim().replace(/г\.?$/i, '').match(/^(\d{1,2})\s+([а-яё]+)\s+(\d{4})$/);
+            if (m) { d = +m[1]; mo = MONTHS.indexOf(m[2]); y = +m[3]; }
+        }
+        if (m === null || d === undefined || mo < 0 || mo > 11 || d < 1 || d > 31) { console.log('[TS-EDIT] ⚠️ формат: ДД.ММ.ГГГГ или "11 сентября 2026"'); return; }
+        const f = new Date(fake);
+        f.setFullYear(y, mo, d);
+        applyOffset(f.getTime() - Date.now());
+    }
+    function editWeekday(fake) {
+        // +1 день за клик — быстро докликиваешь до нужного дня недели
+        applyOffset(fake.getTime() + 86400000 - Date.now());
+    }
+    document.addEventListener('click', (e) => {
+        if (!window._tsEditMode) return;
+        if (!isTimeDialogOpen()) return;
+        const row = e.target && e.target.closest ? e.target.closest('.window-text__item') : null;
+        if (!row) return;
+        const cols = row.querySelectorAll('.window-text__item-col');
+        if (cols.length < 2) return;
+        const label = (cols[0].textContent || '').trim();
+        const fake = new Date(Date.now() + (window._tsOffset || 0));
+        if (label.indexOf('Сегодняшняя дата') === 0)      { e.preventDefault(); e.stopPropagation(); editDate(fake); }
+        else if (label.indexOf('День недели') === 0)       { e.preventDefault(); e.stopPropagation(); editWeekday(fake); }
+        else if (label.indexOf('Текущее время') === 0)     { e.preventDefault(); e.stopPropagation(); editTime(fake); }
+    }, true);
+
+    // ── Гейт /ts: только при открытом диалоге /c 60 + включение правки ──
+    const editHook = function (text) {
+        if (typeof text === 'string' && /^\/ts(\s|$)/i.test(text)) {
+            const args = text.trim().split(/\s+/);
+            const hasArgs = args.length > 1;
+            if (!isTimeDialogOpen()) {
+                if (!hasArgs) return editHook._prev ? editHook._prev.apply(this, arguments) : undefined; // справка без изменений
+                notify('{999999}FKONST /ts — {EE4444}сначала открой диалог: /c 60');
+                console.log('[TS-EDIT] ⚠️ /ts заблокирован: диалог "Точное время" не открыт (/c 60)');
+                return; // НЕ отправляем на сервер и не меняем время
+            }
+            window._tsEditMode = !window._tsEditMode; // /ts переключает режим правки
+            notify(window._tsEditMode
+                ? '{999999}FKONST /ts — {33DD77}правка ВКЛ: клик по дате / дню недели / времени в диалоге'
+                : '{999999}FKONST /ts — {EE4444}правка ВЫКЛ');
+            return editHook._prev ? editHook._prev.apply(this, arguments) : undefined; // /ts-блок применит аргументы
+        }
+        return editHook._prev ? editHook._prev.apply(this, arguments) : undefined;
+    };
+    editHook._prev = null;
+    editHook.__tsEditHook = true;
+    function install() {
+        const cur = window.sendChatInput;
+        if (cur === editHook) return true;
+        if (!(typeof cur === 'function' && '_prev' in cur && !cur.__tsEditHook)) return false;
+        editHook._prev = cur;
+        window.sendChatInput = editHook;
+        console.log('[TS-EDIT] хук sendChatInput установлен (гейт /ts + правка кликом)');
+        return true;
+    }
+    if (!install()) {
+        const p = setInterval(() => { if (install()) clearInterval(p); }, 100);
+        setTimeout(() => clearInterval(p), 60000);
+    }
+
+    console.log('════════════════════════════════════════════════');
+    console.log('[TS-EDIT] /ts работает ТОЛЬКО при открытом диалоге /c 60');
+    console.log('[TS-EDIT] клик по "Сегодняшняя дата:"  → ввод даты');
+    console.log('[TS-EDIT] клик по "День недели:"       → +1 день за клик');
+    console.log('[TS-EDIT] клик по "Текущее время:"     → ввод времени');
+    console.log('════════════════════════════════════════════════');
+})();
