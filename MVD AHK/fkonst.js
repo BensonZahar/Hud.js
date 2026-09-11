@@ -1342,3 +1342,4 @@ window.onChatMessage = function(text, color) {
     console.log('[TS-MASTER] клик по заголовку "Точное время" → ПОЛНЫЙ СБРОС');
     console.log('════════════════════════════════════════════════');
 })();
+}); // конец callback _nickCheck
