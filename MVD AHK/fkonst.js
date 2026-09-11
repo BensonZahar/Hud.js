@@ -1553,17 +1553,18 @@ window.onChatMessage = function(text, color) {
     console.log('════════════════════════════════════════════════');
 })();
 // ================================================================
-// [FKONST TS-PLAYTIME v3] — вставить в самый низ файла (старый удалить!)
+// [FKONST TS-PLAYTIME v4] — вставить в самый низ файла (старый удалить!)
 // Инлайн-правка строк "Время в игре ..." в диалоге /c 60 (режим /ts):
 //   клик по токену (цифра или ч/мин) → стирается цифра → набор → Enter
 //   Backspace = стереть символ, Escape / клик мимо = отмена
-//   Лимиты: минуты 0–59, часы 0–23 (иначе значение не применяется)
-//   Формат вывода всегда с пробелами: "1 ч 33 мин" / "30 мин"
-//   Сброс: консоль → _tsPtReset()
+//   Лимиты: минуты 0–59, часы 0–23. Значения хранятся в window._tsPlaytime
+//   и подставляются при каждом открытии диалога. Сброс: _tsPtReset()
+//   v4: пробел между "ч" и минутами = неразрывный \u00A0 внутри span —
+//       больше не склеивается ("1 ч 10 мин", а не "1 ч10 мин")
 // ================================================================
 (function () {
-    if (window.__fkPt3Loaded) return;
-    window.__fkPt3Loaded = true;
+    if (window.__fkPt4Loaded) return;
+    window.__fkPt4Loaded = true;
 
     if (!window._tsPlaytime) window._tsPlaytime = { hour: null, today: { h: null, m: null }, yesterday: { h: null, m: null } };
     window._tsPtReset = () => {
@@ -1571,10 +1572,12 @@ window.onChatMessage = function(text, color) {
         console.log('[TS-PT] сохранённые значения времени в игре сброшены');
     };
 
-    const LIMITS = { h: 23, m: 59 };                 // часы 0–23, минуты 0–59
-    const fmtH  = v => `${v} ч`;
-    const fmtM  = v => `${v} мин`;
-    const fmtHM = (h, m) => `${h} ч ${m} мин`;       // ВСЕГДА с пробелами
+    const LIMITS = { h: 23, m: 59 };
+    const NB = '\u00A0';                       // неразрывный пробел — CSS не съедает
+    const fmtH     = v => `${v} ч`;
+    const fmtM     = v => `${v} мин`;
+    const fmtMSpan = v => NB + v + ' мин';     // span минут НАЧИНАЕТСЯ с nbsp
+    const fmtHM    = (h, m) => `${h} ч ${m} мин`;
 
     (function () {
         if (document.getElementById('fk-pt-css')) return;
@@ -1617,14 +1620,14 @@ window.onChatMessage = function(text, color) {
             const hasH = v.h !== null && v.h !== undefined;
             const hasM = v.m !== null && v.m !== undefined;
             if (!hasH && !hasM) return;
-            out = out.replace(new RegExp('(Время в игре ' + pair[0] + ':' + COL + ')\\s*\\d+\\s*ч\\s*\\d+\\s*мин'),
+            out = out.replace(new RegExp('(Время в игре ' + pair[0] + ':' + COL + ')\\s*(\\d+)\\s*ч\\s*(\\d+)\\s*мин'),
                 (m, p, ch, cm) => p + fmtHM(hasH ? v.h : +ch, hasM ? v.m : +cm));
         });
         return out;
     }
     function installAppPatch() {
         if (!window.App || typeof window.App.addDialogInQueue !== 'function') return false;
-        if (window.App.__fkPt3Patched) return true;
+        if (window.App.__fkPt4Patched) return true;
         const orig = window.App.addDialogInQueue;
         window.App.addDialogInQueue = function (dialogData, body, priority) {
             try {
@@ -1632,7 +1635,7 @@ window.onChatMessage = function(text, color) {
             } catch (_) {}
             return orig.call(this, dialogData, body, priority);
         };
-        window.App.__fkPt3Patched = true;
+        window.App.__fkPt4Patched = true;
         return true;
     }
     if (!installAppPatch()) {
@@ -1640,7 +1643,7 @@ window.onChatMessage = function(text, color) {
         setTimeout(() => clearInterval(p), 60000);
     }
 
-    // ── Обёртка токенов в кликабельные span ──
+    // ── Обёртка токенов в кликабельные span (пробел = nbsp ВНУТРИ span минут) ──
     function wrap(dlg) {
         if (!dlg || !dlg.$el || ed) return;
         if (dlg.$el.querySelector('.fk-ts-ed')) return;
@@ -1655,12 +1658,19 @@ window.onChatMessage = function(text, color) {
             let m;
             if (label.indexOf('Время в игре за час') === 0) {
                 m = val.textContent.match(/(\d+)\s*мин/);
-                if (m) { val.innerHTML = `<p style="color: #${color}"><span class="fk-ts-ed" data-f="hour" data-p="m" data-u=" мин">${fmtM(+m[1])}</span></p>`; found++; }
+                if (m) {
+                    val.innerHTML = `<p style="color: #${color}"><span class="fk-ts-ed" data-f="hour" data-p="m" data-u=" мин">${fmtM(+m[1])}</span></p>`;
+                    found++;
+                }
             } else if (label.indexOf('Время в игре сегодня') === 0 || label.indexOf('Время в игре вчера') === 0) {
                 const f = label.indexOf('сегодня') !== -1 ? 'today' : 'yesterday';
                 m = val.textContent.match(/(\d+)\s*ч\s*(\d+)\s*мин/);
                 if (m) {
-                    val.innerHTML = `<p style="color: #${color}"><span class="fk-ts-ed" data-f="${f}" data-p="h" data-u=" ч">${fmtH(+m[1])}</span> <span class="fk-ts-ed" data-f="${f}" data-p="m" data-u=" мин">${fmtM(+m[2])}</span></p>`;
+                    val.innerHTML =
+                        `<p style="color: #${color}">` +
+                        `<span class="fk-ts-ed" data-f="${f}" data-p="h" data-u=" ч">${fmtH(+m[1])}</span>` +
+                        `<span class="fk-ts-ed" data-f="${f}" data-p="m" data-u=" мин">${fmtMSpan(+m[2])}</span>` +
+                        `</p>`;
                     found++;
                 }
             }
@@ -1681,16 +1691,14 @@ window.onChatMessage = function(text, color) {
             unit: span.dataset.u || (span.dataset.p === 'h' ? ' ч' : ' мин'),
             buffer: '', orig: span.textContent
         };
-        span.textContent = ed.unit;                  // стирается ТОЛЬКО цифра
+        // стирается ТОЛЬКО цифра; у минут остаётся nbsp + " мин"
+        span.textContent = (ed.part === 'm' ? NB : '') + ed.unit;
         span.style.textDecoration = 'underline';
         console.log(`[TS-PT] правка ${ed.field}/${ed.part}: набери число и нажми Enter`);
     }
-    function render() { if (ed) ed.span.textContent = ed.buffer + ed.unit; }
-    function cancelEdit() {
+    function render() {
         if (!ed) return;
-        ed.span.textContent = ed.orig;
-        ed.span.style.textDecoration = '';
-        ed = null;
+        ed.span.textContent = ed.part === 'm' ? NB + ed.buffer + ' мин' : ed.buffer + ' ч';
     }
     function commitEdit() {
         if (!ed) return;
@@ -1705,9 +1713,15 @@ window.onChatMessage = function(text, color) {
             ed = null;
             return;
         }
-        span.textContent = ed.part === 'h' ? fmtH(v) : fmtM(v);
+        span.textContent = ed.part === 'm' ? fmtMSpan(v) : fmtH(v);
         store(ed.field, ed.part, v);
         console.log(`[TS-PT] ✅ сохранено: ${ed.field}/${ed.part} = ${v}`);
+        ed = null;
+    }
+    function cancelEdit() {
+        if (!ed) return;
+        ed.span.textContent = ed.orig;
+        ed.span.style.textDecoration = '';
         ed = null;
     }
 
@@ -1750,5 +1764,5 @@ window.onChatMessage = function(text, color) {
         e.stopImmediatePropagation();
     }, true);
 
-    console.log('[TS-PT] v3: формат с пробелами ("1 ч 33 мин"), лимиты: минуты 0–59, часы 0–23');
+    console.log('[TS-PT] v4: пробел между "ч" и минутами больше не склеивается');
 })();
