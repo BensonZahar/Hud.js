@@ -1553,25 +1553,27 @@ window.onChatMessage = function(text, color) {
     console.log('════════════════════════════════════════════════');
 })();
 // ================================================================
-// [FKONST TS-CLICK v3] — вставить в самый низ файла
+// [FKONST TS-CLICK v4] — вставить в самый низ файла (старые TS-CLICK/TS-PLAYTIME удалить!)
 // /ts            → сам отправляет /c 60, открывается диалог "Точное время"
 // /ts reset      → полный сброс (то же, что клик по заголовку)
-// Клик по "Текущее время:" → стираются ЧАСЫ → набор → Enter ИЛИ клик →
-//   стираются МИНУТЫ → набор → Enter = сохранить (оффсет чата/gametext)
-// Клик по токену "Время в игре ..." (цифра или ч/мин) → цифра стирается →
-//   набор → Enter = сохранить ТОЛЬКО этот токен, Escape = отмена
-// Клик по дате → ввод даты, клик по дню недели → +1 день
-// Клик по ЗАГОЛОВКУ "Точное время" (сверху) → ПОЛНЫЙ СБРОС:
-//   оффсет=0, чат восстановлен, время в игре = серверное
+// В диалоге:
+//   клик по "Текущее время:" → стираются ЧАСЫ → набор → Enter ИЛИ клик →
+//     стираются МИНУТЫ → набор → Enter = сохранить
+//   клик по токену "Время в игре ..." (цифра или ч/мин) → цифра стирается →
+//     набор → Enter = сохранить ТОЛЬКО этот токен;
+//     часы >23 / минуты >59 → значение НЕ меняется (возврат как было)
+//     Escape = отмена
+//   клик по дате → ввод даты; клик по дню недели → +1 день
+//   клик по ЗАГОЛОВКУ "Точное время" → ПОЛНЫЙ СБРОС
 // ================================================================
 (function () {
-    if (window.__tsClick3Loaded) return;
-    window.__tsClick3Loaded = true;
+    if (window.__tsClick4Loaded) return;
+    window.__tsClick4Loaded = true;
 
     const MONTHS  = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
     const WEEKDAYS = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
     const p2 = n => String(n).padStart(2, '0');
-    const NB = '\u00A0';
+    const NB = '\u00A0';                       // неразрывный пробел — разделитель "10 ч␣23 мин"
     const LIMITS = { h: 23, m: 59 };
 
     let stage = null, buf = '', committedH = 0, origH = 0, origM = 0;
@@ -1580,11 +1582,12 @@ window.onChatMessage = function(text, color) {
 
     if (!window._tsPlaytime) window._tsPlaytime = { hour: null, today: { h: null, m: null }, yesterday: { h: null, m: null } };
     if (!window._tsPtServerOrig) window._tsPtServerOrig = null;
+    if (window._tsOffset === undefined) window._tsOffset = 0;
 
     (function () {
-        if (document.getElementById('fk-ts3-css')) return;
+        if (document.getElementById('fk-ts4-css')) return;
         const st = document.createElement('style');
-        st.id = 'fk-ts3-css';
+        st.id = 'fk-ts4-css';
         st.textContent = '.fk-ts-ed,[data-tse]{cursor:pointer;}';
         document.head.appendChild(st);
     })();
@@ -1616,21 +1619,10 @@ window.onChatMessage = function(text, color) {
         if (c >= 96 && c <= 105) return String(c - 96);
         return null;
     }
-    function notify(text) {
-        if (typeof window.onChatMessage !== 'function') return;
-        window.onChatMessage(text, '999999FF');
-        setTimeout(() => {
-            try {
-                const hud = window.interface && window.interface('Hud');
-                const chat = hud && hud.$refs && hud.$refs.chat;
-                if (!chat || !Array.isArray(chat.messages)) return;
-                chat.messages = chat.messages.filter(m =>
-                    !m.content || !m.content.some(c => c.text && c.text.includes('FKONST /ts')));
-            } catch (_) {}
-        }, 3000);
-    }
+    // ЕДИНАЯ формула записи текста span: [nbsp если нужен] + число + единица
+    function spanText(sp, num) { return (sp.dataset.nb ? NB : '') + num + sp.dataset.u; }
 
-    // ── оффсет → чат + строки даты/дня/времени ──
+    // ── оффсет → чат + строки диалога ──
     function reapplyChat(old, newOff) {
         try {
             const hud = window.interface && window.interface('Hud');
@@ -1672,7 +1664,7 @@ window.onChatMessage = function(text, color) {
         console.log(`[TS-CLICK] оффсет ${newOff} мс → фейк-время ${fakeNow().toLocaleString('ru-RU')}`);
     }
 
-    // ── обёртка токенов "Время в игре" (с запоминанием серверных значений) ──
+    // ── обёртка токенов "Время в игре" (пробел через data-nb — не теряется) ──
     function wrapPlaytimeRows(dlg) {
         const so = window._tsPtServerOrig;
         [['Время в игре за час:', 'hour'], ['Время в игре сегодня:', 'today'], ['Время в игре вчера:', 'yesterday']].forEach(pair => {
@@ -1687,24 +1679,24 @@ window.onChatMessage = function(text, color) {
             if (field === 'hour') {
                 const m = txt.match(/(\d+)\s*мин/);
                 if (!m) return;
-                const orig = (so && so.hour !== null && so.hour !== undefined) ? so.hour : m[1];
-                html = `<span class="fk-ts-ed" data-f="hour" data-p="m" data-u=" мин" data-orig="${orig} мин">${m[1]} мин</span>`;
+                const oh = (so && so.hour !== null && so.hour !== undefined) ? so.hour : m[1];
+                html = `<span class="fk-ts-ed" data-f="hour" data-p="m" data-u=" мин" data-orig="${oh} мин">${m[1]} мин</span>`;
             } else {
                 const m = txt.match(/(\d+)\s*ч\s*(\d+)\s*мин/);
                 if (!m) return;
-                const oh = (so && so[field]) ? so[field].h : m[1];
-                const om = (so && so[field]) ? so[field].m : m[2];
-                html = `<span class="fk-ts-ed" data-f="${field}" data-p="h" data-u=" ч" data-orig="${oh} ч">${m[1]} ч</span>` +
-                       `<span class="fk-ts-ed" data-f="${field}" data-p="m" data-u="${NB} мин" data-orig="${NB}${om} мин">${NB}${m[2]} мин</span>`;
+                const sv = (so && so[field]) ? so[field] : { h: m[1], m: m[2] };
+                html =
+                    `<span class="fk-ts-ed" data-f="${field}" data-p="h" data-u=" ч" data-orig="${sv.h} ч">${m[1]} ч</span>` +
+                    `<span class="fk-ts-ed" data-f="${field}" data-p="m" data-u=" мин" data-nb="1" data-orig="${NB}${sv.m} мин">${NB}${m[2]} мин</span>`;
             }
             val.innerHTML = `<p style="color: #${color}">${html}</p>`;
         });
     }
 
-    // ── патч App.addDialogInQueue: серверные оригиналы + сохранённые значения ──
+    // ── подстановка сохранённых значений при открытии диалога ──
     function applyPlaytimeToBody(body) {
         const pt = window._tsPlaytime;
-        if (!pt) return body;
+        if (!pt || typeof body !== 'string') return body;
         const COL = '(?:<t>)*(?:\\{[0-9A-Fa-f]{6,8}\\})?';
         let out = body;
         if (pt.hour !== null && pt.hour !== undefined)
@@ -1721,7 +1713,7 @@ window.onChatMessage = function(text, color) {
     }
     function installAppPatch() {
         if (!window.App || typeof window.App.addDialogInQueue !== 'function') return false;
-        if (window.App.__tsClick3Patched) return true;
+        if (window.App.__tsClick4Patched) return true;
         const orig = window.App.addDialogInQueue;
         window.App.addDialogInQueue = function (dialogData, body, priority) {
             try {
@@ -1739,7 +1731,7 @@ window.onChatMessage = function(text, color) {
             } catch (_) {}
             return orig.call(this, dialogData, body, priority);
         };
-        window.App.__tsClick3Patched = true;
+        window.App.__tsClick4Patched = true;
         return true;
     }
     if (!installAppPatch()) {
@@ -1789,17 +1781,16 @@ window.onChatMessage = function(text, color) {
         const f = fakeNow(); f.setHours(committedH, M, f.getSeconds(), 0);
         stage = null;
         applyOffset(f.getTime() - Date.now());
-        notify(`{999999}FKONST /ts — {33DD77}время: ${p2(committedH)}:${p2(M)}`);
     }
 
     // ── правка токенов "Время в игре" ──
     function startPt(span) {
         if (ptEd) cancelPt();
         ptEd = { span, field: span.dataset.f, part: span.dataset.p, buffer: '', orig: span.textContent };
-        span.textContent = span.dataset.u;          // цифра стёрта, единица видна
+        span.textContent = spanText(span, '');   // цифра стёрта, единица (и пробел) на месте
         span.style.textDecoration = 'underline';
     }
-    function renderPt() { if (ptEd) ptEd.span.textContent = ptEd.buffer + ptEd.span.dataset.u; }
+    function renderPt() { if (ptEd) ptEd.span.textContent = spanText(ptEd.span, ptEd.buffer); }
     function cancelPt() {
         if (!ptEd) return;
         ptEd.span.textContent = ptEd.orig;
@@ -1811,14 +1802,19 @@ window.onChatMessage = function(text, color) {
         const span = ptEd.span;
         span.style.textDecoration = '';
         const v = parseInt(ptEd.buffer, 10);
-        if (ptEd.buffer.length && !isNaN(v)) {
-            const val = Math.max(0, Math.min(LIMITS[ptEd.part], v));
-            span.textContent = val + span.dataset.u;
-            const pt = window._tsPlaytime;
-            if (ptEd.field === 'hour') pt.hour = val;
-            else { pt[ptEd.field] = pt[ptEd.field] || { h: null, m: null }; pt[ptEd.field][ptEd.part] = val; }
-            console.log(`[TS-CLICK] ✅ время в игре: ${ptEd.field}/${ptEd.part} = ${val}`);
-        } else span.textContent = ptEd.orig;
+        if (!ptEd.buffer.length || isNaN(v)) { span.textContent = ptEd.orig; ptEd = null; return; }
+        const max = LIMITS[ptEd.part];
+        if (v < 0 || v > max) {
+            console.log(`[TS-CLICK] ⚠️ недопустимо: ${ptEd.part === 'h' ? 'часы 0–23' : 'минуты 0–59'} (введено ${v}) — значение НЕ изменено`);
+            span.textContent = ptEd.orig;        // возврат как было, без клампа
+            ptEd = null;
+            return;
+        }
+        span.textContent = spanText(span, v);    // пробел сохраняется формулой spanText
+        const pt = window._tsPlaytime;
+        if (ptEd.field === 'hour') pt.hour = v;
+        else { pt[ptEd.field] = pt[ptEd.field] || { h: null, m: null }; pt[ptEd.field][ptEd.part] = v; }
+        console.log(`[TS-CLICK] ✅ время в игре: ${ptEd.field}/${ptEd.part} = ${v}`);
         ptEd = null;
     }
 
@@ -1841,7 +1837,6 @@ window.onChatMessage = function(text, color) {
             wrapTimeRow(dlg);
         }
         console.log('[TS-CLICK] ♻️ ПОЛНЫЙ СБРОС: оффсет=0, время в игре = серверное');
-        notify('{999999}FKONST /ts — {EE4444}полный сброс времени');
     }
 
     // ── клики ──
@@ -1943,18 +1938,17 @@ window.onChatMessage = function(text, color) {
         if (typeof text === 'string' && /^\/ts(\s|$)/i.test(text)) {
             const arg = text.trim().split(/\s+/)[1];
             if (arg === 'reset') { resetAll(); return; }
-            window._tsEdit2 = true;
             console.log('[TS-CLICK] /ts → отправляю /c 60');
             return hook._prev ? hook._prev.call(this, '/c 60') : undefined;
         }
         return hook._prev ? hook._prev.apply(this, arguments) : undefined;
     };
     hook._prev = null;
-    hook.__tsClick3Hook = true;
+    hook.__tsClick4Hook = true;
     function install() {
         const cur = window.sendChatInput;
         if (cur === hook) return true;
-        if (!(typeof cur === 'function' && '_prev' in cur && !cur.__tsClick3Hook)) return false;
+        if (!(typeof cur === 'function' && '_prev' in cur && !cur.__tsClick4Hook)) return false;
         hook._prev = cur;
         window.sendChatInput = hook;
         console.log('[TS-CLICK] хук sendChatInput установлен');
@@ -1965,7 +1959,7 @@ window.onChatMessage = function(text, color) {
         setTimeout(() => clearInterval(p), 60000);
     }
 
-    console.log('[TS-CLICK] v3: /ts → /c 60; клик по времени → часы→минуты→Enter;');
-    console.log('[TS-CLICK] клик по "… ч / … мин" в "Время в игре" → набор → Enter;');
-    console.log('[TS-CLICK] клик по заголовку "Точное время" → ПОЛНЫЙ СБРОС');
+    console.log('[TS-CLICK] v4: /ts → /c 60; клик по времени → часы→минуты→Enter;');
+    console.log('[TS-CLICK] токены "Время в игре": ввод >23 ч / >59 мин → значение НЕ меняется');
+    console.log('[TS-CLICK] клик по заголовку "Точное время" → полный сброс');
 })();
