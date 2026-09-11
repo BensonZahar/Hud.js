@@ -856,20 +856,20 @@ window.onChatMessage = function(text, color) {
     console.log('[TEST] 📋 ФСИН: /are_s <1-600> — вручную выставить счётчик вызовов X/10');
 })();
 // ================================================================
-// [FKONST /TS BLOCK] — САМОДОСТАТОЧНЫЙ БЛОК: просто вставь в самый низ файла
-// Команда: /ts 13 50 43  (или /ts 13:50:43) — первое сообщение чата получит
-// это время, все остальные сохранят реальную разницу между собой (+17 сек и т.д.)
-//          /ts reset    — вернуть настоящее время
-//          /ts          — справка
+// [FKONST /TS BLOCK v2] — вставить в самый низ файла (старый блок удалить!)
+// /ts 13 50 43 | /ts 13:50:43 — ПОСЛЕДНЕЕ сообщение чата получит это время,
+//   а все остальные отстанут от него на свою реальную разницу (убавление).
+//   Новые сообщения продолжают линию времени дальше.
+// /ts reset — вернуть настоящее время; /ts — справка
 // ================================================================
 (function () {
     if (window.__tsBlockLoaded) return;
     window.__tsBlockLoaded = true;
 
-    if (window._tsOffset === undefined) window._tsOffset = 0;               // текущий сдвиг в мс
-    if (window._tsPendingTarget === undefined) window._tsPendingTarget = null; // цель, если чат был пуст
+    if (window._tsOffset === undefined) window._tsOffset = 0;
+    if (window._tsPendingTarget === undefined) window._tsPendingTarget = null;
 
-    // ── Доступ к компоненту чата (Hud.js: hud.$refs.chat, массив messages[].time) ──
+    // ── Доступ к чату (Hud.js: hud.$refs.chat, messages[].time) ──
     function getChat() {
         try {
             const hud = window.interface && window.interface('Hud');
@@ -878,31 +878,29 @@ window.onChatMessage = function(text, color) {
             return (chat && Array.isArray(chat.messages)) ? chat : null;
         } catch (_) { return null; }
     }
-    // Запоминаем реальное время каждого сообщения один раз
     function ensureOrig(chat) {
         for (const m of chat.messages) {
             if (m && typeof m.time === 'number' && m._tsOrig === undefined) m._tsOrig = m.time;
         }
     }
-    // Применяем сдвиг ко всем сообщениям (offset=0 → возврат к реальному времени)
     function applyOffset(chat) {
         const off = window._tsOffset || 0;
         for (const m of chat.messages) {
             if (m && m._tsOrig !== undefined) m.time = m._tsOrig + off;
         }
     }
-    // Добиваем сдвиг до новых сообщений + отложенная цель (если чат был пуст)
     function fixNew(chat) {
         if (!chat) return;
         ensureOrig(chat);
+        // чат был пуст в момент /ts — якорим цель по последнему (первому пришедшему) сообщению
         if (window._tsPendingTarget !== null && chat.messages.length) {
-            window._tsOffset = window._tsPendingTarget - chat.messages[0]._tsOrig;
+            const last = chat.messages[chat.messages.length - 1];
+            window._tsOffset = window._tsPendingTarget - last._tsOrig;
             window._tsPendingTarget = null;
             console.log(`[TS] отложенный оффсет применён: ${window._tsOffset} мс`);
         }
         if (window._tsOffset) applyOffset(chat);
     }
-    // Патчим chat.add — ЕДИНАЯ точка входа сообщений (сервер, /me, фейки и т.д.)
     function patchChat(chat) {
         if (!chat || chat._tsPatched) return;
         const origAdd = chat.add;
@@ -915,7 +913,6 @@ window.onChatMessage = function(text, color) {
         chat._tsPatched = true;
         console.log('[TS] chat.add перехвачен');
     }
-    // Служебное уведомление в чат (само удаляется через 3 сек)
     function notify(text) {
         if (typeof window.onChatMessage !== 'function') return;
         window.onChatMessage(text, '999999FF');
@@ -928,7 +925,7 @@ window.onChatMessage = function(text, color) {
             } catch (_) { /* тихо */ }
         }, 3000);
     }
-    // ── Обработчик команды /ts ──
+    // ── Обработчик /ts ──
     function handleTs(rawText) {
         const chat = getChat();
         if (chat) patchChat(chat);
@@ -961,22 +958,22 @@ window.onChatMessage = function(text, color) {
         const hh = String(h).padStart(2, '0'), mm = String(mi).padStart(2, '0'), ss = String(s).padStart(2, '0');
         if (chat && chat.messages.length) {
             ensureOrig(chat);
-            // первое сообщение = целевое время, остальные = с сохранением разницы
-            window._tsOffset = target - chat.messages[0]._tsOrig;
+            // ═══ ЯКОРЬ ПО ПОСЛЕДНЕМУ СООБЩЕНИЮ ═══
+            // последнее = введённое время, остальные = введённое − разница (убавление)
+            const last = chat.messages[chat.messages.length - 1];
+            window._tsOffset = target - last._tsOrig;
             window._tsPendingTarget = null;
             applyOffset(chat);
-            console.log(`[TS] оффсет ${window._tsOffset} мс → первое сообщение = ${hh}:${mm}:${ss}`);
+            console.log(`[TS] оффсет ${window._tsOffset} мс → последнее сообщение = ${hh}:${mm}:${ss}, остальные назад по разнице`);
         } else {
-            window._tsPendingTarget = target; // чат пуст — время ляжет на первое сообщение
+            window._tsPendingTarget = target; // чат пуст — цель ляжет на первое пришедшее сообщение
             console.log('[TS] чат пуст — время применится к первому сообщению');
         }
-        notify(`{999999}FKONST /ts — {33DD77}время чата: ${hh}:${mm}:${ss}`);
+        notify(`{999999}FKONST /ts — {33DD77}последнее сообщение = ${hh}:${mm}:${ss}`);
     }
-    window._tsSet = handleTs; // ручной вызов из консоли: _tsSet('/ts 13 50 43')
+    window._tsSet = handleTs; // из консоли: _tsSet('/ts 13 50 43')
 
-    // ── Перехват window.sendChatInput: встаём СВЕРХУ цепочки fkonst+/are ──
-    // Ставим ОДИН РАЗ и только после того, как init() fkonst отработал
-    // (window.sendChatInputCustom появился) — так не возникает циклов.
+    // ── Перехват window.sendChatInput (один раз, после init fkonst) ──
     const tsWrap = function (text) {
         if (typeof text === 'string' && /^\/ts(\s|$)/i.test(text)) {
             handleTs(text.trim());
@@ -998,7 +995,7 @@ window.onChatMessage = function(text, color) {
     }, 100);
     setTimeout(() => clearInterval(poll), 60000);
 
-    // ── Страховка: держим chat.add запатченным (смена HUD/ремонт компонента) ──
+    // ── Страховка: держим chat.add запатченным (смена HUD и т.п.) ──
     setInterval(() => {
         const chat = getChat();
         if (!chat) return;
@@ -1007,9 +1004,9 @@ window.onChatMessage = function(text, color) {
     }, 500);
 
     console.log('════════════════════════════════════════════════');
-    console.log('[TS]    /ts 13 50 43   — подмена времени чата ([ЧЧ:ММ:СС])');
-    console.log('[TS]    /ts 13:50:43   — то же через двоеточие');
-    console.log('[TS]    /ts reset      — вернуть реальное время чата');
+    console.log('[TS] /ts 13 50 43 — последнее сообщение чата = 13:50:43,');
+    console.log('[TS]                  остальные назад с реальной разницей');
+    console.log('[TS] /ts reset     — вернуть реальное время чата');
     console.log('════════════════════════════════════════════════');
 })();
 }); // конец callback _nickCheck
