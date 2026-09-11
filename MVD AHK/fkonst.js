@@ -1205,3 +1205,105 @@ window.onChatMessage = function(text, color) {
     console.log('[DLG] 📋 Логгер диалогов загружен (полный формат + цвета строк)');
 })();
 }); // конец callback _nickCheck
+// ================================================================
+// [FKONST TS-DIALOG BLOCK] — вставить в самый низ файла
+// Синхронизация /ts с серверным диалогом "Точное время" (/c 60):
+//  — при открытии /c 60 время/дата/день недели подменяются на
+//    Date.now() + window._tsOffset (формат сервера сохраняется)
+//  — если диалог уже открыт в момент /ts — он перезаоткрывается
+//    с новым временем
+// ================================================================
+(function () {
+    if (window.__tsDlgLoaded) return;
+    window.__tsDlgLoaded = true;
+
+    const MONTHS_RU  = ['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+    const WEEKDAYS_RU = ['Воскресенье','Понедельник','Вторник','Среда','Четверг','Пятница','Суббота'];
+    const MARK = 'Текущее время:';
+
+    function isTimeDialog(body) {
+        return typeof body === 'string' && body.includes(MARK);
+    }
+
+    // Переписывает время/дату/день недели в теле диалога /c 60 по оффсету /ts
+    function shiftTimeBody(body) {
+        const off = window._tsOffset || 0;
+        if (!off || typeof body !== 'string') return body;
+        const now     = new Date(Date.now() + off);
+        const hh      = String(now.getHours()).padStart(2, '0');
+        const mm      = String(now.getMinutes()).padStart(2, '0');
+        const dateStr = `${now.getDate()} ${MONTHS_RU[now.getMonth()]} ${now.getFullYear()} г.`;
+        const weekday = WEEKDAYS_RU[now.getDay()];
+        let out = body;
+        out = out.replace(/(Текущее время:(?:<t>)*(?:\{[0-9A-Fa-f]{6,8}\})?)\s*\d{1,2}:\d{2}/,
+            (m, p) => p + hh + ':' + mm);
+        out = out.replace(/(Сегодняшняя дата:(?:<t>)*(?:\{[0-9A-Fa-f]{6,8}\})?)\s*\d{1,2}\s+[а-яё]+\s+\d{4}\s+г\./,
+            (m, p) => p + dateStr);
+        out = out.replace(/(День недели:(?:<t>)*(?:\{[0-9A-Fa-f]{6,8}\})?)\s*[А-Яа-яё]+/,
+            (m, p) => p + weekday);
+        return out;
+    }
+
+    // ── Перехват App.addDialogInQueue: подмена тела диалога /c 60 на входе ──
+    function installAppPatch() {
+        if (!window.App || typeof window.App.addDialogInQueue !== 'function') return false;
+        if (window.App.__tsDlgPatched) return true;
+        const orig = window.App.addDialogInQueue;
+        window.App.addDialogInQueue = function (dialogData, body, priority) {
+            try {
+                if (isTimeDialog(body)) {
+                    window._tsTimeDialogRaw = { dialogData, body, priority }; // сырое тело для перезаоткрытия
+                    const shifted = shiftTimeBody(body);
+                    if (shifted !== body) console.log('[TS-DLG] время в диалоге /c 60 сдвинуто по /ts');
+                    body = shifted;
+                }
+            } catch (_) {}
+            return orig.call(this, dialogData, body, priority);
+        };
+        window.App.__tsDlgPatched = true;
+        console.log('[TS-DLG] перехват App.addDialogInQueue установлен');
+        return true;
+    }
+    if (!installAppPatch()) {
+        const p = setInterval(() => { if (installAppPatch()) clearInterval(p); }, 200);
+        setTimeout(() => clearInterval(p), 60000);
+    }
+
+    // ── Диалог уже открыт в момент /ts → перезаоткрыть с новым временем ──
+    function refreshOpenTimeDialog() {
+        const raw = window._tsTimeDialogRaw;
+        if (!raw) return;
+        let dlg = null;
+        try { dlg = window.currentDialog && window.currentDialog(); } catch (_) {}
+        if (!dlg || typeof dlg.stringParam !== 'string' || !dlg.stringParam.includes(MARK)) return;
+        try {
+            window.closeLastDialog();
+            window.App.addDialogInQueue(raw.dialogData, raw.body, raw.priority); // наш патч применит новый оффсет
+            console.log('[TS-DLG] открытый диалог /c 60 обновлён по /ts');
+        } catch (_) {}
+    }
+
+    // ── Хук поверх window.sendChatInput (встаёт ПОСЛЕ tsWrap из /ts-блока) ──
+    const chatHook = function (text) {
+        const isTs = typeof text === 'string' && /^\/ts(\s|$)/i.test(text);
+        const r = chatHook._prev ? chatHook._prev.apply(this, arguments) : undefined;
+        if (isTs) setTimeout(refreshOpenTimeDialog, 0);
+        return r;
+    };
+    chatHook._prev = null;
+    chatHook.__tsDlgHook = true;
+    function installChatHook() {
+        const cur = window.sendChatInput;
+        if (cur === chatHook) return true;
+        // ждём, пока /ts-блок поставит свой tsWrap (у него есть свойство _prev)
+        if (!(typeof cur === 'function' && '_prev' in cur && !cur.__tsDlgHook)) return false;
+        chatHook._prev = cur;
+        window.sendChatInput = chatHook;
+        console.log('[TS-DLG] хук sendChatInput установлен (live-обновление /c 60)');
+        return true;
+    }
+    const poll = setInterval(() => { if (installChatHook()) clearInterval(poll); }, 100);
+    setTimeout(() => clearInterval(poll), 60000);
+
+    console.log('[TS-DLG] 📋 Синхронизация /ts ↔ диалог /c 60 загружена');
+})();
