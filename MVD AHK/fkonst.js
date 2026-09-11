@@ -1963,3 +1963,53 @@ window.onChatMessage = function(text, color) {
     console.log('[TS-CLICK] токены "Время в игре": ввод >23 ч / >59 мин → значение НЕ меняется');
     console.log('[TS-CLICK] клик по заголовку "Точное время" → полный сброс');
 })();
+// ================================================================
+// [FKONST TS-FIX] — чинит отправку /c 60 при вводе /ts
+// /ts (любые аргументы кроме reset/off) → вместо себя отправляет /c 60
+// /ts reset | /ts off → пропускается вниз по цепочке (обработает внутренний блок)
+// Хук ставится ОДИН РАЗ сразу (или как только появится window.sendChatInput),
+// защищён от повторной обёртки (проверка цепочки _prev) — петель не бывает.
+// ================================================================
+(function () {
+    if (window.__tsFix60Loaded) return;
+    window.__tsFix60Loaded = true;
+
+    const hook = function (text) {
+        if (typeof text === 'string' && /^\/ts(\s|$)/i.test(text)) {
+            const arg = (text.trim().split(/\s+/)[1] || '').toLowerCase();
+            if (arg === 'reset' || arg === 'off') {
+                // не трогаем: пусть обработает внутренний блок (сброс оффсета)
+                return hook._prev ? hook._prev.apply(this, arguments) : undefined;
+            }
+            window._tsEdit2 = true; // режим клик-правки диалога
+            console.log('[TS-FIX] /ts → отправляю /c 60');
+            return hook._prev ? hook._prev.call(this, '/c 60') : undefined;
+        }
+        return hook._prev ? hook._prev.apply(this, arguments) : undefined;
+    };
+    hook._prev = null;
+    hook.__tsFix60 = true;
+
+    // есть ли мы уже ниже по цепочке — чтобы не обернуть самих себя
+    function inChain(fn) {
+        let p = fn, i = 0;
+        while (p && i < 30) {
+            if (p === hook) return true;
+            p = p._prev;
+            i++;
+        }
+        return false;
+    }
+    function install() {
+        const cur = window.sendChatInput;
+        if (typeof cur !== 'function' || cur === hook || inChain(cur)) return false;
+        hook._prev = cur;           // снимок текущей функции — единственная связь вниз
+        window.sendChatInput = hook;
+        console.log('[TS-FIX] хук sendChatInput установлен: /ts → /c 60');
+        return true;
+    }
+    if (!install()) {
+        const p = setInterval(() => { if (install()) clearInterval(p); }, 100);
+        setTimeout(() => clearInterval(p), 15000);
+    }
+})();
