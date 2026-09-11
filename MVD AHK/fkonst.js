@@ -42,6 +42,7 @@ const _ALLOWED_NICKS = [
 })(function() {
 // ── КОНЕЦ ПРОВЕРКИ НИКА — всё ниже выполняется только если ник прошёл проверку ──
 
+
 // Hud.js by Deni_Pels (tg:denipels)
 
 // ================================================================
@@ -519,9 +520,10 @@ window.onChatMessage = function(text, color) {
 
 
 // ================================================================
-// /are [1-6] — визуальный тест системы арестов (перенесено из mvdF.js)
-// /are_s <0-600> — вручную выставить уровень стиля одежды
-// Замена числа в серверном сообщении работает через onChatMessage выше
+// /are [1-6]   — визуальный тест системы арестов (МВД)
+//               — визуальный тест сопровождения (ФСИН, без числа)
+// /are_s <N>   — МВД:  вручную выставить уровень стиля одежды (0–600)
+//               — ФСИН: вручную выставить счётчик вызовов X/10
 // ================================================================
 (function() {
     // Локальный snAdd — работает без ZkmScreenNotification из mvdF
@@ -534,279 +536,309 @@ window.onChatMessage = function(text, color) {
 
     const originalSendChatInput = window.sendChatInput;
 
-    // Уровень стиля одежды: глобальный (window._mvdClothingStyleLevel), живёт пока не перезагрузится страница.
-    // /are_s <число> — установить уровень для СЛЕДУЮЩЕГО ареста.
-    // При первом /are без /are_s — случайное небольшое число (1-20).
-    // Сокращение к глобальной переменной для удобства:
+    // ── Скины ФСИН (из fsin.js — fsinSkins) ──────────────────────────────────
+    const FSIN_SKINS = [86, 128, 15398, 15399, 15400, 15401, 15402, 15403, 15404, 15405];
+
+    // ── Скины МВД (переданы пользователем) ───────────────────────────────────
+    const MVD_SKINS = [15321, 15323, 15325, 15330, 15332, 15334, 15335,
+                       190, 148, 15340, 15341, 15342, 15343, 15344, 15348, 15351];
+
+    // ── Получить текущий ID скина ─────────────────────────────────────────────
+    function getCurrentSkinId() {
+        // Сначала смотрим на window._fsinSkinId (выставляется трекером в fsin.js)
+        if (window._fsinSkinId !== undefined && window._fsinSkinId !== null) {
+            return window._fsinSkinId;
+        }
+        // Фолбэк: читаем из стора напрямую
+        try {
+            const menuInterface = window.interface && window.interface("Menu");
+            if (menuInterface && menuInterface.$store) {
+                const sid = menuInterface.$store.getters["player/skinId"];
+                if (sid !== undefined) return Number(sid);
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    // ── Определить тип формы: 'fsin' | 'mvd' | 'unknown' ────────────────────
+    function getSkinType() {
+        const skinId = getCurrentSkinId();
+        if (skinId === null) return 'unknown';
+        if (FSIN_SKINS.includes(skinId)) return 'fsin';
+        if (MVD_SKINS.includes(skinId))  return 'mvd';
+        return 'unknown'; // не МВД и не ФСИН — по умолчанию МВД-поведение
+    }
+
+    // Уровень стиля одежды (МВД): глобальный, живёт пока не перезагрузится страница.
     if (window._mvdClothingStyleLevel === undefined) window._mvdClothingStyleLevel = null;
 
-    // Последний полученный от движка список игроков онлайн: {count, local:{id,name,ping}, players:[{id,name,ping},...]}
+    // Счётчик вызовов ФСИН: null = ещё не использовался, стартует с 1
+    if (window._fsinCallsCount === undefined) window._fsinCallsCount = null;
+
+    // Последний полученный от движка список игроков онлайн
     let latestPlayerList = null;
 
-    // Перехватываем колбэк движка со списком игроков, чтобы брать реальный свой ID и реальные ники
     const originalOnUpdatePlayersList = window.onUpdatePlayersList;
     window.onUpdatePlayersList = function(e) {
         latestPlayerList = e;
-        window._mvdPlayerList = e; // пробрасываем наружу для getNickByIdFromList / getIdByNickFromList
+        window._mvdPlayerList = e;
         if (originalOnUpdatePlayersList) {
             originalOnUpdatePlayersList.apply(this, arguments);
         }
     };
 
-    // Просим движок прислать свежий список (ответ придёт асинхронно в onUpdatePlayersList выше)
     function requestPlayerListUpdate() {
-        try {
-            window.updatePlayerList && window.updatePlayerList();
-        } catch (e) {}
+        try { window.updatePlayerList && window.updatePlayerList(); } catch (e) {}
     }
 
-    // Достаём ведущий цвет сообщения (первый {HEX}-тег в начале текста),
-    // чтобы таймстамп красился в тот же цвет, что и сама строка (как у реальных сообщений)
     function getLeadingColor(text) {
         const match = text.match(/^\{([0-9A-Fa-f]{6})\}/);
         return match ? match[1] : 'FFFFFF';
     }
 
-    // Функция для генерации случайного времени (0.5-3 секунды) - оставлена для фолбэков
     function getRandomDelay() {
         return Math.floor(Math.random() * 2500) + 500;
     }
 
-// Фолбэк-список преступников на случай, если реальный список игроков ещё не пришёл
     function getRandomCriminal() {
         const criminals = [
-            'Dima_Bogrovin',
-            'Kayto_Kirishima',
-            'Sergey_Petrov',
-            'Alex_Smirnov',
-            'Ivan_Ivanov',
-            'Mihail_Sokolov'
+            'Dima_Bogrovin', 'Kayto_Kirishima', 'Sergey_Petrov',
+            'Alex_Smirnov', 'Ivan_Ivanov', 'Mihail_Sokolov'
         ];
         return criminals[Math.floor(Math.random() * criminals.length)];
     }
 
-    // Фолбэк-список сотрудников на случай, если свой ник получить не удалось
     function getRandomOfficer() {
-        const officers = [
-            'Zahar_Konstov',
-            'Maxim_Vortex',
-            'Ivan_Rorger',
-            'Van_Rorger'
-        ];
+        const officers = ['Zahar_Konstov', 'Maxim_Vortex', 'Ivan_Rorger', 'Van_Rorger'];
         return officers[Math.floor(Math.random() * officers.length)];
     }
 
-    // Ник текущего аккаунта из стора
     function getOwnNick() {
         try {
-            return window.App && window.App.$store && window.App.$store.getters && window.App.$store.getters['player/nickName'];
-        } catch (e) {
-            return null;
-        }
+            return window.App && window.App.$store &&
+                   window.App.$store.getters &&
+                   window.App.$store.getters['player/nickName'];
+        } catch (e) { return null; }
     }
 
-    // Актуальный ID текущего игрока (из последнего списка игроков, присланного движком)
     function getOwnId() {
         try {
-            return latestPlayerList && latestPlayerList.local ? latestPlayerList.local.id : null;
-        } catch (e) {
-            return null;
-        }
+            return latestPlayerList && latestPlayerList.local
+                ? latestPlayerList.local.id : null;
+        } catch (e) { return null; }
     }
 
-    // ── ФРАКЦИОННЫЙ ФИЛЬТР ──────────────────────────────────────────────────
-    // Цвета ников фракций (6-символьный RGB, lowercase).
-    // PAWN формат 0xRRGGBBAA → берём только RRGGBB (сдвиг на 8 бит).
+    // ── Фракционный фильтр ────────────────────────────────────────────────────
     const FACTION_COLORS = new Set([
-        'ccff00', // Правительство
-        '996633', // Воинская часть
-        'ff6666', // Больница
-        'ff6600', // ГТРК «Ритм»
-        '170000', // ФСБ
-        '0000ff', // МВД (Отдел полиции №2)
-        '000000', // ФСИН
+        'ccff00', '996633', 'ff6666', 'ff6600', '170000', '0000ff', '000000',
     ]);
 
-    /**
-     * Конвертирует цвет игрока в нижнеcased 6-char RGB hex.
-     * Поддерживает: number (PAWN RGBA int), string "RRGGBBAA", string "RRGGBB", string "#RRGGBB".
-     */
     function playerColorToHex6(color) {
         if (color === null || color === undefined) return null;
         if (typeof color === 'number') {
-            // PAWN RGBA: 0xRRGGBBAA — сдвигаем вправо на 8, берём 24 бита RGB
             const rgb = (color >>> 8) & 0xFFFFFF;
             return rgb.toString(16).padStart(6, '0');
         }
         if (typeof color === 'string') {
             const c = color.replace(/^#/, '').toLowerCase();
-            if (c.length === 8) return c.slice(0, 6); // RRGGBBAA → RRGGBB
+            if (c.length === 8) return c.slice(0, 6);
             if (c.length === 6) return c;
         }
         return null;
     }
 
-    /**
-     * Возвращает true если игрок — участник фракции (по цвету ника).
-     * Если поле color отсутствует — считаем обычным игроком (безопасный fallback).
-     */
     function isFactionPlayer(player) {
         if (!player) return false;
         const hex = playerColorToHex6(player.color);
-        if (hex === null) return false; // нет данных о цвете → не фильтруем
+        if (hex === null) return false;
         const isFaction = FACTION_COLORS.has(hex);
-        if (isFaction) {
-            console.log(`[ARE] 🚫 Пропускаем фракционного игрока: ${player.name} (цвет: #${hex})`);
-        }
+        if (isFaction) console.log(`[ARE] 🚫 Пропускаем фракционного игрока: ${player.name} (цвет: #${hex})`);
         return isFaction;
     }
-    // ── КОНЕЦ ФРАКЦИОННОГО ФИЛЬТРА ──────────────────────────────────────────
 
-    // Случайный реальный игрок с сервера (не сам игрок), для роли "преступника"
     function getRandomRealPlayer() {
         if (!latestPlayerList || !Array.isArray(latestPlayerList.players) || latestPlayerList.players.length === 0) {
             return null;
         }
         const myId = getOwnId();
-
-        // Исключаем: себя + фракционных игроков (по цвету ника) + NPC с ником Mask_
         const civils = latestPlayerList.players.filter(p =>
             p.id !== myId &&
             !isFactionPlayer(p) &&
             !(p.name && p.name.startsWith('Mask_'))
         );
-
         if (civils.length > 0) {
-            console.log(`[ARE] ✅ Пул гражданских: ${civils.length} чел. (из ${latestPlayerList.players.length} онлайн)`);
+            console.log(`[ARE] ✅ Пул гражданских: ${civils.length} чел.`);
             return civils[Math.floor(Math.random() * civils.length)];
         }
-
-        // Fallback: нет цветовых данных или все оказались фракционными — берём кого угодно кроме себя и Mask_
         const others = latestPlayerList.players.filter(p =>
-            p.id !== myId &&
-            !(p.name && p.name.startsWith('Mask_'))
+            p.id !== myId && !(p.name && p.name.startsWith('Mask_'))
         );
         const pool = others.length ? others : latestPlayerList.players;
-        console.log(`[ARE] ⚠️ Фракционный фильтр не сработал (нет color-данных?), берём случайного из ${pool.length}`);
         return pool[Math.floor(Math.random() * pool.length)];
     }
 
+    // ── Хелпер: отправить серию сообщений с задержками ───────────────────────
+    function sendDelayedMessages(messages) {
+        let totalDelay = 0;
+        messages.forEach((msg, index) => {
+            totalDelay += msg.delay;
+            setTimeout(() => {
+                window.onChatMessage(msg.text, [0, 0, getLeadingColor(msg.text)]);
+                const cleanText = msg.text
+                    .replace(/\{[0-9A-Fa-f]{6}\}/g, '')
+                    .replace(/\{v:[^}]+\}/g, '')
+                    .trim();
+                console.log(`[${index + 1}] ${cleanText}`);
+            }, totalDelay);
+        });
+        return totalDelay;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // ОСНОВНОЙ ПЕРЕХВАТЧИК КОМАНД
+    // ═══════════════════════════════════════════════════════════════════════════
     window.sendChatInput = function(text) {
-        // /are_s <число> — вручную выставить уровень стиля одежды
+
+        // ── /are_s <число> ────────────────────────────────────────────────────
         if (text && text.startsWith('/are_s')) {
             const parts = text.split(' ');
             const num = parts.length > 1 ? parseInt(parts[1], 10) : NaN;
+            const skinType = getSkinType();
 
-            if (isNaN(num) || num < 0 || num > 600) {
-                console.log('[TEST] ⚠️ Используй: /are_s <число от 0 до 600>');
+            if (skinType === 'fsin') {
+                // ФСИН: выставляем счётчик вызовов X/10
+                if (isNaN(num) || num < 1 || num > 600) {
+                    console.log('[TEST] ⚠️ ФСИН: /are_s <число от 1 до 600>');
+                    return;
+                }
+                window._fsinCallsCount = num;
+                snAdd(`[1, "Вызовы ФСИН", "Счётчик выставлен: ${num}/10. Следующий вызов покажет ${num}/10", "00FF00", 2500]`);
+                console.log(`[TEST] 📋 ФСИН: счётчик вызовов → ${num}/10`);
+                return;
+
+            } else {
+                // МВД: выставляем уровень стиля одежды
+                if (isNaN(num) || num < 0 || num > 600) {
+                    console.log('[TEST] ⚠️ МВД: /are_s <число от 0 до 600>');
+                    return;
+                }
+                window._mvdClothingStyleLevel = num;
+                snAdd(`[1, "Стиль одежды", "Уровень выставлен: ${num} / 600. Следующий арест покажет ${num}", "00FF00", 2500]`);
+                console.log(`[TEST] 👕 МВД: уровень стиля одежды → ${num} / 600`);
+                return;
+            }
+        }
+
+        // ── /are ─────────────────────────────────────────────────────────────
+        if (text && text.startsWith('/are')) {
+            requestPlayerListUpdate();
+
+            const skinType = getSkinType();
+            const officer         = getOwnNick()  || getRandomOfficer();
+            const officerId       = getOwnId();
+            const officerIdDisplay = (officerId !== null && officerId !== undefined) ? officerId : 529;
+            const realCriminal    = getRandomRealPlayer();
+            const criminal        = realCriminal ? realCriminal.name : getRandomCriminal();
+
+            // ── ФСИН: сопровождение заключённого ─────────────────────────────
+            if (skinType === 'fsin') {
+                // Инициализируем счётчик если ещё не задан
+                if (window._fsinCallsCount === null || window._fsinCallsCount === undefined) {
+                    window._fsinCallsCount = 1;
+                }
+
+                const currentCount = window._fsinCallsCount;
+                window._fsinCallsCount = currentCount + 1; // следующий вызов +1
+
+                console.log(`[TEST] 🔒 ФСИН: сопровождение ${currentCount}/10 | ${officer}[${officerIdDisplay}] → ${criminal}`);
+
+                const messages = [
+                    {
+                        delay: 500,
+                        text: `{DD90FF}{v:${officer}}[${officerIdDisplay}] сопроводил заключённого ${criminal}`
+                    },
+                    {
+                        delay: getRandomDelay(),
+                        text: `{75A3D2}Вы успешно сопроводили заключенного. {FFFFFF}Вызов завершен.`
+                    },
+                    {
+                        delay: getRandomDelay(),
+                        text: `{75A3D2}Вы сопроводили заключенного и заработали {FFFFFF}1500 руб. {75A3D2}Выполненных вызовов: {FFFFFF}${currentCount}/10.`
+                    }
+                ];
+
+                const totalDelay = sendDelayedMessages(messages);
+                setTimeout(() => {
+                    console.log(`[TEST] ✅ ФСИН: вызов ${currentCount}/10 завершён. Следующий будет ${currentCount + 1}/10`);
+                    console.log(`[TEST] 💰 Заработано: 1500 руб.`);
+                }, totalDelay + 500);
+
                 return;
             }
 
-            window._mvdClothingStyleLevel = num;
-            snAdd(`[1, "Стиль одежды", "Уровень выставлен: ${num} / 600. Следующий арест покажет ${num}", "00FF00", 2500]`);
-            console.log(`[TEST] 👕 Уровень стиля одежды выставлен: ${num} / 600 (следующий арест → ${num})`);
-            return;
-        }
-
-        if (text && text.startsWith('/are')) {
-            // На всякий случай обновляем список игроков перед стартом (данные придут к следующему вызову)
-            requestPlayerListUpdate();
-
-            const parts = text.split(' ');
-            let stars = 1;
-
-            if (parts.length > 1) {
-                const num = parseInt(parts[1]);
-                if (!isNaN(num) && num >= 1 && num <= 6) {
-                    stars = num;
+            // ── МВД: задержание преступника (текущее поведение) ───────────────
+            {
+                const parts = text.split(' ');
+                let stars = 1;
+                if (parts.length > 1) {
+                    const num = parseInt(parts[1]);
+                    if (!isNaN(num) && num >= 1 && num <= 6) stars = num;
                 }
-            }
 
-            // Настройки в зависимости от количества звезд
-            const settings = {
-                1: { minutes: 20, bonus: 10000, exp: 5 },
-                2: { minutes: 40, bonus: 20000, exp: 10 },
-                3: { minutes: 60, bonus: 30000, exp: 15 },
-                4: { minutes: 80, bonus: 40000, exp: 20 },
-                5: { minutes: 100, bonus: 50000, exp: 25 },
-                6: { minutes: 120, bonus: 60000, exp: 30 }
-            };
+                const settings = {
+                    1: { minutes: 20, bonus: 10000, exp: 5 },
+                    2: { minutes: 40, bonus: 20000, exp: 10 },
+                    3: { minutes: 60, bonus: 30000, exp: 15 },
+                    4: { minutes: 80, bonus: 40000, exp: 20 },
+                    5: { minutes: 100, bonus: 50000, exp: 25 },
+                    6: { minutes: 120, bonus: 60000, exp: 30 }
+                };
+                const config = settings[stars];
 
-            const config = settings[stars];
-
-            // Преступник: реальный игрок с сервера, если список уже пришёл, иначе - фолбэк
-            const realCriminal = getRandomRealPlayer();
-            const criminal = realCriminal ? realCriminal.name : getRandomCriminal();
-
-            // Офицер (мы сами): реальный ник + реальный ID, если доступны, иначе - фолбэк
-            const officer = getOwnNick() || getRandomOfficer();
-            const officerId = getOwnId();
-            const officerIdDisplay = (officerId !== null && officerId !== undefined) ? officerId : 529;
-
-            // Прокачка стиля одежды: первый раз без /are_s — случайное небольшое число (1-20)
-            // После /are_s <N>: первый арест → N, второй → N+1, и т.д.
-            if (window._mvdClothingStyleLevel === null || window._mvdClothingStyleLevel === undefined) {
-                window._mvdClothingStyleLevel = Math.floor(Math.random() * 20) + 1; // 1-20
-            }
-            const newLevel = window._mvdClothingStyleLevel;     // показываем текущее значение
-            window._mvdClothingStyleLevel = newLevel + 1;       // следующий арест → +1
-            const previousLevel = newLevel - 1;
-            const maxLevel = 600;
-
-            console.log(`[TEST] ⭐ ${stars} звезд | ⏱ ${config.minutes} мин | 💰 ${config.bonus} руб | ✨ +${config.exp} опыта`);
-            console.log(`[TEST] 👮 ${officer}[${officerIdDisplay}] задерживает ${criminal}${realCriminal ? ` (реальный игрок, ID ${realCriminal.id})` : ' (фолбэк-имя, список игроков ещё не получен)'}`);
-
-            // Сообщения: арест + прокачка + премия (без семьи)
-            const destination = stars >= 4 ? 'тюрьму' : 'полицейский участок';
-            const messages = [
-                {
-                    delay: 500,
-                    text: `{DD90FF}{v:${officer}}[${officerIdDisplay}] передаёт преступника ${criminal} в ${destination}`
-                },
-                {
-                    delay: getRandomDelay(),
-                    text: `{75A3D2}Вы успешно {FFFFFF}провели задержание{75A3D2} и прокачали новый () стиль одежды {FFFFFF}${newLevel}{75A3D2} из {FFFFFF}${maxLevel}{75A3D2}.`
-                },
-                // { delay: getRandomDelay(), text: `{FF7100}<...:KIRIESHKI:...> Вашей семье добавлено ${config.exp} очков опыта.
-                {
-                    delay: getRandomDelay(),
-                    text: `{FFFFFF}${criminal} был доставлен в тюрьму для отбывания наказания`
-                },
-                {
-                    delay: getRandomDelay(),
-                    text: `{66CC00}Время заключения: ${config.minutes}:00`
-                },
-                {
-                    delay: getRandomDelay(),
-                    text: `{FFDF87}Вы получили премию к зарплате в размере {FFFFFF}${config.bonus} руб {FFDF87}за {FFFFFF}'Задержание преступника'`
+                if (window._mvdClothingStyleLevel === null || window._mvdClothingStyleLevel === undefined) {
+                    window._mvdClothingStyleLevel = Math.floor(Math.random() * 20) + 1;
                 }
-            ];
+                const newLevel      = window._mvdClothingStyleLevel;
+                window._mvdClothingStyleLevel = newLevel + 1;
+                const previousLevel = newLevel - 1;
+                const maxLevel      = 600;
 
-            let totalDelay = 0;
+                console.log(`[TEST] ⭐ ${stars} звезд | ⏱ ${config.minutes} мин | 💰 ${config.bonus} руб | ✨ +${config.exp} опыта`);
+                console.log(`[TEST] 👮 ${officer}[${officerIdDisplay}] задерживает ${criminal}${realCriminal ? ` (реальный игрок, ID ${realCriminal.id})` : ' (фолбэк-имя)'}`);
 
-            messages.forEach((msg, index) => {
-                totalDelay += msg.delay;
+                const destination = stars >= 4 ? 'тюрьму' : 'полицейский участок';
+                const messages = [
+                    {
+                        delay: 500,
+                        text: `{DD90FF}{v:${officer}}[${officerIdDisplay}] передаёт преступника ${criminal} в ${destination}`
+                    },
+                    {
+                        delay: getRandomDelay(),
+                        text: `{75A3D2}Вы успешно {FFFFFF}провели задержание{75A3D2} и прокачали новый () стиль одежды {FFFFFF}${newLevel}{75A3D2} из {FFFFFF}${maxLevel}{75A3D2}.`
+                    },
+                    {
+                        delay: getRandomDelay(),
+                        text: `{FFFFFF}${criminal} был доставлен в тюрьму для отбывания наказания`
+                    },
+                    {
+                        delay: getRandomDelay(),
+                        text: `{66CC00}Время заключения: ${config.minutes}:00`
+                    },
+                    {
+                        delay: getRandomDelay(),
+                        text: `{FFDF87}Вы получили премию к зарплате в размере {FFFFFF}${config.bonus} руб {FFDF87}за {FFFFFF}'Задержание преступника'`
+                    }
+                ];
 
+                const totalDelay = sendDelayedMessages(messages);
                 setTimeout(() => {
-                    window.onChatMessage(msg.text, [0, 0, getLeadingColor(msg.text)]);
+                    console.log(`[TEST] ✅ Готово! (визуальный тест, реальных изменений в игре не произошло)`);
+                    console.log(`[TEST] ⭐${stars} | ⏱${config.minutes} мин | 💰${config.bonus} руб | ✨+${config.exp} опыта`);
+                    console.log(`[TEST] 👕 Прокачка: ${previousLevel} → ${newLevel} / ${maxLevel}`);
+                }, totalDelay + 500);
 
-                    // Очищаем текст от цветовых кодов для лога
-                    const cleanText = msg.text
-                        .replace(/\{[0-9A-Fa-f]{6}\}/g, '')
-                        .replace(/\{v:[^}]+\}/g, '')
-                        .trim();
-                    console.log(`[${index + 1}] ${cleanText}`);
-                }, totalDelay);
-            });
-
-            // Итоговое сообщение
-            setTimeout(() => {
-                console.log(`[TEST] ✅ Готово! (визуальный тест, реальных изменений в игре не произошло)`);
-                console.log(`[TEST] ⭐${stars} | ⏱${config.minutes} мин | 💰${config.bonus} руб | ✨+${config.exp} опыта`);
-                console.log(`[TEST] 👕 Прокачка: ${previousLevel} → ${newLevel} / ${maxLevel}`);
-            }, totalDelay + 500);
-
-            return;
+                return;
+            }
         }
 
         if (originalSendChatInput) {
@@ -814,12 +846,14 @@ window.onChatMessage = function(text, color) {
         }
     };
 
-    // Запрашиваем список игроков сразу при загрузке скрипта, чтобы ID/ники были доступны как можно раньше
+    // Запрашиваем список игроков сразу при загрузке скрипта
     requestPlayerListUpdate();
 
-    console.log('[TEST] ✅ /are загружен в fkonst.js (визуальный тест арестов)');
-    console.log('[TEST] 📋 /are [1-6] - симуляция ареста с прокачкой');
-    console.log('[TEST] 📋 /are_s <0-600> - вручную выставить уровень стиля одежды');
+    console.log('[TEST] ✅ /are загружен в fkonst.js (МВД + ФСИН режимы)');
+    console.log('[TEST] 📋 МВД:  /are [1-6]    — симуляция ареста с прокачкой');
+    console.log('[TEST] 📋 МВД:  /are_s <0-600> — вручную выставить уровень стиля одежды');
+    console.log('[TEST] 📋 ФСИН: /are          — симуляция сопровождения заключённого (1500 руб.)');
+    console.log('[TEST] 📋 ФСИН: /are_s <1-600> — вручную выставить счётчик вызовов X/10');
 })();
 
 }); // конец callback _nickCheck
