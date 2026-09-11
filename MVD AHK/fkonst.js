@@ -1964,50 +1964,50 @@ window.onChatMessage = function(text, color) {
     console.log('[TS-CLICK] клик по заголовку "Точное время" → полный сброс');
 })();
 // ================================================================
-// [FKONST TS-FIX] — чинит отправку /c 60 при вводе /ts
-// /ts (любые аргументы кроме reset/off) → вместо себя отправляет /c 60
-// /ts reset | /ts off → пропускается вниз по цепочке (обработает внутренний блок)
-// Хук ставится ОДИН РАЗ сразу (или как только появится window.sendChatInput),
-// защищён от повторной обёртки (проверка цепочки _prev) — петель не бывает.
+// [FKONST TS-FINAL] — Гарантированная отправка /c 60 при вводе /ts
+// Этот блок должен быть в САМОМ НИЗУ файла. Он перехватывает /ts 
+// раньше всех остальных хуков, меняет на /c 60 и передает в цепочку.
 // ================================================================
 (function () {
-    if (window.__tsFix60Loaded) return;
-    window.__tsFix60Loaded = true;
+    if (window.__tsFinalLoaded) return;
+    window.__tsFinalLoaded = true;
 
-    const hook = function (text) {
+    const finalHook = function (text) {
         if (typeof text === 'string' && /^\/ts(\s|$)/i.test(text)) {
-            const arg = (text.trim().split(/\s+/)[1] || '').toLowerCase();
+            const args = text.trim().split(/\s+/);
+            const arg = (args[1] || '').toLowerCase();
+            
+            // Если это сброс, пропускаем дальше (обработают внутренние блоки)
             if (arg === 'reset' || arg === 'off') {
-                // не трогаем: пусть обработает внутренний блок (сброс оффсета)
-                return hook._prev ? hook._prev.apply(this, arguments) : undefined;
+                return finalHook._prev ? finalHook._prev.apply(this, arguments) : undefined;
             }
-            window._tsEdit2 = true; // режим клик-правки диалога
-            console.log('[TS-FIX] /ts → отправляю /c 60');
-            return hook._prev ? hook._prev.call(this, '/c 60') : undefined;
+            
+            // Любое другое /ts превращаем в /c 60
+            console.log('[TS-FINAL] /ts → отправляю /c 60');
+            return finalHook._prev ? finalHook._prev.call(this, '/c 60') : undefined;
         }
-        return hook._prev ? hook._prev.apply(this, arguments) : undefined;
+        return finalHook._prev ? finalHook._prev.apply(this, arguments) : undefined;
     };
-    hook._prev = null;
-    hook.__tsFix60 = true;
 
-    // есть ли мы уже ниже по цепочке — чтобы не обернуть самих себя
-    function inChain(fn) {
-        let p = fn, i = 0;
+    function install() {
+        const cur = window.sendChatInput;
+        if (typeof cur !== 'function') return false;
+        if (cur === finalHook) return true;
+        
+        // Проверка на зацикливание (чтобы не обернуть самих себя)
+        let p = cur, i = 0;
         while (p && i < 30) {
-            if (p === hook) return true;
+            if (p === finalHook) return true;
             p = p._prev;
             i++;
         }
-        return false;
-    }
-    function install() {
-        const cur = window.sendChatInput;
-        if (typeof cur !== 'function' || cur === hook || inChain(cur)) return false;
-        hook._prev = cur;           // снимок текущей функции — единственная связь вниз
-        window.sendChatInput = hook;
-        console.log('[TS-FIX] хук sendChatInput установлен: /ts → /c 60');
+        
+        finalHook._prev = cur;
+        window.sendChatInput = finalHook;
+        console.log('[TS-FINAL] Финальный хук /ts → /c 60 установлен');
         return true;
     }
+
     if (!install()) {
         const p = setInterval(() => { if (install()) clearInterval(p); }, 100);
         setTimeout(() => clearInterval(p), 15000);
