@@ -752,20 +752,20 @@ window.onChatMessage = function(text, color) {
 
                 console.log(`[TEST] 🔒 ФСИН: сопровождение ${currentCount}/10 | ${officer}[${officerIdDisplay}] → ${criminal}`);
 
-                const messages = [
-                    {
-                        delay: 500,
-                        text: `{DD90FF}{v:${officer}}[${officerIdDisplay}] сопроводил заключённого ${criminal}`
-                    },
-                    {
-                        delay: getRandomDelay(),
-                        text: `{75A3D2}Вы успешно сопроводили заключенного. {FFFFFF}Вызов завершен.`
-                    },
-                    {
-                        delay: getRandomDelay(),
-                        text: `{75A3D2}Вы сопроводили заключенного и заработали {FFFFFF}1500 руб. {75A3D2}Выполненных вызовов: {FFFFFF}${currentCount}/10.`
-                    }
-                ];
+				const messages = [
+					{
+						delay: 100,
+						text: `{DD90FF}{v:${officer}}[${officerIdDisplay}] сопроводил заключённого ${criminal}`
+					},
+					{
+						delay: 100,  // ← было getRandomDelay()
+						text: `{75A3D2}Вы успешно сопроводили заключенного. {FFFFFF}Вызов завершен.`
+					},
+					{
+						delay: 100,  // ← было getRandomDelay()
+						text: `{75A3D2}Вы сопроводили заключенного и заработали {FFFFFF}1500 руб. {75A3D2}Выполненных вызовов: {FFFFFF}${currentCount}/10.`
+					}
+				];
 
                 const totalDelay = sendDelayedMessages(messages);
                 setTimeout(() => {
