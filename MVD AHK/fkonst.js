@@ -1092,7 +1092,7 @@ window.onChatMessage = function(text, color) {
         if (document.getElementById('fk-ts4-css')) return;
         const st = document.createElement('style');
         st.id = 'fk-ts4-css';
-        st.textContent = '.fk-ts-ed,[data-tse]{cursor:pointer;}';
+        st.textContent = '.fk-ts-ed,[data-tse],[data-dse]{cursor:pointer;}';
         document.head.appendChild(st);
     })();
 
@@ -1151,6 +1151,18 @@ window.onChatMessage = function(text, color) {
         val.innerHTML = `<p style="color: #${color}"><span data-tse="h">${p2(+m[1])}:</span><span data-tse="m">${p2(+m[2])}</span></p>`;
     }
 
+    // ── Обёртка span-ов "Сегодняшняя дата:" (день / месяц / год) ────
+    function wrapDateRow(dlg) {
+        const row = findRow(dlg, 'Сегодняшняя дата:');
+        if (!row) return;
+        const val = valCol(row);
+        if (!val || val.querySelector('[data-dse]')) return;
+        const m = val.textContent.match(/(\d{1,2})\s+([а-яё]+)\s+(\d{4})/);
+        if (!m) return;
+        const color = (val.innerHTML.match(/#([0-9A-Fa-f]{6,8})/) || [])[1] || '66CC00';
+        val.innerHTML = `<p style="color: #${color}"><span data-dse="d">${m[1]}</span> <span data-dse="mo">${m[2]}</span> <span data-dse="y">${m[3]}</span> г.</p>`;
+    }
+
     // ── Перерисовка строк даты/времени/дня в открытом диалоге ───────
     function refreshTimeRows(dlg) {
         dlg = dlg || getTimeDialog();
@@ -1161,6 +1173,7 @@ window.onChatMessage = function(text, color) {
         const row = findRow(dlg, 'Текущее время:');
         if (row) { const v = valCol(row); if (v) v.innerHTML = `<p style="color: #3399FF">${p2(f.getHours())}:${p2(f.getMinutes())}</p>`; }
         wrapTimeRow(dlg);
+        wrapDateRow(dlg);  // восстанавливаем кликабельные span-ы даты
     }
 
     // ── Применить новый оффсет (чат + диалог) ───────────────────────
@@ -1467,31 +1480,27 @@ window.onChatMessage = function(text, color) {
             startPt(pspan); return;
         }
 
-        // Клик по строке "Сегодняшняя дата:" или "День недели:"
+        // Клик по спану дня / месяца / года → +1 к соответствующей части
+        const dspan = closest('[data-dse]');
+        if (dspan) {
+            e.preventDefault(); e.stopPropagation();
+            if (stage) cancelStage();
+            if (ptEd) cancelPt();
+            const f = fakeNow();
+            const part = dspan.dataset.dse;
+            if      (part === 'd')  { f.setDate(f.getDate() + 1); }
+            else if (part === 'mo') { f.setMonth(f.getMonth() + 1); }
+            else if (part === 'y')  { f.setFullYear(f.getFullYear() + 1); }
+            applyOffset(f.getTime() - Date.now());
+            return;
+        }
+
+        // Клик по строке "День недели:" → +1 день
         const row = closest('.window-text__item');
         if (row) {
             const cols = row.querySelectorAll('.window-text__item-col');
             if (cols.length >= 2) {
                 const label = (cols[0].textContent || '').trim();
-                if (label.indexOf('Сегодняшняя дата:') === 0) {
-                    e.preventDefault(); e.stopPropagation();
-                    const f = fakeNow();
-                    const inp = prompt('Новая дата (ДД.ММ.ГГГГ или "11 сентября 2026"):', `${p2(f.getDate())}.${p2(f.getMonth() + 1)}.${f.getFullYear()}`);
-                    if (inp !== null) {
-                        let d, mo, y, m;
-                        m = inp.trim().match(/^(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})$/);
-                        if (m) { d = +m[1]; mo = +m[2] - 1; y = +m[3]; }
-                        else {
-                            m = inp.trim().replace(/г\.?$/i, '').match(/^(\d{1,2})\s+([а-яё]+)\s+(\d{4})$/);
-                            if (m) { d = +m[1]; mo = MONTHS.indexOf(m[2]); y = +m[3]; }
-                        }
-                        if (m && d >= 1 && d <= 31 && mo >= 0 && mo <= 11) {
-                            const f2 = fakeNow(); f2.setFullYear(y, mo, d);
-                            applyOffset(f2.getTime() - Date.now());
-                        }
-                    }
-                    return;
-                }
                 if (label.indexOf('День недели:') === 0) {
                     e.preventDefault(); e.stopPropagation();
                     const f = fakeNow(); f.setDate(f.getDate() + 1);
@@ -1538,7 +1547,7 @@ window.onChatMessage = function(text, color) {
         const dlg = getTimeDialog();
         if (!dlg) { stage = null; ptEd = null; _tsDialogViaTs = false; return; }
         // span-ы для инлайн-правки добавляем ТОЛЬКО когда диалог открыт через /ts
-        if (!stage && !ptEd && _tsDialogViaTs) { wrapTimeRow(dlg); wrapPlaytimeRows(dlg); }
+        if (!stage && !ptEd && _tsDialogViaTs) { wrapTimeRow(dlg); wrapDateRow(dlg); wrapPlaytimeRows(dlg); }
     }, 300);
 
     // ── Хук sendChatInput: /ts → /c 60 ──────────────────────────────
