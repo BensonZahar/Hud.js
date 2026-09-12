@@ -1084,6 +1084,8 @@ window.onChatMessage = function(text, color) {
     let stage = null, buf = '', committedH = 0, origH = 0, origM = 0;
     let ptEd = null;
     let pendingSwallow = null;
+    let _tsPendingViaTs = false;  // /ts набран, ждём открытия диалога сервером
+    let _tsDialogViaTs  = false;  // текущий открытый диалог открыт именно через /ts
 
     // ── CSS ─────────────────────────────────────────────────────────
     (function () {
@@ -1317,6 +1319,9 @@ window.onChatMessage = function(text, color) {
                         body = shifted;
                     }
                     window._tsTimeDialogRaw = { dialogData, body, priority };
+                    // Фиксируем: был ли диалог открыт именно через /ts
+                    _tsDialogViaTs  = _tsPendingViaTs;
+                    _tsPendingViaTs = false;
                 }
             } catch (_) {}
             return orig.call(this, dialogData, body, priority);
@@ -1434,13 +1439,15 @@ window.onChatMessage = function(text, color) {
         const closest = sel => (tgt && tgt.closest) ? tgt.closest(sel) : null;
         const dlg = getTimeDialog();
 
-        // Заголовок "Точное время" → полный сброс
+        // Заголовок "Точное время" → полный сброс (только если диалог открыт через /ts)
         const title = closest('.modal__title');
-        if (title && dlg && /Точное время/.test(title.textContent || '')) {
+        if (title && dlg && _tsDialogViaTs && /Точное время/.test(title.textContent || '')) {
             e.preventDefault(); e.stopPropagation();
             resetAll(); return;
         }
         if (!dlg) return;
+        // Всё редактирование — только когда диалог открыт через /ts
+        if (!_tsDialogViaTs) return;
 
         // Клик по часам/минутам "Текущее время:"
         const tspan = closest('[data-tse]');
@@ -1529,8 +1536,9 @@ window.onChatMessage = function(text, color) {
     // ── Поллинг: держим span-ы готовыми ─────────────────────────────
     setInterval(() => {
         const dlg = getTimeDialog();
-        if (!dlg) { stage = null; ptEd = null; return; }
-        if (!stage && !ptEd) { wrapTimeRow(dlg); wrapPlaytimeRows(dlg); }
+        if (!dlg) { stage = null; ptEd = null; _tsDialogViaTs = false; return; }
+        // span-ы для инлайн-правки добавляем ТОЛЬКО когда диалог открыт через /ts
+        if (!stage && !ptEd && _tsDialogViaTs) { wrapTimeRow(dlg); wrapPlaytimeRows(dlg); }
     }, 300);
 
     // ── Хук sendChatInput: /ts → /c 60 ──────────────────────────────
@@ -1539,6 +1547,7 @@ window.onChatMessage = function(text, color) {
             const arg = text.trim().split(/\s+/)[1];
             if (arg === 'reset') { resetAll(); return; }
             console.log('[TS] /ts → отправляю /c 60');
+            _tsPendingViaTs = true;  // диалог будет открыт через /ts → разрешаем редактирование
             return hook._prev ? hook._prev.call(this, '/c 60') : undefined;
         }
         return hook._prev ? hook._prev.apply(this, arguments) : undefined;
