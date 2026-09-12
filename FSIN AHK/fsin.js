@@ -3486,464 +3486,563 @@ function applyMainMenuTabPatch() {
 // ==================== END /SCC ====================
 // ==================== START FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
 (function () {
-    'use strict';
+'use strict';
+if (window.__fsinAutofillLoaded__) return;
+window.__fsinAutofillLoaded__ = true;
 
-    if (window.__fsinAutofillLoaded__) return;
-    window.__fsinAutofillLoaded__ = true;
-
-    // ── Статьи УК ФСИН ────────────────────────────────────────────────────────────
-    var CHAPTERS = [
-        {
-            title: 'Глава 1 — Вред здоровью',
-            articles: [
-                { label: '№1  Драка                  +20 мин', minutes: 20 },
-                { label: '№2  Попытка нападения на ФСИН +20', minutes: 20 },
-                { label: '№3  Нападение ч/з клетку   +20 мин', minutes: 20 },
-                { label: '№4  Убийство з/к            +40 мин', minutes: 40 },
-                { label: '№5  Вооруж. нападение ФСИН +60 мин', minutes: 60 },
-                { label: '№6  Убийство сотрудника ФСИН +60', minutes: 60 },
-                { label: '№7  Убийство адвоката/гражд. +60', minutes: 60 }
-            ]
-        },
-        {
-            title: 'Глава 2 — Поведение / Оскорбления',
-            articles: [
-                { label: '№1  Нецензурная лексика      +5 мин', minutes: 5 },
-                { label: '№2  Оскорбление з/к         +25 мин', minutes: 25 },
-                { label: '№3  Оскорбление сотрудников +30 мин', minutes: 30 },
-                { label: '№4  Оскорбление посетителей +30 мин', minutes: 30 },
-                { label: '№5  Неподчинение ФСИН       +20 мин', minutes: 20 }
-            ]
-        },
-        {
-            title: 'Глава 3 — Бунт / Побег',
-            articles: [
-                { label: '№1  Организация бунта       +20 мин', minutes: 20 },
-                { label: '№2  Попытка побега          +25 мин', minutes: 25 },
-                { label: '№3  Побег другого з/к       +25 мин', minutes: 25 }
-            ]
-        },
-        {
-            title: 'Глава 4 — Попрошайничество',
-            articles: [
-                { label: '№1  Просьба выйти не по графику +10', minutes: 10 },
-                { label: '№2  Просьба снизить срок    +10 мин', minutes: 10 }
-            ]
-        },
-        {
-            title: 'Глава 5 — Запрещённые вещества / Оружие',
-            articles: [
-                { label: '№1  Наркотики               +20 мин', minutes: 20 },
-                { label: '№2  Оружие / патроны        +20 мин', minutes: 20 },
-                { label: '№3  Отмычки                 +20 мин', minutes: 20 }
-            ]
-        }
-    ];
-
-    var MAX_REASON = 32;
-    var MAX_SECS = 3 * 60 * 60; // 3:00
-    var MIN_SECS = 1 * 60;      // 0:01
-
-    var cachedProxy = null;
-
-    // ── Состояние мультиселекта ───────────────────────────────────────────────────
-    // selectedArticles: массив { chapterIdx, articleIdx, minutes }
-    var selectedArticles = [];
-    // baseJailTimeLeft: срок ДО любых нажатий на панели (сбрасывается при открытии)
-    var baseJailTimeLeft = null;
-
-    // ── Проверка открыт ли JailBook ─────────────────────────────────────────────
-    function isJailBookOpen() {
-        try {
-            if (typeof window.getInterfaceStatus === 'function') {
-                return !!window.getInterfaceStatus('JailBook');
-            }
-        } catch (e) {}
-
-        return !!document.querySelector('.jail-book');
+// ── Статьи УК ФСИН ────────────────────────────────────────────────────────────
+var CHAPTERS = [
+    {
+        title: 'Глава 1 — Вред здоровью',
+        articles: [
+            { label: '№1  Драка                  +20 мин', minutes: 20 },
+            { label: '№2  Попытка нападения на ФСИН +20', minutes: 20 },
+            { label: '№3  Нападение ч/з клетку   +20 мин', minutes: 20 },
+            { label: '№4  Убийство з/к            +40 мин', minutes: 40 },
+            { label: '№5  Вооруж. нападение ФСИН +60 мин', minutes: 60 },
+            { label: '№6  Убийство сотрудника ФСИН +60', minutes: 60 },
+            { label: '№7  Убийство адвоката/гражд. +60', minutes: 60 }
+        ]
+    },
+    {
+        title: 'Глава 2 — Поведение / Оскорбления',
+        articles: [
+            { label: '№1  Нецензурная лексика      +5 мин', minutes: 5 },
+            { label: '№2  Оскорбление з/к         +25 мин', minutes: 25 },
+            { label: '№3  Оскорбление сотрудников +30 мин', minutes: 30 },
+            { label: '№4  Оскорбление посетителей +30 мин', minutes: 30 },
+            { label: '№5  Неподчинение ФСИН       +20 мин', minutes: 20 }
+        ]
+    },
+    {
+        title: 'Глава 3 — Бунт / Побег',
+        articles: [
+            { label: '№1  Организация бунта       +20 мин', minutes: 20 },
+            { label: '№2  Попытка побега          +25 мин', minutes: 25 },
+            { label: '№3  Побег другого з/к       +25 мин', minutes: 25 }
+        ]
+    },
+    {
+        title: 'Глава 4 — Попрошайничество',
+        articles: [
+            { label: '№1  Просьба выйти не по графику +10', minutes: 10 },
+            { label: '№2  Просьба снизить срок    +10 мин', minutes: 10 }
+        ]
+    },
+    {
+        title: 'Глава 5 — Запрещённые вещества / Оружие',
+        articles: [
+            { label: '№1  Наркотики               +20 мин', minutes: 20 },
+            { label: '№2  Оружие / патроны        +20 мин', minutes: 20 },
+            { label: '№3  Отмычки                 +20 мин', minutes: 20 }
+        ]
     }
+];
 
-    // ── Валидация Vue-прокси компонента PersonalChangeTime ─────────────────────
-    function isValidProxy(proxy) {
-        try {
-            if (!proxy) return false;
-            if (typeof proxy.jailTimeLeft !== 'number') return false;
-            if (!('reason' in proxy)) return false;
+var MAX_REASON = 32;
+var MAX_SECS   = 3 * 60 * 60; // 3:00
+var MIN_SECS   = 1 * 60;      // 0:01
 
-            // Если есть доступ к внутреннему экземпляру Vue, проверяем, что он не размонтирован
-            if (proxy.$ && proxy.$.isUnmounted) return false;
+var cachedProxy      = null;
+var selectedArticles = [];
+var baseJailTimeLeft = null;
+var leafEl           = null;   // DOM-элемент листика
+var _leafVisible     = false;
+var _positionRAF     = null;
 
-            return true;
-        } catch (e) {
-            return false;
+// ── Проверка открыт ли JailBook ─────────────────────────────────────────────
+function isJailBookOpen() {
+    try {
+        if (typeof window.getInterfaceStatus === 'function') {
+            return !!window.getInterfaceStatus('JailBook');
         }
-    }
+    } catch (e) {}
+    return !!document.querySelector('.jail-book');
+}
 
-    // ── Найти proxy компонента PersonalChangeTime через vnode-дерево ────────────
-    function findPersonalChangeTimeProxy() {
-        var jailBook = null;
+// ── Открыта ли страница «Изменить срок» ─────────────────────────────────────
+function isChangeTimePage() {
+    return !!document.querySelector('.jail-book-personal-change-time');
+}
 
-        try {
-            if (typeof window.interface === 'function') {
-                jailBook = window.interface('JailBook');
-            }
-        } catch (e) {
-            jailBook = null;
+// ── Валидация Vue-прокси компонента PersonalChangeTime ─────────────────────
+function isValidProxy(proxy) {
+    try {
+        if (!proxy) return false;
+        if (typeof proxy.jailTimeLeft !== 'number') return false;
+        if (!('reason' in proxy)) return false;
+        if (proxy.$ && proxy.$.isUnmounted) return false;
+        return true;
+    } catch (e) { return false; }
+}
+
+// ── Найти proxy компонента PersonalChangeTime через vnode-дерево ────────────
+function findPersonalChangeTimeProxy() {
+    var jailBook = null;
+    try {
+        if (typeof window.interface === 'function') {
+            jailBook = window.interface('JailBook');
         }
+    } catch (e) { jailBook = null; }
+    if (!jailBook || !jailBook.$ || !jailBook.$.subTree) return null;
+    var seen = new WeakSet();
+    return searchVnodeTree(jailBook.$.subTree, seen, 0);
+}
 
-        if (!jailBook || !jailBook.$ || !jailBook.$.subTree) {
-            return null;
-        }
-
-        var seen = new WeakSet();
-        return searchVnodeTree(jailBook.$.subTree, seen, 0);
-    }
-
-    function searchVnodeTree(vnode, seen, depth) {
-        if (!vnode || typeof vnode !== 'object' || depth > 200) return null;
-
-        if (seen.has(vnode)) return null;
-        seen.add(vnode);
-
-        // Компонентный vnode — проверяем, не PersonalChangeTime ли это
-        if (vnode.component) {
-            var comp = vnode.component;
-
-            if (!seen.has(comp)) {
-                seen.add(comp);
-
-                try {
-                    var proxy = comp.proxy;
-                    if (isValidProxy(proxy)) {
-                        return proxy;
-                    }
-                } catch (e) {}
-
-                if (comp.subTree) {
-                    var found = searchVnodeTree(comp.subTree, seen, depth + 1);
-                    if (found) return found;
-                }
+function searchVnodeTree(vnode, seen, depth) {
+    if (!vnode || typeof vnode !== 'object' || depth > 200) return null;
+    if (seen.has(vnode)) return null;
+    seen.add(vnode);
+    if (vnode.component) {
+        var comp = vnode.component;
+        if (!seen.has(comp)) {
+            seen.add(comp);
+            try {
+                var proxy = comp.proxy;
+                if (isValidProxy(proxy)) return proxy;
+            } catch (e) {}
+            if (comp.subTree) {
+                var found = searchVnodeTree(comp.subTree, seen, depth + 1);
+                if (found) return found;
             }
         }
-
-        // Рекурсия по дочерним vnode
-        if (Array.isArray(vnode.children)) {
-            for (var i = 0; i < vnode.children.length; i++) {
-                var child = vnode.children[i];
-
-                if (child && typeof child === 'object') {
-                    var foundChild = searchVnodeTree(child, seen, depth + 1);
-                    if (foundChild) return foundChild;
-                }
+    }
+    if (Array.isArray(vnode.children)) {
+        for (var i = 0; i < vnode.children.length; i++) {
+            var child = vnode.children[i];
+            if (child && typeof child === 'object') {
+                var foundChild = searchVnodeTree(child, seen, depth + 1);
+                if (foundChild) return foundChild;
             }
         }
-
-        return null;
     }
+    return null;
+}
 
-    function getProxy() {
-        if (isValidProxy(cachedProxy)) {
-            return cachedProxy;
+function getProxy() {
+    if (isValidProxy(cachedProxy)) return cachedProxy;
+    cachedProxy = findPersonalChangeTimeProxy();
+    return cachedProxy;
+}
+
+// ── Построить компактную причину из выбранных статей ─────────────────────────
+function buildReason(selected) {
+    if (selected.length === 0) return '';
+    var parts = selected.map(function (s) {
+        return (s.chapterIdx + 1) + ',' + (s.articleIdx + 1);
+    });
+    var suffix = selected.length === 1 ? ' КПП' : ' КТП';
+    var reason = parts.join(' ') + suffix;
+    if (reason.length > MAX_REASON) reason = reason.slice(0, MAX_REASON);
+    return reason;
+}
+
+// ── Применить текущую выборку к прокси ───────────────────────────────────────
+function applySelection() {
+    var proxy = getProxy();
+    if (!proxy) {
+        console.warn('[FSIN-AutoFill] PersonalChangeTime proxy не найден');
+        return;
+    }
+    var base = (isFinite(baseJailTimeLeft) && baseJailTimeLeft >= 0) ? baseJailTimeLeft : 0;
+    var totalMinutes = selectedArticles.reduce(function (sum, s) { return sum + s.minutes; }, 0);
+    var newTime = base + totalMinutes * 60;
+    if (newTime > MAX_SECS) newTime = MAX_SECS;
+    if (newTime < MIN_SECS) newTime = MIN_SECS;
+    try {
+        proxy.jailTimeLeft = newTime;
+        proxy.reason = buildReason(selectedArticles);
+    } catch (e) {
+        console.warn('[FSIN-AutoFill] Не удалось применить статью', e);
+    }
+}
+
+// ── Переключить выбор статьи (toggle) ────────────────────────────────────────
+function toggleArticle(chapterIdx, articleIdx, minutes, btn) {
+    var existingIdx = -1;
+    for (var i = 0; i < selectedArticles.length; i++) {
+        if (selectedArticles[i].chapterIdx === chapterIdx &&
+            selectedArticles[i].articleIdx === articleIdx) {
+            existingIdx = i;
+            break;
         }
-
-        cachedProxy = findPersonalChangeTimeProxy();
-        return cachedProxy;
     }
+    if (existingIdx !== -1) {
+        selectedArticles.splice(existingIdx, 1);
+        btn.classList.remove('fsin-leaf__article--selected');
+    } else {
+        selectedArticles.push({ chapterIdx: chapterIdx, articleIdx: articleIdx, minutes: minutes });
+        btn.classList.add('fsin-leaf__article--selected');
+    }
+    applySelection();
+}
 
-    // ── Построить компактную причину из выбранных статей ─────────────────────────
-    // Один пункт:       "1,3 КПП"
-    // Несколько:        "1,3 2,1 КТП"
-    function buildReason(selected) {
-        if (selected.length === 0) return '';
+// ── Стили листика ────────────────────────────────────────────────────────────
+function injectStyles() {
+    if (document.getElementById('fsin-autofill-style')) return;
+    var style = document.createElement('style');
+    style.id = 'fsin-autofill-style';
+    style.textContent = [
+        /* ═══ Листик ═══ */
+        '.fsin-leaf{',
+        '  position:fixed;',
+        '  z-index:99999;',
+        '  width:16vw;',
+        '  min-width:220px;',
+        '  max-height:38vw;',
+        '  display:none;',               /* скрыт по умолчанию */
+        '  flex-direction:column;',
+        '  background:linear-gradient(168deg,#f7f2e3 0%,#f0e8d0 40%,#e9dfc4 100%);',
+        '  border-radius:0.3vw 0.3vw 0.6vw 0.3vw;',
+        '  box-shadow:',
+        '    0.15vw 0.25vw 0.8vw rgba(1,1,6,0.35),',
+        '    0 0.05vw 0.2vw rgba(1,1,6,0.18),',
+        '    inset 0 0 2.5vw rgba(1,1,6,0.04);',
+        '  transform:rotate(1.8deg);',
+        '  transform-origin:top center;',
+        '  font-family:"Open Sans",var(--fallback-font);',
+        '  overflow:hidden;',
+        '  transition:opacity 0.25s ease,transform 0.25s ease;',
+        '  opacity:0;',
+        '  pointer-events:none;',
+        '}',
+        '.fsin-leaf--visible{',
+        '  display:flex;',
+        '  opacity:1;',
+        '  pointer-events:auto;',
+        '}',
 
-        var parts = selected.map(function (s) {
-            return (s.chapterIdx + 1) + ',' + (s.articleIdx + 1);
+        /* ── «Скрепка» / декоративная полоска сверху ── */
+        '.fsin-leaf__clip{',
+        '  position:absolute;',
+        '  top:-0.35vw; left:50%;',
+        '  transform:translateX(-50%) rotate(-1deg);',
+        '  width:3.2vw; height:0.75vw;',
+        '  background:linear-gradient(180deg,#c9b98a,#b5a272);',
+        '  border-radius:0.15vw;',
+        '  box-shadow:0 0.06vw 0.15vw rgba(1,1,6,0.25);',
+        '  z-index:2;',
+        '}',
+
+        /* ── Заголовок ── */
+        '.fsin-leaf__header{',
+        '  padding:1.1vw 1vw 0.55vw;',
+        '  text-align:center;',
+        '  border-bottom:0.08vw solid rgba(1,1,6,0.12);',
+        '  position:relative;',
+        '}',
+        '.fsin-leaf__title{',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:1.35vw; font-weight:700;',
+        '  color:#010106;',
+        '  line-height:1.1;',
+        '}',
+        '.fsin-leaf__subtitle{',
+        '  font-size:0.55vw; font-weight:400;',
+        '  color:rgba(1,1,6,0.45);',
+        '  text-transform:uppercase;',
+        '  letter-spacing:0.06vw;',
+        '  margin-top:0.15vw;',
+        '}',
+        /* красная линия под заголовком */
+        '.fsin-leaf__header::after{',
+        '  content:"";',
+        '  display:block;',
+        '  margin:0.45vw auto 0;',
+        '  width:60%; height:0.09vw;',
+        '  background:#df313a;',
+        '  border-radius:0.05vw;',
+        '  opacity:0.7;',
+        '}',
+
+        /* ── Скролл-контент ── */
+        '.fsin-leaf__body{',
+        '  flex:1 1 auto;',
+        '  overflow-y:auto;',
+        '  padding:0.5vw 0.7vw 0.7vw;',
+        '  min-height:0;',
+        '}',
+        '.fsin-leaf__body::-webkit-scrollbar{width:0.22vw;}',
+        '.fsin-leaf__body::-webkit-scrollbar-track{background:transparent;}',
+        '.fsin-leaf__body::-webkit-scrollbar-thumb{',
+        '  background:rgba(1,1,6,0.22);',
+        '  border-radius:0.12vw;',
+        '}',
+
+        /* ── Глава ── */
+        '.fsin-leaf__chapter{',
+        '  margin-bottom:0.45vw;',
+        '}',
+        '.fsin-leaf__chapter:last-child{margin-bottom:0;}',
+        '.fsin-leaf__chapter-title{',
+        '  font-size:0.58vw; font-weight:700;',
+        '  color:#df313a;',
+        '  text-transform:uppercase;',
+        '  letter-spacing:0.04vw;',
+        '  padding:0.25vw 0.15vw 0.18vw;',
+        '  border-bottom:0.04vw dashed rgba(223,49,58,0.25);',
+        '  margin-bottom:0.2vw;',
+        '}',
+
+        /* ── Статья (кнопка) ── */
+        '.fsin-leaf__article{',
+        '  display:block;',
+        '  box-sizing:border-box;',
+        '  width:100%;',
+        '  padding:0.22vw 0.45vw;',
+        '  margin-bottom:0.12vw;',
+        '  background:transparent;',
+        '  border:0.05vw solid transparent;',
+        '  border-radius:0.15vw;',
+        '  color:#010106;',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:0.88vw; font-weight:700;',
+        '  line-height:1.3;',
+        '  cursor:pointer;',
+        '  text-align:left;',
+        '  white-space:nowrap;',
+        '  overflow:hidden;',
+        '  text-overflow:ellipsis;',
+        '  transition:background 0.15s,color 0.15s,border-color 0.15s;',
+        '  position:relative;',
+        '}',
+        '.fsin-leaf__article:hover{',
+        '  background:rgba(1,1,6,0.07);',
+        '  border-color:rgba(1,1,6,0.12);',
+        '}',
+        '.fsin-leaf__article:active{',
+        '  background:rgba(223,49,58,0.12);',
+        '}',
+        '.fsin-leaf__article--selected{',
+        '  background:rgba(223,49,58,0.1);',
+        '  border-color:#df313a;',
+        '  color:#df313a;',
+        '}',
+        '.fsin-leaf__article--selected:hover{',
+        '  background:rgba(223,49,58,0.18);',
+        '}',
+        /* галочка слева у выбранной статьи */
+        '.fsin-leaf__article--selected::before{',
+        '  content:"✓";',
+        '  position:absolute;',
+        '  left:0.12vw; top:50%;',
+        '  transform:translateY(-52%);',
+        '  font-size:0.6vw;',
+        '  color:#df313a;',
+        '  font-family:"Open Sans",sans-serif;',
+        '  font-weight:700;',
+        '}',
+        '.fsin-leaf__article--selected{',
+        '  padding-left:0.85vw;',
+        '}',
+
+        /* ── Итого-строка снизу листика ── */
+        '.fsin-leaf__footer{',
+        '  padding:0.4vw 0.8vw 0.55vw;',
+        '  border-top:0.06vw solid rgba(1,1,6,0.1);',
+        '  text-align:center;',
+        '}',
+        '.fsin-leaf__total{',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:0.95vw; font-weight:700;',
+        '  color:#010106;',
+        '}',
+        '.fsin-leaf__total span{color:#df313a;}',
+
+        /* ── Мобильная адаптация ── */
+        '@media (platform:mobile){',
+        '  .fsin-leaf{',
+        '    width:22vw; min-width:180px;',
+        '    max-height:46vw;',
+        '    transform:rotate(1.2deg);',
+        '  }',
+        '  .fsin-leaf__title{font-size:1.8vw;}',
+        '  .fsin-leaf__subtitle{font-size:0.7vw;}',
+        '  .fsin-leaf__chapter-title{font-size:0.72vw;}',
+        '  .fsin-leaf__article{font-size:1.1vw;padding:0.3vw 0.5vw;}',
+        '  .fsin-leaf__article--selected{padding-left:1.1vw;}',
+        '  .fsin-leaf__article--selected::before{font-size:0.8vw;}',
+        '  .fsin-leaf__total{font-size:1.2vw;}',
+        '  .fsin-leaf__clip{width:4.5vw;height:1vw;top:-0.45vw;}',
+        '}',
+    ].join('');
+    document.head.appendChild(style);
+}
+
+// ── Создание листика ─────────────────────────────────────────────────────────
+function buildLeaf() {
+    if (leafEl) return leafEl;
+    injectStyles();
+
+    var el = document.createElement('div');
+    el.className = 'fsin-leaf';
+
+    // Скрепка
+    var clip = document.createElement('div');
+    clip.className = 'fsin-leaf__clip';
+    el.appendChild(clip);
+
+    // Заголовок
+    var header = document.createElement('div');
+    header.className = 'fsin-leaf__header';
+
+    var title = document.createElement('div');
+    title.className = 'fsin-leaf__title';
+    title.textContent = 'Статьи УК ФСИН';
+
+    var subtitle = document.createElement('div');
+    subtitle.className = 'fsin-leaf__subtitle';
+    subtitle.textContent = 'Быстрый выбор наказания';
+
+    header.appendChild(title);
+    header.appendChild(subtitle);
+    el.appendChild(header);
+
+    // Тело со статьями
+    var body = document.createElement('div');
+    body.className = 'fsin-leaf__body';
+
+    CHAPTERS.forEach(function (chapter, chapterIdx) {
+        var ch = document.createElement('div');
+        ch.className = 'fsin-leaf__chapter';
+
+        var chTitle = document.createElement('div');
+        chTitle.className = 'fsin-leaf__chapter-title';
+        chTitle.textContent = chapter.title;
+        ch.appendChild(chTitle);
+
+        chapter.articles.forEach(function (art, articleIdx) {
+            var btn = document.createElement('button');
+            btn.className = 'fsin-leaf__article';
+            btn.type = 'button';
+            btn.textContent = art.label;
+            btn.title = art.label;
+            (function (ci, ai, m, b) {
+                b.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleArticle(ci, ai, m, b);
+                    updateTotal();
+                });
+            })(chapterIdx, articleIdx, art.minutes, btn);
+            ch.appendChild(btn);
         });
 
-        var suffix = selected.length === 1 ? ' КПП' : ' КТП';
-        var reason = parts.join(' ') + suffix;
+        body.appendChild(ch);
+    });
+    el.appendChild(body);
 
-        if (reason.length > MAX_REASON) {
-            reason = reason.slice(0, MAX_REASON);
-        }
+    // Итого
+    var footer = document.createElement('div');
+    footer.className = 'fsin-leaf__footer';
+    var total = document.createElement('div');
+    total.className = 'fsin-leaf__total';
+    total.id = 'fsin-leaf-total';
+    total.innerHTML = 'Выбрано: <span>0</span> мин';
+    footer.appendChild(total);
+    el.appendChild(footer);
 
-        return reason;
+    document.body.appendChild(el);
+    leafEl = el;
+    return el;
+}
+
+// ── Обновить строку «Выбрано: N мин» ────────────────────────────────────────
+function updateTotal() {
+    var el = document.getElementById('fsin-leaf-total');
+    if (!el) return;
+    var totalMin = selectedArticles.reduce(function (s, a) { return s + a.minutes; }, 0);
+    el.innerHTML = 'Выбрано: <span>' + totalMin + '</span> мин';
+}
+
+// ── Позиционирование листика справа от книги ────────────────────────────────
+function positionLeaf() {
+    if (!leafEl) return;
+    var book = document.querySelector('.jail-book-book');
+    if (!book) return;
+
+    var rect = book.getBoundingClientRect();
+    var gap  = window.innerWidth * 0.012;   // ~1.2vw отступ
+    var leafW = leafEl.offsetWidth;
+    var leafH = leafEl.offsetHeight;
+
+    // Лево листика = правый край книги + отступ
+    var left = rect.right + gap;
+
+    // Если не влезает справа — прижимаем к правому краю экрана
+    if (left + leafW > window.innerWidth - 8) {
+        left = window.innerWidth - leafW - 8;
     }
 
-    // ── Применить текущую выборку к прокси ───────────────────────────────────────
-    function applySelection() {
-        var proxy = getProxy();
+    // Вертикально: выравниваем по верху книги, чуть ниже
+    var top = rect.top + rect.height * 0.06;
 
-        if (!proxy) {
-            console.warn('[FSIN-AutoFill] PersonalChangeTime proxy не найден');
-            return;
-        }
-
-        var base = (isFinite(baseJailTimeLeft) && baseJailTimeLeft >= 0) ? baseJailTimeLeft : 0;
-
-        var totalMinutes = selectedArticles.reduce(function (sum, s) {
-            return sum + s.minutes;
-        }, 0);
-
-        var newTime = base + totalMinutes * 60;
-
-        if (newTime > MAX_SECS) newTime = MAX_SECS;
-        if (newTime < MIN_SECS) newTime = MIN_SECS;
-
-        try {
-            proxy.jailTimeLeft = newTime;
-            proxy.reason = buildReason(selectedArticles);
-        } catch (e) {
-            console.warn('[FSIN-AutoFill] Не удалось применить статью', e);
-        }
+    // Не даём уйти за низ экрана
+    if (top + leafH > window.innerHeight - 8) {
+        top = Math.max(8, window.innerHeight - leafH - 8);
     }
 
-    // ── Переключить выбор статьи (toggle) ────────────────────────────────────────
-    function toggleArticle(chapterIdx, articleIdx, minutes, btn) {
-        var existingIdx = -1;
-        for (var i = 0; i < selectedArticles.length; i++) {
-            if (selectedArticles[i].chapterIdx === chapterIdx &&
-                selectedArticles[i].articleIdx === articleIdx) {
-                existingIdx = i;
-                break;
-            }
-        }
+    leafEl.style.left = left + 'px';
+    leafEl.style.top  = top + 'px';
+}
 
-        if (existingIdx !== -1) {
-            // Снять выбор
-            selectedArticles.splice(existingIdx, 1);
-            btn.classList.remove('fsin-af-btn--selected');
+// ── Показать / скрыть листик ────────────────────────────────────────────────
+function showLeaf() {
+    if (_leafVisible) return;
+    var el = buildLeaf();
+
+    // Сброс выбора при каждом новом открытии
+    selectedArticles = [];
+    var proxy = getProxy();
+    baseJailTimeLeft = proxy ? Number(proxy.jailTimeLeft) : 0;
+    if (!isFinite(baseJailTimeLeft) || baseJailTimeLeft < 0) baseJailTimeLeft = 0;
+
+    // Снимаем выделение со всех кнопок
+    el.querySelectorAll('.fsin-leaf__article--selected').forEach(function (b) {
+        b.classList.remove('fsin-leaf__article--selected');
+    });
+    updateTotal();
+
+    el.classList.add('fsin-leaf--visible');
+    _leafVisible = true;
+    positionLeaf();
+}
+
+function hideLeaf() {
+    if (!_leafVisible || !leafEl) return;
+    leafEl.classList.remove('fsin-leaf--visible');
+    _leafVisible = false;
+}
+
+// ── Цикл видимости ──────────────────────────────────────────────────────────
+function tick() {
+    try {
+        if (isJailBookOpen() && isChangeTimePage()) {
+            showLeaf();
+            positionLeaf();   // держим позицию (книга может масштабироваться)
         } else {
-            // Выбрать
-            selectedArticles.push({ chapterIdx: chapterIdx, articleIdx: articleIdx, minutes: minutes });
-            btn.classList.add('fsin-af-btn--selected');
+            hideLeaf();
         }
+    } catch (e) {}
+}
 
-        applySelection();
-    }
+// ── Инициализация ────────────────────────────────────────────────────────────
+function init() {
+    // Обновление позиции при ресайзе
+    window.addEventListener('resize', function () {
+        if (_leafVisible) positionLeaf();
+    });
 
-    // ── Инъекция стилей (один раз) ───────────────────────────────────────────────
-    function injectStyles() {
-        if (document.getElementById('fsin-autofill-style')) return;
+    // Лёгкий поллинг: 300мс — достаточно плавно, не нагружает
+    setInterval(tick, 300);
+    tick();
+}
 
-        var style = document.createElement('style');
-        style.id = 'fsin-autofill-style';
-        style.textContent = [
-            '.fsin-af-wrap{',
-            '  padding:0 0.938vw;',
-            '  margin-bottom:0.52vw;',
-            '  position:relative;',
-            '  z-index:5;',
-            '}',
-            '.fsin-af-label{',
-            '  color:#010106;',
-            '  font-family:"Open Sans",sans-serif;',
-            '  font-size:0.72vw;',
-            '  font-weight:400;',
-            '  opacity:0.55;',
-            '  margin-bottom:0.36vw;',
-            '  text-transform:uppercase;',
-            '  letter-spacing:0.04vw;',
-            '}',
-            '.fsin-af-scroll{',
-            '  max-height:5.6vw;',
-            '  overflow-y:auto;',
-            '  display:flex;',
-            '  flex-direction:column;',
-            '  gap:0.22vw;',
-            '  padding-right:0.15vw;',
-            '}',
-            '.fsin-af-scroll::-webkit-scrollbar{width:0.18vw;}',
-            '.fsin-af-scroll::-webkit-scrollbar-thumb{',
-            '  background:#01010650;border-radius:0.09vw;',
-            '}',
-            '.fsin-af-chapter-title{',
-            '  color:#df313a;',
-            '  font-family:"Open Sans",sans-serif;',
-            '  font-size:0.6vw;',
-            '  font-weight:700;',
-            '  text-transform:uppercase;',
-            '  letter-spacing:0.04vw;',
-            '  margin-top:0.3vw;',
-            '  padding-left:0.1vw;',
-            '}',
-            '.fsin-af-btn{',
-            '  display:block;',
-            '  box-sizing:border-box;',
-            '  width:100%;',
-            '  padding:0.18vw 0.52vw;',
-            '  background:#0101060d;',
-            '  border:0.052vw solid #01010620;',
-            '  border-radius:0.1vw;',
-            '  color:#010106;',
-            '  font-family:"Caveat",sans-serif;',
-            '  font-size:0.77vw;',
-            '  font-weight:700;',
-            '  cursor:pointer;',
-            '  line-height:1.25;',
-            '  transition:background 0.15s,color 0.15s,border-color 0.15s;',
-            '  white-space:nowrap;',
-            '  overflow:hidden;',
-            '  text-overflow:ellipsis;',
-            '  text-align:left;',
-            '}',
-            '.fsin-af-btn:hover{',
-            '  background:#010106;',
-            '  color:#fff;',
-            '  border-color:#010106;',
-            '}',
-            '.fsin-af-btn:active{',
-            '  background:#df313a;',
-            '  border-color:#df313a;',
-            '  color:#fff;',
-            '}',
-            '.fsin-af-btn--selected{',
-            '  background:#df313a22;',
-            '  border-color:#df313a;',
-            '  color:#df313a;',
-            '}',
-            '.fsin-af-btn--selected:hover{',
-            '  background:#df313a;',
-            '  border-color:#df313a;',
-            '  color:#fff;',
-            '}'
-        ].join('');
-
-        document.head.appendChild(style);
-    }
-
-    // ── Вставить панель кнопок в компонент ────────────────────────────────────────
-    function injectPanel(changeTimeEl) {
-        try {
-            if (!changeTimeEl) return;
-
-            var isConnected = changeTimeEl.isConnected || document.contains(changeTimeEl);
-            if (!isConnected) return;
-
-            // Уже вставлено
-            if (changeTimeEl.querySelector('.fsin-af-wrap')) return;
-
-            // Если кнопка «Подтвердить» ещё не появилась, не лезем в недоотрисованный компонент
-            var confirmBtn = changeTimeEl.querySelector('.jail-book-button');
-            if (!confirmBtn) return;
-
-            injectStyles();
-
-            // Сбрасываем мультиселект при каждом новом открытии панели
-            selectedArticles = [];
-            var proxy = getProxy();
-            baseJailTimeLeft = proxy ? Number(proxy.jailTimeLeft) : 0;
-            if (!isFinite(baseJailTimeLeft) || baseJailTimeLeft < 0) baseJailTimeLeft = 0;
-
-            var wrap = document.createElement('div');
-            wrap.className = 'fsin-af-wrap';
-
-            var label = document.createElement('div');
-            label.className = 'fsin-af-label';
-            label.textContent = 'Быстрое добавление — УК ФСИН';
-            wrap.appendChild(label);
-
-            var scroll = document.createElement('div');
-            scroll.className = 'fsin-af-scroll';
-
-            CHAPTERS.forEach(function (chapter, chapterIdx) {
-                var chTitle = document.createElement('div');
-                chTitle.className = 'fsin-af-chapter-title';
-                chTitle.textContent = chapter.title;
-                scroll.appendChild(chTitle);
-
-                chapter.articles.forEach(function (art, articleIdx) {
-                    var btn = document.createElement('button');
-                    btn.className = 'fsin-af-btn';
-                    btn.type = 'button';
-                    btn.textContent = art.label;
-
-                    (function (ci, ai, m, b) {
-                        b.addEventListener('click', function (e) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            toggleArticle(ci, ai, m, b);
-                        });
-                    })(chapterIdx, articleIdx, art.minutes, btn);
-
-                    scroll.appendChild(btn);
-                });
-            });
-
-            wrap.appendChild(scroll);
-
-            // Безопасная вставка: только если кнопка является прямым ребёнком блока
-            if (confirmBtn.parentNode === changeTimeEl) {
-                changeTimeEl.insertBefore(wrap, confirmBtn);
-            } else {
-                changeTimeEl.appendChild(wrap);
-            }
-        } catch (e) {
-            console.warn('[FSIN-AutoFill] Ошибка инъекции панели', e);
-        }
-    }
-
-    // ── Попытка вставки ──────────────────────────────────────────────────────────
-    function tryInject() {
-        try {
-            if (!isJailBookOpen()) return;
-
-            var el = document.querySelector('.jail-book-personal-change-time');
-            if (!el) return;
-
-            // Не вставляем синхронно в момент возможных Vue-мутаций
-            setTimeout(function () {
-                injectPanel(el);
-            }, 0);
-        } catch (e) {}
-    }
-
-    // ── Ловим клик по кнопке «Изменить срок» ─────────────────────────────────────
-    function onDocumentClick(e) {
-        try {
-            var target = e.target;
-
-            if (!target || !target.closest) return;
-
-            var btn = target.closest('.jail-book-button-short');
-            if (!btn) return;
-
-            var text = (btn.textContent || '').trim().toLowerCase();
-
-            if (text.indexOf('изменить срок') !== -1) {
-                // Несколько попыток, потому что Vue может дорисовать страницу чуть позже
-                setTimeout(tryInject, 80);
-                setTimeout(tryInject, 250);
-                setTimeout(tryInject, 700);
-            }
-        } catch (e) {}
-    }
-
-    // ── Инициализация ────────────────────────────────────────────────────────────
-    function init() {
-        document.addEventListener('click', onDocumentClick, true);
-
-        // Лёгкий резервный опрос только когда открыт JailBook
-        window.setInterval(function () {
-            try {
-                if (!isJailBookOpen()) return;
-
-                var el = document.querySelector('.jail-book-personal-change-time');
-
-                if (el && !el.querySelector('.fsin-af-wrap')) {
-                    tryInject();
-                }
-            } catch (e) {}
-        }, 500);
-
-        tryInject();
-    }
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
-        init();
-    }
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
 })();
 // ==================== END FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
