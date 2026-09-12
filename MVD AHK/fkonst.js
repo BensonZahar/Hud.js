@@ -1055,9 +1055,10 @@ window.onChatMessage = function(text, color) {
 }); // конец callback _nickCheck
 // ================================================================
 // [FKONST TS BLOCK] — единый блок синхронизации времени
-// /ts          → открывает диалог "Точное время" (/c 60)
-// /ts reset    → полный сброс оффсета
-// В диалоге:
+// Активация: открой /c 60, затем зажми заголовок "Точное время" на 5 сек
+//            → напишет сообщение в чат, включится режим редактирования
+//            → после закрытия диалога режим сбрасывается; для новой правки — снова 5 сек
+// В диалоге (когда редактирование активно):
 //   клик по "Текущее время:"      → ЧЧ → Enter → ММ → Enter = сохранить
 //   клик по "Время в игре ..."    → инлайн-правка цифры → Enter = сохранить
 //   клик по "Сегодняшняя дата:"  → ввод даты (ДД.ММ.ГГГГ / "11 сентября 2026")
@@ -1086,8 +1087,9 @@ window.onChatMessage = function(text, color) {
     let stage = null, buf = '', committedH = 0, origH = 0, origM = 0;
     let ptEd = null;
     let pendingSwallow = null;
-    let _tsPendingViaTs = false;  // /ts набран, ждём открытия диалога сервером
-    let _tsDialogViaTs  = false;  // текущий открытый диалог открыт именно через /ts
+    let _tsDialogViaTs    = false; // редактирование активировано долгим нажатием
+    let _tsLongPressTimer = null;  // таймер долгого нажатия на заголовок
+    let _tsLongPressFired = false; // долгое нажатие только что сработало — блокируем click
 
     // ── CSS ─────────────────────────────────────────────────────────
     (function () {
@@ -1336,9 +1338,8 @@ window.onChatMessage = function(text, color) {
                         body = shifted;
                     }
                     window._tsTimeDialogRaw = { dialogData, body, priority };
-                    // Фиксируем: был ли диалог открыт именно через /ts
-                    _tsDialogViaTs  = _tsPendingViaTs;
-                    _tsPendingViaTs = false;
+                    // Каждый раз сбрасываем — активация только долгим нажатием на заголовок
+                    _tsDialogViaTs = false;
                 }
             } catch (_) {}
             return orig.call(this, dialogData, body, priority);
@@ -1456,14 +1457,18 @@ window.onChatMessage = function(text, color) {
         const closest = sel => (tgt && tgt.closest) ? tgt.closest(sel) : null;
         const dlg = getTimeDialog();
 
-        // Заголовок "Точное время" → полный сброс (только если диалог открыт через /ts)
+        // Заголовок "Точное время":
+        //   — только что отпустили долгое нажатие → блокируем click, сбрасываем флаг
+        //   — если редактирование активно → полный сброс
         const title = closest('.modal__title');
-        if (title && dlg && _tsDialogViaTs && /Точное время/.test(title.textContent || '')) {
+        if (title && dlg && /Точное время/.test(title.textContent || '')) {
             e.preventDefault(); e.stopPropagation();
-            resetAll(); return;
+            if (_tsLongPressFired) { _tsLongPressFired = false; return; }
+            if (_tsDialogViaTs)   { resetAll(); return; }
+            return;
         }
         if (!dlg) return;
-        // Всё редактирование — только когда диалог открыт через /ts
+        // Всё редактирование — только когда активировано долгим нажатием
         if (!_tsDialogViaTs) return;
 
         // Клик по часам/минутам "Текущее время:"
@@ -1515,6 +1520,45 @@ window.onChatMessage = function(text, color) {
 
         if (stage) cancelStage();
         if (ptEd) cancelPt();
+    }, true);
+
+    // ── Долгое нажатие (5 сек) на заголовок "Точное время" → активация редактирования ──
+    document.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        const tgt = e.target;
+        const title = (tgt && tgt.closest) ? tgt.closest('.modal__title') : null;
+        if (!title || !/Точное время/.test(title.textContent || '')) return;
+        const dlg = getTimeDialog();
+        if (!dlg) return;
+        if (_tsLongPressTimer) { clearTimeout(_tsLongPressTimer); _tsLongPressTimer = null; }
+        _tsLongPressFired = false;
+        _tsLongPressTimer = setTimeout(() => {
+            _tsLongPressTimer = null;
+            _tsLongPressFired = true;
+            _tsDialogViaTs = true;
+            const d = getTimeDialog();
+            if (d) { wrapTimeRow(d); wrapDateRow(d); wrapPlaytimeRows(d); }
+            if (typeof window.onChatMessage === 'function') {
+                window.onChatMessage('{999999}Редактирование времени — {33DD77}Включено', '999999FF');
+                setTimeout(() => {
+                    try {
+                        const hud = window.interface('Hud');
+                        if (!hud || !hud.$refs || !hud.$refs.chat) return;
+                        const chat = hud.$refs.chat;
+                        if (!Array.isArray(chat.messages)) return;
+                        chat.messages = chat.messages.filter(m => {
+                            if (!m.content) return true;
+                            return !m.content.some(c => c.text && c.text.includes('Редактирование времени'));
+                        });
+                    } catch (_) {}
+                }, 3000);
+            }
+            console.log('[TS] редактирование активировано долгим нажатием');
+        }, 5000);
+    }, true);
+    // Отпустили кнопку раньше 5 сек — отменяем таймер
+    document.addEventListener('mouseup', () => {
+        if (_tsLongPressTimer) { clearTimeout(_tsLongPressTimer); _tsLongPressTimer = null; }
     }, true);
 
     // ── Правая кнопка мыши: везде делает -1 ─────────────────────────
@@ -1576,7 +1620,7 @@ window.onChatMessage = function(text, color) {
         }
     }
     document.addEventListener('mousedown',   (e) => { if (e.button === 2) handleRMB(e); }, true);
-    // Блокируем всплытие контекстного меню браузера пока диалог открыт через /ts
+    // Блокируем всплытие контекстного меню браузера пока редактирование активно
     document.addEventListener('contextmenu', (e) => {
         if (getTimeDialog() && _tsDialogViaTs) { e.preventDefault(); e.stopPropagation(); }
     }, true);
@@ -1614,41 +1658,14 @@ window.onChatMessage = function(text, color) {
     setInterval(() => {
         const dlg = getTimeDialog();
         if (!dlg) { stage = null; ptEd = null; _tsDialogViaTs = false; return; }
-        // span-ы для инлайн-правки добавляем ТОЛЬКО когда диалог открыт через /ts
+        // span-ы для инлайн-правки добавляем ТОЛЬКО когда редактирование активировано
         if (!stage && !ptEd && _tsDialogViaTs) { wrapTimeRow(dlg); wrapDateRow(dlg); wrapPlaytimeRows(dlg); }
     }, 300);
 
-    // ── Хук sendChatInput: /ts → /c 60 ──────────────────────────────
-    const hook = function (text) {
-        if (typeof text === 'string' && /^\/ts(\s|$)/i.test(text)) {
-            const arg = text.trim().split(/\s+/)[1];
-            if (arg === 'reset') { resetAll(); return; }
-            console.log('[TS] /ts → отправляю /c 60');
-            _tsPendingViaTs = true;  // диалог будет открыт через /ts → разрешаем редактирование
-            return hook._prev ? hook._prev.call(this, '/c 60') : undefined;
-        }
-        return hook._prev ? hook._prev.apply(this, arguments) : undefined;
-    };
-    hook._prev = null;
-    hook.__tsMergedHook = true;
-    function installHook() {
-        const cur = window.sendChatInput;
-        if (cur === hook) return true;
-        if (typeof cur !== 'function') return false;
-        hook._prev = cur;
-        window.sendChatInput = hook;
-        console.log('[TS] хук sendChatInput установлен');
-        return true;
-    }
-    if (!installHook()) {
-        const p = setInterval(() => { if (installHook()) clearInterval(p); }, 100);
-        setTimeout(() => clearInterval(p), 60000);
-    }
-
     console.log('════════════════════════════════════════════════');
-    console.log('[TS] /ts           — открыть диалог /c 60 ("Точное время")');
-    console.log('[TS] /ts reset     — полный сброс оффсета');
-    console.log('[TS] клик по времени в диалоге → ЧЧ → Enter → ММ → Enter');
-    console.log('[TS] клик по заголовку диалога → полный сброс');
+    console.log('[TS] /c 60                      — открыть диалог "Точное время"');
+    console.log('[TS] зажать заголовок 5 сек     — активировать редактирование + сообщение в чат');
+    console.log('[TS] клик по времени            — ЧЧ → Enter → ММ → Enter = сохранить');
+    console.log('[TS] клик по заголовку (активно) — полный сброс оффсета');
     console.log('════════════════════════════════════════════════');
 })();
