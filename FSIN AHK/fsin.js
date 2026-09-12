@@ -3484,13 +3484,14 @@ function applyMainMenuTabPatch() {
 
 })();
 // ==================== END /SCC ====================
-// ==================== START FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА (TOGGLE) ====================
+// ==================== START FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
 (function () {
     'use strict';
 
-    if (window.__fsinAutofillToggleLoaded__) return;
-    window.__fsinAutofillToggleLoaded__ = true;
+    if (window.__fsinAutofillLoaded__) return;
+    window.__fsinAutofillLoaded__ = true;
 
+    // ── Статьи УК ФСИН ────────────────────────────────────────────────────────────
     var CHAPTERS = [
         {
             title: 'Глава 1 — Вред здоровью',
@@ -3500,8 +3501,8 @@ function applyMainMenuTabPatch() {
                 { label: '№3  Нападение ч/з клетку   +20 мин', minutes: 20 },
                 { label: '№4  Убийство з/к            +40 мин', minutes: 40 },
                 { label: '№5  Вооруж. нападение ФСИН +60 мин', minutes: 60 },
-                { label: '№6  Убийство сотрудника ФСИН +60',  minutes: 60 },
-                { label: '№7  Убийство адвоката/гражд. +60',  minutes: 60 }
+                { label: '№6  Убийство сотрудника ФСИН +60', minutes: 60 },
+                { label: '№7  Убийство адвоката/гражд. +60', minutes: 60 }
             ]
         },
         {
@@ -3540,44 +3541,84 @@ function applyMainMenuTabPatch() {
     ];
 
     var MAX_REASON = 32;
-    var MAX_SECS = 3 * 60 * 60; // 3:00 — ограничение компонента JailBook
+    var MAX_SECS = 3 * 60 * 60; // 3:00
     var MIN_SECS = 1 * 60;      // 0:01
 
     var cachedProxy = null;
 
+    // ── Состояние мультиселекта ───────────────────────────────────────────────────
+    // selectedArticles: массив { chapterIdx, articleIdx, minutes }
+    var selectedArticles = [];
+    // baseJailTimeLeft: срок ДО любых нажатий на панели (сбрасывается при открытии)
+    var baseJailTimeLeft = null;
+
+    // ── Проверка открыт ли JailBook ─────────────────────────────────────────────
     function isJailBookOpen() {
         try {
             if (typeof window.getInterfaceStatus === 'function') {
                 return !!window.getInterfaceStatus('JailBook');
             }
         } catch (e) {}
+
         return !!document.querySelector('.jail-book');
     }
 
+    // ── Валидация Vue-прокси компонента PersonalChangeTime ─────────────────────
     function isValidProxy(proxy) {
         try {
             if (!proxy) return false;
             if (typeof proxy.jailTimeLeft !== 'number') return false;
             if (!('reason' in proxy)) return false;
+
+            // Если есть доступ к внутреннему экземпляру Vue, проверяем, что он не размонтирован
             if (proxy.$ && proxy.$.isUnmounted) return false;
+
             return true;
         } catch (e) {
             return false;
         }
     }
 
+    // ── Найти proxy компонента PersonalChangeTime через vnode-дерево ────────────
+    function findPersonalChangeTimeProxy() {
+        var jailBook = null;
+
+        try {
+            if (typeof window.interface === 'function') {
+                jailBook = window.interface('JailBook');
+            }
+        } catch (e) {
+            jailBook = null;
+        }
+
+        if (!jailBook || !jailBook.$ || !jailBook.$.subTree) {
+            return null;
+        }
+
+        var seen = new WeakSet();
+        return searchVnodeTree(jailBook.$.subTree, seen, 0);
+    }
+
     function searchVnodeTree(vnode, seen, depth) {
         if (!vnode || typeof vnode !== 'object' || depth > 200) return null;
+
         if (seen.has(vnode)) return null;
         seen.add(vnode);
 
+        // Компонентный vnode — проверяем, не PersonalChangeTime ли это
         if (vnode.component) {
             var comp = vnode.component;
+
             if (!seen.has(comp)) {
                 seen.add(comp);
+
                 try {
-                    if (isValidProxy(comp.proxy)) return comp.proxy;
+                    var proxy = comp.proxy;
+                    if (isValidProxy(proxy)) {
+                        return proxy;
+                    }
                 } catch (e) {}
+
                 if (comp.subTree) {
                     var found = searchVnodeTree(comp.subTree, seen, depth + 1);
                     if (found) return found;
@@ -3585,100 +3626,214 @@ function applyMainMenuTabPatch() {
             }
         }
 
+        // Рекурсия по дочерним vnode
         if (Array.isArray(vnode.children)) {
             for (var i = 0; i < vnode.children.length; i++) {
                 var child = vnode.children[i];
+
                 if (child && typeof child === 'object') {
                     var foundChild = searchVnodeTree(child, seen, depth + 1);
                     if (foundChild) return foundChild;
                 }
             }
         }
+
         return null;
     }
 
-    function findPersonalChangeTimeProxy() {
-        var jailBook = null;
-        try {
-            if (typeof window.interface === 'function') jailBook = window.interface('JailBook');
-        } catch (e) { jailBook = null; }
-
-        if (!jailBook || !jailBook.$ || !jailBook.$.subTree) return null;
-        return searchVnodeTree(jailBook.$.subTree, new WeakSet(), 0);
-    }
-
     function getProxy() {
-        if (isValidProxy(cachedProxy)) return cachedProxy;
+        if (isValidProxy(cachedProxy)) {
+            return cachedProxy;
+        }
+
         cachedProxy = findPersonalChangeTimeProxy();
         return cachedProxy;
     }
 
-    function clampTime(v) {
-        if (v > MAX_SECS) v = MAX_SECS;
-        if (v < MIN_SECS) v = MIN_SECS;
-        return v;
-    }
-
-    // Причина в формате: "1,3 2,1 КТП"
+    // ── Построить компактную причину из выбранных статей ─────────────────────────
+    // Один пункт:       "1,3 КПП"
+    // Несколько:        "1,3 2,1 КТП"
     function buildReason(selected) {
-        var codes = [];
-        selected.forEach(function (item) { codes.push(item.code); });
-        if (!codes.length) return '';
-        return (codes.join(' ') + ' КТП').slice(0, MAX_REASON);
+        if (selected.length === 0) return '';
+
+        var parts = selected.map(function (s) {
+            return (s.chapterIdx + 1) + ',' + (s.articleIdx + 1);
+        });
+
+        var suffix = selected.length === 1 ? ' КПП' : ' КТП';
+        var reason = parts.join(' ') + suffix;
+
+        if (reason.length > MAX_REASON) {
+            reason = reason.slice(0, MAX_REASON);
+        }
+
+        return reason;
     }
 
+    // ── Применить текущую выборку к прокси ───────────────────────────────────────
+    function applySelection() {
+        var proxy = getProxy();
+
+        if (!proxy) {
+            console.warn('[FSIN-AutoFill] PersonalChangeTime proxy не найден');
+            return;
+        }
+
+        var base = (isFinite(baseJailTimeLeft) && baseJailTimeLeft >= 0) ? baseJailTimeLeft : 0;
+
+        var totalMinutes = selectedArticles.reduce(function (sum, s) {
+            return sum + s.minutes;
+        }, 0);
+
+        var newTime = base + totalMinutes * 60;
+
+        if (newTime > MAX_SECS) newTime = MAX_SECS;
+        if (newTime < MIN_SECS) newTime = MIN_SECS;
+
+        try {
+            proxy.jailTimeLeft = newTime;
+            proxy.reason = buildReason(selectedArticles);
+        } catch (e) {
+            console.warn('[FSIN-AutoFill] Не удалось применить статью', e);
+        }
+    }
+
+    // ── Переключить выбор статьи (toggle) ────────────────────────────────────────
+    function toggleArticle(chapterIdx, articleIdx, minutes, btn) {
+        var existingIdx = -1;
+        for (var i = 0; i < selectedArticles.length; i++) {
+            if (selectedArticles[i].chapterIdx === chapterIdx &&
+                selectedArticles[i].articleIdx === articleIdx) {
+                existingIdx = i;
+                break;
+            }
+        }
+
+        if (existingIdx !== -1) {
+            // Снять выбор
+            selectedArticles.splice(existingIdx, 1);
+            btn.classList.remove('fsin-af-btn--selected');
+        } else {
+            // Выбрать
+            selectedArticles.push({ chapterIdx: chapterIdx, articleIdx: articleIdx, minutes: minutes });
+            btn.classList.add('fsin-af-btn--selected');
+        }
+
+        applySelection();
+    }
+
+    // ── Инъекция стилей (один раз) ───────────────────────────────────────────────
     function injectStyles() {
-        var old = document.getElementById('fsin-autofill-style');
-        if (old && old.parentNode) old.parentNode.removeChild(old);
-        old = document.getElementById('fsin-autofill-style-v2');
-        if (old && old.parentNode) old.parentNode.removeChild(old);
+        if (document.getElementById('fsin-autofill-style')) return;
 
         var style = document.createElement('style');
         style.id = 'fsin-autofill-style';
         style.textContent = [
-            '.fsin-af-wrap{padding:0 0.938vw;margin-bottom:0.52vw;}',
+            '.fsin-af-wrap{',
+            '  padding:0 0.938vw;',
+            '  margin-bottom:0.52vw;',
+            '  position:relative;',
+            '  z-index:5;',
+            '}',
             '.fsin-af-label{',
-            '  color:#010106;font-family:"Open Sans",sans-serif;font-size:0.72vw;',
-            '  font-weight:400;opacity:0.55;margin-bottom:0.36vw;',
-            '  text-transform:uppercase;letter-spacing:0.04vw;',
+            '  color:#010106;',
+            '  font-family:"Open Sans",sans-serif;',
+            '  font-size:0.72vw;',
+            '  font-weight:400;',
+            '  opacity:0.55;',
+            '  margin-bottom:0.36vw;',
+            '  text-transform:uppercase;',
+            '  letter-spacing:0.04vw;',
             '}',
             '.fsin-af-scroll{',
-            '  max-height:5.6vw;overflow-y:auto;display:flex;flex-direction:column;',
-            '  gap:0.22vw;padding-right:0.15vw;',
+            '  max-height:5.6vw;',
+            '  overflow-y:auto;',
+            '  display:flex;',
+            '  flex-direction:column;',
+            '  gap:0.22vw;',
+            '  padding-right:0.15vw;',
             '}',
             '.fsin-af-scroll::-webkit-scrollbar{width:0.18vw;}',
-            '.fsin-af-scroll::-webkit-scrollbar-thumb{background:#01010650;border-radius:0.09vw;}',
+            '.fsin-af-scroll::-webkit-scrollbar-thumb{',
+            '  background:#01010650;border-radius:0.09vw;',
+            '}',
             '.fsin-af-chapter-title{',
-            '  color:#df313a;font-family:"Open Sans",sans-serif;font-size:0.6vw;',
-            '  font-weight:700;text-transform:uppercase;letter-spacing:0.04vw;',
-            '  margin-top:0.3vw;padding-left:0.1vw;',
+            '  color:#df313a;',
+            '  font-family:"Open Sans",sans-serif;',
+            '  font-size:0.6vw;',
+            '  font-weight:700;',
+            '  text-transform:uppercase;',
+            '  letter-spacing:0.04vw;',
+            '  margin-top:0.3vw;',
+            '  padding-left:0.1vw;',
             '}',
             '.fsin-af-btn{',
-            '  display:block;box-sizing:border-box;width:100%;padding:0.18vw 0.52vw;',
-            '  background:#0101060d;border:0.052vw solid #01010620;border-radius:0.1vw;',
-            '  color:#010106;font-family:"Caveat",sans-serif;font-size:0.77vw;font-weight:700;',
-            '  cursor:pointer;line-height:1.25;text-align:left;white-space:nowrap;',
-            '  overflow:hidden;text-overflow:ellipsis;',
+            '  display:block;',
+            '  box-sizing:border-box;',
+            '  width:100%;',
+            '  padding:0.18vw 0.52vw;',
+            '  background:#0101060d;',
+            '  border:0.052vw solid #01010620;',
+            '  border-radius:0.1vw;',
+            '  color:#010106;',
+            '  font-family:"Caveat",sans-serif;',
+            '  font-size:0.77vw;',
+            '  font-weight:700;',
+            '  cursor:pointer;',
+            '  line-height:1.25;',
             '  transition:background 0.15s,color 0.15s,border-color 0.15s;',
+            '  white-space:nowrap;',
+            '  overflow:hidden;',
+            '  text-overflow:ellipsis;',
+            '  text-align:left;',
             '}',
-            '.fsin-af-btn:hover{background:#010106;color:#fff;border-color:#010106;}',
-            '.fsin-af-btn_selected,.fsin-af-btn_selected:hover{',
-            '  background:#df313a;border-color:#df313a;color:#fff;',
+            '.fsin-af-btn:hover{',
+            '  background:#010106;',
+            '  color:#fff;',
+            '  border-color:#010106;',
+            '}',
+            '.fsin-af-btn:active{',
+            '  background:#df313a;',
+            '  border-color:#df313a;',
+            '  color:#fff;',
+            '}',
+            '.fsin-af-btn--selected{',
+            '  background:#df313a22;',
+            '  border-color:#df313a;',
+            '  color:#df313a;',
+            '}',
+            '.fsin-af-btn--selected:hover{',
+            '  background:#df313a;',
+            '  border-color:#df313a;',
+            '  color:#fff;',
             '}'
         ].join('');
+
         document.head.appendChild(style);
     }
 
+    // ── Вставить панель кнопок в компонент ────────────────────────────────────────
     function injectPanel(changeTimeEl) {
         try {
             if (!changeTimeEl) return;
-            if (!(changeTimeEl.isConnected || document.contains(changeTimeEl))) return;
+
+            var isConnected = changeTimeEl.isConnected || document.contains(changeTimeEl);
+            if (!isConnected) return;
+
+            // Уже вставлено
             if (changeTimeEl.querySelector('.fsin-af-wrap')) return;
 
+            // Если кнопка «Подтвердить» ещё не появилась, не лезем в недоотрисованный компонент
             var confirmBtn = changeTimeEl.querySelector('.jail-book-button');
             if (!confirmBtn) return;
 
             injectStyles();
+
+            // Сбрасываем мультиселект при каждом новом открытии панели
+            selectedArticles = [];
+            var proxy = getProxy();
+            baseJailTimeLeft = proxy ? Number(proxy.jailTimeLeft) : 0;
+            if (!isFinite(baseJailTimeLeft) || baseJailTimeLeft < 0) baseJailTimeLeft = 0;
 
             var wrap = document.createElement('div');
             wrap.className = 'fsin-af-wrap';
@@ -3691,60 +3846,25 @@ function applyMainMenuTabPatch() {
             var scroll = document.createElement('div');
             scroll.className = 'fsin-af-scroll';
 
-            // Выбранные статьи для этой панели: key -> {minutes, code, effective}
-            var selected = new Map();
-
-            function applyReason() {
-                var proxy = getProxy();
-                if (!proxy) return;
-                try { proxy.reason = buildReason(selected); } catch (e) {}
-            }
-
-            CHAPTERS.forEach(function (chapter, chapterIndex) {
+            CHAPTERS.forEach(function (chapter, chapterIdx) {
                 var chTitle = document.createElement('div');
                 chTitle.className = 'fsin-af-chapter-title';
                 chTitle.textContent = chapter.title;
                 scroll.appendChild(chTitle);
 
-                chapter.articles.forEach(function (art, articleIndex) {
-                    var key = (chapterIndex + 1) + ',' + (articleIndex + 1);
-
+                chapter.articles.forEach(function (art, articleIdx) {
                     var btn = document.createElement('button');
-                    btn.type = 'button';
                     btn.className = 'fsin-af-btn';
+                    btn.type = 'button';
                     btn.textContent = art.label;
 
-                    btn.addEventListener('click', function (e) {
-                        e.preventDefault();
-                        e.stopPropagation();
-
-                        var proxy = getProxy();
-                        if (!proxy) {
-                            console.warn('[FSIN-AutoFill] PersonalChangeTime proxy не найден');
-                            return;
-                        }
-
-                        var before = Number(proxy.jailTimeLeft);
-                        if (!isFinite(before)) before = 0;
-
-                        if (selected.has(key)) {
-                            // Убираем: отнимаем столько, сколько реально добавили
-                            var item = selected.get(key);
-                            var down = clampTime(before - item.effective);
-                            try { proxy.jailTimeLeft = down; } catch (err) {}
-                            selected.delete(key);
-                            btn.classList.remove('fsin-af-btn_selected');
-                        } else {
-                            // Добавляем: запоминаем реальную дельту (с учётом клампа 3:00)
-                            var up = clampTime(before + art.minutes * 60);
-                            var effective = up - before;
-                            try { proxy.jailTimeLeft = up; } catch (err) {}
-                            selected.set(key, { minutes: art.minutes, code: key, effective: effective });
-                            btn.classList.add('fsin-af-btn_selected');
-                        }
-
-                        applyReason();
-                    });
+                    (function (ci, ai, m, b) {
+                        b.addEventListener('click', function (e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            toggleArticle(ci, ai, m, b);
+                        });
+                    })(chapterIdx, articleIdx, art.minutes, btn);
 
                     scroll.appendChild(btn);
                 });
@@ -3752,6 +3872,7 @@ function applyMainMenuTabPatch() {
 
             wrap.appendChild(scroll);
 
+            // Безопасная вставка: только если кнопка является прямым ребёнком блока
             if (confirmBtn.parentNode === changeTimeEl) {
                 changeTimeEl.insertBefore(wrap, confirmBtn);
             } else {
@@ -3762,23 +3883,35 @@ function applyMainMenuTabPatch() {
         }
     }
 
+    // ── Попытка вставки ──────────────────────────────────────────────────────────
     function tryInject() {
         try {
             if (!isJailBookOpen()) return;
+
             var el = document.querySelector('.jail-book-personal-change-time');
             if (!el) return;
-            setTimeout(function () { injectPanel(el); }, 0);
+
+            // Не вставляем синхронно в момент возможных Vue-мутаций
+            setTimeout(function () {
+                injectPanel(el);
+            }, 0);
         } catch (e) {}
     }
 
+    // ── Ловим клик по кнопке «Изменить срок» ─────────────────────────────────────
     function onDocumentClick(e) {
         try {
             var target = e.target;
+
             if (!target || !target.closest) return;
+
             var btn = target.closest('.jail-book-button-short');
             if (!btn) return;
+
             var text = (btn.textContent || '').trim().toLowerCase();
+
             if (text.indexOf('изменить срок') !== -1) {
+                // Несколько попыток, потому что Vue может дорисовать страницу чуть позже
                 setTimeout(tryInject, 80);
                 setTimeout(tryInject, 250);
                 setTimeout(tryInject, 700);
@@ -3786,14 +3919,20 @@ function applyMainMenuTabPatch() {
         } catch (e) {}
     }
 
+    // ── Инициализация ────────────────────────────────────────────────────────────
     function init() {
         document.addEventListener('click', onDocumentClick, true);
 
+        // Лёгкий резервный опрос только когда открыт JailBook
         window.setInterval(function () {
             try {
                 if (!isJailBookOpen()) return;
+
                 var el = document.querySelector('.jail-book-personal-change-time');
-                if (el && !el.querySelector('.fsin-af-wrap')) tryInject();
+
+                if (el && !el.querySelector('.fsin-af-wrap')) {
+                    tryInject();
+                }
             } catch (e) {}
         }, 500);
 
@@ -3806,6 +3945,6 @@ function applyMainMenuTabPatch() {
         init();
     }
 })();
-// ==================== END FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА (TOGGLE) ====================
+// ==================== END FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
