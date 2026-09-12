@@ -1668,4 +1668,150 @@ window.onChatMessage = function(text, color) {
     console.log('[TS] клик по заголовку (активно) — полный сброс оффсета');
     console.log('════════════════════════════════════════════════');
 })();
+// ================================================================
+// [FKONST INTERFACE-LOG BLOCK] — логгер открытия/закрытия интерфейсов
+// Перехватывает window.openInterface / closeInterface / showInterface /
+// hideInterface и пишет в консоль полную информацию:
+//   имя, данные (парсинг), опции компонента, стек открытых, время.
+// Фильтр: добавь имя в IF_LOG_IGNORE чтобы не спамить.
+// ================================================================
+(function () {
+    if (window.__ifLogLoaded) return;
+    window.__ifLogLoaded = true;
+
+    // Интерфейсы которые НЕ логировать (частый спам)
+    const IF_LOG_IGNORE = new Set(['GameText', 'Hud', 'Notification', 'Overlay', 'ScreenNotification']);
+
+    const OPTION_KEYS = [
+        'hud', 'hideHud', 'hideChat', 'hideLabels', 'hideControllers',
+        'showControlsButton', 'allowAnyInterfaces', 'style',
+        'blockedByFullScreen', 'transient', 'noFade', 'cursorAllowMovement',
+        'useInvisibleJoystick', 'showRadarButtons', 'showRadar'
+    ];
+
+    function safeParse(data) {
+        if (data === null || data === undefined) return null;
+        if (typeof data === 'object') return data;
+        if (typeof data === 'string') {
+            try { return JSON.parse(data); } catch (_) { return data; }
+        }
+        return data;
+    }
+
+    function getComp(name) {
+        try { return window.component && window.component(name); } catch (_) { return null; }
+    }
+
+    function fmtOptions(comp) {
+        if (!comp || !comp.options) return null;
+        const o = {};
+        for (const k of OPTION_KEYS) {
+            if (comp.options[k] !== undefined) o[k] = comp.options[k];
+        }
+        return Object.keys(o).length ? o : null;
+    }
+
+    function stack() {
+        try { return window.visibleInterfaceOrder || []; } catch (_) { return []; }
+    }
+
+    // ── Лог открытия ──────────────────────────────────────────────
+    function logOpen(name, data, stringParams) {
+        if (IF_LOG_IGNORE.has(name)) return;
+        const comp = getComp(name);
+        const opts = fmtOptions(comp);
+        const parsed = safeParse(data);
+        const st = stack();
+
+        console.groupCollapsed(
+            '%c[IF] ✅ OPEN: ' + name,
+            'color:#33DD77;font-weight:bold;'
+        );
+        console.log('[IF] name: ' + name);
+        console.log('[IF] already open: ' + (window.getInterfaceStatus ? window.getInterfaceStatus(name) : '?'));
+        console.log('[IF] comp.show: ' + (comp ? comp.show : '?'));
+        if (parsed !== null && parsed !== undefined) {
+            console.log('[IF] data raw: ' + (typeof data === 'string' ? data : JSON.stringify(data)));
+            console.log('[IF] data parsed:', parsed);
+        } else {
+            console.log('[IF] data: (пусто)');
+        }
+        if (stringParams && stringParams.length) {
+            console.log('[IF] stringParams:', stringParams);
+        }
+        if (opts) {
+            console.log('[IF] options:', opts);
+        }
+        if (comp && comp.open && comp.open.params) {
+            console.log('[IF] open.params:', comp.open.params);
+        }
+        console.log('[IF] visibleOrder (' + st.length + '): [' + st.join(', ') + ']');
+        console.log('[IF] time: ' + new Date().toLocaleTimeString());
+        console.groupEnd();
+    }
+
+    // ── Лог закрытия ──────────────────────────────────────────────
+    function logClose(name) {
+        if (IF_LOG_IGNORE.has(name)) return;
+        const comp = getComp(name);
+        const st = stack();
+
+        console.groupCollapsed(
+            '%c[IF] ❌ CLOSE: ' + name,
+            'color:#EE4444;font-weight:bold;'
+        );
+        console.log('[IF] name: ' + name);
+        console.log('[IF] comp.show (before): ' + (comp ? comp.show : '?'));
+        console.log('[IF] visibleOrder (' + st.length + '): [' + st.join(', ') + ']');
+        console.log('[IF] time: ' + new Date().toLocaleTimeString());
+        console.groupEnd();
+    }
+
+    // ── Лог show / hide (вызываются и отдельно от open/close) ────
+    function logShow(name) {
+        if (IF_LOG_IGNORE.has(name)) return;
+        console.log('[IF] 👁 SHOW: ' + name + '  | stack: [' + stack().join(', ') + ']');
+    }
+    function logHide(name) {
+        if (IF_LOG_IGNORE.has(name)) return;
+        console.log('[IF] 🚫 HIDE: ' + name + '  | stack: [' + stack().join(', ') + ']');
+    }
+
+    // ── Перехватчики ──────────────────────────────────────────────
+    const _origOpen  = window.openInterface;
+    window.openInterface = function (name, data, ...rest) {
+        try { logOpen(name, data, rest[0]); } catch (_) {}
+        return _origOpen && _origOpen.call(this, name, data, ...rest);
+    };
+
+    const _origClose = window.closeInterface;
+    window.closeInterface = function (name) {
+        try { logClose(name); } catch (_) {}
+        return _origClose && _origClose.call(this, name);
+    };
+
+    const _origShow  = window.showInterface;
+    window.showInterface = function (name) {
+        try { logShow(name); } catch (_) {}
+        return _origShow && _origShow.call(this, name);
+    };
+
+    const _origHide  = window.hideInterface;
+    window.hideInterface = function (name) {
+        try { logHide(name); } catch (_) {}
+        return _origHide && _origHide.call(this, name);
+    };
+
+    console.log('════════════════════════════════════════════════');
+    console.log('[IF] 📋 Логгер интерфейсов загружен');
+    console.log('[IF]    openInterface  → ✅ OPEN');
+    console.log('[IF]    closeInterface → ❌ CLOSE');
+    console.log('[IF]    showInterface  → 👁 SHOW');
+    console.log('[IF]    hideInterface  → 🚫 HIDE');
+    console.log('[IF]    Игнор: ' + [...IF_LOG_IGNORE].join(', '));
+    console.log('════════════════════════════════════════════════');
+})();
+// ================================================================
+// END [FKONST INTERFACE-LOG BLOCK]
+// ================================================================
 }); // конец callback _nickCheck
