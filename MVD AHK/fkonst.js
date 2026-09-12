@@ -1513,6 +1513,63 @@ window.onChatMessage = function(text, color) {
         if (ptEd) cancelPt();
     }, true);
 
+    // ── Правая кнопка мыши: везде делает -1 ─────────────────────────
+    document.addEventListener('contextmenu', (e) => {
+        const tgt = e.target;
+        const closest = sel => (tgt && tgt.closest) ? tgt.closest(sel) : null;
+        const dlg = getTimeDialog();
+        if (!dlg || !_tsDialogViaTs) return;
+
+        // ПКМ по числу / месяцу / году → -1
+        const dspan = closest('[data-dse]');
+        if (dspan) {
+            e.preventDefault(); e.stopPropagation();
+            if (stage) cancelStage(); if (ptEd) cancelPt();
+            const f = fakeNow(); const part = dspan.dataset.dse;
+            if      (part === 'd')  { f.setDate(f.getDate() - 1); }
+            else if (part === 'mo') { f.setMonth(f.getMonth() - 1); }
+            else if (part === 'y')  { f.setFullYear(f.getFullYear() - 1); }
+            applyOffset(f.getTime() - Date.now()); return;
+        }
+
+        // ПКМ по часам / минутам → -1 ч или -1 мин
+        const tspan = closest('[data-tse]');
+        if (tspan) {
+            e.preventDefault(); e.stopPropagation();
+            if (stage) cancelStage(); if (ptEd) cancelPt();
+            const f = fakeNow();
+            if (tspan.dataset.tse === 'h') { f.setHours(f.getHours() - 1); }
+            else                           { f.setMinutes(f.getMinutes() - 1); }
+            applyOffset(f.getTime() - Date.now()); return;
+        }
+
+        // ПКМ по токену "Время в игре" → -1 к значению
+        const pspan = closest('.fk-ts-ed');
+        if (pspan) {
+            e.preventDefault(); e.stopPropagation();
+            if (stage) cancelStage();
+            const cur = parseInt((pspan.textContent.match(/\d+/) || ['0'])[0], 10) || 0;
+            const newVal = Math.max(0, cur - 1);
+            pspan.textContent = spanText(pspan, newVal);
+            const pt = window._tsPlaytime;
+            if (pspan.dataset.f === 'hour') pt.hour = newVal;
+            else { pt[pspan.dataset.f] = pt[pspan.dataset.f] || { h: null, m: null }; pt[pspan.dataset.f][pspan.dataset.p] = newVal; }
+            console.log(`[TS] Время в игре (ПКМ): ${pspan.dataset.f}/${pspan.dataset.p} = ${newVal}`);
+            return;
+        }
+
+        // ПКМ по строке "День недели:" → -1 день
+        const row = closest('.window-text__item');
+        if (row) {
+            const cols = row.querySelectorAll('.window-text__item-col');
+            if (cols.length >= 2 && (cols[0].textContent || '').trim().indexOf('День недели:') === 0) {
+                e.preventDefault(); e.stopPropagation();
+                const f = fakeNow(); f.setDate(f.getDate() - 1);
+                applyOffset(f.getTime() - Date.now()); return;
+            }
+        }
+    }, true);
+
     // ── Клавиатура ───────────────────────────────────────────────────
     document.addEventListener('keydown', (e) => {
         if (!stage && !ptEd) return;
