@@ -3484,302 +3484,259 @@ function applyMainMenuTabPatch() {
 
 })();
 // ==================== END /SCC ====================
-// ==================== АВТО-ВЫДАЧА СРОКА ФСИН (JailBook) ====================
-(function() {
-'use strict';
+// ==================== START FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
+(function () {
+    'use strict';
 
-const FSIN_RULES = [
-{
-chapter: 1, title: "Вред здоровью",
-rules: [
-{ id: 1, min: 20, text: "Драка между заключёнными", full: "Драка между двумя заключёнными" },
-{ id: 2, min: 20, text: "Попытка нападения на сотрудника", full: "Попытка нападения на сотрудника ФСИН" },
-{ id: 3, min: 20, text: "Нападение через клетку/двери", full: "Нападение на сотрудника ФСИН через клетку/двери" },
-{ id: 4, min: 40, text: "Убийство заключённого", full: "Убийство другого заключённого" },
-{ id: 5, min: 60, text: "Вооруж. нападение на сотрудника", full: "Вооруженное нападение на сотрудника ФСИН" },
-{ id: 6, min: 60, text: "Убийство сотрудника ФСИН", full: "Убийство сотрудника ФСИН" },
-{ id: 7, min: 60, text: "Убийство адвоката/гражд.", full: "Убийство адвоката или гражданского лица" },
-]
-},
-{
-chapter: 2, title: "Оскорбления/Поведение",
-rules: [
-{ id: 1, min: 5,  text: "Нецензурная лексика", full: "Использование нецензурной лексики" },
-{ id: 2, min: 25, text: "Оскорбление заключ. грубо", full: "Оскорбление заключенных в особо грубой форме" },
-{ id: 3, min: 30, text: "Оскорбление сотрудников", full: "Оскорбление сотрудников тюрьмы" },
-{ id: 4, min: 30, text: "Оскорбление посетителей", full: "Оскорбление посетителей или адвокатов" },
-{ id: 5, min: 20, text: "Неподчинение сотруднику", full: "Неподчинение сотруднику ФСИН" },
-]
-},
-{
-chapter: 3, title: "Бунт/Побег",
-rules: [
-{ id: 1, min: 20, text: "Попытка организации бунта", full: "Попытка организации бунта" },
-{ id: 2, min: 25, text: "Попытка побега", full: "Попытка побега" },
-{ id: 3, min: 25, text: "Побег другого заключ.", full: "Попытка побега, в следствии чего сбежал другой" },
-]
-},
-{
-chapter: 4, title: "Попрошайничество",
-rules: [
-{ id: 1, min: 10, text: "Просьба вывести не по графику", full: "Просьбы вывести из камеры не по графику" },
-{ id: 2, min: 10, text: "Просьба снизить срок (2+)", full: "Просьбы снизить срок (2 и более раза)" },
-]
-},
-{
-chapter: 5, title: "Вещества/Оружие",
-rules: [
-{ id: 1, min: 20, text: "Наркотики", full: "Употребление или ношение наркотиков" },
-{ id: 2, min: 20, text: "Оружие/патроны", full: "Ношение оружия или патронов" },
-{ id: 3, min: 20, text: "Отмычки", full: "Хранение или использование отмычек" },
-]
-},
-];
+    // ── Статьи УК ФСИН ────────────────────────────────────────────────────────────
+    // reason: макс. 32 символа (ограничение поля ввода в JailBook)
+    const CHAPTERS = [
+        {
+            title: 'Глава 1 — Вред здоровью',
+            articles: [
+                { label: '№1  Драка                  +20 мин', minutes: 20, reason: 'Гл.1 №1: Драка' },
+                { label: '№2  Попытка нападения на ФСИН +20', minutes: 20, reason: 'Гл.1 №2: Попытка нападения' },
+                { label: '№3  Нападение ч/з клетку   +20 мин', minutes: 20, reason: 'Гл.1 №3: Нападение ч/з клетку' },
+                { label: '№4  Убийство з/к            +40 мин', minutes: 40, reason: 'Гл.1 №4: Убийство з/к' },
+                { label: '№5  Вооруж. нападение ФСИН +60 мин', minutes: 60, reason: 'Гл.1 №5: Вооруж. нападение' },
+                { label: '№6  Убийство сотрудника ФСИН +60',  minutes: 60, reason: 'Гл.1 №6: Убийство сотрудника' },
+                { label: '№7  Убийство адвоката/гражд. +60',  minutes: 60, reason: 'Гл.1 №7: Убийство адвоката' },
+            ]
+        },
+        {
+            title: 'Глава 2 — Поведение / Оскорбления',
+            articles: [
+                { label: '№1  Нецензурная лексика      +5 мин', minutes: 5,  reason: 'Гл.2 №1: Нецензурная лексика' },
+                { label: '№2  Оскорбление з/к         +25 мин', minutes: 25, reason: 'Гл.2 №2: Оскорбление з/к' },
+                { label: '№3  Оскорбление сотрудников +30 мин', minutes: 30, reason: 'Гл.2 №3: Оскорбление сотр.' },
+                { label: '№4  Оскорбление посетителей +30 мин', minutes: 30, reason: 'Гл.2 №4: Оскорбление посет.' },
+                { label: '№5  Неподчинение ФСИН       +20 мин', minutes: 20, reason: 'Гл.2 №5: Неподчинение ФСИН' },
+            ]
+        },
+        {
+            title: 'Глава 3 — Бунт / Побег',
+            articles: [
+                { label: '№1  Организация бунта       +20 мин', minutes: 20, reason: 'Гл.3 №1: Организация бунта' },
+                { label: '№2  Попытка побега          +25 мин', minutes: 25, reason: 'Гл.3 №2: Попытка побега' },
+                { label: '№3  Побег другого з/к       +25 мин', minutes: 25, reason: 'Гл.3 №3: Побег другого з/к' },
+            ]
+        },
+        {
+            title: 'Глава 4 — Попрошайничество',
+            articles: [
+                { label: '№1  Просьба выйти не по графику +10', minutes: 10, reason: 'Гл.4 №1: Просьба выйти' },
+                { label: '№2  Просьба снизить срок    +10 мин', minutes: 10, reason: 'Гл.4 №2: Просьба снизить срок' },
+            ]
+        },
+        {
+            title: 'Глава 5 — Запрещённые вещества / Оружие',
+            articles: [
+                { label: '№1  Наркотики               +20 мин', minutes: 20, reason: 'Гл.5 №1: Наркотики' },
+                { label: '№2  Оружие / патроны        +20 мин', minutes: 20, reason: 'Гл.5 №2: Оружие/патроны' },
+                { label: '№3  Отмычки                 +20 мин', minutes: 20, reason: 'Гл.5 №3: Отмычки' },
+            ]
+        }
+    ];
 
-let _panelEl = null;
-let _activeChapter = 0;
-let _pollTimer = null;
-let _lastPageState = '';
+    // ── Получить reactive-данные Vue-компонента PersonalChangeTime ────────────────
+    function getVueData(el) {
+        // Vue 3: корневой элемент компонента хранит ссылку на internal instance
+        // Проверяем сам элемент и до 4 уровней вверх (на всякий случай)
+        let node = el;
+        for (var depth = 0; depth < 5; depth++) {
+            if (!node) break;
+            var keys = Object.keys(node);
+            for (var ki = 0; ki < keys.length; ki++) {
+                var k = keys[ki];
+                if (!k.startsWith('__vue')) continue;
+                var inst = node[k];
+                if (!inst || typeof inst !== 'object') continue;
+                // Options API: данные лежат в inst.data
+                if (inst.data && typeof inst.data.jailTimeLeft === 'number') {
+                    return inst.data;
+                }
+                // Альтернатива: через proxy (ctx)
+                if (inst.proxy && typeof inst.proxy.jailTimeLeft === 'number') {
+                    return inst.proxy;
+                }
+                if (inst.ctx && typeof inst.ctx.jailTimeLeft === 'number') {
+                    return inst.ctx;
+                }
+            }
+            node = node.parentElement;
+        }
+        console.warn('[FSIN-AutoFill] Не удалось найти Vue-компонент PersonalChangeTime');
+        return null;
+    }
 
-function buildPanel() {
-if (_panelEl) return _panelEl;
+    // ── Применить статью: добавить минуты и вставить причину ──────────────────────
+    function applyArticle(changeTimeEl, minutes, reason) {
+        var data = getVueData(changeTimeEl);
+        if (!data) return;
 
-_panelEl = document.createElement('div');
-_panelEl.id = 'fsin-jailbook-autopanel';
-Object.assign(_panelEl.style, {
-position: 'absolute', bottom: '0.5vw', left: '50%', transform: 'translateX(-50%)',
-width: '52vw', maxHeight: '14vw', zIndex: '99999',
-fontFamily: '"Open Sans", Arial, sans-serif',
-display: 'flex', flexDirection: 'column', overflow: 'hidden',
-background: 'linear-gradient(180deg, rgba(30,25,18,0.95), rgba(20,16,10,0.97))',
-border: '1px solid rgba(180,150,80,0.4)', borderRadius: '0.4vw',
-boxShadow: '0 4px 20px rgba(0,0,0,0.6)',
-});
+        var addSecs  = minutes * 60;
+        var MAX_SECS = 3 * 60 * 60; // 3:00 — максимум из компонента (Wt = "3:00")
+        var MIN_SECS = 1 * 60;      // 0:01 — минимум из компонента (Gt = "0:01")
 
-// Chapter tabs
-const tabsWrap = document.createElement('div');
-Object.assign(tabsWrap.style, {
-display: 'flex', gap: '0.2vw', padding: '0.4vw 0.5vw 0', flexShrink: '0',
-});
-FSIN_RULES.forEach(function(ch, idx) {
-const tab = document.createElement('div');
-tab.textContent = 'Гл.' + ch.chapter;
-tab.title = ch.title;
-tab.dataset.chIdx = idx;
-Object.assign(tab.style, {
-flex: '1', textAlign: 'center', padding: '0.3vw 0.2vw',
-fontSize: '0.65vw', fontWeight: '700', cursor: 'pointer',
-color: 'rgba(220,190,120,0.7)', background: 'rgba(255,255,255,0.05)',
-border: '1px solid rgba(180,150,80,0.2)', borderRadius: '0.2vw 0.2vw 0 0',
-transition: 'all 0.2s ease', textTransform: 'uppercase', letterSpacing: '0.03vw',
-});
-tab.addEventListener('mouseenter', function() { if (_activeChapter !== idx) tab.style.background = 'rgba(255,255,255,0.12)'; });
-tab.addEventListener('mouseleave', function() { if (_activeChapter !== idx) tab.style.background = 'rgba(255,255,255,0.05)'; });
-tab.addEventListener('click', function() { _activeChapter = idx; renderRules(); });
-tabsWrap.appendChild(tab);
-});
-_panelEl.appendChild(tabsWrap);
+        var newTime = data.jailTimeLeft + addSecs;
+        if (newTime > MAX_SECS) newTime = MAX_SECS;
+        if (newTime < MIN_SECS) newTime = MIN_SECS;
 
-// Rules container
-const rulesWrap = document.createElement('div');
-rulesWrap.id = 'fsin-jailbook-rules';
-Object.assign(rulesWrap.style, {
-display: 'flex', flexWrap: 'wrap', gap: '0.25vw',
-padding: '0.4vw 0.5vw 0.5vw', overflowY: 'auto', flex: '1',
-});
-_panelEl.appendChild(rulesWrap);
+        data.jailTimeLeft = newTime;
+        data.reason       = reason; // Vue обновит input + снимет disabled с кнопки
+    }
 
-renderRules();
-return _panelEl;
-}
+    // ── Инъекция стилей (один раз) ───────────────────────────────────────────────
+    function injectStyles() {
+        if (document.getElementById('fsin-autofill-style')) return;
+        var style = document.createElement('style');
+        style.id  = 'fsin-autofill-style';
+        style.textContent = [
+            '.fsin-af-wrap{',
+            '  padding:0 0.938vw;',
+            '  margin-bottom:0.52vw;',
+            '}',
+            '.fsin-af-label{',
+            '  color:#010106;',
+            '  font-family:"Open Sans",sans-serif;',
+            '  font-size:0.72vw;',
+            '  font-weight:400;',
+            '  opacity:0.55;',
+            '  margin-bottom:0.36vw;',
+            '  text-transform:uppercase;',
+            '  letter-spacing:0.04vw;',
+            '}',
+            /* Прокручиваемый контейнер — высота ~5.5 vw (~2.5 кнопки видно) */
+            '.fsin-af-scroll{',
+            '  max-height:5.6vw;',
+            '  overflow-y:auto;',
+            '  display:flex;',
+            '  flex-direction:column;',
+            '  gap:0.22vw;',
+            '  padding-right:0.15vw;',
+            '}',
+            '.fsin-af-scroll::-webkit-scrollbar{width:0.18vw;}',
+            '.fsin-af-scroll::-webkit-scrollbar-thumb{',
+            '  background:#01010650;border-radius:0.09vw;',
+            '}',
+            '.fsin-af-chapter-title{',
+            '  color:#df313a;',
+            '  font-family:"Open Sans",sans-serif;',
+            '  font-size:0.6vw;',
+            '  font-weight:700;',
+            '  text-transform:uppercase;',
+            '  letter-spacing:0.04vw;',
+            '  margin-top:0.3vw;',
+            '  padding-left:0.1vw;',
+            '}',
+            '.fsin-af-btn{',
+            '  all:unset;',
+            '  display:block;',
+            '  box-sizing:border-box;',
+            '  width:100%;',
+            '  padding:0.18vw 0.52vw;',
+            '  background:#0101060d;',
+            '  border:0.052vw solid #01010620;',
+            '  border-radius:0.1vw;',
+            '  color:#010106;',
+            '  font-family:"Caveat",sans-serif;',
+            '  font-size:0.77vw;',
+            '  font-weight:700;',
+            '  cursor:pointer;',
+            '  line-height:1.25;',
+            '  transition:background 0.15s,color 0.15s,border-color 0.15s;',
+            '  white-space:nowrap;',
+            '  overflow:hidden;',
+            '  text-overflow:ellipsis;',
+            '}',
+            '.fsin-af-btn:hover{',
+            '  background:#010106;',
+            '  color:#fff;',
+            '  border-color:#010106;',
+            '}',
+            '.fsin-af-btn:active{',
+            '  background:#df313a;',
+            '  border-color:#df313a;',
+            '  color:#fff;',
+            '}',
+        ].join('');
+        document.head.appendChild(style);
+    }
 
-function renderRules() {
-const rulesWrap = document.getElementById('fsin-jailbook-rules');
-if (!rulesWrap) return;
-rulesWrap.innerHTML = '';
+    // ── Вставить панель кнопок в компонент ────────────────────────────────────────
+    function injectPanel(changeTimeEl) {
+        if (changeTimeEl.querySelector('.fsin-af-wrap')) return; // уже вставлено
 
-// Update tab styles
-const tabs = _panelEl.querySelectorAll('[data-ch-idx]');
-tabs.forEach(function(tab, i) {
-if (i === _activeChapter) {
-tab.style.background = 'rgba(180,150,80,0.3)';
-tab.style.color = '#ffe0a0';
-tab.style.borderColor = 'rgba(220,180,80,0.6)';
-} else {
-tab.style.background = 'rgba(255,255,255,0.05)';
-tab.style.color = 'rgba(220,190,120,0.7)';
-tab.style.borderColor = 'rgba(180,150,80,0.2)';
-}
-});
+        injectStyles();
 
-const ch = FSIN_RULES[_activeChapter];
-ch.rules.forEach(function(rule) {
-const btn = document.createElement('div');
-Object.assign(btn.style, {
-display: 'flex', alignItems: 'center', gap: '0.3vw',
-padding: '0.25vw 0.4vw', cursor: 'pointer',
-background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(180,150,80,0.25)',
-borderRadius: '0.2vw', transition: 'all 0.15s ease', flex: '0 0 calc(50% - 0.15vw)',
-boxSizing: 'border-box',
-});
-btn.addEventListener('mouseenter', function() {
-btn.style.background = 'rgba(180,150,80,0.25)';
-btn.style.borderColor = 'rgba(220,180,80,0.6)';
-});
-btn.addEventListener('mouseleave', function() {
-btn.style.background = 'rgba(255,255,255,0.06)';
-btn.style.borderColor = 'rgba(180,150,80,0.25)';
-});
-btn.addEventListener('click', function() { applyRule(ch, rule); });
+        // Обёртка
+        var wrap = document.createElement('div');
+        wrap.className = 'fsin-af-wrap';
 
-const numEl = document.createElement('span');
-numEl.textContent = '№' + rule.id;
-Object.assign(numEl.style, {
-fontSize: '0.6vw', fontWeight: '700', color: '#ffe0a0',
-minWidth: '1.5vw', textAlign: 'center', flexShrink: '0',
-});
+        // Заголовок панели
+        var label = document.createElement('div');
+        label.className = 'fsin-af-label';
+        label.textContent = 'Быстрое добавление — УК ФСИН';
+        wrap.appendChild(label);
 
-const minEl = document.createElement('span');
-minEl.textContent = '+' + rule.min + 'м';
-Object.assign(minEl.style, {
-fontSize: '0.6vw', fontWeight: '700', color: '#ff6b6b',
-background: 'rgba(255,80,80,0.15)', padding: '0.1vw 0.3vw',
-borderRadius: '0.15vw', flexShrink: '0',
-});
+        // Скроллируемый контейнер
+        var scroll = document.createElement('div');
+        scroll.className = 'fsin-af-scroll';
 
-const txtEl = document.createElement('span');
-txtEl.textContent = rule.text;
-Object.assign(txtEl.style, {
-fontSize: '0.6vw', color: 'rgba(240,230,210,0.9)',
-overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-});
+        CHAPTERS.forEach(function (chapter) {
+            // Заголовок главы
+            var chTitle = document.createElement('div');
+            chTitle.className = 'fsin-af-chapter-title';
+            chTitle.textContent = chapter.title;
+            scroll.appendChild(chTitle);
 
-btn.appendChild(numEl);
-btn.appendChild(minEl);
-btn.appendChild(txtEl);
-rulesWrap.appendChild(btn);
-});
-}
+            // Кнопки статей
+            chapter.articles.forEach(function (art) {
+                var btn = document.createElement('button');
+                btn.className = 'fsin-af-btn';
+                btn.textContent = art.label;
+                btn.type = 'button';
+                // Замыкание через IIFE, чтобы minutes/reason не перетёрлись
+                (function (m, r) {
+                    btn.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        applyArticle(changeTimeEl, m, r);
+                    });
+                })(art.minutes, art.reason);
+                scroll.appendChild(btn);
+            });
+        });
 
-function applyRule(ch, rule) {
-// Find the JailBook component
-var jb = window.interface && window.interface('JailBook');
-if (!jb) { console.warn('[FSIN-JB] JailBook не найден'); return; }
+        wrap.appendChild(scroll);
 
-// Traverse to find PersonalChangeTime component
-var changeTimeComp = null;
-try {
-// Try to find through $refs or children
-var personal = null;
-if (jb.$refs) {
-for (var key in jb.$refs) {
-var ref = jb.$refs[key];
-if (ref && ref.$data && ref.$data.page !== undefined) { personal = ref; break; }
-}
-}
-if (!personal && jb.$children) {
-for (var i = 0; i < jb.$children.length; i++) {
-if (jb.$children[i].$data && jb.$children[i].$data.page !== undefined) {
-personal = jb.$children[i]; break;
-}
-}
-}
-if (personal) {
-var children = personal.$children || [];
-for (var j = 0; j < children.length; j++) {
-if (children[j].$data && children[j].$data.jailTimeLeft !== undefined) {
-changeTimeComp = children[j]; break;
-}
-}
-}
-} catch(e) { console.warn('[FSIN-JB] Поиск компонента:', e); }
+        // Вставляем ПЕРЕД кнопкой «Подтвердить» (.jail-book-button)
+        var confirmBtn = changeTimeEl.querySelector('.jail-book-button');
+        if (confirmBtn) {
+            changeTimeEl.insertBefore(wrap, confirmBtn);
+        } else {
+            changeTimeEl.appendChild(wrap);
+        }
 
-if (!changeTimeComp) {
-// Fallback: try deeper search
-try {
-changeTimeComp = findChangeTimeComp(jb);
-} catch(e2) {}
-}
+        console.log('[FSIN-AutoFill] ✅ Панель автовыдачи вставлена');
+    }
 
-if (!changeTimeComp) {
-console.warn('[FSIN-JB] PersonalChangeTime компонент не найден');
-return;
-}
+    // ── MutationObserver: следим за появлением страницы «Изменить срок» ──────────
+    var observer = new MutationObserver(function () {
+        var el = document.querySelector('.jail-book-personal-change-time');
+        if (el) injectPanel(el);
+    });
 
-var addSeconds = rule.min * 60;
-changeTimeComp.jailTimeLeft = changeTimeComp.initialJailTimeLeft + addSeconds;
-changeTimeComp.reason = 'Гл.' + ch.chapter + ' №' + rule.id + ' ' + rule.full;
+    observer.observe(document.body, { childList: true, subtree: true });
 
-console.log('[FSIN-JB] ✅ Применено: Гл.' + ch.chapter + ' №' + rule.id +
-' → +' + rule.min + ' мин | Причина: ' + changeTimeComp.reason);
+    // Проверяем сразу при загрузке (на случай, если интерфейс уже открыт)
+    var existing = document.querySelector('.jail-book-personal-change-time');
+    if (existing) injectPanel(existing);
 
-// Flash effect
-if (_panelEl) {
-_panelEl.style.borderColor = 'rgba(80,255,80,0.8)';
-setTimeout(function() { _panelEl.style.borderColor = 'rgba(180,150,80,0.4)'; }, 400);
-}
-}
+    console.log('[FSIN-AutoFill] ✅ Модуль автовыдачи срока загружен');
 
-function findChangeTimeComp(root, depth) {
-if (!root || depth > 6) return null;
-if (root.$data && root.$data.jailTimeLeft !== undefined && root.$data.reason !== undefined) return root;
-var children = root.$children || [];
-for (var i = 0; i < children.length; i++) {
-var found = findChangeTimeComp(children[i], (depth || 0) + 1);
-if (found) return found;
-}
-return null;
-}
-
-function isChangeTimePageVisible() {
-try {
-var jb = window.interface && window.interface('JailBook');
-if (!jb || !jb.$data) return false;
-if (jb.$data.type !== 1) return false; // 1 = PERSONAL
-// Check if personal component is on change time page
-var personal = null;
-var children = jb.$children || [];
-for (var i = 0; i < children.length; i++) {
-if (children[i].$data && children[i].$data.page !== undefined) {
-personal = children[i]; break;
-}
-}
-if (personal && personal.$data.page === 1) return true; // PAGE_TYPE.CHANGE_TIME = 1
-} catch(e) {}
-return false;
-}
-
-function checkAndInject() {
-var visible = isChangeTimePageVisible();
-var stateKey = visible ? 'visible' : 'hidden';
-if (stateKey === _lastPageState) return;
-_lastPageState = stateKey;
-
-if (visible) {
-var panel = buildPanel();
-// Find the jailbook book element to append into
-var bookEl = document.querySelector('.jail-book-book') ||
-document.querySelector('.jail-book') ||
-document.querySelector('[class*="jail-book"]');
-if (bookEl && !document.getElementById('fsin-jailbook-autopanel')) {
-bookEl.style.position = 'relative';
-bookEl.appendChild(panel);
-console.log('[FSIN-JB] Панель авто-выдачи отображена');
-}
-} else {
-if (_panelEl && _panelEl.parentNode) {
-_panelEl.parentNode.removeChild(_panelEl);
-console.log('[FSIN-JB] Панель авто-выдачи скрыта');
-}
-}
-}
-
-// Start polling
-_pollTimer = setInterval(checkAndInject, 500);
-console.log('[FSIN-JB] ✅ Авто-выдача срока загружена (5 глав, ' +
-FSIN_RULES.reduce(function(a, c) { return a + c.rules.length; }, 0) + ' пунктов)');
 })();
-// ==================== END АВТО-ВЫДАЧА СРОКА ФСИН ====================
+// ==================== END FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
 
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
