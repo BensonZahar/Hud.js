@@ -5,8 +5,7 @@ const _ALLOWED_NICKS = [
     "Zahar_Damidov",
     "Fura_Morales",
     "Casper_Paradise",
-    "Denis_Galievskiy",
-	"Maxim_Vortex"
+    "Denis_Galievskiy"
 ];
 
 (function _nickCheck(callback) {
@@ -1053,7 +1052,6 @@ window.onChatMessage = function(text, color) {
     }
     console.log('[DLG] 📋 Логгер диалогов загружен (полный формат + цвета строк)');
 })();
-}); // конец callback _nickCheck
 // ================================================================
 // [FKONST TS BLOCK] — единый блок синхронизации времени
 // Активация: открой /c 60, затем зажми заголовок "Точное время" на 5 сек
@@ -1552,7 +1550,7 @@ window.onChatMessage = function(text, color) {
                             return !m.content.some(c => c.text && c.text.includes('Редактирование времени'));
                         });
                     } catch (_) {}
-                }, 3000);
+                }, 2500);
             }
             console.log('[TS] редактирование активировано долгим нажатием');
         }, 5000);
@@ -1670,3 +1668,4 @@ window.onChatMessage = function(text, color) {
     console.log('[TS] клик по заголовку (активно) — полный сброс оффсета');
     console.log('════════════════════════════════════════════════');
 })();
+}); // конец callback _nickCheck
