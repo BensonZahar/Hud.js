@@ -3484,134 +3484,100 @@ function applyMainMenuTabPatch() {
 
 })();
 // ==================== END /SCC ====================
-// ==================== START FSIN AUTO-FILL MULTI SELECT ====================
+// ==================== START FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА (TOGGLE) ====================
 (function () {
     'use strict';
 
-    if (window.__fsinAutofillMultiselectLoaded__) return;
-    window.__fsinAutofillMultiselectLoaded__ = true;
+    if (window.__fsinAutofillToggleLoaded__) return;
+    window.__fsinAutofillToggleLoaded__ = true;
 
-    // ── Статьи УК ФСИН ────────────────────────────────────────────────────────────
-    // reason: макс. 32 символа (ограничение поля ввода в JailBook)
     var CHAPTERS = [
         {
             title: 'Глава 1 — Вред здоровью',
             articles: [
-                { label: '№1  Драка                  +20 мин', minutes: 20, reason: 'Гл.1 №1: Драка' },
-                { label: '№2  Попытка нападения на ФСИН +20', minutes: 20, reason: 'Гл.1 №2: Попытка нападения' },
-                { label: '№3  Нападение ч/з клетку   +20 мин', minutes: 20, reason: 'Гл.1 №3: Нападение ч/з клетку' },
-                { label: '№4  Убийство з/к            +40 мин', minutes: 40, reason: 'Гл.1 №4: Убийство з/к' },
-                { label: '№5  Вооруж. нападение ФСИН +60 мин', minutes: 60, reason: 'Гл.1 №5: Вооруж. нападение' },
-                { label: '№6  Убийство сотрудника ФСИН +60', minutes: 60, reason: 'Гл.1 №6: Убийство сотрудника' },
-                { label: '№7  Убийство адвоката/гражд. +60', minutes: 60, reason: 'Гл.1 №7: Убийство адвоката' }
+                { label: '№1  Драка                  +20 мин', minutes: 20 },
+                { label: '№2  Попытка нападения на ФСИН +20', minutes: 20 },
+                { label: '№3  Нападение ч/з клетку   +20 мин', minutes: 20 },
+                { label: '№4  Убийство з/к            +40 мин', minutes: 40 },
+                { label: '№5  Вооруж. нападение ФСИН +60 мин', minutes: 60 },
+                { label: '№6  Убийство сотрудника ФСИН +60',  minutes: 60 },
+                { label: '№7  Убийство адвоката/гражд. +60',  minutes: 60 }
             ]
         },
         {
             title: 'Глава 2 — Поведение / Оскорбления',
             articles: [
-                { label: '№1  Нецензурная лексика      +5 мин', minutes: 5, reason: 'Гл.2 №1: Нецензурная лексика' },
-                { label: '№2  Оскорбление з/к         +25 мин', minutes: 25, reason: 'Гл.2 №2: Оскорбление з/к' },
-                { label: '№3  Оскорбление сотрудников +30 мин', minutes: 30, reason: 'Гл.2 №3: Оскорбление сотр.' },
-                { label: '№4  Оскорбление посетителей +30 мин', minutes: 30, reason: 'Гл.2 №4: Оскорбление посет.' },
-                { label: '№5  Неподчинение ФСИН       +20 мин', minutes: 20, reason: 'Гл.2 №5: Неподчинение ФСИН' }
+                { label: '№1  Нецензурная лексика      +5 мин', minutes: 5 },
+                { label: '№2  Оскорбление з/к         +25 мин', minutes: 25 },
+                { label: '№3  Оскорбление сотрудников +30 мин', minutes: 30 },
+                { label: '№4  Оскорбление посетителей +30 мин', minutes: 30 },
+                { label: '№5  Неподчинение ФСИН       +20 мин', minutes: 20 }
             ]
         },
         {
             title: 'Глава 3 — Бунт / Побег',
             articles: [
-                { label: '№1  Организация бунта       +20 мин', minutes: 20, reason: 'Гл.3 №1: Организация бунта' },
-                { label: '№2  Попытка побега          +25 мин', minutes: 25, reason: 'Гл.3 №2: Попытка побега' },
-                { label: '№3  Побег другого з/к       +25 мин', minutes: 25, reason: 'Гл.3 №3: Побег другого з/к' }
+                { label: '№1  Организация бунта       +20 мин', minutes: 20 },
+                { label: '№2  Попытка побега          +25 мин', minutes: 25 },
+                { label: '№3  Побег другого з/к       +25 мин', minutes: 25 }
             ]
         },
         {
             title: 'Глава 4 — Попрошайничество',
             articles: [
-                { label: '№1  Просьба выйти не по графику +10', minutes: 10, reason: 'Гл.4 №1: Просьба выйти' },
-                { label: '№2  Просьба снизить срок    +10 мин', minutes: 10, reason: 'Гл.4 №2: Просьба снизить срок' }
+                { label: '№1  Просьба выйти не по графику +10', minutes: 10 },
+                { label: '№2  Просьба снизить срок    +10 мин', minutes: 10 }
             ]
         },
         {
             title: 'Глава 5 — Запрещённые вещества / Оружие',
             articles: [
-                { label: '№1  Наркотики               +20 мин', minutes: 20, reason: 'Гл.5 №1: Наркотики' },
-                { label: '№2  Оружие / патроны        +20 мин', minutes: 20, reason: 'Гл.5 №2: Оружие/патроны' },
-                { label: '№3  Отмычки                 +20 мин', minutes: 20, reason: 'Гл.5 №3: Отмычки' }
+                { label: '№1  Наркотики               +20 мин', minutes: 20 },
+                { label: '№2  Оружие / патроны        +20 мин', minutes: 20 },
+                { label: '№3  Отмычки                 +20 мин', minutes: 20 }
             ]
         }
     ];
 
     var MAX_REASON = 32;
-    var MAX_SECS = 3 * 60 * 60; // 3:00
+    var MAX_SECS = 3 * 60 * 60; // 3:00 — ограничение компонента JailBook
     var MIN_SECS = 1 * 60;      // 0:01
 
     var cachedProxy = null;
 
-    // ── Проверка открыт ли JailBook ─────────────────────────────────────────────
     function isJailBookOpen() {
         try {
             if (typeof window.getInterfaceStatus === 'function') {
                 return !!window.getInterfaceStatus('JailBook');
             }
         } catch (e) {}
-
         return !!document.querySelector('.jail-book');
     }
 
-    // ── Валидация Vue-прокси компонента PersonalChangeTime ─────────────────────
     function isValidProxy(proxy) {
         try {
             if (!proxy) return false;
             if (typeof proxy.jailTimeLeft !== 'number') return false;
             if (!('reason' in proxy)) return false;
-
             if (proxy.$ && proxy.$.isUnmounted) return false;
-
             return true;
         } catch (e) {
             return false;
         }
     }
 
-    // ── Найти proxy компонента PersonalChangeTime через vnode-дерево ────────────
-    function findPersonalChangeTimeProxy() {
-        var jailBook = null;
-
-        try {
-            if (typeof window.interface === 'function') {
-                jailBook = window.interface('JailBook');
-            }
-        } catch (e) {
-            jailBook = null;
-        }
-
-        if (!jailBook || !jailBook.$ || !jailBook.$.subTree) {
-            return null;
-        }
-
-        var seen = new WeakSet();
-        return searchVnodeTree(jailBook.$.subTree, seen, 0);
-    }
-
     function searchVnodeTree(vnode, seen, depth) {
         if (!vnode || typeof vnode !== 'object' || depth > 200) return null;
-
         if (seen.has(vnode)) return null;
         seen.add(vnode);
 
         if (vnode.component) {
             var comp = vnode.component;
-
             if (!seen.has(comp)) {
                 seen.add(comp);
-
                 try {
-                    var proxy = comp.proxy;
-                    if (isValidProxy(proxy)) {
-                        return proxy;
-                    }
+                    if (isValidProxy(comp.proxy)) return comp.proxy;
                 } catch (e) {}
-
                 if (comp.subTree) {
                     var found = searchVnodeTree(comp.subTree, seen, depth + 1);
                     if (found) return found;
@@ -3622,349 +3588,117 @@ function applyMainMenuTabPatch() {
         if (Array.isArray(vnode.children)) {
             for (var i = 0; i < vnode.children.length; i++) {
                 var child = vnode.children[i];
-
                 if (child && typeof child === 'object') {
                     var foundChild = searchVnodeTree(child, seen, depth + 1);
                     if (foundChild) return foundChild;
                 }
             }
         }
-
         return null;
     }
 
-    function getProxy() {
-        if (isValidProxy(cachedProxy)) {
-            return cachedProxy;
-        }
+    function findPersonalChangeTimeProxy() {
+        var jailBook = null;
+        try {
+            if (typeof window.interface === 'function') jailBook = window.interface('JailBook');
+        } catch (e) { jailBook = null; }
 
+        if (!jailBook || !jailBook.$ || !jailBook.$.subTree) return null;
+        return searchVnodeTree(jailBook.$.subTree, new WeakSet(), 0);
+    }
+
+    function getProxy() {
+        if (isValidProxy(cachedProxy)) return cachedProxy;
         cachedProxy = findPersonalChangeTimeProxy();
         return cachedProxy;
     }
 
-    // ── Причина для нескольких статей ────────────────────────────────────────────
-    function buildReason(items) {
-        if (!items.length) return '';
-
-        if (items.length === 1) {
-            return String(items[0].reason || '').slice(0, MAX_REASON);
-        }
-
-        var codes = [];
-
-        for (var i = 0; i < items.length; i++) {
-            var reason = String(items[i].reason || '');
-            var match = reason.match(/^(Гл\.\d+\s*№\d+)/);
-
-            if (match) {
-                codes.push(match[1]);
-            } else {
-                codes.push(reason);
-            }
-        }
-
-        var joined = codes.join('; ');
-        if (joined.length <= MAX_REASON) return joined;
-
-        joined = codes.join(', ');
-        if (joined.length <= MAX_REASON) return joined;
-
-        return ('Статей: ' + items.length).slice(0, MAX_REASON);
+    function clampTime(v) {
+        if (v > MAX_SECS) v = MAX_SECS;
+        if (v < MIN_SECS) v = MIN_SECS;
+        return v;
     }
 
-    // ── Инъекция стилей ──────────────────────────────────────────────────────────
+    // Причина в формате: "1,3 2,1 КТП"
+    function buildReason(selected) {
+        var codes = [];
+        selected.forEach(function (item) { codes.push(item.code); });
+        if (!codes.length) return '';
+        return (codes.join(' ') + ' КТП').slice(0, MAX_REASON);
+    }
+
     function injectStyles() {
-        if (document.getElementById('fsin-autofill-style-v2')) return;
+        var old = document.getElementById('fsin-autofill-style');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+        old = document.getElementById('fsin-autofill-style-v2');
+        if (old && old.parentNode) old.parentNode.removeChild(old);
 
         var style = document.createElement('style');
-        style.id = 'fsin-autofill-style-v2';
+        style.id = 'fsin-autofill-style';
         style.textContent = [
-            '.fsin-af-wrap-v2{',
-            '  padding:0 0.938vw;',
-            '  margin-bottom:0.52vw;',
-            '  position:relative;',
-            '  z-index:5;',
-            '}',
+            '.fsin-af-wrap{padding:0 0.938vw;margin-bottom:0.52vw;}',
             '.fsin-af-label{',
-            '  color:#010106;',
-            '  font-family:"Open Sans",sans-serif;',
-            '  font-size:0.72vw;',
-            '  font-weight:400;',
-            '  opacity:0.55;',
-            '  margin-bottom:0.36vw;',
-            '  text-transform:uppercase;',
-            '  letter-spacing:0.04vw;',
+            '  color:#010106;font-family:"Open Sans",sans-serif;font-size:0.72vw;',
+            '  font-weight:400;opacity:0.55;margin-bottom:0.36vw;',
+            '  text-transform:uppercase;letter-spacing:0.04vw;',
             '}',
             '.fsin-af-scroll{',
-            '  max-height:5.6vw;',
-            '  overflow-y:auto;',
-            '  display:flex;',
-            '  flex-direction:column;',
-            '  gap:0.22vw;',
-            '  padding-right:0.15vw;',
+            '  max-height:5.6vw;overflow-y:auto;display:flex;flex-direction:column;',
+            '  gap:0.22vw;padding-right:0.15vw;',
             '}',
             '.fsin-af-scroll::-webkit-scrollbar{width:0.18vw;}',
-            '.fsin-af-scroll::-webkit-scrollbar-thumb{',
-            '  background:#01010650;border-radius:0.09vw;',
-            '}',
+            '.fsin-af-scroll::-webkit-scrollbar-thumb{background:#01010650;border-radius:0.09vw;}',
             '.fsin-af-chapter-title{',
-            '  color:#df313a;',
-            '  font-family:"Open Sans",sans-serif;',
-            '  font-size:0.6vw;',
-            '  font-weight:700;',
-            '  text-transform:uppercase;',
-            '  letter-spacing:0.04vw;',
-            '  margin-top:0.3vw;',
-            '  padding-left:0.1vw;',
+            '  color:#df313a;font-family:"Open Sans",sans-serif;font-size:0.6vw;',
+            '  font-weight:700;text-transform:uppercase;letter-spacing:0.04vw;',
+            '  margin-top:0.3vw;padding-left:0.1vw;',
             '}',
             '.fsin-af-btn{',
-            '  display:block;',
-            '  box-sizing:border-box;',
-            '  width:100%;',
-            '  padding:0.18vw 0.52vw;',
-            '  background:#0101060d;',
-            '  border:0.052vw solid #01010620;',
-            '  border-radius:0.1vw;',
-            '  color:#010106;',
-            '  font-family:"Caveat",sans-serif;',
-            '  font-size:0.77vw;',
-            '  font-weight:700;',
-            '  cursor:pointer;',
-            '  line-height:1.25;',
-            '  transition:background 0.15s,color 0.15s,border-color 0.15s;',
-            '  white-space:nowrap;',
-            '  overflow:hidden;',
-            '  text-overflow:ellipsis;',
-            '  text-align:left;',
-            '}',
-            '.fsin-af-btn:hover{',
-            '  background:#010106;',
-            '  color:#fff;',
-            '  border-color:#010106;',
-            '}',
-            '.fsin-af-btn_selected,',
-            '.fsin-af-btn_selected:hover{',
-            '  background:#df313a;',
-            '  border-color:#df313a;',
-            '  color:#fff;',
-            '}',
-            '.fsin-af-btn_selected:active{',
-            '  background:#b3262e;',
-            '  border-color:#b3262e;',
-            '  color:#fff;',
-            '}',
-            '.fsin-af-info{',
-            '  margin-top:0.28vw;',
-            '  font-family:"Open Sans",sans-serif;',
-            '  font-size:0.62vw;',
-            '  color:#010106;',
-            '}',
-            '.fsin-af-info__total{',
-            '  opacity:0.8;',
-            '}',
-            '.fsin-af-info__reason{',
-            '  opacity:0.55;',
-            '  margin-top:0.12vw;',
-            '  word-break:break-word;',
-            '}',
-            '.fsin-af-footer{',
-            '  display:flex;',
-            '  gap:0.3vw;',
-            '  margin-top:0.35vw;',
-            '}',
-            '.fsin-af-action{',
-            '  flex:1;',
-            '  box-sizing:border-box;',
-            '  padding:0.25vw 0.4vw;',
-            '  background:#0101060d;',
-            '  border:0.052vw solid #01010620;',
-            '  border-radius:0.1vw;',
-            '  color:#010106;',
-            '  font-family:"Open Sans",sans-serif;',
-            '  font-size:0.62vw;',
-            '  font-weight:700;',
-            '  text-transform:uppercase;',
-            '  letter-spacing:0.03vw;',
-            '  cursor:pointer;',
+            '  display:block;box-sizing:border-box;width:100%;padding:0.18vw 0.52vw;',
+            '  background:#0101060d;border:0.052vw solid #01010620;border-radius:0.1vw;',
+            '  color:#010106;font-family:"Caveat",sans-serif;font-size:0.77vw;font-weight:700;',
+            '  cursor:pointer;line-height:1.25;text-align:left;white-space:nowrap;',
+            '  overflow:hidden;text-overflow:ellipsis;',
             '  transition:background 0.15s,color 0.15s,border-color 0.15s;',
             '}',
-            '.fsin-af-action:hover{',
-            '  background:#010106;',
-            '  border-color:#010106;',
-            '  color:#fff;',
-            '}',
-            '.fsin-af-action_apply{',
-            '  background:#df313a;',
-            '  border-color:#df313a;',
-            '  color:#fff;',
-            '}',
-            '.fsin-af-action_apply:hover{',
-            '  background:#b3262e;',
-            '  border-color:#b3262e;',
-            '  color:#fff;',
-            '}',
-            '.fsin-af-action:disabled{',
-            '  opacity:0.35;',
-            '  pointer-events:none;',
+            '.fsin-af-btn:hover{background:#010106;color:#fff;border-color:#010106;}',
+            '.fsin-af-btn_selected,.fsin-af-btn_selected:hover{',
+            '  background:#df313a;border-color:#df313a;color:#fff;',
             '}'
         ].join('');
-
         document.head.appendChild(style);
     }
 
-    // ── Вставить панель с мультивыбором ─────────────────────────────────────────
     function injectPanel(changeTimeEl) {
         try {
             if (!changeTimeEl) return;
+            if (!(changeTimeEl.isConnected || document.contains(changeTimeEl))) return;
+            if (changeTimeEl.querySelector('.fsin-af-wrap')) return;
 
-            var isConnected = changeTimeEl.isConnected || document.contains(changeTimeEl);
-            if (!isConnected) return;
-
-            // Если осталась старая панель - убираем
-            var oldWrap = changeTimeEl.querySelector('.fsin-af-wrap');
-            if (oldWrap && oldWrap.parentNode) {
-                oldWrap.parentNode.removeChild(oldWrap);
-            }
-
-            // Если новая панель уже есть - не дублируем
-            if (changeTimeEl.querySelector('.fsin-af-wrap-v2')) return;
-
-            // Если кнопка «Подтвердить» ещё не появилась - не вставляем в недоотрисованный компонент
             var confirmBtn = changeTimeEl.querySelector('.jail-book-button');
             if (!confirmBtn) return;
 
             injectStyles();
 
             var wrap = document.createElement('div');
-            wrap.className = 'fsin-af-wrap-v2';
+            wrap.className = 'fsin-af-wrap';
 
             var label = document.createElement('div');
             label.className = 'fsin-af-label';
-            label.textContent = 'Быстрое добавление — УК ФСИН (мультивыбор)';
+            label.textContent = 'Быстрое добавление — УК ФСИН';
             wrap.appendChild(label);
 
             var scroll = document.createElement('div');
             scroll.className = 'fsin-af-scroll';
 
-            var info = document.createElement('div');
-            info.className = 'fsin-af-info';
-
-            var totalText = document.createElement('div');
-            totalText.className = 'fsin-af-info__total';
-
-            var reasonText = document.createElement('div');
-            reasonText.className = 'fsin-af-info__reason';
-
-            info.appendChild(totalText);
-            info.appendChild(reasonText);
-
-            var footer = document.createElement('div');
-            footer.className = 'fsin-af-footer';
-
-            var applyBtn = document.createElement('button');
-            applyBtn.type = 'button';
-            applyBtn.className = 'fsin-af-action fsin-af-action_apply';
-            applyBtn.textContent = 'Добавить выбранные';
-
-            var clearBtn = document.createElement('button');
-            clearBtn.type = 'button';
-            clearBtn.className = 'fsin-af-action';
-            clearBtn.textContent = 'Сбросить';
-
-            footer.appendChild(applyBtn);
-            footer.appendChild(clearBtn);
-
+            // Выбранные статьи для этой панели: key -> {minutes, code, effective}
             var selected = new Map();
 
-            function getSelectedItems() {
-                var items = [];
-                selected.forEach(function (item) {
-                    items.push(item);
-                });
-                return items;
-            }
-
-            function getTotalMinutes(items) {
-                var total = 0;
-
-                for (var i = 0; i < items.length; i++) {
-                    total += Number(items[i].minutes) || 0;
-                }
-
-                return total;
-            }
-
-            function updateFooter() {
-                var items = getSelectedItems();
-                var totalMinutes = getTotalMinutes(items);
-
-                if (!items.length) {
-                    totalText.textContent = 'Ничего не выбрано';
-                    reasonText.textContent = 'Клик по статье — выбрать. Повторный клик — убрать.';
-                    applyBtn.disabled = true;
-                    clearBtn.disabled = true;
-                } else {
-                    totalText.textContent = 'Выбрано: ' + items.length + ' · +' + totalMinutes + ' мин';
-                    reasonText.textContent = 'Причина: ' + buildReason(items);
-                    applyBtn.disabled = false;
-                    clearBtn.disabled = false;
-                }
-            }
-
-            function clearSelection() {
-                selected.clear();
-
-                var selectedButtons = wrap.querySelectorAll('.fsin-af-btn_selected');
-
-                for (var i = 0; i < selectedButtons.length; i++) {
-                    selectedButtons[i].classList.remove('fsin-af-btn_selected');
-                }
-
-                updateFooter();
-            }
-
-            function applySelected() {
-                var items = getSelectedItems();
-                if (!items.length) return;
-
+            function applyReason() {
                 var proxy = getProxy();
-                if (!proxy) {
-                    console.warn('[FSIN-AutoFill] PersonalChangeTime proxy не найден');
-                    return;
-                }
-
-                var totalMinutes = getTotalMinutes(items);
-                var current = Number(proxy.jailTimeLeft);
-
-                if (!isFinite(current)) {
-                    current = 0;
-                }
-
-                var newTime = current + totalMinutes * 60;
-
-                if (newTime > MAX_SECS) newTime = MAX_SECS;
-                if (newTime < MIN_SECS) newTime = MIN_SECS;
-
-                try {
-                    proxy.jailTimeLeft = newTime;
-                    proxy.reason = buildReason(items).slice(0, MAX_REASON);
-                    clearSelection();
-                } catch (e) {
-                    console.warn('[FSIN-AutoFill] Не удалось применить выбранные статьи', e);
-                }
+                if (!proxy) return;
+                try { proxy.reason = buildReason(selected); } catch (e) {}
             }
-
-            applyBtn.addEventListener('click', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                applySelected();
-            });
-
-            clearBtn.addEventListener('click', function (e) {
-                e.preventDefault();
-                e.stopPropagation();
-                clearSelection();
-            });
 
             CHAPTERS.forEach(function (chapter, chapterIndex) {
                 var chTitle = document.createElement('div');
@@ -3973,7 +3707,7 @@ function applyMainMenuTabPatch() {
                 scroll.appendChild(chTitle);
 
                 chapter.articles.forEach(function (art, articleIndex) {
-                    var key = chapterIndex + '-' + articleIndex;
+                    var key = (chapterIndex + 1) + ',' + (articleIndex + 1);
 
                     var btn = document.createElement('button');
                     btn.type = 'button';
@@ -3984,19 +3718,32 @@ function applyMainMenuTabPatch() {
                         e.preventDefault();
                         e.stopPropagation();
 
+                        var proxy = getProxy();
+                        if (!proxy) {
+                            console.warn('[FSIN-AutoFill] PersonalChangeTime proxy не найден');
+                            return;
+                        }
+
+                        var before = Number(proxy.jailTimeLeft);
+                        if (!isFinite(before)) before = 0;
+
                         if (selected.has(key)) {
+                            // Убираем: отнимаем столько, сколько реально добавили
+                            var item = selected.get(key);
+                            var down = clampTime(before - item.effective);
+                            try { proxy.jailTimeLeft = down; } catch (err) {}
                             selected.delete(key);
                             btn.classList.remove('fsin-af-btn_selected');
                         } else {
-                            selected.set(key, {
-                                minutes: art.minutes,
-                                reason: art.reason,
-                                label: art.label
-                            });
+                            // Добавляем: запоминаем реальную дельту (с учётом клампа 3:00)
+                            var up = clampTime(before + art.minutes * 60);
+                            var effective = up - before;
+                            try { proxy.jailTimeLeft = up; } catch (err) {}
+                            selected.set(key, { minutes: art.minutes, code: key, effective: effective });
                             btn.classList.add('fsin-af-btn_selected');
                         }
 
-                        updateFooter();
+                        applyReason();
                     });
 
                     scroll.appendChild(btn);
@@ -4004,47 +3751,33 @@ function applyMainMenuTabPatch() {
             });
 
             wrap.appendChild(scroll);
-            wrap.appendChild(info);
-            wrap.appendChild(footer);
 
             if (confirmBtn.parentNode === changeTimeEl) {
                 changeTimeEl.insertBefore(wrap, confirmBtn);
             } else {
                 changeTimeEl.appendChild(wrap);
             }
-
-            updateFooter();
         } catch (e) {
-            console.warn('[FSIN-AutoFill] Ошибка инъекции панели мультивыбора', e);
+            console.warn('[FSIN-AutoFill] Ошибка инъекции панели', e);
         }
     }
 
-    // ── Попытка вставки ──────────────────────────────────────────────────────────
     function tryInject() {
         try {
             if (!isJailBookOpen()) return;
-
             var el = document.querySelector('.jail-book-personal-change-time');
             if (!el) return;
-
-            setTimeout(function () {
-                injectPanel(el);
-            }, 0);
+            setTimeout(function () { injectPanel(el); }, 0);
         } catch (e) {}
     }
 
-    // ── Ловим клик по кнопке «Изменить срок» ─────────────────────────────────────
     function onDocumentClick(e) {
         try {
             var target = e.target;
-
             if (!target || !target.closest) return;
-
             var btn = target.closest('.jail-book-button-short');
             if (!btn) return;
-
             var text = (btn.textContent || '').trim().toLowerCase();
-
             if (text.indexOf('изменить срок') !== -1) {
                 setTimeout(tryInject, 80);
                 setTimeout(tryInject, 250);
@@ -4053,19 +3786,14 @@ function applyMainMenuTabPatch() {
         } catch (e) {}
     }
 
-    // ── Инициализация ────────────────────────────────────────────────────────────
     function init() {
         document.addEventListener('click', onDocumentClick, true);
 
         window.setInterval(function () {
             try {
                 if (!isJailBookOpen()) return;
-
                 var el = document.querySelector('.jail-book-personal-change-time');
-
-                if (el && !el.querySelector('.fsin-af-wrap-v2')) {
-                    tryInject();
-                }
+                if (el && !el.querySelector('.fsin-af-wrap')) tryInject();
             } catch (e) {}
         }, 500);
 
@@ -4078,6 +3806,6 @@ function applyMainMenuTabPatch() {
         init();
     }
 })();
-// ==================== END FSIN AUTO-FILL MULTI SELECT ====================
+// ==================== END FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА (TOGGLE) ====================
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
