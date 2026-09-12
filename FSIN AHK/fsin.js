@@ -3490,6 +3490,27 @@ function applyMainMenuTabPatch() {
 if (window.__fsinAutofillLoaded__) return;
 window.__fsinAutofillLoaded__ = true;
 
+// ── SVG-иконки (вместо эмодзи — в CEF они не рендерятся) ────────────────────
+// Штриховые, «чернильные»: round-cap/round-join = мягкий рукописный вид.
+// Цвет наследуется через currentColor — управляется CSS родителя.
+var _SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"';
+var ICONS = {
+    // карандаш (поиск)
+    pencil: _SVG + ' stroke-width="1.8">' +
+        '<path d="M16.9 3.5a2.45 2.45 0 0 1 3.5 3.5L8.1 19.3l-4.7 1.3 1.3-4.7Z"/>' +
+        '<path d="m14.7 5.7 3.5 3.5"/>' +
+        '<path d="m5.6 18.4 2.5-2.5"/>' +
+        '</svg>',
+    // крестик (очистить поиск)
+    cross: _SVG + ' stroke-width="2.6">' +
+        '<path d="M6.4 6.4l11.2 11.2M17.6 6.4L6.4 17.6"/>' +
+        '</svg>',
+    // шеврон вниз (спойлер главы, как spoiler-arrow.svg книги)
+    arrow: _SVG + ' stroke-width="2.4">' +
+        '<path d="M5.4 8.8l6.6 6.4 6.6-6.4"/>' +
+        '</svg>'
+};
+
 // ── Статьи УК ФСИН (ПОЛНЫЕ ФОРМУЛИРОВКИ) ──────────────────────────────────────
 var CHAPTERS = [
     {
@@ -3702,11 +3723,11 @@ function applySearch(query) {
         });
 
         if (!query) {
-            // Пустой запрос: показываем все главы, сворачиваем все
+            // Пустой запрос: все главы видны, все свёрнуты
             chEl.style.display = '';
             chEl.classList.remove('fsin-leaf__chapter--open');
         } else if (matches > 0) {
-            // Есть совпадения: показываем главу и раскрываем
+            // Есть совпадения: глава видна и раскрыта
             chEl.style.display = '';
             chEl.classList.add('fsin-leaf__chapter--open');
             totalMatches += matches;
@@ -3766,19 +3787,19 @@ function injectStyles() {
         '.fsin-leaf__subtitle{font-size:0.52vw; color:rgba(1,1,6,0.45); text-transform:uppercase; letter-spacing:0.06vw; margin-top:0.12vw;}',
         '.fsin-leaf__header::after{content:""; display:block; margin:0.4vw auto 0; width:60%; height:0.09vw; background:#df313a; border-radius:0.05vw; opacity:0.7;}',
 
-        /* ═══ поиск «карандашом» ═══ */
+        /* ═══ поиск «карандашом» (SVG-иконки) ═══ */
         '.fsin-leaf__search{',
         '  display:flex; align-items:center; gap:0.3vw;',
         '  padding:0.32vw 0.8vw 0.26vw;',
         '  border-bottom:0.05vw dashed rgba(1,1,6,0.25);',
         '}',
         '.fsin-leaf__search-icon{',
-        '  flex:0 0 auto;',
-        '  color:rgba(1,1,6,0.45);',
-        '  font-size:0.78vw;',
-        '  transform:rotate(-18deg);',
+        '  flex:0 0 auto; display:flex; align-items:center;',
+        '  color:rgba(1,1,6,0.5);',
+        '  transform:rotate(-12deg);',
         '  margin-top:-0.05vw;',
         '}',
+        '.fsin-leaf__search-icon svg{width:0.85vw; height:0.85vw; display:block;}',
         '.fsin-leaf__search-input{',
         '  flex:1 1 auto; min-width:0;',
         '  background:transparent; border:none; outline:none;',
@@ -3788,24 +3809,17 @@ function injectStyles() {
         '  border-bottom:0.04vw dashed rgba(1,1,6,0.18);',
         '  padding:0 0 0.06vw;',
         '}',
-        '.fsin-leaf__search-input::placeholder{',
-        '  color:rgba(1,1,6,0.35);',
-        '  font-style:italic;',
-        '}',
-        '.fsin-leaf__search-input:focus{',
-        '  border-bottom-color:#df313a;',
-        '}',
+        '.fsin-leaf__search-input::placeholder{color:rgba(1,1,6,0.35); font-style:italic;}',
+        '.fsin-leaf__search-input:focus{border-bottom-color:#df313a;}',
         '.fsin-leaf__search-clear{',
-        '  flex:0 0 auto; display:none;',
-        '  cursor:pointer;',
-        '  color:rgba(1,1,6,0.4);',
-        '  font-size:0.6vw; font-weight:700;',
-        '  padding:0.12vw 0.2vw;',
-        '  border-radius:50%;',
+        '  flex:0 0 auto; display:none; align-items:center; justify-content:center;',
+        '  cursor:pointer; color:rgba(1,1,6,0.4);',
+        '  padding:0.1vw; border-radius:50%;',
         '  transition:color 0.15s;',
         '}',
-        '.fsin-leaf__search-clear--visible{display:block;}',
+        '.fsin-leaf__search-clear--visible{display:flex;}',
         '.fsin-leaf__search-clear:hover{color:#df313a;}',
+        '.fsin-leaf__search-clear svg{width:0.55vw; height:0.55vw; display:block;}',
 
         /* тело со спойлерами глав */
         '.fsin-leaf__body{flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:0.4vw 0.55vw 0.6vw; min-height:0;}',
@@ -3815,9 +3829,7 @@ function injectStyles() {
 
         /* «ничего не найдено» */
         '.fsin-leaf__empty{',
-        '  display:none;',
-        '  padding:1vw 0.5vw;',
-        '  text-align:center;',
+        '  display:none; padding:1vw 0.5vw; text-align:center;',
         '  font-family:"Caveat",var(--fallback-font);',
         '  font-size:0.95vw; font-weight:700;',
         '  color:rgba(1,1,6,0.4);',
@@ -3830,6 +3842,7 @@ function injectStyles() {
         '.fsin-leaf__chapter-head{display:flex; align-items:flex-start; gap:0.3vw; padding:0.28vw 0.2vw; cursor:pointer; position:relative;}',
         '.fsin-leaf__chapter-head:hover .fsin-leaf__chapter-title{color:#df313a;}',
         '.fsin-leaf__chapter-title{flex:1 1 auto; font-family:"Caveat",var(--fallback-font); font-size:0.95vw; font-weight:700; color:#010106; line-height:1.2; transition:color 0.15s;}',
+        /* красный счётчик — как у спойлеров книги */
         '.fsin-leaf__chapter-counter{',
         '  flex:0 0 auto; min-width:0.95vw; height:0.95vw; padding:0 0.15vw; box-sizing:border-box;',
         '  display:none; align-items:center; justify-content:center;',
@@ -3838,12 +3851,18 @@ function injectStyles() {
         '  margin-top:0.05vw;',
         '}',
         '.fsin-leaf__chapter-counter--visible{display:flex;}',
-        '.fsin-leaf__chapter-arrow{flex:0 0 auto; color:#01010699; font-size:0.6vw; line-height:1; margin-top:0.18vw; transform:rotate(-90deg); transition:transform 0.2s;}',
+        /* SVG-шеврон вместо ▼ */
+        '.fsin-leaf__chapter-arrow{',
+        '  flex:0 0 auto; display:flex; align-items:center; justify-content:center;',
+        '  color:#01010699; margin-top:0.12vw;',
+        '  transform:rotate(-90deg); transition:transform 0.2s;',
+        '}',
+        '.fsin-leaf__chapter-arrow svg{width:0.6vw; height:0.6vw; display:block;}',
         '.fsin-leaf__chapter--open .fsin-leaf__chapter-arrow{transform:rotate(0deg);}',
         '.fsin-leaf__chapter-body{display:none; padding:0.1vw 0 0.3vw;}',
         '.fsin-leaf__chapter--open .fsin-leaf__chapter-body{display:block;}',
 
-        /* статья — полный текст в несколько строк */
+        /* статья — полный текст */
         '.fsin-leaf__article{',
         '  display:flex; align-items:flex-start; gap:0.3vw;',
         '  width:100%; box-sizing:border-box;',
@@ -3868,9 +3887,12 @@ function injectStyles() {
         '.fsin-leaf__article--selected{background:rgba(223,49,58,0.1); border-color:#df313a; padding-left:0.8vw;}',
         '.fsin-leaf__article--selected:hover{background:rgba(223,49,58,0.18);}',
         '.fsin-leaf__article--selected .fsin-leaf__article-num{color:#df313a;}',
+        /* SVG-галочка вместо ✓ (data-URI, цвет #df313a зашит) */
         '.fsin-leaf__article--selected::before{',
-        '  content:"✓"; position:absolute; left:0.14vw; top:0.28vw;',
-        '  font-family:"Open Sans",sans-serif; font-size:0.6vw; font-weight:700; color:#df313a;',
+        '  content:""; position:absolute; left:0.12vw; top:0.3vw;',
+        '  width:0.55vw; height:0.55vw;',
+        '  background-image:url(\'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23df313a" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.6l5.4 5.4L20 6.4"/></svg>\');',
+        '  background-size:contain; background-repeat:no-repeat; background-position:center;',
         '}',
 
         /* итог */
@@ -3885,16 +3907,16 @@ function injectStyles() {
         '  .fsin-leaf__clip{width:4.5vw; height:1vw; top:-0.45vw;}',
         '  .fsin-leaf__title{font-size:1.8vw;}',
         '  .fsin-leaf__subtitle{font-size:0.7vw;}',
-        '  .fsin-leaf__search-icon{font-size:1.05vw;}',
+        '  .fsin-leaf__search-icon svg{width:1.15vw; height:1.15vw;}',
         '  .fsin-leaf__search-input{font-size:1.2vw;}',
-        '  .fsin-leaf__search-clear{font-size:0.85vw;}',
+        '  .fsin-leaf__search-clear svg{width:0.8vw; height:0.8vw;}',
         '  .fsin-leaf__empty{font-size:1.25vw;}',
         '  .fsin-leaf__chapter-title{font-size:1.3vw;}',
         '  .fsin-leaf__chapter-counter{min-width:1.3vw; height:1.3vw; font-size:0.95vw;}',
-        '  .fsin-leaf__chapter-arrow{font-size:0.85vw;}',
+        '  .fsin-leaf__chapter-arrow svg{width:0.85vw; height:0.85vw;}',
         '  .fsin-leaf__article{font-size:1.1vw; padding:0.3vw 0.5vw;}',
         '  .fsin-leaf__article--selected{padding-left:1.1vw;}',
-        '  .fsin-leaf__article--selected::before{font-size:0.85vw; top:0.35vw;}',
+        '  .fsin-leaf__article--selected::before{width:0.8vw; height:0.8vw; top:0.38vw;}',
         '  .fsin-leaf__article-min{font-size:0.7vw;}',
         '  .fsin-leaf__total{font-size:1.25vw;}',
         '  .fsin-leaf__reason{font-size:0.75vw;}',
@@ -3928,13 +3950,13 @@ function buildLeaf() {
     header.appendChild(subtitle);
     el.appendChild(header);
 
-    // ── поиск «карандашом» ──
+    // ── поиск «карандашом» (SVG) ──
     var searchWrap = document.createElement('div');
     searchWrap.className = 'fsin-leaf__search';
 
     var searchIcon = document.createElement('div');
     searchIcon.className = 'fsin-leaf__search-icon';
-    searchIcon.textContent = '✎';
+    searchIcon.innerHTML = ICONS.pencil;   // SVG-карандаш вместо ✎
 
     searchInputEl = document.createElement('input');
     searchInputEl.type = 'text';
@@ -3944,7 +3966,7 @@ function buildLeaf() {
 
     searchClearEl = document.createElement('div');
     searchClearEl.className = 'fsin-leaf__search-clear';
-    searchClearEl.textContent = '✕';
+    searchClearEl.innerHTML = ICONS.cross; // SVG-крестик вместо ✕
     searchClearEl.title = 'Очистить поиск';
     searchClearEl.addEventListener('click', function () {
         clearSearch();
@@ -3999,7 +4021,7 @@ function buildLeaf() {
 
         var arrow = document.createElement('div');
         arrow.className = 'fsin-leaf__chapter-arrow';
-        arrow.textContent = '▼';
+        arrow.innerHTML = ICONS.arrow;       // SVG-шеврон вместо ▼
 
         head.appendChild(chTitle);
         head.appendChild(counter);
@@ -4128,7 +4150,7 @@ function showLeaf() {
         b.classList.remove('fsin-leaf__article--selected');
     });
 
-    // ВСЕ главы свёрнуты, видимость статей и глав восстановлена
+    // ВСЕ главы свёрнуты, видимость восстановлена
     el.querySelectorAll('.fsin-leaf__chapter').forEach(function (ch) {
         ch.classList.remove('fsin-leaf__chapter--open');
         ch.style.display = '';
@@ -4152,7 +4174,6 @@ function hideLeaf() {
     if (!_leafVisible || !leafEl) return;
     leafEl.classList.remove('fsin-leaf--visible');
     _leafVisible = false;
-    // снимаем фокус ввода чтобы не «залип» при скрытии листика
     try {
         if (searchInputEl && document.activeElement === searchInputEl) searchInputEl.blur();
     } catch (e) {}
