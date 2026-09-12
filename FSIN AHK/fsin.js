@@ -3484,13 +3484,15 @@ function applyMainMenuTabPatch() {
 
 })();
 // ==================== END /SCC ====================
-// ==================== START FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
+// ==================== START FSIN AUTO-FILL v2 / АВТОВЫДАЧА СРОКА ====================
 (function () {
     'use strict';
 
-    // ── Статьи УК ФСИН ────────────────────────────────────────────────────────────
-    // reason: макс. 32 символа (ограничение поля ввода в JailBook)
-    const CHAPTERS = [
+    if (window.__fsinAutoFillV2) return;
+    window.__fsinAutoFillV2 = true;
+
+    // ── Статьи УК ФСИН (reason ≤ 32 симв.) ─────────────────────────────────────
+    var CHAPTERS = [
         {
             title: 'Глава 1 — Вред здоровью',
             articles: [
@@ -3500,7 +3502,7 @@ function applyMainMenuTabPatch() {
                 { label: '№4  Убийство з/к            +40 мин', minutes: 40, reason: 'Гл.1 №4: Убийство з/к' },
                 { label: '№5  Вооруж. нападение ФСИН +60 мин', minutes: 60, reason: 'Гл.1 №5: Вооруж. нападение' },
                 { label: '№6  Убийство сотрудника ФСИН +60',  minutes: 60, reason: 'Гл.1 №6: Убийство сотрудника' },
-                { label: '№7  Убийство адвоката/гражд. +60',  minutes: 60, reason: 'Гл.1 №7: Убийство адвоката' },
+                { label: '№7  Убийство адвоката/гражд. +60',  minutes: 60, reason: 'Гл.1 №7: Убийство адвоката' }
             ]
         },
         {
@@ -3510,7 +3512,7 @@ function applyMainMenuTabPatch() {
                 { label: '№2  Оскорбление з/к         +25 мин', minutes: 25, reason: 'Гл.2 №2: Оскорбление з/к' },
                 { label: '№3  Оскорбление сотрудников +30 мин', minutes: 30, reason: 'Гл.2 №3: Оскорбление сотр.' },
                 { label: '№4  Оскорбление посетителей +30 мин', minutes: 30, reason: 'Гл.2 №4: Оскорбление посет.' },
-                { label: '№5  Неподчинение ФСИН       +20 мин', minutes: 20, reason: 'Гл.2 №5: Неподчинение ФСИН' },
+                { label: '№5  Неподчинение ФСИН       +20 мин', minutes: 20, reason: 'Гл.2 №5: Неподчинение ФСИН' }
             ]
         },
         {
@@ -3518,14 +3520,14 @@ function applyMainMenuTabPatch() {
             articles: [
                 { label: '№1  Организация бунта       +20 мин', minutes: 20, reason: 'Гл.3 №1: Организация бунта' },
                 { label: '№2  Попытка побега          +25 мин', minutes: 25, reason: 'Гл.3 №2: Попытка побега' },
-                { label: '№3  Побег другого з/к       +25 мин', minutes: 25, reason: 'Гл.3 №3: Побег другого з/к' },
+                { label: '№3  Побег другого з/к       +25 мин', minutes: 25, reason: 'Гл.3 №3: Побег другого з/к' }
             ]
         },
         {
             title: 'Глава 4 — Попрошайничество',
             articles: [
                 { label: '№1  Просьба выйти не по графику +10', minutes: 10, reason: 'Гл.4 №1: Просьба выйти' },
-                { label: '№2  Просьба снизить срок    +10 мин', minutes: 10, reason: 'Гл.4 №2: Просьба снизить срок' },
+                { label: '№2  Просьба снизить срок    +10 мин', minutes: 10, reason: 'Гл.4 №2: Просьба снизить срок' }
             ]
         },
         {
@@ -3533,184 +3535,147 @@ function applyMainMenuTabPatch() {
             articles: [
                 { label: '№1  Наркотики               +20 мин', minutes: 20, reason: 'Гл.5 №1: Наркотики' },
                 { label: '№2  Оружие / патроны        +20 мин', minutes: 20, reason: 'Гл.5 №2: Оружие/патроны' },
-                { label: '№3  Отмычки                 +20 мин', minutes: 20, reason: 'Гл.5 №3: Отмычки' },
+                { label: '№3  Отмычки                 +20 мин', minutes: 20, reason: 'Гл.5 №3: Отмычки' }
             ]
         }
     ];
 
-    // ── Получить reactive-данные Vue-компонента PersonalChangeTime ────────────────
-    function getVueData(el) {
-        // Vue 3: корневой элемент компонента хранит ссылку на internal instance
-        // Проверяем сам элемент и до 4 уровней вверх (на всякий случай)
-        let node = el;
-        for (var depth = 0; depth < 5; depth++) {
+    // ── Найти реактивный прокси Vue-компонента PersonalChangeTime ──────────────
+    function getVueProxy(el) {
+        var node = el;
+        for (var depth = 0; depth < 6; depth++) {
             if (!node) break;
-            var keys = Object.keys(node);
-            for (var ki = 0; ki < keys.length; ki++) {
-                var k = keys[ki];
-                if (!k.startsWith('__vue')) continue;
-                var inst = node[k];
-                if (!inst || typeof inst !== 'object') continue;
-                // Options API: данные лежат в inst.data
+
+            // Vue 3 ставит __vueParentComponent на корневой DOM-элемент
+            var inst = node.__vueParentComponent;
+            if (inst) {
+                // proxy — это «this» компонента, запись через него реактивна
+                if (inst.proxy && typeof inst.proxy.jailTimeLeft === 'number' &&
+                    typeof inst.proxy.reason === 'string') {
+                    return inst.proxy;
+                }
+                // запасной путь: инстанс хранит data как реактивный объект
                 if (inst.data && typeof inst.data.jailTimeLeft === 'number') {
                     return inst.data;
                 }
-                // Альтернатива: через proxy (ctx)
-                if (inst.proxy && typeof inst.proxy.jailTimeLeft === 'number') {
-                    return inst.proxy;
+                // setupState / ctx
+                if (inst.setupState && typeof inst.setupState.jailTimeLeft === 'number') {
+                    return inst.setupState;
                 }
                 if (inst.ctx && typeof inst.ctx.jailTimeLeft === 'number') {
                     return inst.ctx;
                 }
             }
+
+            // Перебираем ВСЕ свойства __vue* на случай нестандартного имени
+            try {
+                var keys = Object.keys(node);
+                for (var i = 0; i < keys.length; i++) {
+                    if (keys[i].charAt(0) === '_' && keys[i].indexOf('vue') !== -1) {
+                        var obj = node[keys[i]];
+                        if (obj && typeof obj === 'object') {
+                            if (obj.proxy && typeof obj.proxy.jailTimeLeft === 'number') return obj.proxy;
+                            if (obj.data && typeof obj.data.jailTimeLeft === 'number') return obj.data;
+                            if (obj.ctx && typeof obj.ctx.jailTimeLeft === 'number') return obj.ctx;
+                        }
+                    }
+                }
+            } catch (e) { /* ignore */ }
+
             node = node.parentElement;
         }
-        console.warn('[FSIN-AutoFill] Не удалось найти Vue-компонент PersonalChangeTime');
         return null;
     }
 
-    // ── Применить статью: добавить минуты и вставить причину ──────────────────────
+    // ── Применить статью ────────────────────────────────────────────────────────
     function applyArticle(changeTimeEl, minutes, reason) {
-        var data = getVueData(changeTimeEl);
-        if (!data) return;
+        try {
+            var proxy = getVueProxy(changeTimeEl);
+            if (!proxy) {
+                console.warn('[FSIN-AutoFill] Не удалось найти Vue-компонент');
+                return;
+            }
 
-        var addSecs  = minutes * 60;
-        var MAX_SECS = 3 * 60 * 60; // 3:00 — максимум из компонента (Wt = "3:00")
-        var MIN_SECS = 1 * 60;      // 0:01 — минимум из компонента (Gt = "0:01")
+            var addSecs  = minutes * 60;
+            var MAX_SECS = 3 * 60 * 60;   // 3:00 — максимум (Wt в коде)
+            var MIN_SECS = 1 * 60;         // 0:01 — минимум  (Gt в коде)
 
-        var newTime = data.jailTimeLeft + addSecs;
-        if (newTime > MAX_SECS) newTime = MAX_SECS;
-        if (newTime < MIN_SECS) newTime = MIN_SECS;
+            var newTime = proxy.jailTimeLeft + addSecs;
+            if (newTime > MAX_SECS) newTime = MAX_SECS;
+            if (newTime < MIN_SECS) newTime = MIN_SECS;
 
-        data.jailTimeLeft = newTime;
-        data.reason       = reason; // Vue обновит input + снимет disabled с кнопки
+            proxy.jailTimeLeft = newTime;
+            proxy.reason       = reason;
+
+            console.log('[FSIN-AutoFill] +' + minutes + ' мин → ' +
+                Math.floor(newTime / 3600) + ':' +
+                String(Math.floor((newTime % 3600) / 60)).padStart(2, '0') +
+                ' | ' + reason);
+        } catch (err) {
+            console.error('[FSIN-AutoFill] Ошибка применения:', err);
+        }
     }
 
-    // ── Инъекция стилей (один раз) ───────────────────────────────────────────────
+    // ── Стили (один раз) ────────────────────────────────────────────────────────
     function injectStyles() {
         if (document.getElementById('fsin-autofill-style')) return;
-        var style = document.createElement('style');
-        style.id  = 'fsin-autofill-style';
-        style.textContent = [
-            '.fsin-af-wrap{',
-            '  padding:0 0.938vw;',
-            '  margin-bottom:0.52vw;',
-            '}',
-            '.fsin-af-label{',
-            '  color:#010106;',
-            '  font-family:"Open Sans",sans-serif;',
-            '  font-size:0.72vw;',
-            '  font-weight:400;',
-            '  opacity:0.55;',
-            '  margin-bottom:0.36vw;',
-            '  text-transform:uppercase;',
-            '  letter-spacing:0.04vw;',
-            '}',
-            /* Прокручиваемый контейнер — высота ~5.5 vw (~2.5 кнопки видно) */
-            '.fsin-af-scroll{',
-            '  max-height:5.6vw;',
-            '  overflow-y:auto;',
-            '  display:flex;',
-            '  flex-direction:column;',
-            '  gap:0.22vw;',
-            '  padding-right:0.15vw;',
-            '}',
-            '.fsin-af-scroll::-webkit-scrollbar{width:0.18vw;}',
-            '.fsin-af-scroll::-webkit-scrollbar-thumb{',
-            '  background:#01010650;border-radius:0.09vw;',
-            '}',
-            '.fsin-af-chapter-title{',
-            '  color:#df313a;',
-            '  font-family:"Open Sans",sans-serif;',
-            '  font-size:0.6vw;',
-            '  font-weight:700;',
-            '  text-transform:uppercase;',
-            '  letter-spacing:0.04vw;',
-            '  margin-top:0.3vw;',
-            '  padding-left:0.1vw;',
-            '}',
-            '.fsin-af-btn{',
-            '  all:unset;',
-            '  display:block;',
-            '  box-sizing:border-box;',
-            '  width:100%;',
-            '  padding:0.18vw 0.52vw;',
-            '  background:#0101060d;',
-            '  border:0.052vw solid #01010620;',
-            '  border-radius:0.1vw;',
-            '  color:#010106;',
-            '  font-family:"Caveat",sans-serif;',
-            '  font-size:0.77vw;',
-            '  font-weight:700;',
-            '  cursor:pointer;',
-            '  line-height:1.25;',
-            '  transition:background 0.15s,color 0.15s,border-color 0.15s;',
-            '  white-space:nowrap;',
-            '  overflow:hidden;',
-            '  text-overflow:ellipsis;',
-            '}',
-            '.fsin-af-btn:hover{',
-            '  background:#010106;',
-            '  color:#fff;',
-            '  border-color:#010106;',
-            '}',
-            '.fsin-af-btn:active{',
-            '  background:#df313a;',
-            '  border-color:#df313a;',
-            '  color:#fff;',
-            '}',
-        ].join('');
-        document.head.appendChild(style);
+        var s = document.createElement('style');
+        s.id = 'fsin-autofill-style';
+        s.textContent =
+            '.fsin-af-wrap{padding:0 0.938vw;margin-bottom:0.52vw}' +
+            '.fsin-af-label{color:#010106;font-family:"Open Sans",sans-serif;font-size:0.72vw;font-weight:400;opacity:0.55;margin-bottom:0.36vw;text-transform:uppercase;letter-spacing:0.04vw}' +
+            '.fsin-af-scroll{max-height:5.6vw;overflow-y:auto;display:flex;flex-direction:column;gap:0.22vw;padding-right:0.15vw}' +
+            '.fsin-af-scroll::-webkit-scrollbar{width:0.18vw}' +
+            '.fsin-af-scroll::-webkit-scrollbar-thumb{background:#01010650;border-radius:0.09vw}' +
+            '.fsin-af-chapter-title{color:#df313a;font-family:"Open Sans",sans-serif;font-size:0.6vw;font-weight:700;text-transform:uppercase;letter-spacing:0.04vw;margin-top:0.3vw;padding-left:0.1vw}' +
+            '.fsin-af-btn{all:unset;display:block;box-sizing:border-box;width:100%;padding:0.18vw 0.52vw;background:#0101060d;border:0.052vw solid #01010620;border-radius:0.1vw;color:#010106;font-family:"Caveat",sans-serif;font-size:0.77vw;font-weight:700;cursor:pointer;line-height:1.25;transition:background .15s,color .15s,border-color .15s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+            '.fsin-af-btn:hover{background:#010106;color:#fff;border-color:#010106}' +
+            '.fsin-af-btn:active{background:#df313a;border-color:#df313a;color:#fff}';
+        document.head.appendChild(s);
     }
 
-    // ── Вставить панель кнопок в компонент ────────────────────────────────────────
+    // ── Вставить панель ─────────────────────────────────────────────────────────
     function injectPanel(changeTimeEl) {
-        if (changeTimeEl.querySelector('.fsin-af-wrap')) return; // уже вставлено
-
+        if (changeTimeEl.querySelector('.fsin-af-wrap')) return;
         injectStyles();
 
-        // Обёртка
         var wrap = document.createElement('div');
         wrap.className = 'fsin-af-wrap';
 
-        // Заголовок панели
         var label = document.createElement('div');
         label.className = 'fsin-af-label';
         label.textContent = 'Быстрое добавление — УК ФСИН';
         wrap.appendChild(label);
 
-        // Скроллируемый контейнер
         var scroll = document.createElement('div');
         scroll.className = 'fsin-af-scroll';
 
-        CHAPTERS.forEach(function (chapter) {
-            // Заголовок главы
+        for (var ci = 0; ci < CHAPTERS.length; ci++) {
+            var ch = CHAPTERS[ci];
+
             var chTitle = document.createElement('div');
             chTitle.className = 'fsin-af-chapter-title';
-            chTitle.textContent = chapter.title;
+            chTitle.textContent = ch.title;
             scroll.appendChild(chTitle);
 
-            // Кнопки статей
-            chapter.articles.forEach(function (art) {
-                var btn = document.createElement('button');
-                btn.className = 'fsin-af-btn';
-                btn.textContent = art.label;
-                btn.type = 'button';
-                // Замыкание через IIFE, чтобы minutes/reason не перетёрлись
-                (function (m, r) {
+            for (var ai = 0; ai < ch.articles.length; ai++) {
+                (function (art) {
+                    var btn = document.createElement('button');
+                    btn.className = 'fsin-af-btn';
+                    btn.type = 'button';
+                    btn.textContent = art.label;
                     btn.addEventListener('click', function (e) {
                         e.preventDefault();
                         e.stopPropagation();
-                        applyArticle(changeTimeEl, m, r);
+                        applyArticle(changeTimeEl, art.minutes, art.reason);
                     });
-                })(art.minutes, art.reason);
-                scroll.appendChild(btn);
-            });
-        });
+                    scroll.appendChild(btn);
+                })(ch.articles[ai]);
+            }
+        }
 
         wrap.appendChild(scroll);
 
-        // Вставляем ПЕРЕД кнопкой «Подтвердить» (.jail-book-button)
         var confirmBtn = changeTimeEl.querySelector('.jail-book-button');
         if (confirmBtn) {
             changeTimeEl.insertBefore(wrap, confirmBtn);
@@ -3718,25 +3683,53 @@ function applyMainMenuTabPatch() {
             changeTimeEl.appendChild(wrap);
         }
 
-        console.log('[FSIN-AutoFill] ✅ Панель автовыдачи вставлена');
+        console.log('[FSIN-AutoFill] Панель вставлена');
     }
 
-    // ── MutationObserver: следим за появлением страницы «Изменить срок» ──────────
-    var observer = new MutationObserver(function () {
-        var el = document.querySelector('.jail-book-personal-change-time');
-        if (el) injectPanel(el);
-    });
+    // ── Попытка инъекции ────────────────────────────────────────────────────────
+    function tryInject() {
+        try {
+            var el = document.querySelector('.jail-book-personal-change-time');
+            if (el) injectPanel(el);
+        } catch (e) { /* ignore */ }
+    }
 
-    observer.observe(document.body, { childList: true, subtree: true });
+    // ── Инициализация ───────────────────────────────────────────────────────────
+    function init() {
+        // MutationObserver — основной механизм
+        try {
+            var observer = new MutationObserver(function () {
+                tryInject();
+            });
+            if (document.body) {
+                observer.observe(document.body, { childList: true, subtree: true });
+            }
+        } catch (e) {
+            console.warn('[FSIN-AutoFill] MutationObserver недоступен:', e);
+        }
 
-    // Проверяем сразу при загрузке (на случай, если интерфейс уже открыт)
-    var existing = document.querySelector('.jail-book-personal-change-time');
-    if (existing) injectPanel(existing);
+        // Проверка прямо сейчас
+        tryInject();
 
-    console.log('[FSIN-AutoFill] ✅ Модуль автовыдачи срока загружен');
+        // Запасной интервал на 10 минут (каждые 500 мс)
+        var ticks = 0;
+        var iv = setInterval(function () {
+            tryInject();
+            if (++ticks > 1200) clearInterval(iv);
+        }, 500);
 
+        console.log('[FSIN-AutoFill] v2 загружен');
+    }
+
+    // Ждём DOM если нужно
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        // fsin.js выполняется через eval после загрузки — DOM уже готов,
+        // но дадим браузеру один тик на завершение текущих операций
+        setTimeout(init, 0);
+    }
 })();
-// ==================== END FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
-
+// ==================== END FSIN AUTO-FILL v2 ====================
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
