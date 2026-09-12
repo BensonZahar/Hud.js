@@ -3558,6 +3558,9 @@ var CHAPTERS = [
 var MAX_REASON = 32;
 var MAX_SECS   = 3 * 60 * 60; // 3:00
 var MIN_SECS   = 1 * 60;      // 0:01
+var NODE_BUDGET = 4000;       // лимит обхода vnode — защита от зависания рендерера
+var MAX_DEPTH   = 60;
+var ERR_LIMIT   = 10;         // предохранитель: после N ошибок листик самоотключается
 
 var cachedProxy       = null;
 var selectedArticles  = [];
@@ -3571,6 +3574,32 @@ var searchInputEl     = null;
 var searchClearEl     = null;
 var emptyEl           = null;
 var _leafVisible      = false;
+var _tickTimer        = null;
+var _lastPosKey       = '';
+var _errCount         = 0;
+var _disabled         = false;
+
+// ── Предохранитель: счётчик ошибок + самоотключение ─────────────────────────
+function noteError(e) {
+    _errCount++;
+    try { console.warn('[FSIN-AutoFill] ошибка (' + _errCount + '/' + ERR_LIMIT + '):', e); } catch (e2) {}
+    if (_errCount >= ERR_LIMIT) disableLeaf();
+}
+function disableLeaf() {
+    _disabled = true;
+    try { if (_tickTimer) { clearInterval(_tickTimer); _tickTimer = null; } } catch (e) {}
+    try { if (leafEl && leafEl.parentNode) leafEl.parentNode.removeChild(leafEl); } catch (e) {}
+    leafEl = null; tabEl = null; _leafVisible = false;
+    try { console.warn('[FSIN-AutoFill]  самоотключён после ' + ERR_LIMIT + ' ошибок — игра не пострадает'); } catch (e) {}
+}
+// Обёртка для обработчиков: ни одно исключение не улетает наружу
+function safe(fn) {
+    return function () {
+        if (_disabled) return;
+        try { return fn.apply(this, arguments); }
+        catch (e) { noteError(e); }
+    };
+}
 
 // ── Проверка открыт ли JailBook ─────────────────────────────────────────────
 function isJailBookOpen() {
@@ -3598,7 +3627,7 @@ function isValidProxy(proxy) {
     } catch (e) { return false; }
 }
 
-// ── Поиск proxy через vnode-дерево ──────────────────────────────────────────
+// ── Поиск proxy через vnode-дерево (С БЮДЖЕТОМ УЗЛОВ) ───────────────────────
 function findPersonalChangeTimeProxy() {
     var jailBook = null;
     try {
@@ -3608,11 +3637,14 @@ function findPersonalChangeTimeProxy() {
     } catch (e) { jailBook = null; }
     if (!jailBook || !jailBook.$ || !jailBook.$.subTree) return null;
     var seen = new WeakSet();
-    return searchVnodeTree(jailBook.$.subTree, seen, 0);
+    var budget = { left: NODE_BUDGET };
+    return searchVnodeTree(jailBook.$.subTree, seen, 0, budget);
 }
 
-function searchVnodeTree(vnode, seen, depth) {
-    if (!vnode || typeof vnode !== 'object' || depth > 200) return null;
+function searchVnodeTree(vnode, seen, depth, budget) {
+    if (!vnode || typeof vnode !== 'object' || depth > MAX_DEPTH) return null;
+    if (budget.left <= 0) return null;   // бюджет исчерпан — выходим без зависания
+    budget.left--;
     if (seen.has(vnode)) return null;
     seen.add(vnode);
     if (vnode.component) {
@@ -3624,7 +3656,7 @@ function searchVnodeTree(vnode, seen, depth) {
                 if (isValidProxy(proxy)) return proxy;
             } catch (e) {}
             if (comp.subTree) {
-                var found = searchVnodeTree(comp.subTree, seen, depth + 1);
+                var found = searchVnodeTree(comp.subTree, seen, depth + 1, budget);
                 if (found) return found;
             }
         }
@@ -3633,7 +3665,7 @@ function searchVnodeTree(vnode, seen, depth) {
         for (var i = 0; i < vnode.children.length; i++) {
             var child = vnode.children[i];
             if (child && typeof child === 'object') {
-                var foundChild = searchVnodeTree(child, seen, depth + 1);
+                var foundChild = searchVnodeTree(child, seen, depth + 1, budget);
                 if (foundChild) return foundChild;
             }
         }
@@ -3743,14 +3775,13 @@ function clearSearch() {
     applySearch('');
 }
 
-// ── Стили: вкладка слева-сверху + панель над ЛЕВОЙ страницей ────────────────
+// ── Стили (БЕЗ GPU-анимаций: только opacity/visibility) ─────────────────────
 function injectStyles() {
     var old = document.getElementById('fsin-autofill-style');
     if (old && old.parentNode) old.parentNode.removeChild(old);
     var style = document.createElement('style');
     style.id = 'fsin-autofill-style';
     style.textContent = [
-        /* ═══ Контейнер-якорь ═══ */
         '.fsin-leaf{',
         '  position:fixed; z-index:99999;',
         '  width:28vw; min-width:300px; height:0;',
@@ -3759,7 +3790,7 @@ function injectStyles() {
         '}',
         '.fsin-leaf--visible{display:block;}',
 
-        /* ═══ УБИРАЕМ СИНЕЕ МЕРЦАНИЕ (focus-ring / selection / tap-highlight) ═══ */
+        /* защита от синего мерцания */
         '.fsin-leaf, .fsin-leaf *{',
         '  outline:none !important;',
         '  -webkit-tap-highlight-color:transparent;',
@@ -3768,11 +3799,9 @@ function injectStyles() {
         '.fsin-leaf{user-select:none; -webkit-user-select:none;}',
         '.fsin-leaf__search-input{user-select:text; -webkit-user-select:text;}',
         '.fsin-leaf ::selection{background:rgba(223,49,58,0.25); color:inherit;}',
-        '.fsin-leaf button:focus,.fsin-leaf button:active{',
-        '  outline:none !important; box-shadow:none;',
-        '}',
+        '.fsin-leaf button:focus,.fsin-leaf button:active{outline:none !important; box-shadow:none;}',
 
-        /* ═══ ВКЛАДКА-ФАЙЛ в левом верхнем углу книги ═══ */
+        /* вкладка-файл в левом верхнем углу (статичный поворот, без transition) */
         '.fsin-leaf__tab{',
         '  position:absolute; top:0; left:0;',
         '  display:flex; align-items:center; gap:0.35vw;',
@@ -3780,15 +3809,11 @@ function injectStyles() {
         '  box-sizing:border-box;',
         '  background:linear-gradient(180deg,#f7f2e3 0%,#f0e8d0 55%,#e6dbbd 100%);',
         '  border-radius:0.35vw 0.35vw 0 0;',
-        '  box-shadow:0.1vw 0.15vw 0.5vw rgba(1,1,6,0.4),inset 0 0 1vw rgba(1,1,6,0.05);',
         '  cursor:pointer; z-index:3; pointer-events:auto;',
         '  transform:rotate(-1.2deg);',
         '  white-space:nowrap;',
-        '  transition:transform 0.2s ease;',
         '}',
         '.fsin-leaf__tab:hover{background:linear-gradient(180deg,#fbf7ec 0%,#f4ecd6 55%,#eadfc2 100%);}',
-        '.fsin-leaf--open .fsin-leaf__tab{transform:rotate(0deg);}',
-        /* красная полоска у основания вкладки */
         '.fsin-leaf__tab::after{',
         '  content:""; position:absolute; left:0; right:0; bottom:0;',
         '  height:0.14vw; background:#df313a; opacity:0.75;',
@@ -3802,23 +3827,20 @@ function injectStyles() {
         '  margin-top:0.12vw;',
         '}',
 
-        /* ═══ ПАНЕЛЬ: только над ЛЕВОЙ страницей, правая свободна ═══ */
+        /* панель: появление ТОЛЬКО через opacity/visibility (без transform-анимаций) */
         '.fsin-leaf__panel{',
         '  position:absolute; top:1.6vw; left:0;',
         '  width:100%; max-height:32vw;',
         '  display:flex; flex-direction:column;',
         '  background:linear-gradient(168deg,#f7f2e3 0%,#f0e8d0 45%,#e9dfc4 100%);',
         '  border-radius:0.4vw;',
-        '  box-shadow:0.2vw 0.35vw 1.1vw rgba(1,1,6,0.45),0 0.05vw 0.2vw rgba(1,1,6,0.2),inset 0 0 2.5vw rgba(1,1,6,0.04);',
         '  overflow:hidden; z-index:1;',
-        '  transform-origin:top left;',
-        '  transform:scaleY(0.35) translateY(-0.8vw);',
-        '  opacity:0; pointer-events:none;',
-        '  transition:transform 0.28s cubic-bezier(0.2,0.8,0.3,1),opacity 0.2s ease;',
+        '  opacity:0; visibility:hidden; pointer-events:none;',
+        '  transition:opacity 0.15s ease;',
         '}',
-        '.fsin-leaf--open .fsin-leaf__panel{transform:none; opacity:1; pointer-events:auto;}',
+        '.fsin-leaf--open .fsin-leaf__panel{opacity:1; visibility:visible; pointer-events:auto;}',
 
-        /* шапка + крестик «скрыть» */
+        /* шапка + крестик */
         '.fsin-leaf__header{padding:0.85vw 2.2vw 0.45vw 0.9vw; text-align:center; border-bottom:0.08vw solid rgba(1,1,6,0.12); position:relative;}',
         '.fsin-leaf__title{font-family:"Caveat",var(--fallback-font); font-size:1.3vw; font-weight:700; color:#010106; line-height:1.1;}',
         '.fsin-leaf__subtitle{font-size:0.52vw; color:rgba(1,1,6,0.45); text-transform:uppercase; letter-spacing:0.06vw; margin-top:0.12vw;}',
@@ -3828,26 +3850,16 @@ function injectStyles() {
         '  display:flex; align-items:center; justify-content:center;',
         '  padding:0.15vw; cursor:pointer; pointer-events:auto;',
         '  color:rgba(1,1,6,0.4); border-radius:50%;',
-        '  transition:color 0.15s;',
         '}',
         '.fsin-leaf__close:hover{color:#df313a;}',
         '.fsin-leaf__close svg{width:0.7vw; height:0.7vw; display:block;}',
 
-        /* ═══ поиск «карандашом» — БЕЗ flex (надёжно в CEF) ═══ */
-        '.fsin-leaf__search{',
-        '  position:relative;',
-        '  padding:0.3vw 1.7vw 0.28vw 1.9vw;',
-        '  border-bottom:0.05vw dashed rgba(1,1,6,0.25);',
-        '}',
-        '.fsin-leaf__search-icon{',
-        '  position:absolute; left:0.7vw; top:0.34vw;',
-        '  color:rgba(1,1,6,0.5); transform:rotate(-12deg);',
-        '  pointer-events:none;',
-        '}',
+        /* поиск без flex */
+        '.fsin-leaf__search{position:relative; padding:0.3vw 1.7vw 0.28vw 1.9vw; border-bottom:0.05vw dashed rgba(1,1,6,0.25);}',
+        '.fsin-leaf__search-icon{position:absolute; left:0.7vw; top:0.34vw; color:rgba(1,1,6,0.5); transform:rotate(-12deg); pointer-events:none;}',
         '.fsin-leaf__search-icon svg{width:0.85vw; height:0.85vw; display:block;}',
         '.fsin-leaf__search-input{',
-        '  display:block; width:100%; box-sizing:border-box;',
-        '  height:1.25vw;',
+        '  display:block; width:100%; box-sizing:border-box; height:1.25vw;',
         '  background:transparent; border:none;',
         '  font-family:"Caveat",var(--fallback-font);',
         '  font-size:0.92vw; font-weight:700; color:#010106;',
@@ -3861,18 +3873,17 @@ function injectStyles() {
         '  position:absolute; right:0.55vw; top:0.32vw;',
         '  display:none; align-items:center; justify-content:center;',
         '  cursor:pointer; color:rgba(1,1,6,0.4);',
-        '  padding:0.1vw; border-radius:50%; transition:color 0.15s;',
+        '  padding:0.1vw; border-radius:50%;',
         '}',
         '.fsin-leaf__search-clear--visible{display:flex;}',
         '.fsin-leaf__search-clear:hover{color:#df313a;}',
         '.fsin-leaf__search-clear svg{width:0.55vw; height:0.55vw; display:block;}',
 
-        /* тело со спойлерами глав */
+        /* тело */
         '.fsin-leaf__body{flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:0.4vw 0.55vw 0.6vw; min-height:0;}',
         '.fsin-leaf__body::-webkit-scrollbar{width:0.22vw;}',
         '.fsin-leaf__body::-webkit-scrollbar-track{background:transparent;}',
         '.fsin-leaf__body::-webkit-scrollbar-thumb{background:rgba(1,1,6,0.22); border-radius:0.12vw;}',
-
         '.fsin-leaf__empty{',
         '  display:none; padding:1vw 0.5vw; text-align:center;',
         '  font-family:"Caveat",var(--fallback-font);',
@@ -3880,12 +3891,12 @@ function injectStyles() {
         '  color:rgba(1,1,6,0.4); transform:rotate(-1.2deg);',
         '}',
 
-        /* глава-спойлер */
+        /* главы-спойлеры */
         '.fsin-leaf__chapter{margin-bottom:0.35vw; border-bottom:0.04vw dashed rgba(1,1,6,0.15);}',
         '.fsin-leaf__chapter:last-child{margin-bottom:0; border-bottom:none;}',
         '.fsin-leaf__chapter-head{display:flex; align-items:flex-start; gap:0.3vw; padding:0.28vw 0.2vw; cursor:pointer; position:relative;}',
         '.fsin-leaf__chapter-head:hover .fsin-leaf__chapter-title{color:#df313a;}',
-        '.fsin-leaf__chapter-title{flex:1 1 auto; font-family:"Caveat",var(--fallback-font); font-size:0.95vw; font-weight:700; color:#010106; line-height:1.2; transition:color 0.15s;}',
+        '.fsin-leaf__chapter-title{flex:1 1 auto; font-family:"Caveat",var(--fallback-font); font-size:0.95vw; font-weight:700; color:#010106; line-height:1.2;}',
         '.fsin-leaf__chapter-counter{',
         '  flex:0 0 auto; min-width:0.95vw; height:0.95vw; padding:0 0.15vw; box-sizing:border-box;',
         '  display:none; align-items:center; justify-content:center;',
@@ -3897,14 +3908,14 @@ function injectStyles() {
         '.fsin-leaf__chapter-arrow{',
         '  flex:0 0 auto; display:flex; align-items:center; justify-content:center;',
         '  color:#01010699; margin-top:0.12vw;',
-        '  transform:rotate(-90deg); transition:transform 0.2s;',
+        '  transform:rotate(-90deg);',
         '}',
         '.fsin-leaf__chapter-arrow svg{width:0.6vw; height:0.6vw; display:block;}',
         '.fsin-leaf__chapter--open .fsin-leaf__chapter-arrow{transform:rotate(0deg);}',
         '.fsin-leaf__chapter-body{display:none; padding:0.1vw 0 0.3vw;}',
         '.fsin-leaf__chapter--open .fsin-leaf__chapter-body{display:block;}',
 
-        /* статья */
+        /* статьи */
         '.fsin-leaf__article{',
         '  display:flex; align-items:flex-start; gap:0.3vw;',
         '  width:100%; box-sizing:border-box;',
@@ -3913,7 +3924,6 @@ function injectStyles() {
         '  color:#010106; font-family:"Caveat",var(--fallback-font);',
         '  font-size:0.8vw; font-weight:700; line-height:1.25;',
         '  cursor:pointer; text-align:left; white-space:normal;',
-        '  transition:background 0.15s,color 0.15s,border-color 0.15s;',
         '  position:relative;',
         '}',
         '.fsin-leaf__article:hover{background:rgba(1,1,6,0.07); border-color:rgba(1,1,6,0.12);}',
@@ -3936,7 +3946,7 @@ function injectStyles() {
         '  background-size:contain; background-repeat:no-repeat; background-position:center;',
         '}',
 
-        /* итог — принудительно в ОДНУ строку */
+        /* итог в одну строку */
         '.fsin-leaf__footer{padding:0.4vw 0.7vw 0.55vw; border-top:0.06vw solid rgba(1,1,6,0.1); text-align:center;}',
         '.fsin-leaf__total{',
         '  display:block; width:100%; box-sizing:border-box;',
@@ -3951,7 +3961,6 @@ function injectStyles() {
         '  font-size:0.55vw; color:rgba(1,1,6,0.55); margin-top:0.12vw;',
         '}',
 
-        /* мобильная адаптация */
         '@media (platform:mobile){',
         '  .fsin-leaf{width:42vw; min-width:260px;}',
         '  .fsin-leaf__tab{height:2.6vw; padding:0 1vw;}',
@@ -3991,7 +4000,6 @@ function buildLeaf() {
     var el = document.createElement('div');
     el.className = 'fsin-leaf';
 
-    // ── ВКЛАДКА «Авто-КТП» (горизонтальная, ширина по тексту) ──
     tabEl = document.createElement('div');
     tabEl.className = 'fsin-leaf__tab';
     tabEl.title = 'Авто-КТП — открыть / скрыть';
@@ -4006,14 +4014,13 @@ function buildLeaf() {
 
     tabEl.appendChild(tabIcon);
     tabEl.appendChild(tabLabel);
-    tabEl.addEventListener('click', function (e) {
+    tabEl.addEventListener('click', safe(function (e) {
         e.preventDefault();
         e.stopPropagation();
         el.classList.toggle('fsin-leaf--open');
-    });
+    }));
     el.appendChild(tabEl);
 
-    // ── ПАНЕЛЬ ──
     var panel = document.createElement('div');
     panel.className = 'fsin-leaf__panel';
 
@@ -4029,17 +4036,16 @@ function buildLeaf() {
     closeBtn.className = 'fsin-leaf__close';
     closeBtn.innerHTML = ICONS.cross;
     closeBtn.title = 'Скрыть';
-    closeBtn.addEventListener('click', function (e) {
+    closeBtn.addEventListener('click', safe(function (e) {
         e.preventDefault();
         e.stopPropagation();
         el.classList.remove('fsin-leaf--open');
-    });
+    }));
     header.appendChild(title);
     header.appendChild(subtitle);
     header.appendChild(closeBtn);
     panel.appendChild(header);
 
-    // поиск «карандашом»
     var searchWrap = document.createElement('div');
     searchWrap.className = 'fsin-leaf__search';
 
@@ -4057,10 +4063,10 @@ function buildLeaf() {
     searchClearEl.className = 'fsin-leaf__search-clear';
     searchClearEl.innerHTML = ICONS.cross;
     searchClearEl.title = 'Очистить поиск';
-    searchClearEl.addEventListener('click', function () {
+    searchClearEl.addEventListener('click', safe(function () {
         clearSearch();
         if (searchInputEl) searchInputEl.focus();
-    });
+    }));
 
     searchInputEl.addEventListener('focus', function () {
         try { window.setInputFocus && window.setInputFocus(true); } catch (e) {}
@@ -4068,26 +4074,25 @@ function buildLeaf() {
     searchInputEl.addEventListener('blur', function () {
         try { window.setInputFocus && window.setInputFocus(false); } catch (e) {}
     });
-    searchInputEl.addEventListener('keydown', function (e) {
+    searchInputEl.addEventListener('keydown', safe(function (e) {
         e.stopPropagation();
         if (e.key === 'Escape') {
             e.preventDefault();
             clearSearch();
         }
-    });
+    }));
     searchInputEl.addEventListener('keyup', function (e) {
         e.stopPropagation();
     });
-    searchInputEl.addEventListener('input', function () {
+    searchInputEl.addEventListener('input', safe(function () {
         applySearch(searchInputEl.value);
-    });
+    }));
 
     searchWrap.appendChild(searchIcon);
     searchWrap.appendChild(searchInputEl);
     searchWrap.appendChild(searchClearEl);
     panel.appendChild(searchWrap);
 
-    // тело: главы-спойлеры (ВСЕ свёрнуты)
     var body = document.createElement('div');
     body.className = 'fsin-leaf__body';
     chapterCounterEls = [];
@@ -4114,9 +4119,9 @@ function buildLeaf() {
         head.appendChild(chTitle);
         head.appendChild(counter);
         head.appendChild(arrow);
-        head.addEventListener('click', function () {
+        head.addEventListener('click', safe(function () {
             ch.classList.toggle('fsin-leaf__chapter--open');
-        });
+        }));
 
         var cbody = document.createElement('div');
         cbody.className = 'fsin-leaf__chapter-body';
@@ -4142,14 +4147,12 @@ function buildLeaf() {
             btn.appendChild(txt);
             btn.appendChild(min);
 
-            (function (ci, ai, m, b) {
-                b.addEventListener('click', function (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    toggleArticle(ci, ai, m, b);
-                    updateTotals();
-                });
-            })(chapterIdx, articleIdx, art.minutes, btn);
+            btn.addEventListener('click', safe(function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                toggleArticle(chapterIdx, articleIdx, art.minutes, btn);
+                updateTotals();
+            }));
 
             cbody.appendChild(btn);
         });
@@ -4166,7 +4169,6 @@ function buildLeaf() {
 
     panel.appendChild(body);
 
-    // итог
     var footer = document.createElement('div');
     footer.className = 'fsin-leaf__footer';
     footerTotalEl = document.createElement('div');
@@ -4183,7 +4185,7 @@ function buildLeaf() {
     return el;
 }
 
-// ── Итог: минуты + причина + счётчики глав ──────────────────────────────────
+// ── Итог ─────────────────────────────────────────────────────────────────────
 function updateTotals() {
     if (!footerTotalEl || !footerReasonEl) return;
     var totalMin = selectedArticles.reduce(function (s, a) { return s + a.minutes; }, 0);
@@ -4202,19 +4204,22 @@ function updateTotals() {
     }
 }
 
-// ── Позиционирование: ВКЛАДКА В ЛЕВОМ ВЕРХНЕМ УГЛУ книги ────────────────────
-function positionLeaf() {
+// ── Позиционирование (стили пишутся ТОЛЬКО при реальной смене позиции) ──────
+function positionLeaf(force) {
     if (!leafEl || !tabEl) return;
     var book = document.querySelector('.jail-book-book');
     if (!book) return;
     var rect = book.getBoundingClientRect();
-    var pxPerVw = window.innerWidth / 100;
 
+    var key = (rect.left | 0) + ',' + (rect.top | 0) + ',' + (rect.width | 0) + ',' + (rect.height | 0) + ',' + window.innerWidth + ',' + window.innerHeight;
+    if (!force && key === _lastPosKey) return;   // ничего не сдвинулось — не трогаем DOM
+    _lastPosKey = key;
+
+    var pxPerVw = window.innerWidth / 100;
     var tabH    = tabEl.offsetHeight || 1.9 * pxPerVw;
-    var overlap = 0.7 * pxPerVw;      // насколько вкладка «заткнута» за верх книги
+    var overlap = 0.7 * pxPerVw;
     var contW   = leafEl.offsetWidth || 28 * pxPerVw;
 
-    // X: левый верхний угол книги (там нет важной информации)
     var left = rect.left + rect.width * 0.035;
     if (left + contW > window.innerWidth - 8) left = window.innerWidth - contW - 8;
     if (left < 8) left = 8;
@@ -4230,11 +4235,16 @@ function positionLeaf() {
 function showLeaf() {
     if (_leafVisible) return;
     var el = buildLeaf();
+    if (!el) return;
 
-    // сброс выборки при каждом новом открытии страницы «Изменить срок»
     selectedArticles = [];
-    var proxy = getProxy();
-    baseJailTimeLeft = proxy ? Number(proxy.jailTimeLeft) : 0;
+    try {
+        var proxy = getProxy();
+        baseJailTimeLeft = proxy ? Number(proxy.jailTimeLeft) : 0;
+    } catch (e) {
+        noteError(e);
+        baseJailTimeLeft = 0;
+    }
     if (!isFinite(baseJailTimeLeft) || baseJailTimeLeft < 0) baseJailTimeLeft = 0;
 
     el.querySelectorAll('.fsin-leaf__article--selected').forEach(function (b) {
@@ -4250,13 +4260,13 @@ function showLeaf() {
 
     clearSearch();
     if (emptyEl) emptyEl.style.display = 'none';
-    el.classList.remove('fsin-leaf--open');   // панель всегда стартует свёрнутой
+    el.classList.remove('fsin-leaf--open');
 
     updateTotals();
 
     el.classList.add('fsin-leaf--visible');
     _leafVisible = true;
-    positionLeaf();
+    positionLeaf(true);
 }
 
 function hideLeaf() {
@@ -4269,31 +4279,34 @@ function hideLeaf() {
     } catch (e) {}
 }
 
-// ── Цикл видимости ──────────────────────────────────────────────────────────
+// ── Цикл видимости (500мс, всё под safe) ────────────────────────────────────
 function tick() {
+    if (_disabled) return;
     try {
         if (isJailBookOpen() && isChangeTimePage()) {
             showLeaf();
-            positionLeaf();
+            positionLeaf(false);
         } else {
             hideLeaf();
         }
-    } catch (e) {}
+    } catch (e) {
+        noteError(e);
+    }
 }
 
 // ── Инициализация ────────────────────────────────────────────────────────────
 function init() {
-    window.addEventListener('resize', function () {
-        if (_leafVisible) positionLeaf();
-    });
-    setInterval(tick, 300);
+    window.addEventListener('resize', safe(function () {
+        if (_leafVisible) positionLeaf(true);
+    }));
+    _tickTimer = setInterval(tick, 500);
     tick();
 }
 
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener('DOMContentLoaded', function () { try { init(); } catch (e) { noteError(e); } });
 } else {
-    init();
+    try { init(); } catch (e) { noteError(e); }
 }
 })();
 // ==================== END FSIN AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
