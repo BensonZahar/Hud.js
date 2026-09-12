@@ -3543,14 +3543,17 @@ var MAX_REASON = 32;
 var MAX_SECS   = 3 * 60 * 60; // 3:00
 var MIN_SECS   = 1 * 60;      // 0:01
 
-var cachedProxy      = null;
-var selectedArticles = [];   // [{chapterIdx, articleIdx, minutes}]
-var baseJailTimeLeft = null;
-var leafEl           = null;
-var footerTotalEl    = null;
-var footerReasonEl   = null;
+var cachedProxy       = null;
+var selectedArticles  = [];
+var baseJailTimeLeft  = null;
+var leafEl            = null;
+var footerTotalEl     = null;
+var footerReasonEl    = null;
 var chapterCounterEls = [];
-var _leafVisible     = false;
+var searchInputEl     = null;
+var searchClearEl     = null;
+var emptyEl           = null;
+var _leafVisible      = false;
 
 // ── Проверка открыт ли JailBook ─────────────────────────────────────────────
 function isJailBookOpen() {
@@ -3679,6 +3682,52 @@ function toggleArticle(chapterIdx, articleIdx, minutes, btn) {
     applySelection();
 }
 
+// ── ПОИСК: фильтрация статей по тексту ───────────────────────────────────────
+function applySearch(query) {
+    if (!leafEl) return;
+    query = (query || '').toLowerCase().trim();
+    var chapterEls = leafEl.querySelectorAll('.fsin-leaf__chapter');
+    var totalMatches = 0;
+
+    CHAPTERS.forEach(function (chapter, ci) {
+        var chEl = chapterEls[ci];
+        if (!chEl) return;
+        var btns = chEl.querySelectorAll('.fsin-leaf__article');
+        var matches = 0;
+        chapter.articles.forEach(function (art, ai) {
+            var haystack = ('№' + (ai + 1) + ' ' + art.text).toLowerCase();
+            var match = !query || haystack.indexOf(query) !== -1;
+            if (btns[ai]) btns[ai].style.display = match ? '' : 'none';
+            if (match) matches++;
+        });
+
+        if (!query) {
+            // Пустой запрос: показываем все главы, сворачиваем все
+            chEl.style.display = '';
+            chEl.classList.remove('fsin-leaf__chapter--open');
+        } else if (matches > 0) {
+            // Есть совпадения: показываем главу и раскрываем
+            chEl.style.display = '';
+            chEl.classList.add('fsin-leaf__chapter--open');
+            totalMatches += matches;
+        } else {
+            chEl.style.display = 'none';
+        }
+    });
+
+    if (emptyEl) {
+        emptyEl.style.display = (query && totalMatches === 0) ? '' : 'none';
+    }
+    if (searchClearEl) {
+        searchClearEl.classList.toggle('fsin-leaf__search-clear--visible', !!query);
+    }
+}
+
+function clearSearch() {
+    if (searchInputEl) searchInputEl.value = '';
+    applySearch('');
+}
+
 // ── Стили листика ────────────────────────────────────────────────────────────
 function injectStyles() {
     var old = document.getElementById('fsin-autofill-style');
@@ -3717,19 +3766,70 @@ function injectStyles() {
         '.fsin-leaf__subtitle{font-size:0.52vw; color:rgba(1,1,6,0.45); text-transform:uppercase; letter-spacing:0.06vw; margin-top:0.12vw;}',
         '.fsin-leaf__header::after{content:""; display:block; margin:0.4vw auto 0; width:60%; height:0.09vw; background:#df313a; border-radius:0.05vw; opacity:0.7;}',
 
+        /* ═══ поиск «карандашом» ═══ */
+        '.fsin-leaf__search{',
+        '  display:flex; align-items:center; gap:0.3vw;',
+        '  padding:0.32vw 0.8vw 0.26vw;',
+        '  border-bottom:0.05vw dashed rgba(1,1,6,0.25);',
+        '}',
+        '.fsin-leaf__search-icon{',
+        '  flex:0 0 auto;',
+        '  color:rgba(1,1,6,0.45);',
+        '  font-size:0.78vw;',
+        '  transform:rotate(-18deg);',
+        '  margin-top:-0.05vw;',
+        '}',
+        '.fsin-leaf__search-input{',
+        '  flex:1 1 auto; min-width:0;',
+        '  background:transparent; border:none; outline:none;',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:0.92vw; font-weight:700; color:#010106;',
+        '  caret-color:#df313a;',
+        '  border-bottom:0.04vw dashed rgba(1,1,6,0.18);',
+        '  padding:0 0 0.06vw;',
+        '}',
+        '.fsin-leaf__search-input::placeholder{',
+        '  color:rgba(1,1,6,0.35);',
+        '  font-style:italic;',
+        '}',
+        '.fsin-leaf__search-input:focus{',
+        '  border-bottom-color:#df313a;',
+        '}',
+        '.fsin-leaf__search-clear{',
+        '  flex:0 0 auto; display:none;',
+        '  cursor:pointer;',
+        '  color:rgba(1,1,6,0.4);',
+        '  font-size:0.6vw; font-weight:700;',
+        '  padding:0.12vw 0.2vw;',
+        '  border-radius:50%;',
+        '  transition:color 0.15s;',
+        '}',
+        '.fsin-leaf__search-clear--visible{display:block;}',
+        '.fsin-leaf__search-clear:hover{color:#df313a;}',
+
         /* тело со спойлерами глав */
         '.fsin-leaf__body{flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:0.4vw 0.55vw 0.6vw; min-height:0;}',
         '.fsin-leaf__body::-webkit-scrollbar{width:0.22vw;}',
         '.fsin-leaf__body::-webkit-scrollbar-track{background:transparent;}',
         '.fsin-leaf__body::-webkit-scrollbar-thumb{background:rgba(1,1,6,0.22); border-radius:0.12vw;}',
 
-        /* глава-спойлер (в духе .jail-book-spoiler) */
+        /* «ничего не найдено» */
+        '.fsin-leaf__empty{',
+        '  display:none;',
+        '  padding:1vw 0.5vw;',
+        '  text-align:center;',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:0.95vw; font-weight:700;',
+        '  color:rgba(1,1,6,0.4);',
+        '  transform:rotate(-1.2deg);',
+        '}',
+
+        /* глава-спойлер */
         '.fsin-leaf__chapter{margin-bottom:0.35vw; border-bottom:0.04vw dashed rgba(1,1,6,0.15);}',
         '.fsin-leaf__chapter:last-child{margin-bottom:0; border-bottom:none;}',
         '.fsin-leaf__chapter-head{display:flex; align-items:flex-start; gap:0.3vw; padding:0.28vw 0.2vw; cursor:pointer; position:relative;}',
         '.fsin-leaf__chapter-head:hover .fsin-leaf__chapter-title{color:#df313a;}',
         '.fsin-leaf__chapter-title{flex:1 1 auto; font-family:"Caveat",var(--fallback-font); font-size:0.95vw; font-weight:700; color:#010106; line-height:1.2; transition:color 0.15s;}',
-        /* красный счётчик выбранных статей — как у спойлеров книги */
         '.fsin-leaf__chapter-counter{',
         '  flex:0 0 auto; min-width:0.95vw; height:0.95vw; padding:0 0.15vw; box-sizing:border-box;',
         '  display:none; align-items:center; justify-content:center;',
@@ -3785,6 +3885,10 @@ function injectStyles() {
         '  .fsin-leaf__clip{width:4.5vw; height:1vw; top:-0.45vw;}',
         '  .fsin-leaf__title{font-size:1.8vw;}',
         '  .fsin-leaf__subtitle{font-size:0.7vw;}',
+        '  .fsin-leaf__search-icon{font-size:1.05vw;}',
+        '  .fsin-leaf__search-input{font-size:1.2vw;}',
+        '  .fsin-leaf__search-clear{font-size:0.85vw;}',
+        '  .fsin-leaf__empty{font-size:1.25vw;}',
         '  .fsin-leaf__chapter-title{font-size:1.3vw;}',
         '  .fsin-leaf__chapter-counter{min-width:1.3vw; height:1.3vw; font-size:0.95vw;}',
         '  .fsin-leaf__chapter-arrow{font-size:0.85vw;}',
@@ -3811,6 +3915,7 @@ function buildLeaf() {
     clip.className = 'fsin-leaf__clip';
     el.appendChild(clip);
 
+    // ── шапка ──
     var header = document.createElement('div');
     header.className = 'fsin-leaf__header';
     var title = document.createElement('div');
@@ -3823,13 +3928,63 @@ function buildLeaf() {
     header.appendChild(subtitle);
     el.appendChild(header);
 
+    // ── поиск «карандашом» ──
+    var searchWrap = document.createElement('div');
+    searchWrap.className = 'fsin-leaf__search';
+
+    var searchIcon = document.createElement('div');
+    searchIcon.className = 'fsin-leaf__search-icon';
+    searchIcon.textContent = '✎';
+
+    searchInputEl = document.createElement('input');
+    searchInputEl.type = 'text';
+    searchInputEl.className = 'fsin-leaf__search-input';
+    searchInputEl.placeholder = 'Поиск статьи...';
+    searchInputEl.setAttribute('maxlength', '40');
+
+    searchClearEl = document.createElement('div');
+    searchClearEl.className = 'fsin-leaf__search-clear';
+    searchClearEl.textContent = '✕';
+    searchClearEl.title = 'Очистить поиск';
+    searchClearEl.addEventListener('click', function () {
+        clearSearch();
+        if (searchInputEl) searchInputEl.focus();
+    });
+
+    // Клавиатура: изолируем от игровых хоткеев
+    searchInputEl.addEventListener('focus', function () {
+        try { window.setInputFocus && window.setInputFocus(true); } catch (e) {}
+    });
+    searchInputEl.addEventListener('blur', function () {
+        try { window.setInputFocus && window.setInputFocus(false); } catch (e) {}
+    });
+    searchInputEl.addEventListener('keydown', function (e) {
+        e.stopPropagation();
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            clearSearch();
+        }
+    });
+    searchInputEl.addEventListener('keyup', function (e) {
+        e.stopPropagation();
+    });
+    searchInputEl.addEventListener('input', function () {
+        applySearch(searchInputEl.value);
+    });
+
+    searchWrap.appendChild(searchIcon);
+    searchWrap.appendChild(searchInputEl);
+    searchWrap.appendChild(searchClearEl);
+    el.appendChild(searchWrap);
+
+    // ── тело: главы-спойлеры ──
     var body = document.createElement('div');
     body.className = 'fsin-leaf__body';
     chapterCounterEls = [];
 
     CHAPTERS.forEach(function (chapter, chapterIdx) {
         var ch = document.createElement('div');
-        ch.className = 'fsin-leaf__chapter';
+        ch.className = 'fsin-leaf__chapter'; // ВСЕГДА свёрнута по умолчанию
 
         var head = document.createElement('div');
         head.className = 'fsin-leaf__chapter-head';
@@ -3891,11 +4046,18 @@ function buildLeaf() {
 
         ch.appendChild(head);
         ch.appendChild(cbody);
-        if (chapterIdx === 0) ch.classList.add('fsin-leaf__chapter--open');
         body.appendChild(ch);
     });
+
+    // «ничего не найдено»
+    emptyEl = document.createElement('div');
+    emptyEl.className = 'fsin-leaf__empty';
+    emptyEl.textContent = 'Ничего не найдено...';
+    body.appendChild(emptyEl);
+
     el.appendChild(body);
 
+    // ── итог ──
     var footer = document.createElement('div');
     footer.className = 'fsin-leaf__footer';
     footerTotalEl = document.createElement('div');
@@ -3965,10 +4127,20 @@ function showLeaf() {
     el.querySelectorAll('.fsin-leaf__article--selected').forEach(function (b) {
         b.classList.remove('fsin-leaf__article--selected');
     });
-    // сворачиваем все главы, кроме первой
-    el.querySelectorAll('.fsin-leaf__chapter').forEach(function (ch, idx) {
-        ch.classList.toggle('fsin-leaf__chapter--open', idx === 0);
+
+    // ВСЕ главы свёрнуты, видимость статей и глав восстановлена
+    el.querySelectorAll('.fsin-leaf__chapter').forEach(function (ch) {
+        ch.classList.remove('fsin-leaf__chapter--open');
+        ch.style.display = '';
     });
+    el.querySelectorAll('.fsin-leaf__article').forEach(function (b) {
+        b.style.display = '';
+    });
+
+    // сброс поиска
+    clearSearch();
+    if (emptyEl) emptyEl.style.display = 'none';
+
     updateTotals();
 
     el.classList.add('fsin-leaf--visible');
@@ -3980,6 +4152,10 @@ function hideLeaf() {
     if (!_leafVisible || !leafEl) return;
     leafEl.classList.remove('fsin-leaf--visible');
     _leafVisible = false;
+    // снимаем фокус ввода чтобы не «залип» при скрытии листика
+    try {
+        if (searchInputEl && document.activeElement === searchInputEl) searchInputEl.blur();
+    } catch (e) {}
 }
 
 // ── Цикл видимости ──────────────────────────────────────────────────────────
