@@ -3562,8 +3562,8 @@ var MIN_SECS   = 1 * 60;      // 0:01
 var cachedProxy       = null;
 var selectedArticles  = [];
 var baseJailTimeLeft  = null;
-var leafEl            = null;   // контейнер-якорь (закладка + панель)
-var tabEl             = null;   // сама закладка
+var leafEl            = null;
+var tabEl             = null;
 var footerTotalEl     = null;
 var footerReasonEl    = null;
 var chapterCounterEls = [];
@@ -3743,72 +3743,82 @@ function clearSearch() {
     applySearch('');
 }
 
-// ── Стили: закладка + раскладная панель ──────────────────────────────────────
+// ── Стили: вкладка слева-сверху + панель над ЛЕВОЙ страницей ────────────────
 function injectStyles() {
     var old = document.getElementById('fsin-autofill-style');
     if (old && old.parentNode) old.parentNode.removeChild(old);
     var style = document.createElement('style');
     style.id = 'fsin-autofill-style';
     style.textContent = [
-        /* ═══ Контейнер-якорь (нулевая высота, дети — absolute) ═══ */
+        /* ═══ Контейнер-якорь ═══ */
         '.fsin-leaf{',
         '  position:fixed; z-index:99999;',
-        '  width:30vw; min-width:340px; height:0;',
+        '  width:28vw; min-width:300px; height:0;',
         '  display:none; pointer-events:none;',
         '  font-family:"Open Sans",var(--fallback-font);',
         '}',
         '.fsin-leaf--visible{display:block;}',
 
-        /* ═══ ЗАКЛАДКА между страницами ═══ */
-        '.fsin-leaf__tab{',
-        '  position:absolute; top:0; left:50%;',
-        '  transform:translateX(-50%) rotate(-1.5deg);',
-        '  width:3.2vw; height:4.8vw;',
-        '  display:flex; flex-direction:column;',
-        '  align-items:center; justify-content:center; gap:0.2vw;',
-        '  background:linear-gradient(180deg,#f7f2e3 0%,#f0e8d0 55%,#e6dbbd 100%);',
-        '  border-radius:0.4vw 0.4vw 0 0;',
-        '  box-shadow:0.12vw 0.18vw 0.55vw rgba(1,1,6,0.4),inset 0 0 1.2vw rgba(1,1,6,0.05);',
-        '  cursor:pointer; z-index:3; pointer-events:auto;',
-        '  transition:transform 0.2s ease,filter 0.2s ease;',
+        /* ═══ УБИРАЕМ СИНЕЕ МЕРЦАНИЕ (focus-ring / selection / tap-highlight) ═══ */
+        '.fsin-leaf, .fsin-leaf *{',
+        '  outline:none !important;',
+        '  -webkit-tap-highlight-color:transparent;',
+        '  box-shadow:none;',
         '}',
-        '.fsin-leaf__tab:hover{filter:brightness(1.06);}',
-        '.fsin-leaf--open .fsin-leaf__tab{transform:translateX(-50%) rotate(0deg);}',
-        /* красная полоска у основания закладки */
-        '.fsin-leaf__tab::after{',
-        '  content:""; position:absolute; left:0; right:0; bottom:0;',
-        '  height:0.16vw; background:#df313a; opacity:0.75;',
-        '  border-radius:0.08vw 0.08vw 0 0;',
-        '}',
-        '.fsin-leaf__tab-icon{color:rgba(1,1,6,0.55); display:flex;}',
-        '.fsin-leaf__tab-icon svg{width:0.85vw; height:0.85vw; display:block; transform:rotate(-15deg);}',
-        '.fsin-leaf__tab-label{',
-        '  writing-mode:vertical-rl;',
-        '  font-family:"Caveat",var(--fallback-font);',
-        '  font-size:1.05vw; font-weight:700;',
-        '  color:#df313a; letter-spacing:0.06vw;',
-        '  user-select:none; margin-top:0.05vw;',
+        '.fsin-leaf{user-select:none; -webkit-user-select:none;}',
+        '.fsin-leaf__search-input{user-select:text; -webkit-user-select:text;}',
+        '.fsin-leaf ::selection{background:rgba(223,49,58,0.25); color:inherit;}',
+        '.fsin-leaf button:focus,.fsin-leaf button:active{',
+        '  outline:none !important; box-shadow:none;',
         '}',
 
-        /* ═══ РАСКЛАДНАЯ ПАНЕЛЬ поверх книги ═══ */
+        /* ═══ ВКЛАДКА-ФАЙЛ в левом верхнем углу книги ═══ */
+        '.fsin-leaf__tab{',
+        '  position:absolute; top:0; left:0;',
+        '  display:flex; align-items:center; gap:0.35vw;',
+        '  height:1.9vw; padding:0 0.75vw;',
+        '  box-sizing:border-box;',
+        '  background:linear-gradient(180deg,#f7f2e3 0%,#f0e8d0 55%,#e6dbbd 100%);',
+        '  border-radius:0.35vw 0.35vw 0 0;',
+        '  box-shadow:0.1vw 0.15vw 0.5vw rgba(1,1,6,0.4),inset 0 0 1vw rgba(1,1,6,0.05);',
+        '  cursor:pointer; z-index:3; pointer-events:auto;',
+        '  transform:rotate(-1.2deg);',
+        '  white-space:nowrap;',
+        '  transition:transform 0.2s ease;',
+        '}',
+        '.fsin-leaf__tab:hover{background:linear-gradient(180deg,#fbf7ec 0%,#f4ecd6 55%,#eadfc2 100%);}',
+        '.fsin-leaf--open .fsin-leaf__tab{transform:rotate(0deg);}',
+        /* красная полоска у основания вкладки */
+        '.fsin-leaf__tab::after{',
+        '  content:""; position:absolute; left:0; right:0; bottom:0;',
+        '  height:0.14vw; background:#df313a; opacity:0.75;',
+        '}',
+        '.fsin-leaf__tab-icon{display:flex; align-items:center; color:rgba(1,1,6,0.55);}',
+        '.fsin-leaf__tab-icon svg{width:0.8vw; height:0.8vw; display:block; transform:rotate(-15deg);}',
+        '.fsin-leaf__tab-label{',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:1.05vw; font-weight:700; line-height:1;',
+        '  color:#df313a; letter-spacing:0.04vw;',
+        '  margin-top:0.12vw;',
+        '}',
+
+        /* ═══ ПАНЕЛЬ: только над ЛЕВОЙ страницей, правая свободна ═══ */
         '.fsin-leaf__panel{',
-        '  position:absolute; top:4.2vw; left:0;',
-        '  width:100%; max-height:38vw;',
+        '  position:absolute; top:1.6vw; left:0;',
+        '  width:100%; max-height:32vw;',
         '  display:flex; flex-direction:column;',
         '  background:linear-gradient(168deg,#f7f2e3 0%,#f0e8d0 45%,#e9dfc4 100%);',
         '  border-radius:0.4vw;',
         '  box-shadow:0.2vw 0.35vw 1.1vw rgba(1,1,6,0.45),0 0.05vw 0.2vw rgba(1,1,6,0.2),inset 0 0 2.5vw rgba(1,1,6,0.04);',
         '  overflow:hidden; z-index:1;',
-        '  transform-origin:top center;',
+        '  transform-origin:top left;',
         '  transform:scaleY(0.35) translateY(-0.8vw);',
         '  opacity:0; pointer-events:none;',
         '  transition:transform 0.28s cubic-bezier(0.2,0.8,0.3,1),opacity 0.2s ease;',
         '}',
-        '.fsin-leaf--open .fsin-leaf__panel{',
-        '  transform:none; opacity:1; pointer-events:auto;',
-        '}',
+        '.fsin-leaf--open .fsin-leaf__panel{transform:none; opacity:1; pointer-events:auto;}',
 
-        /* шапка панели + крестик «скрыть» */
+        /* шапка + крестик «скрыть» */
         '.fsin-leaf__header{padding:0.85vw 2.2vw 0.45vw 0.9vw; text-align:center; border-bottom:0.08vw solid rgba(1,1,6,0.12); position:relative;}',
         '.fsin-leaf__title{font-family:"Caveat",var(--fallback-font); font-size:1.3vw; font-weight:700; color:#010106; line-height:1.1;}',
         '.fsin-leaf__subtitle{font-size:0.52vw; color:rgba(1,1,6,0.45); text-transform:uppercase; letter-spacing:0.06vw; margin-top:0.12vw;}',
@@ -3823,13 +3833,22 @@ function injectStyles() {
         '.fsin-leaf__close:hover{color:#df313a;}',
         '.fsin-leaf__close svg{width:0.7vw; height:0.7vw; display:block;}',
 
-        /* ═══ поиск «карандашом» ═══ */
-        '.fsin-leaf__search{display:flex; align-items:center; gap:0.3vw; padding:0.32vw 0.8vw 0.26vw; border-bottom:0.05vw dashed rgba(1,1,6,0.25);}',
-        '.fsin-leaf__search-icon{flex:0 0 auto; display:flex; align-items:center; color:rgba(1,1,6,0.5); transform:rotate(-12deg); margin-top:-0.05vw;}',
+        /* ═══ поиск «карандашом» — БЕЗ flex (надёжно в CEF) ═══ */
+        '.fsin-leaf__search{',
+        '  position:relative;',
+        '  padding:0.3vw 1.7vw 0.28vw 1.9vw;',
+        '  border-bottom:0.05vw dashed rgba(1,1,6,0.25);',
+        '}',
+        '.fsin-leaf__search-icon{',
+        '  position:absolute; left:0.7vw; top:0.34vw;',
+        '  color:rgba(1,1,6,0.5); transform:rotate(-12deg);',
+        '  pointer-events:none;',
+        '}',
         '.fsin-leaf__search-icon svg{width:0.85vw; height:0.85vw; display:block;}',
         '.fsin-leaf__search-input{',
-        '  flex:1 1 auto; min-width:0;',
-        '  background:transparent; border:none; outline:none;',
+        '  display:block; width:100%; box-sizing:border-box;',
+        '  height:1.25vw;',
+        '  background:transparent; border:none;',
         '  font-family:"Caveat",var(--fallback-font);',
         '  font-size:0.92vw; font-weight:700; color:#010106;',
         '  caret-color:#df313a;',
@@ -3839,7 +3858,8 @@ function injectStyles() {
         '.fsin-leaf__search-input::placeholder{color:rgba(1,1,6,0.35); font-style:italic;}',
         '.fsin-leaf__search-input:focus{border-bottom-color:#df313a;}',
         '.fsin-leaf__search-clear{',
-        '  flex:0 0 auto; display:none; align-items:center; justify-content:center;',
+        '  position:absolute; right:0.55vw; top:0.32vw;',
+        '  display:none; align-items:center; justify-content:center;',
         '  cursor:pointer; color:rgba(1,1,6,0.4);',
         '  padding:0.1vw; border-radius:50%; transition:color 0.15s;',
         '}',
@@ -3916,25 +3936,37 @@ function injectStyles() {
         '  background-size:contain; background-repeat:no-repeat; background-position:center;',
         '}',
 
-        /* итог */
+        /* итог — принудительно в ОДНУ строку */
         '.fsin-leaf__footer{padding:0.4vw 0.7vw 0.55vw; border-top:0.06vw solid rgba(1,1,6,0.1); text-align:center;}',
-        '.fsin-leaf__total{font-family:"Caveat",var(--fallback-font); font-size:0.95vw; font-weight:700; color:#010106;}',
+        '.fsin-leaf__total{',
+        '  display:block; width:100%; box-sizing:border-box;',
+        '  white-space:nowrap; text-align:center;',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:0.95vw; font-weight:700; color:#010106;',
+        '}',
         '.fsin-leaf__total span{color:#df313a;}',
-        '.fsin-leaf__reason{font-size:0.55vw; color:rgba(1,1,6,0.55); margin-top:0.12vw; word-break:break-all;}',
+        '.fsin-leaf__reason{',
+        '  display:block; width:100%; box-sizing:border-box;',
+        '  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center;',
+        '  font-size:0.55vw; color:rgba(1,1,6,0.55); margin-top:0.12vw;',
+        '}',
 
         /* мобильная адаптация */
         '@media (platform:mobile){',
-        '  .fsin-leaf{width:46vw; min-width:260px;}',
-        '  .fsin-leaf__tab{width:4.8vw; height:6.6vw;}',
-        '  .fsin-leaf__tab-icon svg{width:1.2vw; height:1.2vw;}',
-        '  .fsin-leaf__tab-label{font-size:1.5vw;}',
-        '  .fsin-leaf__tab::after{height:0.22vw;}',
-        '  .fsin-leaf__panel{top:5.8vw; max-height:44vw;}',
+        '  .fsin-leaf{width:42vw; min-width:260px;}',
+        '  .fsin-leaf__tab{height:2.6vw; padding:0 1vw;}',
+        '  .fsin-leaf__tab-icon svg{width:1.15vw; height:1.15vw;}',
+        '  .fsin-leaf__tab-label{font-size:1.45vw;}',
+        '  .fsin-leaf__tab::after{height:0.2vw;}',
+        '  .fsin-leaf__panel{top:2.2vw; max-height:40vw;}',
         '  .fsin-leaf__title{font-size:1.8vw;}',
         '  .fsin-leaf__subtitle{font-size:0.7vw;}',
         '  .fsin-leaf__close svg{width:1vw; height:1vw;}',
+        '  .fsin-leaf__search{padding:0.4vw 2.3vw 0.35vw 2.6vw;}',
+        '  .fsin-leaf__search-icon{left:0.95vw; top:0.45vw;}',
         '  .fsin-leaf__search-icon svg{width:1.15vw; height:1.15vw;}',
-        '  .fsin-leaf__search-input{font-size:1.2vw;}',
+        '  .fsin-leaf__search-input{height:1.7vw; font-size:1.2vw;}',
+        '  .fsin-leaf__search-clear{right:0.75vw; top:0.45vw;}',
         '  .fsin-leaf__search-clear svg{width:0.8vw; height:0.8vw;}',
         '  .fsin-leaf__empty{font-size:1.25vw;}',
         '  .fsin-leaf__chapter-title{font-size:1.3vw;}',
@@ -3951,7 +3983,7 @@ function injectStyles() {
     document.head.appendChild(style);
 }
 
-// ── Создание закладки + панели ───────────────────────────────────────────────
+// ── Создание вкладки + панели ────────────────────────────────────────────────
 function buildLeaf() {
     if (leafEl) return leafEl;
     injectStyles();
@@ -3959,7 +3991,7 @@ function buildLeaf() {
     var el = document.createElement('div');
     el.className = 'fsin-leaf';
 
-    // ── ЗАКЛАДКА «Авто-КТП» ──
+    // ── ВКЛАДКА «Авто-КТП» (горизонтальная, ширина по тексту) ──
     tabEl = document.createElement('div');
     tabEl.className = 'fsin-leaf__tab';
     tabEl.title = 'Авто-КТП — открыть / скрыть';
@@ -3981,11 +4013,10 @@ function buildLeaf() {
     });
     el.appendChild(tabEl);
 
-    // ── ПАНЕЛЬ (раскрывается поверх книги) ──
+    // ── ПАНЕЛЬ ──
     var panel = document.createElement('div');
     panel.className = 'fsin-leaf__panel';
 
-    // шапка + крестик «скрыть»
     var header = document.createElement('div');
     header.className = 'fsin-leaf__header';
     var title = document.createElement('div');
@@ -4171,7 +4202,7 @@ function updateTotals() {
     }
 }
 
-// ── Позиционирование: закладка торчит сверху книги у корешка ────────────────
+// ── Позиционирование: ВКЛАДКА В ЛЕВОМ ВЕРХНЕМ УГЛУ книги ────────────────────
 function positionLeaf() {
     if (!leafEl || !tabEl) return;
     var book = document.querySelector('.jail-book-book');
@@ -4179,15 +4210,14 @@ function positionLeaf() {
     var rect = book.getBoundingClientRect();
     var pxPerVw = window.innerWidth / 100;
 
-    var tabH    = tabEl.offsetHeight || 4.8 * pxPerVw;
-    var overlap = 1.1 * pxPerVw;          // насколько закладка «заткнута» за страницы
-    var contW   = leafEl.offsetWidth;
+    var tabH    = tabEl.offsetHeight || 1.9 * pxPerVw;
+    var overlap = 0.7 * pxPerVw;      // насколько вкладка «заткнута» за верх книги
+    var contW   = leafEl.offsetWidth || 28 * pxPerVw;
 
-    // X: чуть правее корешка (центр книги) — как будто между страницами
-    var tabX = rect.left + rect.width * 0.55;
-    var left = tabX - contW / 2;
-    if (left < 8) left = 8;
+    // X: левый верхний угол книги (там нет важной информации)
+    var left = rect.left + rect.width * 0.035;
     if (left + contW > window.innerWidth - 8) left = window.innerWidth - contW - 8;
+    if (left < 8) left = 8;
 
     var top = rect.top - tabH + overlap;
     if (top < 4) top = 4;
