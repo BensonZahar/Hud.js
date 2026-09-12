@@ -1157,10 +1157,12 @@ window.onChatMessage = function(text, color) {
         if (!row) return;
         const val = valCol(row);
         if (!val || val.querySelector('[data-dse]')) return;
-        const m = val.textContent.match(/(\d{1,2})\s+([а-яё]+)\s+(\d{4})/);
+        // \s* вместо \s+ — на случай если рендерер уже схлопнул пробелы
+        const m = val.textContent.match(/(\d{1,2})\s*([а-яё]+)\s*(\d{4})/);
         if (!m) return;
         const color = (val.innerHTML.match(/#([0-9A-Fa-f]{6,8})/) || [])[1] || '66CC00';
-        val.innerHTML = `<p style="color: #${color}"><span data-dse="d">${m[1]}</span> <span data-dse="mo">${m[2]}</span> <span data-dse="y">${m[3]}</span> г.</p>`;
+        // NB внутри span-а — рендерер игры не схлопывает содержимое тега
+        val.innerHTML = `<p style="color: #${color}"><span data-dse="d">${m[1]}${NB}</span><span data-dse="mo">${m[2]}${NB}</span><span data-dse="y">${m[3]}</span>${NB}г.</p>`;
     }
 
     // ── Перерисовка строк даты/времени/дня в открытом диалоге ───────
@@ -1514,7 +1516,9 @@ window.onChatMessage = function(text, color) {
     }, true);
 
     // ── Правая кнопка мыши: везде делает -1 ─────────────────────────
-    document.addEventListener('contextmenu', (e) => {
+    // Используем mousedown (button=2) — игра может перехватить contextmenu раньше нас,
+    // mousedown срабатывает до любой обработки на стороне движка.
+    function handleRMB(e) {
         const tgt = e.target;
         const closest = sel => (tgt && tgt.closest) ? tgt.closest(sel) : null;
         const dlg = getTimeDialog();
@@ -1568,6 +1572,11 @@ window.onChatMessage = function(text, color) {
                 applyOffset(f.getTime() - Date.now()); return;
             }
         }
+    }
+    document.addEventListener('mousedown',   (e) => { if (e.button === 2) handleRMB(e); }, true);
+    // Блокируем всплытие контекстного меню браузера пока диалог открыт через /ts
+    document.addEventListener('contextmenu', (e) => {
+        if (getTimeDialog() && _tsDialogViaTs) { e.preventDefault(); e.stopPropagation(); }
     }, true);
 
     // ── Клавиатура ───────────────────────────────────────────────────
