@@ -3490,22 +3490,17 @@ function applyMainMenuTabPatch() {
 if (window.__fsinAutofillLoaded__) return;
 window.__fsinAutofillLoaded__ = true;
 
-// ── SVG-иконки (вместо эмодзи — в CEF они не рендерятся) ────────────────────
-// Штриховые, «чернильные»: round-cap/round-join = мягкий рукописный вид.
-// Цвет наследуется через currentColor — управляется CSS родителя.
+// ── SVG-иконки (эмодзи в CEF не рендерятся — только SVG) ────────────────────
 var _SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"';
 var ICONS = {
-    // карандаш (поиск)
     pencil: _SVG + ' stroke-width="1.8">' +
         '<path d="M16.9 3.5a2.45 2.45 0 0 1 3.5 3.5L8.1 19.3l-4.7 1.3 1.3-4.7Z"/>' +
         '<path d="m14.7 5.7 3.5 3.5"/>' +
         '<path d="m5.6 18.4 2.5-2.5"/>' +
         '</svg>',
-    // крестик (очистить поиск)
     cross: _SVG + ' stroke-width="2.6">' +
         '<path d="M6.4 6.4l11.2 11.2M17.6 6.4L6.4 17.6"/>' +
         '</svg>',
-    // шеврон вниз (спойлер главы, как spoiler-arrow.svg книги)
     arrow: _SVG + ' stroke-width="2.4">' +
         '<path d="M5.4 8.8l6.6 6.4 6.6-6.4"/>' +
         '</svg>'
@@ -3567,7 +3562,8 @@ var MIN_SECS   = 1 * 60;      // 0:01
 var cachedProxy       = null;
 var selectedArticles  = [];
 var baseJailTimeLeft  = null;
-var leafEl            = null;
+var leafEl            = null;   // контейнер-якорь (закладка + панель)
+var tabEl             = null;   // сама закладка
 var footerTotalEl     = null;
 var footerReasonEl    = null;
 var chapterCounterEls = [];
@@ -3723,11 +3719,9 @@ function applySearch(query) {
         });
 
         if (!query) {
-            // Пустой запрос: все главы видны, все свёрнуты
             chEl.style.display = '';
             chEl.classList.remove('fsin-leaf__chapter--open');
         } else if (matches > 0) {
-            // Есть совпадения: глава видна и раскрыта
             chEl.style.display = '';
             chEl.classList.add('fsin-leaf__chapter--open');
             totalMatches += matches;
@@ -3749,56 +3743,89 @@ function clearSearch() {
     applySearch('');
 }
 
-// ── Стили листика ────────────────────────────────────────────────────────────
+// ── Стили: закладка + раскладная панель ──────────────────────────────────────
 function injectStyles() {
     var old = document.getElementById('fsin-autofill-style');
     if (old && old.parentNode) old.parentNode.removeChild(old);
     var style = document.createElement('style');
     style.id = 'fsin-autofill-style';
     style.textContent = [
-        /* ═══ Листик справа от книги ═══ */
+        /* ═══ Контейнер-якорь (нулевая высота, дети — absolute) ═══ */
         '.fsin-leaf{',
         '  position:fixed; z-index:99999;',
-        '  width:15.5vw; min-width:230px; max-height:42vw;',
-        '  display:none; flex-direction:column;',
-        '  background:linear-gradient(168deg,#f7f2e3 0%,#f0e8d0 45%,#e9dfc4 100%);',
-        '  border-radius:0.3vw 0.3vw 0.6vw 0.3vw;',
-        '  box-shadow:0.15vw 0.25vw 0.8vw rgba(1,1,6,0.35),0 0.05vw 0.2vw rgba(1,1,6,0.18),inset 0 0 2.5vw rgba(1,1,6,0.04);',
-        '  transform:rotate(1.6deg); transform-origin:top center;',
+        '  width:30vw; min-width:340px; height:0;',
+        '  display:none; pointer-events:none;',
         '  font-family:"Open Sans",var(--fallback-font);',
-        '  overflow:hidden; opacity:0; pointer-events:none;',
-        '  transition:opacity 0.25s ease;',
         '}',
-        '.fsin-leaf--visible{display:flex; opacity:1; pointer-events:auto;}',
+        '.fsin-leaf--visible{display:block;}',
 
-        /* скрепка */
-        '.fsin-leaf__clip{',
-        '  position:absolute; top:-0.35vw; left:50%;',
-        '  transform:translateX(-50%) rotate(-1deg);',
-        '  width:3.2vw; height:0.75vw;',
-        '  background:linear-gradient(180deg,#c9b98a,#b5a272);',
-        '  border-radius:0.15vw;',
-        '  box-shadow:0 0.06vw 0.15vw rgba(1,1,6,0.25); z-index:2;',
+        /* ═══ ЗАКЛАДКА между страницами ═══ */
+        '.fsin-leaf__tab{',
+        '  position:absolute; top:0; left:50%;',
+        '  transform:translateX(-50%) rotate(-1.5deg);',
+        '  width:3.2vw; height:4.8vw;',
+        '  display:flex; flex-direction:column;',
+        '  align-items:center; justify-content:center; gap:0.2vw;',
+        '  background:linear-gradient(180deg,#f7f2e3 0%,#f0e8d0 55%,#e6dbbd 100%);',
+        '  border-radius:0.4vw 0.4vw 0 0;',
+        '  box-shadow:0.12vw 0.18vw 0.55vw rgba(1,1,6,0.4),inset 0 0 1.2vw rgba(1,1,6,0.05);',
+        '  cursor:pointer; z-index:3; pointer-events:auto;',
+        '  transition:transform 0.2s ease,filter 0.2s ease;',
+        '}',
+        '.fsin-leaf__tab:hover{filter:brightness(1.06);}',
+        '.fsin-leaf--open .fsin-leaf__tab{transform:translateX(-50%) rotate(0deg);}',
+        /* красная полоска у основания закладки */
+        '.fsin-leaf__tab::after{',
+        '  content:""; position:absolute; left:0; right:0; bottom:0;',
+        '  height:0.16vw; background:#df313a; opacity:0.75;',
+        '  border-radius:0.08vw 0.08vw 0 0;',
+        '}',
+        '.fsin-leaf__tab-icon{color:rgba(1,1,6,0.55); display:flex;}',
+        '.fsin-leaf__tab-icon svg{width:0.85vw; height:0.85vw; display:block; transform:rotate(-15deg);}',
+        '.fsin-leaf__tab-label{',
+        '  writing-mode:vertical-rl;',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:1.05vw; font-weight:700;',
+        '  color:#df313a; letter-spacing:0.06vw;',
+        '  user-select:none; margin-top:0.05vw;',
         '}',
 
-        /* шапка */
-        '.fsin-leaf__header{padding:1vw 0.9vw 0.5vw; text-align:center; border-bottom:0.08vw solid rgba(1,1,6,0.12);}',
+        /* ═══ РАСКЛАДНАЯ ПАНЕЛЬ поверх книги ═══ */
+        '.fsin-leaf__panel{',
+        '  position:absolute; top:4.2vw; left:0;',
+        '  width:100%; max-height:38vw;',
+        '  display:flex; flex-direction:column;',
+        '  background:linear-gradient(168deg,#f7f2e3 0%,#f0e8d0 45%,#e9dfc4 100%);',
+        '  border-radius:0.4vw;',
+        '  box-shadow:0.2vw 0.35vw 1.1vw rgba(1,1,6,0.45),0 0.05vw 0.2vw rgba(1,1,6,0.2),inset 0 0 2.5vw rgba(1,1,6,0.04);',
+        '  overflow:hidden; z-index:1;',
+        '  transform-origin:top center;',
+        '  transform:scaleY(0.35) translateY(-0.8vw);',
+        '  opacity:0; pointer-events:none;',
+        '  transition:transform 0.28s cubic-bezier(0.2,0.8,0.3,1),opacity 0.2s ease;',
+        '}',
+        '.fsin-leaf--open .fsin-leaf__panel{',
+        '  transform:none; opacity:1; pointer-events:auto;',
+        '}',
+
+        /* шапка панели + крестик «скрыть» */
+        '.fsin-leaf__header{padding:0.85vw 2.2vw 0.45vw 0.9vw; text-align:center; border-bottom:0.08vw solid rgba(1,1,6,0.12); position:relative;}',
         '.fsin-leaf__title{font-family:"Caveat",var(--fallback-font); font-size:1.3vw; font-weight:700; color:#010106; line-height:1.1;}',
         '.fsin-leaf__subtitle{font-size:0.52vw; color:rgba(1,1,6,0.45); text-transform:uppercase; letter-spacing:0.06vw; margin-top:0.12vw;}',
         '.fsin-leaf__header::after{content:""; display:block; margin:0.4vw auto 0; width:60%; height:0.09vw; background:#df313a; border-radius:0.05vw; opacity:0.7;}',
+        '.fsin-leaf__close{',
+        '  position:absolute; top:0.4vw; right:0.5vw;',
+        '  display:flex; align-items:center; justify-content:center;',
+        '  padding:0.15vw; cursor:pointer; pointer-events:auto;',
+        '  color:rgba(1,1,6,0.4); border-radius:50%;',
+        '  transition:color 0.15s;',
+        '}',
+        '.fsin-leaf__close:hover{color:#df313a;}',
+        '.fsin-leaf__close svg{width:0.7vw; height:0.7vw; display:block;}',
 
-        /* ═══ поиск «карандашом» (SVG-иконки) ═══ */
-        '.fsin-leaf__search{',
-        '  display:flex; align-items:center; gap:0.3vw;',
-        '  padding:0.32vw 0.8vw 0.26vw;',
-        '  border-bottom:0.05vw dashed rgba(1,1,6,0.25);',
-        '}',
-        '.fsin-leaf__search-icon{',
-        '  flex:0 0 auto; display:flex; align-items:center;',
-        '  color:rgba(1,1,6,0.5);',
-        '  transform:rotate(-12deg);',
-        '  margin-top:-0.05vw;',
-        '}',
+        /* ═══ поиск «карандашом» ═══ */
+        '.fsin-leaf__search{display:flex; align-items:center; gap:0.3vw; padding:0.32vw 0.8vw 0.26vw; border-bottom:0.05vw dashed rgba(1,1,6,0.25);}',
+        '.fsin-leaf__search-icon{flex:0 0 auto; display:flex; align-items:center; color:rgba(1,1,6,0.5); transform:rotate(-12deg); margin-top:-0.05vw;}',
         '.fsin-leaf__search-icon svg{width:0.85vw; height:0.85vw; display:block;}',
         '.fsin-leaf__search-input{',
         '  flex:1 1 auto; min-width:0;',
@@ -3814,8 +3841,7 @@ function injectStyles() {
         '.fsin-leaf__search-clear{',
         '  flex:0 0 auto; display:none; align-items:center; justify-content:center;',
         '  cursor:pointer; color:rgba(1,1,6,0.4);',
-        '  padding:0.1vw; border-radius:50%;',
-        '  transition:color 0.15s;',
+        '  padding:0.1vw; border-radius:50%; transition:color 0.15s;',
         '}',
         '.fsin-leaf__search-clear--visible{display:flex;}',
         '.fsin-leaf__search-clear:hover{color:#df313a;}',
@@ -3827,13 +3853,11 @@ function injectStyles() {
         '.fsin-leaf__body::-webkit-scrollbar-track{background:transparent;}',
         '.fsin-leaf__body::-webkit-scrollbar-thumb{background:rgba(1,1,6,0.22); border-radius:0.12vw;}',
 
-        /* «ничего не найдено» */
         '.fsin-leaf__empty{',
         '  display:none; padding:1vw 0.5vw; text-align:center;',
         '  font-family:"Caveat",var(--fallback-font);',
         '  font-size:0.95vw; font-weight:700;',
-        '  color:rgba(1,1,6,0.4);',
-        '  transform:rotate(-1.2deg);',
+        '  color:rgba(1,1,6,0.4); transform:rotate(-1.2deg);',
         '}',
 
         /* глава-спойлер */
@@ -3842,7 +3866,6 @@ function injectStyles() {
         '.fsin-leaf__chapter-head{display:flex; align-items:flex-start; gap:0.3vw; padding:0.28vw 0.2vw; cursor:pointer; position:relative;}',
         '.fsin-leaf__chapter-head:hover .fsin-leaf__chapter-title{color:#df313a;}',
         '.fsin-leaf__chapter-title{flex:1 1 auto; font-family:"Caveat",var(--fallback-font); font-size:0.95vw; font-weight:700; color:#010106; line-height:1.2; transition:color 0.15s;}',
-        /* красный счётчик — как у спойлеров книги */
         '.fsin-leaf__chapter-counter{',
         '  flex:0 0 auto; min-width:0.95vw; height:0.95vw; padding:0 0.15vw; box-sizing:border-box;',
         '  display:none; align-items:center; justify-content:center;',
@@ -3851,7 +3874,6 @@ function injectStyles() {
         '  margin-top:0.05vw;',
         '}',
         '.fsin-leaf__chapter-counter--visible{display:flex;}',
-        /* SVG-шеврон вместо ▼ */
         '.fsin-leaf__chapter-arrow{',
         '  flex:0 0 auto; display:flex; align-items:center; justify-content:center;',
         '  color:#01010699; margin-top:0.12vw;',
@@ -3862,7 +3884,7 @@ function injectStyles() {
         '.fsin-leaf__chapter-body{display:none; padding:0.1vw 0 0.3vw;}',
         '.fsin-leaf__chapter--open .fsin-leaf__chapter-body{display:block;}',
 
-        /* статья — полный текст */
+        /* статья */
         '.fsin-leaf__article{',
         '  display:flex; align-items:flex-start; gap:0.3vw;',
         '  width:100%; box-sizing:border-box;',
@@ -3887,7 +3909,6 @@ function injectStyles() {
         '.fsin-leaf__article--selected{background:rgba(223,49,58,0.1); border-color:#df313a; padding-left:0.8vw;}',
         '.fsin-leaf__article--selected:hover{background:rgba(223,49,58,0.18);}',
         '.fsin-leaf__article--selected .fsin-leaf__article-num{color:#df313a;}',
-        /* SVG-галочка вместо ✓ (data-URI, цвет #df313a зашит) */
         '.fsin-leaf__article--selected::before{',
         '  content:""; position:absolute; left:0.12vw; top:0.3vw;',
         '  width:0.55vw; height:0.55vw;',
@@ -3903,10 +3924,15 @@ function injectStyles() {
 
         /* мобильная адаптация */
         '@media (platform:mobile){',
-        '  .fsin-leaf{width:24vw; min-width:200px; max-height:48vw; transform:rotate(1.2deg);}',
-        '  .fsin-leaf__clip{width:4.5vw; height:1vw; top:-0.45vw;}',
+        '  .fsin-leaf{width:46vw; min-width:260px;}',
+        '  .fsin-leaf__tab{width:4.8vw; height:6.6vw;}',
+        '  .fsin-leaf__tab-icon svg{width:1.2vw; height:1.2vw;}',
+        '  .fsin-leaf__tab-label{font-size:1.5vw;}',
+        '  .fsin-leaf__tab::after{height:0.22vw;}',
+        '  .fsin-leaf__panel{top:5.8vw; max-height:44vw;}',
         '  .fsin-leaf__title{font-size:1.8vw;}',
         '  .fsin-leaf__subtitle{font-size:0.7vw;}',
+        '  .fsin-leaf__close svg{width:1vw; height:1vw;}',
         '  .fsin-leaf__search-icon svg{width:1.15vw; height:1.15vw;}',
         '  .fsin-leaf__search-input{font-size:1.2vw;}',
         '  .fsin-leaf__search-clear svg{width:0.8vw; height:0.8vw;}',
@@ -3925,7 +3951,7 @@ function injectStyles() {
     document.head.appendChild(style);
 }
 
-// ── Создание листика ─────────────────────────────────────────────────────────
+// ── Создание закладки + панели ───────────────────────────────────────────────
 function buildLeaf() {
     if (leafEl) return leafEl;
     injectStyles();
@@ -3933,11 +3959,33 @@ function buildLeaf() {
     var el = document.createElement('div');
     el.className = 'fsin-leaf';
 
-    var clip = document.createElement('div');
-    clip.className = 'fsin-leaf__clip';
-    el.appendChild(clip);
+    // ── ЗАКЛАДКА «Авто-КТП» ──
+    tabEl = document.createElement('div');
+    tabEl.className = 'fsin-leaf__tab';
+    tabEl.title = 'Авто-КТП — открыть / скрыть';
 
-    // ── шапка ──
+    var tabIcon = document.createElement('div');
+    tabIcon.className = 'fsin-leaf__tab-icon';
+    tabIcon.innerHTML = ICONS.pencil;
+
+    var tabLabel = document.createElement('div');
+    tabLabel.className = 'fsin-leaf__tab-label';
+    tabLabel.textContent = 'Авто-КТП';
+
+    tabEl.appendChild(tabIcon);
+    tabEl.appendChild(tabLabel);
+    tabEl.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        el.classList.toggle('fsin-leaf--open');
+    });
+    el.appendChild(tabEl);
+
+    // ── ПАНЕЛЬ (раскрывается поверх книги) ──
+    var panel = document.createElement('div');
+    panel.className = 'fsin-leaf__panel';
+
+    // шапка + крестик «скрыть»
     var header = document.createElement('div');
     header.className = 'fsin-leaf__header';
     var title = document.createElement('div');
@@ -3946,17 +3994,27 @@ function buildLeaf() {
     var subtitle = document.createElement('div');
     subtitle.className = 'fsin-leaf__subtitle';
     subtitle.textContent = 'Статьи для изменения срока';
+    var closeBtn = document.createElement('div');
+    closeBtn.className = 'fsin-leaf__close';
+    closeBtn.innerHTML = ICONS.cross;
+    closeBtn.title = 'Скрыть';
+    closeBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        el.classList.remove('fsin-leaf--open');
+    });
     header.appendChild(title);
     header.appendChild(subtitle);
-    el.appendChild(header);
+    header.appendChild(closeBtn);
+    panel.appendChild(header);
 
-    // ── поиск «карандашом» (SVG) ──
+    // поиск «карандашом»
     var searchWrap = document.createElement('div');
     searchWrap.className = 'fsin-leaf__search';
 
     var searchIcon = document.createElement('div');
     searchIcon.className = 'fsin-leaf__search-icon';
-    searchIcon.innerHTML = ICONS.pencil;   // SVG-карандаш вместо ✎
+    searchIcon.innerHTML = ICONS.pencil;
 
     searchInputEl = document.createElement('input');
     searchInputEl.type = 'text';
@@ -3966,14 +4024,13 @@ function buildLeaf() {
 
     searchClearEl = document.createElement('div');
     searchClearEl.className = 'fsin-leaf__search-clear';
-    searchClearEl.innerHTML = ICONS.cross; // SVG-крестик вместо ✕
+    searchClearEl.innerHTML = ICONS.cross;
     searchClearEl.title = 'Очистить поиск';
     searchClearEl.addEventListener('click', function () {
         clearSearch();
         if (searchInputEl) searchInputEl.focus();
     });
 
-    // Клавиатура: изолируем от игровых хоткеев
     searchInputEl.addEventListener('focus', function () {
         try { window.setInputFocus && window.setInputFocus(true); } catch (e) {}
     });
@@ -3997,16 +4054,16 @@ function buildLeaf() {
     searchWrap.appendChild(searchIcon);
     searchWrap.appendChild(searchInputEl);
     searchWrap.appendChild(searchClearEl);
-    el.appendChild(searchWrap);
+    panel.appendChild(searchWrap);
 
-    // ── тело: главы-спойлеры ──
+    // тело: главы-спойлеры (ВСЕ свёрнуты)
     var body = document.createElement('div');
     body.className = 'fsin-leaf__body';
     chapterCounterEls = [];
 
     CHAPTERS.forEach(function (chapter, chapterIdx) {
         var ch = document.createElement('div');
-        ch.className = 'fsin-leaf__chapter'; // ВСЕГДА свёрнута по умолчанию
+        ch.className = 'fsin-leaf__chapter';
 
         var head = document.createElement('div');
         head.className = 'fsin-leaf__chapter-head';
@@ -4021,7 +4078,7 @@ function buildLeaf() {
 
         var arrow = document.createElement('div');
         arrow.className = 'fsin-leaf__chapter-arrow';
-        arrow.innerHTML = ICONS.arrow;       // SVG-шеврон вместо ▼
+        arrow.innerHTML = ICONS.arrow;
 
         head.appendChild(chTitle);
         head.appendChild(counter);
@@ -4071,15 +4128,14 @@ function buildLeaf() {
         body.appendChild(ch);
     });
 
-    // «ничего не найдено»
     emptyEl = document.createElement('div');
     emptyEl.className = 'fsin-leaf__empty';
     emptyEl.textContent = 'Ничего не найдено...';
     body.appendChild(emptyEl);
 
-    el.appendChild(body);
+    panel.appendChild(body);
 
-    // ── итог ──
+    // итог
     var footer = document.createElement('div');
     footer.className = 'fsin-leaf__footer';
     footerTotalEl = document.createElement('div');
@@ -4088,8 +4144,9 @@ function buildLeaf() {
     footerReasonEl.className = 'fsin-leaf__reason';
     footer.appendChild(footerTotalEl);
     footer.appendChild(footerReasonEl);
-    el.appendChild(footer);
+    panel.appendChild(footer);
 
+    el.appendChild(panel);
     document.body.appendChild(el);
     leafEl = el;
     return el;
@@ -4114,25 +4171,29 @@ function updateTotals() {
     }
 }
 
-// ── Позиционирование справа от книги ────────────────────────────────────────
+// ── Позиционирование: закладка торчит сверху книги у корешка ────────────────
 function positionLeaf() {
-    if (!leafEl) return;
+    if (!leafEl || !tabEl) return;
     var book = document.querySelector('.jail-book-book');
     if (!book) return;
     var rect = book.getBoundingClientRect();
-    var gap = window.innerWidth * 0.012;
-    var leafW = leafEl.offsetWidth;
-    var leafH = leafEl.offsetHeight;
-    var left = rect.right + gap;
-    if (left + leafW > window.innerWidth - 8) {
-        left = Math.max(8, window.innerWidth - leafW - 8);
-    }
-    var top = rect.top + rect.height * 0.06;
-    if (top + leafH > window.innerHeight - 8) {
-        top = Math.max(8, window.innerHeight - leafH - 8);
-    }
+    var pxPerVw = window.innerWidth / 100;
+
+    var tabH    = tabEl.offsetHeight || 4.8 * pxPerVw;
+    var overlap = 1.1 * pxPerVw;          // насколько закладка «заткнута» за страницы
+    var contW   = leafEl.offsetWidth;
+
+    // X: чуть правее корешка (центр книги) — как будто между страницами
+    var tabX = rect.left + rect.width * 0.55;
+    var left = tabX - contW / 2;
+    if (left < 8) left = 8;
+    if (left + contW > window.innerWidth - 8) left = window.innerWidth - contW - 8;
+
+    var top = rect.top - tabH + overlap;
+    if (top < 4) top = 4;
+
     leafEl.style.left = left + 'px';
-    leafEl.style.top = top + 'px';
+    leafEl.style.top  = top + 'px';
 }
 
 // ── Показать / скрыть ───────────────────────────────────────────────────────
@@ -4149,8 +4210,6 @@ function showLeaf() {
     el.querySelectorAll('.fsin-leaf__article--selected').forEach(function (b) {
         b.classList.remove('fsin-leaf__article--selected');
     });
-
-    // ВСЕ главы свёрнуты, видимость восстановлена
     el.querySelectorAll('.fsin-leaf__chapter').forEach(function (ch) {
         ch.classList.remove('fsin-leaf__chapter--open');
         ch.style.display = '';
@@ -4159,9 +4218,9 @@ function showLeaf() {
         b.style.display = '';
     });
 
-    // сброс поиска
     clearSearch();
     if (emptyEl) emptyEl.style.display = 'none';
+    el.classList.remove('fsin-leaf--open');   // панель всегда стартует свёрнутой
 
     updateTotals();
 
@@ -4173,6 +4232,7 @@ function showLeaf() {
 function hideLeaf() {
     if (!_leafVisible || !leafEl) return;
     leafEl.classList.remove('fsin-leaf--visible');
+    leafEl.classList.remove('fsin-leaf--open');
     _leafVisible = false;
     try {
         if (searchInputEl && document.activeElement === searchInputEl) searchInputEl.blur();
