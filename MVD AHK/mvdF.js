@@ -325,24 +325,19 @@ let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`;
 const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
-    { name: "3. Изучение документов", action: "studyDocuments" },
-    { name: "4. Сканирование", action: "scanningTablet" },
-    { name: "5. Надевание наручников", action: "cuffing", needsId: true },
-    { name: "6. Посадка в машину", action: "putInCar", needsId: true },
-    { name: "7. Доставка в участок", action: "arrest", needsId: true },
-    { name: "8. Снятие наручников", action: "uncuffing", needsId: true },
-    { name: "9. Преследование преступника", action: "chase", needsId: true },
-    { name: "10. Обыск", action: "search", needsId: true },
-    { name: "11. Конвоирование", action: "escort", needsId: true },
-    { name: "12. Снятие розыска", action: "clearWanted", needsId: true },
-    { name: "13. Выдача штрафа [/ticket]", action: "fine" },
-    { name: "14. Выдача розыска [/su]", action: "wantedFine" },
-    { name: "15. Изъятие веществ", action: "confiscate", needsId: true },
-    { name: "16. Разбитие стекла", action: "breakGlass", needsId: true },
-    { name: "17. Снятие маски", action: "removeMask" },
-    { name: "18. Сканирование отпечатков", action: "fingerprint" },
-    { name: "19. Изъятие прав", action: "takeLicense", needsId: true },
-    { name: "20. Права Миранды", action: "miranda" }
+    { name: "3. Снятие наручников", action: "uncuffing", needsId: true },
+    { name: "4. Преследование преступника", action: "chase", needsId: true },
+    { name: "5. Обыск", action: "search", needsId: true },
+    { name: "6. Конвоирование", action: "escort", needsId: true },
+    { name: "7. Снятие розыска", action: "clearWanted", needsId: true },
+    { name: "8. Выдача штрафа [/ticket]", action: "fine" },
+    { name: "9. Выдача розыска [/su]", action: "wantedFine" },
+    { name: "10. Изъятие веществ", action: "confiscate", needsId: true },
+    { name: "11. Разбитие стекла", action: "breakGlass", needsId: true },
+    { name: "12. Снятие маски", action: "removeMask" },
+    { name: "13. Сканирование отпечатков", action: "fingerprint" },
+    { name: "14. Изъятие прав", action: "takeLicense", needsId: true },
+    { name: "15. Права Миранды", action: "miranda" }
 ];
 const ITEMS_PER_PAGE = 7;
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
@@ -2121,20 +2116,6 @@ const executePovsednevAction = (action, targetId) => {
          }
          break;
       
-        case "studyDocuments":
-            sendMessagesWithDelay([
-                "/me взял документы",
-                "/do Документы в руке.",
-                "/me открыл документы на нужной странице",
-                "/do Документы открыты.",
-                "/me осмотрел страницу",
-                "/do Страница осмотрена.",
-                "/me закрыл документы",
-                "/do Документы закрыты.",
-                "/me вернул документы"
-            ], [0, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]);
-            break;
-      
         case "wantedFine":
             sendChatInput(`/su ${targetId}`);
             runPostActionTimer('wantedFine');
@@ -2149,42 +2130,6 @@ const executePovsednevAction = (action, targetId) => {
                 `/su ${targetId}`
             ], [0, 1000, 1000, 1000, 1000]);
             setTimeout(() => runPostActionTimer('wanted'), 4000);
-            break;
-      
-        case "scanningTablet":
-            sendMessagesWithDelay([
-                "/me достал фоторобот из кармана",
-                "/do Фоторобот в руке.",
-                "/me сделал снимок лица, затем сравнил с подозреваемым",
-                "Вы задержаны так как находитесь в федеральном розыске."
-            ], [0, 1000, 1000, 1000]);
-            break;
-      
-        case "cuffing":
-            sendMessagesWithDelay([
-                "/do Наручники в руке.",
-                "/me надел наручники на человека напротив",
-                `/cuff ${targetId}`
-            ], [0, 300, 300]);
-            break;
-      
-        case "putInCar":
-            sendMessagesWithDelay([
-                "/me открыл дверь автомобиля",
-                "/do Дверь открыта.",
-                "/me посадил преступника в патрульный автомобиль",
-                `/putpl ${targetId}`
-            ], [0, 1000, 1000, 1000]);
-            break;
-      
-        case "arrest":
-            sendMessagesWithDelay([
-                "/me открыл двери ППС",
-                "/do Двери открыты.",
-                "/me провел человека в участок",
-                "/do Человек в участке.",
-                `/arrest ${targetId}`
-            ], [0, 1000, 1000, 1000, 1000]);
             break;
       
         case "uncuffing":
