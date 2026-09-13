@@ -12,19 +12,9 @@ const GRAFFITI_SVG=`<svg width="400" height="400" viewBox="0 0 400 400" xmlns="h
 const POVSEDNEV_OPTIONS=[
     {action:"greeting",      label:"Приветствие",              needsId:true},
     {action:"checkDocuments",label:"Проверка документов",      needsId:false},
-    {action:"studyDocuments",label:"Изучение документов",      needsId:false},
-    {action:"cuffing",       label:"Надевание наручников",     needsId:true},
-    {action:"uncuffing",     label:"Снятие наручников",        needsId:true},
-    {action:"search",        label:"Обыск",                    needsId:true},
-    {action:"escort",        label:"Конвоирование",            needsId:true},
 ];
 
-const ACTION_TAGS={
-    cuffing:    {label:"/cuff",   color:"rgba(249,183,1,"},
-    search:     {label:"/search", color:"rgba(79,110,247,"},
-    escort:     {label:"/escort", color:"rgba(79,110,247,"},
-    uncuffing:  {label:"/uncuff", color:"rgba(79,110,247,"},
-};
+const ACTION_TAGS={};
 
 // ─── render ───────────────────────────────────────────────────────────────────
 function render(_ctx,_cache,$props,$setup,$data,$options){
