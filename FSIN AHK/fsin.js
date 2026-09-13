@@ -3792,6 +3792,7 @@ function clearPrisonerSearch() {
 // Создание листика поиска
 function buildSearchLeaf() {
     if (searchLeafEl) return searchLeafEl;
+    injectStyles();
 
     // Отдельный стиль для левого листика (зеркальный наклон)
     var old = document.getElementById('fsin-search-leaf-style');
