@@ -12,11 +12,6 @@ const GRAFFITI_SVG=`<svg width="400" height="400" viewBox="0 0 400 400" xmlns="h
 const POVSEDNEV_OPTIONS=[
     {action:"greeting",      label:"Приветствие",              needsId:true},
     {action:"checkDocuments",label:"Проверка документов",      needsId:false},
-    {action:"studyDocuments",label:"Изучение документов",      needsId:false},
-    {action:"scanningTablet",label:"Сканирование",             needsId:false},
-    {action:"cuffing",       label:"Надевание наручников",     needsId:true},
-    {action:"putInCar",      label:"Посадка в машину",         needsId:true},
-    {action:"arrest",        label:"Доставка в участок",       needsId:true},
     {action:"uncuffing",     label:"Снятие наручников",        needsId:true},
     {action:"chase",         label:"Преследование преступника",needsId:true},
     {action:"search",        label:"Обыск",                    needsId:true},
@@ -35,12 +30,9 @@ const POVSEDNEV_OPTIONS=[
 const ACTION_TAGS={
     fine:       {label:"/ticket", color:"rgba(61,186,122,"},
     wantedFine: {label:"/su",     color:"rgba(224,85,85,"},
-    cuffing:    {label:"/cuff",   color:"rgba(249,183,1,"},
-    arrest:     {label:"/arrest", color:"rgba(249,183,1,"},
     clearWanted:{label:"/clear",  color:"rgba(79,110,247,"},
     search:     {label:"/search", color:"rgba(79,110,247,"},
     escort:     {label:"/escort", color:"rgba(79,110,247,"},
-    putInCar:   {label:"/putpl",  color:"rgba(79,110,247,"},
     uncuffing:  {label:"/uncuff", color:"rgba(79,110,247,"},
 };
 
