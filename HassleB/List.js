@@ -13,7 +13,10 @@ const USER_CONFIGS = {
             '2': '8568137706:AAGWKSxG7Pf5R3dszSd3UErYh8GzZHdTlKY', // @hb_z02_bot
             '3': '8931904688:AAExb1DAyPU2ReLSMus4L-1VNKFhqy3FP_s', // @hb_z03_bot
             '4': '8869177802:AAE3bFckaVlFNnFD9V4ezuaUMAcch_nWjvo', // @hb_z04_bot
-            '5': '8973172922:AAE-5cVFDy_dG_Ll-S-naAs2Vqz9ZJ8KMmI'  // @hb_z05_bot
+            '5': '8973172922:AAE-5cVFDy_dG_Ll-S-naAs2Vqz9ZJ8KMmI',  // @hb_z05_bot
+            '6': '8604126341:AAGPf5k4iRLy6pXZqpBsB8-FGI0k8xnmPv8',  // @hb_z06_bot
+            '7': '8843502295:AAG-DkiSX5imJf25g89ROws17T10IEZceLs',   // @hb_z07_bot
+            '8': '8976072206:AAGW3wXfEgj0mvq_5tjGuihNTkhofQfpVgo'    // @hb_z08_bot
         }
     },
     'Kolya': {
