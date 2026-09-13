@@ -11,7 +11,6 @@ const _hoisted_8={class:"laws-helper__body"};
 
 // SVG иконки — вместо Unicode-символов которые не работают в CEF
 const SVG_SEARCH=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5.5" cy="5.5" r="4" stroke="rgba(244,241,225,0.4)" stroke-width="1.5"/><line x1="8.5" y1="8.5" x2="13" y2="13" stroke="rgba(244,241,225,0.4)" stroke-width="1.5" stroke-linecap="round"/></svg>`;
-const SVG_STAR=`<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M16 3l3.09 6.26L26 10.27l-5 4.87 1.18 6.88L16 18.77l-6.18 3.25L11 15.14 6 10.27l6.91-1.01L16 3z" fill="rgba(244,241,225,0.08)" stroke="rgba(244,241,225,0.15)" stroke-width="1"/></svg>`;
 const SVG_BURGER=`<svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><rect y="0" width="14" height="1.5" rx="0.75" fill="rgba(244,241,225,0.6)"/><rect y="4.25" width="14" height="1.5" rx="0.75" fill="rgba(244,241,225,0.6)"/><rect y="8.5" width="14" height="1.5" rx="0.75" fill="rgba(244,241,225,0.6)"/></svg>`;
 const SVG_CHECK=`<svg width="10" height="8" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4l3 3 5-6" stroke="#141414" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const SVG_RECEIPT=`<svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="20" height="24" rx="2" fill="rgba(244,241,225,0.06)" stroke="rgba(244,241,225,0.18)" stroke-width="1.2"/><line x1="8" y1="8" x2="20" y2="8" stroke="rgba(244,241,225,0.25)" stroke-width="1.2"/><line x1="8" y1="12" x2="20" y2="12" stroke="rgba(244,241,225,0.25)" stroke-width="1.2"/><line x1="8" y1="16" x2="16" y2="16" stroke="rgba(244,241,225,0.25)" stroke-width="1.2"/><line x1="8" y1="20" x2="14" y2="20" stroke="rgba(244,241,225,0.15)" stroke-width="1.2"/></svg>`;
@@ -196,88 +195,6 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 									])
 								)), 128))
 				]))
-			// ─── ТАБ: РОЗЫСК ──────────────────────────────────────────────
-			: currentTabKey === "wanted"
-				? (openBlock(), createElementBlock("div", {key:"wanted", class:"laws-helper__wanted-layout"}, [
-					createBaseVNode("div", {class:"laws-helper__laws-list"}, [
-						$data.articlesLoading
-							? (openBlock(), createElementBlock("div", {key:"loading", class:"laws-helper__reader-empty-text"}, "Загрузка статей..."))
-							: $data.articlesLoadError
-								? (openBlock(), createElementBlock("div", {key:"error", class:"laws-helper__reader-empty-text"}, "Не удалось загрузить статьи. Проверьте соединение."))
-								: (openBlock(true), createElementBlock(Fragment, null, renderList($options.filteredArticles, (art) => (
-							openBlock(), createElementBlock("div", {
-								key: art.id,
-								class: normalizeClass(["laws-helper__article-row", {"laws-helper__article-row_checked": $data.selectedArticles.includes(art.id)}]),
-								onClick: $event => $options.toggleArticle(art.id)
-							}, [
-								createBaseVNode("div", {class:"laws-helper__article-check"}, [
-									createBaseVNode("div", {
-										class: normalizeClass(["laws-helper__checkbox", {"laws-helper__checkbox_checked": $data.selectedArticles.includes(art.id)}])
-									}, [
-										$data.selectedArticles.includes(art.id)
-											? (openBlock(), createElementBlock("span", {key:"chk", class:"laws-helper__checkbox-svg", innerHTML: SVG_CHECK}))
-											: createCommentVNode("", true)
-									], 2)
-								]),
-								createBaseVNode("div", {class:"laws-helper__article-num"}, toDisplayString(art.num), 1),
-								createBaseVNode("div", {
-									class: normalizeClass(["laws-helper__article-type", "laws-helper__article-type_" + art.type.toLowerCase()])
-								}, toDisplayString(art.type), 2),
-								createBaseVNode("div", {class:"laws-helper__article-info"}, [
-									createBaseVNode("div", {class:"laws-helper__article-title"}, toDisplayString(art.title), 1),
-									art.note ? (openBlock(), createElementBlock("div", {key:"note", class:"laws-helper__article-note"}, "Примечание: " + toDisplayString(art.note), 1)) : createCommentVNode("", true)
-								]),
-								createBaseVNode("div", {class:"laws-helper__article-term"}, toDisplayString(art.term), 1)
-							], 10, ["onClick"])
-						)), 128))
-					]),
-					createBaseVNode("div", {class:"laws-helper__wanted-panel"}, [
-						createBaseVNode("div", {class:"laws-helper__wanted-title"}, "ВЫДАЧА РОЗЫСКА"),
-						createBaseVNode("div", {class:"laws-helper__wanted-title-line"}),
-						$data.selectedArticles.length === 0
-							? (openBlock(), createElementBlock("div", {key:"empty", class:"laws-helper__wanted-empty"}, [
-								createBaseVNode("div", {class:"laws-helper__wanted-star-icon", innerHTML: SVG_STAR}),
-								createBaseVNode("div", {class:"laws-helper__wanted-empty-text"}, [
-									createBaseVNode("span", null, "Список нарушений пуст."),
-									createBaseVNode("span", null, "Кликните по статье слева,"),
-									createBaseVNode("span", null, "чтобы добавить в розыск.")
-								])
-							]))
-							: (openBlock(), createElementBlock("div", {key:"list", class:"laws-helper__wanted-selected-list"}, [
-								(openBlock(true), createElementBlock(Fragment, null, renderList($options.selectedArticleObjects, (art) => (
-									openBlock(), createElementBlock("div", {key:art.id, class:"laws-helper__wanted-sel-item"}, [
-										createBaseVNode("span", {class:"laws-helper__wanted-sel-num"}, toDisplayString(art.num), 1),
-										createBaseVNode("span", {class:"laws-helper__wanted-sel-title"}, toDisplayString(art.title), 1),
-										createBaseVNode("span", {class:"laws-helper__wanted-sel-term"}, toDisplayString(art.term), 1)
-									])
-								)), 128))
-							])),
-						createBaseVNode("div", {class:"laws-helper__wanted-stars-row"}, [
-							createBaseVNode("span", {class:"laws-helper__wanted-stars-label"}, "ЗВЕЗДЫ РОЗЫСКА:"),
-							createBaseVNode("span", {
-								class: normalizeClass(["laws-helper__wanted-stars-value", {"laws-helper__wanted-stars-value_capped": $options.isTermOverCap}])
-							}, toDisplayString($options.cappedTerm) + " лет", 3)
-						]),
-						createBaseVNode("div", {class:"laws-helper__wanted-id-label"}, "ID НАРУШИТЕЛЯ"),
-						createBaseVNode("input", {
-							class: "laws-helper__wanted-id-input",
-							type: "text",
-							placeholder: "Введите ID нарушителя",
-							value: $data.wantedId,
-							onInput: $event => { $data.wantedId = $event.target.value }
-						}, null, 40, ["value","onInput"]),
-						createBaseVNode("div", {class:"laws-helper__wanted-btns"}, [
-							createBaseVNode("button", {
-								class: "laws-helper__wanted-btn laws-helper__wanted-btn_clear",
-								onClick: $options.clearWanted
-							}, "ОЧИСТИТЬ", 8, ["onClick"]),
-							createBaseVNode("button", {
-								class: "laws-helper__wanted-btn laws-helper__wanted-btn_issue",
-								onClick: $options.issueWanted
-							}, "ОБЪЯВИТЬ В РОЗЫСК", 8, ["onClick"])
-						])
-					])
-				]))
 			// ─── ОСТАЛЬНЫЕ ТАБЫ (БИНДЕР) ──────────────────────────────────
 			: (openBlock(), createElementBlock("div", {key:"other", class:"laws-helper__content"}, [
 				createBaseVNode("div", {innerHTML: $options.currentContent})
@@ -286,20 +203,13 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
 	]));
 }
 // ══════════════════════════════════════════════════════════════════
-//  Тексты законов и короткие статьи для розыска больше НЕ
-//  хранятся в этом файле — каждый документ лежит в своём json на
-//  GitHub (12-й сервер) и грузится асинхронно (см. loadAllLawData()
-//  и mounted()). В data() лежат как реактивные this.lawDocuments /
-//  this.ukArticles, чтобы Vue видел изменение и перерисовал списки.
+//  Тексты законов хранятся в JSON-файлах на GitHub (12-й сервер)
+//  и грузятся асинхронно (см. loadAllLawData() и mounted()).
+//  В data() лежат как реактивные this.lawDocuments,
+//  чтобы Vue видел изменение и перерисовал списки.
 //
 //  Структура каждого файла:
-//   koap.json — { id, title, articles:[полный текст статей КоАП],
-//                 fineArticles:[короткие статьи для таба ШТРАФЫ] }
-//   uk.json   — { id, title, articles:[полный текст статей УК],
-//                 wantedArticles:[короткие статьи для таба РОЗЫСК] }
-//   остальные — { id, title, articles:[...] }
-//  fineArticles/wantedArticles лежат прямо в koap.json/uk.json, а не
-//  в отдельном articles.json — они логически часть тех же кодексов.
+//   koap.json / uk.json / proc.json / ... — { id, title, articles:[...] }
 // ══════════════════════════════════════════════════════════════════
 const _GH_BASE_LAWS_12 = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/' + encodeURIComponent('Законы AHK') + '/12/';
 
@@ -340,12 +250,9 @@ function loadAllLawData(){
 			title: LAW_DOC_META[i].title,
 			articles: doc.articles || []
 		}));
-		const koapDoc = parsedDocs.find(d => d.id === "koap");
-		const ukDoc   = parsedDocs.find(d => d.id === "uk");
 
 		return {
-			lawDocuments,
-			ukArticles: (ukDoc && ukDoc.wantedArticles) || []
+			lawDocuments
 		};
 	})();
 	return _lawDataLoadPromise;
@@ -375,16 +282,10 @@ const _sfc_main={
 		return{
 			version:"V4.1.0",
 			search:"",
-			// ── режим открытия: 'wanted' | 'fine' | null (все табы) ──
+			// ── режим открытия: 'laws' | null (все табы) ──
 			mode:null,
 			// currentTab = индекс в visibleTabs (не в полном tabs)
-			currentTab:1, // дефолт: индекс 1 = РОЗЫСК в полном списке
-			// ── РОЗЫСК ───────────────────────────────────────────────
-			wantedId:"",
-			selectedArticles:[],
-			ukArticles:[],        // грузится асинхронно из articles.json
-			articlesLoading:true,
-			articlesLoadError:false,
+			currentTab:0, // дефолт: ЗАКОНЫ
 			// ── ЗАКОНЫ: дерево документов (грузится асинхронно из laws.json) ──
 			lawDocuments:[],
 			lawsLoading:true,
@@ -394,7 +295,6 @@ const _sfc_main={
 			selectedLawArticleId:null,
 			tabs:[
 				{key:"laws",   title:"ЗАКОНЫ"},
-				{key:"wanted", title:"РОЗЫСК"},
 				{key:"binder", title:"БИНДЕР"}
 			],
 			content:{
@@ -405,44 +305,9 @@ const _sfc_main={
 	computed:{
 		// ── Список табов с учётом режима ─────────────────────────
 		visibleTabs(){
-			if(this.mode === "wanted") return this.tabs.filter(t => t.key === "wanted");
 			if(this.mode === "laws")   return this.tabs.filter(t => t.key === "laws");
 			return this.tabs;
 		},
-		
-		// ── РОЗЫСК: фильтрация УК статей ─────────────────────────
-		filteredArticles(){
-			const q = normalizeText(this.search.trim());
-			if(!q) return this.ukArticles;
-			const qAlt = fixLayout(q);
-			const isNum = isNumericQuery(q);
-			return this.ukArticles.filter(a => {
-				const title = normalizeText(a.title);
-				const note = normalizeText(a.note);
-				return (isNum ? numMatch(a.num, q) : a.num.includes(q)) ||
-					   title.includes(q) ||
-					   note.includes(q) ||
-					   (qAlt !== q && (title.includes(qAlt) || note.includes(qAlt)));
-			});
-		},
-		
-		selectedArticleObjects(){
-			return this.ukArticles.filter(a => this.selectedArticles.includes(a.id));
-		},
-		
-		totalTerm(){
-			return this.selectedArticleObjects.reduce((s, a) => s + a.term, 0);
-		},
-		
-		// ── РОЗЫСК: реальный срок ограничен максимум 6 годами розыска ──
-		cappedTerm(){
-			return Math.min(this.totalTerm, 6);
-		},
-		
-		isTermOverCap(){
-			return this.totalTerm > 6;
-		},
-		
 		
 		// ── ЗАКОНЫ: дерево с фильтрацией по поиску ───────────────
 		filteredLawDocuments(){
@@ -541,39 +406,21 @@ const _sfc_main={
 		// Раньше тут был полный дубль этого CSS в виде текстового литерала — вынесли в zkm.css.
 
 		// ── Асинхронная загрузка законов (7 файлов koap/uk/proc/kto/euss/euvs/zot) ──
-		loadAllLawData().then(({lawDocuments, ukArticles}) => {
+		loadAllLawData().then(({lawDocuments}) => {
 			this.lawDocuments = lawDocuments;
 			this.expandedDocs = [lawDocuments[0]?.id].filter(Boolean);
 			this.lawsLoading = false;
-			this.ukArticles = ukArticles;
-			this.articlesLoading = false;
 		}).catch(e => {
 			console.error('[zkm] не удалось загрузить данные законов:', e);
 			this.lawsLoading = false;
 			this.lawsLoadError = true;
-			this.articlesLoading = false;
-			this.articlesLoadError = true;
 		});
-		// ── Режим открытия: 'wanted' | 'fine' | null ────────────────
+		// ── Режим открытия: 'laws' | null ────────────────
 		const openMode=window._duranOpenMode||null;
 		window._duranOpenMode=null; // потребляем — не оставляем для следующего открытия
 		this.mode=openMode;
-		if(openMode==="wanted"){
-			// Открыт через розыск — показываем только РОЗЫСК, индекс 0 в visibleTabs
-			this.currentTab=0;
-			if(window._duranWantedTargetId&&window._duranWantedTargetId!==-1){
-				this.wantedId=String(window._duranWantedTargetId);
-			}
-		} else if(openMode==="laws"){
-			// Открыт через пункт меню «Законы» — показываем только ЗАКОНЫ, индекс 0 в visibleTabs
-			this.currentTab=0;
-		} else {
-			// Открыт без режима (все табы) — дефолт на РОЗЫСК (индекс 1)
-			this.currentTab=1;
-			if(window._duranWantedTargetId&&window._duranWantedTargetId!==-1){
-				this.wantedId=String(window._duranWantedTargetId);
-			}
-		}
+		// Всегда открываем на ЗАКОНАХ (индекс 0)
+		this.currentTab=0;
 		// ── Alt-key state for cursor/menu toggle ────────────────────
 		this._menuHidden=false;
 		this._altHoldTimer=null;
@@ -755,29 +602,6 @@ const _sfc_main={
 			else this.expandedDocs.splice(idx,1)
 		},
 		selectLawArticle(id){this.selectedLawArticleId=id},
-		// ── РОЗЫСК ──────────────────────────────────────────────────
-		toggleArticle(id){
-			const idx=this.selectedArticles.indexOf(id);
-			if(idx===-1)this.selectedArticles.push(id);
-			else this.selectedArticles.splice(idx,1)
-		},
-		clearWanted(){this.selectedArticles=[];this.wantedId="";window._duranWantedTargetId=null},
-		issueWanted(){
-			const id=this.wantedId.trim();
-			if(!id||this.selectedArticles.length===0)return;
-			// Срок розыска ограничен максимум 6 годами, но причина (статьи)
-			// в /su всегда указывает ВСЕ выбранные статьи целиком
-			const totalStars=this.cappedTerm;
-			const lastCode=this.selectedArticleObjects.map(a=>a.num+" УК").join(", ");
-			if(window._mvdSetLastWantedCode)window._mvdSetLastWantedCode(lastCode);
-			// ── Сохраняем данные розыска в глобал — mvdF.js отправит цитирование ТОЛЬКО
-			//    при успешном подтверждении сервером ("объявил в розыск" в чате) ──
-			window._mvdLastWantedArts = this.selectedArticleObjects.map(a=>({num:a.num, title:a.title, term:a.term}));
-			const cmd=`/su ${id} ${totalStars}`;
-			if(typeof window.sendChatInput==="function")window.sendChatInput(cmd);
-			else if(typeof window.sendChatMessage==="function")window.sendChatMessage(cmd);
-			this.close()
-		},
 		close(){window.closeInterface("Zkm")}
 	}
 };
