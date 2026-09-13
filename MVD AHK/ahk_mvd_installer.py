@@ -730,11 +730,19 @@ class InstallerAPI:
                 continue
             hide_hud  = "!0" if iface.get("hideHud")  else "!1"
             hide_chat = "!0" if iface.get("hideChat") else "!1"
+            hud_flag  = iface.get("hud", False)
+            style_val = iface.get("style", "")
             dd_parts.append(
                 f'{name}:f(()=>d(()=>import("./{js_file}"),{files_js},import.meta.url))'
             )
+            opts_list = [f"hideHud:{hide_hud}", f"hideChat:{hide_chat}"]
+            if hud_flag:
+                opts_list.append("hud:!0")
+            if style_val:
+                opts_list.append(f'style:"{style_val}"')
+            opts_str = ",".join(opts_list)
             fd_parts.append(
-                f'{name}:{{open:{{status:!1}},show:!0,options:{{hideHud:{hide_hud},hideChat:{hide_chat}}}}}'
+                f'{name}:{{open:{{status:!1}},show:!0,options:{{{opts_str}}}}}'
             )
         parts = []
         if dd_parts:
