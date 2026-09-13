@@ -1016,79 +1016,7 @@ window.addEventListener('keydown', function (e) {
 });
 // ==================== КОНЕЦ ПОДТВЕРЖДЕНИЯ ПРОВЕРКИ ДОКУМЕНТОВ ====================
 
-// ==================== ЦИТИРОВАНИЕ РОЗЫСКА (Alt×1 — отмена, Alt×2 — цитировать) ====================
-let _citeOfferSnId         = null;   // id addOfferChoice в ZKM
-let _citeOfferActive       = false;  // слушатель Alt активен
-let _citeOfferAltPressedAt = 0;      // время первого Alt
-let _citeOfferSingleTimer  = null;   // таймер ожидания второго Alt
-let _pendingCiteMsgs       = null;   // { msgs, delays } — что отправить при подтверждении
 
-function showCiteOffer(title, msgs, delays) {
-    // Если предыдущее предложение ещё открыто — закрываем его молча
-    if (_citeOfferSnId !== null) {
-        try { getZkmSN()?.hideOfferChoice(_citeOfferSnId); } catch(e) {}
-        _citeOfferSnId = null;
-    }
-    if (_citeOfferSingleTimer) { clearTimeout(_citeOfferSingleTimer); _citeOfferSingleTimer = null; }
-
-    _citeOfferActive       = true;
-    _citeOfferAltPressedAt = 0;
-    _pendingCiteMsgs       = { msgs, delays };
-
-    const sn = getZkmSN();
-    if (sn && typeof sn.addOfferChoice === 'function') {
-        _citeOfferSnId = sn.addOfferChoice(
-            JSON.stringify([title, 'Alt ×1 — отмена, Alt ×2 — процитировать', 10]),
-            function(id, result) {
-                _citeOfferSnId   = null;
-                _citeOfferActive = false;
-                if (result === 'yes' && _pendingCiteMsgs) {
-                    sendMessagesWithDelay(_pendingCiteMsgs.msgs, _pendingCiteMsgs.delays);
-                }
-                _pendingCiteMsgs = null;
-            }
-        );
-    } else {
-        // Fallback — обычное уведомление без интерактива
-        snAdd(`[2, "${title}", "Alt (1 раз) — Нет<br>Alt (2 раза) — Цитировать", "f9b701", 10000]`);
-        _citeOfferActive = false;
-        _pendingCiteMsgs = null;
-    }
-}
-
-window.addEventListener('keydown', function(e) {
-    if (!_citeOfferActive) return;
-    if (e.keyCode !== window.KEY_CODE_ALT) return;
-
-    const sn  = getZkmSN();
-    const now = Date.now();
-
-    if (_citeOfferAltPressedAt && (now - _citeOfferAltPressedAt) <= DOC_CHECK_DBLTAP_MS) {
-        // Alt ×2 — подтвердить
-        if (_citeOfferSingleTimer) { clearTimeout(_citeOfferSingleTimer); _citeOfferSingleTimer = null; }
-        if (sn && _citeOfferSnId !== null) sn.highlightOfferChoice(_citeOfferSnId, 'yes', true);
-        setTimeout(function() {
-            if (sn && _citeOfferSnId !== null) sn.resolveOfferChoice(_citeOfferSnId, 'yes');
-        }, 90);
-        return;
-    }
-
-    // Первое нажатие — подсвечиваем "Нет", ждём второго
-    _citeOfferAltPressedAt = now;
-    if (sn && _citeOfferSnId !== null) sn.highlightOfferChoice(_citeOfferSnId, 'no', true);
-    if (_citeOfferSingleTimer) clearTimeout(_citeOfferSingleTimer);
-    _citeOfferSingleTimer = setTimeout(function() {
-        // Второй Alt не пришёл — одиночное нажатие = отмена
-        if (sn && _citeOfferSnId !== null) {
-            sn.highlightOfferChoice(_citeOfferSnId, 'no', false);
-            sn.resolveOfferChoice(_citeOfferSnId, 'no');
-        }
-        _citeOfferActive       = false;
-        _citeOfferAltPressedAt = 0;
-        _pendingCiteMsgs       = null;
-    }, DOC_CHECK_DBLTAP_MS);
-});
-// ==================== КОНЕЦ ЦИТИРОВАНИЯ (Alt-оффер) ====================
 
 const executePovsednevAction = (action, targetId) => {
     if (!targetId) targetId = giveLicenseTo;
@@ -2265,8 +2193,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
    Выход:        Esc  /  /int ещё раз  /  window.zkInterfaceViewer.stop()
 
    Доступ:       /int работает ТОЛЬКО на аккаунте с ником Zahar_Loidov —
-                 ник читаем тем же способом, что и при определении
-                 выписавшего штраф (window.App.$store.getters['player/nickName']),
+                 ник читаем через window.App.$store.getters['player/nickName'],
                  см. ALLOWED_NICK / getOwnNick() ниже. На любом другом
                  аккаунте команда молча ничего не делает.
 
