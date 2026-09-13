@@ -3638,9 +3638,11 @@ function showSearchLeaf() {
     if (_searchLeafVisible) return;
     buildSearchLeaf();
     clearPrisonerSearch();
-    searchLeafEl.classList.add('fsin-leaf--visible');
     _searchLeafVisible = true;
-    positionSearchLeaf();
+    requestAnimationFrame(function() {
+        positionSearchLeaf();
+        searchLeafEl.classList.add('fsin-leaf--visible');
+    });
 }
 
 function hideSearchLeaf() {
@@ -3670,16 +3672,17 @@ function injectStyles() {
         '.fsin-leaf{',
         '  position:fixed; z-index:99999;',
         '  width:15.5vw; min-width:230px; max-height:42vw;',
-        '  display:none; flex-direction:column;',
+        '  display:flex; flex-direction:column;',
         '  background:linear-gradient(168deg,#f7f2e3 0%,#f0e8d0 45%,#e9dfc4 100%);',
         '  border-radius:0.3vw 0.3vw 0.6vw 0.3vw;',
         '  box-shadow:0.15vw 0.25vw 0.8vw rgba(1,1,6,0.35),0 0.05vw 0.2vw rgba(1,1,6,0.18),inset 0 0 2.5vw rgba(1,1,6,0.04);',
         '  transform:rotate(1.6deg); transform-origin:top center;',
         '  font-family:"Open Sans",var(--fallback-font);',
         '  overflow:hidden; opacity:0; pointer-events:none;',
-        '  transition:opacity 0.25s ease;',
+        '  visibility:hidden;',
+        '  transition:opacity 0.25s ease, visibility 0s linear 0.25s;',
         '}',
-        '.fsin-leaf--visible{display:flex; opacity:1; pointer-events:auto;}',
+        '.fsin-leaf--visible{visibility:visible; opacity:1; pointer-events:auto; transition:opacity 0.25s ease, visibility 0s;}',
 
         /* скрепка */
         '.fsin-leaf__clip{',
@@ -4075,9 +4078,11 @@ function showLeaf() {
 
     updateTotals();
 
-    el.classList.add('fsin-leaf--visible');
     _leafVisible = true;
-    positionLeaf();
+    requestAnimationFrame(function() {
+        positionLeaf();
+        el.classList.add('fsin-leaf--visible');
+    });
 }
 
 function hideLeaf() {
