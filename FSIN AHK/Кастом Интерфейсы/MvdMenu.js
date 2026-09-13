@@ -17,11 +17,11 @@ const POVSEDNEV_OPTIONS=[
     {action:"uncuffing",     label:"Снятие наручников",        needsId:true},
     {action:"search",        label:"Обыск",                    needsId:true},
     {action:"escort",        label:"Конвоирование",            needsId:true},
-    {action:"wantedFine",    label:"Выдача розыска",           needsId:false, special:"wanted"},
+    {action:"fine",          label:"Выдача штрафа",            needsId:false, special:"fine"},
 ];
 
 const ACTION_TAGS={
-    wantedFine: {label:"/su",     color:"rgba(224,85,85,"},
+    fine:       {label:"/ticket", color:"rgba(61,186,122,"},
     cuffing:    {label:"/cuff",   color:"rgba(249,183,1,"},
     search:     {label:"/search", color:"rgba(79,110,247,"},
     escort:     {label:"/escort", color:"rgba(79,110,247,"},
@@ -121,7 +121,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
                                 openBlock(),createElementBlock("div",{
                                     key:opt.action,
                                     class:normalizeClass(["mvdmenu__item",{
-                                        "mvdmenu__item_wanted":  opt.special==="wanted",
+                                        "mvdmenu__item_fine":    opt.special==="fine",
                                         "mvdmenu__item_selected": $data.selectedIndex===i,
                                     }]),
                                     onClick:$event=>{$data.selectedIndex=i;$options.selectOption(opt);}
@@ -388,10 +388,10 @@ const _sfc_main={
         // ── Повседневная — выбор действия ────────────────────────────────────
         selectOption(opt){
             const id=this.targetId;
-            if(opt.special==="wanted"){
+            if(opt.special==="fine"){
                 this.close();
                 setTimeout(()=>{
-                    if(typeof window.showUkInputDialog==="function") window.showUkInputDialog(id);
+                    if(typeof window.showKoapTypeMenu==="function") window.showKoapTypeMenu(id);
                 },80);
             } else if(this.optNeedsId(opt)){
                 // Проверяем: если targetId уже задан — сразу выполняем, иначе показываем экран ввода
@@ -535,9 +535,8 @@ const _sfc_main={
 /* Items */
 .mvdmenu__item{align-items:center;border-bottom:0.09vh solid #f4f1e10d;cursor:pointer;display:flex;gap:1.11vh;padding:0.93vh 1.48vh;transition:background 0.1s ease;}
 @media (platform:pc){.mvdmenu__item:hover{background:rgba(255,255,255,.04);}}
-
-.mvdmenu__item_wanted{border-left:0.19vh solid rgba(224,85,85,.4);}
-@media (platform:pc){.mvdmenu__item_wanted:hover{background:rgba(224,85,85,.05);}}
+.mvdmenu__item_fine{border-left:0.19vh solid rgba(61,186,122,.4);}
+@media (platform:pc){.mvdmenu__item_fine:hover{background:rgba(61,186,122,.05);}}
 .mvdmenu__item_toggle_on{border-left:0.19vh solid rgba(61,186,122,.5);}
 @media (platform:pc){.mvdmenu__item_toggle_on:hover{background:rgba(61,186,122,.05);}}
 .mvdmenu__item_toggle_off{border-left:0.19vh solid rgba(224,85,85,.3);}
