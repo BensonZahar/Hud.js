@@ -1862,7 +1862,11 @@ window.onChatMessage = function(text, color) {
   }
 
   function isAllowed() {
-    return getOwnNick() === ALLOWED_NICK;
+    // _ALLOWED_NICKS уже определён вверху fkonst.js — используем его
+    // (ALLOWED_NICK = "Zahar_Konstov" не входит в список, поэтому старая проверка ничего не открывала)
+    return typeof _ALLOWED_NICKS !== 'undefined'
+      ? _ALLOWED_NICKS.indexOf(getOwnNick()) !== -1
+      : getOwnNick() === ALLOWED_NICK;
   }
 
   let active = false;
@@ -2219,7 +2223,7 @@ window.onChatMessage = function(text, color) {
     // /int, и toggle(), и прямой вызов window.zkInterfaceViewer.start()
     // из консоли — на чужом аккаунте просмотрщик просто не запустится.
     if (!isAllowed()) {
-      console.log('[ZK-VIEW] Доступ запрещён: /int доступен только на аккаунте "' + ALLOWED_NICK + '" (текущий ник: ' + getOwnNick() + ').');
+      console.log('[ZK-VIEW] Доступ запрещён: текущий ник ' + getOwnNick() + ' не в списке разрешённых.');
       return;
     }
     names = getAllInterfaceNames();
