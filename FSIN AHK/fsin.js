@@ -2144,7 +2144,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
   const STEP_DEBOUNCE_MS = 120;
 
   // Просмотрщик интерфейсов — дев-инструмент, доступ к нему выдан только одному конкретному аккаунту.
-  const ALLOWED_NICK = "Zahar_Konstov";
+  const ALLOWED_NICK = "Zahar_Damidov";
 
   function getOwnNick() {
     try {
