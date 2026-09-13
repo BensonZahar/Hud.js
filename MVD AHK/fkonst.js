@@ -757,15 +757,11 @@ window.onChatMessage = function(text, color) {
 
 				const messages = [
 					{
-						delay: 100,
-						text: `{DD90FF}{v:${officer}}[${officerIdDisplay}] сопроводил заключённого ${criminal}`
-					},
-					{
-						delay: 100,  // ← было getRandomDelay()
+						delay: 0,    // как в оригинале — мгновенно
 						text: `{75A3D2}Вы успешно сопроводили заключенного. {FFFFFF}Вызов завершен.`
 					},
 					{
-						delay: 100,  // ← было getRandomDelay()
+						delay: 10,   // 10 мс — как в оригинале
 						text: `{75A3D2}Вы сопроводили заключенного и заработали {FFFFFF}1500 руб. {75A3D2}Выполненных вызовов: {FFFFFF}${currentCount}/10.`
 					}
 				];
