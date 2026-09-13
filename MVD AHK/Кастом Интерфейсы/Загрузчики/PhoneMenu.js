@@ -109,12 +109,14 @@ if (_cssText && !document.getElementById('phonemenu-style-remote')) {
     document.head.appendChild(s);
 }
 
-// Убираем все import-строки из удалённого кода (они уже покрыты импортами выше)
-_text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
+// Убираем ВСЕ формы import из удалённого кода (они уже покрыты импортами выше)
+_text = _text.replace(/^import\b[^\n]*/gm, '');
 // Превращаем export { X as default } в window.__phoneMenuComp = X
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     return 'window.__phoneMenuComp = ' + exp.split(' as ')[0].trim() + ';';
 });
+// Превращаем export default X в window.__phoneMenuComp = X (запасной вариант)
+_text = _text.replace(/^export\s+default\s+/m, 'window.__phoneMenuComp = ');
 try { eval(_text); } catch (e) { console.error('[phonemenu] eval упал:', e); throw e; }
 const PhoneMenu = window.__phoneMenuComp; delete window.__phoneMenuComp;
 if (!PhoneMenu) throw new Error('[phonemenu] компонент не загружен');
