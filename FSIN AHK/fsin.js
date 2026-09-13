@@ -304,11 +304,6 @@ let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`;
 const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
-    { name: "3. Изучение документов", action: "studyDocuments" },
-    { name: "4. Надевание наручников", action: "cuffing", needsId: true },
-    { name: "5. Снятие наручников", action: "uncuffing", needsId: true },
-    { name: "6. Обыск", action: "search", needsId: true },
-    { name: "7. Конвоирование", action: "escort", needsId: true },
 ];
 const ITEMS_PER_PAGE = 7;
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
@@ -1081,60 +1076,6 @@ const executePovsednevAction = (action, targetId) => {
              }
          }
          break;
-      
-        case "studyDocuments":
-            sendMessagesWithDelay([
-                "/me взял документы",
-                "/do Документы в руке.",
-                "/me открыл документы на нужной странице",
-                "/do Документы открыты.",
-                "/me осмотрел страницу",
-                "/do Страница осмотрена.",
-                "/me закрыл документы",
-                "/do Документы закрыты.",
-                "/me вернул документы"
-            ], [0, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]);
-            break;
-      
-        case "cuffing":
-            sendMessagesWithDelay([
-                "/do Наручники в руке.",
-                "/me надел наручники на человека напротив",
-                `/cuff ${targetId}`
-            ], [0, 300, 300]);
-            break;
-      
-        case "uncuffing":
-            sendMessagesWithDelay([
-                "/me снял наручники с преступника",
-                "/me повесил наручники на пояс",
-                "/do Наручники на поясе.",
-                `/uncuff ${targetId}`,
-                "/me отпустил преступника",
-                "/do Человек свободен.",
-                `/escort ${targetId}`
-            ], [0, 600, 600, 600, 600, 600, 600]);
-            break;
-      
-        case "search":
-            sendMessagesWithDelay([
-                "Сейчас я проведу у вас обыск.",
-                "Повернитесь спиной и поднимите руки.",
-                "/me достал резиновые перчатки",
-                "/me надел перчатки на руки",
-                "/me провёл руками по верхним частям тела",
-                "/me провёл руками по нижним частям тела",
-                `/search ${targetId}`
-            ], [0, 1000, 1004, 1007, 1010, 1000, 1000]);
-            break;
-      
-        case "escort":
-            sendMessagesWithDelay([
-                "/me схватил задержанного за руки",
-                "/me заломал задержанного и повёл задержанного",
-                `/escort ${targetId}`
-            ], [0, 300, 300]);
-            break;
       
     }
 };
