@@ -3657,7 +3657,7 @@ function buildReason(selected) {
     var parts = selected.map(function (s) {
         return (s.chapterIdx + 1) + ',' + (s.articleIdx + 1);
     });
-    var suffix = selected.length === 1 ? ' КПП' : ' КТП';
+    var suffix = ' КТП';
     var reason = parts.join(' ') + suffix;
     if (reason.length > MAX_REASON) reason = reason.slice(0, MAX_REASON);
     return reason;
@@ -3942,7 +3942,7 @@ function buildLeaf() {
     header.className = 'fsin-leaf__header';
     var title = document.createElement('div');
     title.className = 'fsin-leaf__title';
-    title.textContent = 'УК ФСИН';
+    title.textContent = 'КТП by konst';
     var subtitle = document.createElement('div');
     subtitle.className = 'fsin-leaf__subtitle';
     subtitle.textContent = 'Статьи для изменения срока';
