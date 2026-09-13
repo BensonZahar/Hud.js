@@ -3576,6 +3576,13 @@ var searchClearEl     = null;
 var emptyEl           = null;
 var _leafVisible      = false;
 
+// ── Переменные поиска заключённых (BASE PAGE) ─────────────────────────────────
+var searchLeafEl       = null;
+var searchLeafInputEl  = null;
+var searchLeafClearEl  = null;
+var _searchLeafVisible = false;
+var _prisonerQuery     = '';
+
 // ── Проверка открыт ли JailBook ─────────────────────────────────────────────
 function isJailBookOpen() {
     try {
@@ -3589,6 +3596,12 @@ function isJailBookOpen() {
 // ── Открыта ли страница «Изменить срок» ─────────────────────────────────────
 function isChangeTimePage() {
     return !!document.querySelector('.jail-book-personal-change-time');
+}
+
+// ── Открыта ли страница списка заключённых (BASE) ────────────────────────────
+function isBasePage() {
+    return !!document.querySelector('.jail-book-base') &&
+           !document.querySelector('.jail-book-personal');
 }
 
 // ── Валидация Vue-прокси компонента PersonalChangeTime ─────────────────────
@@ -3747,6 +3760,174 @@ function applySearch(query) {
 function clearSearch() {
     if (searchInputEl) searchInputEl.value = '';
     applySearch('');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── ПОИСК ЗАКЛЮЧЁННЫХ (BASE PAGE) ────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Фильтрация строк таблицы по имени заключённого
+function applyPrisonerSearch(query) {
+    _prisonerQuery = (query || '').toLowerCase().trim();
+    var firstRows  = document.querySelectorAll('.jail-book-base__table_first .jail-book-table__row');
+    var secondRows = document.querySelectorAll('.jail-book-base__table_second .jail-book-table__row');
+    firstRows.forEach(function (row, i) {
+        var cell = row.querySelector('.jail-book-table__cell');
+        var text = cell ? cell.textContent.toLowerCase() : '';
+        var match = !_prisonerQuery || text.indexOf(_prisonerQuery) !== -1;
+        row.style.display = match ? '' : 'none';
+        if (secondRows[i]) secondRows[i].style.display = match ? '' : 'none';
+    });
+    if (searchLeafClearEl) {
+        searchLeafClearEl.classList.toggle('fsin-leaf__search-clear--visible', !!_prisonerQuery);
+    }
+}
+
+function clearPrisonerSearch() {
+    _prisonerQuery = '';
+    if (searchLeafInputEl) searchLeafInputEl.value = '';
+    applyPrisonerSearch('');
+}
+
+// Создание листика поиска
+function buildSearchLeaf() {
+    if (searchLeafEl) return searchLeafEl;
+
+    // Отдельный стиль для левого листика (зеркальный наклон)
+    var old = document.getElementById('fsin-search-leaf-style');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var st = document.createElement('style');
+    st.id = 'fsin-search-leaf-style';
+    st.textContent = '.fsin-search-leaf{transform:rotate(-1.4deg);}';
+    document.head.appendChild(st);
+
+    var el = document.createElement('div');
+    el.className = 'fsin-leaf fsin-search-leaf';
+
+    var clip = document.createElement('div');
+    clip.className = 'fsin-leaf__clip';
+    el.appendChild(clip);
+
+    // шапка
+    var header = document.createElement('div');
+    header.className = 'fsin-leaf__header';
+    var title = document.createElement('div');
+    title.className = 'fsin-leaf__title';
+    title.textContent = 'Список заключённых';
+    var subtitle = document.createElement('div');
+    subtitle.className = 'fsin-leaf__subtitle';
+    subtitle.textContent = 'Поиск по имени';
+    header.appendChild(title);
+    header.appendChild(subtitle);
+    el.appendChild(header);
+
+    // поле поиска (тот же стиль fsin-leaf__search)
+    var searchWrap = document.createElement('div');
+    searchWrap.className = 'fsin-leaf__search';
+
+    var searchIcon = document.createElement('div');
+    searchIcon.className = 'fsin-leaf__search-icon';
+    searchIcon.innerHTML = ICONS.pencil;
+
+    searchLeafInputEl = document.createElement('input');
+    searchLeafInputEl.type = 'text';
+    searchLeafInputEl.className = 'fsin-leaf__search-input';
+    searchLeafInputEl.placeholder = 'Имя заключённого...';
+    searchLeafInputEl.setAttribute('maxlength', '32');
+
+    searchLeafClearEl = document.createElement('div');
+    searchLeafClearEl.className = 'fsin-leaf__search-clear';
+    searchLeafClearEl.innerHTML = ICONS.cross;
+    searchLeafClearEl.title = 'Очистить поиск';
+    searchLeafClearEl.addEventListener('click', function () {
+        clearPrisonerSearch();
+        if (searchLeafInputEl) searchLeafInputEl.focus();
+    });
+
+    searchLeafInputEl.addEventListener('focus', function () {
+        try { window.setInputFocus && window.setInputFocus(true); } catch (e) {}
+    });
+    searchLeafInputEl.addEventListener('blur', function () {
+        try { window.setInputFocus && window.setInputFocus(false); } catch (e) {}
+    });
+    searchLeafInputEl.addEventListener('keydown', function (e) {
+        e.stopPropagation();
+        if (e.key === 'Escape') { e.preventDefault(); clearPrisonerSearch(); }
+    });
+    searchLeafInputEl.addEventListener('keyup', function (e) { e.stopPropagation(); });
+    searchLeafInputEl.addEventListener('input', function () {
+        applyPrisonerSearch(searchLeafInputEl.value);
+    });
+
+    searchWrap.appendChild(searchIcon);
+    searchWrap.appendChild(searchLeafInputEl);
+    searchWrap.appendChild(searchLeafClearEl);
+    el.appendChild(searchWrap);
+
+    // подсказка в теле листика
+    var body = document.createElement('div');
+    body.className = 'fsin-leaf__body';
+    var hint = document.createElement('div');
+    hint.style.cssText = [
+        'font-family:"Caveat",var(--fallback-font);',
+        'font-size:0.8vw;font-weight:700;',
+        'color:rgba(1,1,6,0.4);',
+        'line-height:1.5;',
+        'text-align:center;',
+        'padding:0.3vw 0;',
+        'transform:rotate(-0.8deg);',
+    ].join('');
+    hint.textContent = 'Поиск применяется к текущей странице';
+    body.appendChild(hint);
+    el.appendChild(body);
+
+    document.body.appendChild(el);
+    searchLeafEl = el;
+    return el;
+}
+
+function positionSearchLeaf() {
+    if (!searchLeafEl) return;
+    var book = document.querySelector('.jail-book-book');
+    if (!book) return;
+    var rect  = book.getBoundingClientRect();
+    var gap   = window.innerWidth * 0.012;
+    var leafW = searchLeafEl.offsetWidth;
+    var leafH = searchLeafEl.offsetHeight;
+    // листик слева от книги (зеркально автофиллу)
+    var left = rect.left - gap - leafW;
+    if (left < 8) left = 8;
+    var top = rect.top + rect.height * 0.06;
+    if (top + leafH > window.innerHeight - 8) {
+        top = Math.max(8, window.innerHeight - leafH - 8);
+    }
+    searchLeafEl.style.left = left + 'px';
+    searchLeafEl.style.top  = top  + 'px';
+}
+
+function showSearchLeaf() {
+    if (_searchLeafVisible) return;
+    buildSearchLeaf();
+    clearPrisonerSearch();
+    searchLeafEl.classList.add('fsin-leaf--visible');
+    _searchLeafVisible = true;
+    positionSearchLeaf();
+}
+
+function hideSearchLeaf() {
+    if (!_searchLeafVisible || !searchLeafEl) return;
+    searchLeafEl.classList.remove('fsin-leaf--visible');
+    _searchLeafVisible = false;
+    // восстановить скрытые строки
+    document.querySelectorAll(
+        '.jail-book-base__table_first .jail-book-table__row,' +
+        '.jail-book-base__table_second .jail-book-table__row'
+    ).forEach(function (r) { r.style.display = ''; });
+    try {
+        if (searchLeafInputEl && document.activeElement === searchLeafInputEl) {
+            searchLeafInputEl.blur();
+        }
+    } catch (e) {}
 }
 
 // ── Стили листика ────────────────────────────────────────────────────────────
@@ -4182,11 +4363,26 @@ function hideLeaf() {
 // ── Цикл видимости ──────────────────────────────────────────────────────────
 function tick() {
     try {
-        if (isJailBookOpen() && isChangeTimePage()) {
+        var bookOpen   = isJailBookOpen();
+        var changePage = bookOpen && isChangeTimePage();
+        var basePage   = bookOpen && isBasePage();
+
+        if (changePage) {
+            // Страница «Изменить срок»: показываем автофилл, прячем поиск
             showLeaf();
             positionLeaf();
+            if (_searchLeafVisible) hideSearchLeaf();
+        } else if (basePage) {
+            // Страница списка заключённых: показываем поиск, прячем автофилл
+            if (_leafVisible) hideLeaf();
+            showSearchLeaf();
+            positionSearchLeaf();
+            // Повторно применяем фильтр после смены страницы (Vue заменяет строки)
+            if (_prisonerQuery) applyPrisonerSearch(_prisonerQuery);
         } else {
-            hideLeaf();
+            // JailBook закрыт или страница личного дела — всё прячем
+            if (_leafVisible) hideLeaf();
+            if (_searchLeafVisible) hideSearchLeaf();
         }
     } catch (e) {}
 }
@@ -4195,6 +4391,7 @@ function tick() {
 function init() {
     window.addEventListener('resize', function () {
         if (_leafVisible) positionLeaf();
+        if (_searchLeafVisible) positionSearchLeaf();
     });
     setInterval(tick, 300);
     tick();
