@@ -3582,8 +3582,6 @@ var searchLeafInputEl  = null;
 var searchLeafClearEl  = null;
 var _searchLeafVisible = false;
 var _prisonerQuery     = '';
-var _searchMode        = false;   // true — отправлен JailBase_OnSearch, сервер вернёт отфильтрованные строки
-var _searchDebounce    = null;    // таймер дебаунса запроса к серверу
 
 // ── Проверка открыт ли JailBook ─────────────────────────────────────────────
 function isJailBookOpen() {
@@ -3768,73 +3766,32 @@ function clearSearch() {
 // ── ПОИСК ЗАКЛЮЧЁННЫХ (BASE PAGE) ────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 
-// Поиск заключённых по всем страницам через серверное событие JailBase_OnSearch
+// Фильтрация строк таблицы по имени заключённого
 function applyPrisonerSearch(query) {
     _prisonerQuery = (query || '').toLowerCase().trim();
-
+    var firstRows  = document.querySelectorAll('.jail-book-base__table_first .jail-book-table__row');
+    var secondRows = document.querySelectorAll('.jail-book-base__table_second .jail-book-table__row');
+    firstRows.forEach(function (row, i) {
+        var cell = row.querySelector('.jail-book-table__cell');
+        var text = cell ? cell.textContent.toLowerCase() : '';
+        var match = !_prisonerQuery || text.indexOf(_prisonerQuery) !== -1;
+        row.style.display = match ? '' : 'none';
+        if (secondRows[i]) secondRows[i].style.display = match ? '' : 'none';
+    });
     if (searchLeafClearEl) {
         searchLeafClearEl.classList.toggle('fsin-leaf__search-clear--visible', !!_prisonerQuery);
     }
-
-    // Пустой запрос — выходим из режима поиска, возвращаем страницу 1
-    if (!_prisonerQuery) {
-        if (_searchDebounce) { clearTimeout(_searchDebounce); _searchDebounce = null; }
-        if (_searchMode) {
-            _searchMode = false;
-            try { sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'JailBase_OnChangePage', 1); } catch (e) {}
-        }
-        // Восстанавливаем строки (DOM-fallback)
-        document.querySelectorAll(
-            '.jail-book-base__table_first .jail-book-table__row,' +
-            '.jail-book-base__table_second .jail-book-table__row'
-        ).forEach(function (r) { r.style.display = ''; });
-        return;
-    }
-
-    // Дебаунс 350 мс — не спамим сервер при быстром вводе
-    if (_searchDebounce) clearTimeout(_searchDebounce);
-    _searchDebounce = setTimeout(function () {
-        _searchDebounce = null;
-        _searchMode = true;
-        try {
-            // Отправляем запрос на сервер; результат придёт через updateBaseData
-            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'JailBase_OnSearch', _prisonerQuery, 1);
-        } catch (e) {
-            console.warn('[FSIN] JailBase_OnSearch не поддерживается, DOM-fallback (только текущая страница)', e);
-            _searchMode = false;
-            // Запасная фильтрация: только строки текущей страницы
-            var firstRows  = document.querySelectorAll('.jail-book-base__table_first .jail-book-table__row');
-            var secondRows = document.querySelectorAll('.jail-book-base__table_second .jail-book-table__row');
-            firstRows.forEach(function (row, i) {
-                var cell = row.querySelector('.jail-book-table__cell');
-                var text = cell ? cell.textContent.toLowerCase() : '';
-                var match = text.indexOf(_prisonerQuery) !== -1;
-                row.style.display = match ? '' : 'none';
-                if (secondRows[i]) secondRows[i].style.display = match ? '' : 'none';
-            });
-        }
-    }, 350);
 }
 
 function clearPrisonerSearch() {
     _prisonerQuery = '';
-    _searchMode    = false;
-    if (_searchDebounce) { clearTimeout(_searchDebounce); _searchDebounce = null; }
     if (searchLeafInputEl) searchLeafInputEl.value = '';
-    if (searchLeafClearEl) searchLeafClearEl.classList.remove('fsin-leaf__search-clear--visible');
-    // Убираем DOM-скрытие строк (fallback)
-    document.querySelectorAll(
-        '.jail-book-base__table_first .jail-book-table__row,' +
-        '.jail-book-base__table_second .jail-book-table__row'
-    ).forEach(function (r) { r.style.display = ''; });
-    // Возвращаемся к первой странице обычного списка
-    try { sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'JailBase_OnChangePage', 1); } catch (e) {}
+    applyPrisonerSearch('');
 }
 
 // Создание листика поиска
 function buildSearchLeaf() {
     if (searchLeafEl) return searchLeafEl;
-    injectStyles();
 
     // Отдельный стиль для левого листика (зеркальный наклон)
     var old = document.getElementById('fsin-search-leaf-style');
@@ -3859,7 +3816,7 @@ function buildSearchLeaf() {
     title.textContent = 'Список заключённых';
     var subtitle = document.createElement('div');
     subtitle.className = 'fsin-leaf__subtitle';
-    subtitle.textContent = 'поиск по всем страницам';
+    subtitle.textContent = 'Поиск по имени';
     header.appendChild(title);
     header.appendChild(subtitle);
     el.appendChild(header);
@@ -3920,7 +3877,7 @@ function buildSearchLeaf() {
         'padding:0.3vw 0;',
         'transform:rotate(-0.8deg);',
     ].join('');
-    hint.textContent = 'Результаты со всех страниц';
+    hint.textContent = 'Поиск применяется к текущей странице';
     body.appendChild(hint);
     el.appendChild(body);
 
@@ -3961,16 +3918,7 @@ function hideSearchLeaf() {
     if (!_searchLeafVisible || !searchLeafEl) return;
     searchLeafEl.classList.remove('fsin-leaf--visible');
     _searchLeafVisible = false;
-    // Выходим из режима поиска: возвращаем обычный список (страница 1)
-    if (_searchMode || _prisonerQuery) {
-        _searchMode = false;
-        _prisonerQuery = '';
-        if (_searchDebounce) { clearTimeout(_searchDebounce); _searchDebounce = null; }
-        if (searchLeafInputEl) searchLeafInputEl.value = '';
-        if (searchLeafClearEl) searchLeafClearEl.classList.remove('fsin-leaf__search-clear--visible');
-        try { sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'JailBase_OnChangePage', 1); } catch (e) {}
-    }
-    // Восстановить строки DOM (fallback)
+    // восстановить скрытые строки
     document.querySelectorAll(
         '.jail-book-base__table_first .jail-book-table__row,' +
         '.jail-book-base__table_second .jail-book-table__row'
@@ -4429,7 +4377,8 @@ function tick() {
             if (_leafVisible) hideLeaf();
             showSearchLeaf();
             positionSearchLeaf();
-            // Поиск серверный — повторная отправка не нужна; строки придут через updateBaseData
+            // Повторно применяем фильтр после смены страницы (Vue заменяет строки)
+            if (_prisonerQuery) applyPrisonerSearch(_prisonerQuery);
         } else {
             // JailBook закрыт или страница личного дела — всё прячем
             if (_leafVisible) hideLeaf();
@@ -4437,31 +4386,6 @@ function tick() {
         }
     } catch (e) {}
 }
-
-// ── Перехват JailBase_OnChangePage в режиме поиска ──────────────────────────
-// Когда пользователь нажимает «вперёд»/«назад» в пагинации книги находясь
-// в режиме поиска, перенаправляем запрос в JailBase_OnSearch с тем же запросом
-// и нужным номером страницы, чтобы сервер вернул следующую порцию результатов.
-(function () {
-    var _prevSendCE = window.sendClientEvent;
-    window.sendClientEvent = function (event) {
-        var args = Array.prototype.slice.call(arguments, 1);
-        // Перехватываем только переключение страниц в JailBook во время поиска
-        if (_searchMode && _prisonerQuery &&
-            event === gm.EVENT_EXECUTE_PUBLIC &&
-            args[0] === 'JailBase_OnChangePage') {
-            var targetPage = args[1];
-            try {
-                _prevSendCE.call(this, event, 'JailBase_OnSearch', _prisonerQuery, targetPage);
-            } catch (e) {
-                _prevSendCE.apply(this, arguments);
-            }
-            return;
-        }
-        return _prevSendCE.apply(this, arguments);
-    };
-    sendClientEvent = window.sendClientEvent;
-})();
 
 // ── Инициализация ────────────────────────────────────────────────────────────
 function init() {
