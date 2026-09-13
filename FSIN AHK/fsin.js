@@ -309,7 +309,6 @@ const povsednevOptions = [
     { name: "5. Снятие наручников", action: "uncuffing", needsId: true },
     { name: "6. Обыск", action: "search", needsId: true },
     { name: "7. Конвоирование", action: "escort", needsId: true },
-    { name: "8. Выдача розыска [/su]", action: "wantedFine" },
 ];
 const ITEMS_PER_PAGE = 7;
 // ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
@@ -336,18 +335,8 @@ let targetId = null;
 let currentMenu = null;
 let currentSubMenu = null;
 let currentAction = null;
-let _lastWantedChatAt = 0;   // защита от дубля при цитировании розыска
 let autoCuffEnabled = false;
-let lastWantedCode = null; // последняя статья УК для авто-подстановки в серверный диалог
-let _autoWantedActive = false; // флаг: /su отправлен через меню авторозыска — только тогда авто-причина работает
-// Публичный API для LawsHelper — устанавливает причину и активирует авто-розыск
-window._mvdSetLastWantedCode = function(code) {
-    lastWantedCode = code;
-    _autoWantedActive = true;
-    // Страховочный сброс — если сервер не открыл диалог за 5 секунд
-    setTimeout(function() { _autoWantedActive = false; }, 5000);
-    console.log('[AUTO-РОЗЫСК] lastWantedCode="' + code + '", _autoWantedActive=true (через LawsHelper)');
-};
+
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
 // Хоткей авто-выброса из авто — настраивается установщиком через EJECT_KEY
@@ -361,7 +350,7 @@ var MENU_BINDS = {};
 // Формат: ["greeting","cuffing","checkDocuments",...] (пусто = по умолчанию)
 var MENU_ORDER = [];
 // Пункты меню, после которых шлём "/c 60" и закрываем диалог "Точное время" через 1.5с
-// Формат: ["greeting","fine","wantedFine",...] (пусто = выключено везде) — настраивается установщиком
+// Формат: ["greeting","fine",...] (пусто = выключено везде) — настраивается установщиком
 var MENU_TIMER_ITEMS = [];
 
 // Флаг: ждём диалог "Точное время" именно как ОТВЕТ на нашу команду "/c 60" после отыгровки.
@@ -456,8 +445,6 @@ window.addEventListener('keydown', function(e) {
                 window._mvdMenuTargetId = null;
                 window._mvdMenuDirectAction = _action;
                 setTimeout(function(){ window.openInterface('MvdMenu'); }, 50);
-            } else if (_action === 'wantedFine') {
-                setTimeout(function(){ showUkInputDialog(giveLicenseTo || -1); }, 50);
             } else {
                 executePovsednevAction(_action, giveLicenseTo || -1);
             }
@@ -666,84 +653,7 @@ const setupChatHandler = () => {
             }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
 
-            // ==================== ОТСЛЕЖИВАНИЕ РОЗЫСКА (ЦИТИРОВАНИЕ) ====================
-            // Ловим серверное подтверждение: "Капитан Nick[ID] объявил Nick[ID] в розыск [N/6], причина: X УК"
-            // Работает аналогично блоку "выписал штраф" — проверяем что это МЫ выдали розыск.
-            if (typeof message === 'string' && message.includes('объявил') && message.includes('в розыск')) {
-                try {
-                    const ownNick = window.App?.$store?.getters?.['player/nickName'];
-                    // Снимаем цветовые теги (вида {RRGGBB} и {v:Nick}) перед разбором
-                    const cleanMsg = message
-                        .replace(/\{[0-9A-Fa-f]{6}\}/g, '')
-                        .replace(/\{v:[^}]+\}/g, '');
-                    // Формат: "Звание OfficerNick[OfficerID] объявил CriminalNick[CriminalID] в розыск [N/6], причина: X.X УК, ..."
-                    const wantedMatch = cleanMsg.match(
-                        /([A-Za-z0-9_]+)\[(\d+)\]\s+объявил\s+([A-Za-z0-9_]+)\[(\d+)\]\s+в розыск\s+\[(\d+)\/6\](?:,\s*причина:\s*(.+))?/
-                    );
-                    if (wantedMatch) {
-                        const officerNick  = wantedMatch[1];
-                        const criminalNick = wantedMatch[3];
-                        const wantedLevel  = wantedMatch[5];
-                        const articlesStr  = (wantedMatch[6] || '').trim();
 
-                        console.log(`[WANTED-LOG] officer="${officerNick}", own="${ownNick}", criminal="${criminalNick}", level=${wantedLevel}, причина="${articlesStr}"`);
-
-                        if (ownNick && officerNick === ownNick) {
-                            const now = Date.now();
-                            if (now - _lastWantedChatAt < 3000) {
-                                // Дубль того же события (радио-эхо) — пропускаем
-                                console.log('[WANTED-LOG] ⏭ Пропускаем дубль сообщения о розыске (повтор < 3с)');
-                            } else {
-                                _lastWantedChatAt = now;
-                                // ── Цитирование причин розыска после подтверждения сервером ──
-                                // Данные сохранены в zkm.js → window._mvdLastWantedArts (num, title, term)
-                                try {
-                                    const wantedArts = window._mvdLastWantedArts;
-                                    if (wantedArts && wantedArts.length) {
-                                        // Собираем текст одним блоком (как в C++ хелпере) и режем по 83 символа
-                                        function _yearLabel(n) {
-                                            if (n === 1) return `${n} год лишения свободы`;
-                                            if (n >= 2 && n <= 4) return `${n} года лишения свободы`;
-                                            return `${n} лет лишения свободы`;
-                                        }
-                                        let _totalTerm = 0;
-                                        const _wCodes = wantedArts.map(a => a.num).join(', ');
-                                        let _citeText = `Объявлены в розыск по: ${_wCodes} УК\n`;
-                                        wantedArts.forEach((art) => {
-                                            _citeText += `${art.num} УК - ${art.title} - ${_yearLabel(art.term)}.\n`;
-                                            _totalTerm += (art.term || 0);
-                                        });
-                                        _citeText += `Суммарно ${_yearLabel(_totalTerm)}.`;
-                                        // 83 символа в строке, 500 мс начальная пауза, 100 мс между строками
-                                        const _msgs   = _splitCitation83(_citeText);
-                                        const _delays = _msgs.map((_, i) => i === 0 ? 500 : 100);
-                                        showCiteOffer('Цитировать розыск?', _msgs, _delays);
-                                        console.log(`[WANTED-LOG] 💬 Предложение цитирования розыска: ${wantedArts.length} ст.`);
-                                        // Очищаем — не повторять при радио-дубле
-                                        window._mvdLastWantedArts = null;
-                                    } else if (articlesStr) {
-                                        // Фолбэк: розыск выдан не через ZKM (напр. ручной /su) —
-                                        // берём коды прямо из чата, без названий
-                                        const artCodes = articlesStr.split(',').map(a => a.trim()).filter(Boolean);
-                                        const _fbText  = artCodes.map(code => `Объявлен в розыск по: ${code}.`).join('\n');
-                                        const _msgs    = _splitCitation83(_fbText);
-                                        const _delays  = _msgs.map((_, i) => i === 0 ? 500 : 100);
-                                        showCiteOffer('Цитировать розыск?', _msgs, _delays);
-                                        console.log(`[WANTED-LOG] 💬 Предложение цитирования розыска (фолбэк): ${artCodes.length} ст.`);
-                                    }
-                                } catch (_we) {
-                                    console.warn('[WANTED-LOG] Ошибка цитирования розыска:', _we);
-                                }
-                            }
-                        } else {
-                            console.log(`[WANTED-LOG] ⏭ Розыск выдан не нами (officer="${officerNick}", own="${ownNick}") — цитирование пропущено`);
-                        }
-                    }
-                } catch (err) {
-                    console.error('[WANTED-LOG] Ошибка обработки розыска:', err);
-                }
-            }
-            // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ РОЗЫСКА ====================
 
             // ── Закрытие "Точное время" и восстановление Dokladi по скриншоту ──
             // Движок шлёт сообщение {3EB936}Снимок экрана сохранен {FFFFFF}radmir-....jpg
@@ -956,10 +866,6 @@ const HandlePovsednevCommand = (optionIndex) => {
         if (needsIdForThis) {
             setTimeout(() => {
                 showIdInputDialog(giveLicenseTo);
-            }, 50);
-        } else if (option.action === "wantedFine") {
-            setTimeout(() => {
-                showUkInputDialog(giveLicenseTo);
             }, 50);
         } else {
             executePovsednevAction(option.action, giveLicenseTo);
@@ -1262,22 +1168,6 @@ const executePovsednevAction = (action, targetId) => {
             ], [0, 1500, 1500, 1500, 1500, 1500, 1500, 1500, 1500]);
             break;
       
-        case "wantedFine":
-            sendChatInput(`/su ${targetId}`);
-            runPostActionTimer('wantedFine');
-            break;
-
-        case "wanted":
-            sendMessagesWithDelay([
-                "/me взял рацию в руки",
-                "/me сообщил данные о нарушителе диспетчеру",
-                "/do Данные сообщены.",
-                "/do Нарушитель объявлен в розыск.",
-                `/su ${targetId}`
-            ], [0, 1000, 1000, 1000, 1000]);
-            setTimeout(() => runPostActionTimer('wanted'), 4000);
-            break;
-      
         case "cuffing":
             sendMessagesWithDelay([
                 "/do Наручники в руке.",
@@ -1444,12 +1334,6 @@ window.showMvdSubMenu = (e) => {
     });
     window.addDialogInQueue(`[677,2,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
-window.showUkInputDialog = (e) => {
-    giveLicenseTo = e;
-    window._duranOpenMode = 'wanted';
-    window._duranWantedTargetId = (e !== undefined && e !== null) ? e : -1;
-    window.openInterface('Zkm');
-};
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
     window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
@@ -1503,23 +1387,6 @@ window.sendClientEventCustom = (event, ...args) => {
                 // Отмена / ESC — закрываем меню
             }
         }
-    } else if (args[0] === "OnDialogResponse" && _wantedDialogId !== null && args[1] === _wantedDialogId) {
-        // ==================== /WANTED: ВЫБОР ИГРОКА → АВТО-ОТСЛЕЖИВАНИЕ ====================
-        if (args[2] === 1) {
-            const listitem = parseInt(args[3]);
-            const player = _wantedPlayers[listitem];
-            if (player) {
-                console.log(`[WANTED] ✅ Выбран: ${player.nick}[${player.id}]`);
-                _wantedDialogId = null;
-            } else {
-                console.log(`[WANTED] ⚠️ Не найден игрок с listitem=${listitem}, всего=${_wantedPlayers.length}`);
-                _wantedDialogId = null;
-            }
-        } else {
-            _wantedDialogId = null;
-        }
-        window.sendClientEventHandle(event, ...args);
-        // ==================== КОНЕЦ /WANTED ====================
     } else {
         window.sendClientEventHandle(event, ...args);
     }
@@ -1673,12 +1540,6 @@ sendClientEvent = sendClientEventCustom;
 // ==================== DIALOG MONITOR (console only) ====================
 // Перехват серверных диалогов — вывод в консоль + авто-действия
 
-// Флаг: ожидаем INPUT диалог розыска после выбора "ввести вручную"
-let _awaitingRoziskInput = false;
-
-// ── /wanted список: сохраняем ID игроков при открытии диалога ──
-let _wantedDialogId = null;      // ID серверного диалога /wanted
-let _wantedPlayers = [];         // [ { nick, id }, ... ] — в порядке строк
 
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
@@ -1751,67 +1612,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 }
             }
 
-            // ── /wanted: TABLIST_HEADERS "Список разыскиваемых" — сохраняем игроков ──
-            if ((style === 4 || style === 5) && title.includes('разыскиваемых')) {
-                _wantedDialogId = dialogId;
-                _wantedPlayers = [];
-                if (content) {
-                    const raw = Array.isArray(content) ? content.join('') : String(content);
-                    // Строки разделены <n>, каждая строка: "Ник[ID]<t>Дистанция" или "Ник[ID]	Дистанция"
-                    const rows = raw.split('<n>');
-                    rows.forEach(row => {
-                        // Извлекаем Ник[ID] из строки — формат "Nick_Name[123]"
-                        const m = row.match(/([A-Za-z0-9_]+)\[(\d+)\]/);
-                        if (m) _wantedPlayers.push({ nick: m[1], id: m[2] });
-                    });
-                }
-                console.log(`[WANTED] Диалог id=${dialogId}, игроков: ${_wantedPlayers.length}`, _wantedPlayers.map(p => p.nick + '[' + p.id + ']').join(', '));
-            }
 
-            // ── Авто-розыск: LIST "Причина выдачи розыска" → выбрать "Ввести вручную" ──
-            // Срабатывает ТОЛЬКО если /su был отправлен через наш диалог (пункт 14 меню)
-            if (style === 2 && title.includes('Причина выдачи розыска') && _autoWantedActive) {
-                _autoWantedActive = false; // сбрасываем — чтоб следующий ручной /su не сработал
-                console.log('[AUTO-РОЗЫСК] Обнаружен диалог выбора причины — авто-выбор "Ввести в ручную"');
-                _awaitingRoziskInput = true;
-                setTimeout(() => {
-                    // listitem=1 — второй пункт ("Ввести причину в ручную"), response=1
-                    sendClientEvent(
-                        (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
-                            ? window.gm.EVENT_EXECUTE_PUBLIC
-                            : 'server',
-                        'OnDialogResponse', dialogId, 1, 1, ''
-                    );
-                    console.log('[AUTO-РОЗЫСК] Отправлен выбор пункта 2 (ввести вручную)');
-                }, 200);
-            }
-
-
-            // ── Авто-розыск: INPUT "Причина выдачи розыска" → вставить причину и закрыть диалог ──
-            if (style === 1 && title.includes('Причина выдачи розыска') && _awaitingRoziskInput) {
-                _awaitingRoziskInput = false;
-                const reason = lastWantedCode || '1.1 УК';
-                const _roziskDialogId = dialogId;
-                console.log(`[AUTO-РОЗЫСК] Обнаружен INPUT диалог — авто-ввод причины "${reason}"`);
-                setTimeout(() => {
-                    // Отправляем ответ серверу напрямую через оригинальный обработчик
-                    _origSendClientEventHandle.call(
-                        window,
-                        (window.gm && window.gm.EVENT_EXECUTE_PUBLIC !== undefined)
-                            ? window.gm.EVENT_EXECUTE_PUBLIC
-                            : 'server',
-                        'OnDialogResponse', _roziskDialogId, 1, 0, reason
-                    );
-                    console.log(`[AUTO-РОЗЫСК] Причина "${reason}" отправлена`);
-                    lastWantedCode = null;
-                    // Закрываем UI диалога
-                    setTimeout(() => {
-                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
-                        console.log('[AUTO-РОЗЫСК] Диалог закрыт');
-                        runPostActionTimer('wantedFine');
-                    }, 100);
-                }, 300);
-            }
         }
     } catch (err) {
         console.error('[DIALOG] Ошибка перехвата:', err.message);
