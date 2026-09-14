@@ -1811,4 +1811,104 @@ window.onChatMessage = function(text, color) {
 // ================================================================
 // END [FKONST INTERFACE-LOG BLOCK]
 // ================================================================
+// ================================================================
+// [FKONST POS BLOCK] — фейк-рация докладов о посте (команда /pos)
+// /pos 1 — заступление на пост
+// /pos 2 — доклад с поста
+// /pos 3 — окончание дежурства
+// Сообщения видит ТОЛЬКО игрок (локальный впрыск в чат), формат 1-в-1
+// как серверная рация: [R] Ранг [ГУ ФСИН] Ник[ID]: текст (цвет 33CC66)
+// Пост фиксированный: Вышка. Фамилия берётся из ника как в fsin.js:
+// ник.split(/[_\s]+/) → [0] имя, [1] фамилия.
+// ================================================================
+(function () {
+    if (window.__posBlockLoaded) return;
+    window.__posBlockLoaded = true;
+
+    var POST_NAME   = 'Вышка';
+    var FACTION_TAG = 'ГУ ФСИН';
+    var RADIO_COLOR = '33CC66FF'; // цвет рации как на сервере (RRGGBBAA)
+
+    // ── Ник / фамилия / ID ────────────────────────────────────────
+    function getOwnNick() {
+        try {
+            var n = window.App && window.App.$store &&
+                    window.App.$store.getters &&
+                    window.App.$store.getters['player/nickName'];
+            if (n && n !== 'Name_Surname') return n;
+        } catch (e) {}
+        return window._fsinCallsign || null;
+    }
+    // Фамилия — как в fsin.js: ник бьётся на части по _ и пробелам, [1] — фамилия
+    function getOwnLastName() {
+        var nick = getOwnNick();
+        if (!nick) return window._fsinLastName || '';
+        var parts = String(nick).split(/[_\s]+/);
+        return parts[1] || window._fsinLastName || '';
+    }
+    function getOwnId() {
+        try {
+            var list = window._mvdPlayerList; // обновляется обёрткой onUpdatePlayersList в fkonst
+            if (list && list.local && list.local.id !== undefined) return list.local.id;
+        } catch (e) {}
+        return null;
+    }
+
+    // ── Отправка фейк-рации (видит только игрок) ──────────────────
+    function sendFakeRadio(text) {
+        var nick = getOwnNick() || 'Name_Surname';
+        var id   = getOwnId();
+        var rank = window._fsinRank || 'Сотрудник'; // ранг грузит профиль fsin.js
+        var prefix = '[R] ' + rank + ' [' + FACTION_TAG + '] ' + nick +
+                     (id !== null && id !== undefined ? '[' + id + ']' : '') + ': ';
+        try {
+            window.onChatMessage(prefix + text, [0, 0, RADIO_COLOR]);
+        } catch (e) {
+            console.warn('[POS] ошибка отправки:', e);
+        }
+        console.log('[POS] 📻 фейк-рация → ' + prefix + text);
+    }
+
+    function sendHelp() {
+        try {
+            window.onChatMessage(
+                '{999999}[POS] /pos 1 — заступление · /pos 2 — доклад · /pos 3 — окончание (пост: ' + POST_NAME + ')',
+                [0, 0, '999999FF']
+            );
+        } catch (e) {}
+        console.log('[POS] /pos 1|2|3 — пост "' + POST_NAME + '"');
+    }
+
+    // ── Обработка /pos N ──────────────────────────────────────────
+    function handlePos(n) {
+        var body = null;
+        if (n === 1)      body = 'Заступил на пост: "' + POST_NAME + '". Состояние: стабильное.';
+        else if (n === 2) body = 'Нахожусь на посту: "' + POST_NAME + '". Состояние: стабильное.';
+        else if (n === 3) body = 'Покидаю пост: "' + POST_NAME + '". Состояние: стабильное.';
+        if (!body) { sendHelp(); return; }
+        var doSend = function () {
+            sendFakeRadio('Докладывает: ' + getOwnLastName() + '. ' + body);
+        };
+        // Если ранг ещё не загружен профилем fsin.js — дожидаемся и шлём
+        if (!window._fsinRank && typeof window._fsinLoadPlayerProfile === 'function') {
+            window._fsinLoadPlayerProfile(doSend);
+        } else {
+            doSend();
+        }
+    }
+
+    // ── Перехват sendChatInput ────────────────────────────────────
+    var _posPrevSendChatInput = window.sendChatInput;
+    window.sendChatInput = function (text) {
+        if (typeof text === 'string' && /^\/pos(\s|$)/i.test(text.trim())) {
+            var n = parseInt(text.trim().split(/\s+/)[1], 10);
+            try { window.updatePlayerList && window.updatePlayerList(); } catch (e) {}
+            handlePos(n);
+            return; // на сервер не уходим — фейк виден только тебе
+        }
+        return _posPrevSendChatInput.apply(this, arguments);
+    };
+
+    console.log('[POS] ✅ Блок докладов загружен: /pos 1|2|3 — пост "' + POST_NAME + '" (фейк-рация, видит только игрок)');
+})();
 }); // конец callback _nickCheck
