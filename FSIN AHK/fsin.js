@@ -4144,17 +4144,19 @@ window._stroiMenuItems = [
 // и перетаскивание за заголовок — для серверных диалогов 666–677, 695–696,
 // отрисовываемых Window.js / Modal.js. Window.js и Modal.js не трогаем.
 //
-// Схема работы (идентична MvdMenu.js):
-//   • короткий тап Alt  → переключить видимость курсора
-//   • удержание Alt 500 мс → скрыть / показать диалог целиком
+// Схема работы:
+//   • короткий тап Alt        → переключить видимость курсора (toggle)
+//   • удержание Alt ≥500 мс   → скрыть / показать диалог + курсор автоматически
 //   • перетаскивание за .modal__title → двигать .modal-container-wrapper
+//   • позиция сохраняется по ID диалога — при повторном открытии восстанавливается
+//   • при пагинации (667→667) drag переинициализируется без потери позиции
 //
 // Подключается:  при вызове addDialogInQueue с нашим ID диалога
 // Отключается:   при вызове closeLastDialog (кнопка / ESC внутри Window.js)
 ;(function () {
     'use strict';
 
-    // Контекстное имя для setCursorStatus / isCursorActive
+    // Контекстное имя для setCursorStatus
     var CURSOR_NAME = 'Window';
     // Задержка удержания Alt для скрытия диалога (мс)
     var ALT_HOLD_MS = 500;
@@ -4169,29 +4171,32 @@ window._stroiMenuItems = [
     var _menuHidden    = false; // true когда диалог скрыт Alt-hold'ом
     var _altHoldTimer  = null;
     var _altHoldFired  = false; // защита от автоповтора keydown при зажатом Alt
-    var _blurredInput  = null;  // поле ввода, которое потеряло фокус при hideCursor
-    var _prevOnKeyDown = null;  // сохранённый window.onKeyDown до нашей подстановки
+    var _blurredInput  = null;  // поле ввода, потерявшее фокус при hideCursor
+    var _prevOnKeyDown = null;
     var _prevOnKeyUp   = null;
-    var _dragCleanup   = null;  // функция снятия drag-листенеров
+    var _dragCleanup   = null;
+    // [FIX 1] Локальный флаг видимости курсора — не зависим от isCursorActive()
+    var _cursorVisible   = true;
+    // [FIX 2-3] Текущий ID диалога + карта сохранённых позиций
+    var _currentDialogId = null;
+    var _savedPositions  = {};   // { dialogId: { left: 'Xpx', top: 'Ypx' } }
 
     // ── DOM-хелперы ───────────────────────────────────────────────────────────
-    // Обёртка диалога (то, что перемещаем при drag)
     function _getWrapper() {
         return document.querySelector('.modal-container-wrapper');
     }
-    // Корневой контейнер интерфейса (скрываем целиком при Alt-hold)
     function _getRoot() {
         var w = _getWrapper();
         return w && (w.closest('.iface-centered') || w);
     }
 
     // ── Скрытие / показ курсора ────────────────────────────────────────────────
-    // Логика 1:1 из MvdMenu.js hideCursor() / showCursor()
+    // [FIX 1] Отслеживаем состояние локально через _cursorVisible, а не isCursorActive()
 
     function hideCursor() {
+        _cursorVisible = false;
         var wrapper = _getWrapper();
         var ae = document.activeElement;
-        // Снимаем фокус с поля ввода внутри диалога, чтобы игрок не печатал вслепую
         if (ae && wrapper && wrapper.contains(ae) &&
             (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
             _blurredInput = ae;
@@ -4204,12 +4209,11 @@ window._stroiMenuItems = [
     }
 
     function showCursor() {
+        _cursorVisible = true;
         if (typeof window.setCursorStatus === 'function')
             window.setCursorStatus(CURSOR_NAME, true);
-        // Восстанавливаем ники над головами (setCursorStatus иногда их гасит)
         if (!window.App?.developmentMode && typeof window.setDrawLabelStatus === 'function')
             window.setDrawLabelStatus(true);
-        // Возвращаем фокус в поле ввода, если оно было сфокусировано до hideCursor
         var el = _blurredInput;
         _blurredInput = null;
         if (el && el.isConnected)
@@ -4219,20 +4223,12 @@ window._stroiMenuItems = [
     // ── Перетаскивание ────────────────────────────────────────────────────────
     // wrapper  — .modal-container-wrapper   (перемещаемый элемент)
     // header   — .modal__title              (за что тянем)
-    //
-    // Позиция кэшируется при захвате (offsetWidth/Height, innerWidth/Height),
-    // обновляется через requestAnimationFrame — строго раз в кадр, без дёрганья.
-    // Логика 1:1 из MvdMenu.js (onDown / onMove / onUp).
 
     function _initDrag(wrapper, header) {
         var dragging = false, sx = 0, sy = 0, sl = 0, st = 0;
         var _ew = 0, _eh = 0, _ww = 0, _wh = 0;
         var _raf = null, _px = 0, _py = 0;
 
-        // Переводим wrapper из потокового положения (flex-child) в абсолютное.
-        // Координаты берём из getBoundingClientRect — они всегда в viewport-пространстве.
-        // Поскольку .modal — position:fixed на весь экран, absolute внутри него
-        // совпадает с viewport. Делаем один раз при первом захвате.
         function toAbsolute() {
             var rect = wrapper.getBoundingClientRect();
             wrapper.style.position = 'absolute';
@@ -4247,7 +4243,6 @@ window._stroiMenuItems = [
             var rect = wrapper.getBoundingClientRect();
             sx = e.clientX; sy = e.clientY;
             sl = rect.left; st = rect.top;
-            // Кешируем размеры один раз при захвате
             _ew = wrapper.offsetWidth;  _eh = wrapper.offsetHeight;
             _ww = window.innerWidth;    _wh = window.innerHeight;
             header.style.cursor = 'grabbing';
@@ -4259,7 +4254,6 @@ window._stroiMenuItems = [
             if (!dragging) return;
             _px = sl + (e.clientX - sx);
             _py = st + (e.clientY - sy);
-            // Обновляем позицию через RAF — рендер строго раз в кадр
             if (!_raf) {
                 _raf = requestAnimationFrame(function () {
                     _raf = null;
@@ -4275,6 +4269,15 @@ window._stroiMenuItems = [
             if (_raf) { cancelAnimationFrame(_raf); _raf = null; }
             header.style.cursor = 'grab';
             document.body.style.userSelect = '';
+            // [FIX 2] Сохраняем позицию для текущего диалога
+            if (_currentDialogId !== null) {
+                _savedPositions[_currentDialogId] = {
+                    left: wrapper.style.left,
+                    top:  wrapper.style.top
+                };
+                console.log('[FSIN-DRAG] Позиция сохранена для диалога ' + _currentDialogId +
+                            ': left=' + wrapper.style.left + ' top=' + wrapper.style.top);
+            }
         }
 
         header.style.cursor = 'grab';
@@ -4282,7 +4285,6 @@ window._stroiMenuItems = [
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup',  onUp);
 
-        // Сохраняем функцию очистки — вызывается в _detach()
         _dragCleanup = function () {
             header.removeEventListener('mousedown', onDown);
             document.removeEventListener('mousemove', onMove);
@@ -4290,17 +4292,25 @@ window._stroiMenuItems = [
         };
     }
 
-    // Ждём появления DOM-элементов (Vue монтирует асинхронно),
-    // затем инициализируем drag. Таймаут — 20 × 50 мс = 1 сек.
+    // [FIX 3-4] Опрос DOM, восстановление позиции и инициализация перетаскивания
     function _setupDrag() {
         var attempts = 0;
         var poll = setInterval(function () {
             attempts++;
             var wrapper = _getWrapper();
-            // В Modal.js заголовок диалога — .modal__title
             var header  = wrapper && wrapper.querySelector('.modal__title');
             if (header && wrapper) {
                 clearInterval(poll);
+                // [FIX 2] Восстанавливаем сохранённую позицию для этого диалога
+                if (_currentDialogId !== null && _savedPositions[_currentDialogId]) {
+                    var pos = _savedPositions[_currentDialogId];
+                    wrapper.style.position = 'absolute';
+                    wrapper.style.margin   = '0';
+                    wrapper.style.left     = pos.left;
+                    wrapper.style.top      = pos.top;
+                    console.log('[FSIN-DRAG] Позиция восстановлена для диалога ' + _currentDialogId +
+                                ': left=' + pos.left + ' top=' + pos.top);
+                }
                 _initDrag(wrapper, header);
             } else if (attempts >= 20) {
                 clearInterval(poll);
@@ -4311,67 +4321,59 @@ window._stroiMenuItems = [
 
     // ── Подключение — вызывается когда открылся наш диалог ────────────────────
     function _attach() {
-        if (_active) return; // уже подключено (повторный вызов при цепочке диалогов)
+        if (_active) return;
         _active        = true;
         _menuHidden    = false;
         _altHoldFired  = false;
         _blurredInput  = null;
+        _cursorVisible = true;  // [FIX 1] при открытии диалога курсор считается видимым
 
-        // Восстанавливаем ники над головами (как в MvdMenu.js mounted)
         if (!window.App?.developmentMode && typeof window.setDrawLabelStatus === 'function')
             window.setDrawLabelStatus(true);
 
-        // Сохраняем текущие обработчики движка и ставим свои поверх
         _prevOnKeyDown = window.onKeyDown;
         _prevOnKeyUp   = window.onKeyUp;
 
-        // onKeyDown: при нажатии Alt запускаем таймер удержания.
-        // !_altHoldFired — защита от автоповтора (браузер шлёт keydown повторно
-        // каждые ~30 мс пока клавиша зажата; новую реакцию допускаем только после keyup).
+        // onKeyDown: длинный Alt → скрыть/показать диалог + курсор вместе с ним
         window.onKeyDown = function (e) {
             if (e === window.KEY_CODE_ALT) {
                 if (!_altHoldTimer && !_altHoldFired) {
                     _altHoldTimer = setTimeout(function () {
                         _altHoldTimer = null;
                         _altHoldFired = true;
-                        // Длинный Alt: переключаем видимость диалога туда-обратно
                         _menuHidden = !_menuHidden;
                         var target = _getRoot();
                         if (target) {
                             if (_menuHidden) {
                                 target.style.visibility    = 'hidden';
                                 target.style.pointerEvents = 'none';
-                                hideCursor();
+                                hideCursor(); // [FIX 1] курсор прячем вместе с диалогом
                             } else {
                                 target.style.visibility    = '';
                                 target.style.pointerEvents = '';
-                                showCursor();
+                                showCursor(); // [FIX 1] курсор показываем вместе с диалогом
                             }
                         }
                     }, ALT_HOLD_MS);
                 }
-                return; // Alt не передаём дальше
+                return;
             }
             if (typeof _prevOnKeyDown === 'function') _prevOnKeyDown(e);
         };
 
-        // onKeyUp: короткий тап Alt (hold не успел сработать) → только курсор
+        // onKeyUp: короткий Alt → toggle курсора через локальный флаг _cursorVisible
+        // [FIX 1] Больше не зависим от isCursorActive() — используем собственный флаг
         window.onKeyUp = function (e) {
             if (e === window.KEY_CODE_ALT) {
                 if (_altHoldTimer) {
-                    // Hold не дождался таймаута — это короткий тап
                     clearTimeout(_altHoldTimer);
                     _altHoldTimer = null;
                     if (!_menuHidden) {
-                        // Переключаем курсор: если активен — скрываем, иначе показываем
-                        var curActive = typeof window.isCursorActive === 'function'
-                            ? window.isCursorActive(CURSOR_NAME)
-                            : false;
-                        if (curActive) hideCursor();
-                        else           showCursor();
+                        // Короткий Alt: переключаем курсор
+                        if (_cursorVisible) hideCursor();
+                        else               showCursor();
                     }
                 }
-                // Отпустили Alt — сбрасываем флаг, чтобы следующее зажатие снова сработало
                 _altHoldFired = false;
                 return;
             }
@@ -4393,34 +4395,48 @@ window._stroiMenuItems = [
         _prevOnKeyUp   = null;
         _menuHidden    = false;
         _blurredInput  = null;
+        _cursorVisible = true;  // [FIX 1] сброс на случай повторного открытия
     }
 
     // ── Хуки на жизненный цикл диалога ────────────────────────────────────────
 
-    // addDialogInQueue → _attach при открытии нашего диалога.
-    // Задержка 100 мс: даём fsin.js закончить обработку OnDialogResponse предыдущего
-    // диалога (и вызов closeLastDialog → _detach) раньше, чем мы подключимся заново.
     var _prevAddDialog = window.addDialogInQueue;
     window.addDialogInQueue = function (dialogParams, content, priority) {
         try {
             if (dialogParams && typeof dialogParams === 'string') {
                 var id = parseInt(JSON.parse(dialogParams.trim())[0]);
-                if (_isOurDialog(id)) setTimeout(_attach, 100);
+                if (_isOurDialog(id)) {
+                    _currentDialogId = id; // [FIX 2] запоминаем ID текущего диалога
+                    setTimeout(function () {
+                        if (_active) {
+                            // [FIX 4] Диалог уже активен — пагинация или смена типа без closeLastDialog.
+                            // Ключевые обработчики (Alt) уже на месте, достаточно переинициализировать drag.
+                            // Это нужно потому что Vue может заменить DOM-элемент при перерисовке диалога.
+                            if (typeof _dragCleanup === 'function') { _dragCleanup(); _dragCleanup = null; }
+                            _setupDrag();
+                        } else {
+                            // Свежее открытие — полный attach
+                            _attach();
+                        }
+                    }, 100);
+                }
             }
         } catch (e) {}
         return _prevAddDialog && _prevAddDialog.apply(this, arguments);
     };
 
     // closeLastDialog → _detach при закрытии диалога.
-    // Window.js вызывает closeLastDialog() сам после sendClientEvent в каждом методе
-    // (open, back, ready, cancel, onLeft/RightButton, keyEvent для ESC).
     var _prevCloseLastDialog = window.closeLastDialog;
     window.closeLastDialog = function () {
         _detach();
         return _prevCloseLastDialog && _prevCloseLastDialog.apply(this, arguments);
     };
 
-    console.log('[FSIN] Window/Modal cursor/hide/drag готов');
+    console.log('[FSIN] Window/Modal cursor/hide/drag v2 готов');
+    console.log('[FSIN]   • Alt (короткий) = toggle курсора');
+    console.log('[FSIN]   • Alt (≥500мс)  = скрыть/показать диалог + курсор');
+    console.log('[FSIN]   • drag сохраняет позицию по ID диалога');
+    console.log('[FSIN]   • пагинация 667→667 переинициализирует drag');
 })();
 // ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
 
