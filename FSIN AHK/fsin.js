@@ -111,7 +111,6 @@ function _showAccessDenied(nick) {
     var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSIN%20AHK/'
              + encodeURIComponent('Кастом Интерфейсы') + '/';
     var FILES = {
-        mvdmenu_js:  BASE + 'MvdMenu.js',
         zkm_js:      BASE + 'zkm.js',
         zkm_css:     BASE + 'zkm.css',
         zkmsn_js:    BASE + 'ZkmScreenNotification.js',
@@ -264,7 +263,7 @@ function trackSkinId() {
         // считает это "изменением" скина каждый цикл опроса
         if (numericSkin !== skinId) {
             skinId = numericSkin;
-            window._fsinSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js (проверка исключения СОБР для greeting)
+            window._fsinSkinId = skinId; // прокидываем наружу для проверки исключений (например СОБР для greeting)
 
             console.log(`[SKIN] 🔍 Новый Skin ID обнаружен: ${skinId}`);
 
@@ -435,11 +434,8 @@ window.addEventListener('keydown', function(e) {
             var _isOmonSkin = false /* ФСИН: нет ОМОН */;
             var _needsIdForThis = _opt.needsId && !(_action === 'greeting' && _isOmonSkin);
             if (_needsIdForThis) {
-                // FIX: открываем кастомный экран ввода ID внутри MvdMenu (а не нативный
-                // диалог 668), чтобы хоткей вёл себя так же, как обычный клик по пункту меню.
-                window._mvdMenuTargetId = null;
-                window._mvdMenuDirectAction = _action;
-                setTimeout(function(){ window.openInterface('MvdMenu'); }, 50);
+                // Открываем серверный диалог ввода ID (668) — нативный путь без MvdMenu
+                setTimeout(function(){ showIdInputDialog(giveLicenseTo); }, 50);
             } else {
                 executePovsednevAction(_action, giveLicenseTo || -1);
             }
@@ -494,9 +490,9 @@ window.sendClientEventHandle = function(event, ...args) {
                     return;
                 }
             }
-            // Перезагружаем текущее меню с новой страницей
+            // Перезагружаем текущее меню с новой страницей (без сброса currentPage)
             setTimeout(() => {
-                if (dlgId === 667) showPovsednevMenuPage(giveLicenseTo);
+                if (dlgId === 667) _buildPovsednevDialog();
             }, 50);
             return;
         }
@@ -1093,27 +1089,41 @@ window.showGiveLicenseDialog = (e) => {
     });
     window.addDialogInQueue(`[666,2,"АХК tg:ZaharKonst | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
+// ── Внутренний построитель диалога 667 (Повседневная) ───────────────────────
+// Используется как window.showPovsednevMenuPage (начальный вызов, сбрасывает страницу),
+// так и из A/D-обработчика напрямую (страница уже обновлена до вызова).
+function _buildPovsednevDialog() {
+    const _visible = povsednevOptions.filter(function(o) {
+        return !MENU_HIDDEN_ITEMS.includes(o.action);
+    });
+    const start  = currentPage * ITEMS_PER_PAGE;
+    const pageItems = _visible.slice(start, start + ITEMS_PER_PAGE);
+    const hasPrev   = currentPage > 0;
+    const hasNext   = (start + ITEMS_PER_PAGE) < _visible.length;
+    let list = '';
+    pageItems.forEach(function(opt) { list += opt.name + '<n>'; });
+    window.addDialogInQueue(
+        '[667,2,"Повседневная","","Выбрать","Отмена",' + (hasPrev ? 1 : 0) + ',' + (hasNext ? 1 : 0) + ']',
+        list, 0
+    );
+}
+
 window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "povsednev";
-    currentPage = 0;
-    // Передаём targetId и стартовый экран компоненту через глобальные переменные
-    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
-    window._mvdMenuStartScreen = 'povsednev';
-    window.openInterface('MvdMenu');
+    currentPage = 0;   // сброс пагинации при каждом свежем открытии
+    _buildPovsednevDialog();
 };
 
-// Открыть главное меню МВД (экран "main") — для общего хоткея MENU_KEY
+// Открыть главное меню МВД — для хоткея MENU_KEY: открываем серверный диалог 677
 window.showMvdMainMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "main";
     currentPage = 0;
-    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
-    window._mvdMenuStartScreen = 'main';
-    window.openInterface('MvdMenu');
+    showMvdSubMenu(e);
 };
 
-// Публичный API для MvdMenu — выполнить действие Повседневной напрямую
+// Публичный API — выполнить действие Повседневной напрямую (хоткеи, внешний вызов)
 window._mvdExecuteAction = function(action, id) {
     giveLicenseTo = (id !== undefined && id !== null && id !== -1) ? id : giveLicenseTo;
     currentAction = action;
@@ -1239,7 +1249,7 @@ window.sendClientEventCustom = (event, ...args) => {
         }
         else if (args[1] === 668) { // Диалог ввода ID
             const inputId = args[4];
-            // Читаем action из currentAction (биндинги) или window._mvdMenuPendingAction (MvdMenu — fallback)
+            // Читаем action из currentAction (биндинги) или _mvdMenuPendingAction (fallback)
             const resolvedAction = currentAction || window._mvdMenuPendingAction || null;
             if (args[2] === 1 && resolvedAction) {
                 giveLicenseTo = inputId;
