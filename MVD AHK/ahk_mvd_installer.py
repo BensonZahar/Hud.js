@@ -716,9 +716,10 @@ class InstallerAPI:
         for iface in ifaces:
             name      = iface["name"]
             files     = iface["files"]
+            deps      = iface.get("deps", [])  # нативные зависимости: включаются в d(), но НЕ скачиваются
             itype     = iface.get("type", "interface")
             js_file   = next((f for f in files if f.endswith(".js")), files[0])
-            files_js  = "[" + ",".join(f'"{f}"' for f in files) + "]"
+            files_js  = "[" + ",".join(f'"{f}"' for f in list(files) + list(deps)) + "]"
             if itype == "sideEffect":
                 side_effects.append(
                     f'd(()=>import("./{js_file}"),{files_js},import.meta.url);'
