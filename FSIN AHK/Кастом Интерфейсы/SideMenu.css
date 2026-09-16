@@ -1,0 +1,74 @@
+/* ─────────────────────────────────────────────────────────────────────────
+ * Фон, рамка, скругление, свечение, заголовок и graffiti-паттерн теперь
+ * рисует сам <Modal> (см. SideMenu.js — рендерится как
+ * <Modal type="NO_OVERLAY" colorType="ORANGE" title="...">), поэтому все эти
+ * куски один-в-один с Window.css/Modal.css и здесь больше не дублируются
+ * руками. Ниже — только то, что реально специфично для SideMenu.
+ * ────────────────────────────────────────────────────────────────────────*/
+
+/* Modal.css рисует .modal на весь экран (position:fixed;100vw/100vh;
+   align-items:center;justify-content:center) — карточка по умолчанию всегда
+   по центру. Чтобы получить прижатую к правому краю панель (как раньше),
+   просто сдвигаем её по главной оси flex-контейнера.
+   !important — потому что у Modal.css .modal[data-v-...] выше специфичность
+   (класс + атрибут) и без него правило не победит. */
+.modal.side-menu{justify-content:flex-end!important}
+
+/* Тот же минимальный размер карточки, что у window__content-container
+   (Window.css: min-width:40vh, моб. 50vh) — чтобы панель не "схлопывалась"
+   на коротких пунктах меню и читалась как часть той же системы диалогов. */
+.side-menu .modal-container{min-width:40vh}
+@media (platform:mobile){.side-menu .modal-container{min-width:50vh}}
+
+/* Modal по умолчанию скрывает/показывает карточку через scale+fade
+   (.modal-scale-* в Modal.css, 0.1s). Возвращаем прежнюю анимацию выезда
+   справа для SideMenu — тоже через !important, по той же причине, что выше. */
+.side-menu .modal-scale-enter-from,
+.side-menu .modal-scale-leave-to{
+    opacity:0!important;
+    transform:translateX(100%)!important
+}
+.side-menu .modal-scale-enter-active,
+.side-menu .modal-scale-leave-active{
+    transition:opacity .25s ease,transform .25s ease!important
+}
+
+/* ─── Пункты меню ─────────────────────────────────────────────────────────
+ * Раньше пункты рисовались своим классом .side-menu__item (condensed italic
+ * uppercase, свои отступы) — из-за этого они и выглядели не как Window/Modal:
+ * другой шрифт/размер, нет карточек-рядов, нет зазоров между пунктами.
+ *
+ * SideMenu.js рендерит пункт как .window-table__item > .window-table__col —
+ * ТЕ ЖЕ классы, которыми Window.js рисует списки (см. Window.css), и корневой
+ * Modal получил класс "window" — вместе с классами это даёт карточку, высоту,
+ * скругление и размер текста (--wd-font-size) один-в-один с Window.js.
+ *
+ * Раньше это не работало не из-за классов, а потому что Window.css — отдельный
+ * lazy-чанк, который подгружался только вместе с интерфейсом "Window"; если
+ * игрок открывал только SideMenu, чанка в браузере просто не было. Починено
+ * в реестре интерфейсов (index.js): "./Window.css" добавлен в зависимости
+ * интерфейса "SideMenu", так что чанк теперь гарантированно подгружается —
+ * и дублировать здесь сами правила карточки больше не нужно.
+ *
+ * Ниже остаётся только то, что реально специфично для SideMenu и в Window.css
+ * не описано:
+ * — подсветка при наведении: в Window.js .selected включается по клавишам/
+ *   пагинации через JS, а в SideMenu пункты выбираются мышью, поэтому тот же
+ *   вид (см. Window.css: .window-table__item.selected) навешен на :hover;
+ * — отступ первого пункта от заголовка: Window.js держит его через обёртку
+ *   .window__container (margin-top:var(--wd-margin)), которой у SideMenu нет,
+ *   а .window-table__item:first-child по умолчанию обнуляет свой margin-top. */
+.side-menu .window-table__item:hover{background:#f9b70133;border-color:#f9b701;box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d}
+.side-menu .window-table__item:first-child{margin-top:var(--wd-margin)}
+
+.side-menu__placeholder{color:#fff9;font-family:"Open Sans",var(--fallback-font);font-size:1.67vh;font-weight:600;padding:1.11vh 0}
+
+.side-menu__hints{border-top:0.19vh solid #ffffff1a;display:flex;flex-direction:column;padding:1.48vh 2.59vh}
+.side-menu__hints .controls-button__container{margin-bottom:0.93vh}
+.side-menu__hints .controls-button__container:last-child{margin-bottom:0}
+@media (platform:mobile){.side-menu__hints{border-width:0.3704vh;padding:2.22vh 2.96vh}}
+
+/* Пока открыта панель SideMenu (см. SideMenu.js: watch panelIsOpened -> body.side-menu-opened) —
+   прячем виджет рулетки. Класс [data-v-6962df70] — скоуп RouletteNotifications.js/css, сам этот
+   файл не меняется, правило живёт только здесь. */
+body.side-menu-opened .roulette-notifications[data-v-6962df70]{display:none!important}
