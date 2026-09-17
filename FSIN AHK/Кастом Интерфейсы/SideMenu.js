@@ -164,6 +164,7 @@ const SideMenuOptions={
     },
     mounted(){
         this.panelIsOpened=true;
+        window.setCursorStatus("SideMenu",true);
     },
     watch:{
         // Пока панель SideMenu видна — прячем значок рулетки в Hud (см. Hud.css:
