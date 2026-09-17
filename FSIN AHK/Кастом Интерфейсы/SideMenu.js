@@ -39,14 +39,94 @@ async function typeTextInChat(text){
 
 /**
  * Отправляет массив сообщений в чат последовательно с паузой DELAY_MS.
- * Используется для лекций: каждый /s-пункт отправляется по очереди, давая
- * время на чтение и воспроизведение голосовой реплики в игре.
+ * Используется для одиночных message (не лекций).
  */
 function sendSequentialMessages(messages, index = 0){
     if(index >= messages.length) return;
     window.sendChatInput(messages[index]);
     if(index + 1 < messages.length){
         setTimeout(()=>{ sendSequentialMessages(messages, index + 1); }, 4000);
+    }
+}
+
+/**
+ * Отправляет лекцию — имитирует человека, который «уходит на паузу»,
+ * копирует строку снаружи и вставляет её обратно в чат.
+ * Сообщение НЕ отправляется автоматически — ждём Enter от самого игрока.
+ *
+ *   1. openPauseMenu()              → «свернул игру, пошёл копировать»
+ *   2. рандомная пауза 1.5–5 с      → копируем текст в блокноте / т.п.
+ *   3. closePauseMenu()              → «вернулся в игру»
+ *   4. пауза ~350 мс (анимация)
+ *   5. открываем чат, вставляем текст мгновенно (Ctrl+V)
+ *   6. ждём пока ИГРОК сам нажмёт Enter
+ *   7. повторяем для следующей строки
+ */
+async function sendLectureMessages(messages){
+    function getChat(){
+        try{
+            const hud=window.interface("Hud");
+            return hud&&hud.$refs&&hud.$refs.chat||null;
+        }catch(e){ return null; }
+    }
+
+    // Ждём закрытия чата — значит игрок нажал Enter (или ESC)
+    function waitForChatClose(chat){
+        return new Promise(resolve=>{
+            if(!chat.isOpen){ resolve(); return; }
+            const id=setInterval(()=>{
+                if(!chat.isOpen){ clearInterval(id); resolve(); }
+            },100);
+            // Подстраховка: не ждём бесконечно — 5 минут максимум
+            setTimeout(()=>{ clearInterval(id); resolve(); },5*60*1000);
+        });
+    }
+
+    for(let i=0;i<messages.length;i++){
+        const text=messages[i];
+
+        // ── 1. Открываем PauseMenu — «заворачиваем игру» ─────────────────
+        try{ window.openPauseMenu(); }catch(e){}
+
+        // ── 2. Рандомная пауза 1.5–5 с — «копируем текст снаружи» ───────
+        const pauseMs=1500+Math.random()*3500;
+        await sleep(pauseMs);
+
+        // ── 3. Закрываем PauseMenu — «вернулись в игру» ──────────────────
+        try{ window.closePauseMenu(); }catch(e){}
+
+        // Ждём анимацию закрытия меню
+        await sleep(350);
+
+        // ── 4. Открываем чат и мгновенно вставляем текст (Ctrl+V) ────────
+        const chat=getChat();
+        if(!chat){
+            // Hud не готов — fallback на прямую отправку
+            window.sendChatInput(text);
+            await sleep(1000);
+            continue;
+        }
+
+        chat.open();
+        await sleep(150);
+
+        chat.inputText=text;
+        await new Promise(r=>{ try{ chat.$nextTick(r); }catch(e){ r(); } });
+
+        // Курсор в конец поля, прокрутка к правому краю
+        try{
+            if(chat.$refs&&chat.$refs.input){
+                const el=chat.$refs.input;
+                el.selectionStart=el.selectionEnd=el.value.length;
+                el.scrollLeft=el.scrollWidth;
+            }
+        }catch(e){}
+
+        // ── 5. Ждём пока ИГРОК сам нажмёт Enter ──────────────────────────
+        await waitForChatClose(chat);
+
+        // Маленькая пауза между сообщениями перед следующей итерацией
+        await sleep(200);
     }
 }
 
@@ -324,8 +404,11 @@ const SideMenuOptions={
             this.subMenuTitle='';
 
             if(messages&&messages.length){
-                // Case 2: массив /s-сообщений → отправляем автоматически с паузой 4 с
-                setTimeout(()=>{ sendSequentialMessages(messages); },300);
+                // Case 2: массив /s-сообщений (лекция) → имитируем копипасту:
+                // случайная пауза, мгновенная вставка, отправка, и так по кругу.
+                // Первая итерация не ждёт полную паузу сразу — даём 300 мс на
+                // закрытие панели, а потом sendLectureMessages начинает свой цикл.
+                setTimeout(()=>{ sendLectureMessages(messages); },300);
             } else {
                 // Case 3: одно сообщение → набираем посимвольно в поле чата
                 setTimeout(()=>{ typeTextInChat(message); },300);
