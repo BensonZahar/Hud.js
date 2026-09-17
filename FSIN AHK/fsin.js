@@ -4524,5 +4524,415 @@ window._stroiMenuItems = [
     console.log('[FSIN]   • пагинация 667→667 переинициализирует drag');
 })();
 // ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
+// ==================== ФСИН: только диалоги ФСИН через Window2 / Modal2 ====================
+(() => {
+    if (window.__fsinWindow2OnlyInstalled) return;
+    window.__fsinWindow2OnlyInstalled = true;
 
+    // Диалоги ФСИН из твоего fsin.js
+    const FSIN_DIALOG_IDS = [666, 667, 668, 677, 695, 696];
+
+    // Путь к Window2.js. Если файл лежит не рядом с index.html/index.js — поправь путь.
+    const FSIN_WINDOW2_URL = "./Window2.js";
+
+    // Стили, которые нужны диалогам.
+    // Если у тебя есть отдельные Modal2.css / Window2.css — раскомментируй их.
+    const FSIN_DIALOG_CSS = [
+        "./Button.css",
+        "./ButtonContainer.css",
+        "./Close.css",
+        "./GraffitiPattern.css",
+        "./Modal.css",
+        "./ScrollableContainer.css",
+        "./Tooltip.css",
+        "./Button2.css",
+        "./ModalMobileButtons.css",
+        "./InputField.css",
+        "./ArrowButton.css",
+        "./Window.css",
+
+        // Если есть отдельные стили для версии 2:
+        // "./Modal2.css",
+        // "./Window2.css"
+    ];
+
+    let window2Component = null;
+    let originalWindowComponent = null;
+    let currentMode = "original"; // original | fsin
+    let appReady = false;
+    let appReadyPromise = null;
+    let loadPromise = null;
+    let loadFailed = false;
+    let stylesAdded = false;
+
+    function resolveUrl(path) {
+        try {
+            return new URL(path, document.baseURI).href;
+        } catch (e) {
+            return path;
+        }
+    }
+
+    function getRegistries() {
+        const list = [];
+
+        const add = (registry) => {
+            if (registry && typeof registry === "object" && list.indexOf(registry) === -1) {
+                list.push(registry);
+            }
+        };
+
+        try {
+            add(window.App && window.App.$options && window.App.$options.components);
+        } catch (e) {}
+
+        try {
+            add(window.App && window.App.$ && window.App.$.components);
+        } catch (e) {}
+
+        try {
+            add(
+                window.App &&
+                window.App.$ &&
+                window.App.$.appContext &&
+                window.App.$.appContext.components
+            );
+        } catch (e) {}
+
+        try {
+            add(
+                window.App &&
+                window.App.$root &&
+                window.App.$root.$options &&
+                window.App.$root.$options.components
+            );
+        } catch (e) {}
+
+        return list;
+    }
+
+    function captureOriginalWindow(force = false) {
+        if (originalWindowComponent && !force) return;
+
+        const registries = getRegistries();
+
+        for (const registry of registries) {
+            if (registry.Window && registry.Window !== window2Component) {
+                originalWindowComponent = registry.Window;
+                break;
+            }
+        }
+    }
+
+    function setWindowComponent(component) {
+        if (!component) return false;
+
+        let changed = 0;
+
+        getRegistries().forEach((registry) => {
+            try {
+                registry.Window = component;
+                changed++;
+            } catch (e) {}
+        });
+
+        if (changed > 0) {
+            try {
+                if (window.App && typeof window.App.$forceUpdate === "function") {
+                    window.App.$forceUpdate();
+                }
+            } catch (e) {}
+        }
+
+        return changed > 0;
+    }
+
+    function applyFsinMode() {
+        captureOriginalWindow();
+
+        if (!window2Component) return;
+
+        setWindowComponent(window2Component);
+        currentMode = "fsin";
+        console.log("[FSIN] Диалоги ФСИН переключены на Window2 / Modal2");
+    }
+
+    function applyOriginalMode() {
+        captureOriginalWindow();
+
+        if (!originalWindowComponent) return;
+
+        setWindowComponent(originalWindowComponent);
+        currentMode = "original";
+    }
+
+    function ensureFsinStyles() {
+        if (stylesAdded) return;
+        stylesAdded = true;
+
+        FSIN_DIALOG_CSS.forEach((href) => {
+            try {
+                const url = resolveUrl(href);
+
+                if (document.querySelector(`link[data-fsin-window2="${href}"]`)) {
+                    return;
+                }
+
+                const link = document.createElement("link");
+                link.rel = "stylesheet";
+                link.href = url;
+                link.setAttribute("data-fsin-window2", href);
+                document.head.appendChild(link);
+            } catch (e) {}
+        });
+    }
+
+    function loadWindow2() {
+        if (loadPromise) return loadPromise;
+
+        loadPromise = new Promise((resolve) => {
+            if (window2Component) {
+                resolve(true);
+                return;
+            }
+
+            let settled = false;
+
+            const finish = (ok) => {
+                if (settled) return;
+                settled = true;
+                resolve(ok);
+            };
+
+            const url = resolveUrl(FSIN_WINDOW2_URL);
+
+            console.log("[FSIN] Пытаюсь загрузить:", url);
+
+            import(/* @vite-ignore */ url)
+                .then((mod) => {
+                    window2Component = mod && (mod.default || mod);
+                    loadFailed = false;
+                    console.log("[FSIN] Window2.js загружен:", window2Component);
+                    finish(true);
+                })
+                .catch((error) => {
+                    console.warn("[FSIN] Не удалось загрузить Window2.js:", error);
+                    loadFailed = true;
+                    finish(false);
+                });
+
+            // Если файл грузится слишком долго — не блокируем диалоги навсегда
+            setTimeout(() => {
+                if (!window2Component) {
+                    loadFailed = true;
+                    finish(false);
+                }
+            }, 7000);
+        });
+
+        return loadPromise;
+    }
+
+    function waitForApp() {
+        if (appReadyPromise) return appReadyPromise;
+
+        appReadyPromise = new Promise((resolve) => {
+            if (appReady) {
+                resolve(true);
+                return;
+            }
+
+            let tries = 0;
+
+            const timer = setInterval(() => {
+                tries++;
+
+                const registries = getRegistries();
+
+                if (registries.length > 0 && registries.some((r) => r.Window)) {
+                    clearInterval(timer);
+                    appReady = true;
+                    captureOriginalWindow();
+                    resolve(true);
+                    return;
+                }
+
+                if (tries > 200) {
+                    clearInterval(timer);
+                    resolve(false);
+                }
+            }, 100);
+        });
+
+        return appReadyPromise;
+    }
+
+    function isFsinDialogId(id) {
+        return FSIN_DIALOG_IDS.indexOf(id) !== -1;
+    }
+
+    function hasOpenFsinDialog() {
+        try {
+            if (!window.App || !window.App.dialogsQueue || !window.App.components) {
+                return false;
+            }
+
+            return window.App.dialogsQueue.some((queueItem) => {
+                const dialogIndex = Array.isArray(queueItem) ? queueItem[0] : queueItem;
+                const state = window.App.components[`Window${dialogIndex}`];
+
+                if (!state || !state.open || !state.open.params) {
+                    return false;
+                }
+
+                const params = state.open.params;
+                const dialogId = Array.isArray(params) ? parseInt(params[0], 10) : null;
+
+                return isFsinDialogId(dialogId);
+            });
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function syncModeAfterDialogChange() {
+        setTimeout(() => {
+            if (hasOpenFsinDialog()) {
+                if (window2Component) {
+                    ensureFsinStyles();
+                    applyFsinMode();
+                } else {
+                    loadWindow2().then((ok) => {
+                        if (ok && window2Component) {
+                            ensureFsinStyles();
+                            applyFsinMode();
+                        } else {
+                            applyOriginalMode();
+                        }
+                    });
+                }
+            } else {
+                applyOriginalMode();
+            }
+        }, 0);
+    }
+
+    // Перехватываем addDialogInQueue последним, чтобы уважать уже существующие хаки
+    const previousAddDialogInQueue = window.addDialogInQueue;
+
+    window.addDialogInQueue = function (dialogParams, content, priority) {
+        let dialogId = null;
+
+        try {
+            dialogId = parseInt(JSON.parse(String(dialogParams).trim())[0], 10);
+        } catch (e) {}
+
+        // Если это диалог ФСИН — пытаемся включить Window2
+        if (dialogId !== null && isFsinDialogId(dialogId)) {
+            const args = arguments;
+            const self = this;
+
+            // Если всё уже готово — открываем сразу через Window2
+            if (appReady && window2Component) {
+                captureOriginalWindow();
+                ensureFsinStyles();
+                applyFsinMode();
+                return previousAddDialogInQueue.apply(self, args);
+            }
+
+            // Иначе ждём готовности приложения и Window2, затем открываем
+            Promise.all([waitForApp(), loadWindow2()])
+                .then(([ready, ok]) => {
+                    captureOriginalWindow();
+
+                    if (ready && ok && window2Component) {
+                        ensureFsinStyles();
+                        applyFsinMode();
+                    } else {
+                        applyOriginalMode();
+                    }
+
+                    previousAddDialogInQueue.apply(self, args);
+                })
+                .catch(() => {
+                    previousAddDialogInQueue.apply(self, args);
+                });
+
+            return;
+        }
+
+        // Если это не диалог ФСИН — возвращаем обычный Window
+        if (currentMode === "fsin") {
+            captureOriginalWindow();
+            applyOriginalMode();
+        }
+
+        return previousAddDialogInQueue.apply(this, arguments);
+    };
+
+    // Перехватываем closeLastDialog, чтобы после закрытия вернуть обычный Window,
+    // если больше нет открытых диалогов ФСИН
+    const previousCloseLastDialog = window.closeLastDialog;
+
+    window.closeLastDialog = function () {
+        const result = previousCloseLastDialog && previousCloseLastDialog.apply(this, arguments);
+        syncModeAfterDialogChange();
+        return result;
+    };
+
+    // Если где-то вызывается глобальный clearAllDialogs
+    const previousClearAllDialogsGlobal = window.clearAllDialogs;
+
+    if (typeof previousClearAllDialogsGlobal === "function") {
+        window.clearAllDialogs = function () {
+            const result = previousClearAllDialogsGlobal.apply(this, arguments);
+            syncModeAfterDialogChange();
+            return result;
+        };
+    }
+
+    // Дополнительно патчим методы самого App, если они есть
+    waitForApp().then(() => {
+        captureOriginalWindow();
+
+        try {
+            if (window.App && typeof window.App.closeLastDialog === "function" && !window.App.__fsinWindow2ClosePatched) {
+                const previousAppClose = window.App.closeLastDialog;
+
+                window.App.closeLastDialog = function () {
+                    const result = previousAppClose.apply(this, arguments);
+                    syncModeAfterDialogChange();
+                    return result;
+                };
+
+                window.App.__fsinWindow2ClosePatched = true;
+            }
+        } catch (e) {}
+
+        try {
+            if (window.App && typeof window.App.clearAllDialogs === "function" && !window.App.__fsinWindow2ClearPatched) {
+                const previousAppClear = window.App.clearAllDialogs;
+
+                window.App.clearAllDialogs = function () {
+                    const result = previousAppClear.apply(this, arguments);
+                    syncModeAfterDialogChange();
+                    return result;
+                };
+
+                window.App.__fsinWindow2ClearPatched = true;
+            }
+        } catch (e) {}
+
+        loadWindow2().then((ok) => {
+            if (ok) {
+                console.log("[FSIN] Window2 готов и будет использоваться только для диалогов ФСИН");
+            } else {
+                console.warn("[FSIN] Window2 не загружен, диалоги ФСИН останутся на обычном Window");
+            }
+        });
+    });
+
+    console.log("[FSIN] Блок Window2 только для диалогов ФСИН установлен");
+})();
+// ==================== КОНЕЦ: ФСИН через Window2 / Modal2 ====================
 }); // конец callback _nickCheck
