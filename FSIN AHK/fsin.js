@@ -110,13 +110,17 @@ function _showAccessDenied(nick) {
 (function prefetchAllCustomUI() {
     var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSIN%20AHK/'
              + encodeURIComponent('Кастом Интерфейсы') + '/';
+    var BASE_MVD = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
+                 + encodeURIComponent('Кастом Интерфейсы') + '/';
     var FILES = {
-        zkm_js:      BASE + 'zkm.js',
-        zkm_css:     BASE + 'zkm.css',
-        zkmsn_js:    BASE + 'ZkmScreenNotification.js',
-        zkmsn_css:   BASE + 'ZkmScreenNotification.css',
-        dokladi_js:  BASE + 'dokladi.js',
-        dokladi_css: BASE + 'dokladi.css'
+        zkm_js:       BASE     + 'zkm.js',
+        zkm_css:      BASE     + 'zkm.css',
+        zkmsn_js:     BASE     + 'ZkmScreenNotification.js',
+        zkmsn_css:    BASE     + 'ZkmScreenNotification.css',
+        dokladi_js:   BASE     + 'dokladi.js',
+        dokladi_css:  BASE     + 'dokladi.css',
+        sidemenu_js:  BASE_MVD + 'SideMenu.js',
+        sidemenu_css: BASE_MVD + 'SideMenu.css'
     };
     var RETRIES = 5, BASE_DELAY = 1000;
 
