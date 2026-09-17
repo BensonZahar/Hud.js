@@ -37,6 +37,19 @@ async function typeTextInChat(text){
     }
 }
 
+/**
+ * Отправляет массив сообщений в чат последовательно с паузой DELAY_MS.
+ * Используется для лекций: каждый /s-пункт отправляется по очереди, давая
+ * время на чтение и воспроизведение голосовой реплики в игре.
+ */
+function sendSequentialMessages(messages, index = 0){
+    if(index >= messages.length) return;
+    window.sendChatInput(messages[index]);
+    if(index + 1 < messages.length){
+        setTimeout(()=>{ sendSequentialMessages(messages, index + 1); }, 4000);
+    }
+}
+
 // ─── Render ─────────────────────────────────────────────────────────────────
 //
 // Раньше SideMenu рисовал свою собственную "карточку" (фон/рамка/скругление/
@@ -69,23 +82,19 @@ function render(ctx,_cache,$props,$setup,$data,$options){
     // запись SideMenu:f(()=>d(()=>import("./SideMenu.js"),[...,"./Window.css"]...))),
     // так что чанк гарантированно грузится вместе с этой панелью, и класс
     // "window" здесь снова осмыслен.
+    // title: когда открыто подменю (subMenuItems) — показываем его заголовок,
+    // иначе — стандартный prop.title ("Меню")
     return openBlock(),createBlock(_component_Modal,{
         class:"window side-menu",
         isOpened:$data.panelIsOpened,
         colorType:$data.MODAL_COLOR_TYPES.ORANGE,
         type:$data.MODAL_TYPES.NO_OVERLAY,
-        title:$props.title
+        title:$data.subMenuItems ? $data.subMenuTitle : $props.title
     },{
         default:withCtx(()=>[
-            // Пункты меню больше не рисуются вручную своим классом (.side-menu__item),
-            // а используют ТЕ ЖЕ классы, что и карточки списка в Window.js
-            // (.window-table__item / .window-table__col, см. Window.css) — эти правила
-            // глобальные (без data-v-скоупа), поэтому применяются один-в-один без
-            // необходимости тащить сюда сам компонент ListWindow целиком.
-            // Подсветка клавиатурой: класс "selected" — тот же, что использует
-            // Window.js для .window-table__item (см. Window.css), только включает
-            // его не клик/пагинация, а $data.selected из стрелок (onArrowKeyDown).
-            (openBlock(!0),createElementBlock(Fragment,null,renderList($options.menuItems,(item,index)=>(
+            // visibleItems: в главном меню = menuItems, в подменю = subMenuItems.
+            // Класс "selected" — та же логика подсветки стрелками, что в Window.js.
+            (openBlock(!0),createElementBlock(Fragment,null,renderList($options.visibleItems,(item,index)=>(
                 openBlock(),createElementBlock("div",{
                     key:item.id,
                     class:normalizeClass(["window-table__item",{selected:$data.selected===index}]),
@@ -95,12 +104,15 @@ function render(ctx,_cache,$props,$setup,$data,$options){
                 ],10,["onClick"])
             )),128)),
             createElementVNode("div",{class:"side-menu__hints"},[
-                // ESC — реальное действие уже обрабатывает onKeyUp/close(), поэтому isPreview:
-                // это просто подсказка, а не второй обработчик той же клавиши
-                createVNode(_component_ControlsContaineredButton,{containerText:"Закрыть меню",keyCode:$data.KEY_CODE_ESC,text:"ESC",isPreview:!0,clickable:!1},null,8,["keyCode"]),
-                // двойное ALT — скрыть/показать панель (см. handleAltPress)
+                // ESC: в подменю — «Назад» (goBack), в главном меню — «Закрыть меню» (close)
+                createVNode(_component_ControlsContaineredButton,{
+                    containerText:$data.subMenuItems ? "Назад" : "Закрыть меню",
+                    keyCode:$data.KEY_CODE_ESC,
+                    text:"ESC",
+                    isPreview:!0,
+                    clickable:!1
+                },null,8,["containerText","keyCode"]),
                 createVNode(_component_ControlsContaineredButton,{containerText:"×2 — скрыть/показать меню",keyCode:$data.KEY_CODE_ALT,text:"ALT",isPreview:!0,clickable:!1},null,8,["keyCode"]),
-                // одиночное ALT — вкл/выкл курсор (см. handleAltPress)
                 createVNode(_component_ControlsContaineredButton,{containerText:"курсор вкл/выкл",keyCode:$data.KEY_CODE_ALT,text:"ALT",isPreview:!0,clickable:!1},null,8,["keyCode"])
             ])
         ]),
@@ -130,9 +142,13 @@ const SideMenuOptions={
             MODAL_TYPES,
             MODAL_COLOR_TYPES,
             panelIsOpened:false,
-            // подсветка стрелками (см. onArrowKeyDown) — тот же принцип, что и в
-            // Window.js: TableWindow (data.selected); по умолчанию подсвечен первый пункт
+            // подсветка стрелками — тот же принцип, что в Window.js:TableWindow
             selected:0,
+            // подменю: null = главное меню, Array = список пунктов подменю
+            subMenuItems:null,
+            subMenuTitle:'',
+            // сохраняем позицию в главном меню при входе в подменю
+            mainMenuSelected:0,
             // двойное нажатие ALT
             altPressCount:0,
             altPressTimer:null,
@@ -145,6 +161,11 @@ const SideMenuOptions={
             // Список пунктов всегда берётся из fsin.js (window._stroiMenuItems).
             // Редактировать — только там, в блоке «НАСТРОЙКА SideMenu».
             return window._stroiMenuItems||[];
+        },
+        // Текущий видимый список: подменю (если открыто) или главное меню.
+        // Используется в render и в обработчиках стрелок/Enter.
+        visibleItems(){
+            return this.subMenuItems || this.menuItems;
         }
     },
     created(){
@@ -179,14 +200,17 @@ const SideMenuOptions={
         // ── Обработка клавиш ─────────────────────────────────────────────────
 
         onKeyUp(e){
-            if(e.keyCode===this.KEY_CODE_ESC){ this.close(); return; }
+            if(e.keyCode===this.KEY_CODE_ESC){
+                // В подменю: ESC = назад в главное меню (как в Window/Modal).
+                // В главном меню: ESC = полностью закрыть интерфейс.
+                if(this.subMenuItems){ this.goBack(); } else { this.close(); }
+                return;
+            }
             if(e.keyCode===this.KEY_CODE_ALT){ this.handleAltPress(); return; }
-            // ENTER — выбрать пункт, подсвеченный стрелками (см. onArrowKeyDown).
-            // Только пока панель реально видна — иначе, пока она скрыта двойным
-            // ALT (интерфейс остаётся смонтированным), Enter для чего-то другого
-            // (например, для чата) случайно печатал бы сообщение пункта меню.
-            if(e.keyCode===this.KEY_CODE_ENTER && this.panelIsOpened && this.menuItems.length){
-                this.select(this.menuItems[this.selected]);
+            // ENTER — выбрать подсвеченный пункт. Проверяем panelIsOpened, чтобы
+            // пока панель скрыта двойным ALT Enter не срабатывал вхолостую.
+            if(e.keyCode===this.KEY_CODE_ENTER && this.panelIsOpened && this.visibleItems.length){
+                this.select(this.visibleItems[this.selected]);
             }
         },
 
@@ -201,7 +225,7 @@ const SideMenuOptions={
          */
         onArrowKeyDown(e){
             if(!this.panelIsOpened)return;
-            const total=this.menuItems.length;
+            const total=this.visibleItems.length;
             if(!total)return;
 
             if(e.keyCode===window.KEY_CODE_ARROW_BOTTOM){
@@ -254,27 +278,66 @@ const SideMenuOptions={
 
         // ── Выбор пункта меню ────────────────────────────────────────────────
 
+        /**
+         * Открыть подменю для пункта с subItems.
+         * Запоминаем текущую позицию selected, чтобы goBack() вернул курсор
+         * ровно на тот пункт, с которого вошли в подменю.
+         */
+        openSubMenu(item){
+            this.mainMenuSelected=this.selected;
+            this.subMenuItems=item.subItems;
+            this.subMenuTitle=item.title;
+            this.selected=0;
+        },
+
+        /**
+         * ESC внутри подменю — вернуться в главное меню.
+         * Восстанавливает ранее сохранённую позицию selected.
+         */
+        goBack(){
+            this.subMenuItems=null;
+            this.subMenuTitle='';
+            this.selected=this.mainMenuSelected;
+        },
+
         select(item){
-            // Ищем сообщение: сначала в глобальном конфиге, потом в item напрямую
+            // Case 1: пункт имеет subItems → показываем подменю (панель остаётся открытой)
+            if(item.subItems&&item.subItems.length){
+                this.openSubMenu(item);
+                return;
+            }
+
+            // Ищем данные пункта: сначала в глобальном конфиге, потом в самом item.
+            // Для пунктов подменю found = null (их нет в _stroiMenuItems верхнего уровня),
+            // поэтому fallback на item.messages / item.message работает корректно.
             const found=(window._stroiMenuItems||[]).find(d=>d.id===item.id);
-            const message=(found&&found.message)||item.message
-                ||("Сейчас пройдет "+item.title.toLowerCase());
+            const messages=(found&&found.messages)||item.messages||null;
+            const message=messages?null:
+                ((found&&found.message)||item.message
+                ||("Сейчас пройдет "+item.title.toLowerCase()));
 
-            // Скрываем панель (интерфейс остаётся активным — можно вернуть двойным ALT)
+            // Скрываем панель и сбрасываем подменю
             this.panelIsOpened=false;
-
-            // Отключаем курсор, чтобы игрок мог смотреть по сторонам
             this.cursorEnabled=false;
             window.setCursorStatus("SideMenu",false);
+            this.subMenuItems=null;
+            this.subMenuTitle='';
 
-            // Печатаем текст в чат после анимации скрытия панели
-            setTimeout(()=>{ typeTextInChat(message); },300);
+            if(messages&&messages.length){
+                // Case 2: массив /s-сообщений → отправляем автоматически с паузой 4 с
+                setTimeout(()=>{ sendSequentialMessages(messages); },300);
+            } else {
+                // Case 3: одно сообщение → набираем посимвольно в поле чата
+                setTimeout(()=>{ typeTextInChat(message); },300);
+            }
         },
 
         // ── Закрытие интерфейса ───────────────────────────────────────────────
 
         close(){
             this.panelIsOpened=false;
+            this.subMenuItems=null;
+            this.subMenuTitle='';
             this.altPressCount=0;
             clearTimeout(this.altPressTimer);
             this.altPressTimer=null;
