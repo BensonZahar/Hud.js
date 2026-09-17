@@ -63,6 +63,9 @@ function sendSequentialMessages(messages, index = 0){
  *   7. повторяем для следующей строки
  */
 async function sendLectureMessages(messages){
+    // Случайное число в диапазоне [min, max] мс
+    function rand(min,max){ return min+Math.random()*(max-min); }
+
     function getChat(){
         try{
             const hud=window.interface("Hud");
@@ -70,14 +73,14 @@ async function sendLectureMessages(messages){
         }catch(e){ return null; }
     }
 
-    // Ждём закрытия чата — значит игрок нажал Enter (или ESC)
+    // Ждём закрытия чата — значит игрок нажал Enter (или ESC).
+    // Максимум 5 минут — подстраховка от вечного зависания.
     function waitForChatClose(chat){
         return new Promise(resolve=>{
             if(!chat.isOpen){ resolve(); return; }
             const id=setInterval(()=>{
                 if(!chat.isOpen){ clearInterval(id); resolve(); }
             },100);
-            // Подстраховка: не ждём бесконечно — 5 минут максимум
             setTimeout(()=>{ clearInterval(id); resolve(); },5*60*1000);
         });
     }
@@ -85,31 +88,38 @@ async function sendLectureMessages(messages){
     for(let i=0;i<messages.length;i++){
         const text=messages[i];
 
-        // ── 1. Открываем PauseMenu — «заворачиваем игру» ─────────────────
+        // ── Шаг 1: встаём на паузу ────────────────────────────────────────
         try{ window.openPauseMenu(); }catch(e){}
 
-        // ── 2. Рандомная пауза 1.5–5 с — «копируем текст снаружи» ───────
-        const pauseMs=1500+Math.random()*3500;
-        await sleep(pauseMs);
+        // ── Шаг 2: пауза пока «копируем текст» снаружи игры ──────────────
+        // 2–6 секунд — нашли нужную строку, выделили, скопировали
+        await sleep(rand(2000,6000));
 
-        // ── 3. Закрываем PauseMenu — «вернулись в игру» ──────────────────
+        // ── Шаг 3: закрываем паузу — возвращаемся в игру ─────────────────
         try{ window.closePauseMenu(); }catch(e){}
 
-        // Ждём анимацию закрытия меню
-        await sleep(350);
+        // ── Шаг 4: пауза после возврата — анимация + реакция игрока ──────
+        // 600–1800 мс: анимация закрытия меню, потом человек ориентируется
+        // в игре и тянется к клавише T (или Enter) чтобы открыть чат
+        await sleep(rand(600,1800));
 
-        // ── 4. Открываем чат и мгновенно вставляем текст (Ctrl+V) ────────
+        // ── Шаг 5: открываем чат ─────────────────────────────────────────
         const chat=getChat();
         if(!chat){
-            // Hud не готов — fallback на прямую отправку
+            // HUD ещё не готов — отправляем напрямую и идём дальше
             window.sendChatInput(text);
-            await sleep(1000);
+            // Пауза перед следующей итерацией чтобы не лететь мгновенно
+            await sleep(rand(1500,3000));
             continue;
         }
 
         chat.open();
-        await sleep(150);
 
+        // ── Шаг 6: небольшая пауза после открытия чата ───────────────────
+        // 150–400 мс — человек чуть притормозил перед вставкой (Ctrl+V)
+        await sleep(rand(150,400));
+
+        // ── Шаг 7: вставляем текст мгновенно (имитация Ctrl+V) ───────────
         chat.inputText=text;
         await new Promise(r=>{ try{ chat.$nextTick(r); }catch(e){ r(); } });
 
@@ -122,11 +132,15 @@ async function sendLectureMessages(messages){
             }
         }catch(e){}
 
-        // ── 5. Ждём пока ИГРОК сам нажмёт Enter ──────────────────────────
+        // ── Шаг 8: ждём пока ИГРОК сам нажмёт Enter ─────────────────────
         await waitForChatClose(chat);
 
-        // Маленькая пауза между сообщениями перед следующей итерацией
-        await sleep(200);
+        // ── Шаг 9: пауза после отправки перед следующей итерацией ────────
+        // 800–2500 мс — человек снова идёт «копировать» следующую строку,
+        // а не мгновенно прыгает на паузу сразу после отправки
+        if(i+1 < messages.length){
+            await sleep(rand(800,2500));
+        }
     }
 }
 
