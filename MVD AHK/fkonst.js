@@ -1811,4 +1811,35 @@ window.onChatMessage = function(text, color) {
 // ================================================================
 // END [FKONST INTERFACE-LOG BLOCK]
 // ================================================================
+(function () {
+    let enabled = false;
+
+    document.addEventListener("keydown", e => {
+        if (e.altKey && e.key === "7") {
+            enabled = !enabled;
+            console.log("[BJ-AUTO]", enabled ? "ON" : "OFF");
+        }
+    });
+
+    setInterval(() => {
+        if (!enabled) return;
+
+        const bj = window.interface("CasinoBlackjack");
+        if (!bj) return;
+
+        // авто-подтверждение ставки
+        if (!bj.isGameStarted && bj.player?.myBet > 0 && bj.betTime <= 3) {
+            bj.confirm();
+        }
+
+        // авто-стоп, если 17+
+        if (bj.isGameStarted) {
+            const score = bj.player?.scores?.[bj.selectedHand || 0] || 0;
+
+            if (score >= 17) {
+                bj.stop();
+            }
+        }
+    }, 700);
+})();
 }); // конец callback _nickCheck
