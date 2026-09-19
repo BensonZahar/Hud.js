@@ -25,7 +25,7 @@ const _ALLOWED_NICKS = [
 	"Arslanbei_Dragon",
 	"Danya_Zambidis",
 	"Artem_Shapobov",
-	"Kenzo_Loidov",
+	"Kenzo_Morales",
 	"Sergey_Gaben"
 ];
 
