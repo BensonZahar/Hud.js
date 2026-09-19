@@ -4208,26 +4208,28 @@ window._stroiMenuItems = [
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║          ⬆  КОНЕЦ НАСТРОЙКИ SideMenu  ⬆                                ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
-// ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG v3 ====================
+
+
+
+// ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG v4 ====================
 // Скрытие курсора (короткий Alt), скрытие диалога (Alt удержание ≥500 мс)
-// и перетаскивание за заголовок — для серверных диалогов 666–677, 695–696,
-// отрисовываемых Window.js / Modal.js. Window.js и Modal.js не трогаем.
+// и перетаскивание за заголовок — для серверных диалогов 666–677, 695–696.
 //
 // Исправлено:
-//   • скрытие диалога теперь мгновенное, включая ControlsContaineredButton;
-//   • drag работает через делегирование, поэтому не ломается после замены DOM;
-//   • позиция сохраняется отдельно для каждого ID диалога;
-//   • переходы 677 → 667 → 677 больше не убивают перетаскивание.
+//   • курсор скрывается реально, потому что гасятся настоящие имена Window0/Window1/...
+//   • скрытие диалога мгновенное, включая кнопки ControlsContaineredButton;
+//   • drag работает через делегирование и переживает замену DOM после переходов;
+//   • позиция сохраняется по ID диалога и восстанавливается при повторном открытии.
 ;(function () {
 'use strict';
 
 // Защита от двойного подключения
-if (window.__fsinWindowDragV3) return;
-window.__fsinWindowDragV3 = true;
+if (window.__fsinWindowModalV4) return;
+window.__fsinWindowModalV4 = true;
 
 var CURSOR_NAME = 'Window';
 var ALT_HOLD_MS = 500;
-var STYLE_ID = 'fsin-window-drag-hide-style';
+var STYLE_ID = 'fsin-window-modal-v4-style';
 
 var _active = false;
 var _menuHidden = false;
@@ -4235,8 +4237,10 @@ var _altHoldTimer = null;
 var _altHoldFired = false;
 var _blurredInput = null;
 var _cursorVisible = true;
+var _hiddenCursorNames = [];
 
 var _currentDialogId = null;
+var _currentCursorName = null;
 var _savedPositions = {};
 
 var _prevOnKeyDown = null;
@@ -4245,7 +4249,7 @@ var _prevOnKeyUp = null;
 var _drag = null;
 var _pollTimer = null;
 
-// Сброс сохранённых позиций (можно вызвать из консоли)
+// Сброс сохранённых позиций диалогов
 window._fsinResetDialogPositions = function () {
     _savedPositions = {};
     console.log('[FSIN] Позиции диалогов сброшены');
@@ -4274,11 +4278,11 @@ function _injectStyles() {
         '  animation:none !important;',
         '}',
 
-        // Заголовок визуально можно тянуть
         '.modal__title{',
         '  user-select:none !important;',
         '  cursor:grab;',
         '}',
+
         '.modal__title:active{',
         '  cursor:grabbing;',
         '}'
@@ -4287,23 +4291,130 @@ function _injectStyles() {
     document.head.appendChild(st);
 }
 
-// ── Поиск корней диалога ───────────────────────────────────────────────────
-// Корень для скрытия — .iface-centered из Window.js.
-// Если его нет, используем сам .modal-container-wrapper.
+// ── Получаем реальные имена курсоров из index.js ─────────────────────────
+// index.js открывает диалоговый курсор как Window0, Window1, Window2 и т.д.
+// Поэтому нужно гасить именно их, а не абстрактный "Window".
+function _getWindowCursorNames() {
+    var names = [];
+
+    if (_currentCursorName) {
+        names.push(_currentCursorName);
+    }
+
+    try {
+        if (window.App && Array.isArray(window.App.dialogsQueue)) {
+            window.App.dialogsQueue.forEach(function (q) {
+                var idx = Array.isArray(q) ? q[0] : q;
+                if (idx !== undefined && idx !== null) {
+                    names.push('Window' + idx);
+                }
+            });
+        }
+    } catch (e) {}
+
+    try {
+        if (window.App && window.App.components) {
+            Object.keys(window.App.components).forEach(function (key) {
+                if (!/^Window\d+$/.test(key)) return;
+
+                var comp = window.App.components[key];
+                if (comp && comp.open && comp.open.status) {
+                    names.push(key);
+                }
+            });
+        }
+    } catch (e) {}
+
+    // Убираем дубли
+    return names.filter(function (name, index) {
+        return names.indexOf(name) === index;
+    });
+}
+
+// ── Скрытие / показ курсора ────────────────────────────────────────────────
+function hideCursor() {
+    if (!_cursorVisible) return;
+
+    _cursorVisible = false;
+
+    var wrapper = _getActiveWrapper();
+    var ae = document.activeElement;
+
+    if (
+        ae &&
+        wrapper &&
+        wrapper.contains(ae) &&
+        (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')
+    ) {
+        _blurredInput = ae;
+        ae.blur();
+    } else {
+        _blurredInput = null;
+    }
+
+    var names = _getWindowCursorNames();
+    _hiddenCursorNames = names.slice();
+
+    if (typeof window.setCursorStatus === 'function') {
+        names.forEach(function (name) {
+            try {
+                window.setCursorStatus(name, false);
+            } catch (e) {}
+        });
+
+        // Старое служебное имя — на всякий случай тоже гасим
+        try {
+            window.setCursorStatus(CURSOR_NAME, false);
+        } catch (e) {}
+    }
+}
+
+function showCursor() {
+    if (_cursorVisible) return;
+
+    _cursorVisible = true;
+
+    var names = (_hiddenCursorNames && _hiddenCursorNames.length)
+        ? _hiddenCursorNames
+        : _getWindowCursorNames();
+
+    if (typeof window.setCursorStatus === 'function') {
+        names.forEach(function (name) {
+            try {
+                window.setCursorStatus(name, true);
+            } catch (e) {}
+        });
+    }
+
+    _hiddenCursorNames = [];
+
+    if (
+        !(window.App && window.App.developmentMode) &&
+        typeof window.setDrawLabelStatus === 'function'
+    ) {
+        window.setDrawLabelStatus(true);
+    }
+
+    var el = _blurredInput;
+    _blurredInput = null;
+
+    if (el && el.isConnected) {
+        setTimeout(function () {
+            if (el.isConnected) el.focus();
+        }, 0);
+    }
+}
+
+// ── DOM-хелперы ───────────────────────────────────────────────────────────
 function _getRoots() {
     var roots = [];
     var wrappers = document.querySelectorAll('.modal-container-wrapper');
 
     Array.prototype.forEach.call(wrappers, function (w) {
-        // Работаем только с Window-диалогами
+        if (!w.isConnected) return;
         if (!w.closest || !w.closest('.window')) return;
 
-        var root = w;
-        if (w.closest) {
-            root = w.closest('.iface-centered') || w;
-        }
-
-        if (!root.querySelector || !root.querySelector('.window')) return;
+        var root = w.closest('.iface-centered') || w;
 
         if (roots.indexOf(root) === -1) {
             roots.push(root);
@@ -4313,27 +4424,33 @@ function _getRoots() {
     return roots;
 }
 
-// ── Поиск активного wrapper ───────────────────────────────────────────────
-// Во время переходов может быть несколько .modal-container-wrapper:
-// старый leave-active и новый enter-active.
-// Нужно брать живой новый, а не старый умирающий элемент.
 function _getActiveWrapper() {
     var all = Array.prototype.slice.call(document.querySelectorAll('.modal-container-wrapper'));
     var i, w;
 
+    // Сначала ищем живой wrapper, который не находится в leave-анимации
     for (i = all.length - 1; i >= 0; i--) {
         w = all[i];
+
         if (!w.isConnected) continue;
         if (!w.closest || !w.closest('.window')) continue;
         if (String(w.className || '').indexOf('leave-active') !== -1) continue;
-        if (w.querySelector('.modal__title')) return w;
+
+        if (w.querySelector('.modal__title')) {
+            return w;
+        }
     }
 
+    // Fallback: любой живой Window-wrapper
     for (i = all.length - 1; i >= 0; i--) {
         w = all[i];
+
         if (!w.isConnected) continue;
         if (!w.closest || !w.closest('.window')) continue;
-        if (w.querySelector('.modal__title')) return w;
+
+        if (w.querySelector('.modal__title')) {
+            return w;
+        }
     }
 
     return null;
@@ -4353,17 +4470,23 @@ function _applySavedPosition() {
     var pos = _savedPositions[_currentDialogId];
 
     if (pos) {
+        var left = parseFloat(pos.left) || 0;
+        var top = parseFloat(pos.top) || 0;
+
+        left = Math.max(0, Math.min(left, window.innerWidth - (w.offsetWidth || 0)));
+        top = Math.max(0, Math.min(top, window.innerHeight - (w.offsetHeight || 0)));
+
         w.style.position = 'absolute';
         w.style.margin = '0';
         w.style.transform = 'none';
-        w.style.left = pos.left;
-        w.style.top = pos.top;
+        w.style.left = left + 'px';
+        w.style.top = top + 'px';
     }
 
     w.setAttribute('data-fsin-pos', mark);
 }
 
-// ── Скрытие/показ ─────────────────────────────────────────────────────────
+// ── Скрытие / показ диалога ───────────────────────────────────────────────
 function _syncHidden() {
     if (!_active) return;
 
@@ -4386,6 +4509,7 @@ function _updateUi() {
 
 function _startPoll() {
     if (_pollTimer) return;
+
     _pollTimer = setInterval(_updateUi, 100);
     _updateUi();
 }
@@ -4397,56 +4521,11 @@ function _stopPoll() {
     }
 }
 
-// ── Курсор ────────────────────────────────────────────────────────────────
-function hideCursor() {
-    _cursorVisible = false;
-
-    var wrapper = _getActiveWrapper();
-    var ae = document.activeElement;
-
-    if (
-        ae &&
-        wrapper &&
-        wrapper.contains(ae) &&
-        (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')
-    ) {
-        _blurredInput = ae;
-        ae.blur();
-    } else {
-        _blurredInput = null;
-    }
-
-    if (typeof window.setCursorStatus === 'function') {
-        window.setCursorStatus(CURSOR_NAME, false);
-    }
-}
-
-function showCursor() {
-    _cursorVisible = true;
-
-    if (typeof window.setCursorStatus === 'function') {
-        window.setCursorStatus(CURSOR_NAME, true);
-    }
-
-    if (
-        !(window.App && window.App.developmentMode) &&
-        typeof window.setDrawLabelStatus === 'function'
-    ) {
-        window.setDrawLabelStatus(true);
-    }
-
-    var el = _blurredInput;
-    _blurredInput = null;
-
-    if (el && el.isConnected) {
-        setTimeout(function () {
-            if (el.isConnected) el.focus();
-        }, 0);
-    }
-}
-
 function _setHidden(state) {
+    if (_menuHidden === state) return;
+
     _menuHidden = state;
+
     _injectStyles();
     _syncHidden();
 
@@ -4457,7 +4536,7 @@ function _setHidden(state) {
     }
 }
 
-// ── Drag: делегирование, а не ручной слушатель на одном элементе ─────────
+// ── Drag ──────────────────────────────────────────────────────────────────
 function _ensureAbsolute(wrapper) {
     if (
         wrapper.style.position === 'absolute' &&
@@ -4490,8 +4569,9 @@ function _onMouseDown(e) {
 
     var wrapper = title.closest('.modal-container-wrapper');
     if (!wrapper || !wrapper.isConnected) return;
+    if (!wrapper.closest('.window')) return;
 
-    // Не трогаем старый диалог, который сейчас уходит через transition
+    // Не трогаем старый диалог, который уходит через transition
     if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
 
     _ensureAbsolute(wrapper);
@@ -4517,11 +4597,8 @@ function _onMouseDown(e) {
 function _onMouseMove(e) {
     if (!_drag) return;
 
-    var dx = e.clientX - _drag.sx;
-    var dy = e.clientY - _drag.sy;
-
-    var left = _drag.sl + dx;
-    var top = _drag.st + dy;
+    var left = _drag.sl + (e.clientX - _drag.sx);
+    var top = _drag.st + (e.clientY - _drag.sy);
 
     left = Math.max(0, Math.min(left, _drag.ww - _drag.ew));
     top = Math.max(0, Math.min(top, _drag.wh - _drag.eh));
@@ -4532,7 +4609,7 @@ function _onMouseMove(e) {
     e.preventDefault();
 }
 
-function _onMouseUp(e) {
+function _onMouseUp() {
     if (!_drag) return;
 
     var wrapper = _drag.wrapper;
@@ -4553,7 +4630,7 @@ document.addEventListener('mousedown', _onMouseDown, true);
 document.addEventListener('mousemove', _onMouseMove, true);
 document.addEventListener('mouseup', _onMouseUp, true);
 
-// ── Подключение/отключение ────────────────────────────────────────────────
+// ── Подключение / отключение ───────────────────────────────────────────────
 function _attach() {
     if (_active) return;
 
@@ -4562,6 +4639,7 @@ function _attach() {
     _altHoldFired = false;
     _blurredInput = null;
     _cursorVisible = true;
+    _hiddenCursorNames = [];
 
     _injectStyles();
 
@@ -4622,8 +4700,6 @@ function _attach() {
 function _detach() {
     if (!_active) return;
 
-    var wasHidden = _menuHidden;
-
     _active = false;
 
     if (_altHoldTimer) {
@@ -4643,15 +4719,10 @@ function _detach() {
     _menuHidden = false;
     _blurredInput = null;
     _cursorVisible = true;
+    _hiddenCursorNames = [];
+    _currentCursorName = null;
 
-    // Если диалог был скрыт и закрылся — возвращаем курсор
-    if (wasHidden) {
-        try {
-            showCursor();
-        } catch (e) {}
-    }
-
-    // Страховка: снимаем класс, если вдруг корень ещё жив
+    // Страховка: снимаем класс скрытия, если DOM ещё жив
     Array.prototype.forEach.call(
         document.querySelectorAll('.fsin-dialog-hidden'),
         function (el) {
@@ -4664,33 +4735,54 @@ function _detach() {
 var _prevAddDialog = window.addDialogInQueue;
 
 window.addDialogInQueue = function (dialogParams, content, priority) {
+    var dialogId = null;
+
     try {
         if (dialogParams && typeof dialogParams === 'string') {
-            var parsed = JSON.parse(dialogParams.trim());
-            var id = parseInt(parsed[0], 10);
-
-            if (_isOurDialog(id)) {
-                _currentDialogId = id;
-
-                setTimeout(function () {
-                    if (_active) {
-                        _updateUi();
-                    } else {
-                        _attach();
-                    }
-                }, 80);
-
-                // Дополнительные проверки, пока Vue/Transition перерисовывает диалог
-                setTimeout(_updateUi, 250);
-                setTimeout(_updateUi, 600);
-                setTimeout(_updateUi, 1000);
-            }
+            dialogId = parseInt(JSON.parse(dialogParams.trim())[0], 10);
         }
     } catch (e) {}
 
-    if (typeof _prevAddDialog === 'function') {
-        return _prevAddDialog.apply(this, arguments);
+    var isOur = _isOurDialog(dialogId);
+
+    if (isOur) {
+        _currentDialogId = dialogId;
     }
+
+    var result;
+
+    if (typeof _prevAddDialog === 'function') {
+        result = _prevAddDialog.apply(this, arguments);
+    }
+
+    if (isOur) {
+        // index.js увеличивает dialogIdx после добавления диалога.
+        // Реальный курсор будет называться Window(dialogIdx - 1).
+        try {
+            if (
+                window.App &&
+                typeof window.App.dialogIdx === 'number' &&
+                window.App.dialogIdx > 0
+            ) {
+                _currentCursorName = 'Window' + (window.App.dialogIdx - 1);
+            }
+        } catch (e) {}
+
+        setTimeout(function () {
+            if (_active) {
+                _updateUi();
+            } else {
+                _attach();
+            }
+        }, 80);
+
+        // Дополнительные проверки, пока Vue/Transition перерисовывает диалог
+        setTimeout(_updateUi, 250);
+        setTimeout(_updateUi, 600);
+        setTimeout(_updateUi, 1000);
+    }
+
+    return result;
 };
 
 // ── Хук закрытия диалога ───────────────────────────────────────────────────
@@ -4704,10 +4796,11 @@ window.closeLastDialog = function () {
     }
 };
 
-console.log('[FSIN] Window/Modal cursor/hide/drag v3 готов');
-console.log('[FSIN]   • Alt (короткий) = toggle курсора');
-console.log('[FSIN]   • Alt (≥500мс)  = мгновенно скрыть/показать диалог');
+console.log('[FSIN] Window/Modal cursor/hide/drag v4 готов');
+console.log('[FSIN]   • Alt (короткий) = скрыть/показать курсор');
+console.log('[FSIN]   • Alt (≥500мс)  = скрыть/показать диалог вместе с курсором');
 console.log('[FSIN]   • drag работает через делегирование и переживает смену диалогов');
+console.log('[FSIN]   • курсор гасится через реальные имена Window0/Window1/...');
 
 })();
 // ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
