@@ -131,7 +131,6 @@ function _showAccessDenied(nick) {
     var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
              + encodeURIComponent('Кастом Интерфейсы') + '/';
     var FILES = {
-        mvdmenu_js:  BASE + 'MvdMenu.js',
         advmenu_js:  BASE + 'AdvMenu.js',
         zkm_js:      BASE + 'zkm.js',
         zkm_css:     BASE + 'zkm.css',
@@ -540,11 +539,8 @@ window.addEventListener('keydown', function(e) {
             var _isOmonSkin = skinId === 15340;
             var _needsIdForThis = _opt.needsId && !(_action === 'greeting' && _isOmonSkin);
             if (_needsIdForThis) {
-                // FIX: открываем кастомный экран ввода ID внутри MvdMenu (а не нативный
-                // диалог 668), чтобы хоткей вёл себя так же, как обычный клик по пункту меню.
-                window._mvdMenuTargetId = null;
-                window._mvdMenuDirectAction = _action;
-                setTimeout(function(){ window.openInterface('MvdMenu'); }, 50);
+                // Открываем серверный диалог ввода ID (668) — currentAction уже выставлен выше
+                setTimeout(function(){ showIdInputDialog(giveLicenseTo || -1); }, 50);
             } else if (_action === 'fine') {
                 setTimeout(function(){ showKoapTypeMenu(giveLicenseTo || -1); }, 50);
             } else if (_action === 'wantedFine') {
@@ -1011,8 +1007,7 @@ const setupChatHandler = () => {
                 if (_wantedColor === '0xCECECE') {
                     console.log('[TRACKING] ⚠️ Игрок не в розыске (#CECECE) — стоп отслеживания + закрытие меню');
                     stopTracking();
-                    // Закрываем открытые МВД интерфейсы
-                    try { window.closeInterface('MvdMenu'); } catch(e) {}
+                    // Закрываем открытые серверные диалоги МВД
                     try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
                     snAdd('[1, "Погоня", "Игрок не в розыске — погоня отменена", "FF4400", 5000]');
                 }
@@ -2266,21 +2261,26 @@ window.showGiveLicenseDialog = (e) => {
 window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "povsednev";
-    currentPage = 0;
-    // Передаём targetId и стартовый экран компоненту через глобальные переменные
-    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
-    window._mvdMenuStartScreen = 'povsednev';
-    window.openInterface('MvdMenu');
+    // currentPage управляется снаружи: HandleMvdSubCommand сбрасывает в 0,
+    // A/D-навигация увеличивает/уменьшает — здесь не трогаем.
+    const _visible = povsednevOptions.filter(function(o) { return !MENU_HIDDEN_ITEMS.includes(o.action); });
+    const _start   = currentPage * ITEMS_PER_PAGE;
+    const _page    = _visible.slice(_start, _start + ITEMS_PER_PAGE);
+    let _content   = '';
+    _page.forEach(function(opt, i) {
+        _content += (_start + i + 1) + '. ' + opt.name + '<n>';
+    });
+    // Стиль 5 = TABLIST_HEADERS → движок добавляет A/D кнопки навигации
+    window.addDialogInQueue(
+        '[667,5,"МВД | Повседневная","Выбор<t>Действие","Выбрать","Назад",0,0]',
+        _content,
+        0
+    );
 };
 
-// Открыть главное меню МВД (экран "main") — для общего хоткея MENU_KEY
+// Открыть главное меню МВД — теперь сразу показывает серверный диалог 677 (showMvdSubMenu)
 window.showMvdMainMenuPage = (e) => {
-    giveLicenseTo = e;
-    currentMenu = "main";
-    currentPage = 0;
-    window._mvdMenuTargetId = (e !== undefined && e !== null) ? e : null;
-    window._mvdMenuStartScreen = 'main';
-    window.openInterface('MvdMenu');
+    showMvdSubMenu(e);
 };
 
 // Публичный API для MvdMenu — выполнить действие Повседневной напрямую
