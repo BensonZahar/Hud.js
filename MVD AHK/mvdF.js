@@ -23,8 +23,8 @@ const _ALLOWED_NICKS = [
 //	"Dima_Borzyk",
 //	"Sergei_Karganov",
 //	"Arslanbei_Dragon",
-	"Danya_Zambidis",
-	"Artem_Shapobov",
+//	"Danya_Zambidis",
+//	"Artem_Shapobov",
 	"Kenzo_Morales",
 	"Sergey_Gaben"
 ];
