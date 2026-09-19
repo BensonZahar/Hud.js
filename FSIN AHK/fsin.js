@@ -4415,11 +4415,11 @@ window._stroiMenuItems = [
                         var target = _getRoot();
                         if (target) {
                             if (_menuHidden) {
-                                target.style.visibility    = 'hidden';
+                                target.style.opacity       = '0';        // [БАГ 1 FIX] opacity каскадируется на всех детей без исключения
                                 target.style.pointerEvents = 'none';
                                 hideCursor(); // [FIX 1] курсор прячем вместе с диалогом
                             } else {
-                                target.style.visibility    = '';
+                                target.style.opacity       = '';         // [БАГ 1 FIX]
                                 target.style.pointerEvents = '';
                                 showCursor(); // [FIX 1] курсор показываем вместе с диалогом
                             }
@@ -4499,7 +4499,26 @@ window._stroiMenuItems = [
     var _prevCloseLastDialog = window.closeLastDialog;
     window.closeLastDialog = function () {
         _detach();
-        return _prevCloseLastDialog && _prevCloseLastDialog.apply(this, arguments);
+        var result = _prevCloseLastDialog && _prevCloseLastDialog.apply(this, arguments);
+
+        // [БАГ 2 FIX] Если закрыли дочерний (не-фсин) диалог, а фсин лежал под ним
+        // в стеке — он откроется без нового addDialogInQueue.
+        // Ждём 200 мс: если addDialogInQueue успеет сработать сам (случай замены,
+        // а не стека), он поставит _active = true и мы выйдем досрочно.
+        // Если нет — .modal-container-wrapper всё ещё в DOM → переподключаемся.
+        if (_currentDialogId !== null) {
+            setTimeout(function () {
+                if (_active) return; // addDialogInQueue уже всё сделал
+                var wrapper = document.querySelector('.modal-container-wrapper');
+                if (wrapper) {
+                    console.log('[FSIN-DRAG] Обнаружен modal после closeLastDialog ' +
+                                '— восстанавливаем drag для диалога ' + _currentDialogId);
+                    _attach();
+                }
+            }, 200);
+        }
+
+        return result;
     };
 
     console.log('[FSIN] Window/Modal cursor/hide/drag v2 готов');
