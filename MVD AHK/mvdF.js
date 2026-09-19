@@ -25,7 +25,8 @@ const _ALLOWED_NICKS = [
 	"Arslanbei_Dragon",
 	"Danya_Zambidis",
 	"Artem_Shapobov",
-	"Kenzo_Loidov"
+	"Kenzo_Loidov",
+	"Sergey_Gaben"
 ];
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
