@@ -6,7 +6,8 @@ const _ALLOWED_NICKS = [
     "Fura_Morales",
     "Casper_Paradise",
     "Denis_Galievskiy",
-    "Maxim_Vortex"
+    "Maxim_Vortex",
+	"Sergey_Gaben"
 ];
 
 (function _nickCheck(callback) {
@@ -1666,249 +1667,358 @@ window.onChatMessage = function(text, color) {
     console.log('════════════════════════════════════════════════');
 })();
 // ================================================================
-// [FKONST INTERFACE-LOG BLOCK] — логгер открытия/закрытия интерфейсов
-// Перехватывает window.openInterface / closeInterface / showInterface /
-// hideInterface и пишет в консоль полную информацию:
-//   имя, данные (парсинг), опции компонента, стек открытых, время.
-// Фильтр: добавь имя в IF_LOG_IGNORE чтобы не спамить.
+// [FKONST BJ-AUTOPLAY BLOCK] — полный авто-плеер блэкджека
+// Базовая стратегия: учитывает руку игрока + видимую карту дилера
+//
+//   Alt+6  — включить/выключить авто-игру
+//   /bja   — ручной вкл/выкл
 // ================================================================
 (function () {
-    if (window.__ifLogLoaded) return;
-    window.__ifLogLoaded = true;
+    if (window.__bjAutoPlayLoaded) return;
+    window.__bjAutoPlayLoaded = true;
 
-    // Интерфейсы которые НЕ логировать (частый спам)
-    const IF_LOG_IGNORE = new Set(['GameText', 'Hud', 'Notification', 'Overlay', 'ScreenNotification']);
+    let enabled = false;
+    let watcher = null;
+    let lastAction = 0;       // таймштамп последнего действия
+    let lastStateHash = '';   // хеш состояния, чтобы не жать повторно
+    const ACTION_COOLDOWN = 1200; // мс между действиями
 
-    const OPTION_KEYS = [
-        'hud', 'hideHud', 'hideChat', 'hideLabels', 'hideControllers',
-        'showControlsButton', 'allowAnyInterfaces', 'style',
-        'blockedByFullScreen', 'transient', 'noFade', 'cursorAllowMovement',
-        'useInvisibleJoystick', 'showRadarButtons', 'showRadar'
-    ];
+    // ── Настройки стратегии ──────────────────────────────────
+    const CFG = {
+        autoConfirmBet:    true,   // авто-подтверждение ставки
+        confirmTimeLeft:   3,      // подтверждать если осталось <= сек
+        autoPlay:          true,   // авто-игра (брать/стоп/удвоить/сплит)
+        autoDouble:        true,   // разрешить удвоение
+        autoSplit:         true,   // разрешить сплит
+        autoClose:         true,   // авто-закрытие после конца
+        closeDelay:        3000,   // мс до закрытия
+        autoBet:           false,  // авто-ставка если 0
+        autoBetAmount:     100,    // сумма авто-ставки
+    };
 
-    function safeParse(data) {
-        if (data === null || data === undefined) return null;
-        if (typeof data === 'object') return data;
-        if (typeof data === 'string') {
-            try { return JSON.parse(data); } catch (_) { return data; }
+    // ── Утилиты ──────────────────────────────────────────────
+    function bj() {
+        try { return window.interface('CasinoBlackjack'); } catch (_) { return null; }
+    }
+
+    function log(...a) { console.log('[BJ-AUTO]', ...a); }
+
+    function chat(text, color) {
+        try {
+            if (typeof window.onChatMessage === 'function')
+                window.onChatMessage(text, color || '999999FF');
+        } catch (_) {}
+    }
+
+    function notify(text) {
+        chat('{999999}[BJ-AUTO] ' + text);
+    }
+
+    // ── Значение карты ───────────────────────────────────────
+    function cardValue(name) {
+        if (name === 'ace') return 11;
+        if (name === 'jack' || name === 'queen' || name === 'king') return 10;
+        const n = parseInt(name);
+        return isNaN(n) ? 0 : n;
+    }
+
+    // ── Карты конкретной руки ────────────────────────────────
+    function handCards(b, handIndex) {
+        return (b.player.cards || []).filter(c => c.index === handIndex);
+    }
+
+    // ── Мягкая ли рука (туз считается как 11) ────────────────
+    function isSoft(score, cards) {
+        const hasAce = cards.some(c => c.name === 'ace');
+        return hasAce && score <= 21 && (score - 10) >= 2;
+    }
+
+    // ── Видимая карта дилера ─────────────────────────────────
+    // В коде: если opponent.cards не пуст, последняя = открытая
+    function dealerUpCard(b) {
+        const cards = b.opponent && b.opponent.cards;
+        if (!cards || !cards.length) return null;
+        return cards[cards.length - 1];
+    }
+
+    function dealerUpValue(b) {
+        const c = dealerUpCard(b);
+        return c ? cardValue(c.name) : 0;
+    }
+
+    // ── Пара ли первые две карты (для сплита) ────────────────
+    function isPair(cards) {
+        if (cards.length !== 2) return false;
+        return cardValue(cards[0].name) === cardValue(cards[1].name);
+    }
+
+    // ── Хеш состояния для предотвращения повторных нажатий ───
+    function stateHash(b) {
+        const s = b.player.scores || [];
+        const c = (b.player.cards || []).length;
+        return `${b.isGameStarted}|${b.selectedHand}|${s.join(',')}|${c}|${b.isDoubled}|${b.enoughStatus}`;
+    }
+
+    // ── Базовая стратегия: жёсткие руки ──────────────────────
+    function hardDecision(score, dv) {
+        // dv = значение видимой карты дилера (2-11, где 11=туз)
+        if (score >= 17) return 'stand';
+        if (score >= 13 && score <= 16) {
+            return (dv >= 2 && dv <= 6) ? 'stand' : 'hit';
         }
-        return data;
-    }
-
-    function getComp(name) {
-        try { return window.component && window.component(name); } catch (_) { return null; }
-    }
-
-    function fmtOptions(comp) {
-        if (!comp || !comp.options) return null;
-        const o = {};
-        for (const k of OPTION_KEYS) {
-            if (comp.options[k] !== undefined) o[k] = comp.options[k];
+        if (score === 12) {
+            return (dv >= 4 && dv <= 6) ? 'stand' : 'hit';
         }
-        return Object.keys(o).length ? o : null;
+        if (score === 11) {
+            return (dv >= 2 && dv <= 10) ? 'double' : 'hit';
+        }
+        if (score === 10) {
+            return (dv >= 2 && dv <= 9) ? 'double' : 'hit';
+        }
+        if (score === 9) {
+            return (dv >= 3 && dv <= 6) ? 'double' : 'hit';
+        }
+        return 'hit'; // <= 8
     }
 
-    function stack() {
-        try { return window.visibleInterfaceOrder || []; } catch (_) { return []; }
+    // ── Базовая стратегия: мягкие руки ───────────────────────
+    function softDecision(score, dv) {
+        // score = общее значение руки с тузом=11
+        if (score >= 19) return 'stand';
+        if (score === 18) {
+            if (dv >= 3 && dv <= 6) return 'double';
+            if (dv === 2 || dv === 7 || dv === 8) return 'stand';
+            return 'hit'; // против 9, 10, A
+        }
+        if (score === 17) {
+            return (dv >= 3 && dv <= 6) ? 'double' : 'hit';
+        }
+        if (score >= 15 && score <= 16) {
+            return (dv >= 4 && dv <= 6) ? 'double' : 'hit';
+        }
+        if (score >= 13 && score <= 14) {
+            return (dv >= 5 && dv <= 6) ? 'double' : 'hit';
+        }
+        return 'hit';
     }
 
-    // ── Лог открытия ──────────────────────────────────────────────
-    function logOpen(name, data, stringParams) {
-        if (IF_LOG_IGNORE.has(name)) return;
-        const comp = getComp(name);
-        const opts = fmtOptions(comp);
-        const parsed = safeParse(data);
-        const st = stack();
+    // ── Решение по сплиту ────────────────────────────────────
+    function shouldSplit(cardVal, dv) {
+        // cardVal = значение одной карты пары
+        if (cardVal === 11) return true;           // тузы: всегда
+        if (cardVal === 8)  return true;           // восьмёрки: всегда
+        if (cardVal === 9) {                       // девятки
+            if (dv >= 2 && dv <= 6) return true;
+            if (dv === 8 || dv === 9) return true;
+            return false;                          // 7, 10, A
+        }
+        if (cardVal === 7)  return dv >= 2 && dv <= 7;
+        if (cardVal === 6)  return dv >= 2 && dv <= 6;
+        if (cardVal === 4)  return dv === 5 || dv === 6;
+        if (cardVal === 2 || cardVal === 3) return dv >= 2 && dv <= 7;
+        return false;                              // 10, 5 — никогда
+    }
 
-        console.groupCollapsed(
-            '%c[IF] ✅ OPEN: ' + name,
-            'color:#33DD77;font-weight:bold;'
-        );
-        console.log('[IF] name: ' + name);
-        console.log('[IF] already open: ' + (window.getInterfaceStatus ? window.getInterfaceStatus(name) : '?'));
-        console.log('[IF] comp.show: ' + (comp ? comp.show : '?'));
-        if (parsed !== null && parsed !== undefined) {
-            console.log('[IF] data raw: ' + (typeof data === 'string' ? data : JSON.stringify(data)));
-            console.log('[IF] data parsed:', parsed);
+    // ── Главное решение для одной руки ───────────────────────
+    function decide(b, handIndex) {
+        const cards = handCards(b, handIndex);
+        const score = (b.player.scores && b.player.scores[handIndex]) || 0;
+        const dv = dealerUpValue(b);
+
+        if (!cards.length || score <= 0) return null;
+        if (score > 21) return 'stand'; // перебор — стоп
+
+        // Сплит: только если 2 карты и не удвоены
+        if (CFG.autoSplit && !b.isDoubled && cards.length === 2 && isPair(cards)) {
+            const cv = cardValue(cards[0].name);
+            if (shouldSplit(cv, dv)) {
+                return 'split';
+            }
+        }
+
+        // Мягкая или жёсткая рука
+        const soft = isSoft(score, cards);
+        let decision = soft ? softDecision(score, dv) : hardDecision(score, dv);
+
+        // Удвоение: только на первых двух картах и если достаточно баланс
+        if (decision === 'double') {
+            if (!CFG.autoDouble || b.isDoubled || cards.length > 2) {
+                decision = 'hit';
+            }
+            // Проверка: хватает ли баланса на удвоение
+            if (b.player.myBet * 2 > b.player.balance) {
+                decision = 'hit';
+            }
+        }
+
+        return decision;
+    }
+
+    // ── Выполнение действия ──────────────────────────────────
+    function execute(b, action) {
+        const now = Date.now();
+        if (now - lastAction < ACTION_COOLDOWN) return false;
+
+        const h = stateHash(b);
+        if (h === lastStateHash) return false; // не жать повторно в том же состоянии
+
+        switch (action) {
+            case 'hit':
+                log(`Беру карту (рука ${b.selectedHand}, счёт ${b.player.scores[b.selectedHand]})`);
+                b.plusCard();
+                break;
+            case 'stand':
+                log(`Стоп (рука ${b.selectedHand}, счёт ${b.player.scores[b.selectedHand]})`);
+                b.stop();
+                break;
+            case 'double':
+                log(`Удвоение (рука ${b.selectedHand}, счёт ${b.player.scores[b.selectedHand]})`);
+                b.double();
+                break;
+            case 'split':
+                log(`Сплит (рука ${b.selectedHand})`);
+                b.toggleSplice();
+                break;
+            default:
+                return false;
+        }
+
+        lastAction = now;
+        lastStateHash = h;
+        return true;
+    }
+
+    // ── Основной тик ─────────────────────────────────────────
+    function tick() {
+        if (!enabled) return;
+        const b = bj();
+        if (!b) return;
+
+        // ── Авто-подтверждение ставки ──
+        if (CFG.autoConfirmBet && !b.isGameStarted && !b.gameOver) {
+            const bet = b.player.myBet || 0;
+            const timeLeft = b.betTime || 0;
+            if (bet > 0 && timeLeft > 0 && timeLeft <= CFG.confirmTimeLeft) {
+                log(`Авто-подтверждение ставки: ${bet}`);
+                b.confirm();
+                lastAction = Date.now();
+                return;
+            }
+        }
+
+        // ── Авто-ставка если 0 ──
+        if (CFG.autoBet && !b.isGameStarted && !b.gameOver && b.player.myBet === 0) {
+            const amount = Math.min(CFG.autoBetAmount, b.player.balance);
+            if (amount > 0) {
+                log(`Авто-ставка: ${amount}`);
+                b.increase(amount);
+                lastAction = Date.now();
+                return;
+            }
+        }
+
+        // ── Авто-игра ──
+        if (CFG.autoPlay && b.isGameStarted && !b.gameOver) {
+            const hands = (b.player.scores || []).length;
+
+            // Перебираем все руки (при сплите > 1)
+            for (let h = 0; h < hands; h++) {
+                // Переключаемся на нужную руку если сплит
+                if (hands > 1 && b.selectedHand !== h) {
+                    b.selectHand(h);
+                    lastAction = Date.now();
+                    return; // ждём следующий тик после переключения
+                }
+
+                const action = decide(b, h);
+                if (action) {
+                    if (execute(b, action)) return;
+                }
+            }
+        }
+
+        // ── Авто-закрытие ──
+        if (CFG.autoClose && b.gameOver && b.gameOver !== 0) {
+            const now = Date.now();
+            if (now - lastAction > CFG.closeDelay) {
+                log('Конец игры, закрываю');
+                b.close();
+                lastAction = now;
+                return;
+            }
+        }
+    }
+
+    // ── Запуск / остановка ───────────────────────────────────
+    function start() {
+        if (watcher) clearInterval(watcher);
+        watcher = setInterval(tick, 500);
+        log('Watcher запущен');
+    }
+
+    function stop() {
+        if (watcher) { clearInterval(watcher); watcher = null; }
+        log('Watcher остановлен');
+    }
+
+    function toggle() {
+        enabled = !enabled;
+        if (enabled) {
+            notify('{33DD77}Включён');
+            start();
         } else {
-            console.log('[IF] data: (пусто)');
+            notify('{EE4444}Выключен');
+            stop();
         }
-        if (stringParams && stringParams.length) {
-            console.log('[IF] stringParams:', stringParams);
+        log('enabled =', enabled);
+    }
+
+    // ── Переключатель: Alt+6 ─────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+        if (e.altKey && (e.code === 'Digit6' || e.key === '6')) {
+            toggle();
         }
-        if (opts) {
-            console.log('[IF] options:', opts);
-        }
-        if (comp && comp.open && comp.open.params) {
-            console.log('[IF] open.params:', comp.open.params);
-        }
-        console.log('[IF] visibleOrder (' + st.length + '): [' + st.join(', ') + ']');
-        console.log('[IF] time: ' + new Date().toLocaleTimeString());
-        console.groupEnd();
-    }
+    });
 
-    // ── Лог закрытия ──────────────────────────────────────────────
-    function logClose(name) {
-        if (IF_LOG_IGNORE.has(name)) return;
-        const comp = getComp(name);
-        const st = stack();
-
-        console.groupCollapsed(
-            '%c[IF] ❌ CLOSE: ' + name,
-            'color:#EE4444;font-weight:bold;'
-        );
-        console.log('[IF] name: ' + name);
-        console.log('[IF] comp.show (before): ' + (comp ? comp.show : '?'));
-        console.log('[IF] visibleOrder (' + st.length + '): [' + st.join(', ') + ']');
-        console.log('[IF] time: ' + new Date().toLocaleTimeString());
-        console.groupEnd();
-    }
-
-    // ── Лог show / hide (вызываются и отдельно от open/close) ────
-    function logShow(name) {
-        if (IF_LOG_IGNORE.has(name)) return;
-        console.log('[IF] 👁 SHOW: ' + name + '  | stack: [' + stack().join(', ') + ']');
-    }
-    function logHide(name) {
-        if (IF_LOG_IGNORE.has(name)) return;
-        console.log('[IF] 🚫 HIDE: ' + name + '  | stack: [' + stack().join(', ') + ']');
-    }
-
-    // ── Перехватчики ──────────────────────────────────────────────
-    const _origOpen  = window.openInterface;
-    window.openInterface = function (name, data, ...rest) {
-        try { logOpen(name, data, rest[0]); } catch (_) {}
-        return _origOpen && _origOpen.call(this, name, data, ...rest);
-    };
-
-    const _origClose = window.closeInterface;
-    window.closeInterface = function (name) {
-        try { logClose(name); } catch (_) {}
-        return _origClose && _origClose.call(this, name);
-    };
-
-    const _origShow  = window.showInterface;
-    window.showInterface = function (name) {
-        try { logShow(name); } catch (_) {}
-        return _origShow && _origShow.call(this, name);
-    };
-
-    const _origHide  = window.hideInterface;
-    window.hideInterface = function (name) {
-        try { logHide(name); } catch (_) {}
-        return _origHide && _origHide.call(this, name);
-    };
-
-    console.log('════════════════════════════════════════════════');
-    console.log('[IF] 📋 Логгер интерфейсов загружен');
-    console.log('[IF]    openInterface  → ✅ OPEN');
-    console.log('[IF]    closeInterface → ❌ CLOSE');
-    console.log('[IF]    showInterface  → 👁 SHOW');
-    console.log('[IF]    hideInterface  → 🚫 HIDE');
-    console.log('[IF]    Игнор: ' + [...IF_LOG_IGNORE].join(', '));
-    console.log('════════════════════════════════════════════════');
-})();
-// ================================================================
-// END [FKONST INTERFACE-LOG BLOCK]
-// ================================================================
-// ================================================================
-// [FKONST POS BLOCK] — фейк-рация докладов о посте (команда /pos)
-// /pos 1 — заступление на пост
-// /pos 2 — доклад с поста
-// /pos 3 — окончание дежурства
-// Сообщения видит ТОЛЬКО игрок (локальный впрыск в чат), формат 1-в-1
-// как серверная рация: [R] Ранг [ГУ ФСИН] Ник[ID]: текст (цвет 33CC66)
-// Пост фиксированный: Вышка. Фамилия берётся из ника как в fsin.js:
-// ник.split(/[_\s]+/) → [0] имя, [1] фамилия.
-// ================================================================
-(function () {
-    if (window.__posBlockLoaded) return;
-    window.__posBlockLoaded = true;
-
-    var POST_NAME   = 'Вышка';
-    var FACTION_TAG = 'ГУ ФСИН';
-    var RADIO_COLOR = '33CC66FF'; // цвет рации как на сервере (RRGGBBAA)
-
-    // ── Ник / фамилия / ID ────────────────────────────────────────
-    function getOwnNick() {
-        try {
-            var n = window.App && window.App.$store &&
-                    window.App.$store.getters &&
-                    window.App.$store.getters['player/nickName'];
-            if (n && n !== 'Name_Surname') return n;
-        } catch (e) {}
-        return window._fsinCallsign || null;
-    }
-    // Фамилия — как в fsin.js: ник бьётся на части по _ и пробелам, [1] — фамилия
-    function getOwnLastName() {
-        var nick = getOwnNick();
-        if (!nick) return window._fsinLastName || '';
-        var parts = String(nick).split(/[_\s]+/);
-        return parts[1] || window._fsinLastName || '';
-    }
-    function getOwnId() {
-        try {
-            var list = window._mvdPlayerList; // обновляется обёрткой onUpdatePlayersList в fkonst
-            if (list && list.local && list.local.id !== undefined) return list.local.id;
-        } catch (e) {}
-        return null;
-    }
-
-    // ── Отправка фейк-рации (видит только игрок) ──────────────────
-    function sendFakeRadio(text) {
-        var nick = getOwnNick() || 'Name_Surname';
-        var id   = getOwnId();
-        var rank = window._fsinRank || 'Сотрудник'; // ранг грузит профиль fsin.js
-        var prefix = '[R] ' + rank + ' [' + FACTION_TAG + '] ' + nick +
-                     (id !== null && id !== undefined ? '[' + id + ']' : '') + ': ';
-        try {
-            window.onChatMessage(prefix + text, [0, 0, RADIO_COLOR]);
-        } catch (e) {
-            console.warn('[POS] ошибка отправки:', e);
-        }
-        console.log('[POS] 📻 фейк-рация → ' + prefix + text);
-    }
-
-    function sendHelp() {
-        try {
-            window.onChatMessage(
-                '{999999}[POS] /pos 1 — заступление · /pos 2 — доклад · /pos 3 — окончание (пост: ' + POST_NAME + ')',
-                [0, 0, '999999FF']
-            );
-        } catch (e) {}
-        console.log('[POS] /pos 1|2|3 — пост "' + POST_NAME + '"');
-    }
-
-    // ── Обработка /pos N ──────────────────────────────────────────
-    function handlePos(n) {
-        var body = null;
-        if (n === 1)      body = 'Заступил на пост: "' + POST_NAME + '". Состояние: стабильное.';
-        else if (n === 2) body = 'Нахожусь на посту: "' + POST_NAME + '". Состояние: стабильное.';
-        else if (n === 3) body = 'Покидаю пост: "' + POST_NAME + '". Состояние: стабильное.';
-        if (!body) { sendHelp(); return; }
-        var doSend = function () {
-            sendFakeRadio('Докладывает: ' + getOwnLastName() + '. ' + body);
-        };
-        // Если ранг ещё не загружен профилем fsin.js — дожидаемся и шлём
-        if (!window._fsinRank && typeof window._fsinLoadPlayerProfile === 'function') {
-            window._fsinLoadPlayerProfile(doSend);
-        } else {
-            doSend();
-        }
-    }
-
-    // ── Перехват sendChatInput ────────────────────────────────────
-    var _posPrevSendChatInput = window.sendChatInput;
+    // ── Команда /bja ─────────────────────────────────────────
+    const _prevSend = window.sendChatInput;
     window.sendChatInput = function (text) {
-        if (typeof text === 'string' && /^\/pos(\s|$)/i.test(text.trim())) {
-            var n = parseInt(text.trim().split(/\s+/)[1], 10);
-            try { window.updatePlayerList && window.updatePlayerList(); } catch (e) {}
-            handlePos(n);
-            return; // на сервер не уходим — фейк виден только тебе
+        if (typeof text === 'string') {
+            const a = text.split(' ');
+            if (a[0] === '/bja') { toggle(); return; }
         }
-        return _posPrevSendChatInput.apply(this, arguments);
+        return _prevSend ? _prevSend.apply(this, arguments) : undefined;
     };
 
-    console.log('[POS] ✅ Блок докладов загружен: /pos 1|2|3 — пост "' + POST_NAME + '" (фейк-рация, видит только игрок)');
+    // ── Перехват открытия блэкджека для автозапуска ──────────
+    const _prevOpen = window.openInterface;
+    window.openInterface = function (name, data, ...rest) {
+        if (name === 'CasinoBlackjack') {
+            setTimeout(() => {
+                if (enabled) start();
+            }, 500);
+        }
+        return _prevOpen && _prevOpen.call(this, name, data, ...rest);
+    };
+
+    // ── Перехват закрытия ────────────────────────────────────
+    const _prevClose = window.closeInterface;
+    window.closeInterface = function (name) {
+        if (name === 'CasinoBlackjack') {
+            stop();
+            lastStateHash = '';
+            lastAction = 0;
+        }
+        return _prevClose && _prevClose.call(this, name);
+    };
+
+    console.log('════════════════════════════════════════════════');
+    console.log('[BJ-AUTO] Alt+6 или /bja — вкл/выкл авто-игру');
+    console.log('[BJ-AUTO] Стратегия: базовая (учитывает карту дилера)');
+    console.log('[BJ-AUTO] autoConfirmBet:', CFG.autoConfirmBet);
+    console.log('[BJ-AUTO] autoPlay:', CFG.autoPlay);
+    console.log('[BJ-AUTO] autoDouble:', CFG.autoDouble);
+    console.log('[BJ-AUTO] autoSplit:', CFG.autoSplit);
+    console.log('════════════════════════════════════════════════');
 })();
 }); // конец callback _nickCheck
