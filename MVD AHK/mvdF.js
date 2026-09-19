@@ -580,29 +580,16 @@ window.sendClientEventHandle = function(event, ...args) {
         const dlgId = parseInt(args[2]);
         if (PAGINATED_DIALOG_IDS.includes(dlgId)) {
             _navPending = true;
-            setTimeout(() => { _navPending = false; }, 300); // сброс на случай если OnDialogResponse не пришёл
+            setTimeout(() => { _navPending = false; }, 300);
             console.log(`[NAV] A/D dlg=${dlgId} dir=${direction}`);
-            if (direction === 1) {
-                // D — следующая страница
-                currentPage++;
-            } else {
-                // A — предыдущая страница или выход в родительское меню
-                if (currentPage > 0) {
-                    currentPage--;
-                } else {
-                    // Первая страница — выход назад
-                    currentPage = 0;
-                    if (dlgId === 667) {
-                        lastMenuType = null; currentMenu = null;
-                        setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-                    }
-                    return;
+            if (direction === 0) {
+                // A — назад в родительское меню (одна страница — пагинации нет)
+                if (dlgId === 667) {
+                    lastMenuType = null; currentMenu = null;
+                    setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
                 }
             }
-            // Перезагружаем текущее меню с новой страницей
-            setTimeout(() => {
-                if (dlgId === 667) showPovsednevMenuPage(giveLicenseTo);
-            }, 50);
+            // D — нет следующей страницы, ничего не делаем
             return;
         }
     }
@@ -1789,7 +1776,7 @@ const SendGiveLicenseCommand = (to, index) => {
 };
 const HandlePovsednevCommand = (optionIndex) => {
     const _visible = povsednevOptions.filter(o => !MENU_HIDDEN_ITEMS.includes(o.action));
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
+    const adjustedIndex = optionIndex; // все пункты на одной странице, смещение не нужно
     if (adjustedIndex >= 0 && adjustedIndex < _visible.length) {
         const option = _visible[adjustedIndex];
         currentAction = option.action;
@@ -2261,18 +2248,14 @@ window.showGiveLicenseDialog = (e) => {
 window.showPovsednevMenuPage = (e) => {
     giveLicenseTo = e;
     currentMenu = "povsednev";
-    // currentPage управляется снаружи: HandleMvdSubCommand сбрасывает в 0,
-    // A/D-навигация увеличивает/уменьшает — здесь не трогаем.
+    currentPage = 0; // всегда одна страница — сбрасываем
     const _visible = povsednevOptions.filter(function(o) { return !MENU_HIDDEN_ITEMS.includes(o.action); });
-    const _start   = currentPage * ITEMS_PER_PAGE;
-    const _page    = _visible.slice(_start, _start + ITEMS_PER_PAGE);
     let _content   = '';
-    _page.forEach(function(opt) {
+    _visible.forEach(function(opt) {
         // opt.name уже содержит номер ("1. Приветствие") — не добавляем индекс повторно
         _content += opt.name + '<n>';
     });
-    // Стиль 4 = TABLIST → все строки кликабельны + A/D навигация (OnMultiDialogClickNavigButton)
-    // Стиль 5 (TABLIST_HEADERS) нельзя: первая строка контента становится нон-кликабельным заголовком
+    // Стиль 4 = TABLIST → все строки кликабельны, все пункты на одной странице
     window.addDialogInQueue(
         '[667,4,"МВД | Повседневная","","Выбрать","Назад",0,0]',
         _content,
@@ -2951,6 +2934,15 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                         runPostActionTimer('wantedFine');
                     }, 100);
                 }, 300);
+            }
+            // ── Перехват серверного диалога 667 стиля 5 (TABLIST_HEADERS) ──
+            // Сервер иногда открывает 667 напрямую со стилем 5:
+            // первая строка контента становится нон-кликабельным заголовком ("Выбор | Действие").
+            // Заменяем его нашим кастомным меню стиля 4, где все строки кликабельны.
+            if (dialogId === 667 && style === 5) {
+                console.log('[DIALOG] Перехват серверного 667 (TABLIST_HEADERS) → заменяем нашим меню');
+                setTimeout(() => window.showPovsednevMenuPage(giveLicenseTo), 50);
+                return; // не передаём в оригинальный обработчик
             }
         }
     } catch (err) {
