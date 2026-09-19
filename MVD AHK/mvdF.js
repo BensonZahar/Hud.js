@@ -2250,12 +2250,13 @@ window.showPovsednevMenuPage = (e) => {
     currentMenu = "povsednev";
     currentPage = 0; // всегда одна страница — сбрасываем
     const _visible = povsednevOptions.filter(function(o) { return !MENU_HIDDEN_ITEMS.includes(o.action); });
-    let _content   = '';
+    // Стиль 4 = list_title → TYPES[4] = "list_title":
+    //   первая строка → серый нон-кликабельный заголовок ("AHK by konstt"),
+    //   остальные строки кликабельны. Индексы ответа считаются БЕЗ заголовка (0 = первый пункт).
+    let _content = 'AHK by konstt<n>';
     _visible.forEach(function(opt) {
-        // opt.name уже содержит номер ("1. Приветствие") — не добавляем индекс повторно
         _content += opt.name + '<n>';
     });
-    // Стиль 4 = TABLIST → все строки кликабельны, все пункты на одной странице
     window.addDialogInQueue(
         '[667,4,"МВД | Повседневная","","Выбрать","Назад",0,0]',
         _content,
@@ -2361,11 +2362,11 @@ window.showMvdSubMenu = (e) => {
     availableSub.push({ name: getPartnerMenuLabel(), id: "naparnick" });
     availableSub.push({ name: "Законы", id: "laws" });
     shownMvdSubTypes = availableSub;
-    let licenseList = '';
+    let licenseList = 'AHK by konstt<n>';
     availableSub.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-    window.addDialogInQueue(`[677,2,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    window.addDialogInQueue(`[677,4,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 // ==================== МЕНЮ НАПАРНИКА ====================
 window.showPartnerMenu = (e) => {
@@ -2936,11 +2937,11 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 }, 300);
             }
             // ── Перехват серверного диалога 667 стиля 5 (TABLIST_HEADERS) ──
-            // Сервер иногда открывает 667 напрямую со стилем 5:
-            // первая строка контента становится нон-кликабельным заголовком ("Выбор | Действие").
-            // Заменяем его нашим кастомным меню стиля 4, где все строки кликабельны.
+            // Сервер шлёт 667 со стилем 5: первая строка = "Выбор|Действие" (нон-кликабельный заголовок),
+            // пункты с задвоенной нумерацией. Заменяем нашим стилем 4, где заголовок = "AHK by konstt".
+            // Стиль 4 (наш) НЕ перехватываем — иначе бесконечная рекурсия.
             if (dialogId === 667 && style === 5) {
-                console.log('[DIALOG] Перехват серверного 667 (TABLIST_HEADERS) → заменяем нашим меню');
+                console.log('[DIALOG] Перехват серверного 667 стиля 5 → заменяем нашим меню (стиль 4)');
                 setTimeout(() => window.showPovsednevMenuPage(giveLicenseTo), 50);
                 return; // не передаём в оригинальный обработчик
             }
