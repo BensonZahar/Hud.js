@@ -4208,324 +4208,507 @@ window._stroiMenuItems = [
 // ╔══════════════════════════════════════════════════════════════════════════╗
 // ║          ⬆  КОНЕЦ НАСТРОЙКИ SideMenu  ⬆                                ║
 // ╚══════════════════════════════════════════════════════════════════════════╝
-
-// ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
+// ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG v3 ====================
 // Скрытие курсора (короткий Alt), скрытие диалога (Alt удержание ≥500 мс)
 // и перетаскивание за заголовок — для серверных диалогов 666–677, 695–696,
 // отрисовываемых Window.js / Modal.js. Window.js и Modal.js не трогаем.
 //
-// Схема работы:
-//   • короткий тап Alt        → переключить видимость курсора (toggle)
-//   • удержание Alt ≥500 мс   → скрыть / показать диалог + курсор автоматически
-//   • перетаскивание за .modal__title → двигать .modal-container-wrapper
-//   • позиция сохраняется по ID диалога — при повторном открытии восстанавливается
-//   • при пагинации (667→667) drag переинициализируется без потери позиции
-//
-// Подключается:  при вызове addDialogInQueue с нашим ID диалога
-// Отключается:   при вызове closeLastDialog (кнопка / ESC внутри Window.js)
+// Исправлено:
+//   • скрытие диалога теперь мгновенное, включая ControlsContaineredButton;
+//   • drag работает через делегирование, поэтому не ломается после замены DOM;
+//   • позиция сохраняется отдельно для каждого ID диалога;
+//   • переходы 677 → 667 → 677 больше не убивают перетаскивание.
 ;(function () {
-    'use strict';
+'use strict';
 
-    // Контекстное имя для setCursorStatus
-    var CURSOR_NAME = 'Window';
-    // Задержка удержания Alt для скрытия диалога (мс)
-    var ALT_HOLD_MS = 500;
+// Защита от двойного подключения
+if (window.__fsinWindowDragV3) return;
+window.__fsinWindowDragV3 = true;
 
-    // IDs диалогов, для которых включается функциональность
-    function _isOurDialog(id) {
-        return (id >= 666 && id <= 677) || id === 695 || id === 696;
+var CURSOR_NAME = 'Window';
+var ALT_HOLD_MS = 500;
+var STYLE_ID = 'fsin-window-drag-hide-style';
+
+var _active = false;
+var _menuHidden = false;
+var _altHoldTimer = null;
+var _altHoldFired = false;
+var _blurredInput = null;
+var _cursorVisible = true;
+
+var _currentDialogId = null;
+var _savedPositions = {};
+
+var _prevOnKeyDown = null;
+var _prevOnKeyUp = null;
+
+var _drag = null;
+var _pollTimer = null;
+
+// Сброс сохранённых позиций (можно вызвать из консоли)
+window._fsinResetDialogPositions = function () {
+    _savedPositions = {};
+    console.log('[FSIN] Позиции диалогов сброшены');
+};
+
+function _isOurDialog(id) {
+    return (id >= 666 && id <= 677) || id === 695 || id === 696;
+}
+
+// ── CSS: мгновенное скрытие диалога ───────────────────────────────────────
+function _injectStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+
+    var st = document.createElement('style');
+    st.id = STYLE_ID;
+    st.textContent = [
+        '.fsin-dialog-hidden,',
+        '.fsin-dialog-hidden *,',
+        '.fsin-dialog-hidden *::before,',
+        '.fsin-dialog-hidden *::after{',
+        '  display:none !important;',
+        '  visibility:hidden !important;',
+        '  opacity:0 !important;',
+        '  pointer-events:none !important;',
+        '  transition:none !important;',
+        '  animation:none !important;',
+        '}',
+
+        // Заголовок визуально можно тянуть
+        '.modal__title{',
+        '  user-select:none !important;',
+        '  cursor:grab;',
+        '}',
+        '.modal__title:active{',
+        '  cursor:grabbing;',
+        '}'
+    ].join('\n');
+
+    document.head.appendChild(st);
+}
+
+// ── Поиск корней диалога ───────────────────────────────────────────────────
+// Корень для скрытия — .iface-centered из Window.js.
+// Если его нет, используем сам .modal-container-wrapper.
+function _getRoots() {
+    var roots = [];
+    var wrappers = document.querySelectorAll('.modal-container-wrapper');
+
+    Array.prototype.forEach.call(wrappers, function (w) {
+        // Работаем только с Window-диалогами
+        if (!w.closest || !w.closest('.window')) return;
+
+        var root = w;
+        if (w.closest) {
+            root = w.closest('.iface-centered') || w;
+        }
+
+        if (!root.querySelector || !root.querySelector('.window')) return;
+
+        if (roots.indexOf(root) === -1) {
+            roots.push(root);
+        }
+    });
+
+    return roots;
+}
+
+// ── Поиск активного wrapper ───────────────────────────────────────────────
+// Во время переходов может быть несколько .modal-container-wrapper:
+// старый leave-active и новый enter-active.
+// Нужно брать живой новый, а не старый умирающий элемент.
+function _getActiveWrapper() {
+    var all = Array.prototype.slice.call(document.querySelectorAll('.modal-container-wrapper'));
+    var i, w;
+
+    for (i = all.length - 1; i >= 0; i--) {
+        w = all[i];
+        if (!w.isConnected) continue;
+        if (!w.closest || !w.closest('.window')) continue;
+        if (String(w.className || '').indexOf('leave-active') !== -1) continue;
+        if (w.querySelector('.modal__title')) return w;
     }
 
-    // ── Состояние ─────────────────────────────────────────────────────────────
-    var _active        = false; // true пока наш диалог открыт
-    var _menuHidden    = false; // true когда диалог скрыт Alt-hold'ом
-    var _altHoldTimer  = null;
-    var _altHoldFired  = false; // защита от автоповтора keydown при зажатом Alt
-    var _blurredInput  = null;  // поле ввода, потерявшее фокус при hideCursor
-    var _prevOnKeyDown = null;
-    var _prevOnKeyUp   = null;
-    var _dragCleanup   = null;
-    // [FIX 1] Локальный флаг видимости курсора — не зависим от isCursorActive()
-    var _cursorVisible   = true;
-    // [FIX 2-3] Текущий ID диалога + карта сохранённых позиций
-    var _currentDialogId = null;
-    var _savedPositions  = {};   // { dialogId: { left: 'Xpx', top: 'Ypx' } }
-
-    // ── DOM-хелперы ───────────────────────────────────────────────────────────
-    function _getWrapper() {
-        return document.querySelector('.modal-container-wrapper');
-    }
-    function _getRoot() {
-        var w = _getWrapper();
-        return w && (w.closest('.iface-centered') || w);
+    for (i = all.length - 1; i >= 0; i--) {
+        w = all[i];
+        if (!w.isConnected) continue;
+        if (!w.closest || !w.closest('.window')) continue;
+        if (w.querySelector('.modal__title')) return w;
     }
 
-    // ── Скрытие / показ курсора ────────────────────────────────────────────────
-    // [FIX 1] Отслеживаем состояние локально через _cursorVisible, а не isCursorActive()
+    return null;
+}
 
-    function hideCursor() {
-        _cursorVisible = false;
-        var wrapper = _getWrapper();
-        var ae = document.activeElement;
-        if (ae && wrapper && wrapper.contains(ae) &&
-            (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')) {
-            _blurredInput = ae;
-            ae.blur();
+// ── Позиция ───────────────────────────────────────────────────────────────
+function _applySavedPosition() {
+    if (!_active || _currentDialogId === null) return;
+
+    var w = _getActiveWrapper();
+    if (!w) return;
+
+    var mark = 'fsin-pos-' + _currentDialogId;
+
+    if (w.getAttribute('data-fsin-pos') === mark) return;
+
+    var pos = _savedPositions[_currentDialogId];
+
+    if (pos) {
+        w.style.position = 'absolute';
+        w.style.margin = '0';
+        w.style.transform = 'none';
+        w.style.left = pos.left;
+        w.style.top = pos.top;
+    }
+
+    w.setAttribute('data-fsin-pos', mark);
+}
+
+// ── Скрытие/показ ─────────────────────────────────────────────────────────
+function _syncHidden() {
+    if (!_active) return;
+
+    var roots = _getRoots();
+
+    Array.prototype.forEach.call(roots, function (root) {
+        if (_menuHidden) {
+            root.classList.add('fsin-dialog-hidden');
         } else {
-            _blurredInput = null;
+            root.classList.remove('fsin-dialog-hidden');
         }
-        if (typeof window.setCursorStatus === 'function')
-            window.setCursorStatus(CURSOR_NAME, false);
-    }
+    });
+}
 
-    function showCursor() {
-        _cursorVisible = true;
-        if (typeof window.setCursorStatus === 'function')
-            window.setCursorStatus(CURSOR_NAME, true);
-        if (!window.App?.developmentMode && typeof window.setDrawLabelStatus === 'function')
-            window.setDrawLabelStatus(true);
-        var el = _blurredInput;
+function _updateUi() {
+    if (!_active) return;
+    _applySavedPosition();
+    _syncHidden();
+}
+
+function _startPoll() {
+    if (_pollTimer) return;
+    _pollTimer = setInterval(_updateUi, 100);
+    _updateUi();
+}
+
+function _stopPoll() {
+    if (_pollTimer) {
+        clearInterval(_pollTimer);
+        _pollTimer = null;
+    }
+}
+
+// ── Курсор ────────────────────────────────────────────────────────────────
+function hideCursor() {
+    _cursorVisible = false;
+
+    var wrapper = _getActiveWrapper();
+    var ae = document.activeElement;
+
+    if (
+        ae &&
+        wrapper &&
+        wrapper.contains(ae) &&
+        (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')
+    ) {
+        _blurredInput = ae;
+        ae.blur();
+    } else {
         _blurredInput = null;
-        if (el && el.isConnected)
-            setTimeout(function () { if (el.isConnected) el.focus(); }, 0);
     }
 
-    // ── Перетаскивание ────────────────────────────────────────────────────────
-    // wrapper  — .modal-container-wrapper   (перемещаемый элемент)
-    // header   — .modal__title              (за что тянем)
+    if (typeof window.setCursorStatus === 'function') {
+        window.setCursorStatus(CURSOR_NAME, false);
+    }
+}
 
-    function _initDrag(wrapper, header) {
-        var dragging = false, sx = 0, sy = 0, sl = 0, st = 0;
-        var _ew = 0, _eh = 0, _ww = 0, _wh = 0;
-        var _raf = null, _px = 0, _py = 0;
+function showCursor() {
+    _cursorVisible = true;
 
-        function toAbsolute() {
-            var rect = wrapper.getBoundingClientRect();
-            wrapper.style.position = 'absolute';
-            wrapper.style.margin   = '0';
-            wrapper.style.left     = rect.left + 'px';
-            wrapper.style.top      = rect.top  + 'px';
-        }
+    if (typeof window.setCursorStatus === 'function') {
+        window.setCursorStatus(CURSOR_NAME, true);
+    }
 
-        function onDown(e) {
-            if (wrapper.style.position !== 'absolute') toAbsolute();
-            dragging = true;
-            var rect = wrapper.getBoundingClientRect();
-            sx = e.clientX; sy = e.clientY;
-            sl = rect.left; st = rect.top;
-            _ew = wrapper.offsetWidth;  _eh = wrapper.offsetHeight;
-            _ww = window.innerWidth;    _wh = window.innerHeight;
-            header.style.cursor = 'grabbing';
-            document.body.style.userSelect = 'none';
-            e.preventDefault();
-        }
+    if (
+        !(window.App && window.App.developmentMode) &&
+        typeof window.setDrawLabelStatus === 'function'
+    ) {
+        window.setDrawLabelStatus(true);
+    }
 
-        function onMove(e) {
-            if (!dragging) return;
-            _px = sl + (e.clientX - sx);
-            _py = st + (e.clientY - sy);
-            if (!_raf) {
-                _raf = requestAnimationFrame(function () {
-                    _raf = null;
-                    wrapper.style.left = Math.max(0, Math.min(_px, _ww - _ew)) + 'px';
-                    wrapper.style.top  = Math.max(0, Math.min(_py, _wh - _eh)) + 'px';
-                });
-            }
-        }
+    var el = _blurredInput;
+    _blurredInput = null;
 
-        function onUp() {
-            if (!dragging) return;
-            dragging = false;
-            if (_raf) { cancelAnimationFrame(_raf); _raf = null; }
-            header.style.cursor = 'grab';
-            document.body.style.userSelect = '';
-            // [FIX 2] Сохраняем позицию для текущего диалога
-            if (_currentDialogId !== null) {
-                _savedPositions[_currentDialogId] = {
-                    left: wrapper.style.left,
-                    top:  wrapper.style.top
-                };
-                console.log('[FSIN-DRAG] Позиция сохранена для диалога ' + _currentDialogId +
-                            ': left=' + wrapper.style.left + ' top=' + wrapper.style.top);
-            }
-        }
+    if (el && el.isConnected) {
+        setTimeout(function () {
+            if (el.isConnected) el.focus();
+        }, 0);
+    }
+}
 
-        header.style.cursor = 'grab';
-        header.addEventListener('mousedown', onDown);
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup',  onUp);
+function _setHidden(state) {
+    _menuHidden = state;
+    _injectStyles();
+    _syncHidden();
 
-        _dragCleanup = function () {
-            header.removeEventListener('mousedown', onDown);
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup',  onUp);
+    if (state) {
+        hideCursor();
+    } else {
+        showCursor();
+    }
+}
+
+// ── Drag: делегирование, а не ручной слушатель на одном элементе ─────────
+function _ensureAbsolute(wrapper) {
+    if (
+        wrapper.style.position === 'absolute' &&
+        wrapper.style.left !== '' &&
+        wrapper.style.top !== ''
+    ) {
+        return;
+    }
+
+    var rect = wrapper.getBoundingClientRect();
+    var parent = wrapper.offsetParent || document.body;
+    var parentRect = parent.getBoundingClientRect();
+
+    wrapper.style.position = 'absolute';
+    wrapper.style.margin = '0';
+    wrapper.style.transform = 'none';
+    wrapper.style.left = (rect.left - parentRect.left) + 'px';
+    wrapper.style.top = (rect.top - parentRect.top) + 'px';
+}
+
+function _onMouseDown(e) {
+    if (!_active || _menuHidden) return;
+    if (e.button !== 0) return;
+
+    var target = e.target;
+    if (!target || !target.closest) return;
+
+    var title = target.closest('.modal__title');
+    if (!title) return;
+
+    var wrapper = title.closest('.modal-container-wrapper');
+    if (!wrapper || !wrapper.isConnected) return;
+
+    // Не трогаем старый диалог, который сейчас уходит через transition
+    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
+
+    _ensureAbsolute(wrapper);
+
+    _drag = {
+        wrapper: wrapper,
+        sx: e.clientX,
+        sy: e.clientY,
+        sl: parseFloat(wrapper.style.left) || 0,
+        st: parseFloat(wrapper.style.top) || 0,
+        ew: wrapper.offsetWidth || wrapper.getBoundingClientRect().width,
+        eh: wrapper.offsetHeight || wrapper.getBoundingClientRect().height,
+        ww: window.innerWidth,
+        wh: window.innerHeight
+    };
+
+    document.body.style.userSelect = 'none';
+
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onMouseMove(e) {
+    if (!_drag) return;
+
+    var dx = e.clientX - _drag.sx;
+    var dy = e.clientY - _drag.sy;
+
+    var left = _drag.sl + dx;
+    var top = _drag.st + dy;
+
+    left = Math.max(0, Math.min(left, _drag.ww - _drag.ew));
+    top = Math.max(0, Math.min(top, _drag.wh - _drag.eh));
+
+    _drag.wrapper.style.left = left + 'px';
+    _drag.wrapper.style.top = top + 'px';
+
+    e.preventDefault();
+}
+
+function _onMouseUp(e) {
+    if (!_drag) return;
+
+    var wrapper = _drag.wrapper;
+
+    if (_currentDialogId !== null) {
+        _savedPositions[_currentDialogId] = {
+            left: wrapper.style.left,
+            top: wrapper.style.top
         };
     }
 
-    // [FIX 3-4] Опрос DOM, восстановление позиции и инициализация перетаскивания
-    function _setupDrag() {
-        var attempts = 0;
-        var poll = setInterval(function () {
-            attempts++;
-            var wrapper = _getWrapper();
-            var header  = wrapper && wrapper.querySelector('.modal__title');
-            if (header && wrapper) {
-                clearInterval(poll);
-                // [FIX 2] Восстанавливаем сохранённую позицию для этого диалога
-                if (_currentDialogId !== null && _savedPositions[_currentDialogId]) {
-                    var pos = _savedPositions[_currentDialogId];
-                    wrapper.style.position = 'absolute';
-                    wrapper.style.margin   = '0';
-                    wrapper.style.left     = pos.left;
-                    wrapper.style.top      = pos.top;
-                    console.log('[FSIN-DRAG] Позиция восстановлена для диалога ' + _currentDialogId +
-                                ': left=' + pos.left + ' top=' + pos.top);
-                }
-                _initDrag(wrapper, header);
-            } else if (attempts >= 20) {
-                clearInterval(poll);
-                console.warn('[FSIN] Window drag: .modal-container-wrapper / .modal__title не найдены');
-            }
-        }, 50);
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
+// Делегирование на document решает проблему замены DOM после переходов
+document.addEventListener('mousedown', _onMouseDown, true);
+document.addEventListener('mousemove', _onMouseMove, true);
+document.addEventListener('mouseup', _onMouseUp, true);
+
+// ── Подключение/отключение ────────────────────────────────────────────────
+function _attach() {
+    if (_active) return;
+
+    _active = true;
+    _menuHidden = false;
+    _altHoldFired = false;
+    _blurredInput = null;
+    _cursorVisible = true;
+
+    _injectStyles();
+
+    if (
+        !(window.App && window.App.developmentMode) &&
+        typeof window.setDrawLabelStatus === 'function'
+    ) {
+        window.setDrawLabelStatus(true);
     }
 
-    // ── Подключение — вызывается когда открылся наш диалог ────────────────────
-    function _attach() {
-        if (_active) return;
-        _active        = true;
-        _menuHidden    = false;
-        _altHoldFired  = false;
-        _blurredInput  = null;
-        _cursorVisible = true;  // [FIX 1] при открытии диалога курсор считается видимым
+    _prevOnKeyDown = window.onKeyDown;
+    _prevOnKeyUp = window.onKeyUp;
 
-        if (!window.App?.developmentMode && typeof window.setDrawLabelStatus === 'function')
-            window.setDrawLabelStatus(true);
-
-        _prevOnKeyDown = window.onKeyDown;
-        _prevOnKeyUp   = window.onKeyUp;
-
-        // onKeyDown: длинный Alt → скрыть/показать диалог + курсор вместе с ним
-        window.onKeyDown = function (e) {
-            if (e === window.KEY_CODE_ALT) {
-                if (!_altHoldTimer && !_altHoldFired) {
-                    _altHoldTimer = setTimeout(function () {
-                        _altHoldTimer = null;
-                        _altHoldFired = true;
-                        _menuHidden = !_menuHidden;
-                        var target = _getRoot();
-                        if (target) {
-                            if (_menuHidden) {
-                                target.style.opacity       = '0';        // [БАГ 1 FIX] opacity каскадируется на всех детей без исключения
-                                target.style.pointerEvents = 'none';
-                                hideCursor(); // [FIX 1] курсор прячем вместе с диалогом
-                            } else {
-                                target.style.opacity       = '';         // [БАГ 1 FIX]
-                                target.style.pointerEvents = '';
-                                showCursor(); // [FIX 1] курсор показываем вместе с диалогом
-                            }
-                        }
-                    }, ALT_HOLD_MS);
-                }
-                return;
-            }
-            if (typeof _prevOnKeyDown === 'function') _prevOnKeyDown(e);
-        };
-
-        // onKeyUp: короткий Alt → toggle курсора через локальный флаг _cursorVisible
-        // [FIX 1] Больше не зависим от isCursorActive() — используем собственный флаг
-        window.onKeyUp = function (e) {
-            if (e === window.KEY_CODE_ALT) {
-                if (_altHoldTimer) {
-                    clearTimeout(_altHoldTimer);
+    window.onKeyDown = function (e) {
+        if (e === window.KEY_CODE_ALT) {
+            if (!_altHoldTimer && !_altHoldFired) {
+                _altHoldTimer = setTimeout(function () {
                     _altHoldTimer = null;
-                    if (!_menuHidden) {
-                        // Короткий Alt: переключаем курсор
-                        if (_cursorVisible) hideCursor();
-                        else               showCursor();
+                    _altHoldFired = true;
+                    _setHidden(!_menuHidden);
+                }, ALT_HOLD_MS);
+            }
+            return;
+        }
+
+        if (typeof _prevOnKeyDown === 'function') {
+            return _prevOnKeyDown(e);
+        }
+    };
+
+    window.onKeyUp = function (e) {
+        if (e === window.KEY_CODE_ALT) {
+            if (_altHoldTimer) {
+                clearTimeout(_altHoldTimer);
+                _altHoldTimer = null;
+
+                if (!_menuHidden) {
+                    if (_cursorVisible) {
+                        hideCursor();
+                    } else {
+                        showCursor();
                     }
                 }
-                _altHoldFired = false;
-                return;
             }
-            if (typeof _prevOnKeyUp === 'function') _prevOnKeyUp(e);
-        };
 
-        _setupDrag();
-    }
-
-    // ── Отключение — вызывается при закрытии диалога ──────────────────────────
-    function _detach() {
-        if (!_active) return;
-        _active = false;
-        if (_altHoldTimer) { clearTimeout(_altHoldTimer); _altHoldTimer = null; }
-        if (typeof _dragCleanup === 'function') { _dragCleanup(); _dragCleanup = null; }
-        window.onKeyDown = _prevOnKeyDown;
-        window.onKeyUp   = _prevOnKeyUp;
-        _prevOnKeyDown = null;
-        _prevOnKeyUp   = null;
-        _menuHidden    = false;
-        _blurredInput  = null;
-        _cursorVisible = true;  // [FIX 1] сброс на случай повторного открытия
-    }
-
-    // ── Хуки на жизненный цикл диалога ────────────────────────────────────────
-
-    var _prevAddDialog = window.addDialogInQueue;
-    window.addDialogInQueue = function (dialogParams, content, priority) {
-        try {
-            if (dialogParams && typeof dialogParams === 'string') {
-                var id = parseInt(JSON.parse(dialogParams.trim())[0]);
-                if (_isOurDialog(id)) {
-                    _currentDialogId = id; // [FIX 2] запоминаем ID текущего диалога
-                    setTimeout(function () {
-                        if (_active) {
-                            // [FIX 4] Диалог уже активен — пагинация или смена типа без closeLastDialog.
-                            // Ключевые обработчики (Alt) уже на месте, достаточно переинициализировать drag.
-                            // Это нужно потому что Vue может заменить DOM-элемент при перерисовке диалога.
-                            if (typeof _dragCleanup === 'function') { _dragCleanup(); _dragCleanup = null; }
-                            _setupDrag();
-                        } else {
-                            // Свежее открытие — полный attach
-                            _attach();
-                        }
-                    }, 100);
-                }
-            }
-        } catch (e) {}
-        return _prevAddDialog && _prevAddDialog.apply(this, arguments);
-    };
-
-    // closeLastDialog → _detach при закрытии диалога.
-    var _prevCloseLastDialog = window.closeLastDialog;
-    window.closeLastDialog = function () {
-        _detach();
-        var result = _prevCloseLastDialog && _prevCloseLastDialog.apply(this, arguments);
-
-        // [БАГ 2 FIX] Если закрыли дочерний (не-фсин) диалог, а фсин лежал под ним
-        // в стеке — он откроется без нового addDialogInQueue.
-        // Ждём 200 мс: если addDialogInQueue успеет сработать сам (случай замены,
-        // а не стека), он поставит _active = true и мы выйдем досрочно.
-        // Если нет — .modal-container-wrapper всё ещё в DOM → переподключаемся.
-        if (_currentDialogId !== null) {
-            setTimeout(function () {
-                if (_active) return; // addDialogInQueue уже всё сделал
-                var wrapper = document.querySelector('.modal-container-wrapper');
-                if (wrapper) {
-                    console.log('[FSIN-DRAG] Обнаружен modal после closeLastDialog ' +
-                                '— восстанавливаем drag для диалога ' + _currentDialogId);
-                    _attach();
-                }
-            }, 200);
+            _altHoldFired = false;
+            return;
         }
 
-        return result;
+        if (typeof _prevOnKeyUp === 'function') {
+            return _prevOnKeyUp(e);
+        }
     };
 
-    console.log('[FSIN] Window/Modal cursor/hide/drag v2 готов');
-    console.log('[FSIN]   • Alt (короткий) = toggle курсора');
-    console.log('[FSIN]   • Alt (≥500мс)  = скрыть/показать диалог + курсор');
-    console.log('[FSIN]   • drag сохраняет позицию по ID диалога');
-    console.log('[FSIN]   • пагинация 667→667 переинициализирует drag');
+    _startPoll();
+}
+
+function _detach() {
+    if (!_active) return;
+
+    var wasHidden = _menuHidden;
+
+    _active = false;
+
+    if (_altHoldTimer) {
+        clearTimeout(_altHoldTimer);
+        _altHoldTimer = null;
+    }
+
+    window.onKeyDown = _prevOnKeyDown;
+    window.onKeyUp = _prevOnKeyUp;
+
+    _prevOnKeyDown = null;
+    _prevOnKeyUp = null;
+
+    _stopPoll();
+
+    _drag = null;
+    _menuHidden = false;
+    _blurredInput = null;
+    _cursorVisible = true;
+
+    // Если диалог был скрыт и закрылся — возвращаем курсор
+    if (wasHidden) {
+        try {
+            showCursor();
+        } catch (e) {}
+    }
+
+    // Страховка: снимаем класс, если вдруг корень ещё жив
+    Array.prototype.forEach.call(
+        document.querySelectorAll('.fsin-dialog-hidden'),
+        function (el) {
+            el.classList.remove('fsin-dialog-hidden');
+        }
+    );
+}
+
+// ── Хук открытия диалога ───────────────────────────────────────────────────
+var _prevAddDialog = window.addDialogInQueue;
+
+window.addDialogInQueue = function (dialogParams, content, priority) {
+    try {
+        if (dialogParams && typeof dialogParams === 'string') {
+            var parsed = JSON.parse(dialogParams.trim());
+            var id = parseInt(parsed[0], 10);
+
+            if (_isOurDialog(id)) {
+                _currentDialogId = id;
+
+                setTimeout(function () {
+                    if (_active) {
+                        _updateUi();
+                    } else {
+                        _attach();
+                    }
+                }, 80);
+
+                // Дополнительные проверки, пока Vue/Transition перерисовывает диалог
+                setTimeout(_updateUi, 250);
+                setTimeout(_updateUi, 600);
+                setTimeout(_updateUi, 1000);
+            }
+        }
+    } catch (e) {}
+
+    if (typeof _prevAddDialog === 'function') {
+        return _prevAddDialog.apply(this, arguments);
+    }
+};
+
+// ── Хук закрытия диалога ───────────────────────────────────────────────────
+var _prevCloseLastDialog = window.closeLastDialog;
+
+window.closeLastDialog = function () {
+    _detach();
+
+    if (typeof _prevCloseLastDialog === 'function') {
+        return _prevCloseLastDialog.apply(this, arguments);
+    }
+};
+
+console.log('[FSIN] Window/Modal cursor/hide/drag v3 готов');
+console.log('[FSIN]   • Alt (короткий) = toggle курсора');
+console.log('[FSIN]   • Alt (≥500мс)  = мгновенно скрыть/показать диалог');
+console.log('[FSIN]   • drag работает через делегирование и переживает смену диалогов');
+
 })();
 // ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
 
