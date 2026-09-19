@@ -258,7 +258,7 @@ setTimeout(function() {
     try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
 }, 1000);
 // 1. СНАЧАЛА объявляем все константы и массивы
-const mvdSkins = [15321, 15323, 15325, 15330, 15332, 15334, 15335, 190, 148, 15340, 15341, 15342, 15343, 15344, 15348, 15351];
+const mvdSkins = [15321, 15323, 15325, 15330, 15332, 15334, 15335, 190, 148, 15340, 15341, 15342, 15343, 15344, 15348, 15351, 15400, 15405];
 
 let skinId = null;
 // 3. Функция получения скина
@@ -2267,12 +2267,14 @@ window.showPovsednevMenuPage = (e) => {
     const _start   = currentPage * ITEMS_PER_PAGE;
     const _page    = _visible.slice(_start, _start + ITEMS_PER_PAGE);
     let _content   = '';
-    _page.forEach(function(opt, i) {
-        _content += (_start + i + 1) + '. ' + opt.name + '<n>';
+    _page.forEach(function(opt) {
+        // opt.name уже содержит номер ("1. Приветствие") — не добавляем индекс повторно
+        _content += opt.name + '<n>';
     });
-    // Стиль 5 = TABLIST_HEADERS → движок добавляет A/D кнопки навигации
+    // Стиль 4 = TABLIST → все строки кликабельны + A/D навигация (OnMultiDialogClickNavigButton)
+    // Стиль 5 (TABLIST_HEADERS) нельзя: первая строка контента становится нон-кликабельным заголовком
     window.addDialogInQueue(
-        '[667,5,"МВД | Повседневная","Выбор<t>Действие","Выбрать","Назад",0,0]',
+        '[667,4,"МВД | Повседневная","","Выбрать","Назад",0,0]',
         _content,
         0
     );
