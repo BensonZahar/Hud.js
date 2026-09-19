@@ -473,29 +473,16 @@ window.sendClientEventHandle = function(event, ...args) {
         const dlgId = parseInt(args[2]);
         if (PAGINATED_DIALOG_IDS.includes(dlgId)) {
             _navPending = true;
-            setTimeout(() => { _navPending = false; }, 300); // сброс на случай если OnDialogResponse не пришёл
+            setTimeout(() => { _navPending = false; }, 300);
             console.log(`[NAV] A/D dlg=${dlgId} dir=${direction}`);
-            if (direction === 1) {
-                // D — следующая страница
-                currentPage++;
-            } else {
-                // A — предыдущая страница или выход в родительское меню
-                if (currentPage > 0) {
-                    currentPage--;
-                } else {
-                    // Первая страница — выход назад
-                    currentPage = 0;
-                    if (dlgId === 667) {
-                        lastMenuType = null; currentMenu = null;
-                        setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
-                    }
-                    return;
+            if (direction === 0) {
+                // A — назад в родительское меню (одна страница — пагинации нет)
+                if (dlgId === 667) {
+                    lastMenuType = null; currentMenu = null;
+                    setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
                 }
             }
-            // Перезагружаем текущее меню с новой страницей (без сброса currentPage)
-            setTimeout(() => {
-                if (dlgId === 667) _buildPovsednevDialog();
-            }, 50);
+            // D — нет следующей страницы, ничего не делаем
             return;
         }
     }
@@ -847,7 +834,7 @@ const SendGiveLicenseCommand = (to, index) => {
 };
 const HandlePovsednevCommand = (optionIndex) => {
     const _visible = povsednevOptions.filter(o => !MENU_HIDDEN_ITEMS.includes(o.action));
-    const adjustedIndex = currentPage * ITEMS_PER_PAGE + optionIndex;
+    const adjustedIndex = optionIndex; // все пункты на одной странице, смещение не нужно
     if (adjustedIndex >= 0 && adjustedIndex < _visible.length) {
         const option = _visible[adjustedIndex];
         currentAction = option.action;
@@ -1082,7 +1069,7 @@ window.showGiveLicenseDialog = (e) => {
     currentMenu = null;
     let availableTypes = [];
     if (fsinSkins.includes(skinId)) {
-        availableTypes.push({ name: "МВД", id: "mvd_main" });
+        availableTypes.push({ name: "ФСИН", id: "mvd_main" });
     }
     shownLicenseTypes = availableTypes;
     let licenseList = '';
@@ -1098,15 +1085,13 @@ function _buildPovsednevDialog() {
     const _visible = povsednevOptions.filter(function(o) {
         return !MENU_HIDDEN_ITEMS.includes(o.action);
     });
-    const start  = currentPage * ITEMS_PER_PAGE;
-    const pageItems = _visible.slice(start, start + ITEMS_PER_PAGE);
-    const hasPrev   = currentPage > 0;
-    const hasNext   = (start + ITEMS_PER_PAGE) < _visible.length;
-    let list = '';
-    pageItems.forEach(function(opt) { list += opt.name + '<n>'; });
+    // Стиль 4 = list_title: первая строка — серый нон-кликабельный заголовок,
+    // остальные кликабельны. Индексы ответа считаются БЕЗ заголовка (0 = первый пункт).
+    let _content = 'AHK by konstt<n>';
+    _visible.forEach(function(opt) { _content += opt.name + '<n>'; });
     window.addDialogInQueue(
-        '[667,2,"Повседневная","","Выбрать","Отмена",' + (hasPrev ? 1 : 0) + ',' + (hasNext ? 1 : 0) + ']',
-        list, 0
+        '[667,4,"ФСИН | Повседневная","","Выбрать","Назад",0,0]',
+        _content, 0
     );
 }
 
@@ -1209,11 +1194,11 @@ window.showMvdSubMenu = (e) => {
     }
     availableSub.push({ name: "Законы", id: "laws" });
     shownMvdSubTypes = availableSub;
-    let licenseList = '';
+    let licenseList = 'AHK by konstt<n>';
     availableSub.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-    window.addDialogInQueue(`[677,2,"МВД","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    window.addDialogInQueue(`[677,4,"ФСИН","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
@@ -1283,7 +1268,7 @@ window.sendChatInputCustom = e => {
     if (fsinSkins.includes(skinId)) {
         
         const openMenu = () => {
-            snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
+            snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'ФСИН\'", "0000FF", 5000]');
             showMvdMainMenuPage(args[1]);
         };
 
@@ -1339,7 +1324,7 @@ window.sendChatInputCustom = e => {
         currentPage = 0;
         autoCuffEnabled = false;
         autoCuffName = `Auto-cuff | {FF0000}Выкл`;
-        sendChatInput("Настройки МВД сброшены. Следующее /mvd откроет главное меню.");
+        sendChatInput("Настройки ФСИН сброшены. Следующее /dahk откроет главное меню.");
     } else if (args[0] == "/int") {
         // Просмотрщик интерфейсов (см.
         try {
@@ -3064,7 +3049,7 @@ function applyMainMenuTabPatch() {
         }).join('<n>');
         // style 2 = LIST, кнопки "Далее" / "Назад" — точно как на сервере
         window.addDialogInQueue(
-            '[' + SCC_PERIOD_DLG + ',2,"МВД | Арестованные преступники","","Далее","Назад",0,0]',
+            '[' + SCC_PERIOD_DLG + ',2,"ФСИН | Арестованные преступники","","Далее","Назад",0,0]',
             content,
             0
         );
