@@ -4638,5 +4638,641 @@ function applyMainMenuTabPatch() {
 })();
 // ==================== END /SCC ====================
 
+// ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG v5 ====================
+// Скрытие курсора (короткий Alt), скрытие диалога (Alt удержание >=500 мс)
+// и перетаскивание за заголовок — для серверных диалогов 666–669, 677, 682, 684, 695–696,
+// отрисовываемых Window.js / Modal.js. Window.js и Modal.js не трогаем.
+//
+//   • курсор скрывается через реальные имена Window0/Window1/...;
+//   • скрытие диалога мгновенное, включая кнопки ControlsContaineredButton;
+//   • drag работает через делегирование и переживает замену DOM после переходов;
+//   • позиция 667 и 677 общая (один тип меню);
+//   • при пагинации / переходах позиция восстанавливается корректно.
+;(function () {
+'use strict';
+
+// Защита от двойного подключения
+if (window.__mvdWindowModalV5) return;
+window.__mvdWindowModalV5 = true;
+
+var CURSOR_NAME = 'Window';
+var ALT_HOLD_MS = 500;
+var STYLE_ID    = 'mvd-window-modal-v5-style';
+
+var _active           = false;
+var _menuHidden       = false;
+var _altHoldTimer     = null;
+var _altHoldFired     = false;
+var _blurredInput     = null;
+var _cursorVisible    = true;
+var _hiddenCursorNames = [];
+
+var _currentDialogId    = null;
+var _currentDialogStyle = null;
+var _currentCursorName  = null;
+
+var _savedPositions = {};
+
+var _prevOnKeyDown = null;
+var _prevOnKeyUp   = null;
+
+var _drag      = null;
+var _pollTimer = null;
+
+// Сброс сохранённых позиций (вызывать из консоли: window._mvdResetDialogPositions())
+window._mvdResetDialogPositions = function () {
+    _savedPositions = {};
+    console.log('[MVD] Позиции диалогов сброшены');
+};
+
+// ── Проверка: наш ли диалог ───────────────────────────────────────────────
+// 666-669  — основные меню / ввод
+// 677      — главное меню МВД
+// 682      — меню напарника
+// 684      — ввод причины изъятия прав
+// 695, 696 — /scc диалоги
+function _isOurDialog(id) {
+    return (id >= 666 && id <= 669) || id === 677 || id === 682 || id === 684 || id === 695 || id === 696;
+}
+
+// ── CSS: мгновенное скрытие диалога ───────────────────────────────────────
+function _injectStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+
+    var st = document.createElement('style');
+    st.id  = STYLE_ID;
+    st.textContent = [
+        '.mvd-dialog-hidden,',
+        '.mvd-dialog-hidden *,',
+        '.mvd-dialog-hidden *::before,',
+        '.mvd-dialog-hidden *::after{',
+        '  display:none !important;',
+        '  visibility:hidden !important;',
+        '  opacity:0 !important;',
+        '  pointer-events:none !important;',
+        '  transition:none !important;',
+        '  animation:none !important;',
+        '}',
+
+        '.modal__title{',
+        '  user-select:none !important;',
+        '  cursor:grab;',
+        '}',
+
+        '.modal__title:active{',
+        '  cursor:grabbing;',
+        '}'
+    ].join('\n');
+
+    document.head.appendChild(st);
+}
+
+// ── Ключ позиции ─────────────────────────────────────────────────────────
+// 667 и 677 делят одну позицию: оба — списковые меню.
+// Добавляй/убирай группы здесь если хочешь сгруппировать или разделить диалоги.
+function _getPositionKey() {
+    var groups = {
+        667: 'mvd-list-menu',
+        677: 'mvd-list-menu',
+
+        666: 'mvd-select',
+        668: 'mvd-input',
+        669: 'mvd-track-input',
+        682: 'mvd-partner',
+        684: 'mvd-takelic-input',
+
+        695: 'scc-period',
+        696: 'scc-table'
+    };
+
+    if (_currentDialogId !== null && groups[_currentDialogId]) {
+        return groups[_currentDialogId];
+    }
+
+    if (_currentDialogStyle !== null) {
+        return 'dialog-style-' + _currentDialogStyle;
+    }
+
+    return 'dialog-' + _currentDialogId;
+}
+
+// ── Получаем реальные имена курсоров из index.js ──────────────────────────
+// index.js открывает диалоговый курсор как Window0, Window1, Window2 и т.д.
+function _getWindowCursorNames() {
+    var names = [];
+
+    if (_currentCursorName) {
+        names.push(_currentCursorName);
+    }
+
+    try {
+        if (window.App && Array.isArray(window.App.dialogsQueue)) {
+            window.App.dialogsQueue.forEach(function (q) {
+                var idx = Array.isArray(q) ? q[0] : q;
+                if (idx !== undefined && idx !== null) {
+                    names.push('Window' + idx);
+                }
+            });
+        }
+    } catch (e) {}
+
+    try {
+        if (window.App && window.App.components) {
+            Object.keys(window.App.components).forEach(function (key) {
+                if (!/^Window\d+$/.test(key)) return;
+                var comp = window.App.components[key];
+                if (comp && comp.open && comp.open.status) {
+                    names.push(key);
+                }
+            });
+        }
+    } catch (e) {}
+
+    // Убираем дубли
+    return names.filter(function (name, index) {
+        return names.indexOf(name) === index;
+    });
+}
+
+// ── Скрытие / показ курсора ───────────────────────────────────────────────
+function hideCursor() {
+    if (!_cursorVisible) return;
+
+    _cursorVisible = false;
+
+    var wrapper = _getActiveWrapper();
+    var ae = document.activeElement;
+
+    if (
+        ae &&
+        wrapper &&
+        wrapper.contains(ae) &&
+        (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')
+    ) {
+        _blurredInput = ae;
+        ae.blur();
+    } else {
+        _blurredInput = null;
+    }
+
+    var names = _getWindowCursorNames();
+    _hiddenCursorNames = names.slice();
+
+    if (typeof window.setCursorStatus === 'function') {
+        names.forEach(function (name) {
+            try { window.setCursorStatus(name, false); } catch (e) {}
+        });
+        // Старое служебное имя — на всякий случай тоже гасим
+        try { window.setCursorStatus(CURSOR_NAME, false); } catch (e) {}
+    }
+}
+
+function showCursor() {
+    if (_cursorVisible) return;
+
+    _cursorVisible = true;
+
+    var names = _getWindowCursorNames();
+
+    if (!names.length && _hiddenCursorNames.length) {
+        names = _hiddenCursorNames;
+    }
+
+    if (typeof window.setCursorStatus === 'function') {
+        names.forEach(function (name) {
+            try { window.setCursorStatus(name, true); } catch (e) {}
+        });
+    }
+
+    _hiddenCursorNames = [];
+
+    if (
+        !(window.App && window.App.developmentMode) &&
+        typeof window.setDrawLabelStatus === 'function'
+    ) {
+        window.setDrawLabelStatus(true);
+    }
+
+    var el = _blurredInput;
+    _blurredInput = null;
+
+    if (el && el.isConnected) {
+        setTimeout(function () {
+            if (el.isConnected) el.focus();
+        }, 0);
+    }
+}
+
+// ── DOM-хелперы ───────────────────────────────────────────────────────────
+function _getRoots() {
+    var roots = [];
+    var wrappers = document.querySelectorAll('.modal-container-wrapper');
+
+    Array.prototype.forEach.call(wrappers, function (w) {
+        if (!w.isConnected) return;
+        if (!w.closest || !w.closest('.window')) return;
+        var root = w.closest('.iface-centered') || w;
+        if (roots.indexOf(root) === -1) {
+            roots.push(root);
+        }
+    });
+
+    return roots;
+}
+
+function _getActiveWrapper() {
+    var all = Array.prototype.slice.call(document.querySelectorAll('.modal-container-wrapper'));
+    var i, w;
+
+    // Сначала ищем живой wrapper, который не находится в leave-анимации
+    for (i = all.length - 1; i >= 0; i--) {
+        w = all[i];
+        if (!w.isConnected) continue;
+        if (!w.closest || !w.closest('.window')) continue;
+        if (String(w.className || '').indexOf('leave-active') !== -1) continue;
+        if (w.querySelector('.modal__title')) return w;
+    }
+
+    // Fallback: любой живой Window-wrapper
+    for (i = all.length - 1; i >= 0; i--) {
+        w = all[i];
+        if (!w.isConnected) continue;
+        if (!w.closest || !w.closest('.window')) continue;
+        if (w.querySelector('.modal__title')) return w;
+    }
+
+    return null;
+}
+
+// ── Позиция ───────────────────────────────────────────────────────────────
+function _applySavedPosition() {
+    if (!_active || _currentDialogId === null) return;
+
+    var w = _getActiveWrapper();
+    if (!w) return;
+
+    // Если элемент скрыт или ещё не получил размеры — не применяем позицию
+    if (!w.offsetWidth && !w.offsetHeight) return;
+
+    var posKey = _getPositionKey();
+
+    // mark включает и группу, и текущий ID, чтобы при смене диалога внутри
+    // одной группы позиция всё равно повторно применялась.
+    var mark = 'mvd-pos-' + posKey + '-' + _currentDialogId;
+
+    if (w.getAttribute('data-mvd-pos') === mark) return;
+
+    var pos = _savedPositions[posKey];
+
+    if (pos) {
+        var left = parseFloat(pos.left) || 0;
+        var top  = parseFloat(pos.top)  || 0;
+
+        left = Math.max(0, Math.min(left, window.innerWidth  - (w.offsetWidth  || 0)));
+        top  = Math.max(0, Math.min(top,  window.innerHeight - (w.offsetHeight || 0)));
+
+        w.style.position  = 'absolute';
+        w.style.margin    = '0';
+        w.style.transform = 'none';
+        w.style.left      = left + 'px';
+        w.style.top       = top  + 'px';
+    }
+
+    w.setAttribute('data-mvd-pos', mark);
+}
+
+// ── Скрытие / показ диалога ───────────────────────────────────────────────
+function _syncHidden() {
+    if (!_active) return;
+
+    var roots = _getRoots();
+
+    Array.prototype.forEach.call(roots, function (root) {
+        if (_menuHidden) {
+            root.classList.add('mvd-dialog-hidden');
+        } else {
+            root.classList.remove('mvd-dialog-hidden');
+        }
+    });
+}
+
+function _updateUi() {
+    if (!_active) return;
+    _applySavedPosition();
+    _syncHidden();
+}
+
+function _startPoll() {
+    if (_pollTimer) return;
+    _pollTimer = setInterval(_updateUi, 100);
+    _updateUi();
+}
+
+function _stopPoll() {
+    if (_pollTimer) {
+        clearInterval(_pollTimer);
+        _pollTimer = null;
+    }
+}
+
+function _setHidden(state) {
+    if (_menuHidden === state) return;
+
+    _menuHidden = state;
+
+    _injectStyles();
+    _syncHidden();
+
+    if (state) {
+        hideCursor();
+    } else {
+        showCursor();
+    }
+}
+
+// ── Drag ──────────────────────────────────────────────────────────────────
+function _ensureAbsolute(wrapper) {
+    if (
+        wrapper.style.position === 'absolute' &&
+        wrapper.style.left !== '' &&
+        wrapper.style.top  !== ''
+    ) {
+        return;
+    }
+
+    var rect       = wrapper.getBoundingClientRect();
+    var parent     = wrapper.offsetParent || document.body;
+    var parentRect = parent.getBoundingClientRect();
+
+    wrapper.style.position  = 'absolute';
+    wrapper.style.margin    = '0';
+    wrapper.style.transform = 'none';
+    wrapper.style.left      = (rect.left - parentRect.left) + 'px';
+    wrapper.style.top       = (rect.top  - parentRect.top)  + 'px';
+}
+
+function _onMouseDown(e) {
+    if (!_active || _menuHidden) return;
+    if (e.button !== 0) return;
+
+    var target = e.target;
+    if (!target || !target.closest) return;
+
+    var title = target.closest('.modal__title');
+    if (!title) return;
+
+    var wrapper = title.closest('.modal-container-wrapper');
+    if (!wrapper || !wrapper.isConnected) return;
+    if (!wrapper.closest('.window')) return;
+
+    // Не трогаем старый диалог, который уходит через transition
+    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
+
+    _ensureAbsolute(wrapper);
+
+    _drag = {
+        wrapper: wrapper,
+        sx: e.clientX,
+        sy: e.clientY,
+        sl: parseFloat(wrapper.style.left) || 0,
+        st: parseFloat(wrapper.style.top)  || 0,
+        ew: wrapper.offsetWidth  || wrapper.getBoundingClientRect().width,
+        eh: wrapper.offsetHeight || wrapper.getBoundingClientRect().height,
+        ww: window.innerWidth,
+        wh: window.innerHeight
+    };
+
+    document.body.style.userSelect = 'none';
+
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onMouseMove(e) {
+    if (!_drag) return;
+
+    var left = _drag.sl + (e.clientX - _drag.sx);
+    var top  = _drag.st + (e.clientY - _drag.sy);
+
+    left = Math.max(0, Math.min(left, _drag.ww - _drag.ew));
+    top  = Math.max(0, Math.min(top,  _drag.wh - _drag.eh));
+
+    _drag.wrapper.style.left = left + 'px';
+    _drag.wrapper.style.top  = top  + 'px';
+
+    e.preventDefault();
+}
+
+function _onMouseUp() {
+    if (!_drag) return;
+
+    var wrapper = _drag.wrapper;
+
+    if (_currentDialogId !== null) {
+        _savedPositions[_getPositionKey()] = {
+            left: wrapper.style.left,
+            top:  wrapper.style.top
+        };
+    }
+
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
+// Делегирование на document решает проблему замены DOM после переходов
+document.addEventListener('mousedown', _onMouseDown, true);
+document.addEventListener('mousemove', _onMouseMove, true);
+document.addEventListener('mouseup',   _onMouseUp,   true);
+
+// ── Подключение / отключение ───────────────────────────────────────────────
+function _attach() {
+    if (_active) return;
+
+    _active           = true;
+    _menuHidden       = false;
+    _altHoldFired     = false;
+    _blurredInput     = null;
+    _cursorVisible    = true;
+    _hiddenCursorNames = [];
+
+    _injectStyles();
+
+    if (
+        !(window.App && window.App.developmentMode) &&
+        typeof window.setDrawLabelStatus === 'function'
+    ) {
+        window.setDrawLabelStatus(true);
+    }
+
+    _prevOnKeyDown = window.onKeyDown;
+    _prevOnKeyUp   = window.onKeyUp;
+
+    window.onKeyDown = function (e) {
+        if (e === window.KEY_CODE_ALT) {
+            if (!_altHoldTimer && !_altHoldFired) {
+                _altHoldTimer = setTimeout(function () {
+                    _altHoldTimer  = null;
+                    _altHoldFired  = true;
+                    _setHidden(!_menuHidden);
+                }, ALT_HOLD_MS);
+            }
+            return;
+        }
+
+        if (typeof _prevOnKeyDown === 'function') {
+            return _prevOnKeyDown(e);
+        }
+    };
+
+    window.onKeyUp = function (e) {
+        if (e === window.KEY_CODE_ALT) {
+            if (_altHoldTimer) {
+                clearTimeout(_altHoldTimer);
+                _altHoldTimer = null;
+
+                // Короткий Alt: если диалог видим — переключаем курсор
+                if (!_menuHidden) {
+                    if (_cursorVisible) {
+                        hideCursor();
+                    } else {
+                        showCursor();
+                    }
+                }
+            }
+
+            _altHoldFired = false;
+            return;
+        }
+
+        if (typeof _prevOnKeyUp === 'function') {
+            return _prevOnKeyUp(e);
+        }
+    };
+
+    _startPoll();
+}
+
+function _detach() {
+    if (!_active) return;
+
+    _active = false;
+
+    if (_altHoldTimer) {
+        clearTimeout(_altHoldTimer);
+        _altHoldTimer = null;
+    }
+
+    window.onKeyDown = _prevOnKeyDown;
+    window.onKeyUp   = _prevOnKeyUp;
+
+    _prevOnKeyDown = null;
+    _prevOnKeyUp   = null;
+
+    _stopPoll();
+
+    _drag             = null;
+    _menuHidden       = false;
+    _blurredInput     = null;
+    _cursorVisible    = true;
+    _hiddenCursorNames = [];
+    _currentCursorName = null;
+
+    // Страховка: снимаем класс скрытия, если DOM ещё жив
+    Array.prototype.forEach.call(
+        document.querySelectorAll('.mvd-dialog-hidden'),
+        function (el) {
+            el.classList.remove('mvd-dialog-hidden');
+        }
+    );
+}
+
+// ── Хук открытия диалога ───────────────────────────────────────────────────
+// Цепляемся поверх уже существующего хука (_dlgOrigAddDialogInQueue).
+var _prevAddDialog = window.addDialogInQueue;
+
+window.addDialogInQueue = function (dialogParams, content, priority) {
+    var dialogId    = null;
+    var dialogStyle = null;
+
+    try {
+        if (dialogParams && typeof dialogParams === 'string') {
+            var parsed  = JSON.parse(dialogParams.trim());
+            dialogId    = parseInt(parsed[0], 10);
+            dialogStyle = parseInt(parsed[1], 10);
+        }
+    } catch (e) {}
+
+    var isOur = _isOurDialog(dialogId);
+
+    if (isOur) {
+        _currentDialogId    = dialogId;
+        _currentDialogStyle = dialogStyle;
+    }
+
+    var result;
+
+    if (typeof _prevAddDialog === 'function') {
+        result = _prevAddDialog.apply(this, arguments);
+    } else if (window.App && typeof window.App.addDialogInQueue === 'function') {
+        result = window.App.addDialogInQueue(dialogParams, content, priority);
+    }
+
+    if (isOur) {
+        _currentDialogId    = dialogId;
+        _currentDialogStyle = dialogStyle;
+
+        // index.js увеличивает dialogIdx после добавления диалога.
+        // Реальный курсор будет называться Window(dialogIdx - 1).
+        try {
+            if (
+                window.App &&
+                typeof window.App.dialogIdx === 'number' &&
+                window.App.dialogIdx > 0
+            ) {
+                _currentCursorName = 'Window' + (window.App.dialogIdx - 1);
+            }
+        } catch (e) {}
+
+        setTimeout(function () {
+            if (_active) {
+                _updateUi();
+            } else {
+                _attach();
+            }
+        }, 80);
+
+        // Дополнительные проверки, пока Vue/Transition перерисовывает диалог
+        setTimeout(_updateUi, 250);
+        setTimeout(_updateUi, 600);
+        setTimeout(_updateUi, 1000);
+    }
+
+    return result;
+};
+
+// ── Хук закрытия диалога ───────────────────────────────────────────────────
+var _prevCloseLastDialog = window.closeLastDialog;
+
+window.closeLastDialog = function () {
+    _detach();
+
+    if (typeof _prevCloseLastDialog === 'function') {
+        return _prevCloseLastDialog.apply(this, arguments);
+    }
+
+    if (window.App && typeof window.App.closeLastDialog === 'function') {
+        return window.App.closeLastDialog();
+    }
+};
+
+console.log('[MVD] Window/Modal cursor/hide/drag v5 готов');
+console.log('[MVD]   • Alt (короткий)  = скрыть/показать курсор');
+console.log('[MVD]   • Alt (>=500мс)   = скрыть/показать диалог вместе с курсором');
+console.log('[MVD]   • 667 и 677 используют одну позицию меню');
+console.log('[MVD]   • курсор гасится через реальные имена Window0/Window1/...');
+
+})();
+// ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
+
 // ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
 }); // конец callback _nickCheck
