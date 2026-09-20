@@ -7,7 +7,7 @@ const _ALLOWED_NICKS = [
     "Casper_Paradise",
     "Denis_Galievskiy",
     "Maxim_Vortex",
-	"Sergey_Gaben",
+//	"Sergey_Gaben",
 	"Kenzo_Morales"
 ];
 
