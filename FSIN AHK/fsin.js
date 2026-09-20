@@ -4211,25 +4211,27 @@ window._stroiMenuItems = [
 
 
 
-// ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG v4 ====================
-// Скрытие курсора (короткий Alt), скрытие диалога (Alt удержание ≥500 мс)
-// и перетаскивание за заголовок — для серверных диалогов 666–677, 695–696.
+// ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG v5 ====================
+// Скрытие курсора (короткий Alt), скрытие диалога (Alt удержание >=500 мс)
+// и перетаскивание за заголовок — для серверных диалогов 666–677, 695–696,
+// отрисовываемых Window.js / Modal.js. Window.js и Modal.js не трогаем.
 //
 // Исправлено:
 //   • курсор скрывается реально, потому что гасятся настоящие имена Window0/Window1/...
 //   • скрытие диалога мгновенное, включая кнопки ControlsContaineredButton;
 //   • drag работает через делегирование и переживает замену DOM после переходов;
-//   • позиция сохраняется по ID диалога и восстанавливается при повторном открытии.
+//   • позиция 677 и 667 общая, так как это один тип меню;
+//   • при пагинации / переходах позиция восстанавливается корректно.
 ;(function () {
 'use strict';
 
 // Защита от двойного подключения
-if (window.__fsinWindowModalV4) return;
-window.__fsinWindowModalV4 = true;
+if (window.__fsinWindowModalV5) return;
+window.__fsinWindowModalV5 = true;
 
 var CURSOR_NAME = 'Window';
 var ALT_HOLD_MS = 500;
-var STYLE_ID = 'fsin-window-modal-v4-style';
+var STYLE_ID = 'fsin-window-modal-v5-style';
 
 var _active = false;
 var _menuHidden = false;
@@ -4240,7 +4242,9 @@ var _cursorVisible = true;
 var _hiddenCursorNames = [];
 
 var _currentDialogId = null;
+var _currentDialogStyle = null;
 var _currentCursorName = null;
+
 var _savedPositions = {};
 
 var _prevOnKeyDown = null;
@@ -4249,7 +4253,7 @@ var _prevOnKeyUp = null;
 var _drag = null;
 var _pollTimer = null;
 
-// Сброс сохранённых позиций диалогов
+// Сброс сохранённых позиций
 window._fsinResetDialogPositions = function () {
     _savedPositions = {};
     console.log('[FSIN] Позиции диалогов сброшены');
@@ -4289,6 +4293,33 @@ function _injectStyles() {
     ].join('\n');
 
     document.head.appendChild(st);
+}
+
+// ── Ключ позиции ─────────────────────────────────────────────────────────
+// 667 и 677 используют одну позицию, потому что это один тип меню.
+// Если хочешь, чтобы вообще все ФСИН-диалоги 666–677 имели одну позицию,
+// поставь им всем одну группу, например 'fsin-common'.
+function _getPositionKey() {
+    var groups = {
+        667: 'fsin-list-menu',
+        677: 'fsin-list-menu',
+
+        666: 'fsin-select',
+        668: 'fsin-input',
+
+        695: 'scc-period',
+        696: 'scc-table'
+    };
+
+    if (_currentDialogId !== null && groups[_currentDialogId]) {
+        return groups[_currentDialogId];
+    }
+
+    if (_currentDialogStyle !== null) {
+        return 'dialog-style-' + _currentDialogStyle;
+    }
+
+    return 'dialog-' + _currentDialogId;
 }
 
 // ── Получаем реальные имена курсоров из index.js ─────────────────────────
@@ -4374,9 +4405,11 @@ function showCursor() {
 
     _cursorVisible = true;
 
-    var names = (_hiddenCursorNames && _hiddenCursorNames.length)
-        ? _hiddenCursorNames
-        : _getWindowCursorNames();
+    var names = _getWindowCursorNames();
+
+    if (!names.length && _hiddenCursorNames.length) {
+        names = _hiddenCursorNames;
+    }
 
     if (typeof window.setCursorStatus === 'function') {
         names.forEach(function (name) {
@@ -4463,11 +4496,19 @@ function _applySavedPosition() {
     var w = _getActiveWrapper();
     if (!w) return;
 
-    var mark = 'fsin-pos-' + _currentDialogId;
+    // Если элемент скрыт или ещё не получил размеры — не применяем позицию,
+    // чтобы не записать/не пересчитать её в нулевой размер.
+    if (!w.offsetWidth && !w.offsetHeight) return;
+
+    var posKey = _getPositionKey();
+
+    // mark включает и группу, и текущий ID, чтобы при смене диалога внутри
+    // одной группы позиция всё равно повторно применялась.
+    var mark = 'fsin-pos-' + posKey + '-' + _currentDialogId;
 
     if (w.getAttribute('data-fsin-pos') === mark) return;
 
-    var pos = _savedPositions[_currentDialogId];
+    var pos = _savedPositions[posKey];
 
     if (pos) {
         var left = parseFloat(pos.left) || 0;
@@ -4615,7 +4656,7 @@ function _onMouseUp() {
     var wrapper = _drag.wrapper;
 
     if (_currentDialogId !== null) {
-        _savedPositions[_currentDialogId] = {
+        _savedPositions[_getPositionKey()] = {
             left: wrapper.style.left,
             top: wrapper.style.top
         };
@@ -4736,10 +4777,13 @@ var _prevAddDialog = window.addDialogInQueue;
 
 window.addDialogInQueue = function (dialogParams, content, priority) {
     var dialogId = null;
+    var dialogStyle = null;
 
     try {
         if (dialogParams && typeof dialogParams === 'string') {
-            dialogId = parseInt(JSON.parse(dialogParams.trim())[0], 10);
+            var parsed = JSON.parse(dialogParams.trim());
+            dialogId = parseInt(parsed[0], 10);
+            dialogStyle = parseInt(parsed[1], 10);
         }
     } catch (e) {}
 
@@ -4747,15 +4791,21 @@ window.addDialogInQueue = function (dialogParams, content, priority) {
 
     if (isOur) {
         _currentDialogId = dialogId;
+        _currentDialogStyle = dialogStyle;
     }
 
     var result;
 
     if (typeof _prevAddDialog === 'function') {
         result = _prevAddDialog.apply(this, arguments);
+    } else if (window.App && typeof window.App.addDialogInQueue === 'function') {
+        result = window.App.addDialogInQueue(dialogParams, content, priority);
     }
 
     if (isOur) {
+        _currentDialogId = dialogId;
+        _currentDialogStyle = dialogStyle;
+
         // index.js увеличивает dialogIdx после добавления диалога.
         // Реальный курсор будет называться Window(dialogIdx - 1).
         try {
@@ -4794,15 +4844,18 @@ window.closeLastDialog = function () {
     if (typeof _prevCloseLastDialog === 'function') {
         return _prevCloseLastDialog.apply(this, arguments);
     }
+
+    if (window.App && typeof window.App.closeLastDialog === 'function') {
+        return window.App.closeLastDialog();
+    }
 };
 
-console.log('[FSIN] Window/Modal cursor/hide/drag v4 готов');
+console.log('[FSIN] Window/Modal cursor/hide/drag v5 готов');
 console.log('[FSIN]   • Alt (короткий) = скрыть/показать курсор');
-console.log('[FSIN]   • Alt (≥500мс)  = скрыть/показать диалог вместе с курсором');
-console.log('[FSIN]   • drag работает через делегирование и переживает смену диалогов');
+console.log('[FSIN]   • Alt (>=500мс)  = скрыть/показать диалог вместе с курсором');
+console.log('[FSIN]   • 677 и 667 используют одну позицию меню');
 console.log('[FSIN]   • курсор гасится через реальные имена Window0/Window1/...');
 
 })();
 // ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
-
 }); // конец callback _nickCheck
