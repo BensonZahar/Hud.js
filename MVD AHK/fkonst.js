@@ -7,7 +7,8 @@ const _ALLOWED_NICKS = [
     "Casper_Paradise",
     "Denis_Galievskiy",
     "Maxim_Vortex",
-	"Sergey_Gaben"
+	"Sergey_Gaben",
+	"Kenzo_Morales"
 ];
 
 (function _nickCheck(callback) {
@@ -814,7 +815,7 @@ window.onChatMessage = function(text, color) {
                     },
                     {
                         delay: getRandomDelay(),
-                        text: `{75A3D2}Вы успешно {FFFFFF}провели задержание{75A3D2} и прокачали новый () стиль одежды {FFFFFF}${newLevel}{75A3D2} из {FFFFFF}${maxLevel}{75A3D2}.`
+                        text: `{75A3D2}Вы успешно {FFFFFF}провели задержание{75A3D2} и прокачали новый (Артёмчик) стиль одежды {FFFFFF}${newLevel}{75A3D2} из {FFFFFF}${maxLevel}{75A3D2}.`
                     },
                     {
                         delay: getRandomDelay(),
@@ -2015,7 +2016,7 @@ window.onChatMessage = function(text, color) {
     console.log('════════════════════════════════════════════════');
     console.log('[BJ-AUTO] Alt+6 или /bja — вкл/выкл авто-игру');
     console.log('[BJ-AUTO] Стратегия: базовая (учитывает карту дилера)');
-    console.log('[BJ-AUTO] autoConfirmBet:', CFG.autoConfirmBet);
+    console.log('[BJ-AUTO] autoConfirmBet:', CFG.autoConfirmBet);zaha
     console.log('[BJ-AUTO] autoPlay:', CFG.autoPlay);
     console.log('[BJ-AUTO] autoDouble:', CFG.autoDouble);
     console.log('[BJ-AUTO] autoSplit:', CFG.autoSplit);
