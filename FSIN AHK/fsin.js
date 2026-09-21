@@ -4858,4 +4858,83 @@ console.log('[FSIN]   • курсор гасится через реальны�
 
 })();
 // ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
+
+// ============================================================
+//  TimerK — таймер подачи такси
+//  Регистрация компонента в index.js выполняется установщиком
+//  автоматически через IntLoad.js (name: "TimerK").
+// ============================================================
+
+/* Управляет только обводкой радара в HUD.
+   Не вызывает hud.showTaxiEvent() — тот ставит свой таймер и дублирует виджет.
+   Вместо этого пишем напрямую в реактивный data() Vue 3 — Proxy подхватит. */
+function _setTaxiRadarBorder(show, variant /* 0 = danger/красный, 1 = activity/жёлтый */) {
+    try {
+        const hud = window.interface("Hud");
+        if (!hud) return;
+        const tx = hud.radar?.taxiEvent;
+        if (!tx) return;
+        clearTimeout(tx.timerId);
+        tx.timerId = null;
+        if (show) {
+            tx.variant     = (variant === 0) ? 0 : 1;
+            tx.show        = true;
+            tx.triggeredAt = Date.now();
+        } else {
+            tx.show = false;
+        }
+    } catch (e) { /* HUD ещё не загружен — не страшно */ }
+}
+
+/* openTimerK(секунды, текст, вариант)
+   вариант 1 = жёлтый (activity), 0 = danger (красный) */
+window.openTimerK = (e = 254, t = "Время подачи", o = 1) => {
+    _setTaxiRadarBorder(true, o);
+    if (window.getInterfaceStatus("TimerK")) {
+        const n = window.interface("TimerK");
+        n && n.start(e, t, o);
+    } else {
+        window.openInterface("TimerK", JSON.stringify([e, t, o]));
+    }
+};
+
+window.hideTimerK = () => {
+    _setTaxiRadarBorder(false);
+    window.closeInterface("TimerK");
+};
+
+/* ── /tt — перехват на уровне engine.trigger ──────────────────────────────
+   /tt              — 254 с, "Время подачи", вариант 1
+   /tt <сек>        — свои секунды
+   /tt <сек> <текст> [0|1] — секунды + текст + вариант
+   /tt stop / off   — скрыть таймер                                       */
+(() => {
+    const eng = window.engine;
+    if (!eng || !eng.trigger) return;
+
+    const _orig = eng.trigger.bind(eng);
+    eng.trigger = function(name) {
+        if (name === 'SendChatInput') {
+            const msg = ((arguments[1]) || '').trim();
+            if (/^\/tt(\s|$)/i.test(msg)) {
+                const args = msg.slice(3).trim().split(/\s+/).filter(Boolean);
+                if (args.length && /^(stop|off|hide)$/i.test(args[0])) {
+                    window.hideTimerK && window.hideTimerK();
+                } else if (!args.length) {
+                    window.openTimerK && window.openTimerK();
+                } else {
+                    const dur  = parseInt(args[0]) > 0 ? parseInt(args[0]) : 254;
+                    const rest = args.slice(1);
+                    const lastIsVar = rest.length && /^[01]$/.test(rest[rest.length - 1]);
+                    const v    = lastIsVar ? +rest.pop() : 1;
+                    const text = rest.join(' ') || 'Время подачи';
+                    window.openTimerK && window.openTimerK(dur, text, v);
+                }
+                return; /* не отправляем сообщение на сервер */
+            }
+        }
+        return _orig.apply(eng, arguments);
+    };
+})();
+// ==================== END TimerK ====================
 }); // конец callback _nickCheck
