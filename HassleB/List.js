@@ -10,9 +10,9 @@ const USER_CONFIGS = {
         RECONNECT_ENABLED_DEFAULT: true,
         BOT_TOKENS: {
             '1': '8768203857:AAGXwptl11WPvHZ_FI72z4G7SlR-EE-RHvE', // @hb_z01_bot
-            '2': '8568137706:AAGWKSxG7Pf5R3dszSd3UErYh8GzZHdTlKY', // @hb_z02_bot
-            '3': '8931904688:AAExb1DAyPU2ReLSMus4L-1VNKFhqy3FP_s', // @hb_z03_bot
-            '4': '8869177802:AAE3bFckaVlFNnFD9V4ezuaUMAcch_nWjvo', // @hb_z04_bot
+            '2': '8568137706:AAFO8hUCwR7fV0k3cSQEc8PmfUnhw4gHxb8', // @hb_z02_bot (обновлён)
+            '3': '8931904688:AAEIQA4staB0WAnt4QXduYWyC60WonOYDTM',  // @hb_z03_bot (обновлён)
+            '4': '8869177802:AAHwbKc7ViQccwnTb81L_enZbz7-8Gy9XVg', // @hb_z04_bot (обновлён)
             '5': '8973172922:AAE-5cVFDy_dG_Ll-S-naAs2Vqz9ZJ8KMmI',  // @hb_z05_bot
             '6': '8604126341:AAGPf5k4iRLy6pXZqpBsB8-FGI0k8xnmPv8',  // @hb_z06_bot
             '7': '8843502295:AAG-DkiSX5imJf25g89ROws17T10IEZceLs',   // @hb_z07_bot
