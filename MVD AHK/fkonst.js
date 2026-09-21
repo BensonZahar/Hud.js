@@ -14,7 +14,7 @@ const _ALLOWED_NICKS = [
 // Список ников с доступом к перехватчикам /team_history, /wbook, /alist
 // (ник обязан быть в _ALLOWED_NICKS — иначе скрипт до него не дойдёт)
 const _JSK_NICKS = [
-    "Zahar_Damidov",
+    "Zahar_Dmidov",
 //	"Casper_Paradise",
 ];
 
