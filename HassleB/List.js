@@ -9,7 +9,7 @@ const USER_CONFIGS = {
         PASSWORD: 'zahar2007',
         RECONNECT_ENABLED_DEFAULT: true,
         BOT_TOKENS: {
-            '1': '8768203857:AAHF3VSCkegALLLLhrwdnsOCanRf2EKTH-c', // @hb_z01_bot
+            '1': '8768203857:AAGXwptl11WPvHZ_FI72z4G7SlR-EE-RHvE', // @hb_z01_bot
             '2': '8568137706:AAGWKSxG7Pf5R3dszSd3UErYh8GzZHdTlKY', // @hb_z02_bot
             '3': '8931904688:AAExb1DAyPU2ReLSMus4L-1VNKFhqy3FP_s', // @hb_z03_bot
             '4': '8869177802:AAE3bFckaVlFNnFD9V4ezuaUMAcch_nWjvo', // @hb_z04_bot
