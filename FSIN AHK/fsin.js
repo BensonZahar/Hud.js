@@ -4861,35 +4861,13 @@ console.log('[FSIN]   • курсор гасится через реальны�
 
 // ============================================================
 //  TimerK — таймер подачи такси
-//  Регистрация компонента в index.js выполняется установщиком
-//  автоматически через IntLoad.js (name: "TimerK").
+//  Регистрация: IntLoad.js (name: "TimerK").
+//  Логика обводки радара живёт в TimerK.js (_setRadarBorder).
 // ============================================================
-
-/* Управляет только обводкой радара в HUD.
-   Не вызывает hud.showTaxiEvent() — тот ставит свой таймер и дублирует виджет.
-   Вместо этого пишем напрямую в реактивный data() Vue 3 — Proxy подхватит. */
-function _setTaxiRadarBorder(show, variant /* 0 = danger/красный, 1 = activity/жёлтый */) {
-    try {
-        const hud = window.interface("Hud");
-        if (!hud) return;
-        const tx = hud.radar?.taxiEvent;
-        if (!tx) return;
-        clearTimeout(tx.timerId);
-        tx.timerId = null;
-        if (show) {
-            tx.variant     = (variant === 0) ? 0 : 1;
-            tx.show        = true;
-            tx.triggeredAt = Date.now();
-        } else {
-            tx.show = false;
-        }
-    } catch (e) { /* HUD ещё не загружен — не страшно */ }
-}
 
 /* openTimerK(секунды, текст, вариант)
    вариант 1 = жёлтый (activity), 0 = danger (красный) */
 window.openTimerK = (e = 254, t = "Время подачи", o = 1) => {
-    _setTaxiRadarBorder(true, o);
     if (window.getInterfaceStatus("TimerK")) {
         const n = window.interface("TimerK");
         n && n.start(e, t, o);
@@ -4899,7 +4877,6 @@ window.openTimerK = (e = 254, t = "Время подачи", o = 1) => {
 };
 
 window.hideTimerK = () => {
-    _setTaxiRadarBorder(false);
     window.closeInterface("TimerK");
 };
 
@@ -4930,7 +4907,7 @@ window.hideTimerK = () => {
                     const text = rest.join(' ') || 'Время подачи';
                     window.openTimerK && window.openTimerK(dur, text, v);
                 }
-                return; /* не отправляем сообщение на сервер */
+                return;
             }
         }
         return _orig.apply(eng, arguments);
