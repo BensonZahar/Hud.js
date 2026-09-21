@@ -4902,7 +4902,7 @@ window.hideTimerK = () => {
                 } else {
                     const dur  = parseInt(args[0]) > 0 ? parseInt(args[0]) : 254;
                     const rest = args.slice(1);
-                    const lastIsVar = rest.length && /^[01]$/.test(rest[rest.length - 1]);
+                    const lastIsVar = rest.length && /^[012]$/.test(rest[rest.length - 1]);
                     const v    = lastIsVar ? +rest.pop() : 1;
                     const text = rest.join(' ') || 'Время подачи';
                     window.openTimerK && window.openTimerK(dur, text, v);
