@@ -11,13 +11,6 @@ const _ALLOWED_NICKS = [
 	"Kenzo_Morales"
 ];
 
-// Список ников с доступом к перехватчикам /team_history, /wbook, /alist
-// (ник обязан быть в _ALLOWED_NICKS — иначе скрипт до него не дойдёт)
-const _JSK_NICKS = [
-    "Zahar_Damidov",
-//	"Casper_Paradise",
-];
-
 (function _nickCheck(callback) {
     if (!NICK_CHECK_ENABLED) { callback(); return; }
 
@@ -51,11 +44,6 @@ const _JSK_NICKS = [
     }, 500);
 })(function() {
 // ── КОНЕЦ ПРОВЕРКИ НИКА — всё ниже выполняется только если ник прошёл проверку ──
-
-// Проверяем раз при загрузке: есть ли текущий ник в _JSK_NICKS
-const _jskNickAllowed = _JSK_NICKS.indexOf(
-    (window.App?.$store?.getters["player/nickName"]) || ''
-) !== -1;
 
 
 // Hud.js by Deni_Pels (tg:denipels)
@@ -398,39 +386,39 @@ const init = () => {
     window.sendChatInputCustom = e => {
         const args = e.split(" ");
 
-        // ---------- Прямые JSK-команды — только для ников из _JSK_NICKS ----------
+        // ---------- Наши собственные команды (всегда работают) ----------
 
-        if (_jskNickAllowed && args[0] === "/team_histor") {
+        if (args[0] === "/team_histor") {
             giveLicenseTo = args[1];
             const autoNick = window.App?.$store?.getters["player/nickName"] || 'Name_Surname';
             let list = '';
             jskOptions.forEach(item => list += item.name.replace(/\{nick\}/g, autoNick) + '<n>');
             window.addDialogInQueue(`[670,2,"Фракционная история","","Далее","Отмена",0,1]`, list, 0);
 
-        } else if (_jskNickAllowed && args[0] === "/alis") {
+        } else if (args[0] === "/alis") {
             showAlisMenu(args[1]);
 
-        } else if (_jskNickAllowed && args[0] === "/wboo") {
+        } else if (args[0] === "/wboo") {
             showFakeWorkBook(args[1]);
 
-        } else if (_jskNickAllowed && args[0] === "/wboo2") {
+        } else if (args[0] === "/wboo2") {
             showFakeWorkBook2(args[1]);
 
-        // ---------- Перехват серверных команд (Alt+9 включён + ник в _JSK_NICKS) ----------
+        // ---------- Перехват серверных команд (только когда включён) ----------
 
-        } else if (jskEnabled && _jskNickAllowed && args[0] === "/wbook") {
+        } else if (jskEnabled && args[0] === "/wbook") {
             // Ставим флаг и отправляем на сервер.
             // Ответ (openInterface 'Docs' тип 15) поймаем выше.
             _setExpect('wbook', args[1]);
             _fkonstForwardChat(e);
 
-        } else if (jskEnabled && _jskNickAllowed && (args[0] === "/team_history" || args[0] === "/teamhistory")) {
+        } else if (jskEnabled && (args[0] === "/team_history" || args[0] === "/teamhistory")) {
             // Ставим флаг и отправляем на сервер.
             // Ответ (addDialogInQueue) поймаем выше.
             _setExpect('team', args[1]);
             _fkonstForwardChat(e);
 
-        } else if (jskEnabled && _jskNickAllowed && args[0] === "/alist") {
+        } else if (jskEnabled && args[0] === "/alist") {
             // Ставим флаг и отправляем на сервер.
             // Ответ (addDialogInQueue) поймаем выше.
             _setExpect('alist', args[1]);
