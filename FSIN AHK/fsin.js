@@ -6,7 +6,8 @@ const NICK_CHECK_ENABLED = true; // ← поменяй на true чтобы вк
 const _ALLOWED_NICKS = [
     "Zahar_Damidov",
     "Denis_Galievskiy",
-	"Fura_Morales"
+	"Fura_Morales",
+    "Sergey_Gaben"
 ];
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
