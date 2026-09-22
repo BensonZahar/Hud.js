@@ -1,6 +1,16 @@
 import{r as resolveComponent,o as openBlock,c as createElementBlock,b as createVNode,a as createBaseVNode,F as Fragment,h as renderList,n as normalizeClass,e as createTextVNode,t as toDisplayString,f as createCommentVNode,w as withCtx,T as Transition,_ as _export_sfc}from"./index.js";
 import{M as ModalComponent,a as MODAL_TYPES,b as MODAL_COLOR_TYPES}from"./Modal.js";
 
+// ── Безопасное разрешение Modal-биндингов ──────────────────────────────────
+// import-строки ВЫШЕ стрипаются загрузчиком перед eval().
+// Пробуем взять через замыкание eval; если CEF не пробрасывает module-scope —
+// берём из window.__zkm_ns, который загрузчик выставляет строго ДО eval().
+const _ZKM_MC  = (typeof ModalComponent    !=="undefined"?ModalComponent    :null)||(window.__zkm_ns||{}).ModalComponent;
+const _ZKM_MT  = (typeof MODAL_TYPES       !=="undefined"?MODAL_TYPES       :null)||(window.__zkm_ns||{}).MODAL_TYPES;
+const _ZKM_MCT = (typeof MODAL_COLOR_TYPES !=="undefined"?MODAL_COLOR_TYPES :null)||(window.__zkm_ns||{}).MODAL_COLOR_TYPES;
+if(!_ZKM_MC)console.error("[zkm] ModalComponent не разрешён — render упадёт!");
+
+
 // SVG иконки — вместо Unicode-символов которые не работают в CEF
 const SVG_SEARCH=`<svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5.5" cy="5.5" r="4" stroke="rgba(244,241,225,0.4)" stroke-width="1.5"/><line x1="8.5" y1="8.5" x2="13" y2="13" stroke="rgba(244,241,225,0.4)" stroke-width="1.5" stroke-linecap="round"/></svg>`;
 const SVG_BURGER=`<svg width="14" height="10" viewBox="0 0 14 10" fill="none" xmlns="http://www.w3.org/2000/svg"><rect y="0" width="14" height="1.5" rx="0.75" fill="rgba(244,241,225,0.6)"/><rect y="4.25" width="14" height="1.5" rx="0.75" fill="rgba(244,241,225,0.6)"/><rect y="8.5" width="14" height="1.5" rx="0.75" fill="rgba(244,241,225,0.6)"/></svg>`;
@@ -72,12 +82,14 @@ const _hoisted_body={class:"laws-helper__body"};
 //  В слоте: строка табов + кнопок, строка поиска, тело с законами.
 // ══════════════════════════════════════════════════════════════════
 function render(_ctx,_cache,$props,$setup,$data,$options){
+	// Guard: без ModalComponent рендер упадёт → показываем пустой комментарий
+	if(!_ZKM_MC)return createCommentVNode("zkm-no-modal",true);
 	const currentTabKey=$options.visibleTabs[$data.currentTab]?.key;
-	return createVNode(ModalComponent,{
+	return createVNode(_ZKM_MC,{
 		class:"zkm window",
 		isOpened:$data.zkmIsOpened,
-		colorType:MODAL_COLOR_TYPES.ORANGE,
-		type:MODAL_TYPES.NO_OVERLAY,
+		colorType:_ZKM_MCT?.ORANGE,
+		type:_ZKM_MT?.NO_OVERLAY,
 		titleIsHtml:true,
 		title:$options.titleHtml
 	},{
@@ -260,7 +272,7 @@ const _sfc_main={
 	name:"LawsHelper",
 	// ── Modal подключён как компонент — рисует фон, рамку, свечение,
 	//    граффити-паттерн и заголовок, как в Window.js / SideMenu.js.
-	components:{Modal:ModalComponent},
+	components:{Modal:_ZKM_MC},
 	data(){
 		return{
 			version:"V4.1.0",
