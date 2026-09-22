@@ -80,7 +80,11 @@ _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     return 'window.__zkmComp = ' + exp.split(' as ')[0].trim() + ';';
 });
+// Выставляем Modal-биндинги в window ДО eval — надёжный путь для CEF,
+// где eval() может не видеть module-scope-импорты через замыкание.
+window.__zkm_ns = { ModalComponent, MODAL_TYPES, MODAL_COLOR_TYPES };
 try { eval(_text); } catch (e) { console.error('[zkm] eval упал:', e); throw e; }
+try { delete window.__zkm_ns; } catch(_e_) {}
 const Zkm = window.__zkmComp; delete window.__zkmComp;
 if (!Zkm) throw new Error('[zkm] компонент не загружен');
 console.log('[zkm] готов:', Zkm?.name);
