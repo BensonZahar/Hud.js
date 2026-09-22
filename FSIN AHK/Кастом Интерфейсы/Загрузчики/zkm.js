@@ -1,6 +1,5 @@
 // zkm.js — загрузчик LawsHelper. Префетч JS и CSS из window.__prefetch_zkm_*
-import{r as resolveComponent,o as openBlock,c as createElementBlock,b as createVNode,a as createBaseVNode,F as Fragment,h as renderList,n as normalizeClass,e as createTextVNode,t as toDisplayString,f as createCommentVNode,w as withCtx,T as Transition,_ as _export_sfc}from"./index.js";
-import{M as ModalComponent,a as MODAL_TYPES,b as MODAL_COLOR_TYPES}from"./Modal.js";
+import{r as resolveComponent,o as openBlock,c as createElementBlock,b as createVNode,a as createBaseVNode,F as Fragment,i as renderList,n as normalizeClass,e as createTextVNode,t as toDisplayString,f as createCommentVNode,w as withCtx,T as Transition,_ as _export_sfc}from"./index.js";
 
 const _GH_BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/FSIN%20AHK/' + encodeURIComponent('Кастом Интерфейсы') + '/';
 
@@ -80,11 +79,7 @@ _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     return 'window.__zkmComp = ' + exp.split(' as ')[0].trim() + ';';
 });
-// Выставляем Modal-биндинги в window ДО eval — надёжный путь для CEF,
-// где eval() может не видеть module-scope-импорты через замыкание.
-window.__zkm_ns = { ModalComponent, MODAL_TYPES, MODAL_COLOR_TYPES };
 try { eval(_text); } catch (e) { console.error('[zkm] eval упал:', e); throw e; }
-try { delete window.__zkm_ns; } catch(_e_) {}
 const Zkm = window.__zkmComp; delete window.__zkmComp;
 if (!Zkm) throw new Error('[zkm] компонент не загружен');
 console.log('[zkm] готов:', Zkm?.name);
