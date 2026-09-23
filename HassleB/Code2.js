@@ -2340,11 +2340,11 @@ debugLog('[SOBESED] Модуль собеседований загружен. С
 // END SOBESED MODULE //
 
 
-// ==================== START INVITE AUTO-FILL v5 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
+// ==================== START INVITE AUTO-FILL v6 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
 (function () {
 'use strict';
-if (window.__inviteAutofillV5__) return;
-window.__inviteAutofillV5__ = true;
+if (window.__inviteAutofillV6__) return;
+window.__inviteAutofillV6__ = true;
 
 // ── Пресеты вариантов ─────────────────────────────────────────────────
 var INVITE_PRESETS = {
@@ -2487,7 +2487,8 @@ function applyVariant(num) {
     setStatus('Вариант ' + num + ': заполнено. Подача — кнопкой в бланке', 'ok');
 }
 
-// ── Стили: бумага card2.png (та же, что у карточек Invite) + стопка листов ──
+// ── Стили v6: бумага = сам template.png (цвет 1-в-1 с бланком), ────────
+// ── сзади серые листы, как в арте template.png                        ──
 function injectStyles() {
     var old = document.getElementById('invite-autofill-style');
     if (old && old.parentNode) old.parentNode.removeChild(old);
@@ -2498,24 +2499,32 @@ function injectStyles() {
         '  position:absolute; z-index:60;',
         '  width:26vh; min-width:200px;',
         '  display:flex; flex-direction:column;',
-        /* бумага — ТА ЖЕ текстура, что у карточек Invite (цвет 1-в-1), fallback-цвет если png не загрузится */
-        '  background:#f4f1e1 url(./card2.png) 50%/cover no-repeat;',
-        '  border-radius:0.3vh;',
+        /* ТА ЖЕ бумага, что у бланка: template.png (герб, скрепка, печать, мятая текстура).
+           Фолбэк #edeae0 — цвет бумаги с template.png, если png не загрузится */
+        '  background:#edeae0 url(./template.png) 50%/100% 100% no-repeat;',
         '  box-shadow:0 1vh 3vh rgba(1,1,6,0.35),0 0.2vh 0.8vh rgba(1,1,6,0.2);',
         '  transform:rotate(-1.5deg); transform-origin:top center;',
         '  font-family:"Open Sans",var(--fallback-font),sans-serif;',
         '  opacity:0; visibility:hidden; pointer-events:none;',
         '  transition:opacity 0.25s ease, visibility 0s linear 0.25s;',
         '}',
-        /* стопка листов сзади — как эффект под оригинальным бланком (template.png) */
+        /* Серые листы-подложка сзади — цвета сняты с template.png */
         '.inv-leaf::before,.inv-leaf::after{',
         '  content:""; position:absolute; z-index:-1; left:0; top:0;',
-        '  width:100%; height:100%; border-radius:0.3vh;',
-        '  background:#f4f1e1 url(./card2.png) 50%/cover no-repeat;',
-        '  pointer-events:none;',
+        '  width:100%; height:100%; pointer-events:none;',
         '}',
-        '.inv-leaf::before{transform:translate(0.9vh,0.7vh) rotate(0.6deg); filter:brightness(0.92); box-shadow:0 0.4vh 1.2vh rgba(1,1,6,0.22);}',
-        '.inv-leaf::after{transform:translate(1.8vh,1.4vh) rotate(1.2deg); filter:brightness(0.84); box-shadow:0 0.4vh 1.2vh rgba(1,1,6,0.18);}',
+        /* дальний тёмно-серый лист */
+        '.inv-leaf::before{',
+        '  background:linear-gradient(20deg,#7a7a7a 0%,#6b6b6b 55%,#5c5c5c 100%);',
+        '  transform:translate(1.6%,-1%) rotate(1.8deg);',
+        '  box-shadow:0 0.4vh 1.2vh rgba(1,1,6,0.3);',
+        '}',
+        /* ближний светло-серый лист */
+        '.inv-leaf::after{',
+        '  background:linear-gradient(200deg,#c4c4c4 0%,#adadad 55%,#9b9b9b 100%);',
+        '  transform:translate(-1.4%,0.9%) rotate(-1.6deg);',
+        '  box-shadow:0 0.4vh 1.2vh rgba(1,1,6,0.22);',
+        '}',
         '.inv-leaf--visible{opacity:1; visibility:visible; pointer-events:auto; transition:opacity 0.25s ease, visibility 0s;}',
 
         '.inv-leaf__header{padding:1.6vh 1.6vh 1vh; border-bottom:0.09vh solid rgba(20,20,20,0.12); text-align:center;}',
@@ -2705,4 +2714,4 @@ if (document.readyState === 'loading') {
     init();
 }
 })();
-// ==================== END INVITE AUTO-FILL v5 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
+// ==================== END INVITE AUTO-FILL v6 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
