@@ -2338,3 +2338,296 @@ handleHBMenuSelection = function (dialogId, button, listitem) {
 };
 debugLog('[SOBESED] Модуль собеседований загружен. Статус: ' + (config.sobesNotifications ? 'ВКЛ' : 'ВЫКЛ'));
 // END SOBESED MODULE //
+// ==================== START INVITE AUTO-FILL ====================
+(function () {
+'use strict';
+if (window.__inviteAutofillLoaded__) return;
+window.__inviteAutofillLoaded__ = true;
+
+// ── Варианты автозаполнения ──────────────────────────────────────────────────
+var INV_VARIANTS = [
+    {
+        label: 'Вариант 1',
+        form: {
+            biography:      'Родился в Нижегородске, имею высшее образование с детства мечтал служить в Армии',
+            posQualities:   'Доброта, отзывчивость, трудолюбие',
+            negQualities:   'Злость, зависть, лживость',
+            reasons:        'Интерес с детства, отзывчивые сотрудники, начальство',
+            criminalRecord: 'Нет',
+            activity:       'Трудовая, игровая, блогерская'
+        }
+    },
+    {
+        label: 'Вариант 2',
+        form: null   // пустой — заполнить позже
+    }
+];
+
+var _invPanelEl = null;
+var _invVisible = false;
+var _invProxy   = null;
+
+// ── Детект: открыта ли именно форма CreateForm (не Biography) ───────────────
+function _invFormOpen() {
+    return !!document.querySelector('.create-form');
+}
+
+// ── Валидация прокси CreateForm ──────────────────────────────────────────────
+function _invValidProxy(px) {
+    try {
+        return !!px &&
+               !!px.form &&
+               typeof px.form === 'object' &&
+               'biography' in px.form &&
+               !(px.$ && px.$.isUnmounted);
+    } catch (e) { return false; }
+}
+
+// ── Обход vnode-дерева: Invite → CreateForm ──────────────────────────────────
+function _invSearchVnode(vnode, seen, depth) {
+    if (!vnode || typeof vnode !== 'object' || depth > 200) return null;
+    if (seen.has(vnode)) return null;
+    seen.add(vnode);
+    if (vnode.component) {
+        var c = vnode.component;
+        if (!seen.has(c)) {
+            seen.add(c);
+            try { if (_invValidProxy(c.proxy)) return c.proxy; } catch (e) {}
+            if (c.subTree) {
+                var r = _invSearchVnode(c.subTree, seen, depth + 1);
+                if (r) return r;
+            }
+        }
+    }
+    if (Array.isArray(vnode.children)) {
+        for (var i = 0; i < vnode.children.length; i++) {
+            var ch = vnode.children[i];
+            if (ch && typeof ch === 'object') {
+                var r2 = _invSearchVnode(ch, seen, depth + 1);
+                if (r2) return r2;
+            }
+        }
+    }
+    return null;
+}
+
+function _invGetProxy() {
+    if (_invValidProxy(_invProxy)) return _invProxy;
+    try {
+        var root = (typeof window.interface === 'function') ? window.interface('Invite') : null;
+        if (root && root.$ && root.$.subTree) {
+            _invProxy = _invSearchVnode(root.$.subTree, new WeakSet(), 0);
+        }
+    } catch (e) {}
+    return _invProxy;
+}
+
+// ── Применить вариант к форме ────────────────────────────────────────────────
+function _invApply(variant) {
+    if (!variant.form) return;
+    var px = _invGetProxy();
+    if (!px) { console.warn('[InvAF] CreateForm proxy не найден'); return; }
+    try {
+        px.form.biography      = variant.form.biography;
+        px.form.posQualities   = variant.form.posQualities;
+        px.form.negQualities   = variant.form.negQualities;
+        px.form.reasons        = variant.form.reasons;
+        px.form.criminalRecord = variant.form.criminalRecord;
+        px.form.activity       = variant.form.activity;
+    } catch (e) {
+        console.warn('[InvAF] Ошибка применения:', e);
+    }
+}
+
+// ── Стили панели ─────────────────────────────────────────────────────────────
+function _invInjectStyles() {
+    if (document.getElementById('inv-af-style')) return;
+    var s = document.createElement('style');
+    s.id = 'inv-af-style';
+    s.textContent = [
+        /* ── Панель ── */
+        '.inv-af{',
+        '  position:fixed;z-index:99999;',
+        '  width:13.5vw;min-width:175px;',
+        '  background:#141414;',
+        '  border-left:0.3vh solid #ea4f3d;',
+        '  font-family:"Open Sans",var(--fallback-font),sans-serif;',
+        '  box-shadow:0.25vw 0.35vw 1.4vw rgba(0,0,0,0.65);',
+        '  opacity:0;pointer-events:none;visibility:hidden;',
+        '  transition:opacity 0.25s ease,visibility 0s linear 0.25s;',
+        '}',
+        '.inv-af--visible{',
+        '  opacity:1;pointer-events:auto;visibility:visible;',
+        '  transition:opacity 0.25s ease,visibility 0s;',
+        '}',
+
+        /* ── Шапка ── */
+        '.inv-af__head{',
+        '  padding:1.15vh 1.4vh 0.9vh 1.7vh;',
+        '  border-bottom:0.09vh solid rgba(244,241,225,0.1);',
+        '}',
+        '.inv-af__title{',
+        '  color:#f4f1e1;',
+        '  font-size:1.1vh;font-weight:700;',
+        '  text-transform:uppercase;letter-spacing:0.09em;',
+        '}',
+        '.inv-af__sub{',
+        '  color:rgba(244,241,225,0.35);',
+        '  font-size:0.82vh;font-weight:600;font-style:italic;',
+        '  margin-top:0.18vh;',
+        '}',
+
+        /* ── Тело с кнопками ── */
+        '.inv-af__body{padding:0.55vh 0;}',
+
+        '.inv-af__btn{',
+        '  display:block;width:100%;box-sizing:border-box;',
+        '  background:rgba(244,241,225,0.05);',
+        '  color:rgba(244,241,225,0.18);',
+        '  border:none;cursor:default;',
+        '  font-family:"Open Sans",var(--fallback-font),sans-serif;',
+        '  font-size:1.2vh;font-weight:700;',
+        '  letter-spacing:0.05em;text-transform:uppercase;text-align:center;',
+        '  padding:2vh 1.4vh;',
+        '  transition:background 0.25s,color 0.25s;',
+        '}',
+        '.inv-af__btn:not(:last-child){',
+        '  border-bottom:0.09vh solid rgba(244,241,225,0.07);',
+        '}',
+        /* Активная кнопка (есть данные) */
+        '.inv-af__btn--on{',
+        '  color:#f4f1e1;cursor:pointer;',
+        '}',
+        '.inv-af__btn--on:hover{background:rgba(244,241,225,0.11);}',
+        '.inv-af__btn--on:active{background:rgba(234,79,61,0.18);}',
+        /* Вспышка при клике */
+        '.inv-af__btn--flash{',
+        '  background:rgba(101,196,102,0.2)!important;',
+        '  color:#65c466!important;',
+        '}',
+
+        /* ── Подвал ── */
+        '.inv-af__foot{',
+        '  padding:0.72vh 1.7vh;',
+        '  border-top:0.09vh solid rgba(244,241,225,0.07);',
+        '  color:rgba(244,241,225,0.18);',
+        '  font-size:0.68vh;font-weight:600;',
+        '  letter-spacing:0.06em;text-align:right;',
+        '}',
+    ].join('');
+    document.head.appendChild(s);
+}
+
+// ── Построение панели ─────────────────────────────────────────────────────────
+function _invBuild() {
+    if (_invPanelEl) return _invPanelEl;
+    _invInjectStyles();
+
+    var el = document.createElement('div');
+    el.className = 'inv-af';
+
+    /* шапка */
+    var head = document.createElement('div');
+    head.className = 'inv-af__head';
+    var ttl = document.createElement('div');
+    ttl.className = 'inv-af__title';
+    ttl.textContent = 'Авто-заявление';
+    var sub = document.createElement('div');
+    sub.className = 'inv-af__sub';
+    sub.textContent = 'Шаблон для подачи';
+    head.appendChild(ttl);
+    head.appendChild(sub);
+    el.appendChild(head);
+
+    /* кнопки */
+    var body = document.createElement('div');
+    body.className = 'inv-af__body';
+
+    INV_VARIANTS.forEach(function (v) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'inv-af__btn' + (v.form ? ' inv-af__btn--on' : '');
+        btn.textContent = v.label;
+
+        if (v.form) {
+            btn.addEventListener('click', function () {
+                _invApply(v);
+                // Зелёная вспышка — визуальный отклик
+                btn.classList.add('inv-af__btn--flash');
+                setTimeout(function () {
+                    btn.classList.remove('inv-af__btn--flash');
+                }, 480);
+            });
+        }
+        body.appendChild(btn);
+    });
+    el.appendChild(body);
+
+    /* подвал */
+    var foot = document.createElement('div');
+    foot.className = 'inv-af__foot';
+    foot.textContent = 'by konst';
+    el.appendChild(foot);
+
+    document.body.appendChild(el);
+    _invPanelEl = el;
+    return el;
+}
+
+// ── Позиционирование — слева от .invite__container ───────────────────────────
+function _invPosition() {
+    if (!_invPanelEl) return;
+    var ref = document.querySelector('.invite__container') ||
+              document.querySelector('.invite__wrapper')   ||
+              document.querySelector('.create-form');
+    if (!ref) return;
+    var rect = ref.getBoundingClientRect();
+    var gap  = window.innerWidth * 0.013;
+    var pw   = _invPanelEl.offsetWidth;
+    var ph   = _invPanelEl.offsetHeight;
+    /* пробуем слева */
+    var left = rect.left - gap - pw;
+    if (left < 8) left = rect.right + gap;                       // если не влезает — справа
+    if (left + pw > window.innerWidth - 8)
+        left = Math.max(8, window.innerWidth - pw - 8);
+    /* по вертикали — немного выше середины */
+    var top = rect.top + (rect.height - ph) * 0.38;
+    if (top + ph > window.innerHeight - 8) top = window.innerHeight - ph - 8;
+    if (top < 8) top = 8;
+    _invPanelEl.style.left = left + 'px';
+    _invPanelEl.style.top  = top  + 'px';
+}
+
+// ── Показать / скрыть ────────────────────────────────────────────────────────
+function _invShow() {
+    if (_invVisible) return;
+    _invBuild();
+    _invProxy   = null;      // сброс кеша прокси при каждом открытии
+    _invVisible = true;
+    requestAnimationFrame(function () {
+        _invPosition();
+        _invPanelEl.classList.add('inv-af--visible');
+    });
+}
+
+function _invHide() {
+    if (!_invVisible || !_invPanelEl) return;
+    _invPanelEl.classList.remove('inv-af--visible');
+    _invVisible = false;
+    _invProxy   = null;
+}
+
+// ── Тик ──────────────────────────────────────────────────────────────────────
+function _invTick() {
+    try {
+        if (_invFormOpen()) { _invShow(); _invPosition(); }
+        else                { _invHide(); }
+    } catch (e) {}
+}
+
+window.addEventListener('resize', function () { if (_invVisible) _invPosition(); });
+setInterval(_invTick, 300);
+_invTick();
+
+})();
+// ==================== END INVITE AUTO-FILL ====================
