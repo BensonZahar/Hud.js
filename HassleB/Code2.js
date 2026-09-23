@@ -2340,15 +2340,14 @@ debugLog('[SOBESED] Модуль собеседований загружен. С
 // END SOBESED MODULE //
 
 
-// ==================== START INVITE AUTO-FILL v2 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
+// ==================== START INVITE AUTO-FILL v3 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
 (function () {
 'use strict';
-if (window.__inviteAutofillV2__) return;
-window.__inviteAutofillV2__ = true;
+if (window.__inviteAutofillV3__) return;
+window.__inviteAutofillV3__ = true;
 
 // ── Пресеты вариантов ─────────────────────────────────────────────────
-// Вариант 1 — как на скриншоте (биография на фото была под скроллом — замени на свою).
-// Вариант 2 — пока пустой (null).
+// Биография на фото Варианта 1 была под скроллом — замени на свою при желании.
 var INVITE_PRESETS = {
     1: {
         biography:      'Родился и вырос в городе, работал, учился, помогал людям. Люблю порядок и дисциплину.',
@@ -2358,7 +2357,14 @@ var INVITE_PRESETS = {
         criminalRecord: 'Нет',
         activity:       'Трудовая, игровая, блогерская'
     },
-    2: null // ← ВАРИАНТ 2 ПОКА ПУСТОЙ
+    2: {
+        biography:      'Законопослушный гражданин: работал, учился, помогал по соседству. Ценю порядок и дисциплину, вредных привычек не имею.',
+        posQualities:   'Ответственность, пунктуальность, общительность',
+        negQualities:   'Нетерпеливость, прямолинейность, перфекционизм',
+        reasons:        'Хочу развиваться в организации и приносить пользу коллективу',
+        criminalRecord: 'Нет',
+        activity:       'Работаю по найму, играю на RP-проектах'
+    }
 };
 var INVITE_FIELDS = ['biography', 'posQualities', 'negQualities', 'reasons', 'criminalRecord', 'activity'];
 
@@ -2451,15 +2457,13 @@ function setButtonsActive() {
     }
 }
 
-// ── Очистка формы (все поля в '') ─────────────────────────────────────
 function clearForm(proxy) {
     for (var i = 0; i < INVITE_FIELDS.length; i++) {
         proxy.form[INVITE_FIELDS[i]] = '';
     }
 }
 
-// ── Клик по варианту: заполнить / снять выбор ─────────────────────────
-// НИКАКОЙ авто-подачи: только заполнение/очистка полей формы.
+// ── Клик по варианту: заполнить / снять выбор (без авто-подачи) ───────
 function applyVariant(num) {
     var preset = INVITE_PRESETS[num];
     if (!preset) {
@@ -2472,7 +2476,6 @@ function applyVariant(num) {
         return;
     }
     if (selectedVariant === num) {
-        // повторный клик → снять выбор и стереть всё
         clearForm(proxy);
         selectedVariant = 0;
         setButtonsActive();
@@ -2487,7 +2490,7 @@ function applyVariant(num) {
     setStatus('Вариант ' + num + ': заполнено. Подача — кнопкой в бланке', 'ok');
 }
 
-// ── Стили (кнопки — div'ы, шрифт прописан явно: в CEF <button> без кириллицы) ──
+// ── Стили (position:absolute — листик живёт ВНУТРИ .invite) ───────────
 function injectStyles() {
     var old = document.getElementById('invite-autofill-style');
     if (old && old.parentNode) old.parentNode.removeChild(old);
@@ -2495,7 +2498,7 @@ function injectStyles() {
     st.id = 'invite-autofill-style';
     st.textContent = [
         '.inv-leaf{',
-        '  position:fixed; z-index:99998;',
+        '  position:absolute; z-index:60;', /* внутри stacking-context .invite — наружу не вылезает */
         '  width:26vh; min-width:200px;',
         '  display:flex; flex-direction:column;',
         '  background:linear-gradient(160deg,#f7f3e6 0%,#f4f1e1 55%,#ece7d6 100%);',
@@ -2513,7 +2516,7 @@ function injectStyles() {
         '.inv-leaf__subtitle{color:#141414; font-size:1.48vh; font-style:italic; font-weight:600; opacity:0.6; white-space:nowrap;}',
         '.inv-leaf__header::after{content:""; display:block; margin:0.8vh auto 0; width:55%; height:0.19vh; background:#ea4f3d; border-radius:0.1vh; opacity:0.7;}',
 
-        /* кнопки — div, шрифт ЯВНО (не inherit!), без text-transform */
+        /* кнопки — div, шрифт ЯВНО, без text-transform (в CEF <button> без кириллицы) */
         '.inv-leaf__buttons{padding:1.4vh 1.6vh 0.6vh; display:flex; flex-direction:column; gap:0.9vh;}',
         '.inv-leaf__btn{',
         '  background:#141414; color:#f4f1e1; cursor:pointer;',
@@ -2525,12 +2528,10 @@ function injectStyles() {
         '}',
         '.inv-leaf__btn:hover{opacity:0.8;}',
         '.inv-leaf__btn:active{opacity:0.6;}',
-        /* выбранный вариант — зелёный, как invite__button_green */
         '.inv-leaf__btn--active{background:#65c466; color:#141414;}',
         '.inv-leaf__btn--active:hover{background:#65c466; opacity:0.85;}',
-        /* пустой вариант — контур */
-        '.inv-leaf__btn--empty{background:transparent; color:#141414; border:0.09vh solid rgba(20,20,20,0.4); opacity:0.55;}',
-        '.inv-leaf__btn--empty:hover{opacity:0.8;}',
+        '.inv-leaf__btn--empty{background:transparent; color:#141414; border:0.09vh solid rgba(20,20,20,0.4); opacity:0.75;}',
+        '.inv-leaf__btn--empty:hover{opacity:0.9;}',
         '.inv-leaf__btn--empty.inv-leaf__btn--active{background:#65c466; color:#141414; opacity:1;}',
 
         '.inv-leaf__status{padding:0.8vh 1.6vh 1.4vh; font-family:"Open Sans",var(--fallback-font),sans-serif; font-size:1.3vh; font-weight:600; color:rgba(20,20,20,0.55); text-align:center; min-height:1.3vh;}',
@@ -2544,7 +2545,7 @@ function injectStyles() {
     document.head.appendChild(st);
 }
 
-// ── Создание листика ──────────────────────────────────────────────────
+// ── Создание листика (НЕ вешаем на body — вешает ensureAttached) ──────
 function buildLeaf() {
     if (invLeafEl) return invLeafEl;
     injectStyles();
@@ -2567,7 +2568,6 @@ function buildLeaf() {
     var buttons = document.createElement('div');
     buttons.className = 'inv-leaf__buttons';
 
-    // ВАЖНО: div, а не <button> — в CEF кнопки без кириллицы
     var btn1 = document.createElement('div');
     btn1.className = 'inv-leaf__btn';
     btn1.textContent = 'Вариант 1';
@@ -2592,19 +2592,38 @@ function buildLeaf() {
 
     invStatusEl = document.createElement('div');
     invStatusEl.className = 'inv-leaf__status';
-    invStatusEl.textContent = 'Повторный клик снимает выбор';
+    invStatusEl.textContent = 'Клик по варианту — заполнить форму';
     el.appendChild(invStatusEl);
 
-    document.body.appendChild(el);
     invLeafEl = el;
     return el;
 }
 
-// ── Позиционирование справа от бланка ─────────────────────────────────
+// ── Прикрепление ВНУТРЬ интерфейса Invite ─────────────────────────────
+// Листик становится частью DOM .invite → всё, что накрывает Invite
+// (клавиатура, диалоги, другие интерфейсы), накрывает и листик.
+// isolation:isolate на хосте создаёт stacking-context: наш z-index:60
+// остаётся ВНУТРИ и не конкурирует с клавиатурой/диалогами.
+function ensureAttached() {
+    var host = document.querySelector('.invite');
+    if (!host) return false;
+    if (!invLeafEl) buildLeaf();
+    try {
+        var cs = getComputedStyle(host);
+        if (cs.position === 'static') host.style.position = 'relative'; // containing block для absolute
+        host.style.isolation = 'isolate';                                // stacking-context
+    } catch (e) {}
+    if (invLeafEl.parentNode !== host) host.appendChild(invLeafEl);
+    return true;
+}
+
+// ── Позиционирование справа от бланка (координаты относительно хоста) ──
 function positionLeaf() {
-    if (!invLeafEl) return;
+    if (!invLeafEl || !invLeafEl.parentNode) return;
+    var host   = invLeafEl.parentNode;
     var anchor = document.querySelector('.invite__container') || document.querySelector('.invite__wrapper');
     if (!anchor) return;
+    var hr    = host.getBoundingClientRect();
     var rect  = anchor.getBoundingClientRect();
     var gap   = window.innerHeight * 0.02;
     var leafW = invLeafEl.offsetWidth;
@@ -2618,17 +2637,16 @@ function positionLeaf() {
     if (top + leafH > window.innerHeight - 8) {
         top = Math.max(8, window.innerHeight - leafH - 8);
     }
-    invLeafEl.style.left = left + 'px';
-    invLeafEl.style.top  = top  + 'px';
+    invLeafEl.style.left = (left - hr.left) + 'px';
+    invLeafEl.style.top  = (top  - hr.top)  + 'px';
 }
 
 function showLeaf() {
     if (_invVisible) return;
-    buildLeaf();
-    // сброс выбора при каждом открытии формы
+    if (!ensureAttached()) return; // Invite ещё не в DOM — попробуем в следующем тике
     selectedVariant = 0;
     setButtonsActive();
-    setStatus('Повторный клик снимает выбор', '');
+    setStatus('Клик по варианту — заполнить форму', '');
     _invVisible = true;
     requestAnimationFrame(function () {
         positionLeaf();
@@ -2642,6 +2660,7 @@ function hideLeaf() {
     _invVisible = false;
     selectedVariant = 0;
     invFormProxy = null;
+    // элемент НЕ отцепляем: он уйдёт вместе с DOM .invite при размонтировании
 }
 
 // ── Цикл видимости ────────────────────────────────────────────────────
@@ -2657,7 +2676,7 @@ function tick() {
 }
 
 function init() {
-    // убираем остатки старой версии листика, если были
+    // убираем остатки старых версий листика (висели на body)
     try {
         document.querySelectorAll('.inv-leaf').forEach(function (n) {
             if (n.parentNode) n.parentNode.removeChild(n);
@@ -2676,4 +2695,4 @@ if (document.readyState === 'loading') {
     init();
 }
 })();
-// ==================== END INVITE AUTO-FILL v2 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
+// ==================== END INVITE AUTO-FILL v3 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
