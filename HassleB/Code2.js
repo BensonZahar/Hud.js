@@ -2340,21 +2340,20 @@ debugLog('[SOBESED] Модуль собеседований загружен. С
 // END SOBESED MODULE //
 
 
-// ==================== START INVITE AUTO-FILL / АВТО-ПОДАЧА ЗАЯВЛЕНИЯ ====================
+// ==================== START INVITE AUTO-FILL v2 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
 (function () {
 'use strict';
-if (window.__inviteAutofillLoaded__) return;
-window.__inviteAutofillLoaded__ = true;
+if (window.__inviteAutofillV2__) return;
+window.__inviteAutofillV2__ = true;
 
 // ── Пресеты вариантов ─────────────────────────────────────────────────
-// Вариант 1 — как на скриншоте. Биография на фото была под скроллом,
-// поэтому текст биографии замени на свой (поле обязательное!).
-// Вариант 2 — пока пустой (null), заполнишь позже.
+// Вариант 1 — как на скриншоте (биография на фото была под скроллом — замени на свою).
+// Вариант 2 — пока пустой (null).
 var INVITE_PRESETS = {
     1: {
         biography:      'Родился и вырос в городе, работал, учился, помогал людям. Люблю порядок и дисциплину.',
         posQualities:   'Доброта, отзывчивость, трудолюбие',
-        negQualities:   'Злость, зависть, ливость',   // точно как на фото (если это была опечатка — поправь на "ленивость")
+        negQualities:   'Злость, зависть, ливость',   // дословно с фото (если опечатка — поправь на "ленивость")
         reasons:        'Интерес с детства, отзывчивые сотрудники, начальство',
         criminalRecord: 'Нет',
         activity:       'Трудовая, игровая, блогерская'
@@ -2362,14 +2361,15 @@ var INVITE_PRESETS = {
     2: null // ← ВАРИАНТ 2 ПОКА ПУСТОЙ
 };
 var INVITE_FIELDS = ['biography', 'posQualities', 'negQualities', 'reasons', 'criminalRecord', 'activity'];
-var AUTO_SUBMIT = true; // true — после заполнения сразу отправить заявление (авто-подача)
 
-var invLeafEl   = null;
-var invStatusEl = null;
-var invFormProxy = null;
-var _invVisible = false;
+var invLeafEl     = null;
+var invStatusEl   = null;
+var invFormProxy  = null;
+var invBtnEls     = {};   // { 1: el, 2: el }
+var selectedVariant = 0;  // 0 = ничего не выбрано
+var _invVisible   = false;
 
-// ── Открыт ли Invite в режиме формы (не биографии) ────────────────────
+// ── Открыт ли Invite в режиме формы ───────────────────────────────────
 function isInviteFormOpen() {
     var open = false;
     try {
@@ -2394,7 +2394,6 @@ function isValidFormProxy(p) {
     } catch (e) { return false; }
 }
 
-// ── Поиск прокси по vnode-дереву Invite ───────────────────────────────
 function searchVnode(vnode, seen, depth) {
     if (!vnode || typeof vnode !== 'object' || depth > 100) return null;
     if (seen.has(vnode)) return null;
@@ -2434,48 +2433,61 @@ function getFormProxy() {
     return invFormProxy;
 }
 
-// ── Статус в листике ──────────────────────────────────────────────────
-function setStatus(text, ok) {
+// ── Статус ────────────────────────────────────────────────────────────
+function setStatus(text, mode) {
     if (!invStatusEl) return;
     invStatusEl.textContent = text;
-    invStatusEl.className = 'inv-leaf__status' + (ok ? ' inv-leaf__status--ok' : ' inv-leaf__status--err');
+    invStatusEl.className = 'inv-leaf__status' +
+        (mode === 'ok'  ? ' inv-leaf__status--ok'  :
+         mode === 'err' ? ' inv-leaf__status--err' : '');
 }
 
-// ── Заполнение + авто-подача ──────────────────────────────────────────
+// ── Подсветка кнопок ──────────────────────────────────────────────────
+function setButtonsActive() {
+    for (var k in invBtnEls) {
+        if (invBtnEls[k]) {
+            invBtnEls[k].classList.toggle('inv-leaf__btn--active', Number(k) === selectedVariant);
+        }
+    }
+}
+
+// ── Очистка формы (все поля в '') ─────────────────────────────────────
+function clearForm(proxy) {
+    for (var i = 0; i < INVITE_FIELDS.length; i++) {
+        proxy.form[INVITE_FIELDS[i]] = '';
+    }
+}
+
+// ── Клик по варианту: заполнить / снять выбор ─────────────────────────
+// НИКАКОЙ авто-подачи: только заполнение/очистка полей формы.
 function applyVariant(num) {
     var preset = INVITE_PRESETS[num];
     if (!preset) {
-        setStatus('Вариант ' + num + ': пока пусто', false);
+        setStatus('Вариант ' + num + ': пока пусто', 'err');
         return;
     }
     var proxy = getFormProxy();
     if (!proxy) {
-        setStatus('Форма не найдена (proxy)', false);
+        setStatus('Форма не найдена (proxy)', 'err');
+        return;
+    }
+    if (selectedVariant === num) {
+        // повторный клик → снять выбор и стереть всё
+        clearForm(proxy);
+        selectedVariant = 0;
+        setButtonsActive();
+        setStatus('Выбор снят — форма очищена', '');
         return;
     }
     for (var i = 0; i < INVITE_FIELDS.length; i++) {
         proxy.form[INVITE_FIELDS[i]] = String(preset[INVITE_FIELDS[i]] || '');
     }
-    setStatus('Вариант ' + num + ': форма заполнена', true);
-
-    if (!AUTO_SUBMIT) return;
-    setTimeout(function () {
-        try {
-            proxy.sendStatement(); // checkForm() + $emit → InviteRequest_OnSumbitStatement
-            setStatus('Вариант ' + num + ': заявление отправлено', true);
-        } catch (e) {
-            var btn = document.querySelector('.create-form__button');
-            if (btn) {
-                btn.click();
-                setStatus('Вариант ' + num + ': отправлено (кнопкой)', true);
-            } else {
-                setStatus('Ошибка отправки: ' + e.message, false);
-            }
-        }
-    }, 150);
+    selectedVariant = num;
+    setButtonsActive();
+    setStatus('Вариант ' + num + ': заполнено. Подача — кнопкой в бланке', 'ok');
 }
 
-// ── Стили под дизайн Invite (бумага/чернила/красный акцент, vh) ───────
+// ── Стили (кнопки — div'ы, шрифт прописан явно: в CEF <button> без кириллицы) ──
 function injectStyles() {
     var old = document.getElementById('invite-autofill-style');
     if (old && old.parentNode) old.parentNode.removeChild(old);
@@ -2496,27 +2508,32 @@ function injectStyles() {
         '}',
         '.inv-leaf--visible{opacity:1; visibility:visible; pointer-events:auto; transition:opacity 0.25s ease, visibility 0s;}',
 
-        /* шапка — как invite__title / invite__subtitle */
         '.inv-leaf__header{padding:1.6vh 1.6vh 1vh; border-bottom:0.09vh solid rgba(20,20,20,0.12); text-align:center;}',
         '.inv-leaf__title{color:#141414; font-size:2.22vh; font-weight:700; line-height:2vh;}',
         '.inv-leaf__subtitle{color:#141414; font-size:1.48vh; font-style:italic; font-weight:600; opacity:0.6; white-space:nowrap;}',
         '.inv-leaf__header::after{content:""; display:block; margin:0.8vh auto 0; width:55%; height:0.19vh; background:#ea4f3d; border-radius:0.1vh; opacity:0.7;}',
 
-        /* кнопки — как create-form__button / invite__button */
+        /* кнопки — div, шрифт ЯВНО (не inherit!), без text-transform */
         '.inv-leaf__buttons{padding:1.4vh 1.6vh 0.6vh; display:flex; flex-direction:column; gap:0.9vh;}',
         '.inv-leaf__btn{',
-        '  background:#141414; color:#f4f1e1; border:none; cursor:pointer;',
-        '  font-family:inherit; font-size:1.48vh; font-weight:700;',
-        '  letter-spacing:0.04em; text-transform:uppercase;',
-        '  padding:1.6vh 0; text-align:center; transition:opacity 0.25s;',
+        '  background:#141414; color:#f4f1e1; cursor:pointer;',
+        '  font-family:"Open Sans",var(--fallback-font),sans-serif;',
+        '  font-size:1.48vh; font-weight:700; letter-spacing:0.04em;',
+        '  padding:1.6vh 0; text-align:center;',
+        '  user-select:none; -webkit-user-select:none;',
+        '  transition:opacity 0.25s, background 0.25s, color 0.25s;',
         '}',
         '.inv-leaf__btn:hover{opacity:0.8;}',
         '.inv-leaf__btn:active{opacity:0.6;}',
+        /* выбранный вариант — зелёный, как invite__button_green */
+        '.inv-leaf__btn--active{background:#65c466; color:#141414;}',
+        '.inv-leaf__btn--active:hover{background:#65c466; opacity:0.85;}',
+        /* пустой вариант — контур */
         '.inv-leaf__btn--empty{background:transparent; color:#141414; border:0.09vh solid rgba(20,20,20,0.4); opacity:0.55;}',
         '.inv-leaf__btn--empty:hover{opacity:0.8;}',
+        '.inv-leaf__btn--empty.inv-leaf__btn--active{background:#65c466; color:#141414; opacity:1;}',
 
-        /* статус */
-        '.inv-leaf__status{padding:0.8vh 1.6vh 1.4vh; font-size:1.3vh; font-weight:600; color:rgba(20,20,20,0.55); text-align:center; min-height:1.3vh;}',
+        '.inv-leaf__status{padding:0.8vh 1.6vh 1.4vh; font-family:"Open Sans",var(--fallback-font),sans-serif; font-size:1.3vh; font-weight:600; color:rgba(20,20,20,0.55); text-align:center; min-height:1.3vh;}',
         '.inv-leaf__status--ok{color:#65c466;}',
         '.inv-leaf__status--err{color:#ea4f3d;}',
 
@@ -2550,8 +2567,8 @@ function buildLeaf() {
     var buttons = document.createElement('div');
     buttons.className = 'inv-leaf__buttons';
 
-    var btn1 = document.createElement('button');
-    btn1.type = 'button';
+    // ВАЖНО: div, а не <button> — в CEF кнопки без кириллицы
+    var btn1 = document.createElement('div');
     btn1.className = 'inv-leaf__btn';
     btn1.textContent = 'Вариант 1';
     btn1.addEventListener('click', function (e) {
@@ -2559,22 +2576,23 @@ function buildLeaf() {
         applyVariant(1);
     });
 
-    var btn2 = document.createElement('button');
-    btn2.type = 'button';
+    var btn2 = document.createElement('div');
     btn2.className = 'inv-leaf__btn inv-leaf__btn--empty';
     btn2.textContent = 'Вариант 2';
     btn2.addEventListener('click', function (e) {
         e.preventDefault(); e.stopPropagation();
-        applyVariant(2); // пресет пустой → просто статус "пока пусто"
+        applyVariant(2);
     });
 
+    invBtnEls[1] = btn1;
+    invBtnEls[2] = btn2;
     buttons.appendChild(btn1);
     buttons.appendChild(btn2);
     el.appendChild(buttons);
 
     invStatusEl = document.createElement('div');
     invStatusEl.className = 'inv-leaf__status';
-    invStatusEl.textContent = 'Выбери вариант заявления';
+    invStatusEl.textContent = 'Повторный клик снимает выбор';
     el.appendChild(invStatusEl);
 
     document.body.appendChild(el);
@@ -2582,7 +2600,7 @@ function buildLeaf() {
     return el;
 }
 
-// ── Позиционирование справа от бланка Invite ──────────────────────────
+// ── Позиционирование справа от бланка ─────────────────────────────────
 function positionLeaf() {
     if (!invLeafEl) return;
     var anchor = document.querySelector('.invite__container') || document.querySelector('.invite__wrapper');
@@ -2593,7 +2611,7 @@ function positionLeaf() {
     var leafH = invLeafEl.offsetHeight;
     var left  = rect.right + gap;
     if (left + leafW > window.innerWidth - 8) {
-        left = rect.left - gap - leafW;           // не влезло справа → слева
+        left = rect.left - gap - leafW;
     }
     if (left < 8) left = 8;
     var top = rect.top + rect.height * 0.08;
@@ -2607,6 +2625,10 @@ function positionLeaf() {
 function showLeaf() {
     if (_invVisible) return;
     buildLeaf();
+    // сброс выбора при каждом открытии формы
+    selectedVariant = 0;
+    setButtonsActive();
+    setStatus('Повторный клик снимает выбор', '');
     _invVisible = true;
     requestAnimationFrame(function () {
         positionLeaf();
@@ -2618,7 +2640,8 @@ function hideLeaf() {
     if (!_invVisible || !invLeafEl) return;
     invLeafEl.classList.remove('inv-leaf--visible');
     _invVisible = false;
-    invFormProxy = null; // форма размонтирована — кэш невалиден
+    selectedVariant = 0;
+    invFormProxy = null;
 }
 
 // ── Цикл видимости ────────────────────────────────────────────────────
@@ -2634,6 +2657,12 @@ function tick() {
 }
 
 function init() {
+    // убираем остатки старой версии листика, если были
+    try {
+        document.querySelectorAll('.inv-leaf').forEach(function (n) {
+            if (n.parentNode) n.parentNode.removeChild(n);
+        });
+    } catch (e) {}
     window.addEventListener('resize', function () {
         if (_invVisible) positionLeaf();
     });
@@ -2647,4 +2676,4 @@ if (document.readyState === 'loading') {
     init();
 }
 })();
-// ==================== END INVITE AUTO-FILL / АВТО-ПОДАЧА ЗАЯВЛЕНИЯ ====================
+// ==================== END INVITE AUTO-FILL v2 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
