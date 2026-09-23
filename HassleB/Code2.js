@@ -2338,296 +2338,313 @@ handleHBMenuSelection = function (dialogId, button, listitem) {
 };
 debugLog('[SOBESED] Модуль собеседований загружен. Статус: ' + (config.sobesNotifications ? 'ВКЛ' : 'ВЫКЛ'));
 // END SOBESED MODULE //
-// ==================== START INVITE AUTO-FILL ====================
+
+
+// ==================== START INVITE AUTO-FILL / АВТО-ПОДАЧА ЗАЯВЛЕНИЯ ====================
 (function () {
 'use strict';
 if (window.__inviteAutofillLoaded__) return;
 window.__inviteAutofillLoaded__ = true;
 
-// ── Варианты автозаполнения ──────────────────────────────────────────────────
-var INV_VARIANTS = [
-    {
-        label: 'Вариант 1',
-        form: {
-            biography:      'Родился в Нижегородске, имею высшее образование с детства мечтал служить в Армии',
-            posQualities:   'Доброта, отзывчивость, трудолюбие',
-            negQualities:   'Злость, зависть, лживость',
-            reasons:        'Интерес с детства, отзывчивые сотрудники, начальство',
-            criminalRecord: 'Нет',
-            activity:       'Трудовая, игровая, блогерская'
-        }
+// ── Пресеты вариантов ─────────────────────────────────────────────────
+// Вариант 1 — как на скриншоте. Биография на фото была под скроллом,
+// поэтому текст биографии замени на свой (поле обязательное!).
+// Вариант 2 — пока пустой (null), заполнишь позже.
+var INVITE_PRESETS = {
+    1: {
+        biography:      'Родился и вырос в городе, работал, учился, помогал людям. Люблю порядок и дисциплину.',
+        posQualities:   'Доброта, отзывчивость, трудолюбие',
+        negQualities:   'Злость, зависть, ливость',   // точно как на фото (если это была опечатка — поправь на "ленивость")
+        reasons:        'Интерес с детства, отзывчивые сотрудники, начальство',
+        criminalRecord: 'Нет',
+        activity:       'Трудовая, игровая, блогерская'
     },
-    {
-        label: 'Вариант 2',
-        form: null   // пустой — заполнить позже
-    }
-];
+    2: null // ← ВАРИАНТ 2 ПОКА ПУСТОЙ
+};
+var INVITE_FIELDS = ['biography', 'posQualities', 'negQualities', 'reasons', 'criminalRecord', 'activity'];
+var AUTO_SUBMIT = true; // true — после заполнения сразу отправить заявление (авто-подача)
 
-var _invPanelEl = null;
+var invLeafEl   = null;
+var invStatusEl = null;
+var invFormProxy = null;
 var _invVisible = false;
-var _invProxy   = null;
 
-// ── Детект: открыта ли именно форма CreateForm (не Biography) ───────────────
-function _invFormOpen() {
-    return !!document.querySelector('.create-form');
+// ── Открыт ли Invite в режиме формы (не биографии) ────────────────────
+function isInviteFormOpen() {
+    var open = false;
+    try {
+        if (typeof window.getInterfaceStatus === 'function') {
+            open = !!window.getInterfaceStatus('Invite');
+        }
+    } catch (e) {}
+    if (!open) open = !!document.querySelector('.invite');
+    return open && !!document.querySelector('.create-form');
 }
 
-// ── Валидация прокси CreateForm ──────────────────────────────────────────────
-function _invValidProxy(px) {
+// ── Валидация Vue-прокси CreateForm ───────────────────────────────────
+function isValidFormProxy(p) {
     try {
-        return !!px &&
-               !!px.form &&
-               typeof px.form === 'object' &&
-               'biography' in px.form &&
-               !(px.$ && px.$.isUnmounted);
+        if (!p || !p.form || typeof p.form !== 'object') return false;
+        if (typeof p.checkForm !== 'function' || typeof p.sendStatement !== 'function') return false;
+        for (var i = 0; i < INVITE_FIELDS.length; i++) {
+            if (!(INVITE_FIELDS[i] in p.form)) return false;
+        }
+        if (p.$ && p.$.isUnmounted) return false;
+        return true;
     } catch (e) { return false; }
 }
 
-// ── Обход vnode-дерева: Invite → CreateForm ──────────────────────────────────
-function _invSearchVnode(vnode, seen, depth) {
-    if (!vnode || typeof vnode !== 'object' || depth > 200) return null;
+// ── Поиск прокси по vnode-дереву Invite ───────────────────────────────
+function searchVnode(vnode, seen, depth) {
+    if (!vnode || typeof vnode !== 'object' || depth > 100) return null;
     if (seen.has(vnode)) return null;
     seen.add(vnode);
     if (vnode.component) {
-        var c = vnode.component;
-        if (!seen.has(c)) {
-            seen.add(c);
-            try { if (_invValidProxy(c.proxy)) return c.proxy; } catch (e) {}
-            if (c.subTree) {
-                var r = _invSearchVnode(c.subTree, seen, depth + 1);
-                if (r) return r;
+        var comp = vnode.component;
+        if (!seen.has(comp)) {
+            seen.add(comp);
+            try { if (isValidFormProxy(comp.proxy)) return comp.proxy; } catch (e) {}
+            if (comp.subTree) {
+                var f = searchVnode(comp.subTree, seen, depth + 1);
+                if (f) return f;
             }
         }
     }
     if (Array.isArray(vnode.children)) {
         for (var i = 0; i < vnode.children.length; i++) {
-            var ch = vnode.children[i];
-            if (ch && typeof ch === 'object') {
-                var r2 = _invSearchVnode(ch, seen, depth + 1);
-                if (r2) return r2;
+            var c = vnode.children[i];
+            if (c && typeof c === 'object') {
+                var f2 = searchVnode(c, seen, depth + 1);
+                if (f2) return f2;
             }
         }
     }
     return null;
 }
 
-function _invGetProxy() {
-    if (_invValidProxy(_invProxy)) return _invProxy;
+function getFormProxy() {
+    if (isValidFormProxy(invFormProxy)) return invFormProxy;
+    invFormProxy = null;
     try {
-        var root = (typeof window.interface === 'function') ? window.interface('Invite') : null;
-        if (root && root.$ && root.$.subTree) {
-            _invProxy = _invSearchVnode(root.$.subTree, new WeakSet(), 0);
+        var invite = (typeof window.interface === 'function') ? window.interface('Invite') : null;
+        if (invite && invite.$ && invite.$.subTree) {
+            invFormProxy = searchVnode(invite.$.subTree, new WeakSet(), 0);
         }
-    } catch (e) {}
-    return _invProxy;
+    } catch (e) { invFormProxy = null; }
+    return invFormProxy;
 }
 
-// ── Применить вариант к форме ────────────────────────────────────────────────
-function _invApply(variant) {
-    if (!variant.form) return;
-    var px = _invGetProxy();
-    if (!px) { console.warn('[InvAF] CreateForm proxy не найден'); return; }
-    try {
-        px.form.biography      = variant.form.biography;
-        px.form.posQualities   = variant.form.posQualities;
-        px.form.negQualities   = variant.form.negQualities;
-        px.form.reasons        = variant.form.reasons;
-        px.form.criminalRecord = variant.form.criminalRecord;
-        px.form.activity       = variant.form.activity;
-    } catch (e) {
-        console.warn('[InvAF] Ошибка применения:', e);
+// ── Статус в листике ──────────────────────────────────────────────────
+function setStatus(text, ok) {
+    if (!invStatusEl) return;
+    invStatusEl.textContent = text;
+    invStatusEl.className = 'inv-leaf__status' + (ok ? ' inv-leaf__status--ok' : ' inv-leaf__status--err');
+}
+
+// ── Заполнение + авто-подача ──────────────────────────────────────────
+function applyVariant(num) {
+    var preset = INVITE_PRESETS[num];
+    if (!preset) {
+        setStatus('Вариант ' + num + ': пока пусто', false);
+        return;
     }
+    var proxy = getFormProxy();
+    if (!proxy) {
+        setStatus('Форма не найдена (proxy)', false);
+        return;
+    }
+    for (var i = 0; i < INVITE_FIELDS.length; i++) {
+        proxy.form[INVITE_FIELDS[i]] = String(preset[INVITE_FIELDS[i]] || '');
+    }
+    setStatus('Вариант ' + num + ': форма заполнена', true);
+
+    if (!AUTO_SUBMIT) return;
+    setTimeout(function () {
+        try {
+            proxy.sendStatement(); // checkForm() + $emit → InviteRequest_OnSumbitStatement
+            setStatus('Вариант ' + num + ': заявление отправлено', true);
+        } catch (e) {
+            var btn = document.querySelector('.create-form__button');
+            if (btn) {
+                btn.click();
+                setStatus('Вариант ' + num + ': отправлено (кнопкой)', true);
+            } else {
+                setStatus('Ошибка отправки: ' + e.message, false);
+            }
+        }
+    }, 150);
 }
 
-// ── Стили панели ─────────────────────────────────────────────────────────────
-function _invInjectStyles() {
-    if (document.getElementById('inv-af-style')) return;
-    var s = document.createElement('style');
-    s.id = 'inv-af-style';
-    s.textContent = [
-        /* ── Панель ── */
-        '.inv-af{',
-        '  position:fixed;z-index:99999;',
-        '  width:13.5vw;min-width:175px;',
-        '  background:#141414;',
-        '  border-left:0.3vh solid #ea4f3d;',
+// ── Стили под дизайн Invite (бумага/чернила/красный акцент, vh) ───────
+function injectStyles() {
+    var old = document.getElementById('invite-autofill-style');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var st = document.createElement('style');
+    st.id = 'invite-autofill-style';
+    st.textContent = [
+        '.inv-leaf{',
+        '  position:fixed; z-index:99998;',
+        '  width:26vh; min-width:200px;',
+        '  display:flex; flex-direction:column;',
+        '  background:linear-gradient(160deg,#f7f3e6 0%,#f4f1e1 55%,#ece7d6 100%);',
+        '  border-radius:0.4vh;',
+        '  box-shadow:0 1vh 3vh rgba(1,1,6,0.35),0 0.2vh 0.8vh rgba(1,1,6,0.2);',
+        '  transform:rotate(-1.5deg); transform-origin:top center;',
         '  font-family:"Open Sans",var(--fallback-font),sans-serif;',
-        '  box-shadow:0.25vw 0.35vw 1.4vw rgba(0,0,0,0.65);',
-        '  opacity:0;pointer-events:none;visibility:hidden;',
-        '  transition:opacity 0.25s ease,visibility 0s linear 0.25s;',
+        '  opacity:0; visibility:hidden; pointer-events:none;',
+        '  transition:opacity 0.25s ease, visibility 0s linear 0.25s;',
         '}',
-        '.inv-af--visible{',
-        '  opacity:1;pointer-events:auto;visibility:visible;',
-        '  transition:opacity 0.25s ease,visibility 0s;',
-        '}',
+        '.inv-leaf--visible{opacity:1; visibility:visible; pointer-events:auto; transition:opacity 0.25s ease, visibility 0s;}',
 
-        /* ── Шапка ── */
-        '.inv-af__head{',
-        '  padding:1.15vh 1.4vh 0.9vh 1.7vh;',
-        '  border-bottom:0.09vh solid rgba(244,241,225,0.1);',
-        '}',
-        '.inv-af__title{',
-        '  color:#f4f1e1;',
-        '  font-size:1.1vh;font-weight:700;',
-        '  text-transform:uppercase;letter-spacing:0.09em;',
-        '}',
-        '.inv-af__sub{',
-        '  color:rgba(244,241,225,0.35);',
-        '  font-size:0.82vh;font-weight:600;font-style:italic;',
-        '  margin-top:0.18vh;',
-        '}',
+        /* шапка — как invite__title / invite__subtitle */
+        '.inv-leaf__header{padding:1.6vh 1.6vh 1vh; border-bottom:0.09vh solid rgba(20,20,20,0.12); text-align:center;}',
+        '.inv-leaf__title{color:#141414; font-size:2.22vh; font-weight:700; line-height:2vh;}',
+        '.inv-leaf__subtitle{color:#141414; font-size:1.48vh; font-style:italic; font-weight:600; opacity:0.6; white-space:nowrap;}',
+        '.inv-leaf__header::after{content:""; display:block; margin:0.8vh auto 0; width:55%; height:0.19vh; background:#ea4f3d; border-radius:0.1vh; opacity:0.7;}',
 
-        /* ── Тело с кнопками ── */
-        '.inv-af__body{padding:0.55vh 0;}',
+        /* кнопки — как create-form__button / invite__button */
+        '.inv-leaf__buttons{padding:1.4vh 1.6vh 0.6vh; display:flex; flex-direction:column; gap:0.9vh;}',
+        '.inv-leaf__btn{',
+        '  background:#141414; color:#f4f1e1; border:none; cursor:pointer;',
+        '  font-family:inherit; font-size:1.48vh; font-weight:700;',
+        '  letter-spacing:0.04em; text-transform:uppercase;',
+        '  padding:1.6vh 0; text-align:center; transition:opacity 0.25s;',
+        '}',
+        '.inv-leaf__btn:hover{opacity:0.8;}',
+        '.inv-leaf__btn:active{opacity:0.6;}',
+        '.inv-leaf__btn--empty{background:transparent; color:#141414; border:0.09vh solid rgba(20,20,20,0.4); opacity:0.55;}',
+        '.inv-leaf__btn--empty:hover{opacity:0.8;}',
 
-        '.inv-af__btn{',
-        '  display:block;width:100%;box-sizing:border-box;',
-        '  background:rgba(244,241,225,0.05);',
-        '  color:rgba(244,241,225,0.18);',
-        '  border:none;cursor:default;',
-        '  font-family:"Open Sans",var(--fallback-font),sans-serif;',
-        '  font-size:1.2vh;font-weight:700;',
-        '  letter-spacing:0.05em;text-transform:uppercase;text-align:center;',
-        '  padding:2vh 1.4vh;',
-        '  transition:background 0.25s,color 0.25s;',
-        '}',
-        '.inv-af__btn:not(:last-child){',
-        '  border-bottom:0.09vh solid rgba(244,241,225,0.07);',
-        '}',
-        /* Активная кнопка (есть данные) */
-        '.inv-af__btn--on{',
-        '  color:#f4f1e1;cursor:pointer;',
-        '}',
-        '.inv-af__btn--on:hover{background:rgba(244,241,225,0.11);}',
-        '.inv-af__btn--on:active{background:rgba(234,79,61,0.18);}',
-        /* Вспышка при клике */
-        '.inv-af__btn--flash{',
-        '  background:rgba(101,196,102,0.2)!important;',
-        '  color:#65c466!important;',
-        '}',
+        /* статус */
+        '.inv-leaf__status{padding:0.8vh 1.6vh 1.4vh; font-size:1.3vh; font-weight:600; color:rgba(20,20,20,0.55); text-align:center; min-height:1.3vh;}',
+        '.inv-leaf__status--ok{color:#65c466;}',
+        '.inv-leaf__status--err{color:#ea4f3d;}',
 
-        /* ── Подвал ── */
-        '.inv-af__foot{',
-        '  padding:0.72vh 1.7vh;',
-        '  border-top:0.09vh solid rgba(244,241,225,0.07);',
-        '  color:rgba(244,241,225,0.18);',
-        '  font-size:0.68vh;font-weight:600;',
-        '  letter-spacing:0.06em;text-align:right;',
+        '@media (platform:mobile){',
+        '  .inv-leaf{width:32vh;}',
         '}',
     ].join('');
-    document.head.appendChild(s);
+    document.head.appendChild(st);
 }
 
-// ── Построение панели ─────────────────────────────────────────────────────────
-function _invBuild() {
-    if (_invPanelEl) return _invPanelEl;
-    _invInjectStyles();
+// ── Создание листика ──────────────────────────────────────────────────
+function buildLeaf() {
+    if (invLeafEl) return invLeafEl;
+    injectStyles();
 
     var el = document.createElement('div');
-    el.className = 'inv-af';
+    el.className = 'inv-leaf';
 
-    /* шапка */
-    var head = document.createElement('div');
-    head.className = 'inv-af__head';
-    var ttl = document.createElement('div');
-    ttl.className = 'inv-af__title';
-    ttl.textContent = 'Авто-заявление';
-    var sub = document.createElement('div');
-    sub.className = 'inv-af__sub';
-    sub.textContent = 'Шаблон для подачи';
-    head.appendChild(ttl);
-    head.appendChild(sub);
-    el.appendChild(head);
+    var header = document.createElement('div');
+    header.className = 'inv-leaf__header';
+    var title = document.createElement('div');
+    title.className = 'inv-leaf__title';
+    title.textContent = 'Заявление';
+    var subtitle = document.createElement('div');
+    subtitle.className = 'inv-leaf__subtitle';
+    subtitle.textContent = 'авто-подача by konst';
+    header.appendChild(title);
+    header.appendChild(subtitle);
+    el.appendChild(header);
 
-    /* кнопки */
-    var body = document.createElement('div');
-    body.className = 'inv-af__body';
+    var buttons = document.createElement('div');
+    buttons.className = 'inv-leaf__buttons';
 
-    INV_VARIANTS.forEach(function (v) {
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'inv-af__btn' + (v.form ? ' inv-af__btn--on' : '');
-        btn.textContent = v.label;
-
-        if (v.form) {
-            btn.addEventListener('click', function () {
-                _invApply(v);
-                // Зелёная вспышка — визуальный отклик
-                btn.classList.add('inv-af__btn--flash');
-                setTimeout(function () {
-                    btn.classList.remove('inv-af__btn--flash');
-                }, 480);
-            });
-        }
-        body.appendChild(btn);
+    var btn1 = document.createElement('button');
+    btn1.type = 'button';
+    btn1.className = 'inv-leaf__btn';
+    btn1.textContent = 'Вариант 1';
+    btn1.addEventListener('click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        applyVariant(1);
     });
-    el.appendChild(body);
 
-    /* подвал */
-    var foot = document.createElement('div');
-    foot.className = 'inv-af__foot';
-    foot.textContent = 'by konst';
-    el.appendChild(foot);
+    var btn2 = document.createElement('button');
+    btn2.type = 'button';
+    btn2.className = 'inv-leaf__btn inv-leaf__btn--empty';
+    btn2.textContent = 'Вариант 2';
+    btn2.addEventListener('click', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        applyVariant(2); // пресет пустой → просто статус "пока пусто"
+    });
+
+    buttons.appendChild(btn1);
+    buttons.appendChild(btn2);
+    el.appendChild(buttons);
+
+    invStatusEl = document.createElement('div');
+    invStatusEl.className = 'inv-leaf__status';
+    invStatusEl.textContent = 'Выбери вариант заявления';
+    el.appendChild(invStatusEl);
 
     document.body.appendChild(el);
-    _invPanelEl = el;
+    invLeafEl = el;
     return el;
 }
 
-// ── Позиционирование — слева от .invite__container ───────────────────────────
-function _invPosition() {
-    if (!_invPanelEl) return;
-    var ref = document.querySelector('.invite__container') ||
-              document.querySelector('.invite__wrapper')   ||
-              document.querySelector('.create-form');
-    if (!ref) return;
-    var rect = ref.getBoundingClientRect();
-    var gap  = window.innerWidth * 0.013;
-    var pw   = _invPanelEl.offsetWidth;
-    var ph   = _invPanelEl.offsetHeight;
-    /* пробуем слева */
-    var left = rect.left - gap - pw;
-    if (left < 8) left = rect.right + gap;                       // если не влезает — справа
-    if (left + pw > window.innerWidth - 8)
-        left = Math.max(8, window.innerWidth - pw - 8);
-    /* по вертикали — немного выше середины */
-    var top = rect.top + (rect.height - ph) * 0.38;
-    if (top + ph > window.innerHeight - 8) top = window.innerHeight - ph - 8;
-    if (top < 8) top = 8;
-    _invPanelEl.style.left = left + 'px';
-    _invPanelEl.style.top  = top  + 'px';
+// ── Позиционирование справа от бланка Invite ──────────────────────────
+function positionLeaf() {
+    if (!invLeafEl) return;
+    var anchor = document.querySelector('.invite__container') || document.querySelector('.invite__wrapper');
+    if (!anchor) return;
+    var rect  = anchor.getBoundingClientRect();
+    var gap   = window.innerHeight * 0.02;
+    var leafW = invLeafEl.offsetWidth;
+    var leafH = invLeafEl.offsetHeight;
+    var left  = rect.right + gap;
+    if (left + leafW > window.innerWidth - 8) {
+        left = rect.left - gap - leafW;           // не влезло справа → слева
+    }
+    if (left < 8) left = 8;
+    var top = rect.top + rect.height * 0.08;
+    if (top + leafH > window.innerHeight - 8) {
+        top = Math.max(8, window.innerHeight - leafH - 8);
+    }
+    invLeafEl.style.left = left + 'px';
+    invLeafEl.style.top  = top  + 'px';
 }
 
-// ── Показать / скрыть ────────────────────────────────────────────────────────
-function _invShow() {
+function showLeaf() {
     if (_invVisible) return;
-    _invBuild();
-    _invProxy   = null;      // сброс кеша прокси при каждом открытии
+    buildLeaf();
     _invVisible = true;
     requestAnimationFrame(function () {
-        _invPosition();
-        _invPanelEl.classList.add('inv-af--visible');
+        positionLeaf();
+        invLeafEl.classList.add('inv-leaf--visible');
     });
 }
 
-function _invHide() {
-    if (!_invVisible || !_invPanelEl) return;
-    _invPanelEl.classList.remove('inv-af--visible');
+function hideLeaf() {
+    if (!_invVisible || !invLeafEl) return;
+    invLeafEl.classList.remove('inv-leaf--visible');
     _invVisible = false;
-    _invProxy   = null;
+    invFormProxy = null; // форма размонтирована — кэш невалиден
 }
 
-// ── Тик ──────────────────────────────────────────────────────────────────────
-function _invTick() {
+// ── Цикл видимости ────────────────────────────────────────────────────
+function tick() {
     try {
-        if (_invFormOpen()) { _invShow(); _invPosition(); }
-        else                { _invHide(); }
+        if (isInviteFormOpen()) {
+            showLeaf();
+            positionLeaf();
+        } else if (_invVisible) {
+            hideLeaf();
+        }
     } catch (e) {}
 }
 
-window.addEventListener('resize', function () { if (_invVisible) _invPosition(); });
-setInterval(_invTick, 300);
-_invTick();
+function init() {
+    window.addEventListener('resize', function () {
+        if (_invVisible) positionLeaf();
+    });
+    setInterval(tick, 300);
+    tick();
+}
 
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
 })();
-// ==================== END INVITE AUTO-FILL ====================
+// ==================== END INVITE AUTO-FILL / АВТО-ПОДАЧА ЗАЯВЛЕНИЯ ====================
