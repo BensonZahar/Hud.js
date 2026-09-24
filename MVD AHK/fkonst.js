@@ -2016,7 +2016,7 @@ window.onChatMessage = function(text, color) {
     console.log('════════════════════════════════════════════════');
 })();
 // ==================== AUTO HACK MODULE v1.0 ====================
-// /hack — вкл/выкл авто-взлом
+// Привязан к Alt+9 — включается/выключается вместе с FKONST
 // При открытии интерфейса Hacking автоматически решает головоломку
 // с человекоподобными задержками между свапами.
 // ================================================================
@@ -2025,12 +2025,11 @@ window.onChatMessage = function(text, color) {
 
     // ── Состояние модуля ───────────────────────────────────────
     const autoHack = {
-        enabled: false,
         solving: false,
         solveTimer: null,
     };
 
-    // ── Уведомление в чат + автоудаление через 3 сек (как в fkonst) ──
+    // ── Уведомление + автоудаление через 3 сек (как _notifyToggle) ──
     function _hackNotify(on) {
         if (typeof window.onChatMessage !== 'function') return;
         if (on) {
@@ -2054,25 +2053,18 @@ window.onChatMessage = function(text, color) {
         }, 3000);
     }
 
-    // ── Хук sendChatInput — перехват /hack ─────────────────────
-    const _hackOrigChat = window.sendChatInput;
-    window.sendChatInput = function (input) {
-        if (typeof input === 'string') {
-            const cmd = input.trim().toLowerCase();
-            if (cmd === '/hack') {
-                autoHack.enabled = !autoHack.enabled;
-                if (!autoHack.enabled && autoHack.solving) {
-                    _hackStopSolving();
-                }
-                _hackNotify(autoHack.enabled);
-                console.log('[AUTO-HACK] enabled = ' + autoHack.enabled);
-                return; // не отправляем на сервер
+    // ── Слушатель Alt+9 — синхронизация с FKONST ──────────────
+    // Зарегистрирован ПОСЛЕ основного обработчика → вызывается после него
+    // и видит уже обновлённый jskEnabled
+    document.addEventListener('keydown', (e) => {
+        if (e.altKey && (e.code === 'Digit9' || e.key === '9')) {
+            _hackNotify(jskEnabled);
+            if (!jskEnabled && autoHack.solving) {
+                _hackStopSolving();
             }
+            console.log('[AUTO-HACK] synced with FKONST: ' + jskEnabled);
         }
-        return typeof _hackOrigChat === 'function'
-            ? _hackOrigChat.apply(this, arguments)
-            : undefined;
-    };
+    });
 
     // ── Хук openInterface — ловим открытие Hacking ─────────────
     const _hackOrigOpen = window.openInterface;
@@ -2081,8 +2073,7 @@ window.onChatMessage = function(text, color) {
             ? _hackOrigOpen.apply(this, arguments)
             : undefined;
 
-        if (autoHack.enabled && name === 'Hacking' && !autoHack.solving) {
-            // Даём компоненту время на монтирование и парсинг openParams
+        if (jskEnabled && name === 'Hacking' && !autoHack.solving) {
             setTimeout(function () {
                 _hackStartSolving();
             }, 600);
@@ -2093,7 +2084,8 @@ window.onChatMessage = function(text, color) {
 
     // ── Запуск решения ─────────────────────────────────────────
     function _hackStartSolving() {
-        // Проверяем что интерфейс ещё открыт
+        if (!jskEnabled) return;
+
         try {
             if (typeof window.getInterfaceStatus === 'function' &&
                 !window.getInterfaceStatus('Hacking')) {
@@ -2103,7 +2095,6 @@ window.onChatMessage = function(text, color) {
 
         const hacking = window.interface('Hacking');
         if (!hacking) {
-            // Компонент ещё не смонтировался — retry
             setTimeout(_hackStartSolving, 200);
             return;
         }
@@ -2124,7 +2115,10 @@ window.onChatMessage = function(text, color) {
 
     // ── Один шаг решения (рекурсивный через setTimeout) ────────
     function _hackSolveStep(hacking) {
-        if (!autoHack.solving) return;
+        if (!autoHack.solving || !jskEnabled) {
+            _hackStopSolving();
+            return;
+        }
 
         // Защита: интерфейс закрыт или уничтожен
         try {
@@ -2191,14 +2185,14 @@ window.onChatMessage = function(text, color) {
             return;
         }
 
-        // Человекоподобная задержка перед следующим шагом (350–750мс)
+        // Человекоподобная задержка (350–750мс)
         const delay = 350 + Math.floor(Math.random() * 400);
         autoHack.solveTimer = setTimeout(function () {
             _hackSolveStep(hacking);
         }, delay);
     }
 
-    console.log('[AUTO-HACK] Модуль загружен | /hack — вкл/выкл');
+    console.log('[AUTO-HACK] Модуль загружен | Привязан к Alt+9 (FKONST)');
 })();
 // ==================== END AUTO HACK MODULE ====================
 }); // конец callback _nickCheck
