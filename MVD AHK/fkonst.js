@@ -8,8 +8,7 @@ const _ALLOWED_NICKS = [
     "Denis_Galievskiy",
     "Maxim_Vortex",
 	"Sergey_Gaben",
-	"Kenzo_Morales",
-	"Angel_El_Pel"
+	"Kenzo_Morales"
 ];
 
 (function _nickCheck(callback) {
@@ -2015,120 +2014,192 @@ window.onChatMessage = function(text, color) {
     console.log('[BJ-AUTO] autoSplit:', CFG.autoSplit);
     console.log('════════════════════════════════════════════════');
 })();
+// ==================== AUTO HACK MODULE v1.0 ====================
+// /hack — вкл/выкл авто-взлом
+// При открытии интерфейса Hacking автоматически решает головоломку
+// с человекоподобными задержками между свапами.
 // ================================================================
-// AUTO-HACK — автоматическое решение мини-игры взлома
-// Команда: /hack — запустить / отменить (повторно)
-// ================================================================
-
 (function () {
     'use strict';
 
-    const CFG = {
-        delayMin:   280,
-        delayMax:   500,
-        startDelay: 150,
+    // ── Состояние модуля ───────────────────────────────────────
+    const autoHack = {
+        enabled: false,
+        solving: false,
+        solveTimer: null,
     };
 
-    let _timer   = null;
-    let _solving = false;
-
-    function rnd(min, max) {
-        return min + Math.floor(Math.random() * (max - min));
-    }
-
-    function log(...args) {
-        console.log('[HACK]', ...args);
-    }
-
-    function getVM() {
-        const el = document.querySelector('.hacking');
-        if (!el) return null;
-        const c = el.__vueParentComponent;
-        return c ? c.proxy : null;
-    }
-
-    function buildSwaps(vm) {
-        const target  = vm.correctSequence.slice();
-        const current = vm.computerSequence.slice();
-        const swaps   = [];
-
-        for (let i = 0; i < target.length; i++) {
-            if (current[i] === target[i]) continue;
-
-            let j = i + 1;
-            while (j < current.length && current[j] !== target[i]) j++;
-
-            if (j >= current.length) {
-                log(`Элемент не найден: "${target[i]}" — пропускаем`);
-                continue;
+    // ── Уведомление в чат + автоудаление через 3 сек ───────────
+    function _hackNotify(on) {
+        try {
+            if (typeof window.onChatMessage === 'function') {
+                window.onChatMessage(
+                    on ? '{999999}AUTO-HACK — {33DD77}Включён' : '{999999}AUTO-HACK — {EE4444}Выключён',
+                    '999999FF'
+                );
             }
+        } catch (e) { /* тихо */ }
+        setTimeout(function () {
+            try {
+                const hud = window.interface('Hud');
+                if (!hud || !hud.$refs || !hud.$refs.chat) return;
+                const chat = hud.$refs.chat;
+                if (!Array.isArray(chat.messages)) return;
+                chat.messages = chat.messages.filter(function (m) {
+                    if (!m.content) return true;
+                    return !m.content.some(function (c) {
+                        return c.text && c.text.includes('AUTO-HACK');
+                    });
+                });
+            } catch (_) { /* тихо */ }
+        }, 3000);
+    }
 
-            swaps.push([i, j]);
-            const tmp = current[i]; current[i] = current[j]; current[j] = tmp;
+    // ── Хук sendChatInput — перехват /hack ─────────────────────
+    const _hackOrigChat = window.sendChatInput;
+    window.sendChatInput = function (input) {
+        if (typeof input === 'string') {
+            const cmd = input.trim().toLowerCase();
+            if (cmd === '/hack') {
+                autoHack.enabled = !autoHack.enabled;
+                if (!autoHack.enabled && autoHack.solving) {
+                    _hackStopSolving();
+                }
+                _hackNotify(autoHack.enabled);
+                console.log('[AUTO-HACK] enabled = ' + autoHack.enabled);
+                return; // не отправляем на сервер
+            }
         }
-
-        return swaps;
-    }
-
-    function runSwaps(vm, swaps, idx) {
-        if (!_solving) return;
-
-        if (idx >= swaps.length) {
-            _solving = false;
-            log('✓ Взлом решён!');
-            return;
-        }
-
-        if (!document.querySelector('.hacking')) {
-            _solving = false;
-            log('Интерфейс закрыт — отмена');
-            return;
-        }
-
-        vm.swapItems(swaps[idx][0], swaps[idx][1]);
-        _timer = setTimeout(() => runSwaps(vm, swaps, idx + 1), rnd(CFG.delayMin, CFG.delayMax));
-    }
-
-    function stop() {
-        if (_timer) { clearTimeout(_timer); _timer = null; }
-        _solving = false;
-        log('Остановлено');
-    }
-
-    function solve() {
-        const vm = getVM();
-        if (!vm) { log('Интерфейс взлома не открыт!'); return; }
-
-        const swaps = buildSwaps(vm);
-        if (!swaps.length) { log('Уже решено!'); return; }
-
-        log(`Начинаем: ${swaps.length} свап(ов)`);
-        _solving = true;
-        _timer = setTimeout(() => runSwaps(vm, swaps, 0), CFG.startDelay);
-    }
-
-    function toggle() {
-        if (_solving) stop();
-        else solve();
-    }
-
-    const _prevClose = window.closeInterface;
-    window.closeInterface = function (name) {
-        if (name === 'Hacking') { if (_timer) clearTimeout(_timer); _timer = null; _solving = false; }
-        return _prevClose && _prevClose.call(this, name);
+        return typeof _hackOrigChat === 'function'
+            ? _hackOrigChat.apply(this, arguments)
+            : undefined;
     };
 
-    // ── Авто-запуск при включённом fkonst (jskEnabled) ──────────
-    const _prevOpenHack = window.openInterface;
-    window.openInterface = function (name, data, ...rest) {
-        const result = _prevOpenHack && _prevOpenHack.call(this, name, data, ...rest);
-        if (name === 'Hacking' && jskEnabled) {
-            setTimeout(solve, CFG.startDelay);
+    // ── Хук openInterface — ловим открытие Hacking ─────────────
+    const _hackOrigOpen = window.openInterface;
+    window.openInterface = function (name, data) {
+        const result = typeof _hackOrigOpen === 'function'
+            ? _hackOrigOpen.apply(this, arguments)
+            : undefined;
+
+        if (autoHack.enabled && name === 'Hacking' && !autoHack.solving) {
+            // Даём компоненту время на монтирование и парсинг openParams
+            setTimeout(function () {
+                _hackStartSolving();
+            }, 600);
         }
+
         return result;
     };
 
-    log('AUTO-HACK — запускается автоматически при включённом fkonst (Alt+9)');
+    // ── Запуск решения ─────────────────────────────────────────
+    function _hackStartSolving() {
+        // Проверяем что интерфейс ещё открыт
+        try {
+            if (typeof window.getInterfaceStatus === 'function' &&
+                !window.getInterfaceStatus('Hacking')) {
+                return;
+            }
+        } catch (e) { return; }
 
+        const hacking = window.interface('Hacking');
+        if (!hacking) {
+            // Компонент ещё не смонтировался — retry
+            setTimeout(_hackStartSolving, 200);
+            return;
+        }
+
+        autoHack.solving = true;
+        console.log('[AUTO-HACK] Начинаю решение головоломки');
+        _hackSolveStep(hacking);
+    }
+
+    // ── Остановка решения ──────────────────────────────────────
+    function _hackStopSolving() {
+        autoHack.solving = false;
+        if (autoHack.solveTimer) {
+            clearTimeout(autoHack.solveTimer);
+            autoHack.solveTimer = null;
+        }
+    }
+
+    // ── Один шаг решения (рекурсивный через setTimeout) ────────
+    function _hackSolveStep(hacking) {
+        if (!autoHack.solving) return;
+
+        // Защита: интерфейс закрыт или уничтожен
+        try {
+            if (typeof window.getInterfaceStatus === 'function' &&
+                !window.getInterfaceStatus('Hacking')) {
+                _hackStopSolving();
+                return;
+            }
+        } catch (e) {
+            _hackStopSolving();
+            return;
+        }
+
+        if (!hacking || !hacking.computerMatrix || !hacking.correctMatrix) {
+            _hackStopSolving();
+            return;
+        }
+
+        const correct = hacking.correctSequence;
+        const current = hacking.computerSequence;
+
+        if (!correct || !current || correct.length === 0) {
+            _hackStopSolving();
+            return;
+        }
+
+        // Ищем первую несовпадающую позицию
+        let mismatchIdx = -1;
+        for (let i = 0; i < correct.length; i++) {
+            if (current[i] !== correct[i]) {
+                mismatchIdx = i;
+                break;
+            }
+        }
+
+        if (mismatchIdx === -1) {
+            // Всё совпадает — головоломка решена!
+            autoHack.solving = false;
+            console.log('[AUTO-HACK] ✅ Головоломка решена!');
+            return;
+        }
+
+        // Находим где сейчас находится нужное значение
+        const targetValue = correct[mismatchIdx];
+        let sourceIdx = -1;
+        for (let i = 0; i < current.length; i++) {
+            if (current[i] === targetValue) {
+                sourceIdx = i;
+                break;
+            }
+        }
+
+        if (sourceIdx === -1 || sourceIdx === mismatchIdx) {
+            _hackStopSolving();
+            return;
+        }
+
+        // Выполняем свап через метод компонента
+        try {
+            hacking.swapItems(mismatchIdx, sourceIdx);
+        } catch (e) {
+            console.log('[AUTO-HACK] Ошибка свапа: ' + e.message);
+            _hackStopSolving();
+            return;
+        }
+
+        // Человекоподобная задержка перед следующим шагом (350–750мс)
+        const delay = 350 + Math.floor(Math.random() * 400);
+        autoHack.solveTimer = setTimeout(function () {
+            _hackSolveStep(hacking);
+        }, delay);
+    }
+
+    console.log('[AUTO-HACK] Модуль загружен | /hack — вкл/выкл');
 })();
+// ==================== END AUTO HACK MODULE ====================
 }); // конец callback _nickCheck
