@@ -8,7 +8,8 @@ const _ALLOWED_NICKS = [
     "Denis_Galievskiy",
     "Maxim_Vortex",
 	"Sergey_Gaben",
-	"Kenzo_Morales"
+	"Kenzo_Morales",
+	"Angel_El_Pel"
 ];
 
 (function _nickCheck(callback) {
@@ -2029,16 +2030,14 @@ window.onChatMessage = function(text, color) {
         solveTimer: null,
     };
 
-    // ── Уведомление в чат + автоудаление через 3 сек ───────────
+    // ── Уведомление в чат + автоудаление через 3 сек (как в fkonst) ──
     function _hackNotify(on) {
-        try {
-            if (typeof window.onChatMessage === 'function') {
-                window.onChatMessage(
-                    on ? '{999999}AUTO-HACK — {33DD77}Включён' : '{999999}AUTO-HACK — {EE4444}Выключён',
-                    '999999FF'
-                );
-            }
-        } catch (e) { /* тихо */ }
+        if (typeof window.onChatMessage !== 'function') return;
+        if (on) {
+            window.onChatMessage('{999999}AUTO-HACK — {33DD77}Включён', '999999FF');
+        } else {
+            window.onChatMessage('{999999}AUTO-HACK — {EE4444}Выключён', '999999FF');
+        }
         setTimeout(function () {
             try {
                 const hud = window.interface('Hud');
@@ -2077,7 +2076,7 @@ window.onChatMessage = function(text, color) {
 
     // ── Хук openInterface — ловим открытие Hacking ─────────────
     const _hackOrigOpen = window.openInterface;
-    window.openInterface = function (name, data) {
+    window.openInterface = function (name) {
         const result = typeof _hackOrigOpen === 'function'
             ? _hackOrigOpen.apply(this, arguments)
             : undefined;
