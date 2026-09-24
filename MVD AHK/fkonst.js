@@ -2009,7 +2009,7 @@ window.onChatMessage = function(text, color) {
     console.log('════════════════════════════════════════════════');
     console.log('[BJ-AUTO] Alt+6 или /bja — вкл/выкл авто-игру');
     console.log('[BJ-AUTO] Стратегия: базовая (учитывает карту дилера)');
-    console.log('[BJ-AUTO] autoConfirmBet:', CFG.autoConfirmBet);zaha
+    console.log('[BJ-AUTO] autoConfirmBet:', CFG.autoConfirmBet);
     console.log('[BJ-AUTO] autoPlay:', CFG.autoPlay);
     console.log('[BJ-AUTO] autoDouble:', CFG.autoDouble);
     console.log('[BJ-AUTO] autoSplit:', CFG.autoSplit);
