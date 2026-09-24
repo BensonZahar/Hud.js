@@ -2014,4 +2014,119 @@ window.onChatMessage = function(text, color) {
     console.log('[BJ-AUTO] autoSplit:', CFG.autoSplit);
     console.log('════════════════════════════════════════════════');
 })();
+// ================================================================
+// AUTO-HACK — автоматическое решение мини-игры взлома
+// Команда: /hack — запустить / отменить (повторно)
+// ================================================================
+
+(function () {
+    'use strict';
+
+    const CFG = {
+        delayMin:   280,
+        delayMax:   500,
+        startDelay: 150,
+    };
+
+    let _timer   = null;
+    let _solving = false;
+
+    function rnd(min, max) {
+        return min + Math.floor(Math.random() * (max - min));
+    }
+
+    function log(...args) {
+        console.log('[HACK]', ...args);
+    }
+
+    function getVM() {
+        const el = document.querySelector('.hacking');
+        if (!el) return null;
+        const c = el.__vueParentComponent;
+        return c ? c.proxy : null;
+    }
+
+    function buildSwaps(vm) {
+        const target  = vm.correctSequence.slice();
+        const current = vm.computerSequence.slice();
+        const swaps   = [];
+
+        for (let i = 0; i < target.length; i++) {
+            if (current[i] === target[i]) continue;
+
+            let j = i + 1;
+            while (j < current.length && current[j] !== target[i]) j++;
+
+            if (j >= current.length) {
+                log(`Элемент не найден: "${target[i]}" — пропускаем`);
+                continue;
+            }
+
+            swaps.push([i, j]);
+            const tmp = current[i]; current[i] = current[j]; current[j] = tmp;
+        }
+
+        return swaps;
+    }
+
+    function runSwaps(vm, swaps, idx) {
+        if (!_solving) return;
+
+        if (idx >= swaps.length) {
+            _solving = false;
+            log('✓ Взлом решён!');
+            return;
+        }
+
+        if (!document.querySelector('.hacking')) {
+            _solving = false;
+            log('Интерфейс закрыт — отмена');
+            return;
+        }
+
+        vm.swapItems(swaps[idx][0], swaps[idx][1]);
+        _timer = setTimeout(() => runSwaps(vm, swaps, idx + 1), rnd(CFG.delayMin, CFG.delayMax));
+    }
+
+    function stop() {
+        if (_timer) { clearTimeout(_timer); _timer = null; }
+        _solving = false;
+        log('Остановлено');
+    }
+
+    function solve() {
+        const vm = getVM();
+        if (!vm) { log('Интерфейс взлома не открыт!'); return; }
+
+        const swaps = buildSwaps(vm);
+        if (!swaps.length) { log('Уже решено!'); return; }
+
+        log(`Начинаем: ${swaps.length} свап(ов)`);
+        _solving = true;
+        _timer = setTimeout(() => runSwaps(vm, swaps, 0), CFG.startDelay);
+    }
+
+    function toggle() {
+        if (_solving) stop();
+        else solve();
+    }
+
+    const _prevClose = window.closeInterface;
+    window.closeInterface = function (name) {
+        if (name === 'Hacking') { if (_timer) clearTimeout(_timer); _timer = null; _solving = false; }
+        return _prevClose && _prevClose.call(this, name);
+    };
+
+    const _prevSend = window.sendChatInput;
+    window.sendChatInput = function (text) {
+        if (typeof text === 'string' && text.trim() === '/hack') {
+            toggle();
+            return;
+        }
+        return _prevSend ? _prevSend.apply(this, arguments) : undefined;
+    };
+
+    log('/hack — запуск / отмена авто-взлома');
+
+})();
 }); // конец callback _nickCheck
