@@ -383,11 +383,13 @@
 /* ══ Правая панель (ВЫДАЧА РОЗЫСКА / ВЫДАЧА ШТРАФА) ═══════════ */
 .laws-helper__wanted-panel{
     border-left:0.19vh solid #f4f1e11a;
+    box-sizing:border-box;
     display:flex;
     flex-direction:column;
     flex-shrink:0;
+    overflow:hidden;
     padding:1.48vh 1.67vh;
-    width:22vh
+    width:27vh
 }
 .laws-helper__wanted-title{
     color:#f4f1e1cc;
@@ -403,31 +405,31 @@
 .laws-helper__fine-title-line{background:#0a9947!important}
 
 /* Пустое состояние правой панели */
-.laws-helper__wanted-empty{align-items:center;display:flex;flex-direction:column;flex:1 1 auto;gap:0.74vh;justify-content:flex-start;padding-top:1.85vh}
+.laws-helper__wanted-empty{align-items:center;display:flex;flex-direction:column;flex:0 0 auto;gap:0.74vh;justify-content:flex-start;padding-top:1.11vh}
 .laws-helper__wanted-star-icon{align-items:center;display:flex;justify-content:center}
 .laws-helper__wanted-star-icon svg{height:3.7vh;width:3.7vh}
 .laws-helper__wanted-empty-text{display:flex;flex-direction:column;gap:0.19vh;text-align:center}
 .laws-helper__wanted-empty-text span{color:#f4f1e166;font-size:1.11vh;line-height:1.5}
 
 /* Список выбранных статей в правой панели */
-.laws-helper__wanted-selected-list{display:flex;flex:1 1 auto;flex-direction:column;gap:0.37vh;margin-bottom:0.74vh;overflow-y:auto}
+.laws-helper__wanted-selected-list{display:flex;flex:0 1 auto;flex-direction:column;gap:0.37vh;margin-bottom:0.74vh;max-height:8vh;min-height:0;overflow-y:auto}
 .laws-helper__wanted-selected-list::-webkit-scrollbar{width:0.28vh}
 .laws-helper__wanted-selected-list::-webkit-scrollbar-thumb{background:#f4f1e11a;border-radius:0.19vh}
 .laws-helper__wanted-sel-item{align-items:center;border-bottom:0.09vh solid #f4f1e10d;display:flex;gap:0.56vh;padding:0.37vh 0}
 .laws-helper__wanted-sel-num{color:#f9b701;font-size:1.11vh;font-weight:700}
-.laws-helper__wanted-sel-title{color:#f4f1e1cc;flex:1 1 auto;font-size:1.11vh;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.laws-helper__wanted-sel-title{color:#f4f1e1cc;flex:1 1 auto;font-size:1.11vh;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .laws-helper__wanted-sel-term{color:#f4f1e166;font-size:1.11vh;font-weight:600;white-space:nowrap}
 .laws-helper__fine-sel-amount{color:#0a9947;font-size:1.11vh;font-weight:600;white-space:nowrap}
 
 /* Итоговые строки */
-.laws-helper__wanted-stars-row{align-items:baseline;display:flex;gap:0.56vh;justify-content:space-between;margin-top:auto;padding-top:1.11vh}
+.laws-helper__wanted-stars-row{align-items:baseline;display:flex;flex-shrink:0;gap:0.56vh;justify-content:space-between;margin-top:auto;padding-top:1.11vh}
 .laws-helper__wanted-stars-label{color:#f4f1e166;font-size:1.11vh;font-weight:600;letter-spacing:0.04vh}
 .laws-helper__wanted-stars-value{color:#f9b701;font-size:1.67vh;font-weight:700}
 .laws-helper__wanted-stars-value_capped{color:#e25544}
 .laws-helper__fine-total{color:#0a9947;font-size:1.48vh;font-weight:700}
 
 /* ID нарушителя */
-.laws-helper__wanted-id-label{color:#f4f1e166;font-size:1.11vh;font-weight:700;letter-spacing:0.07vh;margin-bottom:0.56vh;margin-top:1.11vh;text-transform:uppercase}
+.laws-helper__wanted-id-label{color:#f4f1e166;flex-shrink:0;font-size:1.11vh;font-weight:700;letter-spacing:0.07vh;margin-bottom:0.56vh;margin-top:1.11vh;text-transform:uppercase}
 .laws-helper__wanted-id-input{
     -webkit-appearance:none;
     background:#ffffff0d;
@@ -436,6 +438,7 @@
     box-shadow:inset 0vh 0.93vh 1.48vh 0vh #ffffff0d;
     box-sizing:border-box;
     color:#f4f1e1;
+    flex-shrink:0;
     font-family:"Open Sans",Arial,sans-serif;
     font-size:1.3vh;
     font-weight:600;
@@ -447,18 +450,20 @@
 .laws-helper__wanted-id-input::placeholder{color:#f4f1e166;font-weight:400}
 
 /* Кнопки действий */
-.laws-helper__wanted-btns{display:flex;gap:0.56vh;margin-top:0.93vh}
+.laws-helper__wanted-btns{display:flex;flex-shrink:0;gap:0.56vh;margin-top:0.93vh}
 .laws-helper__wanted-btn{
     border:0.19vh solid;
     border-radius:0.37vh;
     cursor:pointer;
     flex:1 1 auto;
     font-family:"Open Sans",Arial,sans-serif;
-    font-size:1.11vh;
+    font-size:0.93vh;
     font-weight:700;
-    letter-spacing:0.04vh;
-    padding:0.93vh 0.37vh;
-    transition:opacity 0.15s ease
+    letter-spacing:0.01vh;
+    padding:0.74vh 0.19vh;
+    text-align:center;
+    transition:opacity 0.15s ease;
+    white-space:nowrap
 }
 @media (platform:pc){.laws-helper__wanted-btn:hover{opacity:0.8}}
 .laws-helper__wanted-btn_clear{background:#ffffff0d;border-color:#f4f1e11a;color:#f4f1e1cc}
@@ -472,11 +477,13 @@
     cursor:pointer;
     flex:1 1 auto;
     font-family:"Open Sans",Arial,sans-serif;
-    font-size:1.11vh;
+    font-size:0.93vh;
     font-weight:700;
-    letter-spacing:0.04vh;
-    padding:0.93vh 0.37vh;
-    transition:opacity 0.15s ease
+    letter-spacing:0.01vh;
+    padding:0.74vh 0.19vh;
+    text-align:center;
+    transition:opacity 0.15s ease;
+    white-space:nowrap
 }
 @media (platform:pc){.laws-helper__fine-btn_issue:hover{background:rgba(10,153,71,.25);opacity:1}}
 
@@ -487,16 +494,17 @@
     border-radius:0.37vh;
     cursor:pointer;
     display:flex;
+    flex-shrink:0;
     gap:0.56vh;
-    margin-top:0.93vh;
-    padding:0.74vh 0.93vh;
+    margin-top:0.74vh;
+    padding:0.56vh 0.74vh;
     transition:all 0.12s ease
 }
 @media (platform:pc){.laws-helper__fine-revoke:not(.laws-helper__fine-revoke_disabled):hover{border-color:#f4f1e133}}
 .laws-helper__fine-revoke_active{background:rgba(226,85,68,.12);border-color:rgba(226,85,68,.5)}
 .laws-helper__fine-revoke_disabled{cursor:not-allowed;opacity:0.4}
 .laws-helper__fine-revoke .laws-helper__checkbox_checked{background:#e25544;border-color:#e25544}
-.laws-helper__fine-revoke-label{color:#f4f1e1cc;font-size:1.11vh;font-weight:700;letter-spacing:0.02vh;text-transform:uppercase}
+.laws-helper__fine-revoke-label{color:#f4f1e1cc;font-size:0.93vh;font-weight:700;letter-spacing:0;text-transform:uppercase;white-space:nowrap}
 .laws-helper__fine-revoke_active .laws-helper__fine-revoke-label{color:#e25544}
 
 /* Текст загрузки/ошибки в левой колонке */
