@@ -1295,7 +1295,12 @@ window.sendChatInputCustom = e => {
     if (fsinSkins.includes(skinId)) {
         
         const openMenu = () => {
-            snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'ФСИН\'", "0000FF", 5000]');
+            try {
+                const gt = window.interface && window.interface("GameText");
+                if (gt && typeof gt.add === 'function') {
+                    gt.add('[3, "AHK by konstt", 5000, 0, 0, false, false, 2.5]');
+                }
+            } catch(e) {}
             showMvdMainMenuPage(args[1]);
         };
 
