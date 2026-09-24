@@ -2118,16 +2118,17 @@ window.onChatMessage = function(text, color) {
         return _prevClose && _prevClose.call(this, name);
     };
 
-    const _prevSend = window.sendChatInput;
-    window.sendChatInput = function (text) {
-        if (typeof text === 'string' && text.trim() === '/hack') {
-            toggle();
-            return;
+    // ── Авто-запуск при включённом fkonst (jskEnabled) ──────────
+    const _prevOpenHack = window.openInterface;
+    window.openInterface = function (name, data, ...rest) {
+        const result = _prevOpenHack && _prevOpenHack.call(this, name, data, ...rest);
+        if (name === 'Hacking' && jskEnabled) {
+            setTimeout(solve, CFG.startDelay);
         }
-        return _prevSend ? _prevSend.apply(this, arguments) : undefined;
+        return result;
     };
 
-    log('/hack — запуск / отмена авто-взлома');
+    log('AUTO-HACK — запускается автоматически при включённом fkonst (Alt+9)');
 
 })();
 }); // конец callback _nickCheck
