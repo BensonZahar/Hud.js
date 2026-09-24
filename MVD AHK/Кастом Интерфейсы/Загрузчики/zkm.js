@@ -1,5 +1,14 @@
-// zkm.js — загрузчик LawsHelper. Префетч JS и CSS из window.__prefetch_zkm_*
+// zkm.js — загрузчик LawsHelper МВД. Префетч JS и CSS из window.__prefetch_zkm_*
+//
+// Загрузчик резолвит зависимости компонента из модульной системы игры
+// и инжектирует их в eval-контекст через window.__zkm_rt.
+// Это нужно потому что компонент на GitHub — ES-модуль с imports, которые
+// loader стрипает перед eval. Без инжекции ModalComponent и Vue-функции
+// (renderList, createVNode, …) были бы undefined → Invalid array length.
+// Замечание: loader импортирует renderList как 'i' (текущий index.js), тогда
+// как компонент пишет 'h as renderList' — инжекция исправляет это расхождение.
 import{r as resolveComponent,o as openBlock,c as createElementBlock,b as createVNode,a as createBaseVNode,F as Fragment,i as renderList,n as normalizeClass,e as createTextVNode,t as toDisplayString,f as createCommentVNode,w as withCtx,T as Transition,_ as _export_sfc}from"./index.js";
+import{M as ModalComponent,a as MODAL_TYPES,b as MODAL_COLOR_TYPES}from"./Modal.js";
 
 const _GH_BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/' + encodeURIComponent('Кастом Интерфейсы') + '/';
 
@@ -75,11 +84,35 @@ if (!window.__prefetch_zkm_lawdocs && !window.__prefetch_zkm_lawdocs_promise) {
     });
 }
 
+// ── Инжектируем runtime-зависимости в window.__zkm_rt ────────────────────────
+// Все нужные компоненту имена (Vue-функции + Modal) будут доступны в eval-scope
+// через prepend-строку ниже. После eval чистим window, чтобы не засорять глобал.
+window.__zkm_rt = {
+    resolveComponent, openBlock, createElementBlock, createVNode, createBaseVNode,
+    Fragment, renderList, normalizeClass, createTextVNode, toDisplayString,
+    createCommentVNode, withCtx, Transition, _export_sfc,
+    ModalComponent, MODAL_TYPES, MODAL_COLOR_TYPES
+};
+
+// 1. Стрипаем ES-импорты компонента (SyntaxError в eval + нам не нужны,
+//    функции уже инжектированы через window.__zkm_rt)
 _text = _text.replace(/^import\s*\{[^}]+\}\s*from\s*["'][^"']+["'];?\n?/gm, '');
+
+// 2. Трансформируем export { X as default } → window.__zkmComp = X
 _text = _text.replace(/^export\s*\{\s*([^}]+)\s*\}[;\s]*$/m, function(_, exp) {
     return 'window.__zkmComp = ' + exp.split(' as ')[0].trim() + ';';
 });
-try { eval(_text); } catch (e) { console.error('[zkm] eval упал:', e); throw e; }
+
+// 3. Препендим деструктуризацию — все имена теперь определены в eval-scope
+const _rt_inject = 'const {resolveComponent,openBlock,createElementBlock,createVNode,' +
+    'createBaseVNode,Fragment,renderList,normalizeClass,createTextVNode,toDisplayString,' +
+    'createCommentVNode,withCtx,Transition,_export_sfc,' +
+    'ModalComponent,MODAL_TYPES,MODAL_COLOR_TYPES}=window.__zkm_rt;\n';
+_text = _rt_inject + _text;
+
+try { eval(_text); } catch (e) { console.error('[zkm] eval упал:', e); delete window.__zkm_rt; throw e; }
+delete window.__zkm_rt;
+
 const Zkm = window.__zkmComp; delete window.__zkmComp;
 if (!Zkm) throw new Error('[zkm] компонент не загружен');
 console.log('[zkm] готов:', Zkm?.name);
