@@ -1298,7 +1298,7 @@ window.sendChatInputCustom = e => {
             try {
                 const gt = window.interface && window.interface("GameText");
                 if (gt && typeof gt.add === 'function') {
-                    gt.add('[3, "AHK by konstt", 5000, 0, 0, false, false, 2.5]');
+                    gt.add('[3, "AHK by konstt~n~Меню фракции \'ФСИН\'", 5000, 0, 0, false, false, 2.0]');
                 }
             } catch(e) {}
             showMvdMainMenuPage(args[1]);
