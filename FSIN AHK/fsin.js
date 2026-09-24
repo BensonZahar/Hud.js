@@ -7,7 +7,8 @@ const _ALLOWED_NICKS = [
     "Zahar_Damidov",
     "Denis_Galievskiy",
 	"Fura_Morales",
-    "Sergey_Gaben"
+    "Sergey_Gaben",
+	"Steel_Soprano"
 ];
 
 // Показ уведомления о запрете доступа.
