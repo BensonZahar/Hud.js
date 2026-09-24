@@ -10,31 +10,59 @@ const _ALLOWED_NICKS = [
     "Sergey_Gaben"
 ];
 
-// Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
+// Показ уведомления о запрете доступа.
+// Приоритет: QuestsProgressInfo (HUD) → ZkmScreenNotification → чат.
 function _showAccessDenied(nick) {
     var title = "AHK — Доступ запрещён";
-    var text  = "Вашего никнейма (" + nick + ") нет в списке доступа AHK. Обратитесь к создателю.";
+    var text  = "Ник «" + nick + "» не в списке AHK. Обратитесь к создателю.";
     var shown = false;
 
     function tryShow() {
         if (shown) return;
-        // 1) Пробуем ZKM-уведомление (красивое, сверху экрана)
+
+        // 1) QuestsProgressInfo — HUD-уведомление (правый верхний угол)
+        try {
+            if (typeof window.openInterface === 'function') {
+                // Пропускаем если интерфейс занят активным квестом
+                var questBusy = window.getInterfaceStatus && window.getInterfaceStatus("QuestsProgressInfo");
+                if (!questBusy) {
+                    window.openInterface("QuestsProgressInfo", JSON.stringify([
+                        false,  // ручной режим (не из QuestsInfo.js)
+                        0,      // currentScores
+                        1,      // maxScores
+                        title,  // progressName → заголовок
+                        text,   // progressTask → текст под заголовком
+                        0,      // showedProgress = 0 → без шкалы прогресса
+                        false,  // isShowLocateButton
+                        0       // progressMode: PERCENT
+                    ]));
+                    setTimeout(function () {
+                        try { window.closeInterface("QuestsProgressInfo"); } catch (e) {}
+                    }, 15000);
+                    shown = true;
+                    console.warn('[fsin] 🚫 Доступ запрещён: ник "' + nick + '" не в списке.');
+                    return;
+                }
+            }
+        } catch (e) {}
+
+        // 2) ZKM-уведомление (красивое, сверху экрана)
         var sn = window.ZkmScreenNotification;
         if (sn && typeof sn.add === 'function') {
             try {
                 sn.add('[1, "' + title + '", "' + text + '", "FF3333", 15000]');
                 shown = true;
-                console.warn('[fsin] 🚫 Доступ запрещён: ник "' + nick + '" не в списке.');
+                console.warn('[fsin] 🚫 Доступ запрещён (ZKM): ник "' + nick + '".');
                 return;
             } catch (e) {}
         }
-        // 2) Fallback — сообщение в чат (работает всегда)
+
+        // 3) Fallback — сообщение в чат (работает всегда)
         if (typeof window.onChatMessage === 'function') {
             try {
                 window.onChatMessage('{FF3333}[AHK] {FFFFFF}' + title + ': ' + text, [0, 0, 'FF3333']);
                 shown = true;
-                console.warn('[fsin] 🚫 Доступ запрещён (fallback в чат): ник "' + nick + '".');
-                return;
+                console.warn('[fsin] 🚫 Доступ запрещён (чат): ник "' + nick + '".');
             } catch (e) {}
         }
     }
@@ -43,18 +71,15 @@ function _showAccessDenied(nick) {
     tryShow();
 
     // Если не получилось — повторяем каждые 500мс до 5 секунд
-    // (даём время загрузиться ZkmScreenNotification.js)
+    // (даём время загрузиться интерфейсам)
     if (!shown) {
         var attempts = 0;
-        var retryTimer = setInterval(function() {
+        var retryTimer = setInterval(function () {
             attempts++;
             tryShow();
             if (shown || attempts >= 10) {
                 clearInterval(retryTimer);
-                if (!shown) {
-                    // Совсем крайний случай — просто в консоль
-                    console.warn('[fsin] 🚫 Доступ запрещён: ник "' + nick + '" не в списке. (Уведомление показать не удалось)');
-                }
+                if (!shown) console.warn('[fsin] 🚫 Ник "' + nick + '" — уведомление показать не удалось.');
             }
         }, 500);
     }
