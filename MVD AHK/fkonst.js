@@ -254,9 +254,9 @@ function _setExpect(cmd, id) {
 function _notifyToggle() {
     if (typeof window.onChatMessage !== 'function') return;
     if (jskEnabled) {
-        window.onChatMessage('{999999}FKONST — {33DD77}Включён', '999999FF');
+        window.onChatMessage('{999999}FKONST2 — {33DD77}Включён', '999999FF');
     } else {
-        window.onChatMessage('{999999}FKONST — {EE4444}Выключён', '999999FF');
+        window.onChatMessage('{999999}FKONST2 — {EE4444}Выключён', '999999FF');
     }
 
     // Автоудаление уведомления через 3 секунды
