@@ -29,7 +29,7 @@
             if (gt && typeof gt.add === 'function') {
                 // Тип 3 = нижний GameText (как в /me, /do)
                 // ~n~ = перенос строки, ~g~ = зелёный цвет
-                gt.add('[3, "AHK by konstt~n~~g~Запущен", 5000, 0, 0, false, false, 2.0]');
+                gt.add('[3, "АНК <span style=\\"color:#C0C0C0\\">ФСИН</span> by konstt~n~~g~Запущен", 5000, 0, 0, false, false, 2.0]');
                 console.log('[AHK] ✅ Стартовое уведомление показано');
                 return true;
             }
