@@ -564,3 +564,132 @@ loadScriptFromGitHub(username, repo, folder, fkonstFilename, 5, function() {
     }
 })();
 
+// === HASSLE HUD COMPONENT PATCH (runs in index.js module context) ===
+// Oe = openBlock, Ao = createBlock, sr = createCommentVNode — available here
+// Mu (Hud component) — loaded via dynamic import
+(function __hasComponentPatch() {
+    console.log("[HAS-COMP] Инициализация компонентного патча...");
+    
+    import("./Hud.js").then(function(mod) {
+        var Mu = mod && mod.default;
+        if (!Mu || typeof Mu !== "object") {
+            console.warn("[HAS-COMP] Mu не найден в Hud.js module");
+            return;
+        }
+        
+        // 1. Patch data() — добавляем __hassleForced
+        if (typeof Mu.data === "function") {
+            var __hasOrigData = Mu.data;
+            Mu.data = function() {
+                var s = __hasOrigData.apply(this, arguments);
+                if (s && typeof s.__hassleForced === "undefined") s.__hassleForced = false;
+                return s;
+            };
+            console.log("[HAS-COMP] ✅ data() обёрнут");
+        }
+        
+        // 2. Patch computed.isHassleHud
+        if (Mu.computed) {
+            Mu.computed.isHassleHud = function() { return !!this.__hassleForced; };
+            console.log("[HAS-COMP] ✅ computed.isHassleHud переопределён");
+        }
+        
+        // 3. Replace Chat → RadmirChat
+        if (Mu.components && Mu.components.RadmirChat) {
+            var rc = Mu.components.RadmirChat;
+            if (rc.props) {
+                if (rc.props.isHudControls) rc.props.isHudControls.default = true;
+                if (rc.props.canChatFadeout) rc.props.canChatFadeout.default = true;
+                if (rc.props.useChatAnimation) rc.props.useChatAnimation.default = true;
+            }
+            Mu.components.Chat = rc;
+            console.log("[HAS-COMP] ✅ Chat → RadmirChat");
+        }
+        
+        // 4. Patch HudHassle.render — inject VoiceChat
+        if (Mu.components && Mu.components.HudHassle && Mu.components.HudRadmir) {
+            var hudHassle = Mu.components.HudHassle;
+            var voiceChatComp = Mu.components.HudRadmir.components &&
+                                Mu.components.HudRadmir.components.VoiceChat;
+            var ob = (typeof Oe === "function") ? Oe : null;
+            var cb = (typeof Ao === "function") ? Ao : null;
+            var cc = (typeof sr === "function") ? sr : null;
+            
+            if (ob && cb && cc && voiceChatComp && typeof hudHassle.render === "function") {
+                var __hasOrigHassleRender = hudHassle.render;
+                hudHassle.render = function() {
+                    var vnode = __hasOrigHassleRender.apply(this, arguments);
+                    try {
+                        var props = arguments[2] || {};
+                        var dataObj = props.data;
+                        if (vnode && Array.isArray(vnode.children)) {
+                            var showVoice = !!(dataObj && dataObj.useChat &&
+                                              dataObj.voiceChat && dataObj.voiceChat.show);
+                            var vcNode;
+                            if (showVoice) {
+                                var cfs = (window.App && window.App.chatFontSize) || 0;
+                                var cps = (window.App && window.App.chatPageSize) || 1;
+                                var chpx = (window.App && typeof window.App.vhToPx === "function")
+                                    ? window.App.vhToPx(2.22 + 0.15 * cfs) * cps : 0;
+                                ob();
+                                vcNode = cb(voiceChatComp, {
+                                    key: 0,
+                                    entries: dataObj.voiceChat.entries,
+                                    chatHeightPx: chpx,
+                                    isHudControls: dataObj.isHudControls,
+                                    isShowButtons: dataObj.voiceChat.showButtons,
+                                    isTransparent: window.isOpenedChat ? window.isOpenedChat() : false
+                                }, null, 8, ["entries","chatHeightPx","isHudControls","isShowButtons","isTransparent"]);
+                            } else {
+                                vcNode = cc("", true);
+                            }
+                            vnode.children.push(vcNode);
+                            if (Array.isArray(vnode.dynamicChildren)) vnode.dynamicChildren.push(vcNode);
+                        }
+                    } catch (err) { console.warn("[HAS-COMP] VoiceChat inject error:", err); }
+                    return vnode;
+                };
+                console.log("[HAS-COMP] ✅ HudHassle.render — VoiceChat injected");
+            } else {
+                console.warn("[HAS-COMP] ⚠️ Vue helpers или VoiceChat недоступны:",
+                    { ob: !!ob, cb: !!cb, cc: !!cc, vc: !!voiceChatComp });
+            }
+        }
+        
+        // 5. Patch Hud.render — fix chat fragment key
+        if (typeof Mu.render === "function") {
+            var FRAGMENT_SYM = Symbol.for("v-fgt");
+            var __hasOrigHudRender = Mu.render;
+            Mu.render = function() {
+                var vnode = __hasOrigHudRender.apply(this, arguments);
+                try {
+                    (function fixKey(vn) {
+                        if (!vn) return;
+                        if (vn.type === FRAGMENT_SYM && (vn.key === 2 || vn.key === 3)) {
+                            if (vn.children && vn.children.length > 0) {
+                                for (var i = 0; i < vn.children.length; i++) {
+                                    var ch = vn.children[i];
+                                    if (ch && ch.props && ch.props.ref === "chat") {
+                                        vn.key = "__has_chat_fixed__";
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (vn.children && Array.isArray(vn.children)) {
+                            for (var j = 0; j < vn.children.length; j++) fixKey(vn.children[j]);
+                        }
+                    })(vnode);
+                } catch (err) { console.warn("[HAS-COMP] fixChatFragmentKey error:", err); }
+                return vnode;
+            };
+            console.log("[HAS-COMP] ✅ Hud.render — fragment key fixed");
+        }
+        
+        console.log("[HAS-COMP] ✅ Все компонентные патчи применены");
+    }).catch(function(err) {
+        console.warn("[HAS-COMP] ❌ Не удалось загрузить Hud.js:", err);
+    });
+})();
+// === END HASSLE HUD COMPONENT PATCH ===
+})();
