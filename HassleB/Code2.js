@@ -2737,7 +2737,7 @@ if (document.readyState === 'loading') {
 const AI = {
     // ⚠️ ВСТАВЬТЕ СЮДА СВОЙ API КЛЮЧ от Google Gemini
     // Получить бесплатно: https://aistudio.google.com/app/apikey
-    apiKey: '',
+    apiKey: 'AQ.Ab8RN6LHf0JHG-WgL2tX0rj79QNTXUZr36wP7hjlpDqlShwinw',
 
     // Модель (бесплатная, быстрая)
     model: 'gemini-2.0-flash-lite',
