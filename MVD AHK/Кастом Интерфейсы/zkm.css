@@ -408,7 +408,7 @@
 .laws-helper__wanted-empty{align-items:center;display:flex;flex-direction:column;flex:0 0 auto;gap:0;justify-content:flex-start;padding-top:0.56vh}
 .laws-helper__wanted-star-icon{display:none}
 .laws-helper__wanted-empty-text{display:flex;flex-direction:column;gap:0.19vh;text-align:center}
-.laws-helper__wanted-empty-text span{color:#f4f1e166;font-size:1.04vh;line-height:1.4}
+.laws-helper__wanted-empty-text span{color:#f4f1e166;font-size:0.93vh;line-height:1.3}
 
 /* Список выбранных статей в правой панели */
 .laws-helper__wanted-selected-list{display:flex;flex:0 1 auto;flex-direction:column;gap:0.37vh;margin-bottom:0.74vh;max-height:8vh;min-height:0;overflow-y:auto}
@@ -489,14 +489,13 @@
 /* Чекбокс изъятия ВУ */
 .laws-helper__fine-revoke{
     align-items:center;
-    border:0.15vh solid #f4f1e11a;
-    border-radius:0.37vh;
+    border-radius:0.19vh;
     cursor:pointer;
     display:flex;
     flex-shrink:0;
-    gap:0.56vh;
-    margin-top:0.74vh;
-    padding:0.56vh 0.74vh;
+    gap:0.46vh;
+    margin-top:0.19vh;
+    padding:0.19vh 0.37vh;
     transition:all 0.12s ease
 }
 @media (platform:pc){.laws-helper__fine-revoke:not(.laws-helper__fine-revoke_disabled):hover{border-color:#f4f1e133}}
@@ -508,3 +507,11 @@
 
 /* Текст загрузки/ошибки в левой колонке */
 .laws-helper__reader-empty-text{color:#f4f1e166;font-family:"Open Sans",var(--fallback-font);font-size:1.11vh;font-style:italic;margin:1.85vh;text-align:center}
+
+/* ── Ужатие правой панели ШТРАФЫ (fine-title-line есть только там) ── */
+/* Строка "СУММА ШТРАФА": меньший отступ сверху */
+.laws-helper__fine-title-line ~ .laws-helper__wanted-stars-row{padding-top:0.37vh}
+/* Метка "ID НАРУШИТЕЛЯ": меньшие отступы */
+.laws-helper__fine-title-line ~ .laws-helper__wanted-id-label{margin-top:0.56vh;margin-bottom:0.19vh}
+/* Поле ID: меньший padding сверху/снизу */
+.laws-helper__fine-title-line ~ .laws-helper__wanted-id-input{padding-top:0.46vh;padding-bottom:0.46vh}
