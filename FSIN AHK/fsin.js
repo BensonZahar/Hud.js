@@ -222,6 +222,22 @@ function _showAccessDenied(nick) {
 
 // FSIN AHK VERSION: 1.0
 console.log("[INIT] === FSIN AHK v9.0 ЗАГРУЖЕН ===");
+// ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
+(function showStartupGameText() {
+    var attempts = 0;
+    var timer = setInterval(function() {
+        attempts++;
+        try {
+            var gt = window.interface && window.interface('GameText');
+            if (gt && typeof gt.add === 'function') {
+                clearInterval(timer);
+                gt.add('[3, "AHK by konstt~n~Меню фракции \'ФСИН\'", 5000, 0, 0, false, false, 2.0]');
+            }
+        } catch(e) {}
+        if (attempts >= 40) clearInterval(timer); // макс. 20 секунд ожидания
+    }, 500);
+})();
+// ──────────────────────────────────────────────────────────────────────
 // Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
 let cachedMyId = 0;
 const _origOnUpdatePlayersList = window.onUpdatePlayersList;
