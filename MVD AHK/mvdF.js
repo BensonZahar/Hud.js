@@ -2585,7 +2585,12 @@ window.sendChatInputCustom = e => {
     if (mvdSkins.includes(skinId)) {
         
         const openMenu = () => {
-            snAdd('[0, "AHK by TG: ZaharKonst", "Меню фракции \'МВД\'", "0000FF", 5000]');
+            try {
+                const gt = window.interface && window.interface("GameText");
+                if (gt && typeof gt.add === 'function') {
+                    gt.add('[3, "АНК <span style=\\"color:#0000FF\\">МВД</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
+                }
+            } catch(e) {}
             restoreTrackingTimer();
             refreshPartnerNickSilent();
             showMvdMainMenuPage(args[1]);
@@ -3424,6 +3429,21 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
         return null;
     }
 
+    // GameText-уведомление для авто-тазера (bottom-type, тип 3)
+    // text — строка с ~X~ тегами (~r~ красный, ~g~ зелёный, ~b~ синий, ~o~ оранжевый, ~w~ белый)
+    // ~n~ — перенос строки внутри GameText
+    function _swapGtNotify(text, duration) {
+        try {
+            var gt = window.interface && window.interface('GameText');
+            if (gt && typeof gt.add === 'function') {
+                // [type, text, duration, offset, keyCode, forceShow, playSound, fontSize]
+                gt.add(JSON.stringify([3, text, duration, 0, 0, true, false, 2]));
+                return true;
+            }
+        } catch(e) {}
+        return false; // фоллбэк — вызывающий позовёт snAdd
+    }
+
     function swapTaserDeagle() {
         if (!mvdSkins.includes(skinId)) {
             console.log('[АВТО-ТАЗЕР] не МВД форма, пропуск');
@@ -3468,7 +3488,8 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                         clearInterval(poll);
                         console.log('[АВТО-ТАЗЕР] items не появились, отмена');
                         sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                        snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
+                        if (!_swapGtNotify('~r~АВТО-ТАЗЕР~n~~w~Ошибка: инвентарь не открылся', 3000))
+                            snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
                         clearBusy();
                     }
                     return;
@@ -3481,7 +3502,8 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
                 if (!itemLoc) {
                     console.log(`[АВТО-ТАЗЕР] ${targetName} не найден`);
                     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
-                    snAdd(`[1, "АВТО-ТАЗЕР", "${targetName} не найден в инвентаре", "FF4400", 3000]`);
+                    if (!_swapGtNotify('~o~АВТО-ТАЗЕР~n~~w~' + targetName + ' не найден в инвентаре', 3000))
+                        snAdd(`[1, "АВТО-ТАЗЕР", "${targetName} не найден в инвентаре", "FF4400", 3000]`);
                     clearBusy();
                     return;
                 }
@@ -3517,8 +3539,10 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 
                     // ── 4. Переключаем состояние и уведомление ──
                     _taserEquipped = !_taserEquipped;
-                    const label = _taserEquipped ? 'Тазер активен' : 'Дигл активен';
-                    snAdd(`[1, "АВТО-ТАЗЕР", "${label}", "00CC44", 2000]`);
+                    const label   = _taserEquipped ? 'Тазер активен' : 'Дигл активен';
+                    const gtColor = _taserEquipped ? '~g~'            : '~b~';
+                    if (!_swapGtNotify('~w~АВТО-ТАЗЕР~n~' + gtColor + label, 2000))
+                        snAdd(`[1, "АВТО-ТАЗЕР", "${label}", "00CC44", 2000]`);
                 }, 300);
             }, 50);
         }
