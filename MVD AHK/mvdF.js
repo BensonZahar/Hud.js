@@ -5,27 +5,9 @@ const NICK_CHECK_ENABLED = true; // ← поменяй на true чтобы вк
 
 const _ALLOWED_NICKS = [
     "Zahar_Damido",
-   // "Maxim_Vortex",
     "Denis_Galievskiy",
-//  "Cosmos_Dissapointed",
 	"Casper_Paradise",
-//	"Artemka_Hasanov",
-//	"Andrey_Pulya",
-//  "Maksimka_DeMontana",
-//	"Kirill_Dogadin",
-//	"Cooper_Lorenzo",
-//	"Kiramo_Kamishiro",
-//	"Victoria_West",
-  //  "Murad_Sixseven",
-	// "Shine_Reinhartz",
-//	"Sergo_ Chuk",
 	"Fura_Morales",
-//	"Dima_Borzyk",
-//	"Sergei_Karganov",
-//	"Arslanbei_Dragon",
-//	"Danya_Zambidis",
-//	"Artem_Shapobov",
-	"Kenzo_Morales",
 	"Sergey_Gaben"
 ];
 
