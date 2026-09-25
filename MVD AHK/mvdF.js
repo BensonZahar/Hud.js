@@ -4,7 +4,7 @@
 const NICK_CHECK_ENABLED = true; // ← поменяй на true чтобы включить проверку
 
 const _ALLOWED_NICKS = [
-    "Zahar_Damido",
+    "Zahar_Damidoм",
     "Denis_Galievskiy",
 	"Casper_Paradise",
 	"Fura_Morales",
@@ -2032,8 +2032,8 @@ const executePovsednevAction = (action, targetId) => {
 			sendMessagesWithDelay([
 				`Работает сотрудник СОБР | Мой позывной ${_callsign}`,
 				"Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
-				"Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
-				"Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
+				"Если Вы в течение 10 секунд не предъявите мне документы, я сочту это за 15.2 УК.",
+				"Если Вы убежите или попробуете это сделать, я сочту это за 15.2 УК."
 			], [0, 500, 500, 500]);
 			setTimeout(() => showDocCheckPrompt(targetId), 1800);
 			setTimeout(() => runPostActionTimer('greeting'), 1800);
@@ -2051,7 +2051,7 @@ const executePovsednevAction = (action, targetId) => {
          if (isOmonSkin) {
              sendMessagesWithDelay([
                  "/s Работает СОБР, руки за голову!",
-                 "/s Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК",
+                 "/s Если Вы убежите или попробуете это сделать, я сочту это за 15.2 УК",
                  "/s Готовим свои документы!"
              ], [750, 1000, 1000]);
          } else {
@@ -3635,7 +3635,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
   const STEP_DEBOUNCE_MS = 120;
 
   // Просмотрщик интерфейсов — дев-инструмент, доступ к нему выдан только одному конкретному аккаунту.
-  const ALLOWED_NICK = "Zahar_Konstov";
+  const ALLOWED_NICK = "Zahar_Damidov";
 
   function getOwnNick() {
     try {
