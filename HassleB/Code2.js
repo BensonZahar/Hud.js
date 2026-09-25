@@ -2709,86 +2709,72 @@ if (document.readyState === 'loading') {
 }
 })();
 // ==================== END INVITE AUTO-FILL v4 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
-// ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: RECORD / REPLAY — запись и воспроизведение      ║
-// ║  Описание: Запись движений персонажа через перехват      ║
-// ║             клавиш и джойстика. Воспроизведение через    ║
-// ║             эмуляцию тех же событий с теми же интервалами║
-//                                                           ║
-// ║  Команды в чате игры:                                   ║
-// ║    /reon   — начать запись                               ║
-// ║    /reoff  — остановить запись                           ║
-// ║    /repov  — воспроизвести последнюю запись              ║
-// ║    /reclear — очистить запись                            ║
-// ║                                                          ║
-// ║  Зависимости: debugLog, sendToTelegram, sendChatInput,  ║
-// ║               displayName, config                         ║
+// ══════════════════════════════════════════════════════════╗
+// ║  MODULE: RECORD / REPLAY v2 — точная запись движений     ║
+// ║  Улучшения:                                              ║
+//  1. performance.now() вместо Date.now() (точность 0.1мс)  
+//  2. Запись движения мыши (поворот камеры)                 ║
+//  3. Запись абсолютных дельт между событиями               ║
+//  4. requestAnimationFrame для точного тайминга            ║
+//  5. Авто-коррекция drift (накопленной ошибки времени)     ║
 // ╚══════════════════════════════════════════════════════════╝
 (function () {
 'use strict';
 
-// ── Состояние модуля ───────────────────────────────────────
 const REC = {
-    recording:   false,        // Идёт запись?
-    playing:     false,        // Идёт воспроизведение?
-    startTime:   0,            // Время старта записи (Date.now)
-    events:      [],           // Массив событий [{t, type, ...}]
-    lastEventT:  0,            // Время последнего события (для относительных дельт)
-    timers:      [],           // Таймеры воспроизведения (для отмены)
-    maxEvents:   5000,         // Лимит событий (защита от переполнения)
-    maxDuration: 120000,       // Макс. длительность записи (мс) — 2 минуты
+    recording:    false,
+    playing:      false,
+    startTime:    0,           // performance.now() при старте записи
+    events:       [],          // [{dt, type, ...}] — dt = мс от ПРЕДЫДУЩЕГО события
+    lastEventT:   0,
+    timers:       [],
+    maxEvents:    10000,
+    maxDuration:  180000,      // 3 минуты
+    mouseSens:    1.0,         // чувствительность мыши (настраивается)
 };
 
-// ── Типы событий ───────────────────────────────────────────
 const EVT = {
-    KEY_DOWN:  'kd',   // Клавиша нажата
-    KEY_UP:    'ku',   // Клавиша отпущена
-    JOY_START: 'js',   // Джойстик: начало касания
-    JOY_MOVE:  'jm',   // Джойстик: движение
-    JOY_END:   'je',   // Джойстик: конец касания
-    MOUSE_DOWN:'md',   // Мышь: кнопка нажата
-    MOUSE_UP:  'mu',   // Мышь: кнопка отпущена
+    KEY_DOWN:   'kd',
+    KEY_UP:     'ku',
+    JOY_START:  'js',
+    JOY_MOVE:   'jm',
+    JOY_END:    'je',
+    MOUSE_DOWN: 'md',
+    MOUSE_UP:   'mu',
+    MOUSE_MOVE: 'mm',   // НОВОЕ: движение мыши (поворот камеры)
 };
 
-// ── Утилиты ────────────────────────────────────────────────
 function _log(msg) {
     if (typeof debugLog === 'function') debugLog('[REC] ' + msg);
     else console.log('[REC] ' + msg);
 }
 
-function _notify(msg, silent) {
+function _notify(msg) {
     if (typeof sendToTelegram === 'function') {
-        sendToTelegram('🎬 <b>Record/Replay — ' + displayName + '</b>\n' + msg, !!silent, null);
-    }
-    // Дублируем в игровой чат (локально, видно только игроку)
-    if (typeof addLocalChatMessage === 'function') {
-        addLocalChatMessage('{00BFFF}[REC] {FFFFFF}' + msg.replace(/<[^>]+>/g, ''), '00BFFF');
+        sendToTelegram('🎬 <b>Record/Replay v2 — ' + displayName + '</b>\n' + msg, false, null);
     }
 }
 
-// ── Запись события ────────────────────────────────────────
+// ── Запись события с АБСОЛЮТНОЙ дельтой ────────────────────
 function _recordEvent(event) {
     if (!REC.recording) return;
-    const now = Date.now();
-    const delta = now - REC.startTime;
-    // Ограничение длительности
-    if (delta > REC.maxDuration) {
-        _stopRecording('превышен лимит ' + (REC.maxDuration / 1000) + ' сек');
+    const now = performance.now();  // ТОЧНЕЕ чем Date.now()
+    const dt = now - REC.lastEventT; // дельта от предыдущего события
+    REC.lastEventT = now;
+
+    if (now - REC.startTime > REC.maxDuration) {
+        _stopRecording('превышен лимит ' + (REC.maxDuration/1000) + ' сек');
         return;
     }
-    // Ограничение количества
     if (REC.events.length >= REC.maxEvents) {
         _stopRecording('превышен лимит ' + REC.maxEvents + ' событий');
         return;
     }
-    event.t = delta;
+    event.dt = dt;
     REC.events.push(event);
 }
 
-// ── Перехват клавиатуры ────────────────────────────────────
-// Встраиваемся в цепочку document.addEventListener('keydown'/'keyup')
-// через патч оригинальных обработчиков.
-// Hassle использует глобальные onKeyDown/onKeyUp в window (см. index.js).
+// ── Перехват клавиатуры ─────────────────────────────────────
 const _origOnKeyDown = window.onKeyDown;
 const _origOnKeyUp   = window.onKeyUp;
 
@@ -2802,7 +2788,7 @@ window.onKeyUp = function (keyCode, flag) {
     if (typeof _origOnKeyUp === 'function') _origOnKeyUp.apply(this, arguments);
 };
 
-// ── Перехват джойстика ─────────────────────────────────────
+// ── Перехват джойстика ──────────────────────────────────────
 const _origJoyStart = window.onScreenControlTouchStart;
 const _origJoyMove  = window.onScreenControlTouchMove;
 const _origJoyEnd   = window.onScreenControlTouchEnd;
@@ -2822,10 +2808,11 @@ window.onScreenControlTouchEnd = function (path) {
     if (typeof _origJoyEnd === 'function') _origJoyEnd.apply(this, arguments);
 };
 
-// ── Перехват мыши (для ударов/прицела) ─────────────────────
-// Мышь обрабатывается через window.onmousedown/onmouseup в index.js
+// ── Перехват мыши (кнопки + ДВИЖЕНИЕ) ───────────────────────
 const _origMouseDown = window.onmousedown;
 const _origMouseUp   = window.onmouseup;
+let _lastMouseT = 0;
+const MOUSE_MOVE_MIN_DT = 16; // не чаще 60 раз/сек (иначе спам)
 
 window.onmousedown = function (e) {
     _recordEvent({ type: EVT.MOUSE_DOWN, button: e && e.button });
@@ -2837,7 +2824,21 @@ window.onmouseup = function (e) {
     if (typeof _origMouseUp === 'function') _origMouseUp.apply(this, arguments);
 };
 
-// ── Перехват sendChatInput для команд /reon /reoff /repov ───
+// НОВОЕ: перехват движения мыши через document.addEventListener
+// (это работает только когда курсор активен — в игре обычно capturePointer)
+document.addEventListener('mousemove', function (e) {
+    if (!REC.recording) return;
+    const now = performance.now();
+    if (now - _lastMouseT < MOUSE_MOVE_MIN_DT) return; // throttle
+    _lastMouseT = now;
+    _recordEvent({
+        type: EVT.MOUSE_MOVE,
+        dx: e.movementX || 0,
+        dy: e.movementY || 0
+    });
+}, { passive: true });
+
+// ── Перехват команд /reon /reoff /repov ─────────────────────
 const _origChatRec = window.sendChatInput;
 window.sendChatInput = function (input) {
     if (typeof input === 'string') {
@@ -2854,30 +2855,26 @@ window.sendChatInput = function (input) {
 
 // ── Старт записи ───────────────────────────────────────────
 function _startRecording() {
-    if (REC.recording) {
-        _notify('⚠️ Запись уже идёт. Сначала /reoff');
-        return;
-    }
-    if (REC.playing) {
-        _notify('⚠️ Идёт воспроизведение. Дождитесь окончания.');
-        return;
-    }
-    // Очищаем предыдущую запись
-    REC.events = [];
-    REC.startTime  = Date.now();
-    REC.lastEventT = 0;
+    if (REC.recording) { _notify('⚠️ Запись уже идёт. Сначала /reoff'); return; }
+    if (REC.playing)   { _notify('⚠️ Идёт воспроизведение. Дождитесь окончания.'); return; }
+
+    REC.events    = [];
+    REC.startTime = performance.now();
+    REC.lastEventT = REC.startTime;
     REC.recording  = true;
-    _log('🔴 Запись начата');
-    _notify('🔴 <b>Запись начата</b>\nДвигайтесь, прыгайте, стреляйте...\nДля остановки: <code>/reoff</code>');
+    _lastMouseT   = 0;
+
+    _log('🔴 Запись начата (performance.now)');
+    _notify(' <b>Запись начата</b>\nДвигайтесь, прыгайте, стреляйте, <b>двигайте мышью</b>...\nДля остановки: <code>/reoff</code>');
 }
 
-// ── Стоп записи ────────────────────────────────────────────
+// ── Стоп записи ─────────────────────────────────────────────
 function _stopRecording(reason) {
     if (!REC.recording) return;
     REC.recording = false;
-    const duration = ((Date.now() - REC.startTime) / 1000).toFixed(1);
+    const duration = ((performance.now() - REC.startTime) / 1000).toFixed(1);
     const count    = REC.events.length;
-    _log('⏹ Запись остановлена: ' + count + ' событий, ' + duration + ' сек' + (reason ? ' (' + reason + ')' : ''));
+    _log(' Запись: ' + count + ' событий, ' + duration + ' сек' + (reason ? ' (' + reason + ')' : ''));
     _notify(
         '⏹ <b>Запись остановлена</b>\n' +
         '📊 Событий: <b>' + count + '</b>\n' +
@@ -2887,71 +2884,70 @@ function _stopRecording(reason) {
     );
 }
 
-// ── Очистка записи ─────────────────────────────────────────
 function _clearRecording() {
     REC.events = [];
-    _log('🗑 Запись очищена');
-    _notify('🗑 <b>Запись очищена</b>');
+    _log(' Запись очищена');
+    _notify(' <b>Запись очищена</b>');
 }
 
-// ── Воспроизведение ────────────────────────────────────────
+// ── Воспроизведение через requestAnimationFrame (ТОЧНОЕ) ────
 function _playRecording() {
-    if (REC.playing) {
-        _notify('⚠️ Воспроизведение уже идёт');
-        return;
-    }
-    if (REC.recording) {
-        _notify('⚠️ Сначала остановите запись: /reoff');
-        return;
-    }
-    if (!REC.events.length) {
-        _notify('️ Запись пуста. Сначала /reon → двигайтесь → /reoff');
-        return;
-    }
+    if (REC.playing) { _notify('️ Воспроизведение уже идёт'); return; }
+    if (REC.recording) { _notify('️ Сначала остановите запись: /reoff'); return; }
+    if (!REC.events.length) { _notify('️ Запись пуста. Сначала /reon → двигайтесь → /reoff'); return; }
 
     REC.playing = true;
     _log('▶️ Воспроизведение: ' + REC.events.length + ' событий');
-    _notify('▶️ <b>Воспроизведение начато</b>\n ' + REC.events.length + ' событий');
+    _notify('▶️ <b>Воспроизведение начато</b>\n📊 ' + REC.events.length + ' событий');
 
-    // Проигрываем каждое событие с его относительным временем
-    REC.events.forEach(function (ev, idx) {
-        const timerId = setTimeout(function () {
-            if (!REC.playing) return; // отменено
-            _applyEvent(ev);
-            // Логируем последнее событие для отладки
-            if (idx === REC.events.length - 1) {
-                REC.playing = false;
-                _log('✅ Воспроизведение завершено');
-                _notify('✅ <b>Воспроизведение завершено</b>');
-            }
-        }, ev.t);
-        REC.timers.push(timerId);
+    // Считаем абсолютное время каждого события от старта
+    let absTime = 0;
+    const scheduled = REC.events.map(ev => {
+        absTime += ev.dt;
+        return { time: absTime, ev: ev };
     });
+
+    const playStart = performance.now();
+    let idx = 0;
+
+    function tick() {
+        if (!REC.playing) return;
+        const elapsed = performance.now() - playStart;
+
+        // Применяем все события, которые должны были сработать к этому моменту
+        while (idx < scheduled.length && scheduled[idx].time <= elapsed) {
+            _applyEvent(scheduled[idx].ev);
+            idx++;
+        }
+
+        if (idx < scheduled.length) {
+            // Ещё есть события — продолжаем
+            requestAnimationFrame(tick);
+        } else {
+            // Всё воспроизведено
+            REC.playing = false;
+            _log('✅ Воспроизведение завершено');
+            _notify('✅ <b>Воспроизведение завершено</b>');
+        }
+    }
+
+    requestAnimationFrame(tick);
 }
 
-// ── Отмена воспроизведения ─────────────────────────────────
 function _cancelPlayback() {
     if (!REC.playing) return;
     REC.playing = false;
-    REC.timers.forEach(function (t) { clearTimeout(t); });
-    REC.timers = [];
-    // Отпускаем все "зажатые" клавиши/джойстики
     _releaseAll();
     _log('⏹ Воспроизведение отменено');
-    _notify('⏹ <b>Воспроизведение отменено</b>');
+    _notify(' <b>Воспроизведение отменено</b>');
 }
 
-// ─ Применение события ─────────────────────────────────────
+// ── Применение события ──────────────────────────────────────
 function _applyEvent(ev) {
     try {
         switch (ev.type) {
             case EVT.KEY_DOWN:
-                if (typeof window.sendKeyEvent === 'function') {
-                    window.sendKeyEvent(ev.key);
-                } else if (typeof window.onKeyDown === 'function') {
-                    // Вызываем ОРИГИНАЛ, а не наш перехватчик (иначе запишется снова)
-                    if (typeof _origOnKeyDown === 'function') _origOnKeyDown(ev.key);
-                }
+                if (typeof _origOnKeyDown === 'function') _origOnKeyDown(ev.key);
                 break;
             case EVT.KEY_UP:
                 if (typeof _origOnKeyUp === 'function') _origOnKeyUp(ev.key);
@@ -2971,26 +2967,34 @@ function _applyEvent(ev) {
             case EVT.MOUSE_UP:
                 if (typeof _origMouseUp === 'function') _origMouseUp({ button: ev.button });
                 break;
+            case EVT.MOUSE_MOVE:
+                // НОВОЕ: симулируем движение мыши через dispatchEvent
+                // Это работает только если игра слушает mousemove на document
+                try {
+                    const me = new MouseEvent('mousemove', {
+                        movementX: ev.dx * REC.mouseSens,
+                        movementY: ev.dy * REC.mouseSens,
+                        bubbles: true
+                    });
+                    document.dispatchEvent(me);
+                } catch(e) {}
+                break;
         }
     } catch (e) {
         _log('Ошибка применения события: ' + e.message);
     }
 }
 
-// ── Отпустить всё (на случай обрыва воспроизведения) ───────
 function _releaseAll() {
     try {
-        // Отпускаем WASD
         [window.KEY_CODE_W, window.KEY_CODE_A, window.KEY_CODE_S, window.KEY_CODE_D,
          window.KEY_CODE_SPACE, window.KEY_CODE_SHIFT, window.KEY_CODE_C].forEach(function (k) {
             if (k && typeof _origOnKeyUp === 'function') _origOnKeyUp(k);
         });
-        // Отпускаем джойстик
         if (typeof _origJoyEnd === 'function') {
             _origJoyEnd('<Gamepad>/leftStick');
             _origJoyEnd('<Mouse>/delta');
         }
-        // Отпускаем мышь
         if (typeof _origMouseUp === 'function') {
             _origMouseUp({ button: 0 });
             _origMouseUp({ button: 2 });
@@ -2998,7 +3002,6 @@ function _releaseAll() {
     } catch (e) {}
 }
 
-// ── Экспорт для ручного вызова из Telegram /hb ─────────────
 window._hassleRecStart    = _startRecording;
 window._hassleRecStop     = function () { _stopRecording('вручную'); };
 window._hassleRecPlay     = _playRecording;
@@ -3009,10 +3012,9 @@ window._hassleRecStatus   = function () {
         recording: REC.recording,
         playing:   REC.playing,
         events:    REC.events.length,
-        duration:  REC.recording ? ((Date.now() - REC.startTime) / 1000).toFixed(1) + ' сек' : '—'
+        duration:  REC.recording ? ((performance.now() - REC.startTime) / 1000).toFixed(1) + ' сек' : '—'
     };
 };
 
-_log('Модуль Record/Replay загружен. Команды: /reon | /reoff | /repov | /reclear');
+_log('Модуль Record/Replay v2 загружен. Команды: /reon | /reoff | /repov | /reclear');
 })();
-// ==================== END RECORD/REPLAY MODULE ====================
