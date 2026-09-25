@@ -2709,312 +2709,469 @@ if (document.readyState === 'loading') {
 }
 })();
 // ==================== END INVITE AUTO-FILL v4 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
-// ══════════════════════════════════════════════════════════╗
-// ║  MODULE: RECORD / REPLAY v2 — точная запись движений     ║
-// ║  Улучшения:                                              ║
-//  1. performance.now() вместо Date.now() (точность 0.1мс)  
-//  2. Запись движения мыши (поворот камеры)                 ║
-//  3. Запись абсолютных дельт между событиями               ║
-//  4. requestAnimationFrame для точного тайминга            ║
-//  5. Авто-коррекция drift (накопленной ошибки времени)     ║
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: AI AUTO-REPLY (Gemini / Groq / OpenRouter)      ║
+// ║  Описание: Автоответ в чате игры через бесплатную        ║
+// ║             нейросеть. Поддержка нескольких провайдеров. ║
+//                                                           ║
+// ║  Команды в чате игры:                                   ║
+// ║    /ai on          — включить автоответ                  ║
+// ║    /ai off         — выключить автоответ                 ║
+// ║    /ai status      — текущий статус                      ║
+// ║    /ai prompt <текст> — изменить системный промпт        ║
+// ║    /ai ignore <ник> — добавить ника в игнор              ║
+// ║                                                          
+// ║  Команды в Telegram:                                    ║
+// ║    /ai_on, /ai_off, /ai_status, /ai_prompt <текст>      ║
+// ║                                                          ║
+// ║  Настройка: AI_CONFIG.apiKey — ключ от провайдера        ║
+// ║  Получение ключа: https://aistudio.google.com/app/apikey 
 // ╚══════════════════════════════════════════════════════════╝
 (function () {
 'use strict';
 
-const REC = {
-    recording:    false,
-    playing:      false,
-    startTime:    0,           // performance.now() при старте записи
-    events:       [],          // [{dt, type, ...}] — dt = мс от ПРЕДЫДУЩЕГО события
-    lastEventT:   0,
-    timers:       [],
-    maxEvents:    10000,
-    maxDuration:  180000,      // 3 минуты
-    mouseSens:    1.0,         // чувствительность мыши (настраивается)
+// ── Конфигурация ────────────────────────────────────────────
+const AI_CONFIG = {
+    // ── ВЫБЕРИТЕ ПРОВАЙДЕРА ─────────────────────────────────
+    // 'gemini'  — Google Gemini (рекомендуется, самый щедрый)
+    // 'groq'    — Groq (Llama 3, очень быстрый)
+    // 'openrouter' — OpenRouter (много моделей)
+    // 'ollama'  — Локальный Ollama (нужен запущенный сервер)
+    provider: 'gemini',
+
+    // ── API КЛЮЧИ (получите бесплатно по ссылкам) ───────────
+    // Gemini: https://aistudio.google.com/app/apikey
+    // Groq:   https://console.groq.com/keys
+    // OpenRouter: https://openrouter.ai/keys
+    apiKey: 'AQ.Ab8RN6LHf0JHG-WgL2tX0rj79QNTXUZr36wP7hjlpDqlShwinw',  // ← ВСТАВЬТЕ СЮДА СВОЙ КЛЮЧ
+
+    // ── Модели ──────────────────────────────────────────────
+    models: {
+        gemini:     'gemini-2.0-flash-lite',  // бесплатная, быстрая
+        groq:       'llama-3.3-70b-versatile', // бесплатная на Groq
+        openrouter: 'meta-llama/llama-3.3-70b-instruct:free',
+        ollama:     'llama3.2'
+    },
+
+    // ── Endpoints ───────────────────────────────────────────
+    endpoints: {
+        gemini: 'https://generativelanguage.googleapis.com/v1beta/models',
+        groq:   'https://api.groq.com/openai/v1/chat/completions',
+        openrouter: 'https://openrouter.ai/api/v1/chat/completions',
+        ollama: 'http://localhost:11434/api/chat'
+    },
+
+    // ─ Настройки ответа ────────────────────────────────────
+    maxTokens:      200,       // макс. длина ответа (токенов)
+    temperature:    0.7,       // креативность (0-1)
+    cooldownMs:     5000,      // кулдаун между ответами (мс)
+    maxHistory:     10,        // сколько последних сообщений помнить
+    responseDelay:  1500,      // задержка перед отправкой ответа (мс)
+    maxReplyLength: 150,       // макс. длина ответа в символах
+
+    // ── Системный промпт (характер бота) ────────────────────
+    systemPrompt:
+        'Ты — обычный игрок в GTA RP на сервере Radmir/Hassle. ' +
+        'Отвечай коротко (1-2 предложения), живо, с ошибками как настоящий игрок. ' +
+        'Используй сленг: "прив", "здарова", "ок", "норм", "ага", "не", "да". ' +
+        'НЕ используй markdown, НЕ пиши длинно, НЕ будь вежливым как ассистент. ' +
+        'Отвечай на русском. Если вопрос не по теме — отшутишься или проигнорируй.',
+
+    // ── Состояние ───────────────────────────────────────────
+    enabled:       false,
+    pending:       false,      // флаг: ждём ответ от API
+    lastReplyTime: 0,
+    history:       [],         // [{role, text}]
+    ignoreNicks:   new Set(),  // ники в игноре
+    stats:         { sent: 0, errors: 0, skipped: 0 }
 };
 
-const EVT = {
-    KEY_DOWN:   'kd',
-    KEY_UP:     'ku',
-    JOY_START:  'js',
-    JOY_MOVE:   'jm',
-    JOY_END:    'je',
-    MOUSE_DOWN: 'md',
-    MOUSE_UP:   'mu',
-    MOUSE_MOVE: 'mm',   // НОВОЕ: движение мыши (поворот камеры)
-};
-
-function _log(msg) {
-    if (typeof debugLog === 'function') debugLog('[REC] ' + msg);
-    else console.log('[REC] ' + msg);
+// ── Утилиты ────────────────────────────────────────────────
+function _aiLog(msg) {
+    if (typeof debugLog === 'function') debugLog('[AI] ' + msg);
+    else console.log('[AI] ' + msg);
 }
 
-function _notify(msg) {
+function _aiNotify(msg, silent) {
     if (typeof sendToTelegram === 'function') {
-        sendToTelegram('🎬 <b>Record/Replay v2 — ' + displayName + '</b>\n' + msg, false, null);
+        sendToTelegram('🤖 <b>AI Auto-Reply — ' + displayName + '</b>\n' + msg, !!silent, null);
     }
 }
 
-// ── Запись события с АБСОЛЮТНОЙ дельтой ────────────────────
-function _recordEvent(event) {
-    if (!REC.recording) return;
-    const now = performance.now();  // ТОЧНЕЕ чем Date.now()
-    const dt = now - REC.lastEventT; // дельта от предыдущего события
-    REC.lastEventT = now;
+// ── Отправка запроса к API ──────────────────────────────────
+async function _aiCallAPI(messages) {
+    const provider = AI_CONFIG.provider;
+    const key      = AI_CONFIG.apiKey;
+    const model    = AI_CONFIG.models[provider];
+    const endpoint = AI_CONFIG.endpoints[provider];
 
-    if (now - REC.startTime > REC.maxDuration) {
-        _stopRecording('превышен лимит ' + (REC.maxDuration/1000) + ' сек');
-        return;
+    if (!key && provider !== 'ollama') {
+        throw new Error('API ключ не задан для провайдера ' + provider);
     }
-    if (REC.events.length >= REC.maxEvents) {
-        _stopRecording('превышен лимит ' + REC.maxEvents + ' событий');
-        return;
+
+    let response;
+
+    if (provider === 'gemini') {
+        // ── Gemini API (собственный формат) ────────────────
+        const contents = messages.map(m => ({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.text }]
+        }));
+        // Системный промпт → первый message от user с префиксом
+        if (AI_CONFIG.systemPrompt) {
+            contents.unshift({
+                role: 'user',
+                parts: [{ text: '[СИСТЕМА: ' + AI_CONFIG.systemPrompt + ']' }]
+            });
+            contents.push({
+                role: 'model',
+                parts: [{ text: 'Понял, буду отвечать как обычный игрок.' }]
+            });
+        }
+
+        const url = `${endpoint}/${model}:generateContent?key=${key}`;
+        response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents,
+                generationConfig: {
+                    maxOutputTokens: AI_CONFIG.maxTokens,
+                    temperature:     AI_CONFIG.temperature
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`Gemini ${response.status}: ${err}`);
+        }
+        const data = await response.json();
+        return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+
+    } else if (provider === 'groq' || provider === 'openrouter') {
+        // ── OpenAI-совместимый формат (Groq, OpenRouter) ─────
+        const body = {
+            model:       model,
+            messages:    messages.map(m => ({ role: m.role, content: m.text })),
+            max_tokens:  AI_CONFIG.maxTokens,
+            temperature: AI_CONFIG.temperature
+        };
+        if (AI_CONFIG.systemPrompt) {
+            body.messages.unshift({ role: 'system', content: AI_CONFIG.systemPrompt });
+        }
+
+        response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type':  'application/json',
+                'Authorization': `Bearer ${key}`
+            },
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`${provider} ${response.status}: ${err}`);
+        }
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content || '';
+
+    } else if (provider === 'ollama') {
+        // ── Локальный Ollama ────────────────────────────────
+        const body = {
+            model:    model,
+            messages: messages.map(m => ({ role: m.role, content: m.text })),
+            stream:   false,
+            options:  {
+                num_predict: AI_CONFIG.maxTokens,
+                temperature: AI_CONFIG.temperature
+            }
+        };
+        if (AI_CONFIG.systemPrompt) {
+            body.system = AI_CONFIG.systemPrompt;
+        }
+
+        response = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`Ollama ${response.status}: ${err}`);
+        }
+        const data = await response.json();
+        return data.message?.content || '';
     }
-    event.dt = dt;
-    REC.events.push(event);
+
+    throw new Error('Неизвестный провайдер: ' + provider);
 }
 
-// ── Перехват клавиатуры ─────────────────────────────────────
-const _origOnKeyDown = window.onKeyDown;
-const _origOnKeyUp   = window.onKeyUp;
+// ── Очистка ответа от мусора ────────────────────────────────
+function _aiCleanReply(text) {
+    if (!text) return '';
+    return text
+        .replace(/\*\*/g, '')          // markdown bold
+        .replace(/\*/g, '')            // markdown italic
+        .replace(/`/g, '')             // code
+        .replace(/^["']|["']$/g, '')   // кавычки по краям
+        .replace(/\n+/g, ' ')          // переносы → пробел
+        .trim()
+        .slice(0, AI_CONFIG.maxReplyLength);
+}
 
-window.onKeyDown = function (keyCode) {
-    _recordEvent({ type: EVT.KEY_DOWN, key: keyCode });
-    if (typeof _origOnKeyDown === 'function') _origOnKeyDown.apply(this, arguments);
+// ── Главная функция: обработка сообщения из чата ────────────
+async function _aiHandleMessage(senderNick, text) {
+    // Проверки
+    if (!AI_CONFIG.enabled) return;
+    if (AI_CONFIG.pending)  { AI_CONFIG.stats.skipped++; return; }
+    if (AI_CONFIG.ignoreNicks.has(senderNick.toLowerCase())) return;
+
+    const now = Date.now();
+    if (now - AI_CONFIG.lastReplyTime < AI_CONFIG.cooldownMs) {
+        AI_CONFIG.stats.skipped++;
+        return;
+    }
+
+    // Фильтр: не отвечаем на системные сообщения и свои
+    if (!text || text.length < 2 || text.length > 300) return;
+    if (senderNick === config.accountInfo.nickname) return;
+
+    // Добавляем в историю
+    AI_CONFIG.history.push({ role: 'user', text: `${senderNick}: ${text}` });
+    if (AI_CONFIG.history.length > AI_CONFIG.maxHistory) {
+        AI_CONFIG.history.shift();
+    }
+
+    AI_CONFIG.pending = true;
+    _aiLog(`Запрос к ${AI_CONFIG.provider}... (${AI_CONFIG.history.length} сообщений в истории)`);
+
+    try {
+        const reply = await _aiCallAPI(AI_CONFIG.history);
+        const clean = _aiCleanReply(reply);
+
+        if (!clean) {
+            _aiLog('Пустой ответ от API');
+            AI_CONFIG.stats.errors++;
+            return;
+        }
+
+        // Задержка перед отправкой (имитация набора текста)
+        await new Promise(r => setTimeout(r, AI_CONFIG.responseDelay));
+
+        // Отправляем в чат игры
+        if (typeof sendChatInput === 'function') {
+            sendChatInput(clean);
+            AI_CONFIG.stats.sent++;
+            AI_CONFIG.lastReplyTime = Date.now();
+            _aiLog(`✅ Ответ отправлен: "${clean}"`);
+        }
+
+        // Добавляем ответ в историю
+        AI_CONFIG.history.push({ role: 'assistant', text: clean });
+
+    } catch (err) {
+        _aiLog(`❌ Ошибка API: ${err.message}`);
+        AI_CONFIG.stats.errors++;
+        _aiNotify(`Ошибка: ${err.message.slice(0, 100)}`, false);
+    } finally {
+        AI_CONFIG.pending = false;
+    }
+}
+
+// ── Встраиваемся в OnChatAddMessage ─────────────────────────
+// Перехватываем все сообщения чата и пропускаем через AI
+const _aiOrigOnChat = window.OnChatAddMessage;
+window.OnChatAddMessage = function (e, colorArg, t) {
+    // Сначала вызываем оригинал
+    if (typeof _aiOrigOnChat === 'function') {
+        _aiOrigOnChat.call(this, e, colorArg, t);
+    }
+
+    // Обрабатываем через AI (только если включён)
+    if (!AI_CONFIG.enabled) return;
+
+    try {
+        const msg    = String(e || '');
+        const color  = (typeof normalizeColor === 'function')
+            ? normalizeColor(colorArg) : '';
+
+        // Игнорируем системные цвета (не обычный чат)
+        // Обычный чат: 0xCECECE (близкий), 0x999999 (средний)
+        // Рация: 0x33CC66, Личка: 0xFF9945
+        const isNormalChat = [
+            '0xCECECE', '0x999999', '0x6B6B6B', '0xEEEEEE'
+        ].includes(color);
+
+        if (!isNormalChat) return;
+
+        // Парсим формат: "Ник[ID]: текст" или "{цвет}Ник{цвет}[ID]: текст"
+        const match = msg.match(/(?:\{[A-Fa-f0-9]{6}\})?([A-Za-z_А-Яа-яЁё0-9]+)(?:\[\d+\])?:\s*(.+)$/);
+        if (!match) return;
+
+        const senderNick = match[1];
+        const text       = match[2].trim();
+
+        // Игнорируем OOC ((...))
+        if (text.startsWith('((') && text.endsWith('))')) return;
+
+        // Запускаем обработку (async, не блокирует чат)
+        _aiHandleMessage(senderNick, text);
+
+    } catch (err) {
+        _aiLog('Ошибка в хуке OnChatAddMessage: ' + err.message);
+    }
 };
 
-window.onKeyUp = function (keyCode, flag) {
-    _recordEvent({ type: EVT.KEY_UP, key: keyCode });
-    if (typeof _origOnKeyUp === 'function') _origOnKeyUp.apply(this, arguments);
-};
-
-// ── Перехват джойстика ──────────────────────────────────────
-const _origJoyStart = window.onScreenControlTouchStart;
-const _origJoyMove  = window.onScreenControlTouchMove;
-const _origJoyEnd   = window.onScreenControlTouchEnd;
-
-window.onScreenControlTouchStart = function (path) {
-    _recordEvent({ type: EVT.JOY_START, path: path });
-    if (typeof _origJoyStart === 'function') _origJoyStart.apply(this, arguments);
-};
-
-window.onScreenControlTouchMove = function (path, x, y) {
-    _recordEvent({ type: EVT.JOY_MOVE, path: path, x: x, y: y });
-    if (typeof _origJoyMove === 'function') _origJoyMove.apply(this, arguments);
-};
-
-window.onScreenControlTouchEnd = function (path) {
-    _recordEvent({ type: EVT.JOY_END, path: path });
-    if (typeof _origJoyEnd === 'function') _origJoyEnd.apply(this, arguments);
-};
-
-// ── Перехват мыши (кнопки + ДВИЖЕНИЕ) ───────────────────────
-const _origMouseDown = window.onmousedown;
-const _origMouseUp   = window.onmouseup;
-let _lastMouseT = 0;
-const MOUSE_MOVE_MIN_DT = 16; // не чаще 60 раз/сек (иначе спам)
-
-window.onmousedown = function (e) {
-    _recordEvent({ type: EVT.MOUSE_DOWN, button: e && e.button });
-    if (typeof _origMouseDown === 'function') _origMouseDown.apply(this, arguments);
-};
-
-window.onmouseup = function (e) {
-    _recordEvent({ type: EVT.MOUSE_UP, button: e && e.button });
-    if (typeof _origMouseUp === 'function') _origMouseUp.apply(this, arguments);
-};
-
-// НОВОЕ: перехват движения мыши через document.addEventListener
-// (это работает только когда курсор активен — в игре обычно capturePointer)
-document.addEventListener('mousemove', function (e) {
-    if (!REC.recording) return;
-    const now = performance.now();
-    if (now - _lastMouseT < MOUSE_MOVE_MIN_DT) return; // throttle
-    _lastMouseT = now;
-    _recordEvent({
-        type: EVT.MOUSE_MOVE,
-        dx: e.movementX || 0,
-        dy: e.movementY || 0
-    });
-}, { passive: true });
-
-// ── Перехват команд /reon /reoff /repov ─────────────────────
-const _origChatRec = window.sendChatInput;
+// ── Хук на команды чата (/ai ...) ───────────────────────────
+const _aiOrigChat = window.sendChatInput;
 window.sendChatInput = function (input) {
     if (typeof input === 'string') {
         const cmd = input.trim().toLowerCase();
-        if (cmd === '/reon')   { _startRecording(); return; }
-        if (cmd === '/reoff')  { _stopRecording('по команде'); return; }
-        if (cmd === '/repov')  { _playRecording(); return; }
-        if (cmd === '/reclear'){ _clearRecording(); return; }
+
+        if (cmd === '/ai on') {
+            if (!AI_CONFIG.apiKey && AI_CONFIG.provider !== 'ollama') {
+                _aiNotify('⚠️ API ключ не задан! Укажите AI_CONFIG.apiKey', false);
+                addLocalChatMessage('{FF4444}[AI] Ошибка: API ключ не задан!', 'FF4444');
+                return;
+            }
+            AI_CONFIG.enabled = true;
+            AI_CONFIG.history = [];
+            _aiNotify('✅ Автоответ ВКЛЮЧЁН (провайдер: ' + AI_CONFIG.provider + ')', false);
+            addLocalChatMessage('{00FF00}[AI] Автоответ включён', '00FF00');
+            return;
+        }
+
+        if (cmd === '/ai off') {
+            AI_CONFIG.enabled = false;
+            AI_CONFIG.pending = false;
+            _aiNotify('⏹️ Автоответ ВЫКЛЮЧЕН', false);
+            addLocalChatMessage('{FF4444}[AI] Автоответ выключен', 'FF4444');
+            return;
+        }
+
+        if (cmd === '/ai status') {
+            const st = AI_CONFIG.stats;
+            const status = AI_CONFIG.enabled ? '🟢 ВКЛ' : '🔴 ВЫКЛ';
+            const msg =
+                `🤖 <b>AI статус (${displayName})</b>\n` +
+                `Статус: ${status}\n` +
+                `Провайдер: ${AI_CONFIG.provider}\n` +
+                `Модель: ${AI_CONFIG.models[AI_CONFIG.provider]}\n` +
+                `Ответов: ${st.sent} | Ошибок: ${st.errors} | Пропущено: ${st.skipped}\n` +
+                `История: ${AI_CONFIG.history.length}/${AI_CONFIG.maxHistory} сообщений\n` +
+                `Кулдаун: ${AI_CONFIG.cooldownMs / 1000}с`;
+            _aiNotify(msg, false);
+            return;
+        }
+
+        if (cmd.startsWith('/ai prompt ')) {
+            const newPrompt = input.slice('/ai prompt '.length).trim();
+            if (newPrompt) {
+                AI_CONFIG.systemPrompt = newPrompt;
+                _aiNotify('📝 Промпт обновлён', false);
+                addLocalChatMessage('{00BFFF}[AI] Промпт изменён', '00BFFF');
+            }
+            return;
+        }
+
+        if (cmd.startsWith('/ai ignore ')) {
+            const nick = input.slice('/ai ignore '.length).trim();
+            if (nick) {
+                AI_CONFIG.ignoreNicks.add(nick.toLowerCase());
+                _aiNotify(`🚫 ${nick} добавлен в игнор`, false);
+            }
+            return;
+        }
+
+        if (cmd === '/ai unignore') {
+            AI_CONFIG.ignoreNicks.clear();
+            _aiNotify('🗑️ Список игнора очищен', false);
+            return;
+        }
     }
-    return typeof _origChatRec === 'function'
-        ? _origChatRec.apply(this, arguments)
+
+    return typeof _aiOrigChat === 'function'
+        ? _aiOrigChat.apply(this, arguments)
         : undefined;
 };
 
-// ── Старт записи ───────────────────────────────────────────
-function _startRecording() {
-    if (REC.recording) { _notify('⚠️ Запись уже идёт. Сначала /reoff'); return; }
-    if (REC.playing)   { _notify('⚠️ Идёт воспроизведение. Дождитесь окончания.'); return; }
+// ── Telegram-команды ────────────────────────────────────────
+// Перехватываем processUpdates для добавления /ai_* команд
+const _aiOrigProcUpd = (typeof processUpdates !== 'undefined') ? processUpdates : null;
+if (_aiOrigProcUpd) {
+    processUpdates = function (updates) {
+        const rest = [];
+        for (const upd of updates) {
+            let consumed = false;
+            if (upd.message && upd.message.text) {
+                const msgText = upd.message.text.trim();
+                const msgChatId = String(upd.message.chat.id);
 
-    REC.events    = [];
-    REC.startTime = performance.now();
-    REC.lastEventT = REC.startTime;
-    REC.recording  = true;
-    _lastMouseT   = 0;
-
-    _log('🔴 Запись начата (performance.now)');
-    _notify(' <b>Запись начата</b>\nДвигайтесь, прыгайте, стреляйте, <b>двигайте мышью</b>...\nДля остановки: <code>/reoff</code>');
-}
-
-// ── Стоп записи ─────────────────────────────────────────────
-function _stopRecording(reason) {
-    if (!REC.recording) return;
-    REC.recording = false;
-    const duration = ((performance.now() - REC.startTime) / 1000).toFixed(1);
-    const count    = REC.events.length;
-    _log(' Запись: ' + count + ' событий, ' + duration + ' сек' + (reason ? ' (' + reason + ')' : ''));
-    _notify(
-        '⏹ <b>Запись остановлена</b>\n' +
-        '📊 Событий: <b>' + count + '</b>\n' +
-        '⏱ Длительность: <b>' + duration + ' сек</b>' +
-        (reason ? '\n⚠️ Причина: ' + reason : '') +
-        '\n\nДля воспроизведения: <code>/repov</code>'
-    );
-}
-
-function _clearRecording() {
-    REC.events = [];
-    _log(' Запись очищена');
-    _notify(' <b>Запись очищена</b>');
-}
-
-// ── Воспроизведение через requestAnimationFrame (ТОЧНОЕ) ────
-function _playRecording() {
-    if (REC.playing) { _notify('️ Воспроизведение уже идёт'); return; }
-    if (REC.recording) { _notify('️ Сначала остановите запись: /reoff'); return; }
-    if (!REC.events.length) { _notify('️ Запись пуста. Сначала /reon → двигайтесь → /reoff'); return; }
-
-    REC.playing = true;
-    _log('▶️ Воспроизведение: ' + REC.events.length + ' событий');
-    _notify('▶️ <b>Воспроизведение начато</b>\n📊 ' + REC.events.length + ' событий');
-
-    // Считаем абсолютное время каждого события от старта
-    let absTime = 0;
-    const scheduled = REC.events.map(ev => {
-        absTime += ev.dt;
-        return { time: absTime, ev: ev };
-    });
-
-    const playStart = performance.now();
-    let idx = 0;
-
-    function tick() {
-        if (!REC.playing) return;
-        const elapsed = performance.now() - playStart;
-
-        // Применяем все события, которые должны были сработать к этому моменту
-        while (idx < scheduled.length && scheduled[idx].time <= elapsed) {
-            _applyEvent(scheduled[idx].ev);
-            idx++;
+                if (config.chatIds.includes(msgChatId)) {
+                    if (msgText === '/ai_on') {
+                        AI_CONFIG.enabled = true;
+                        AI_CONFIG.history = [];
+                        sendToTelegram('🤖 <b>AI автоответ ВКЛЮЧЁН (' + displayName + ')</b>\nПровайдер: ' + AI_CONFIG.provider, false, null);
+                        config.lastUpdateId = upd.update_id;
+                        setSharedLastUpdateId(config.lastUpdateId);
+                        consumed = true;
+                    }
+                    else if (msgText === '/ai_off') {
+                        AI_CONFIG.enabled = false;
+                        AI_CONFIG.pending = false;
+                        sendToTelegram('️ <b>AI автоответ ВЫКЛЮЧЕН (' + displayName + ')</b>', false, null);
+                        config.lastUpdateId = upd.update_id;
+                        setSharedLastUpdateId(config.lastUpdateId);
+                        consumed = true;
+                    }
+                    else if (msgText === '/ai_status') {
+                        const st = AI_CONFIG.stats;
+                        sendToTelegram(
+                            `🤖 <b>AI статус (${displayName})</b>\n` +
+                            `Статус: ${AI_CONFIG.enabled ? '🟢 ВКЛ' : ' ВЫКЛ'}\n` +
+                            `Провайдер: ${AI_CONFIG.provider}\n` +
+                            `Модель: ${AI_CONFIG.models[AI_CONFIG.provider]}\n` +
+                            `Ответов: ${st.sent} | Ошибок: ${st.errors}\n` +
+                            `Кулдаун: ${AI_CONFIG.cooldownMs/1000}с`,
+                            false, null
+                        );
+                        config.lastUpdateId = upd.update_id;
+                        setSharedLastUpdateId(config.lastUpdateId);
+                        consumed = true;
+                    }
+                    else if (msgText.startsWith('/ai_prompt ')) {
+                        const p = msgText.slice('/ai_prompt '.length).trim();
+                        if (p) {
+                            AI_CONFIG.systemPrompt = p;
+                            sendToTelegram('📝 <b>Промпт обновлён (' + displayName + ')</b>', false, null);
+                        }
+                        config.lastUpdateId = upd.update_id;
+                        setSharedLastUpdateId(config.lastUpdateId);
+                        consumed = true;
+                    }
+                }
+            }
+            if (!consumed) rest.push(upd);
         }
-
-        if (idx < scheduled.length) {
-            // Ещё есть события — продолжаем
-            requestAnimationFrame(tick);
-        } else {
-            // Всё воспроизведено
-            REC.playing = false;
-            _log('✅ Воспроизведение завершено');
-            _notify('✅ <b>Воспроизведение завершено</b>');
-        }
-    }
-
-    requestAnimationFrame(tick);
-}
-
-function _cancelPlayback() {
-    if (!REC.playing) return;
-    REC.playing = false;
-    _releaseAll();
-    _log('⏹ Воспроизведение отменено');
-    _notify(' <b>Воспроизведение отменено</b>');
-}
-
-// ── Применение события ──────────────────────────────────────
-function _applyEvent(ev) {
-    try {
-        switch (ev.type) {
-            case EVT.KEY_DOWN:
-                if (typeof _origOnKeyDown === 'function') _origOnKeyDown(ev.key);
-                break;
-            case EVT.KEY_UP:
-                if (typeof _origOnKeyUp === 'function') _origOnKeyUp(ev.key);
-                break;
-            case EVT.JOY_START:
-                if (typeof _origJoyStart === 'function') _origJoyStart(ev.path);
-                break;
-            case EVT.JOY_MOVE:
-                if (typeof _origJoyMove === 'function') _origJoyMove(ev.path, ev.x, ev.y);
-                break;
-            case EVT.JOY_END:
-                if (typeof _origJoyEnd === 'function') _origJoyEnd(ev.path);
-                break;
-            case EVT.MOUSE_DOWN:
-                if (typeof _origMouseDown === 'function') _origMouseDown({ button: ev.button });
-                break;
-            case EVT.MOUSE_UP:
-                if (typeof _origMouseUp === 'function') _origMouseUp({ button: ev.button });
-                break;
-            case EVT.MOUSE_MOVE:
-                // НОВОЕ: симулируем движение мыши через dispatchEvent
-                // Это работает только если игра слушает mousemove на document
-                try {
-                    const me = new MouseEvent('mousemove', {
-                        movementX: ev.dx * REC.mouseSens,
-                        movementY: ev.dy * REC.mouseSens,
-                        bubbles: true
-                    });
-                    document.dispatchEvent(me);
-                } catch(e) {}
-                break;
-        }
-    } catch (e) {
-        _log('Ошибка применения события: ' + e.message);
-    }
-}
-
-function _releaseAll() {
-    try {
-        [window.KEY_CODE_W, window.KEY_CODE_A, window.KEY_CODE_S, window.KEY_CODE_D,
-         window.KEY_CODE_SPACE, window.KEY_CODE_SHIFT, window.KEY_CODE_C].forEach(function (k) {
-            if (k && typeof _origOnKeyUp === 'function') _origOnKeyUp(k);
-        });
-        if (typeof _origJoyEnd === 'function') {
-            _origJoyEnd('<Gamepad>/leftStick');
-            _origJoyEnd('<Mouse>/delta');
-        }
-        if (typeof _origMouseUp === 'function') {
-            _origMouseUp({ button: 0 });
-            _origMouseUp({ button: 2 });
-        }
-    } catch (e) {}
-}
-
-window._hassleRecStart    = _startRecording;
-window._hassleRecStop     = function () { _stopRecording('вручную'); };
-window._hassleRecPlay     = _playRecording;
-window._hassleRecCancel   = _cancelPlayback;
-window._hassleRecClear    = _clearRecording;
-window._hassleRecStatus   = function () {
-    return {
-        recording: REC.recording,
-        playing:   REC.playing,
-        events:    REC.events.length,
-        duration:  REC.recording ? ((performance.now() - REC.startTime) / 1000).toFixed(1) + ' сек' : '—'
+        if (rest.length > 0) _aiOrigProcUpd(rest);
     };
+}
+
+// ── Экспорт для ручного управления ──────────────────────────
+window._hassleAI = {
+    config:    AI_CONFIG,
+    enable:    () => { AI_CONFIG.enabled = true; },
+    disable:   () => { AI_CONFIG.enabled = false; AI_CONFIG.pending = false; },
+    setPrompt: (p) => { AI_CONFIG.systemPrompt = p; },
+    addIgnore: (nick) => { AI_CONFIG.ignoreNicks.add(nick.toLowerCase()); },
+    clearHistory: () => { AI_CONFIG.history = []; },
+    getStats:  () => ({ ...AI_CONFIG.stats })
 };
 
-_log('Модуль Record/Replay v2 загружен. Команды: /reon | /reoff | /repov | /reclear');
+_aiLog('Модуль AI Auto-Reply загружен. Провайдер: ' + AI_CONFIG.provider);
+_aiLog('Для включения: /ai on (в чате игры) или /ai_on (в Telegram)');
+_aiLog('Получите бесплатный ключ: https://aistudio.google.com/app/apikey');
 })();
