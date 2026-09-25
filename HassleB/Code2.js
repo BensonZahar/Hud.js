@@ -2709,3 +2709,310 @@ if (document.readyState === 'loading') {
 }
 })();
 // ==================== END INVITE AUTO-FILL v4 / ЗАПОЛНЕНИЕ ЗАЯВЛЕНИЯ ====================
+// ╔══════════════════════════════════════════════════════════╗
+// ║  MODULE: RECORD / REPLAY — запись и воспроизведение      ║
+// ║  Описание: Запись движений персонажа через перехват      ║
+// ║             клавиш и джойстика. Воспроизведение через    ║
+// ║             эмуляцию тех же событий с теми же интервалами║
+//                                                           ║
+// ║  Команды в чате игры:                                   ║
+// ║    /reon   — начать запись                               ║
+// ║    /reoff  — остановить запись                           ║
+// ║    /repov  — воспроизвести последнюю запись              ║
+// ║    /reclear — очистить запись                            ║
+// ║                                                          ║
+// ║  Зависимости: debugLog, sendToTelegram, sendChatInput,  ║
+// ║               displayName, config                         ║
+// ╚══════════════════════════════════════════════════════════╝
+(function () {
+'use strict';
+
+// ── Состояние модуля ───────────────────────────────────────
+const REC = {
+    recording:   false,        // Идёт запись?
+    playing:     false,        // Идёт воспроизведение?
+    startTime:   0,            // Время старта записи (Date.now)
+    events:      [],           // Массив событий [{t, type, ...}]
+    lastEventT:  0,            // Время последнего события (для относительных дельт)
+    timers:      [],           // Таймеры воспроизведения (для отмены)
+    maxEvents:   5000,         // Лимит событий (защита от переполнения)
+    maxDuration: 120000,       // Макс. длительность записи (мс) — 2 минуты
+};
+
+// ── Типы событий ───────────────────────────────────────────
+const EVT = {
+    KEY_DOWN:  'kd',   // Клавиша нажата
+    KEY_UP:    'ku',   // Клавиша отпущена
+    JOY_START: 'js',   // Джойстик: начало касания
+    JOY_MOVE:  'jm',   // Джойстик: движение
+    JOY_END:   'je',   // Джойстик: конец касания
+    MOUSE_DOWN:'md',   // Мышь: кнопка нажата
+    MOUSE_UP:  'mu',   // Мышь: кнопка отпущена
+};
+
+// ── Утилиты ────────────────────────────────────────────────
+function _log(msg) {
+    if (typeof debugLog === 'function') debugLog('[REC] ' + msg);
+    else console.log('[REC] ' + msg);
+}
+
+function _notify(msg, silent) {
+    if (typeof sendToTelegram === 'function') {
+        sendToTelegram('🎬 <b>Record/Replay — ' + displayName + '</b>\n' + msg, !!silent, null);
+    }
+    // Дублируем в игровой чат (локально, видно только игроку)
+    if (typeof addLocalChatMessage === 'function') {
+        addLocalChatMessage('{00BFFF}[REC] {FFFFFF}' + msg.replace(/<[^>]+>/g, ''), '00BFFF');
+    }
+}
+
+// ── Запись события ────────────────────────────────────────
+function _recordEvent(event) {
+    if (!REC.recording) return;
+    const now = Date.now();
+    const delta = now - REC.startTime;
+    // Ограничение длительности
+    if (delta > REC.maxDuration) {
+        _stopRecording('превышен лимит ' + (REC.maxDuration / 1000) + ' сек');
+        return;
+    }
+    // Ограничение количества
+    if (REC.events.length >= REC.maxEvents) {
+        _stopRecording('превышен лимит ' + REC.maxEvents + ' событий');
+        return;
+    }
+    event.t = delta;
+    REC.events.push(event);
+}
+
+// ── Перехват клавиатуры ────────────────────────────────────
+// Встраиваемся в цепочку document.addEventListener('keydown'/'keyup')
+// через патч оригинальных обработчиков.
+// Hassle использует глобальные onKeyDown/onKeyUp в window (см. index.js).
+const _origOnKeyDown = window.onKeyDown;
+const _origOnKeyUp   = window.onKeyUp;
+
+window.onKeyDown = function (keyCode) {
+    _recordEvent({ type: EVT.KEY_DOWN, key: keyCode });
+    if (typeof _origOnKeyDown === 'function') _origOnKeyDown.apply(this, arguments);
+};
+
+window.onKeyUp = function (keyCode, flag) {
+    _recordEvent({ type: EVT.KEY_UP, key: keyCode });
+    if (typeof _origOnKeyUp === 'function') _origOnKeyUp.apply(this, arguments);
+};
+
+// ── Перехват джойстика ─────────────────────────────────────
+const _origJoyStart = window.onScreenControlTouchStart;
+const _origJoyMove  = window.onScreenControlTouchMove;
+const _origJoyEnd   = window.onScreenControlTouchEnd;
+
+window.onScreenControlTouchStart = function (path) {
+    _recordEvent({ type: EVT.JOY_START, path: path });
+    if (typeof _origJoyStart === 'function') _origJoyStart.apply(this, arguments);
+};
+
+window.onScreenControlTouchMove = function (path, x, y) {
+    _recordEvent({ type: EVT.JOY_MOVE, path: path, x: x, y: y });
+    if (typeof _origJoyMove === 'function') _origJoyMove.apply(this, arguments);
+};
+
+window.onScreenControlTouchEnd = function (path) {
+    _recordEvent({ type: EVT.JOY_END, path: path });
+    if (typeof _origJoyEnd === 'function') _origJoyEnd.apply(this, arguments);
+};
+
+// ── Перехват мыши (для ударов/прицела) ─────────────────────
+// Мышь обрабатывается через window.onmousedown/onmouseup в index.js
+const _origMouseDown = window.onmousedown;
+const _origMouseUp   = window.onmouseup;
+
+window.onmousedown = function (e) {
+    _recordEvent({ type: EVT.MOUSE_DOWN, button: e && e.button });
+    if (typeof _origMouseDown === 'function') _origMouseDown.apply(this, arguments);
+};
+
+window.onmouseup = function (e) {
+    _recordEvent({ type: EVT.MOUSE_UP, button: e && e.button });
+    if (typeof _origMouseUp === 'function') _origMouseUp.apply(this, arguments);
+};
+
+// ── Перехват sendChatInput для команд /reon /reoff /repov ───
+const _origChatRec = window.sendChatInput;
+window.sendChatInput = function (input) {
+    if (typeof input === 'string') {
+        const cmd = input.trim().toLowerCase();
+        if (cmd === '/reon')   { _startRecording(); return; }
+        if (cmd === '/reoff')  { _stopRecording('по команде'); return; }
+        if (cmd === '/repov')  { _playRecording(); return; }
+        if (cmd === '/reclear'){ _clearRecording(); return; }
+    }
+    return typeof _origChatRec === 'function'
+        ? _origChatRec.apply(this, arguments)
+        : undefined;
+};
+
+// ── Старт записи ───────────────────────────────────────────
+function _startRecording() {
+    if (REC.recording) {
+        _notify('⚠️ Запись уже идёт. Сначала /reoff');
+        return;
+    }
+    if (REC.playing) {
+        _notify('⚠️ Идёт воспроизведение. Дождитесь окончания.');
+        return;
+    }
+    // Очищаем предыдущую запись
+    REC.events = [];
+    REC.startTime  = Date.now();
+    REC.lastEventT = 0;
+    REC.recording  = true;
+    _log('🔴 Запись начата');
+    _notify('🔴 <b>Запись начата</b>\nДвигайтесь, прыгайте, стреляйте...\nДля остановки: <code>/reoff</code>');
+}
+
+// ── Стоп записи ────────────────────────────────────────────
+function _stopRecording(reason) {
+    if (!REC.recording) return;
+    REC.recording = false;
+    const duration = ((Date.now() - REC.startTime) / 1000).toFixed(1);
+    const count    = REC.events.length;
+    _log('⏹ Запись остановлена: ' + count + ' событий, ' + duration + ' сек' + (reason ? ' (' + reason + ')' : ''));
+    _notify(
+        '⏹ <b>Запись остановлена</b>\n' +
+        '📊 Событий: <b>' + count + '</b>\n' +
+        '⏱ Длительность: <b>' + duration + ' сек</b>' +
+        (reason ? '\n⚠️ Причина: ' + reason : '') +
+        '\n\nДля воспроизведения: <code>/repov</code>'
+    );
+}
+
+// ── Очистка записи ─────────────────────────────────────────
+function _clearRecording() {
+    REC.events = [];
+    _log('🗑 Запись очищена');
+    _notify('🗑 <b>Запись очищена</b>');
+}
+
+// ── Воспроизведение ────────────────────────────────────────
+function _playRecording() {
+    if (REC.playing) {
+        _notify('⚠️ Воспроизведение уже идёт');
+        return;
+    }
+    if (REC.recording) {
+        _notify('⚠️ Сначала остановите запись: /reoff');
+        return;
+    }
+    if (!REC.events.length) {
+        _notify('️ Запись пуста. Сначала /reon → двигайтесь → /reoff');
+        return;
+    }
+
+    REC.playing = true;
+    _log('▶️ Воспроизведение: ' + REC.events.length + ' событий');
+    _notify('▶️ <b>Воспроизведение начато</b>\n ' + REC.events.length + ' событий');
+
+    // Проигрываем каждое событие с его относительным временем
+    REC.events.forEach(function (ev, idx) {
+        const timerId = setTimeout(function () {
+            if (!REC.playing) return; // отменено
+            _applyEvent(ev);
+            // Логируем последнее событие для отладки
+            if (idx === REC.events.length - 1) {
+                REC.playing = false;
+                _log('✅ Воспроизведение завершено');
+                _notify('✅ <b>Воспроизведение завершено</b>');
+            }
+        }, ev.t);
+        REC.timers.push(timerId);
+    });
+}
+
+// ── Отмена воспроизведения ─────────────────────────────────
+function _cancelPlayback() {
+    if (!REC.playing) return;
+    REC.playing = false;
+    REC.timers.forEach(function (t) { clearTimeout(t); });
+    REC.timers = [];
+    // Отпускаем все "зажатые" клавиши/джойстики
+    _releaseAll();
+    _log('⏹ Воспроизведение отменено');
+    _notify('⏹ <b>Воспроизведение отменено</b>');
+}
+
+// ─ Применение события ─────────────────────────────────────
+function _applyEvent(ev) {
+    try {
+        switch (ev.type) {
+            case EVT.KEY_DOWN:
+                if (typeof window.sendKeyEvent === 'function') {
+                    window.sendKeyEvent(ev.key);
+                } else if (typeof window.onKeyDown === 'function') {
+                    // Вызываем ОРИГИНАЛ, а не наш перехватчик (иначе запишется снова)
+                    if (typeof _origOnKeyDown === 'function') _origOnKeyDown(ev.key);
+                }
+                break;
+            case EVT.KEY_UP:
+                if (typeof _origOnKeyUp === 'function') _origOnKeyUp(ev.key);
+                break;
+            case EVT.JOY_START:
+                if (typeof _origJoyStart === 'function') _origJoyStart(ev.path);
+                break;
+            case EVT.JOY_MOVE:
+                if (typeof _origJoyMove === 'function') _origJoyMove(ev.path, ev.x, ev.y);
+                break;
+            case EVT.JOY_END:
+                if (typeof _origJoyEnd === 'function') _origJoyEnd(ev.path);
+                break;
+            case EVT.MOUSE_DOWN:
+                if (typeof _origMouseDown === 'function') _origMouseDown({ button: ev.button });
+                break;
+            case EVT.MOUSE_UP:
+                if (typeof _origMouseUp === 'function') _origMouseUp({ button: ev.button });
+                break;
+        }
+    } catch (e) {
+        _log('Ошибка применения события: ' + e.message);
+    }
+}
+
+// ── Отпустить всё (на случай обрыва воспроизведения) ───────
+function _releaseAll() {
+    try {
+        // Отпускаем WASD
+        [window.KEY_CODE_W, window.KEY_CODE_A, window.KEY_CODE_S, window.KEY_CODE_D,
+         window.KEY_CODE_SPACE, window.KEY_CODE_SHIFT, window.KEY_CODE_C].forEach(function (k) {
+            if (k && typeof _origOnKeyUp === 'function') _origOnKeyUp(k);
+        });
+        // Отпускаем джойстик
+        if (typeof _origJoyEnd === 'function') {
+            _origJoyEnd('<Gamepad>/leftStick');
+            _origJoyEnd('<Mouse>/delta');
+        }
+        // Отпускаем мышь
+        if (typeof _origMouseUp === 'function') {
+            _origMouseUp({ button: 0 });
+            _origMouseUp({ button: 2 });
+        }
+    } catch (e) {}
+}
+
+// ── Экспорт для ручного вызова из Telegram /hb ─────────────
+window._hassleRecStart    = _startRecording;
+window._hassleRecStop     = function () { _stopRecording('вручную'); };
+window._hassleRecPlay     = _playRecording;
+window._hassleRecCancel   = _cancelPlayback;
+window._hassleRecClear    = _clearRecording;
+window._hassleRecStatus   = function () {
+    return {
+        recording: REC.recording,
+        playing:   REC.playing,
+        events:    REC.events.length,
+        duration:  REC.recording ? ((Date.now() - REC.startTime) / 1000).toFixed(1) + ' сек' : '—'
+    };
+};
+
+_log('Модуль Record/Replay загружен. Команды: /reon | /reoff | /repov | /reclear');
+})();
+// ==================== END RECORD/REPLAY MODULE ====================
