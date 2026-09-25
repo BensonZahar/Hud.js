@@ -405,11 +405,10 @@
 .laws-helper__fine-title-line{background:#0a9947!important}
 
 /* Пустое состояние правой панели */
-.laws-helper__wanted-empty{align-items:center;display:flex;flex-direction:column;flex:0 0 auto;gap:0.74vh;justify-content:flex-start;padding-top:1.11vh}
-.laws-helper__wanted-star-icon{align-items:center;display:flex;justify-content:center}
-.laws-helper__wanted-star-icon svg{height:3.7vh;width:3.7vh}
+.laws-helper__wanted-empty{align-items:center;display:flex;flex-direction:column;flex:0 0 auto;gap:0;justify-content:flex-start;padding-top:0.56vh}
+.laws-helper__wanted-star-icon{display:none}
 .laws-helper__wanted-empty-text{display:flex;flex-direction:column;gap:0.19vh;text-align:center}
-.laws-helper__wanted-empty-text span{color:#f4f1e166;font-size:1.11vh;line-height:1.5}
+.laws-helper__wanted-empty-text span{color:#f4f1e166;font-size:1.04vh;line-height:1.4}
 
 /* Список выбранных статей в правой панели */
 .laws-helper__wanted-selected-list{display:flex;flex:0 1 auto;flex-direction:column;gap:0.37vh;margin-bottom:0.74vh;max-height:8vh;min-height:0;overflow-y:auto}
