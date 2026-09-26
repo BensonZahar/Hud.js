@@ -4351,7 +4351,9 @@ function _injectStyles() {
 
         '.modal__title{',
         '  user-select:none !important;',
+        '  -webkit-user-select:none !important;',
         '  cursor:grab;',
+        '  touch-action:none;',
         '}',
 
         '.modal__title:active{',
@@ -4733,10 +4735,88 @@ function _onMouseUp() {
     document.body.style.userSelect = '';
 }
 
+// ── Touch-drag (мобилка / планшет) ────────────────────────────────────────
+function _onTouchStart(e) {
+    if (!_active || _menuHidden) return;
+
+    var touch = e.touches[0];
+    if (!touch) return;
+
+    var target = touch.target;
+    if (!target || !target.closest) return;
+
+    var title = target.closest('.modal__title');
+    if (!title) return;
+
+    var wrapper = title.closest('.modal-container-wrapper');
+    if (!wrapper || !wrapper.isConnected) return;
+    if (!wrapper.closest('.window')) return;
+
+    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
+
+    _ensureAbsolute(wrapper);
+
+    _drag = {
+        wrapper: wrapper,
+        sx: touch.clientX,
+        sy: touch.clientY,
+        sl: parseFloat(wrapper.style.left) || 0,
+        st: parseFloat(wrapper.style.top) || 0,
+        ew: wrapper.offsetWidth || wrapper.getBoundingClientRect().width,
+        eh: wrapper.offsetHeight || wrapper.getBoundingClientRect().height,
+        ww: window.innerWidth,
+        wh: window.innerHeight
+    };
+
+    document.body.style.userSelect = 'none';
+
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onTouchMove(e) {
+    if (!_drag) return;
+
+    var touch = e.touches[0];
+    if (!touch) return;
+
+    var left = _drag.sl + (touch.clientX - _drag.sx);
+    var top  = _drag.st + (touch.clientY - _drag.sy);
+
+    left = Math.max(0, Math.min(left, _drag.ww - _drag.ew));
+    top  = Math.max(0, Math.min(top,  _drag.wh - _drag.eh));
+
+    _drag.wrapper.style.left = left + 'px';
+    _drag.wrapper.style.top  = top  + 'px';
+
+    e.preventDefault();
+}
+
+function _onTouchEnd() {
+    if (!_drag) return;
+
+    var wrapper = _drag.wrapper;
+
+    if (_currentDialogId !== null) {
+        _savedPositions[_getPositionKey()] = {
+            left: wrapper.style.left,
+            top: wrapper.style.top
+        };
+    }
+
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
 // Делегирование на document решает проблему замены DOM после переходов
 document.addEventListener('mousedown', _onMouseDown, true);
 document.addEventListener('mousemove', _onMouseMove, true);
-document.addEventListener('mouseup', _onMouseUp, true);
+document.addEventListener('mouseup',   _onMouseUp,   true);
+
+// Touch-drag: passive:false обязателен, иначе preventDefault() выбросит ошибку
+document.addEventListener('touchstart', _onTouchStart, { capture: true, passive: false });
+document.addEventListener('touchmove',  _onTouchMove,  { capture: true, passive: false });
+document.addEventListener('touchend',   _onTouchEnd,   { capture: true, passive: true  });
 
 // ── Подключение / отключение ───────────────────────────────────────────────
 function _attach() {
@@ -4917,7 +4997,7 @@ window.closeLastDialog = function () {
     }
 };
 
-console.log('[FSIN] Window/Modal cursor/hide/drag v5 готов');
+console.log('[FSIN] Window/Modal cursor/hide/drag v5 готов (touch-drag добавлен)');
 console.log('[FSIN]   • Alt (короткий) = скрыть/показать курсор');
 console.log('[FSIN]   • Alt (>=500мс)  = скрыть/показать диалог вместе с курсором');
 console.log('[FSIN]   • 677 и 667 используют одну позицию меню');
