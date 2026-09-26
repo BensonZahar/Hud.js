@@ -1,5 +1,6 @@
-import{o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,n as normalizeClass,t as toDisplayString,f as createCommentVNode,_ as _export_sfc}from"./index.js";
+import{o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,n as normalizeClass,t as toDisplayString,f as createCommentVNode,_ as _export_sfc,r as resolveComponent,h as createBlock,w as withCtx}from"./index.js";
 import{c as toMoscowTime}from"./timeZone.js";
+import{M as Modal,a as MODAL_TYPES,b as MODAL_COLOR_TYPES}from"./Modal.js";
 // ─── SVG ─────────────────────────────────────────────────────────────────────
 const SVG_GAVEL=`<svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="0.5" width="4.5" height="2.5" rx="0.5" transform="rotate(45 9 0.5)" fill="rgba(74,144,217,0.12)" stroke="rgba(74,144,217,0.65)" stroke-width="1.1"/><rect x="4.5" y="5" width="4.5" height="2.5" rx="0.5" transform="rotate(45 4.5 5)" fill="rgba(74,144,217,0.12)" stroke="rgba(74,144,217,0.65)" stroke-width="1.1"/><path d="M1.5 13.5H9" stroke="rgba(74,144,217,0.5)" stroke-width="1.3" stroke-linecap="round"/></svg>`;
 const SVG_OK=`<svg width="11" height="9" viewBox="0 0 11 9" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4.5L3.5 7.5L10 1" stroke="#3dba7a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -15,240 +16,265 @@ const SVG_ARROW_L=`<svg width="12" height="10" viewBox="0 0 12 10" fill="none" x
 const SVG_CHECK=`<svg width="11" height="9" viewBox="0 0 11 9" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4.5L3.5 7.5L10 1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const SVG_CROSS=`<svg width="9" height="9" viewBox="0 0 9 9" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1L8 8M8 1L1 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`;
 // ─── render ──────────────────────────────────────────────────────────────────
+// Раньше AdvMenu рисовал свою собственную «карточку» (фон/рамка/скругление/
+// свечение/паттерн) через инжектированный <style>, значения которых были
+// вручную скопированы из Modal.css. Теперь — сам компонент Modal (тот же
+// подход, что у SideMenu.js). За счёт этого шапка, акцентная рамка/цвет и
+// graffiti-паттерн гарантированно один-в-один с остальными диалогами системы.
+//
+//   type:      MODAL_TYPES.DEFAULT     — с тёмной подложкой (AdvMenu блокирующий
+//              диалог, в отличие от SideMenu, который HUD-панель)
+//   colorType: MODAL_COLOR_TYPES.BLUE  — синий акцент (#007aff), заменяет
+//              кастомный .adv-menu__top-accent (#4a90d9) из старого кода
+//   title:     "АДВОКАТ"              — рендерит сам Modal в шапке карточки;
+//              кастомные .adv-menu__header / .adv-menu__close-btn удалены
+//
+// Оверлей: при клике Modal эмитит "close", мы слушаем onClose:$options.close
+// и вызываем closeInterface. Кнопка "X" в шапке теперь не нужна — роль
+// «закрыть» выполняет клик по подложке (стандарт Window/Modal).
+//
+// Перетаскивание окна (drag by header) удалено — оно несовместимо с позицио-
+// нированием Modal (position:fixed; align-items/justify-content:center).
+// Скрытие по Alt-hold: раньше через classList.add('adv-menu_hidden'), теперь
+// через $data.menuVisible → prop isOpened Modal-а, что запускает его
+// стандартную анимацию показа/скрытия (scale+fade, 0.1 s).
 function render(_ctx,_cache,$props,$setup,$data,$options){
-return (openBlock(),createElementBlock("div",{class:"adv-menu iface-container"},[
-    createBaseVNode("div",{class:"adv-menu__overlay",onClick:$options.close}),
-    createBaseVNode("div",{class:"adv-menu__wrapper"},[
-        createBaseVNode("div",{class:"adv-menu__top-accent"}),
-        // ── Шапка ───────────────────────────────────────────────────────
-        createBaseVNode("div",{class:"adv-menu__header"},[
-            createBaseVNode("div",{class:"adv-menu__title"},[
-                createBaseVNode("span",{class:"adv-menu__title-main"},"АДВОКАТ"),
-            ]),
-            createBaseVNode("div",{class:"adv-menu__close-btn",onClick:$options.close},"X"),
+    const _component_Modal=resolveComponent("Modal");
+    return openBlock(),createBlock(_component_Modal,{
+        class:"adv-menu",
+        isOpened:$data.menuVisible,
+        colorType:MODAL_COLOR_TYPES.BLUE,
+        type:MODAL_TYPES.DEFAULT,
+        title:"АДВОКАТ",
+        onClose:$options.close
+    },{
+        default:withCtx(()=>[
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: rights — Разъяснение прав
+            // ════════════════════════════════════════════════════════════════
+            $data.screen==="rights"
+                ?(openBlock(),createElementBlock(Fragment,{key:"rights"},[
+                    createBaseVNode("div",{class:"adv-menu__body"},[
+                        createBaseVNode("div",{class:"adv-menu__section-hdr"},[
+                            createBaseVNode("span",{class:"adv-menu__section-icon",innerHTML:SVG_GAVEL}),
+                            createBaseVNode("span",{class:"adv-menu__section-title"},"Права задержанного — ч.7 ПК"),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__rights-list"},[
+                            createBaseVNode("div",{class:"adv-menu__right-item"},[
+                                createBaseVNode("div",{class:"adv-menu__right-bullet"}),
+                                createBaseVNode("div",{class:"adv-menu__right-text"},"Право на молчание"),
+                            ]),
+                            createBaseVNode("div",{class:"adv-menu__right-item"},[
+                                createBaseVNode("div",{class:"adv-menu__right-bullet"}),
+                                createBaseVNode("div",{class:"adv-menu__right-text"},"Право на получение адвокатской помощи"),
+                            ]),
+                            createBaseVNode("div",{class:"adv-menu__right-item"},[
+                                createBaseVNode("div",{class:"adv-menu__right-bullet"}),
+                                createBaseVNode("div",{class:"adv-menu__right-text"},"Право на обжалование действий сотрудника"),
+                            ]),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__divider"}),
+                        createBaseVNode("div",{class:"adv-menu__question"},"Задержанный требует адвоката?"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_refuse",onClick:$options.refuseLawyer},"Отказался"),
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_request",onClick:$options.goSelectLocation},[
+                            createBaseVNode("span",{},"Требует"),
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
+                        ]),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: select_location — выбор места вызова (МВД / ФСИН)
+            // ════════════════════════════════════════════════════════════════
+            $data.screen==="select_location"
+                ?(openBlock(),createElementBlock(Fragment,{key:"select_location"},[
+                    createBaseVNode("div",{class:"adv-menu__body"},[
+                        createBaseVNode("div",{class:"adv-menu__section-hdr"},[
+                            createBaseVNode("span",{class:"adv-menu__section-icon",innerHTML:SVG_PERSON}),
+                            createBaseVNode("span",{class:"adv-menu__section-title"},"Вызов адвоката"),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__question"},"Куда требуется адвокат?"),
+                        createBaseVNode("div",{class:"adv-menu__loc-list"},[
+                            // div, а не button — button в CEF не наследует font-family (квадратики)
+                            createBaseVNode("div",{class:"adv-menu__loc-card adv-menu__loc-card_mvd",onClick:$options.requestLawyerMvd},[
+                                createBaseVNode("span",{class:"adv-menu__loc-icon",innerHTML:SVG_SHIELD_MVD}),
+                                createBaseVNode("span",{class:"adv-menu__loc-info"},[
+                                    createBaseVNode("span",{class:"adv-menu__loc-name"},"МВД"),
+                                    createBaseVNode("span",{class:"adv-menu__loc-desc"},"Отдел внутренних дел"),
+                                ]),
+                                createBaseVNode("span",{class:"adv-menu__loc-arrow",innerHTML:SVG_ARROW_R}),
+                            ]),
+                            createBaseVNode("div",{class:"adv-menu__loc-card adv-menu__loc-card_fsin",onClick:$options.requestLawyerFsin},[
+                                createBaseVNode("span",{class:"adv-menu__loc-icon",innerHTML:SVG_SHIELD_FSIN}),
+                                createBaseVNode("span",{class:"adv-menu__loc-info"},[
+                                    createBaseVNode("span",{class:"adv-menu__loc-name"},"ФСИН"),
+                                    createBaseVNode("span",{class:"adv-menu__loc-desc"},"СИЗО / исправительное учреждение"),
+                                ]),
+                                createBaseVNode("span",{class:"adv-menu__loc-arrow",innerHTML:SVG_ARROW_R}),
+                            ]),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__hint"},[
+                            createBaseVNode("span",{class:"adv-menu__hint-icon",innerHTML:SVG_WARN}),
+                            createBaseVNode("span",{class:"adv-menu__hint-text"},"Вызов будет отправлен в /d с указанием места (время — серверное, МСК)"),
+                        ]),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_back",onClick:$options.goBack},[
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                            createBaseVNode("span",{},"Назад"),
+                        ]),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: awaiting_accept — 5 мин на принятие вызова
+            // ════════════════════════════════════════════════════════════════
+            $data.screen==="awaiting_accept"
+                ?(openBlock(),createElementBlock(Fragment,{key:"awaiting_accept"},[
+                    createBaseVNode("div",{class:"adv-menu__body"},[
+                        createBaseVNode("div",{class:"adv-menu__call-sent"},[
+                            createBaseVNode("span",{class:"adv-menu__call-sent-icon",innerHTML:SVG_OK}),
+                            createBaseVNode("span",{},"Вызов отправлен в /d"),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__call-info"},[
+                            createBaseVNode("span",{class:"adv-menu__call-info-label"},"Время вызова (МСК):"),
+                            createBaseVNode("span",{class:"adv-menu__call-info-val"},toDisplayString($data.callTime)),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__call-info"},[
+                            createBaseVNode("span",{class:"adv-menu__call-info-label"},"Место вызова:"),
+                            createBaseVNode("span",{class:"adv-menu__call-info-val "+($data.location==="ФСИН"?"adv-menu__call-info-val_fsin":"")},toDisplayString($data.location)),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-label"},"Ожидание принятия вызова"),
+                        // id="adv-timer-disp" — обновляется напрямую через DOM (CEF-fix)
+                        createBaseVNode("div",{id:"adv-timer-disp",class:"adv-menu__timer-display"},toDisplayString($options.timerDisplay)),
+                        createBaseVNode("div",{class:"adv-menu__progress-track"},[
+                            // id="adv-progress-bar" — ширина/класс warn обновляются напрямую
+                            createBaseVNode("div",{id:"adv-progress-bar",class:"adv-menu__progress-fill",style:`width:${$options.timerPercent}%`}),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-note"},"Время на принятие: 5 минут"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_accept",onClick:$options.lawyerAccepted},[
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_CHECK}),
+                            createBaseVNode("span",{},"Принял"),
+                        ]),
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_timeout",onClick:$options.lawyerNotAccepted},[
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_CROSS}),
+                            createBaseVNode("span",{},"Не принял"),
+                        ]),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer-nav"},[
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},[
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                            createBaseVNode("span",{},"Назад"),
+                        ]),
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},[
+                            createBaseVNode("span",{},"Пропустить"),
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
+                        ]),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: awaiting_arrival — 10 мин на приезд
+            // ════════════════════════════════════════════════════════════════
+            $data.screen==="awaiting_arrival"
+                ?(openBlock(),createElementBlock(Fragment,{key:"awaiting_arrival"},[
+                    createBaseVNode("div",{class:"adv-menu__body"},[
+                        createBaseVNode("div",{class:"adv-menu__phase-badge adv-menu__phase-badge_arrival"},[
+                            createBaseVNode("span",{class:"adv-menu__phase-badge-icon",innerHTML:SVG_PERSON,style:"color:#f9b701"}),
+                            createBaseVNode("span",{},"Адвокат принял вызов"),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-label"},"Ожидание приезда адвоката"),
+                        createBaseVNode("div",{id:"adv-timer-disp",class:"adv-menu__timer-display adv-menu__timer-display_arrival"},toDisplayString($options.timerDisplay)),
+                        createBaseVNode("div",{class:"adv-menu__progress-track"},[
+                            createBaseVNode("div",{id:"adv-progress-bar",class:"adv-menu__progress-fill adv-menu__progress-fill_arrival",style:`width:${$options.timerPercent}%`}),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-note"},"Время на приезд: 10 минут"),
+                        createBaseVNode("div",{class:"adv-menu__hint"},[
+                            createBaseVNode("span",{class:"adv-menu__hint-icon",innerHTML:SVG_WARN}),
+                            createBaseVNode("span",{class:"adv-menu__hint-text"},"После прибытия адвокату положено 10 мин беседы с задержанным"),
+                        ]),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_accept",onClick:$options.lawyerArrived},"Прибыл"),
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_timeout",onClick:$options.lawyerNotArrived},"Не прибыл"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer-nav"},[
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},[
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                            createBaseVNode("span",{},"Назад"),
+                        ]),
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},[
+                            createBaseVNode("span",{},"Пропустить"),
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
+                        ]),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: in_consultation — 10 мин беседы
+            // ════════════════════════════════════════════════════════════════
+            $data.screen==="in_consultation"
+                ?(openBlock(),createElementBlock(Fragment,{key:"in_consultation"},[
+                    createBaseVNode("div",{class:"adv-menu__body"},[
+                        createBaseVNode("div",{class:"adv-menu__phase-badge adv-menu__phase-badge_consult"},[
+                            createBaseVNode("span",{class:"adv-menu__phase-badge-icon",innerHTML:SVG_PERSON,style:"color:#a07bd4"}),
+                            createBaseVNode("span",{},"Беседа адвоката с задержанным"),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-label"},"Идёт беседа"),
+                        createBaseVNode("div",{id:"adv-timer-disp",class:"adv-menu__timer-display adv-menu__timer-display_consult"},toDisplayString($options.timerDisplay)),
+                        createBaseVNode("div",{class:"adv-menu__progress-track"},[
+                            createBaseVNode("div",{id:"adv-progress-bar",class:"adv-menu__progress-fill adv-menu__progress-fill_consult",style:`width:${$options.timerPercent}%`}),
+                        ]),
+                        createBaseVNode("div",{class:"adv-menu__phase-note"},"Время беседы: 10 минут"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_done",onClick:$options.consultationDone},"Беседа завершена"),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer-nav"},[
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},[
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                            createBaseVNode("span",{},"Назад"),
+                        ]),
+                        createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},[
+                            createBaseVNode("span",{},"Пропустить"),
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
+                        ]),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
+            // ════════════════════════════════════════════════════════════════
+            // ЭКРАН: done states
+            // ════════════════════════════════════════════════════════════════
+            ($data.screen==="done_no_lawyer"||$data.screen==="done_no_accept"||$data.screen==="done_not_arrived"||$data.screen==="done_complete")
+                ?(openBlock(),createElementBlock(Fragment,{key:"done"},[
+                    createBaseVNode("div",{class:"adv-menu__body adv-menu__body_done"},[
+                        createBaseVNode("div",{class:"adv-menu__done-icon",innerHTML:$data.screen==="done_complete"?SVG_OK:SVG_WARN}),
+                        createBaseVNode("div",{class:"adv-menu__done-title"},toDisplayString($options.doneTitle)),
+                        createBaseVNode("div",{class:"adv-menu__done-text"},toDisplayString($options.doneText)),
+                    ]),
+                    createBaseVNode("div",{class:"adv-menu__footer"},[
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_back",onClick:$options.goBack},[
+                            createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
+                            createBaseVNode("span",{},"Начало"),
+                        ]),
+                        createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_close",onClick:$options.close},"Закрыть"),
+                    ]),
+                ],64))
+                :createCommentVNode("",true),
         ]),
-        // ════════════════════════════════════════════════════════════════
-        // ЭКРАН: rights — Разъяснение прав
-        // ════════════════════════════════════════════════════════════════
-        $data.screen==="rights"
-            ?(openBlock(),createElementBlock(Fragment,{key:"rights"},[
-                createBaseVNode("div",{class:"adv-menu__body"},[
-                    createBaseVNode("div",{class:"adv-menu__section-hdr"},[
-                        createBaseVNode("span",{class:"adv-menu__section-icon",innerHTML:SVG_GAVEL}),
-                        createBaseVNode("span",{class:"adv-menu__section-title"},"Права задержанного — ч.7 ПК"),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__rights-list"},[
-                        createBaseVNode("div",{class:"adv-menu__right-item"},[
-                            createBaseVNode("div",{class:"adv-menu__right-bullet"}),
-                            createBaseVNode("div",{class:"adv-menu__right-text"},"Право на молчание"),
-                        ]),
-                        createBaseVNode("div",{class:"adv-menu__right-item"},[
-                            createBaseVNode("div",{class:"adv-menu__right-bullet"}),
-                            createBaseVNode("div",{class:"adv-menu__right-text"},"Право на получение адвокатской помощи"),
-                        ]),
-                        createBaseVNode("div",{class:"adv-menu__right-item"},[
-                            createBaseVNode("div",{class:"adv-menu__right-bullet"}),
-                            createBaseVNode("div",{class:"adv-menu__right-text"},"Право на обжалование действий сотрудника"),
-                        ]),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__divider"}),
-                    createBaseVNode("div",{class:"adv-menu__question"},"Задержанный требует адвоката?"),
-                ]),
-                createBaseVNode("div",{class:"adv-menu__footer"},[
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_refuse",onClick:$options.refuseLawyer},"Отказался"),
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_request",onClick:$options.goSelectLocation},[
-                        createBaseVNode("span",{},"Требует"),
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
-                    ]),
-                ]),
-            ],64))
-            :createCommentVNode("",true),
-        // ════════════════════════════════════════════════════════════════
-        // ЭКРАН: select_location — выбор места вызова (МВД / ФСИН)
-        // ════════════════════════════════════════════════════════════════
-        $data.screen==="select_location"
-            ?(openBlock(),createElementBlock(Fragment,{key:"select_location"},[
-                createBaseVNode("div",{class:"adv-menu__body"},[
-                    createBaseVNode("div",{class:"adv-menu__section-hdr"},[
-                        createBaseVNode("span",{class:"adv-menu__section-icon",innerHTML:SVG_PERSON}),
-                        createBaseVNode("span",{class:"adv-menu__section-title"},"Вызов адвоката"),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__question"},"Куда требуется адвокат?"),
-                    createBaseVNode("div",{class:"adv-menu__loc-list"},[
-                        // div, а не button — button в CEF не наследует font-family (квадратики)
-                        createBaseVNode("div",{class:"adv-menu__loc-card adv-menu__loc-card_mvd",onClick:$options.requestLawyerMvd},[
-                            createBaseVNode("span",{class:"adv-menu__loc-icon",innerHTML:SVG_SHIELD_MVD}),
-                            createBaseVNode("span",{class:"adv-menu__loc-info"},[
-                                createBaseVNode("span",{class:"adv-menu__loc-name"},"МВД"),
-                                createBaseVNode("span",{class:"adv-menu__loc-desc"},"Отдел внутренних дел"),
-                            ]),
-                            createBaseVNode("span",{class:"adv-menu__loc-arrow",innerHTML:SVG_ARROW_R}),
-                        ]),
-                        createBaseVNode("div",{class:"adv-menu__loc-card adv-menu__loc-card_fsin",onClick:$options.requestLawyerFsin},[
-                            createBaseVNode("span",{class:"adv-menu__loc-icon",innerHTML:SVG_SHIELD_FSIN}),
-                            createBaseVNode("span",{class:"adv-menu__loc-info"},[
-                                createBaseVNode("span",{class:"adv-menu__loc-name"},"ФСИН"),
-                                createBaseVNode("span",{class:"adv-menu__loc-desc"},"СИЗО / исправительное учреждение"),
-                            ]),
-                            createBaseVNode("span",{class:"adv-menu__loc-arrow",innerHTML:SVG_ARROW_R}),
-                        ]),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__hint"},[
-                        createBaseVNode("span",{class:"adv-menu__hint-icon",innerHTML:SVG_WARN}),
-                        createBaseVNode("span",{class:"adv-menu__hint-text"},"Вызов будет отправлен в /d с указанием места (время — серверное, МСК)"),
-                    ]),
-                ]),
-                createBaseVNode("div",{class:"adv-menu__footer"},[
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_back",onClick:$options.goBack},[
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
-                        createBaseVNode("span",{},"Назад"),
-                    ]),
-                ]),
-            ],64))
-            :createCommentVNode("",true),
-        // ════════════════════════════════════════════════════════════════
-        // ЭКРАН: awaiting_accept — 5 мин на принятие вызова
-        // ════════════════════════════════════════════════════════════════
-        $data.screen==="awaiting_accept"
-            ?(openBlock(),createElementBlock(Fragment,{key:"awaiting_accept"},[
-                createBaseVNode("div",{class:"adv-menu__body"},[
-                    createBaseVNode("div",{class:"adv-menu__call-sent"},[
-                        createBaseVNode("span",{class:"adv-menu__call-sent-icon",innerHTML:SVG_OK}),
-                        createBaseVNode("span",{},"Вызов отправлен в /d"),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__call-info"},[
-                        createBaseVNode("span",{class:"adv-menu__call-info-label"},"Время вызова (МСК):"),
-                        createBaseVNode("span",{class:"adv-menu__call-info-val"},toDisplayString($data.callTime)),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__call-info"},[
-                        createBaseVNode("span",{class:"adv-menu__call-info-label"},"Место вызова:"),
-                        createBaseVNode("span",{class:"adv-menu__call-info-val "+($data.location==="ФСИН"?"adv-menu__call-info-val_fsin":"")},toDisplayString($data.location)),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__phase-label"},"Ожидание принятия вызова"),
-                    // id="adv-timer-disp" — обновляется напрямую через DOM (CEF-fix)
-                    createBaseVNode("div",{id:"adv-timer-disp",class:"adv-menu__timer-display"},toDisplayString($options.timerDisplay)),
-                    createBaseVNode("div",{class:"adv-menu__progress-track"},[
-                        // id="adv-progress-bar" — ширина/класс warn обновляются напрямую
-                        createBaseVNode("div",{id:"adv-progress-bar",class:"adv-menu__progress-fill",style:`width:${$options.timerPercent}%`}),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__phase-note"},"Время на принятие: 5 минут"),
-                ]),
-                createBaseVNode("div",{class:"adv-menu__footer"},[
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_accept",onClick:$options.lawyerAccepted},[
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_CHECK}),
-                        createBaseVNode("span",{},"Принял"),
-                    ]),
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_timeout",onClick:$options.lawyerNotAccepted},[
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_CROSS}),
-                        createBaseVNode("span",{},"Не принял"),
-                    ]),
-                ]),
-                createBaseVNode("div",{class:"adv-menu__footer-nav"},[
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},[
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
-                        createBaseVNode("span",{},"Назад"),
-                    ]),
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},[
-                        createBaseVNode("span",{},"Пропустить"),
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
-                    ]),
-                ]),
-            ],64))
-            :createCommentVNode("",true),
-        // ════════════════════════════════════════════════════════════════
-        // ЭКРАН: awaiting_arrival — 10 мин на приезд
-        // ════════════════════════════════════════════════════════════════
-        $data.screen==="awaiting_arrival"
-            ?(openBlock(),createElementBlock(Fragment,{key:"awaiting_arrival"},[
-                createBaseVNode("div",{class:"adv-menu__body"},[
-                    createBaseVNode("div",{class:"adv-menu__phase-badge adv-menu__phase-badge_arrival"},[
-                        createBaseVNode("span",{class:"adv-menu__phase-badge-icon",innerHTML:SVG_PERSON,style:"color:#f9b701"}),
-                        createBaseVNode("span",{},"Адвокат принял вызов"),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__phase-label"},"Ожидание приезда адвоката"),
-                    createBaseVNode("div",{id:"adv-timer-disp",class:"adv-menu__timer-display adv-menu__timer-display_arrival"},toDisplayString($options.timerDisplay)),
-                    createBaseVNode("div",{class:"adv-menu__progress-track"},[
-                        createBaseVNode("div",{id:"adv-progress-bar",class:"adv-menu__progress-fill adv-menu__progress-fill_arrival",style:`width:${$options.timerPercent}%`}),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__phase-note"},"Время на приезд: 10 минут"),
-                    createBaseVNode("div",{class:"adv-menu__hint"},[
-                        createBaseVNode("span",{class:"adv-menu__hint-icon",innerHTML:SVG_WARN}),
-                        createBaseVNode("span",{class:"adv-menu__hint-text"},"После прибытия адвокату положено 10 мин беседы с задержанным"),
-                    ]),
-                ]),
-                createBaseVNode("div",{class:"adv-menu__footer"},[
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_accept",onClick:$options.lawyerArrived},"Прибыл"),
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_timeout",onClick:$options.lawyerNotArrived},"Не прибыл"),
-                ]),
-                createBaseVNode("div",{class:"adv-menu__footer-nav"},[
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},[
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
-                        createBaseVNode("span",{},"Назад"),
-                    ]),
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},[
-                        createBaseVNode("span",{},"Пропустить"),
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
-                    ]),
-                ]),
-            ],64))
-            :createCommentVNode("",true),
-        // ════════════════════════════════════════════════════════════════
-        // ЭКРАН: in_consultation — 10 мин беседы
-        // ════════════════════════════════════════════════════════════════
-        $data.screen==="in_consultation"
-            ?(openBlock(),createElementBlock(Fragment,{key:"in_consultation"},[
-                createBaseVNode("div",{class:"adv-menu__body"},[
-                    createBaseVNode("div",{class:"adv-menu__phase-badge adv-menu__phase-badge_consult"},[
-                        createBaseVNode("span",{class:"adv-menu__phase-badge-icon",innerHTML:SVG_PERSON,style:"color:#a07bd4"}),
-                        createBaseVNode("span",{},"Беседа адвоката с задержанным"),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__phase-label"},"Идёт беседа"),
-                    createBaseVNode("div",{id:"adv-timer-disp",class:"adv-menu__timer-display adv-menu__timer-display_consult"},toDisplayString($options.timerDisplay)),
-                    createBaseVNode("div",{class:"adv-menu__progress-track"},[
-                        createBaseVNode("div",{id:"adv-progress-bar",class:"adv-menu__progress-fill adv-menu__progress-fill_consult",style:`width:${$options.timerPercent}%`}),
-                    ]),
-                    createBaseVNode("div",{class:"adv-menu__phase-note"},"Время беседы: 10 минут"),
-                ]),
-                createBaseVNode("div",{class:"adv-menu__footer"},[
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_done",onClick:$options.consultationDone},"Беседа завершена"),
-                ]),
-                createBaseVNode("div",{class:"adv-menu__footer-nav"},[
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_back",onClick:$options.goBack},[
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
-                        createBaseVNode("span",{},"Назад"),
-                    ]),
-                    createBaseVNode("button",{class:"adv-menu__btn-nav adv-menu__btn-nav_skip",onClick:$options.goSkip},[
-                        createBaseVNode("span",{},"Пропустить"),
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_R}),
-                    ]),
-                ]),
-            ],64))
-            :createCommentVNode("",true),
-        // ════════════════════════════════════════════════════════════════
-        // ЭКРАН: done states
-        // ════════════════════════════════════════════════════════════════
-        ($data.screen==="done_no_lawyer"||$data.screen==="done_no_accept"||$data.screen==="done_not_arrived"||$data.screen==="done_complete")
-            ?(openBlock(),createElementBlock(Fragment,{key:"done"},[
-                createBaseVNode("div",{class:"adv-menu__body adv-menu__body_done"},[
-                    createBaseVNode("div",{class:"adv-menu__done-icon",innerHTML:$data.screen==="done_complete"?SVG_OK:SVG_WARN}),
-                    createBaseVNode("div",{class:"adv-menu__done-title"},toDisplayString($options.doneTitle)),
-                    createBaseVNode("div",{class:"adv-menu__done-text"},toDisplayString($options.doneText)),
-                ]),
-                createBaseVNode("div",{class:"adv-menu__footer"},[
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_back",onClick:$options.goBack},[
-                        createBaseVNode("span",{class:"adv-menu__btn-ic",innerHTML:SVG_ARROW_L}),
-                        createBaseVNode("span",{},"Начало"),
-                    ]),
-                    createBaseVNode("button",{class:"adv-menu__btn adv-menu__btn_close",onClick:$options.close},"Закрыть"),
-                ]),
-            ],64))
-            :createCommentVNode("",true),
-    ])
-]));
+        _:1
+    });
 }
 // ─── Компонент ───────────────────────────────────────────────────────────────
 const _sfc_main={
 name:"AdvMenu",
+// Modal регистрируем локально — так же, как делает SideMenu.js. resolveComponent
+// в render() найдёт его через локальный реестр компонента без global-регистрации.
+components:{Modal},
 data(){
     return{
         screen:"rights",
@@ -259,6 +285,12 @@ data(){
         timerInterval:null,
         timerPhase:null,
         timerEndAt:0,
+        // ── menuVisible → prop isOpened Modal-а ───────────────────────────
+        // true  = карточка видна (стандарт при открытии интерфейса)
+        // false = Alt-hold скрыл окно (интерфейс НЕ закрыт; компонент живой
+        //         и продолжает слушать клавиши — то же поведение, что раньше
+        //         давал класс adv-menu_hidden на this.$el)
+        menuVisible:true,
     };
 },
 computed:{
@@ -476,6 +508,8 @@ methods:{
         this.screen="done_complete";
     },
     // ── Закрытие (сохраняет состояние таймера) ────────────────────────────
+    // Вызывается: (а) кликом по оверлею Modal (onClose), (б) ESC (onKeyUp),
+    // (в) кнопкой «Закрыть» на done-экранах.
     close(){
         if(this.timerPhase&&this.timerSeconds>0){
             const endAt=Date.now()+this.timerSeconds*1000;
@@ -513,23 +547,26 @@ mounted(){
     if(!document.getElementById("adv-menu-style")){
         const s=document.createElement("style");
         s.id="adv-menu-style";
+        // ── Что убрано по сравнению с оригиналом (теперь рисует Modal) ──
+        //   .adv-menu (root position/size/z-index)  → Modal: position:fixed 100vw/100vh z-index:11
+        //   .adv-menu__overlay                       → Modal: .modal-overlay (background #010106eb)
+        //   .adv-menu__wrapper (bg/border/shadow)    → Modal: .modal-container-wrapper + .modal-container
+        //   .adv-menu__top-accent                    → Modal: border-top:0.19vh solid #007aff (.modal_blue)
+        //   .adv-menu__header / .adv-menu__title*    → Modal: .modal__title (condensed italic uppercase)
+        //   .adv-menu__close-btn                     → Modal: оверлей закрывает по клику (onClose)
+        //   .adv-menu_hidden                         → $data.menuVisible → prop isOpened Modal-а
+        //   .adv-menu_dragging                       → drag удалён (несовместим с Modal-центрированием)
         s.textContent=`
 /* ════ AdvMenu ═══════════════════════════════════════════════════════ */
-.adv-menu{align-items:center;display:flex;font-family:"Open Sans",var(--fallback-font);font-style:normal;height:100vh;justify-content:center;left:0;position:absolute;text-transform:none;top:0;width:100vw;z-index:11;}
-.adv-menu_hidden{display:none!important;}
-.adv-menu_dragging{cursor:grabbing!important;}
-.adv-menu__overlay{bottom:0;left:0;position:absolute;right:0;top:0;}
-.adv-menu__wrapper{background:#141419eb;border:0.19vh solid rgba(255,255,255,0.05);border-radius:0.74vh;box-shadow:inset 0 3.89vh 4.81vh -2.96vh rgba(74,144,217,0.18),0 1.5vh 5vh rgba(0,0,0,.75);display:flex;flex-direction:column;overflow:hidden;pointer-events:auto;position:relative;width:32vh;z-index:1;}
-.adv-menu__top-accent{background:#4a90d9;height:0.19vh;left:0;position:absolute;right:0;top:0;}
-/* Header */
-.adv-menu__header{align-items:center;border-bottom:0.19vh solid #f4f1e11a;display:flex;justify-content:space-between;padding:1.2vh 1.67vh;position:relative;z-index:1;}
-.adv-menu__title{align-items:baseline;display:flex;gap:0.37vh;}
-.adv-menu__title-main{color:#f4f1e1;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;letter-spacing:0.1vh;text-transform:uppercase;}
-.adv-menu__title-sub{color:#4a90d9;font-family:"Open Sans Condensed",var(--fallback-font);font-size:2.59vh;font-style:italic;font-weight:700;letter-spacing:0.1vh;text-transform:uppercase;}
-.adv-menu__close-btn{align-items:center;background:#ffffff0d;border:0.19vh solid #f4f1e11a;border-radius:0.37vh;color:#f4f1e199;cursor:pointer;display:flex;font-size:1.48vh;font-weight:700;height:2.96vh;justify-content:center;transition:all 0.15s;width:2.96vh;}
-@media (platform:pc){.adv-menu__close-btn:hover{background:#e25544;border-color:#e25544;color:#fff;}}
-/* Body */
-.adv-menu__body{display:flex;flex-direction:column;flex:1 1 auto;gap:1.11vh;padding:1.67vh;position:relative;z-index:1;}
+
+/* Ширина карточки — то же значение, что было у .adv-menu__wrapper{width:32vh}.
+   Задаём через .modal-container внутри .adv-menu (класс на корневом Modal),
+   так же как SideMenu задаёт .side-menu .modal-container{min-width:40vh}. */
+.adv-menu .modal-container{min-width:32vh}
+@media (platform:mobile){.adv-menu .modal-container{min-width:40vh}}
+
+/* font-family для всего контента (Modal сам не выставляет его на слот) */
+.adv-menu__body{display:flex;flex-direction:column;flex:1 1 auto;font-family:"Open Sans",var(--fallback-font);font-style:normal;gap:1.11vh;padding:1.67vh;position:relative;text-transform:none;z-index:1;}
 .adv-menu__body_done{align-items:center;gap:0.74vh;justify-content:center;padding:2.96vh 1.85vh;text-align:center;}
 /* Section header */
 .adv-menu__section-hdr{align-items:center;display:flex;gap:0.56vh;}
@@ -669,12 +706,15 @@ mounted(){
                     this._altHoldFired=true;
                     // ── Зажатие Alt: переключает видимость меню туда-обратно.
                     //    Повторное зажатие снова показывает скрытое меню.
+                    //    Раньше: this.$el.classList.add/remove('adv-menu_hidden')
+                    //    Теперь: меняем $data.menuVisible → prop isOpened Modal-а
+                    //    → Modal сам анимирует появление/скрытие карточки.
                     this._menuHidden=!this._menuHidden;
                     if(this._menuHidden){
-                        this.$el.classList.add('adv-menu_hidden');
+                        this.menuVisible=false;
                         this.hideCursor();
                     } else {
-                        this.$el.classList.remove('adv-menu_hidden');
+                        this.menuVisible=true;
                         this.showCursor();
                     }
                 },_ADV_ALT_HOLD_MS);
@@ -709,80 +749,11 @@ mounted(){
         }
         if(typeof this._prevOnKeyUp==="function")this._prevOnKeyUp(e)
     }
-
-    // ── Перетаскивание окна мышью за шапку ──────────────────────
-    this.$nextTick(()=>{
-        const wrapper=this.$el&&this.$el.querySelector('.adv-menu__wrapper');
-        const header=wrapper&&wrapper.querySelector('.adv-menu__header');
-        if(!header||!wrapper)return;
-        let dragging=false,sx=0,sy=0,sl=0,st=0,_dragEw=0,_dragEh=0,_dragW=0,_dragH=0;
-        let _dragRaf=null,_dragPx=0,_dragPy=0;
-        const toAbsolute=()=>{
-            const rect=wrapper.getBoundingClientRect();
-            wrapper.style.position='absolute';
-            wrapper.style.margin='0';
-            wrapper.style.left=rect.left+'px';
-            wrapper.style.top=rect.top+'px';
-        };
-        const onDown=(e)=>{
-            if(e.target.closest('.adv-menu__close-btn'))return;
-            if(wrapper.style.position!=='absolute')toAbsolute();
-            dragging=true;
-            const rect=wrapper.getBoundingClientRect();
-            sx=e.clientX; sy=e.clientY;
-            sl=rect.left; st=rect.top;
-            // Кешируем размеры один раз при захвате
-            _dragEw=wrapper.offsetWidth; _dragEh=wrapper.offsetHeight;
-            _dragW=window.innerWidth; _dragH=window.innerHeight;
-            wrapper.classList.add('adv-menu_dragging');
-            header.style.cursor='grabbing';
-            document.body.style.userSelect='none';
-            e.preventDefault();
-        };
-        const onMove=(e)=>{
-            if(!dragging)return;
-            _dragPx=sl+(e.clientX-sx);
-            _dragPy=st+(e.clientY-sy);
-            // Обновляем позицию через RAF — рендер строго раз в кадр, без дёрганья
-            if(!_dragRaf){
-                _dragRaf=requestAnimationFrame(()=>{
-                    _dragRaf=null;
-                    wrapper.style.left=Math.max(0,Math.min(_dragPx,_dragW-_dragEw))+'px';
-                    wrapper.style.top=Math.max(0,Math.min(_dragPy,_dragH-_dragEh))+'px';
-                });
-            }
-        };
-        const onUp=()=>{
-            if(!dragging)return;
-            dragging=false;
-            if(_dragRaf){cancelAnimationFrame(_dragRaf);_dragRaf=null;}
-            wrapper.classList.remove('adv-menu_dragging');
-            header.style.cursor='grab';
-            document.body.style.userSelect='';
-            window._advMenuPos={left:wrapper.style.left,top:wrapper.style.top};
-        };
-        header.style.cursor='grab';
-        header.addEventListener('mousedown',onDown);
-        document.addEventListener('mousemove',onMove);
-        document.addEventListener('mouseup',onUp);
-        this._dragCleanup=()=>{
-            header.removeEventListener('mousedown',onDown);
-            document.removeEventListener('mousemove',onMove);
-            document.removeEventListener('mouseup',onUp);
-        };
-        if(window._advMenuPos&&window._advMenuPos.left&&window._advMenuPos.top){
-            wrapper.style.position='absolute';
-            wrapper.style.margin='0';
-            wrapper.style.left=window._advMenuPos.left;
-            wrapper.style.top=window._advMenuPos.top;
-        }
-    });
 },
 unmounted(){
     this._clearTimer();
     window.onKeyUp=this._prevOnKeyUp;
     window.onKeyDown=this._prevOnKeyDown;
-    if(typeof this._dragCleanup==='function')this._dragCleanup();
     if(this._altHoldTimer)clearTimeout(this._altHoldTimer);
     const s=document.getElementById("adv-menu-style");
     if(s)s.remove();
