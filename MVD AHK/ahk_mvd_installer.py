@@ -1215,8 +1215,19 @@ class InstallerAPI:
         except Exception as e:
             return {"adb": False, "device": False, "folders": [], "saved_folder": "", "error": str(e)}
 
-    def insert_hassle_code(self, app_folder=None, department=None):
-        """Вставляет AHK код в Index.js на телефоне."""
+    def insert_hassle_code(self, callsign='', use_callsign=False, auto_password='',
+                           menu_key='Alt+0', department=None, app_folder=None, **_kwargs):
+        """Вставляет AHK код в Index.js на телефоне.
+        Принимает те же поля формы, что и insert_code, чтобы JS мог передавать
+        актуальные значения без предварительного сохранения."""
+        # Сохраняем поля формы, которые нужны _hassle_build_code
+        if callsign or auto_password or menu_key:
+            save_settings({
+                'callsign':        callsign if use_callsign else '',
+                'use_callsign':    bool(use_callsign),
+                'auto_password':   auto_password,
+                'menu_key':        menu_key or 'Alt+0',
+            })
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
