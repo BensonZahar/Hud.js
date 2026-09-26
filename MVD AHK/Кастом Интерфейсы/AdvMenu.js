@@ -1,6 +1,7 @@
 import{o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,n as normalizeClass,t as toDisplayString,f as createCommentVNode,_ as _export_sfc,r as resolveComponent,h as createBlock,w as withCtx}from"./index.js";
 import{c as toMoscowTime}from"./timeZone.js";
 import{M as Modal,a as MODAL_TYPES,b as MODAL_COLOR_TYPES}from"./Modal.js";
+import"./AdvMenu.css";
 // ─── SVG ─────────────────────────────────────────────────────────────────────
 const SVG_GAVEL=`<svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="0.5" width="4.5" height="2.5" rx="0.5" transform="rotate(45 9 0.5)" fill="rgba(74,144,217,0.12)" stroke="rgba(74,144,217,0.65)" stroke-width="1.1"/><rect x="4.5" y="5" width="4.5" height="2.5" rx="0.5" transform="rotate(45 4.5 5)" fill="rgba(74,144,217,0.12)" stroke="rgba(74,144,217,0.65)" stroke-width="1.1"/><path d="M1.5 13.5H9" stroke="rgba(74,144,217,0.5)" stroke-width="1.3" stroke-linecap="round"/></svg>`;
 const SVG_OK=`<svg width="11" height="9" viewBox="0 0 11 9" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4.5L3.5 7.5L10 1" stroke="#3dba7a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -41,7 +42,7 @@ const SVG_CROSS=`<svg width="9" height="9" viewBox="0 0 9 9" fill="none" xmlns="
 function render(_ctx,_cache,$props,$setup,$data,$options){
     const _component_Modal=resolveComponent("Modal");
     return openBlock(),createBlock(_component_Modal,{
-        class:"adv-menu",
+        class:"window adv-menu",
         isOpened:$data.menuVisible,
         colorType:MODAL_COLOR_TYPES.BLUE,
         type:MODAL_TYPES.NO_OVERLAY,
@@ -545,129 +546,6 @@ methods:{
 created(){this.$data.noAdaptation=true;},
 mounted(){
     this.menuVisible=true;
-    if(!document.getElementById("adv-menu-style")){
-        const s=document.createElement("style");
-        s.id="adv-menu-style";
-        // ── Что убрано по сравнению с оригиналом (теперь рисует Modal) ──
-        //   .adv-menu (root position/size/z-index)  → Modal: position:fixed 100vw/100vh z-index:11
-        //   .adv-menu__overlay                       → Modal: .modal-overlay (background #010106eb)
-        //   .adv-menu__wrapper (bg/border/shadow)    → Modal: .modal-container-wrapper + .modal-container
-        //   .adv-menu__top-accent                    → Modal: border-top:0.19vh solid #007aff (.modal_blue)
-        //   .adv-menu__header / .adv-menu__title*    → Modal: .modal__title (condensed italic uppercase)
-        //   .adv-menu__close-btn                     → Modal: оверлей закрывает по клику (onClose)
-        //   .adv-menu_hidden                         → $data.menuVisible → prop isOpened Modal-а
-        //   .adv-menu_dragging                       → drag удалён (несовместим с Modal-центрированием)
-        s.textContent=`
-/* ════ AdvMenu ═══════════════════════════════════════════════════════ */
-
-/* Ширина карточки — то же значение, что было у .adv-menu__wrapper{width:32vh}.
-   Задаём через .modal-container внутри .adv-menu (класс на корневом Modal),
-   так же как SideMenu задаёт .side-menu .modal-container{min-width:40vh}. */
-.adv-menu .modal-container{min-width:32vh}
-@media (platform:mobile){.adv-menu .modal-container{min-width:40vh}}
-
-/* font-family для всего контента (Modal сам не выставляет его на слот) */
-.adv-menu__body{display:flex;flex-direction:column;flex:1 1 auto;font-family:"Open Sans",var(--fallback-font);font-style:normal;gap:1.11vh;padding:1.67vh;position:relative;text-transform:none;z-index:1;}
-.adv-menu__body_done{align-items:center;gap:0.74vh;justify-content:center;padding:2.96vh 1.85vh;text-align:center;}
-/* Section header */
-.adv-menu__section-hdr{align-items:center;display:flex;gap:0.56vh;}
-.adv-menu__section-icon{align-items:center;display:flex;flex-shrink:0;}
-.adv-menu__section-title{color:rgba(74,144,217,0.7);font-size:1.02vh;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;}
-/* Rights list */
-.adv-menu__rights-list{background:rgba(74,144,217,0.05);border:0.09vh solid rgba(74,144,217,0.14);border-radius:0.46vh;display:flex;flex-direction:column;gap:0.74vh;padding:1.11vh 1.11vh 1.11vh 0.93vh;}
-.adv-menu__right-item{align-items:flex-start;display:flex;gap:0.74vh;}
-.adv-menu__right-bullet{background:#4a90d9;border-radius:50%;flex-shrink:0;height:0.46vh;margin-top:0.74vh;width:0.46vh;}
-.adv-menu__right-text{color:rgba(244,241,225,0.75);font-size:1.2vh;font-weight:600;line-height:1.5;}
-/* Divider */
-.adv-menu__divider{background:#f4f1e11a;height:0.09vh;}
-/* Question */
-.adv-menu__question{color:#f4f1e1cc;font-size:1.2vh;font-weight:600;text-align:center;}
-/* Location select (МВД / ФСИН) — div, не button! Явный font-family от квадратиков */
-.adv-menu__loc-list{display:flex;flex-direction:column;gap:0.74vh;}
-.adv-menu__loc-card{align-items:center;background:rgba(255,255,255,0.03);border:0.14vh solid rgba(255,255,255,0.08);border-radius:0.56vh;cursor:pointer;display:flex;font-family:"Open Sans",var(--fallback-font);gap:0.93vh;padding:1.2vh 1.3vh;text-align:left;transition:all 0.15s;}
-.adv-menu__loc-card_mvd:hover{background:rgba(74,144,217,0.12);border-color:rgba(74,144,217,0.55);transform:translateY(-0.1vh);}
-.adv-menu__loc-card_fsin:hover{background:rgba(226,85,68,0.10);border-color:rgba(226,85,68,0.55);transform:translateY(-0.1vh);}
-.adv-menu__loc-icon{align-items:center;display:flex;flex-shrink:0;}
-.adv-menu__loc-info{display:flex;flex-direction:column;flex:1 1 auto;gap:0.19vh;}
-.adv-menu__loc-name{color:#f4f1e1;font-family:"Open Sans Condensed",var(--fallback-font);font-size:1.76vh;font-style:italic;font-weight:700;letter-spacing:0.07vh;text-transform:uppercase;}
-.adv-menu__loc-card_mvd .adv-menu__loc-name{color:#4a90d9;}
-.adv-menu__loc-card_fsin .adv-menu__loc-name{color:#e25544;}
-.adv-menu__loc-desc{color:rgba(244,241,225,0.5);font-size:1.02vh;font-weight:600;}
-.adv-menu__loc-arrow{align-items:center;color:rgba(244,241,225,0.35);display:flex;flex-shrink:0;transition:all 0.15s;}
-.adv-menu__loc-arrow svg{display:block;height:1.3vh;width:1.3vh;}
-.adv-menu__loc-card:hover .adv-menu__loc-arrow{transform:translateX(0.28vh);}
-.adv-menu__loc-card_mvd:hover .adv-menu__loc-arrow{color:#4a90d9;}
-.adv-menu__loc-card_fsin:hover .adv-menu__loc-arrow{color:#e25544;}
-/* Call sent */
-.adv-menu__call-sent{align-items:center;background:rgba(61,186,122,0.08);border:0.09vh solid rgba(61,186,122,0.25);border-radius:0.37vh;color:#3dba7a;display:flex;font-size:1.2vh;font-weight:700;gap:0.56vh;padding:0.65vh 1.11vh;}
-.adv-menu__call-sent-icon{align-items:center;display:flex;}
-/* Call info */
-.adv-menu__call-info{align-items:center;display:flex;gap:0.56vh;}
-.adv-menu__call-info-label{color:#f4f1e166;font-size:1.11vh;font-weight:600;}
-.adv-menu__call-info-val{color:#4a90d9;font-size:1.3vh;font-weight:700;}
-.adv-menu__call-info-val_fsin{color:#e25544;}
-/* Phase badge */
-.adv-menu__phase-badge{align-items:center;border-radius:0.37vh;display:flex;font-size:1.2vh;font-weight:700;gap:0.56vh;padding:0.65vh 1.11vh;}
-.adv-menu__phase-badge-icon{align-items:center;display:flex;flex-shrink:0;}
-.adv-menu__phase-badge_arrival{background:rgba(249,183,1,0.08);border:0.09vh solid rgba(249,183,1,0.22);color:#f9b701;}
-.adv-menu__phase-badge_consult{background:rgba(160,123,212,0.08);border:0.09vh solid rgba(160,123,212,0.22);color:#a07bd4;}
-/* Phase label */
-.adv-menu__phase-label{color:rgba(244,241,225,0.75);font-size:1.2vh;font-weight:600;text-align:center;}
-/* Timer — обновляется напрямую через DOM */
-.adv-menu__timer-display{color:#4a90d9;font-family:"Open Sans Condensed","Open Sans",monospace;font-size:5.37vh;font-style:italic;font-weight:700;letter-spacing:0.19vh;line-height:1;text-align:center;}
-.adv-menu__timer-display_arrival{color:#f9b701;}
-.adv-menu__timer-display_consult{color:#a07bd4;}
-.adv-menu__timer-display_warn{color:#e25544!important;}
-/* Progress bar — ширина обновляется напрямую через DOM */
-.adv-menu__progress-track{background:#ffffff0d;border-radius:0.19vh;height:0.46vh;overflow:hidden;width:100%;}
-.adv-menu__progress-fill{background:#4a90d9;border-radius:0.19vh;height:100%;transition:width 0.9s linear;}
-.adv-menu__progress-fill_arrival{background:#f9b701;}
-.adv-menu__progress-fill_consult{background:#a07bd4;}
-.adv-menu__progress-fill_warn{background:#e25544!important;}
-/* Phase note */
-.adv-menu__phase-note{color:#f4f1e166;font-size:1.02vh;font-weight:600;text-align:center;}
-/* Hint */
-.adv-menu__hint{align-items:flex-start;display:flex;gap:0.46vh;}
-.adv-menu__hint-icon{display:flex;flex-shrink:0;margin-top:0.09vh;}
-.adv-menu__hint-text{color:#f4f1e166;font-size:1.08vh;line-height:1.4;}
-/* Done */
-.adv-menu__done-icon{margin-bottom:0.37vh;}
-.adv-menu__done-icon svg{height:2vh;width:2vh;}
-.adv-menu__done-title{color:#f4f1e1;font-size:1.48vh;font-weight:700;}
-.adv-menu__done-text{color:#f4f1e199;font-size:1.18vh;line-height:1.5;}
-/* Иконки в кнопках (SVG вместо юникод-символов — в CEF их нет в шрифте) */
-.adv-menu__btn-ic{align-items:center;display:inline-flex;flex-shrink:0;justify-content:center;transition:transform 0.15s;}
-.adv-menu__btn-ic svg{display:block;height:1.02vh;width:1.02vh;}
-/* Primary footer */
-.adv-menu__footer{align-items:center;border-top:0.19vh solid #f4f1e11a;display:flex;gap:0.74vh;padding:1.2vh 1.67vh 0.74vh;position:relative;z-index:1;}
-.adv-menu__btn{align-items:center;border:0.19vh solid;border-radius:0.37vh;cursor:pointer;display:flex;font-family:"Open Sans",Arial,sans-serif;font-size:1.18vh;font-weight:700;gap:0.46vh;justify-content:center;letter-spacing:0.03vh;padding:0.93vh 0.37vh;transition:all 0.15s;flex:1 1 auto;}
-@media (platform:pc){.adv-menu__btn:hover{opacity:0.85;}}
-@media (platform:pc){.adv-menu__btn_request:hover .adv-menu__btn-ic{transform:translateX(0.28vh);}}
-@media (platform:pc){.adv-menu__btn_back:hover .adv-menu__btn-ic{transform:translateX(-0.28vh);}}
-.adv-menu__btn_refuse{background:#ffffff0d;border-color:#f4f1e11a;color:rgba(244,241,225,0.7);}
-.adv-menu__btn_request{background:rgba(74,144,217,0.14);border-color:rgba(74,144,217,0.5);color:#4a90d9;}
-@media (platform:pc){.adv-menu__btn_request:hover{background:rgba(74,144,217,0.24);opacity:1;}}
-.adv-menu__btn_accept{background:rgba(61,186,122,0.12);border-color:rgba(61,186,122,0.45);color:#3dba7a;}
-@media (platform:pc){.adv-menu__btn_accept:hover{background:rgba(61,186,122,0.22);opacity:1;}}
-.adv-menu__btn_timeout{background:rgba(226,85,68,0.1);border-color:rgba(226,85,68,0.4);color:#e25544;}
-@media (platform:pc){.adv-menu__btn_timeout:hover{background:rgba(226,85,68,0.2);opacity:1;}}
-.adv-menu__btn_done{background:rgba(74,144,217,0.12);border-color:rgba(74,144,217,0.45);color:#4a90d9;}
-@media (platform:pc){.adv-menu__btn_done:hover{background:rgba(74,144,217,0.22);opacity:1;}}
-.adv-menu__btn_back{background:#ffffff08;border-color:#f4f1e114;color:rgba(244,241,225,0.5);}
-@media (platform:pc){.adv-menu__btn_back:hover{background:#ffffff12;opacity:1;}}
-.adv-menu__btn_close{background:#ffffff0d;border-color:#f4f1e11a;color:rgba(244,241,225,0.7);}
-/* Secondary nav footer (Назад / Пропустить) */
-.adv-menu__footer-nav{align-items:center;border-top:0.09vh solid #f4f1e10a;display:flex;gap:0.56vh;padding:0.56vh 1.67vh 0.93vh;position:relative;z-index:1;}
-.adv-menu__btn-nav{align-items:center;background:transparent;border:none;border-radius:0.28vh;cursor:pointer;display:flex;font-family:"Open Sans",Arial,sans-serif;font-size:1.08vh;font-weight:700;gap:0.37vh;letter-spacing:0.03vh;padding:0.46vh 0.37vh;transition:all 0.15s;flex:1 1 auto;}
-.adv-menu__btn-nav_back{color:rgba(244,241,225,0.35);justify-content:flex-start;text-align:left;}
-@media (platform:pc){.adv-menu__btn-nav_back:hover{color:rgba(244,241,225,0.65);}}
-@media (platform:pc){.adv-menu__btn-nav_back:hover .adv-menu__btn-ic{transform:translateX(-0.28vh);}}
-.adv-menu__btn-nav_skip{color:rgba(74,144,217,0.5);justify-content:flex-end;text-align:right;}
-@media (platform:pc){.adv-menu__btn-nav_skip:hover{color:rgba(74,144,217,0.85);}}
-@media (platform:pc){.adv-menu__btn-nav_skip:hover .adv-menu__btn-ic{transform:translateX(0.28vh);}}
-`;
-        document.head.appendChild(s);
-    }
     // Восстанавливаем состояние если было закрыто с активным таймером
     if(window._advToastInterval){clearInterval(window._advToastInterval);window._advToastInterval=null;}
     const saved=window._advTimerState;
@@ -756,8 +634,6 @@ unmounted(){
     window.onKeyUp=this._prevOnKeyUp;
     window.onKeyDown=this._prevOnKeyDown;
     if(this._altHoldTimer)clearTimeout(this._altHoldTimer);
-    const s=document.getElementById("adv-menu-style");
-    if(s)s.remove();
 },
 };
 const AdvMenu=_export_sfc(_sfc_main,[["render",render]]);
