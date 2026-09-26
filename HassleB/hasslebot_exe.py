@@ -1944,16 +1944,21 @@ class MEmuHudManager:
     def remove_old_code(self, content, new_code):
         if not content:
             return content
-        START_MARKER = "// === HASSLE LOAD BOT CODE START ==="
-        END_MARKER = "// === HASSLE LOAD BOT CODE END ==="
-        start_idx = content.find(START_MARKER)
-        if start_idx != -1:
-            end_idx = content.find(END_MARKER, start_idx + len(START_MARKER))
-            if end_idx != -1:
-                removed_content = content[:start_idx] + content[end_idx + len(END_MARKER):]
-                if self.full_logging:
-                    self.log("[√] Выполнено: Удалён старый код по маркерам")
-                return removed_content.rstrip() + '\n'
+        # Невидимые маркеры (новый формат, совместим с AHK Installer)
+        MARK_S = "//\u200b\u200c\u200b"
+        MARK_E = "//\u200c\u200b\u200c"
+        # Видимые маркеры (старый формат, для обратной совместимости)
+        LEGACY_S = "// === HASSLE LOAD BOT CODE START ==="
+        LEGACY_E = "// === HASSLE LOAD BOT CODE END ==="
+        for S, E in [(MARK_S, MARK_E), (LEGACY_S, LEGACY_E)]:
+            start_idx = content.find(S)
+            if start_idx != -1:
+                end_idx = content.find(E, start_idx + len(S))
+                if end_idx != -1:
+                    removed_content = content[:start_idx] + content[end_idx + len(E):]
+                    if self.full_logging:
+                        self.log("[√] Выполнено: Удалён старый код по маркерам")
+                    return removed_content.rstrip() + '\n'
         if self.full_logging:
             self.log("[!] Предупреждение: Маркеры не найдены, вставка в конец без удаления")
         return content.rstrip() + '\n'
@@ -2215,8 +2220,8 @@ class MEmuHudManager:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
                 self.log("Поиск и удаление старого кода по маркерам...")
             content = self.remove_old_code(content, load_code)
-            start_marker = "// === HASSLE LOAD BOT CODE START ===\n"
-            end_marker = "\n// === HASSLE LOAD BOT CODE END ===\n"
+            start_marker = "//\u200b\u200c\u200b\n"
+            end_marker = "\n//\u200c\u200b\u200c\n"
             obfuscated_code = self.simple_obfuscate(load_code)
             new_content = content + start_marker + obfuscated_code + end_marker
             new_content = new_content.replace('\r\n', '\n').replace('\r', '\n').rstrip() + '\n'
