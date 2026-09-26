@@ -1232,6 +1232,7 @@ class InstallerAPI:
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
         def run():
+            nonlocal app_folder
             tmp_dir = None
             try:
                 if not self._hassle_adb_ready():
@@ -1309,6 +1310,7 @@ class InstallerAPI:
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
         def run():
+            nonlocal app_folder
             tmp_dir = None
             try:
                 if not self._hassle_adb_ready():
