@@ -44,7 +44,7 @@ function render(_ctx,_cache,$props,$setup,$data,$options){
         class:"adv-menu",
         isOpened:$data.menuVisible,
         colorType:MODAL_COLOR_TYPES.BLUE,
-        type:MODAL_TYPES.DEFAULT,
+        type:MODAL_TYPES.NO_OVERLAY,
         title:"АДВОКАТ",
         onClose:$options.close
     },{
@@ -290,7 +290,7 @@ data(){
         // false = Alt-hold скрыл окно (интерфейс НЕ закрыт; компонент живой
         //         и продолжает слушать клавиши — то же поведение, что раньше
         //         давал класс adv-menu_hidden на this.$el)
-        menuVisible:true,
+        menuVisible:false,
     };
 },
 computed:{
@@ -544,6 +544,7 @@ methods:{
 },
 created(){this.$data.noAdaptation=true;},
 mounted(){
+    this.menuVisible=true;
     if(!document.getElementById("adv-menu-style")){
         const s=document.createElement("style");
         s.id="adv-menu-style";
