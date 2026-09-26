@@ -151,27 +151,6 @@
           </button>
         </div>
 
-        <!-- ── Hassle-контент (скрыт по умолчанию) ── -->
-        <div id="insert-hassle-content" style="display:none">
-          <div class="info-box" style="margin-bottom:14px">
-            Вставляет AHK код в <b>Index.js</b> на Android-телефоне через ADB.<br>
-            Включите <b>Отладку по USB</b> в настройках телефона и подтвердите доступ.
-          </div>
-          <div class="card">
-            <div class="card-row">
-              <span class="cr-lbl">Hassle / Телефон</span>
-              <span id="hassle-insert-status" class="cr-val muted">Не проверен</span>
-            </div>
-            <div class="card-row">
-              <span class="cr-lbl">Путь</span>
-              <span class="cr-val muted" style="font-size:10px">/sdcard/Android/data/com.hassle.online*/.../Index.js</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── ПК-контент ── -->
-        <div id="insert-pc-content">
-
         <div id="section-callsign">
         <div class="chk-row" onclick="toggleCallsign()">
           <div class="chk-box" id="chk-box"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -336,8 +315,6 @@
         </div>
 
         
-        </div><!-- /insert-pc-content -->
-
       </div>
       <!-- sticky footer вне скролла -->
       <div style="padding:12px 24px;border-top:.5px solid var(--border);background:var(--surface);flex-shrink:0">
@@ -943,7 +920,7 @@ document.addEventListener('wheel',function(e){
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){var btn=document.getElementById('btn-insert');btn.disabled=true;if(insertTarget==='phone'){_setHassleStatus('hassle-insert-status','Подключение к телефону...','muted');runBar('pbar-insert','pbar-insert-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.insert_hassle_code('',currentDepartment).then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-insert-status',r.message||'Код установлен','ok');flash(true);}else{_setHassleStatus('hassle-insert-status',(r&&r.message)||'Ошибка установки','err');flash(false);}});}else{_setHassleStatus('hassle-insert-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){var btn=document.getElementById('btn-insert');var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();btn.disabled=true;if(insertTarget==='phone'){runBar('pbar-insert','pbar-insert-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.insert_hassle_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(r){btn.disabled=false;if(r&&r.ok){flash(true);}else{flash(false);}});}else{flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){var btn=document.getElementById('btn-remove');btn.disabled=true;if(removeTarget==='phone'){_setHassleStatus('hassle-remove-status','Удаление с телефона...','muted');runBar('pbar-remove','pbar-remove-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.remove_hassle_code('').then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-remove-status',r.message||'Код удалён','ok');flash(true);}else{_setHassleStatus('hassle-remove-status',(r&&r.message)||'Ошибка удаления','err');flash(false);}});}else{_setHassleStatus('hassle-remove-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
@@ -1039,20 +1016,14 @@ function setInsertTarget(t){
   insertTarget = t;
   var pc = document.getElementById('insert-target-pc');
   var ph = document.getElementById('insert-target-phone');
-  var pcContent = document.getElementById('insert-pc-content');
-  var hassleContent = document.getElementById('insert-hassle-content');
   var lbl = document.getElementById('btn-insert-label');
   if(t === 'phone'){
     pc.classList.remove('active');
     ph.classList.add('active');
-    if(pcContent) pcContent.style.display = 'none';
-    if(hassleContent) hassleContent.style.display = '';
     if(lbl) lbl.textContent = 'Вставить AHK (Hassle)';
   } else {
     ph.classList.remove('active');
     pc.classList.add('active');
-    if(pcContent) pcContent.style.display = '';
-    if(hassleContent) hassleContent.style.display = 'none';
     if(lbl) lbl.textContent = 'Вставить код';
   }
 }
