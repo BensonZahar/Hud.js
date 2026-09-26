@@ -4320,6 +4320,16 @@ var _prevOnKeyUp = null;
 var _drag = null;
 var _pollTimer = null;
 
+// ── Определение движка / платформы ────────────────────────────────────────
+// PC (Radmir) : window.App.engine === 'legacy'  → мышь
+// Мобилка (Hassle) : window.App.isMobile        → тач + клик
+function _isMobile() {
+    return !!(window.App && window.App.isMobile);
+}
+
+// Флаг: палец сдвинулся после touchstart — нужен для отличия drag от тапа
+var _touchMoved = false;
+
 // Сброс сохранённых позиций
 window._fsinResetDialogPositions = function () {
     _savedPositions = {};
@@ -4668,6 +4678,7 @@ function _ensureAbsolute(wrapper) {
 }
 
 function _onMouseDown(e) {
+    if (_isMobile()) return;           // Мобилка (Hassle) — только тач, мышь не используем
     if (!_active || _menuHidden) return;
     if (e.button !== 0) return;
 
@@ -4705,6 +4716,7 @@ function _onMouseDown(e) {
 }
 
 function _onMouseMove(e) {
+    if (_isMobile()) return;           // Мобилка (Hassle) — игнорируем mousemove
     if (!_drag) return;
 
     var left = _drag.sl + (e.clientX - _drag.sx);
@@ -4720,6 +4732,7 @@ function _onMouseMove(e) {
 }
 
 function _onMouseUp() {
+    if (_isMobile()) return;           // Мобилка (Hassle) — игнорируем mouseup
     if (!_drag) return;
 
     var wrapper = _drag.wrapper;
@@ -4735,9 +4748,12 @@ function _onMouseUp() {
     document.body.style.userSelect = '';
 }
 
-// ── Touch-drag (мобилка / планшет) ────────────────────────────────────────
+// ── Touch-drag (мобилка / Hassle) ─────────────────────────────────────────
 function _onTouchStart(e) {
+    if (!_isMobile()) return;          // ПК (Radmir) — только мышь, тач не используем
     if (!_active || _menuHidden) return;
+
+    _touchMoved = false;               // Сбрасываем флаг для определения тапа
 
     var touch = e.touches[0];
     if (!touch) return;
@@ -4775,6 +4791,8 @@ function _onTouchStart(e) {
 }
 
 function _onTouchMove(e) {
+    if (!_isMobile()) return;          // ПК (Radmir) — игнорируем touchmove
+    _touchMoved = true;                // Палец двигается — это drag, не тап
     if (!_drag) return;
 
     var touch = e.touches[0];
@@ -4793,6 +4811,7 @@ function _onTouchMove(e) {
 }
 
 function _onTouchEnd() {
+    if (!_isMobile()) return;          // ПК (Radmir) — игнорируем touchend
     if (!_drag) return;
 
     var wrapper = _drag.wrapper;
@@ -4808,7 +4827,48 @@ function _onTouchEnd() {
     document.body.style.userSelect = '';
 }
 
-// Делегирование на document решает проблему замены DOM после переходов
+// ── Клик / тап по заголовку (Hassle / мобилка) ───────────────────────────
+// Одиночный тап (без перетаскивания) центрирует диалог на экране.
+// _touchMoved исключает срабатывание после drag-жеста.
+function _onTitleTap(e) {
+    if (!_isMobile() || !_active || _menuHidden) return;
+    if (_touchMoved) return;           // Это был drag — клик не обрабатываем
+
+    var target = e.target;
+    if (!target || !target.closest) return;
+
+    var title = target.closest('.modal__title');
+    if (!title) return;
+
+    var wrapper = title.closest('.modal-container-wrapper');
+    if (!wrapper || !wrapper.isConnected) return;
+    if (!wrapper.closest('.window')) return;
+    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
+
+    // Центрируем диалог по экрану
+    _ensureAbsolute(wrapper);
+    var left = Math.max(0, Math.round((window.innerWidth  - (wrapper.offsetWidth  || 0)) / 2));
+    var top  = Math.max(0, Math.round((window.innerHeight - (wrapper.offsetHeight || 0)) / 2));
+    wrapper.style.left = left + 'px';
+    wrapper.style.top  = top  + 'px';
+
+    if (_currentDialogId !== null) {
+        _savedPositions[_getPositionKey()] = {
+            left: wrapper.style.left,
+            top:  wrapper.style.top
+        };
+    }
+}
+
+// ── Делегирование на document ─────────────────────────────────────────────
+// Решает проблему замены DOM после переходов между диалогами.
+//
+// PC (Radmir)  → engine === 'legacy'  → только мышь (mouse*)
+// Мобилка (Hassle) → isMobile = true  → тач (touch*) + клик
+//
+// Каждый обработчик самостоятельно проверяет платформу через _isMobile(),
+// поэтому лишние события просто «проваливаются» на первой строке.
+
 document.addEventListener('mousedown', _onMouseDown, true);
 document.addEventListener('mousemove', _onMouseMove, true);
 document.addEventListener('mouseup',   _onMouseUp,   true);
@@ -4817,6 +4877,9 @@ document.addEventListener('mouseup',   _onMouseUp,   true);
 document.addEventListener('touchstart', _onTouchStart, { capture: true, passive: false });
 document.addEventListener('touchmove',  _onTouchMove,  { capture: true, passive: false });
 document.addEventListener('touchend',   _onTouchEnd,   { capture: true, passive: true  });
+
+// Клик / тап — Hassle: одиночный тап по заголовку = центрировать диалог
+document.addEventListener('click', _onTitleTap, true);
 
 // ── Подключение / отключение ───────────────────────────────────────────────
 function _attach() {
@@ -4997,7 +5060,7 @@ window.closeLastDialog = function () {
     }
 };
 
-console.log('[FSIN] Window/Modal cursor/hide/drag v5 готов (touch-drag добавлен)');
+console.log('[FSIN] Window/Modal cursor/hide/drag v5 готов (engine detection: PC=mouse / Hassle=touch+tap)');
 console.log('[FSIN]   • Alt (короткий) = скрыть/показать курсор');
 console.log('[FSIN]   • Alt (>=500мс)  = скрыть/показать диалог вместе с курсором');
 console.log('[FSIN]   • 677 и 667 используют одну позицию меню');
