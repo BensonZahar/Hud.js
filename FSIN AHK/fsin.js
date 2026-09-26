@@ -5069,6 +5069,249 @@ console.log('[FSIN]   • курсор гасится через реальны�
 })();
 // ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
 
+// ==================== ZKM / SIDEMENU: DRAG ====================
+// Перетаскивание для кастомных интерфейсов ZKM и SideMenu.
+// Работает независимо от Window/Modal drag (не требует _active —
+// тот взводится только для серверных диалогов через addDialogInQueue,
+// а ZKM/SideMenu открываются через openInterface).
+//
+// PC (Radmir): мышь. Hassle (мобилка): тач.
+// Позиционирование: absolute left/top — идентично Window/Modal drag.
+// Позиция сохраняется в _savedPos и восстанавливается при повторном
+// открытии через setInterval-поллинг (200 мс).
+;(function () {
+'use strict';
+
+if (window.__fsinCustomIfaceDragV1) return;
+window.__fsinCustomIfaceDragV1 = true;
+
+// ── Описание интерфейсов ──────────────────────────────────────────────────
+// rootSel    — CSS-селектор корневого .modal элемента интерфейса
+// dragZone   — зоны за которые можно тащить (inside card)
+// noInteract — элементы внутри dragZone, по которым клик НЕ начинает drag
+// posKey     — ключ для _savedPos
+var IFACES = [
+    {
+        rootSel:    '.modal.zkm',
+        dragZone:   '.modal__title, .zkm__subheader',
+        noInteract: '.laws-helper__icon-btn, .laws-helper__tab',
+        posKey:     'zkm'
+    },
+    {
+        rootSel:    '.modal.side-menu',
+        dragZone:   '.modal__title',
+        noInteract: null,
+        posKey:     'side-menu'
+    }
+];
+
+var _savedPos   = {};       // сохранённые позиции по posKey
+var _drag       = null;     // активный drag-стейт
+var _touchMoved = false;    // true = палец двигался → это drag, не тап
+
+function _isMobile() {
+    return !!(window.App && window.App.isMobile);
+}
+
+// Находит wrapper и конфиг по целевому элементу; null — не наша зона
+function _resolve(target) {
+    if (!target || !target.closest) return null;
+    for (var i = 0; i < IFACES.length; i++) {
+        var cfg  = IFACES[i];
+        var zone = target.closest(cfg.dragZone);
+        if (!zone) continue;
+        if (cfg.noInteract && target.closest(cfg.noInteract)) return null;
+        var wrapper = zone.closest('.modal-container-wrapper');
+        if (!wrapper || !wrapper.isConnected) return null;
+        if (!wrapper.closest(cfg.rootSel)) return null;
+        // Не трогаем карточку, которая уходит через transition
+        if (String(wrapper.className || '').indexOf('leave-active') !== -1) return null;
+        return { wrapper: wrapper, cfg: cfg };
+    }
+    return null;
+}
+
+// Переводим wrapper в absolute-позиционирование, сохраняя видимую позицию.
+// Сбрасываем transform — ZKM ранее использовал translate(), теперь left/top.
+function _ensureAbsolute(wrapper) {
+    if (
+        wrapper.style.position === 'absolute' &&
+        wrapper.style.left !== '' &&
+        wrapper.style.top  !== ''
+    ) return;
+
+    var rect   = wrapper.getBoundingClientRect();
+    var parent = wrapper.offsetParent || document.body;
+    var pRect  = parent.getBoundingClientRect();
+
+    wrapper.style.position  = 'absolute';
+    wrapper.style.margin    = '0';
+    wrapper.style.transform = 'none';   // убираем translate() если был
+    wrapper.style.left = (rect.left - pRect.left) + 'px';
+    wrapper.style.top  = (rect.top  - pRect.top ) + 'px';
+}
+
+// Ограничиваем позицию границами экрана
+function _clamp(wrapper, left, top) {
+    var ew = wrapper.offsetWidth  || wrapper.getBoundingClientRect().width;
+    var eh = wrapper.offsetHeight || wrapper.getBoundingClientRect().height;
+    return {
+        left: Math.max(0, Math.min(left, window.innerWidth  - ew)),
+        top:  Math.max(0, Math.min(top,  window.innerHeight - eh))
+    };
+}
+
+// Применяем сохранённую позицию к wrapper (один раз на жизнь элемента,
+// пока тот не будет пересоздан — тогда атрибут data-cif-pos сбросится)
+function _applyPos(wrapper, posKey) {
+    var pos  = _savedPos[posKey];
+    if (!pos) return;
+    var mark = 'cif-' + posKey;
+    if (wrapper.getAttribute('data-cif-pos') === mark) return;
+    if (!wrapper.offsetWidth && !wrapper.offsetHeight) return; // ещё не в DOM
+
+    _ensureAbsolute(wrapper);
+    var c = _clamp(wrapper, parseFloat(pos.left) || 0, parseFloat(pos.top) || 0);
+    wrapper.style.left = c.left + 'px';
+    wrapper.style.top  = c.top  + 'px';
+    wrapper.setAttribute('data-cif-pos', mark);
+}
+
+// Поллинг: 200 мс — восстанавливаем позицию при повторном открытии интерфейса
+setInterval(function () {
+    for (var i = 0; i < IFACES.length; i++) {
+        var cfg  = IFACES[i];
+        var root = document.querySelector(cfg.rootSel);
+        if (!root) continue;
+        var wrapper = root.querySelector('.modal-container-wrapper');
+        if (!wrapper || !wrapper.isConnected) continue;
+        if (String(wrapper.className || '').indexOf('leave-active') !== -1) continue;
+        _applyPos(wrapper, cfg.posKey);
+    }
+}, 200);
+
+// ── Мышь (PC / Radmir) ─────────────────────────────────────────────────────
+
+function _onMouseDown(e) {
+    if (_isMobile()) return;
+    if (e.button !== 0) return;
+    var found = _resolve(e.target);
+    if (!found) return;
+
+    _ensureAbsolute(found.wrapper);
+    _drag = {
+        wrapper: found.wrapper,
+        posKey:  found.cfg.posKey,
+        sx: e.clientX,
+        sy: e.clientY,
+        sl: parseFloat(found.wrapper.style.left) || 0,
+        st: parseFloat(found.wrapper.style.top)  || 0
+    };
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onMouseMove(e) {
+    if (_isMobile()) return;
+    if (!_drag) return;
+    var c = _clamp(
+        _drag.wrapper,
+        _drag.sl + (e.clientX - _drag.sx),
+        _drag.st + (e.clientY - _drag.sy)
+    );
+    _drag.wrapper.style.left = c.left + 'px';
+    _drag.wrapper.style.top  = c.top  + 'px';
+    e.preventDefault();
+}
+
+function _onMouseUp() {
+    if (_isMobile()) return;
+    if (!_drag) return;
+    _savedPos[_drag.posKey] = {
+        left: _drag.wrapper.style.left,
+        top:  _drag.wrapper.style.top
+    };
+    _drag.wrapper.setAttribute('data-cif-pos', 'cif-' + _drag.posKey);
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
+// ── Тач (Hassle / мобилка) ─────────────────────────────────────────────────
+
+function _onTouchStart(e) {
+    if (!_isMobile()) return;
+    _touchMoved = false;
+    var touch = e.touches[0];
+    if (!touch) return;
+    var found = _resolve(touch.target);
+    if (!found) return;
+
+    _ensureAbsolute(found.wrapper);
+    _drag = {
+        wrapper: found.wrapper,
+        posKey:  found.cfg.posKey,
+        sx: touch.clientX,
+        sy: touch.clientY,
+        sl: parseFloat(found.wrapper.style.left) || 0,
+        st: parseFloat(found.wrapper.style.top)  || 0
+    };
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onTouchMove(e) {
+    if (!_isMobile()) return;
+    _touchMoved = true;
+    if (!_drag) return;
+    var touch = e.touches[0];
+    if (!touch) return;
+    var c = _clamp(
+        _drag.wrapper,
+        _drag.sl + (touch.clientX - _drag.sx),
+        _drag.st + (touch.clientY - _drag.sy)
+    );
+    _drag.wrapper.style.left = c.left + 'px';
+    _drag.wrapper.style.top  = c.top  + 'px';
+    e.preventDefault();
+}
+
+function _onTouchEnd() {
+    if (!_isMobile()) return;
+    if (!_drag) return;
+    _savedPos[_drag.posKey] = {
+        left: _drag.wrapper.style.left,
+        top:  _drag.wrapper.style.top
+    };
+    _drag.wrapper.setAttribute('data-cif-pos', 'cif-' + _drag.posKey);
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
+// ── Регистрация событий (delegation на document, capture-фаза) ─────────────
+// Capture — чтобы перехватить раньше vue-обработчиков внутри карточки.
+// touchstart/move — passive:false обязателен для preventDefault().
+
+document.addEventListener('mousedown', _onMouseDown, true);
+document.addEventListener('mousemove', _onMouseMove, true);
+document.addEventListener('mouseup',   _onMouseUp,   true);
+
+document.addEventListener('touchstart', _onTouchStart, { capture: true, passive: false });
+document.addEventListener('touchmove',  _onTouchMove,  { capture: true, passive: false });
+document.addEventListener('touchend',   _onTouchEnd,   { capture: true, passive: true  });
+
+// Утилита для сброса позиций через консоль браузера
+window._fsinResetCustomIfacePos = function () {
+    _savedPos = {};
+    console.log('[FSIN] Позиции ZKM/SideMenu сброшены');
+};
+
+console.log('[FSIN] ZKM/SideMenu drag v1 готов  (PC=mouse / Hassle=touch)');
+
+})();
+// ==================== END ZKM / SIDEMENU: DRAG ====================
+
 // ============================================================
 //  TimerK — таймер подачи такси
 //  Регистрация: IntLoad.js (name: "TimerK").
