@@ -78,15 +78,13 @@ HASSLE_ADB_ZIP_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/
 # HASSLE_LOADER_URL = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/Load.js"
 HASSLE_LOADER_URL = None
 
-HASSLE_BOT_S = "// === HASSLE LOAD BOT CODE START ==="
-HASSLE_BOT_E = "// === HASSLE LOAD BOT CODE END ==="
-
-# Фоллбэк-имена переменных для телефонного Index.js.
-# Автодетект читает их из скачанного файла по паттернам {Preloader: и {FirstPersonConfig:{open:
-# Если паттерн не найден — используются эти значения.
-# ПК-фоллбэк: 'Id' / 'bd'  (разные, т.к. у телефона своя сборка игры)
-HASSLE_DD_VAR_FALLBACK = 'Dd'   # словарь импортов (lazy-loaders)
-HASSLE_FD_VAR_FALLBACK = 'Rd'   # словарь конфигов (open/show/options)
+# Фоллбэк-имена переменных в Index.js (меняются при каждой сборке игры).
+# Автодетект ищет по паттернам {Preloader: и {FirstPersonConfig:{open:
+# Если паттерн не найден — используются значения ниже.
+PC_DD_VAR_FALLBACK     = 'Id'   # ПК      — словарь импортов (lazy-loaders)
+PC_FD_VAR_FALLBACK     = 'bd'   # ПК      — словарь конфигов (open/show/options)
+HASSLE_DD_VAR_FALLBACK = 'Dd'   # Телефон — словарь импортов (lazy-loaders)
+HASSLE_FD_VAR_FALLBACK = 'Rd'   # Телефон — словарь конфигов (open/show/options)
 
 HASSLE_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
@@ -709,17 +707,17 @@ class InstallerAPI:
         Словарь конфигов (fd_var) — содержит open/show/options для каждого компонента
         Ищем: VAR={FirstPersonConfig:{open:  — первый ключ конфиг-объекта.
 
-        Возвращает (dd_var, fd_var). Fallback: ('Id', 'bd').
+        Возвращает (dd_var, fd_var). Fallback: (PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK).
         """
         import re
-        dd_var, fd_var = 'Id', 'bd'
+        dd_var, fd_var = PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK
 
         m = re.search(r'([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\{Preloader\s*:', content)
         if m:
             dd_var = m.group(1)
             _log_to_file(f'_detect_var_names: dd_var="{dd_var}" (найден по Preloader:)')
         else:
-            _log_to_file('_detect_var_names: dd_var не найден, используем fallback "Id"')
+            _log_to_file(f'_detect_var_names: dd_var не найден, используем fallback "{PC_DD_VAR_FALLBACK}"')
 
         m = re.search(
             r'([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*\{FirstPersonConfig\s*:\s*\{open\s*:',
@@ -729,12 +727,12 @@ class InstallerAPI:
             fd_var = m.group(1)
             _log_to_file(f'_detect_var_names: fd_var="{fd_var}" (найден по FirstPersonConfig:{{open:)')
         else:
-            _log_to_file('_detect_var_names: fd_var не найден, используем fallback "bd"')
+            _log_to_file(f'_detect_var_names: fd_var не найден, используем fallback "{PC_FD_VAR_FALLBACK}"')
 
         return dd_var, fd_var
 
     @staticmethod
-    def _build_interfaces_block(ifaces: list, dd_var: str = 'Id', fd_var: str = 'bd') -> str:
+    def _build_interfaces_block(ifaces: list, dd_var: str = PC_DD_VAR_FALLBACK, fd_var: str = PC_FD_VAR_FALLBACK) -> str:
         if not ifaces:
             return ""
         native_names = {
@@ -941,8 +939,8 @@ class InstallerAPI:
                     dd_var, fd_var = self._detect_var_names(_idx_raw)
                     print(f'[Installer] Переменные Index.js: dd_var="{dd_var}", fd_var="{fd_var}"')
                 except Exception:
-                    dd_var, fd_var = 'Id', 'bd'
-                    _log_to_file('_detect_var_names: не удалось прочитать Index.js, используем fallback')
+                    dd_var, fd_var = PC_DD_VAR_FALLBACK, PC_FD_VAR_FALLBACK
+                    _log_to_file(f'_detect_var_names: не удалось прочитать Index.js, фоллбэк "{PC_DD_VAR_FALLBACK}"/"{PC_FD_VAR_FALLBACK}"')
 
                 interfaces_block = self._build_interfaces_block(ifaces, dd_var, fd_var)
             except Exception:
@@ -1150,11 +1148,10 @@ class InstallerAPI:
             return None
 
     def _remove_all_hassle_markers(self, content: str) -> str:
-        """Удаляет маркеры AHK installer, legacy и HassleBot."""
+        """Удаляет маркеры AHK installer и legacy (невидимые и старый текстовый формат)."""
         pairs = [
-            (self._MARK_S, self._MARK_E),
-            (self._LEGACY_S, self._LEGACY_E),
-            (HASSLE_BOT_S, HASSLE_BOT_E),
+            (self._MARK_S, self._MARK_E),      # текущий формат — невидимые символы
+            (self._LEGACY_S, self._LEGACY_E),   # старый формат — текстовые маркеры
         ]
         changed = True
         while changed:
