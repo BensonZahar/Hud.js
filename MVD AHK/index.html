@@ -46,6 +46,10 @@
         <div class="nav-ico"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
         <span class="nav-lbl">Удалить AHK</span>
       </div>
+      <div class="nav-item" onclick="setTab('hassle',this)">
+        <div class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
+        <span class="nav-lbl">Hassle / Тел.</span>
+      </div>
     </div>
 
     <div class="sb-section" style="margin-top:auto;margin-bottom:10px">
@@ -368,6 +372,50 @@
       </div>
     </div>
 
+    <!-- PAGE: Hassle / Телефон -->
+    <div class="page" id="page-hassle">
+      <div class="page-header">
+        <div class="page-dot" style="background:#3dba7a"></div>
+        <span class="page-title">Hassle / Телефон</span>
+      </div>
+      <div class="content">
+        <div class="info-box" style="margin-bottom:14px">
+          Вставляет AHK код в <b>Index.js</b> на Android-телефоне через ADB.<br>
+          Включите <b>Отладку по USB</b> в настройках телефона и подтвердите доступ.
+        </div>
+
+        <div class="card">
+          <div class="card-row">
+            <span class="cr-lbl">Hassle / Телефон</span>
+            <span id="hassle-status" class="cr-val muted">Не проверен</span>
+          </div>
+          <div class="card-row">
+            <span class="cr-lbl">Цель</span>
+            <span class="cr-val">Index.js</span>
+          </div>
+          <div class="card-row">
+            <span class="cr-lbl">Путь</span>
+            <span class="cr-val muted" style="font-size:10px">/sdcard/Android/data/com.hassle.online*/.../Index.js</span>
+          </div>
+        </div>
+
+        <div class="hassle-actions">
+          <button class="btn btn-primary" id="btn-hassle-insert" type="button" onclick="insertHassleCode()">
+            <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round"><polyline points="20 6 9 17 4 12"/></svg>
+            Вставить AHK для Hassle
+          </button>
+          <button class="btn btn-danger" id="btn-hassle-remove" type="button" onclick="removeHassleCode()">
+            <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
+            Удалить
+          </button>
+        </div>
+
+        <div style="margin-top:auto">
+          <button class="btn btn-ghost" onclick="setTab('home',null)">Назад</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -677,7 +725,7 @@ function setTab(id,el){
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');p.style.display='none';});
   var pg=document.getElementById('page-'+id);pg.style.display='flex';
   setTimeout(function(){pg.classList.add('active');},10);
-  if(el){el.classList.add('active');}else{var map={home:0,insert:1,binds:2,remove:3};var tabs=document.querySelectorAll('.nav-item');if(tabs[map[id]]!==undefined)tabs[map[id]].classList.add('active');}
+  if(el){el.classList.add('active');}else{var map={home:0,insert:1,binds:2,remove:3,hassle:4};var tabs=document.querySelectorAll('.nav-item');if(tabs[map[id]]!==undefined)tabs[map[id]].classList.add('active');}
   if(id==='binds')buildBindsList();
 }
 
@@ -967,6 +1015,74 @@ document.getElementById('f-eject-key').value=_keyDisplayRu(ejectKey);
 document.getElementById('f-menu-key').value=_keyDisplayRu(menuKey);
 renderGrabItems(currentDepartment);
 buildBindsList();
+</script>
+
+<script>
+function getSelectedDepartment(){
+  if(document.querySelector('.dept-fsin.active'))return'fsin';
+  if(document.querySelector('.dept-fsb.active'))return'fsb';
+  return'mvd';
+}
+
+function setHassleStatus(text,cls){
+  var el=document.getElementById('hassle-status');
+  if(!el)return;
+  el.textContent=text;
+  el.className='cr-val '+(cls||'muted');
+}
+
+async function insertHassleCode(){
+  var btn=document.getElementById('btn-hassle-insert');
+  var removeBtn=document.getElementById('btn-hassle-remove');
+  if(btn)btn.disabled=true;
+  if(removeBtn)removeBtn.disabled=true;
+  setHassleStatus('Проверка телефона...','muted');
+  try{
+    var api=window.pywebview&&window.pywebview.api;
+    if(!api)throw new Error('pywebview API не готов');
+    var department=getSelectedDepartment();
+    var result=await api.insert_hassle_code('',department);
+    if(result&&result.ok){
+      setHassleStatus(result.message||'Код установлен','ok');
+      if(window.setGlobalStatus)window.setGlobalStatus('ok');
+    }else{
+      setHassleStatus((result&&result.message)||'Ошибка установки','err');
+      if(window.setGlobalStatus)window.setGlobalStatus('err');
+    }
+  }catch(e){
+    setHassleStatus(String(e),'err');
+    if(window.setGlobalStatus)window.setGlobalStatus('err');
+  }finally{
+    if(btn)btn.disabled=false;
+    if(removeBtn)removeBtn.disabled=false;
+  }
+}
+
+async function removeHassleCode(){
+  var btn=document.getElementById('btn-hassle-insert');
+  var removeBtn=document.getElementById('btn-hassle-remove');
+  if(btn)btn.disabled=true;
+  if(removeBtn)removeBtn.disabled=true;
+  setHassleStatus('Удаление кода...','muted');
+  try{
+    var api=window.pywebview&&window.pywebview.api;
+    if(!api)throw new Error('pywebview API не готов');
+    var result=await api.remove_hassle_code('');
+    if(result&&result.ok){
+      setHassleStatus(result.message||'Код удалён','ok');
+      if(window.setGlobalStatus)window.setGlobalStatus('ok');
+    }else{
+      setHassleStatus((result&&result.message)||'Ошибка удаления','err');
+      if(window.setGlobalStatus)window.setGlobalStatus('err');
+    }
+  }catch(e){
+    setHassleStatus(String(e),'err');
+    if(window.setGlobalStatus)window.setGlobalStatus('err');
+  }finally{
+    if(btn)btn.disabled=false;
+    if(removeBtn)removeBtn.disabled=false;
+  }
+}
 </script>
 </body>
 </html>
