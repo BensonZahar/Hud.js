@@ -81,6 +81,13 @@ HASSLE_LOADER_URL = None
 HASSLE_BOT_S = "// === HASSLE LOAD BOT CODE START ==="
 HASSLE_BOT_E = "// === HASSLE LOAD BOT CODE END ==="
 
+# Фоллбэк-имена переменных для телефонного Index.js.
+# Автодетект читает их из скачанного файла по паттернам {Preloader: и {FirstPersonConfig:{open:
+# Если паттерн не найден — используются эти значения.
+# ПК-фоллбэк: 'Id' / 'bd'  (разные, т.к. у телефона своя сборка игры)
+HASSLE_DD_VAR_FALLBACK = 'Dd'   # словарь импортов (lazy-loaders)
+HASSLE_FD_VAR_FALLBACK = 'Rd'   # словарь конфигов (open/show/options)
+
 HASSLE_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
@@ -1266,10 +1273,33 @@ class InstallerAPI:
                 content = self._remove_all_hassle_markers(content)
                 dept = department or load_settings().get("department", "mvd")
                 code = self._hassle_build_code(dept)
+
+                # Определяем буквы переменных из телефонного Index.js.
+                # Телефон — отдельная сборка игры, буквы могут отличаться от ПК.
+                # Автодетект ищет по паттернам {Preloader: и {FirstPersonConfig:{open:
+                # Фоллбэк — HASSLE_DD_VAR_FALLBACK / HASSLE_FD_VAR_FALLBACK (не ПК-шные Id/bd!)
+                try:
+                    dd_var_h, fd_var_h = self._detect_var_names(content)
+                    _log_to_file(f'insert_hassle_code: dd_var="{dd_var_h}", fd_var="{fd_var_h}" (телефон)')
+                except Exception:
+                    dd_var_h, fd_var_h = HASSLE_DD_VAR_FALLBACK, HASSLE_FD_VAR_FALLBACK
+                    _log_to_file(f'insert_hassle_code: автодетект не сработал, фоллбэк "{dd_var_h}"/"{fd_var_h}"')
+
+                # Загружаем кастом-интерфейсы и собираем блок регистрации
+                # с правильными переменными телефонного Index.js
+                try:
+                    ifaces_h = self._fetch_custom_interfaces(dept)
+                    interfaces_block_h = self._build_interfaces_block(ifaces_h, dd_var_h, fd_var_h)
+                    _log_to_file(f'insert_hassle_code: interfaces_block len={len(interfaces_block_h)}, ifaces={len(ifaces_h)}')
+                except Exception:
+                    interfaces_block_h = ""
+                    _log_to_file('insert_hassle_code: _build_interfaces_block failed, пропускаем')
+
                 obf = self._obfuscate(code)
                 new_content = (
                     content.rstrip() + "\n"
                     + self._MARK_S + "\n"
+                    + interfaces_block_h + "\n"
                     + obf + "\n"
                     + self._MARK_E + "\n"
                 )
