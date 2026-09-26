@@ -1167,13 +1167,11 @@ class InstallerAPI:
                     changed = True
         return content.rstrip() + "\n"
 
-    def _hassle_build_code(self, department: str = "mvd",
-                           callsign='', use_callsign=False, auto_password='',
-                           swap_enabled=True, swap_key='Alt+Q',
-                           eject_enabled=False, eject_key='Alt+U',
-                           menu_key='Alt+0', menu_hidden=None, menu_binds=None,
-                           menu_order=None, menu_timer=None, auto_grab=None):
-        """Готовит код для вставки в телефонный Index.js."""
+    def _hassle_build_code(self, department: str = "mvd"):
+        """Готовит код для вставки в телефонный Index.js.
+        Все настройки берёт из settings.json (сохраняются при вставке ПК-кода через insert_code),
+        поэтому JS для телефона не обязан передавать auto_grab, swap, eject и т.д. явно —
+        достаточно того, что пользователь уже вставил код для ПК с нужными настройками."""
         if department == "fsb":
             loader_url = FSB_AHK_URL
         elif department == "fsin":
@@ -1187,18 +1185,21 @@ class InstallerAPI:
         saved = load_settings()
         if "HassleB/Load.js" in url:
             user = saved.get("hassle_user", "")
-            acc = saved.get("hassle_account", "")
+            acc  = saved.get("hassle_account", "")
             code = code.replace("const currentUser = '';", f"const currentUser = '{user}';")
             code = code.replace("const accountNumber = '';", f"const accountNumber = '{acc}';")
         else:
+            # HWID
             code = code.replace('const HWID = "";', f'const HWID = "{get_hwid()}";')
             # Позывной
-            if use_callsign and callsign:
-                code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{callsign}";')
+            if saved.get("use_callsign") and saved.get("callsign"):
+                code = code.replace('const CALLSIGN = "";', f'const CALLSIGN = "{saved["callsign"]}";')
             # Автопароль
-            if auto_password:
-                code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{auto_password}";')
+            if saved.get("auto_password"):
+                code = code.replace('const AUTO_PASSWORD = "";', f'const AUTO_PASSWORD = "{saved["auto_password"]}";')
             # Смена места (swap)
+            swap_enabled = saved.get("swap_enabled", True)
+            swap_key     = saved.get("swap_key", "Alt+Q")
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
             if not swap_enabled or not safe_swap_key:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = false;')
@@ -1207,6 +1208,8 @@ class InstallerAPI:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = true;')
                 code = code.replace('const SWAP_KEY = "Alt+Q";', f'const SWAP_KEY = "{safe_swap_key}";')
             # Выход (eject)
+            eject_enabled = saved.get("eject_enabled", False)
+            eject_key     = saved.get("eject_key", "Alt+U")
             safe_eject_key = str(eject_key).replace('"', '').replace("'", '')[:30] if eject_key else ''
             if not eject_enabled or not safe_eject_key:
                 code = code.replace('const EJECT_KEY = "Alt+U";', 'const EJECT_KEY = "";')
@@ -1214,61 +1217,64 @@ class InstallerAPI:
                 code = code.replace('const EJECT_ENABLED = false;', 'const EJECT_ENABLED = true;')
                 code = code.replace('const EJECT_KEY = "Alt+U";', f'const EJECT_KEY = "{safe_eject_key}";')
             # Клавиша меню
+            menu_key = saved.get("menu_key", "Alt+0")
             safe_menu_key = str(menu_key).replace('"', '').replace("'", '')[:30] if menu_key else ''
             code = code.replace('const MENU_KEY = "Alt+0";', f'const MENU_KEY = "{safe_menu_key}";')
             # Скрытые пункты меню
-            hidden_list = menu_hidden if isinstance(menu_hidden, list) else []
-            hidden_json = json.dumps(hidden_list)
-            code = code.replace('const MENU_HIDDEN_ITEMS = [];', f'const MENU_HIDDEN_ITEMS = {hidden_json};')
+            hidden_list = saved.get("menu_hidden", [])
+            if not isinstance(hidden_list, list): hidden_list = []
+            code = code.replace('const MENU_HIDDEN_ITEMS = [];', f'const MENU_HIDDEN_ITEMS = {json.dumps(hidden_list)};')
             # Привязки меню
-            binds_dict = {k: v for k, v in (menu_binds or {}).items() if v}
-            binds_json = json.dumps(binds_dict, ensure_ascii=False)
-            code = code.replace('const MENU_BINDS = {};', f'const MENU_BINDS = {binds_json};')
+            binds_dict = saved.get("menu_binds", {})
+            if not isinstance(binds_dict, dict): binds_dict = {}
+            code = code.replace('const MENU_BINDS = {};', f'const MENU_BINDS = {json.dumps(binds_dict, ensure_ascii=False)};')
             # Порядок меню
-            order_list = menu_order if isinstance(menu_order, list) and menu_order else []
-            order_json = json.dumps(order_list)
-            code = code.replace('const MENU_ORDER = [];', f'const MENU_ORDER = {order_json};')
+            order_list = saved.get("menu_order", [])
+            if not isinstance(order_list, list): order_list = []
+            code = code.replace('const MENU_ORDER = [];', f'const MENU_ORDER = {json.dumps(order_list)};')
             # Таймер меню
-            timer_list = menu_timer if isinstance(menu_timer, list) and menu_timer else []
-            timer_json = json.dumps(timer_list)
-            code = code.replace('const MENU_TIMER_ITEMS = [];', f'const MENU_TIMER_ITEMS = {timer_json};')
-            # Автоснаряжение (AUTO_GRAB)
-            items_dict = auto_grab.get('items', {}) if auto_grab else {}
-            any_item = any(v for v in items_dict.values()) if items_dict else False
-            if auto_grab and isinstance(auto_grab, dict) and auto_grab.get('enabled') and any_item:
-                thr  = auto_grab.get('thresholds', {})
-                menu = auto_grab.get('menu', {})
-                items = auto_grab.get('items', {})
-                code = code.replace('const AUTO_GRAB = false;', 'const AUTO_GRAB = true;')
-                code = code.replace('var AUTO_GRAB = false;', 'var AUTO_GRAB = true;')
-                if thr.get('magnum')  is not None:
-                    code = code.replace('const AUTO_GRAB_THR_MAGNUM = 30;', f'const AUTO_GRAB_THR_MAGNUM = {int(thr["magnum"])};')
-                if thr.get('ammo762') is not None:
-                    code = code.replace('const AUTO_GRAB_THR_762 = 60;',    f'const AUTO_GRAB_THR_762 = {int(thr["ammo762"])};')
-                if thr.get('ammo545') is not None:
-                    code = code.replace('const AUTO_GRAB_THR_545 = 60;',    f'const AUTO_GRAB_THR_545 = {int(thr["ammo545"])};')
-                if thr.get('ammo556') is not None:
-                    code = code.replace('const AUTO_GRAB_THR_556 = 60;',    f'const AUTO_GRAB_THR_556 = {int(thr["ammo556"])};')
-                if thr.get('ammo12x70') is not None:
-                    code = code.replace('const AUTO_GRAB_THR_1270 = 20;',   f'const AUTO_GRAB_THR_1270 = {int(thr["ammo12x70"])};')
-                for key, mkey in [
-                    ('medkit',     'MEDKIT'),   ('baton',      'BATON'),   ('bat',        'BAT'),
-                    ('vest',       'VEST'),     ('deagle',     'DEAGLE'),
-                    ('ammo_magnum','AMMO_MAGNUM'),('akm',      'AKM'),  ('ammo_762',  'AMMO_762'),
-                    ('painkiller', 'PAINKILLERS'),('baton2',   'WAND'),
-                    ('taumeter',   'RADAR_GUN'),('diag',       'DIAGNOSTICS'),
-                    ('taser',      'TASER'),    ('aks74u',     'AKS74U'),
-                    ('hk416',      'HK416'),    ('ammo_556',   'AMMO_556'),
-                    ('remington',  'REMINGTON'),('ammo_545',   'AMMO_545'), ('ammo_12x70','AMMO_1270'),
-                    ('flashbang',  'FLASHBANG'),('mask',       'MASK'),    ('repairkit',  'REPAIRKIT'),
-                ]:
-                    val = menu.get(key)
-                    if val is not None:
-                        code = code.replace(f'const AUTO_GRAB_MENU_{mkey} = -1;', f'const AUTO_GRAB_MENU_{mkey} = {int(val)};')
-                skip = [k for k, v in items.items() if not v]
-                skip_js = json.dumps(skip)
-                code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
-                code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
+            timer_list = saved.get("menu_timer_items", [])
+            if not isinstance(timer_list, list): timer_list = []
+            code = code.replace('const MENU_TIMER_ITEMS = [];', f'const MENU_TIMER_ITEMS = {json.dumps(timer_list)};')
+            # Автоснаряжение (AUTO_GRAB) — читаем из сохранённых настроек ПК
+            auto_grab = saved.get("auto_grab", {})
+            if isinstance(auto_grab, dict):
+                items_dict = auto_grab.get('items', {})
+                any_item = any(v for v in items_dict.values()) if items_dict else False
+                if auto_grab.get('enabled') and any_item:
+                    thr  = auto_grab.get('thresholds', {})
+                    menu = auto_grab.get('menu', {})
+                    items = auto_grab.get('items', {})
+                    code = code.replace('const AUTO_GRAB = false;', 'const AUTO_GRAB = true;')
+                    code = code.replace('var AUTO_GRAB = false;', 'var AUTO_GRAB = true;')
+                    if thr.get('magnum')   is not None:
+                        code = code.replace('const AUTO_GRAB_THR_MAGNUM = 30;', f'const AUTO_GRAB_THR_MAGNUM = {int(thr["magnum"])};')
+                    if thr.get('ammo762')  is not None:
+                        code = code.replace('const AUTO_GRAB_THR_762 = 60;',    f'const AUTO_GRAB_THR_762 = {int(thr["ammo762"])};')
+                    if thr.get('ammo545')  is not None:
+                        code = code.replace('const AUTO_GRAB_THR_545 = 60;',    f'const AUTO_GRAB_THR_545 = {int(thr["ammo545"])};')
+                    if thr.get('ammo556')  is not None:
+                        code = code.replace('const AUTO_GRAB_THR_556 = 60;',    f'const AUTO_GRAB_THR_556 = {int(thr["ammo556"])};')
+                    if thr.get('ammo12x70') is not None:
+                        code = code.replace('const AUTO_GRAB_THR_1270 = 20;',   f'const AUTO_GRAB_THR_1270 = {int(thr["ammo12x70"])};')
+                    for key, mkey in [
+                        ('medkit',      'MEDKIT'),    ('baton',      'BATON'),    ('bat',        'BAT'),
+                        ('vest',        'VEST'),      ('deagle',     'DEAGLE'),
+                        ('ammo_magnum', 'AMMO_MAGNUM'),('akm',       'AKM'),      ('ammo_762',   'AMMO_762'),
+                        ('painkiller',  'PAINKILLERS'),('baton2',    'WAND'),
+                        ('taumeter',    'RADAR_GUN'), ('diag',       'DIAGNOSTICS'),
+                        ('taser',       'TASER'),     ('aks74u',     'AKS74U'),
+                        ('hk416',       'HK416'),     ('ammo_556',   'AMMO_556'),
+                        ('remington',   'REMINGTON'), ('ammo_545',   'AMMO_545'), ('ammo_12x70', 'AMMO_1270'),
+                        ('flashbang',   'FLASHBANG'), ('mask',       'MASK'),     ('repairkit',  'REPAIRKIT'),
+                    ]:
+                        val = menu.get(key)
+                        if val is not None:
+                            code = code.replace(f'const AUTO_GRAB_MENU_{mkey} = -1;', f'const AUTO_GRAB_MENU_{mkey} = {int(val)};')
+                    skip = [k for k, v in items.items() if not v]
+                    skip_js = json.dumps(skip)
+                    code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
+                    code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
         return code
 
     def get_hassle_status(self):
@@ -1296,31 +1302,18 @@ class InstallerAPI:
             return {"adb": False, "device": False, "folders": [], "saved_folder": "", "error": str(e)}
 
     def insert_hassle_code(self, callsign='', use_callsign=False, auto_password='',
-                           swap_enabled=True, swap_key='Alt+Q',
-                           eject_enabled=False, eject_key='Alt+U',
-                           menu_key='Alt+0', menu_hidden=None, menu_binds=None,
-                           menu_order=None, menu_timer=None,
-                           auto_grab=None, department=None, app_folder=None, **_kwargs):
+                           menu_key='Alt+0', department=None, app_folder=None, **_kwargs):
         """Вставляет AHK код в Index.js на телефоне.
-        Принимает те же поля формы, что и insert_code, чтобы JS мог передавать
-        актуальные значения без предварительного сохранения."""
-        # Сохраняем поля формы, которые нужны _hassle_build_code
-        items_dict = auto_grab.get('items', {}) if auto_grab else {}
-        any_item = any(v for v in items_dict.values()) if items_dict else False
+        JS передаёт те же 6 аргументов что и всегда (позиционно).
+        Остальные настройки (auto_grab, swap, eject, и т.д.) _hassle_build_code
+        читает напрямую из settings.json, куда их сохраняет insert_code при вставке ПК."""
+        # Сохраняем только то, что JS реально передаёт.
+        # save_settings делает merge, поэтому auto_grab и остальные сохранённые ПК-настройки не затираются.
         save_settings({
-            'callsign':        callsign if use_callsign else '',
-            'use_callsign':    bool(use_callsign),
-            'auto_password':   auto_password,
-            'menu_key':        menu_key or 'Alt+0',
-            'swap_enabled':    bool(swap_enabled),
-            'swap_key':        str(swap_key).replace('"', '').replace("'", '')[:30] if swap_enabled and swap_key else '',
-            'eject_enabled':   bool(eject_enabled),
-            'eject_key':       str(eject_key).replace('"', '').replace("'", '')[:30] if eject_enabled and eject_key else '',
-            'menu_hidden':     menu_hidden if isinstance(menu_hidden, list) else [],
-            'menu_binds':      {k: v for k, v in (menu_binds or {}).items() if v},
-            'menu_order':      menu_order if isinstance(menu_order, list) and menu_order else [],
-            'menu_timer_items': menu_timer if isinstance(menu_timer, list) and menu_timer else [],
-            'auto_grab':       (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {},
+            'callsign':     callsign if use_callsign else '',
+            'use_callsign': bool(use_callsign),
+            'auto_password': auto_password,
+            'menu_key':     menu_key or 'Alt+0',
         })
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
@@ -1359,16 +1352,7 @@ class InstallerAPI:
                 content = local_index.read_text(encoding="utf-8", errors="ignore")
                 content = self._remove_all_hassle_markers(content)
                 dept = department or load_settings().get("department", "mvd")
-                code = self._hassle_build_code(
-                    dept,
-                    callsign=callsign, use_callsign=use_callsign,
-                    auto_password=auto_password,
-                    swap_enabled=swap_enabled, swap_key=swap_key,
-                    eject_enabled=eject_enabled, eject_key=eject_key,
-                    menu_key=menu_key, menu_hidden=menu_hidden,
-                    menu_binds=menu_binds, menu_order=menu_order,
-                    menu_timer=menu_timer, auto_grab=auto_grab,
-                )
+                code = self._hassle_build_code(dept)
 
                 # Определяем буквы переменных из телефонного Index.js.
                 # Телефон — отдельная сборка игры, буквы могут отличаться от ПК.
