@@ -1825,6 +1825,9 @@ const HandleMvdSubCommand = (index) => {
         case "naparnick":
             setTimeout(() => showPartnerMenu(giveLicenseTo), 50);
             break;
+        case "advmenu":
+            window.openInterface('AdvMenu');
+            break;
         case "laws":
             window._duranOpenMode = 'laws';
             window.openInterface('Zkm');
@@ -2344,6 +2347,7 @@ window.showMvdSubMenu = (e) => {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
     availableSub.push({ name: getPartnerMenuLabel(), id: "naparnick" });
+    availableSub.push({ name: "Вызов адвоката", id: "advmenu" });
     availableSub.push({ name: "Законы", id: "laws" });
     shownMvdSubTypes = availableSub;
     let licenseList = 'AHK by konstt<n>';
