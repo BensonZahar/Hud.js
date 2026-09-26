@@ -1281,7 +1281,7 @@ class InstallerAPI:
                     return
                 save_settings({"hassle_app_folder": app_folder})
                 result_data["ok"] = True
-                result_data["message"] = f"Код установлен в {app_folder}/{index_name}"
+                result_data["message"] = "Код успешно установлен!"
                 self._notify(True)
             except Exception as e:
                 _log_to_file(f"insert_hassle_code: {e}")
@@ -1348,7 +1348,7 @@ class InstallerAPI:
                     result_data["message"] = "Не удалось записать Index.js."
                     return
                 result_data["ok"] = True
-                result_data["message"] = "Код удалён из Index.js"
+                result_data["message"] = "Код успешно удалён!"
                 self._notify(True)
             except Exception as e:
                 result_data["message"] = str(e)
