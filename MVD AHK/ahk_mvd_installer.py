@@ -1302,6 +1302,29 @@ class InstallerAPI:
                 )
                 new_content = new_content.replace("\r\n", "\n").replace("\r", "\n")
                 local_index.write_text(new_content, encoding="utf-8", newline="\n")
+
+                # === ДЕПЛОЙ ЗАГРУЗЧИКОВ НА ТЕЛЕФОН ===
+                # На ПК файлы загрузчиков копируются в assets/ через _deploy_custom_ui_files.
+                # На Hassle делаем то же самое, но через ADB push.
+                deploy_ui_url = _deploy_ui_url(dept)
+                all_loader_files = [f for iface in ifaces_h for f in iface.get("files", [])]
+                for filename in all_loader_files:
+                    url = f"{deploy_ui_url}/{filename}"
+                    try:
+                        resp = requests.get(url, timeout=20)
+                        resp.raise_for_status()
+                        tmp_loader = Path(tmp_dir) / filename
+                        tmp_loader.write_bytes(resp.content)
+                        remote_dest = f"{remote_dir}/{filename}"
+                        r2 = self._hassle_adb(param + ["push", str(tmp_loader), remote_dest], timeout=60)
+                        if r2.returncode == 0:
+                            _log_to_file(f"insert_hassle_code: запушен {filename} -> {remote_dest}")
+                        else:
+                            _log_to_file(f"insert_hassle_code: не удалось запушить {filename}: {r2.stderr}")
+                    except Exception as e:
+                        _log_to_file(f"insert_hassle_code: ошибка деплоя {filename}: {e}")
+                # ======================================
+
                 r = self._hassle_adb(param + ["push", str(local_index), remote_index], timeout=90)
                 if r.returncode != 0:
                     result_data["message"] = "Не удалось записать Index.js на телефон."
