@@ -46,10 +46,7 @@
         <div class="nav-ico"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
         <span class="nav-lbl">Удалить AHK</span>
       </div>
-      <div class="nav-item" onclick="setTab('hassle',this)">
-        <div class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
-        <span class="nav-lbl">Hassle / Тел.</span>
-      </div>
+
     </div>
 
     <div class="sb-section" style="margin-top:auto;margin-bottom:10px">
@@ -142,6 +139,38 @@
       </div>
       <div class="content">
 
+        <!-- ── Целевой переключатель: ПК / Телефон ── -->
+        <div class="dept-selector" style="margin-bottom:14px">
+          <button id="insert-target-pc" class="dept-btn dept-mvd active" onclick="setInsertTarget('pc')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap:round stroke-linejoin="round" style="width:16px;height:16px;stroke:currentColor;fill:none"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <span>ПК Radmir</span>
+          </button>
+          <button id="insert-target-phone" class="dept-btn dept-fsb" onclick="setInsertTarget('phone')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            <span>Телефон Hassle</span>
+          </button>
+        </div>
+
+        <!-- ── Hassle-контент (скрыт по умолчанию) ── -->
+        <div id="insert-hassle-content" style="display:none">
+          <div class="info-box" style="margin-bottom:14px">
+            Вставляет AHK код в <b>Index.js</b> на Android-телефоне через ADB.<br>
+            Включите <b>Отладку по USB</b> в настройках телефона и подтвердите доступ.
+          </div>
+          <div class="card">
+            <div class="card-row">
+              <span class="cr-lbl">Hassle / Телефон</span>
+              <span id="hassle-insert-status" class="cr-val muted">Не проверен</span>
+            </div>
+            <div class="card-row">
+              <span class="cr-lbl">Путь</span>
+              <span class="cr-val muted" style="font-size:10px">/sdcard/Android/data/com.hassle.online*/.../Index.js</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── ПК-контент ── -->
+        <div id="insert-pc-content">
 
         <div id="section-callsign">
         <div class="chk-row" onclick="toggleCallsign()">
@@ -307,6 +336,7 @@
         </div>
 
         
+        </div><!-- /insert-pc-content -->
 
       </div>
       <!-- sticky footer вне скролла -->
@@ -315,7 +345,7 @@
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary" onclick="doInsert()" style="flex:1" id="btn-insert">
             <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-            Вставить код
+            <span id="btn-insert-label">Вставить код</span>
           </button>
           <button class="btn btn-ghost" onclick="setTab('home',null)">Назад</button>
         </div>
@@ -361,60 +391,43 @@
             <span class="cr-val muted" id="st-code-rm">Статус неизвестен</span>
           </div>
         </div>
+        <!-- ── Целевой переключатель: ПК / Телефон ── -->
+        <div class="dept-selector" style="margin-bottom:14px">
+          <button id="remove-target-pc" class="dept-btn dept-mvd active" onclick="setRemoveTarget('pc')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <span>ПК Radmir</span>
+          </button>
+          <button id="remove-target-phone" class="dept-btn dept-fsb" onclick="setRemoveTarget('phone')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+            <span>Телефон Hassle</span>
+          </button>
+        </div>
+
+        <!-- ── Hassle-карточка для удаления (скрыта) ── -->
+        <div id="remove-hassle-card" style="display:none">
+          <div class="card" style="margin-bottom:14px">
+            <div class="card-row">
+              <span class="cr-lbl">Hassle / Телефон</span>
+              <span id="hassle-remove-status" class="cr-val muted">Не проверен</span>
+            </div>
+            <div class="card-row">
+              <span class="cr-lbl">Путь</span>
+              <span class="cr-val muted" style="font-size:10px">/sdcard/Android/data/com.hassle.online*/.../Index.js</span>
+            </div>
+          </div>
+        </div>
+
         <div class="pbar" id="pbar-remove"><div class="pbar-fill" id="pbar-remove-f"></div></div>
         <div style="margin-top:auto;display:flex;gap:8px">
           <button class="btn btn-danger" onclick="doRemove()" style="flex:1" id="btn-remove">
             <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-            Удалить код
+            <span id="btn-remove-label">Удалить код</span>
           </button>
           <button class="btn btn-ghost" onclick="setTab('home',null)">Назад</button>
         </div>
       </div>
     </div>
 
-    <!-- PAGE: Hassle / Телефон -->
-    <div class="page" id="page-hassle">
-      <div class="page-header">
-        <div class="page-dot" style="background:#3dba7a"></div>
-        <span class="page-title">Hassle / Телефон</span>
-      </div>
-      <div class="content">
-        <div class="info-box" style="margin-bottom:14px">
-          Вставляет AHK код в <b>Index.js</b> на Android-телефоне через ADB.<br>
-          Включите <b>Отладку по USB</b> в настройках телефона и подтвердите доступ.
-        </div>
-
-        <div class="card">
-          <div class="card-row">
-            <span class="cr-lbl">Hassle / Телефон</span>
-            <span id="hassle-status" class="cr-val muted">Не проверен</span>
-          </div>
-          <div class="card-row">
-            <span class="cr-lbl">Цель</span>
-            <span class="cr-val">Index.js</span>
-          </div>
-          <div class="card-row">
-            <span class="cr-lbl">Путь</span>
-            <span class="cr-val muted" style="font-size:10px">/sdcard/Android/data/com.hassle.online*/.../Index.js</span>
-          </div>
-        </div>
-
-        <div class="hassle-actions">
-          <button class="btn btn-primary" id="btn-hassle-insert" type="button" onclick="insertHassleCode()">
-            <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;stroke-width:2.5;fill:none;stroke-linecap:round;stroke-linejoin:round"><polyline points="20 6 9 17 4 12"/></svg>
-            Вставить AHK для Hassle
-          </button>
-          <button class="btn btn-danger" id="btn-hassle-remove" type="button" onclick="removeHassleCode()">
-            <svg viewBox="0 0 24 24" style="width:14px;height:14px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/></svg>
-            Удалить
-          </button>
-        </div>
-
-        <div style="margin-top:auto">
-          <button class="btn btn-ghost" onclick="setTab('home',null)">Назад</button>
-        </div>
-      </div>
-    </div>
 
   </div>
 </div>
@@ -725,7 +738,7 @@ function setTab(id,el){
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');p.style.display='none';});
   var pg=document.getElementById('page-'+id);pg.style.display='flex';
   setTimeout(function(){pg.classList.add('active');},10);
-  if(el){el.classList.add('active');}else{var map={home:0,insert:1,binds:2,remove:3,hassle:4};var tabs=document.querySelectorAll('.nav-item');if(tabs[map[id]]!==undefined)tabs[map[id]].classList.add('active');}
+  if(el){el.classList.add('active');}else{var map={home:0,insert:1,binds:2,remove:3};var tabs=document.querySelectorAll('.nav-item');if(tabs[map[id]]!==undefined)tabs[map[id]].classList.add('active');}
   if(id==='binds')buildBindsList();
 }
 
@@ -930,9 +943,9 @@ document.addEventListener('wheel',function(e){
 
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
-function doInsert(){if(!folderSelected){flash(false);setTab('home',null);return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();var btn=document.getElementById('btn-insert');btn.disabled=true;runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doInsert(){var btn=document.getElementById('btn-insert');btn.disabled=true;if(insertTarget==='phone'){_setHassleStatus('hassle-insert-status','Подключение к телефону...','muted');runBar('pbar-insert','pbar-insert-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.insert_hassle_code('',currentDepartment).then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-insert-status',r.message||'Код установлен','ok');flash(true);}else{_setHassleStatus('hassle-insert-status',(r&&r.message)||'Ошибка установки','err');flash(false);}});}else{_setHassleStatus('hassle-insert-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
-function doRemove(){if(!folderSelected){flash(false);setTab('home',null);return;}var btn=document.getElementById('btn-remove');btn.disabled=true;runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+function doRemove(){var btn=document.getElementById('btn-remove');btn.disabled=true;if(removeTarget==='phone'){_setHassleStatus('hassle-remove-status','Удаление с телефона...','muted');runBar('pbar-remove','pbar-remove-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.remove_hassle_code('').then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-remove-status',r.message||'Код удалён','ok');flash(true);}else{_setHassleStatus('hassle-remove-status',(r&&r.message)||'Ошибка удаления','err');flash(false);}});}else{_setHassleStatus('hassle-remove-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function initGrabScroll(){
   var el=document.getElementById('grab-list-scroll');
@@ -1018,70 +1031,56 @@ buildBindsList();
 </script>
 
 <script>
-function getSelectedDepartment(){
-  if(document.querySelector('.dept-fsin.active'))return'fsin';
-  if(document.querySelector('.dept-fsb.active'))return'fsb';
-  return'mvd';
-}
+// ── Переключатель цели: 'pc' | 'phone' ──────────────────────────────────────
+var insertTarget = 'pc';
+var removeTarget = 'pc';
 
-function setHassleStatus(text,cls){
-  var el=document.getElementById('hassle-status');
-  if(!el)return;
-  el.textContent=text;
-  el.className='cr-val '+(cls||'muted');
-}
-
-async function insertHassleCode(){
-  var btn=document.getElementById('btn-hassle-insert');
-  var removeBtn=document.getElementById('btn-hassle-remove');
-  if(btn)btn.disabled=true;
-  if(removeBtn)removeBtn.disabled=true;
-  setHassleStatus('Проверка телефона...','muted');
-  try{
-    var api=window.pywebview&&window.pywebview.api;
-    if(!api)throw new Error('pywebview API не готов');
-    var department=getSelectedDepartment();
-    var result=await api.insert_hassle_code('',department);
-    if(result&&result.ok){
-      setHassleStatus(result.message||'Код установлен','ok');
-      if(window.setGlobalStatus)window.setGlobalStatus('ok');
-    }else{
-      setHassleStatus((result&&result.message)||'Ошибка установки','err');
-      if(window.setGlobalStatus)window.setGlobalStatus('err');
-    }
-  }catch(e){
-    setHassleStatus(String(e),'err');
-    if(window.setGlobalStatus)window.setGlobalStatus('err');
-  }finally{
-    if(btn)btn.disabled=false;
-    if(removeBtn)removeBtn.disabled=false;
+function setInsertTarget(t){
+  insertTarget = t;
+  var pc = document.getElementById('insert-target-pc');
+  var ph = document.getElementById('insert-target-phone');
+  var pcContent = document.getElementById('insert-pc-content');
+  var hassleContent = document.getElementById('insert-hassle-content');
+  var lbl = document.getElementById('btn-insert-label');
+  if(t === 'phone'){
+    pc.classList.remove('active');
+    ph.classList.add('active');
+    if(pcContent) pcContent.style.display = 'none';
+    if(hassleContent) hassleContent.style.display = '';
+    if(lbl) lbl.textContent = 'Вставить AHK (Hassle)';
+  } else {
+    ph.classList.remove('active');
+    pc.classList.add('active');
+    if(pcContent) pcContent.style.display = '';
+    if(hassleContent) hassleContent.style.display = 'none';
+    if(lbl) lbl.textContent = 'Вставить код';
   }
 }
 
-async function removeHassleCode(){
-  var btn=document.getElementById('btn-hassle-insert');
-  var removeBtn=document.getElementById('btn-hassle-remove');
-  if(btn)btn.disabled=true;
-  if(removeBtn)removeBtn.disabled=true;
-  setHassleStatus('Удаление кода...','muted');
-  try{
-    var api=window.pywebview&&window.pywebview.api;
-    if(!api)throw new Error('pywebview API не готов');
-    var result=await api.remove_hassle_code('');
-    if(result&&result.ok){
-      setHassleStatus(result.message||'Код удалён','ok');
-      if(window.setGlobalStatus)window.setGlobalStatus('ok');
-    }else{
-      setHassleStatus((result&&result.message)||'Ошибка удаления','err');
-      if(window.setGlobalStatus)window.setGlobalStatus('err');
-    }
-  }catch(e){
-    setHassleStatus(String(e),'err');
-    if(window.setGlobalStatus)window.setGlobalStatus('err');
-  }finally{
-    if(btn)btn.disabled=false;
-    if(removeBtn)removeBtn.disabled=false;
+function setRemoveTarget(t){
+  removeTarget = t;
+  var pc = document.getElementById('remove-target-pc');
+  var ph = document.getElementById('remove-target-phone');
+  var hassleCard = document.getElementById('remove-hassle-card');
+  var lbl = document.getElementById('btn-remove-label');
+  if(t === 'phone'){
+    pc.classList.remove('active');
+    ph.classList.add('active');
+    if(hassleCard) hassleCard.style.display = '';
+    if(lbl) lbl.textContent = 'Удалить (Hassle)';
+  } else {
+    ph.classList.remove('active');
+    pc.classList.add('active');
+    if(hassleCard) hassleCard.style.display = 'none';
+    if(lbl) lbl.textContent = 'Удалить код';
   }
+}
+
+function _setHassleStatus(elId, text, cls){
+  var el = document.getElementById(elId);
+  if(!el) return;
+  el.textContent = text;
+  el.className = 'cr-val ' + (cls || 'muted');
 }
 </script>
 </body>
