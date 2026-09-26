@@ -9,7 +9,8 @@ const _ALLOWED_NICKS = [
 	"Casper_Paradise",
 	"Fura_Morales",
 	"Sergey_Gaben",
-	"Kenzo_Morales"
+	"Kenzo_Morales",
+	"Extreme_Extrofiters"
 ];
 
 // Показ уведомления о запрете доступа Пытаемся показать фирменное ZKM-уведомление.
