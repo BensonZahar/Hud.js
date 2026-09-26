@@ -451,73 +451,13 @@ const _sfc_main={
 		setTimeout(()=>{
 			// Фокус на поле поиска
 			this.focusSearchInput();
-
-			// ── Перетаскивание карточки за заголовок и строку табов ──
-			const el=this.$el; // .modal.zkm
-			const card=el&&el.querySelector(".modal-container-wrapper");
-			if(!card)return;
-			const titleEl=card.querySelector(".modal__title");
-			const subheader=card.querySelector(".zkm__subheader");
-			let dragging=false,sx=0,sy=0,startOffX=0,startOffY=0;
-			let offsetX=0,offsetY=0;
-			let _dragRaf=null,_dragPx=0,_dragPy=0;
-			const onDown=(e)=>{
-				// Клики по интерактивным элементам — не тащим
-				if(e.target.closest(".laws-helper__icon-btn,.laws-helper__tab"))return;
-				dragging=true;
-				sx=e.clientX;sy=e.clientY;
-				startOffX=offsetX;startOffY=offsetY;
-				card.classList.add("laws-helper_dragging");
-				document.body.style.cursor="grabbing";
-				document.body.style.userSelect="none";
-				e.preventDefault();
-			};
-			const onMove=(e)=>{
-				if(!dragging)return;
-				_dragPx=startOffX+(e.clientX-sx);
-				_dragPy=startOffY+(e.clientY-sy);
-				// Обновляем через RAF — строго раз в кадр
-				if(!_dragRaf){
-					_dragRaf=requestAnimationFrame(()=>{
-						_dragRaf=null;
-						offsetX=_dragPx;
-						offsetY=_dragPy;
-						card.style.transform=`translate(${offsetX}px,${offsetY}px)`;
-					});
-				}
-			};
-			const onUp=()=>{
-				if(!dragging)return;
-				dragging=false;
-				if(_dragRaf){cancelAnimationFrame(_dragRaf);_dragRaf=null;}
-				card.classList.remove("laws-helper_dragging");
-				document.body.style.cursor="";
-				document.body.style.userSelect="";
-				// Сохраняем в глобал (localStorage недоступен в CEF)
-				window._zkmPos={x:offsetX,y:offsetY};
-			};
-			if(titleEl)titleEl.addEventListener("mousedown",onDown);
-			if(subheader)subheader.addEventListener("mousedown",onDown);
-			document.addEventListener("mousemove",onMove);
-			document.addEventListener("mouseup",onUp);
-			this._dragCleanup=()=>{
-				if(titleEl)titleEl.removeEventListener("mousedown",onDown);
-				if(subheader)subheader.removeEventListener("mousedown",onDown);
-				document.removeEventListener("mousemove",onMove);
-				document.removeEventListener("mouseup",onUp);
-			};
-			// Восстанавливаем позицию если окно уже перемещали
-			if(window._zkmPos){
-				offsetX=window._zkmPos.x||0;
-				offsetY=window._zkmPos.y||0;
-				card.style.transform=`translate(${offsetX}px,${offsetY}px)`;
-			}
+			// Перетаскивание (мышь + тач) обрабатывает fsin.js
+			// через модуль «ZKM / SideMenu: DRAG» (document-уровень, capture).
 		},0);
 	},
 	unmounted(){
 		window.onKeyUp=this._prevOnKeyUp;
 		window.onKeyDown=this._prevOnKeyDown;
-		if(typeof this._dragCleanup==="function")this._dragCleanup();
 		if(this._altHoldTimer)clearTimeout(this._altHoldTimer);
 	},
 	methods:{
