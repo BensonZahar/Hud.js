@@ -2166,17 +2166,36 @@ window.onChatMessage = function(text, color) {
             return;
         }
 
-        // Находим где сейчас находится нужное значение
+        // Находим где сейчас находится нужное значение.
+        // ВАЖНО: если в матрице есть дубли (одно значение на нескольких позициях),
+        // нельзя брать экземпляр, который уже стоит на правильном месте —
+        // это создаёт бесконечный цикл свапов.
+        // Поэтому ищем экземпляр, у которого correct[i] !== targetValue
+        // (т.е. на этой позиции этот элемент не нужен → его можно двигать).
         const targetValue = correct[mismatchIdx];
         let sourceIdx = -1;
+
+        // Проход 1: ищем targetValue там, где он стоит НЕ на своём правильном месте
         for (let i = 0; i < current.length; i++) {
-            if (current[i] === targetValue) {
+            if (current[i] === targetValue && correct[i] !== targetValue) {
                 sourceIdx = i;
                 break;
             }
         }
 
-        if (sourceIdx === -1 || sourceIdx === mismatchIdx) {
+        // Проход 2 (запасной, не должен срабатывать в корректной головоломке):
+        // если все экземпляры targetValue «правильны» по значению, берём любой не-mismatchIdx
+        if (sourceIdx === -1) {
+            for (let i = 0; i < current.length; i++) {
+                if (current[i] === targetValue && i !== mismatchIdx) {
+                    sourceIdx = i;
+                    break;
+                }
+            }
+        }
+
+        if (sourceIdx === -1) {
+            console.log('[AUTO-HACK] Не удалось найти значение: ' + targetValue + ', прерываю');
             _hackStopSolving();
             return;
         }
