@@ -12,7 +12,8 @@
 // Затем регекс _text.replace(...) снимает строки import { … } from "…" из
 // скачанного текста (они уже выполнены здесь), и eval получает чистый JS,
 // где Modal / MODAL_TYPES / MODAL_COLOR_TYPES / resolveComponent / createBlock
-// / withCtx / toMoscowTime и т.д. уже находятся в замыкании.
+// / withCtx и т.д. уже находятся в замыкании.
+// toMoscowTime убран: timeZone.js не существует в бандле игры.
 //
 // IntLoad.js менять не надо:
 //   • AdvMenu не использует Window.css (не нужен deps: ["./Window.css"])
@@ -22,7 +23,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import{o as openBlock,c as createElementBlock,a as createBaseVNode,F as Fragment,n as normalizeClass,t as toDisplayString,f as createCommentVNode,_ as _export_sfc,r as resolveComponent,h as createBlock,w as withCtx}from"./index.js";
-import{c as toMoscowTime}from"./timeZone.js";
 import{M as Modal,a as MODAL_TYPES,b as MODAL_COLOR_TYPES}from"./Modal.js";
 
 const _GH_URL = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/MVD%20AHK/'
