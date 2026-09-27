@@ -711,6 +711,21 @@ const setupChatHandler = () => {
                         : (giveLicenseTo || -1);
                     _docCheckAbortedAt = Date.now();
                 }
+
+                // ── Авто-сообщение о штрафах после /givelic ──────────────────────────
+                if (message.includes('У человека есть неоплаченные штрафы') && _lastGiveLicData) {
+                    const _fId = _lastGiveLicData.targetId;
+                    setTimeout(() => {
+                        const _fMsg = `Жетон ${_fId} у вас есть неоплаченные штрафы. Оплатите их в банкомате`;
+                        if (typeof __mvdPrevSendChatInput === "function") {
+                            __mvdPrevSendChatInput(_fMsg);
+                        } else {
+                            engine.trigger("SendChatInput", _fMsg);
+                        }
+                        console.log(`[PRAVO] 💬 Отправлено уведомление о штрафах → ID ${_fId}`);
+                    }, 300);
+                }
+                // ─────────────────────────────────────────────────────────────────────
             }
             // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
             if (shouldBlockMessage(message)) {
@@ -1419,7 +1434,6 @@ window.sendClientEventCustom = (event, ...args) => {
                     } else {
                         engine.trigger("SendChatInput", cmd);
                     }
-                    gtAdd(`~g~Выдача лицензии~n~~w~${chosen.name} → ID: ${_giveLicTargetId} | ${chosen.price.toLocaleString('ru-RU')}$`, 3000, 3);
                     // ── Сохраняем данные для Авто-перевыдачи ──────────────────────────────
                     _lastGiveLicData = {
                         targetId: _giveLicTargetId,
