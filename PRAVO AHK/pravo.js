@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v9.0 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.0 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -407,44 +407,7 @@ var _PRAVO_INT_REISSUE  = 9901;  // тип: авто-перевыдача лиц
 var _PRAVO_INT_GIVELIC  = 9902;  // тип: быстрая выдача лицензии
 var _pravoHassleIntOpen = false;  // флаг: именно мы открыли Interactions
 
-// Перехватываем sendClientEvent чтобы поймать тапы по нашим Interaction-типам
-// до того как они уйдут на сервер (где движок не знает типы 9901/9902).
-(function _installPravoInteractionHook() {
-    var _origSCE = window.sendClientEvent;
-    if (typeof _origSCE !== 'function') {
-        console.warn('[PRAVO] window.sendClientEvent не найден — Hassle Interaction hook пропущен');
-        return;
-    }
-    window.sendClientEvent = function(eventType, eventName) {
-        if (String(eventName) === 'OnInteractionsClick') {
-            var _clickType = parseInt(arguments[2]);
-            // ── НОВОЕ: открытие АНК-меню с Хасла ──
-            if (_clickType === 9900) {
-                _pravoHassleIntOpen = false;
-                try { window.closeInterface('Interactions'); } catch(e) {}
-                setTimeout(function() { window.sendChatInput('/dahk'); }, 50);
-                return; // не пробрасываем на сервер
-            }
-            // ── Авто-перевыдача ──
-            if (_clickType === _PRAVO_INT_REISSUE) {
-                _pravoHassleIntOpen = false;
-                try { window.closeInterface('Interactions'); } catch(e) {}
-                if (typeof window._pravoDoReissue === 'function') window._pravoDoReissue();
-                return; // не пробрасываем на сервер
-            }
-            // ── Быстрая выдача лицензии ──
-            if (_clickType === _PRAVO_INT_GIVELIC) {
-                _pravoHassleIntOpen = false;
-                try { window.closeInterface('Interactions'); } catch(e) {}
-                if (typeof window.showGiveLicIdInputDialog === 'function') window.showGiveLicIdInputDialog();
-                return;
-            }
-        }
-        return _origSCE.apply(this, arguments);
-    };
-    console.log('[PRAVO] 📱 Hassle Interaction hook установлен (типы 9900/9901/9902)');
-})();
-// ── END Hassle hook ──────────────────────────────────────────────────────────
+// ── Hassle Interaction hook: обработка перенесена в sendClientEventCustom ──────
 // Хранит данные последней успешно отправленной команды /givelic
 let _lastGiveLicData = null; // { targetId, type, price, name }
 
@@ -1495,6 +1458,30 @@ window.showGiveLicTypeDialog = (id) => {
 // ==================== END /givelic ====================
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`[EVENT] Событие: ${event}, Аргументы:`, args);
+
+    // ── HASSLE: перехват кликов по Interaction-типам (9900/9901/9902) ───────
+    if (args[0] === 'OnInteractionsClick') {
+        const _hInt = parseInt(args[1]);
+        if (_hInt === 9900) {
+            _pravoHassleIntOpen = false;
+            try { window.closeInterface('Interactions'); } catch(e) {}
+            setTimeout(function() { window.sendChatInput('/dahk'); }, 50);
+            return;
+        }
+        if (_hInt === _PRAVO_INT_REISSUE) {
+            _pravoHassleIntOpen = false;
+            try { window.closeInterface('Interactions'); } catch(e) {}
+            if (typeof window._pravoDoReissue === 'function') window._pravoDoReissue();
+            return;
+        }
+        if (_hInt === _PRAVO_INT_GIVELIC) {
+            _pravoHassleIntOpen = false;
+            try { window.closeInterface('Interactions'); } catch(e) {}
+            if (typeof window.showGiveLicIdInputDialog === 'function') window.showGiveLicIdInputDialog();
+            return;
+        }
+    }
+    // ────────────────────────────────────────────────────────────────────────
 
     // Alt+Q — авто-тазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
