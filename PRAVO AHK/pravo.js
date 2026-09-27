@@ -402,6 +402,8 @@ let _lastGiveLicData = null; // { targetId, type, price, name }
 
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
+// Хоткей авто-перевыдачи лицензии — настраивается установщиком (по умолчанию Alt+R)
+var REISSUE_KEY = "Alt+R";
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
 var MENU_HIDDEN_ITEMS = [];
 // Биндинги прямого вызова пунктов меню — настраивается установщиком
@@ -507,6 +509,36 @@ window.addEventListener('keydown', function(e) {
                 executePovsednevAction(_action, giveLicenseTo || -1);
             }
             break;
+        }
+    }
+    // Хоткей авто-перевыдачи лицензии (REISSUE_KEY) — только если AUTO_REISSUE_LIC включён
+    if (REISSUE_KEY && (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true)) {
+        var _rp = REISSUE_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+        var _rAlt   = _rp.indexOf('alt')   !== -1;
+        var _rCtrl  = _rp.indexOf('ctrl')  !== -1;
+        var _rShift = _rp.indexOf('shift') !== -1;
+        var _rMain  = _rp.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; })[0] || '';
+        var _rModOk = (!_rAlt || e.altKey) && (!_rCtrl || e.ctrlKey) && (!_rShift || e.shiftKey)
+                   && (_rAlt || !e.altKey) && (_rCtrl || !e.ctrlKey) && (_rShift || !e.shiftKey);
+        var _rKeyOk = e.key.toLowerCase() === _rMain || e.code.toLowerCase() === _rMain;
+        if (_rModOk && _rKeyOk && _lastGiveLicData) {
+            e.preventDefault && e.preventDefault();
+            const { targetId: _rId, type: _rType, price: _rPrice, name: _rName } = _lastGiveLicData;
+            const _rCmd = `/givelic ${_rId} ${_rType} ${_rPrice}`;
+            if (typeof __mvdPrevSendChatInput === "function") {
+                __mvdPrevSendChatInput("/cancel");
+            } else {
+                engine.trigger("SendChatInput", "/cancel");
+            }
+            snAdd(`[1, "Авто-перевыдача", "/cancel → повтор через 600мс...", "FFA500", 2500]`);
+            setTimeout(() => {
+                if (typeof __mvdPrevSendChatInput === "function") {
+                    __mvdPrevSendChatInput(_rCmd);
+                } else {
+                    engine.trigger("SendChatInput", _rCmd);
+                }
+                snAdd(`[1, "Авто-перевыдача", "${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$", "00FF00", 3000]`);
+            }, 600);
         }
     }
     // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
@@ -1642,8 +1674,9 @@ var AUTO_GRAB_SKIP = [];
 // Явно пишем в window чтобы showMvdSubMenu (загруженный ДО eval) видел значение
 window.AUTO_GRAB = AUTO_GRAB;
 window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
-// Синхронизируем AUTO_REISSUE_LIC в window после eval (патч LoadPravo применяется ДО eval)
+// Синхронизируем AUTO_REISSUE_LIC и REISSUE_KEY в window после eval (патч LoadPravo применяется ДО eval)
 window.AUTO_REISSUE_LIC = AUTO_REISSUE_LIC;
+window.REISSUE_KEY = REISSUE_KEY;
 // Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
 if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {

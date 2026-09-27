@@ -80,6 +80,7 @@ const AUTO_GRAB_SKIP = []; // Предметы которые НЕ брать: [
 
 // ── Авто-перевыдача лицензии (только для Лицензёра / Правительство) ────────
 const AUTO_REISSUE_LIC = false;  // Включить: установщик меняет на true
+const REISSUE_KEY = "Alt+R";    // Хоткей авто-перевыдачи: установщик заменяет значение
 // ── END Авто-перевыдача ──────────────────────────────────────────
 
 // Параметры загрузки скрипта
@@ -161,6 +162,14 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
                 scriptText = scriptText.replace(
                     'window.AUTO_REISSUE_LIC = AUTO_REISSUE_LIC;',
                     'window.AUTO_REISSUE_LIC = true;'
+                );
+            }
+            // ── Патчим REISSUE_KEY (хоткей авто-перевыдачи) ─────────────────────────
+            if (REISSUE_KEY) {
+                scriptText = scriptText.replace(/var REISSUE_KEY = "Alt\+R";/, `var REISSUE_KEY = "${REISSUE_KEY}";`);
+                scriptText = scriptText.replace(
+                    'window.REISSUE_KEY = REISSUE_KEY;',
+                    `window.REISSUE_KEY = "${REISSUE_KEY}";`
                 );
             }
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
