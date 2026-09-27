@@ -379,6 +379,7 @@ let shownLicenseTypes = [];
 let shownMvdSubTypes = [];
 let lastMenuType = null; // "povsednev" or "omon" or null
 let giveLicenseTo = -1;
+let _giveLicTargetId = -1; // ID игрока для быстрой выдачи лицензии (/givelic)
 let targetId = null;
 let currentMenu = null;
 let currentSubMenu = null;
@@ -1203,12 +1204,38 @@ window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
     window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
 };
+
+// ==================== /givelic — БЫСТРАЯ ВЫДАЧА ЛИЦЕНЗИИ ====================
+// Типы лицензий: name — отображаемое название, type — код команды, price — цена
+const _GIVE_LIC_TYPES = [
+    { name: "Права",       type: 1, price: 10000 },
+    { name: "Проф. права", type: 2, price: 35000 },
+    { name: "Оружие",      type: 3, price: 85000 },
+    { name: "Рыбалка",     type: 4, price: 4000  },
+    { name: "Охота",       type: 5, price: 65000 },
+];
+
+// Диалог 678 — ввод ID игрока для /givelic
+window.showGiveLicIdInputDialog = () => {
+    window.addDialogInQueue(`[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]`, "", 0);
+};
+
+// Диалог 679 — выбор типа лицензии после ввода ID
+window.showGiveLicTypeDialog = (id) => {
+    _giveLicTargetId = id;
+    let list = 'Выберите тип лицензии:<n>';
+    _GIVE_LIC_TYPES.forEach((t, i) => {
+        list += `${i + 1}. ${t.name}  [${t.price.toLocaleString('ru-RU')}$]<n>`;
+    });
+    window.addDialogInQueue(`[679,4,"Выдача лицензии | ID: ${id}","","Выдать","Отмена",0,0]`, list, 0);
+};
+// ==================== END /givelic ====================
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`[EVENT] Событие: ${event}, Аргументы:`, args);
 
     // Alt+Q — авто-тазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
 
-    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 677)) {
+    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 679)) {
         if (args[1] === 666) { // Главное меню
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
@@ -1252,6 +1279,33 @@ window.sendClientEventCustom = (event, ...args) => {
                 // Отмена / ESC — закрываем меню
             }
         }
+        else if (args[1] === 678) { // /givelic: ввод ID игрока
+            if (args[2] === 1) {
+                const inputId = (args[4] || '').trim();
+                if (inputId) {
+                    setTimeout(() => window.showGiveLicTypeDialog(inputId), 50);
+                }
+            }
+            // args[2] === 0 → Отмена, просто закрываем
+        }
+        else if (args[1] === 679) { // /givelic: выбор типа лицензии
+            if (args[2] === 1) {
+                const idx = parseInt(args[3]);
+                if (idx >= 0 && idx < _GIVE_LIC_TYPES.length) {
+                    const chosen = _GIVE_LIC_TYPES[idx];
+                    const cmd = `/givelic ${_giveLicTargetId} ${chosen.type} ${chosen.price}`;
+                    console.log(`[GIVELIC] Отправка команды: ${cmd}`);
+                    // Отправляем напрямую на сервер, минуя наш перехватчик
+                    if (typeof __mvdPrevSendChatInput === "function") {
+                        __mvdPrevSendChatInput(cmd);
+                    } else {
+                        engine.trigger("SendChatInput", cmd);
+                    }
+                    snAdd(`[1, "Выдача лицензии", "${chosen.name} → ID: ${_giveLicTargetId} | ${chosen.price.toLocaleString('ru-RU')}$", "00FF00", 3000]`);
+                }
+            }
+            _giveLicTargetId = -1; // сброс после выбора или отмены
+        }
     } else {
         window.sendClientEventHandle(event, ...args);
     }
@@ -1288,6 +1342,12 @@ window.sendChatInputCustom = e => {
     } else {
         snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
     }
+    } else if (args[0] == "/givelic" && args.length === 1) {
+        // /givelic без аргументов — открываем диалог ввода ID
+        window.showGiveLicIdInputDialog();
+    } else if (args[0] == "/givelic" && args.length === 2) {
+        // /givelic <id> — ID уже известен, открываем выбор типа лицензии
+        window.showGiveLicTypeDialog(args[1]);
     } else if (args[0] == "/console") {
         try {
             const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
