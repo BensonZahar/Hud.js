@@ -78,6 +78,10 @@ const AUTO_GRAB_MENU_SHIELD      = -1; // Щит
 const AUTO_GRAB_SKIP = []; // Предметы которые НЕ брать: ["medkit","painkiller","baton","vest","taser","deagle","magnum","akm","ammo762","aks74u","ammo545"]
 // ── END Авто-снаряжение ─────────────────────────────────────────
 
+// ── Авто-перевыдача лицензии (только для Лицензёра / Правительство) ────────
+const AUTO_REISSUE_LIC = false;  // Включить: установщик меняет на true
+// ── END Авто-перевыдача ──────────────────────────────────────────
+
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
@@ -150,6 +154,14 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             if (MENU_TIMER_ITEMS && MENU_TIMER_ITEMS.length > 0) {
                 const timerJson = JSON.stringify(MENU_TIMER_ITEMS);
                 scriptText = scriptText.replace(/var MENU_TIMER_ITEMS = \[\];/, `var MENU_TIMER_ITEMS = ${timerJson};`);
+            }
+            // ── Патчим AUTO_REISSUE_LIC (авто-перевыдача лицензии) ──────────────────
+            if (AUTO_REISSUE_LIC) {
+                scriptText = scriptText.replace(/var AUTO_REISSUE_LIC = false;/, 'var AUTO_REISSUE_LIC = true;');
+                scriptText = scriptText.replace(
+                    'window.AUTO_REISSUE_LIC = AUTO_REISSUE_LIC;',
+                    'window.AUTO_REISSUE_LIC = true;'
+                );
             }
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,

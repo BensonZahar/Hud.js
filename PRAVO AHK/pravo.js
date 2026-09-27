@@ -391,6 +391,15 @@ let currentMenu = null;
 let currentSubMenu = null;
 let currentAction = null;
 
+// ── Авто-перевыдача лицензии (/givelic → /cancel → повтор) ──────────────
+// Включается через LoadPravo.js (патч) и переключатель в установщике.
+// Используем var, чтобы LoadPravo мог патчить текст до eval.
+var AUTO_REISSUE_LIC = false;
+// Прокидываем наружу чтобы showMvdSubMenu видел значение
+window.AUTO_REISSUE_LIC = AUTO_REISSUE_LIC;
+// Хранит данные последней успешно отправленной команды /givelic
+let _lastGiveLicData = null; // { targetId, type, price, name }
+
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
@@ -890,6 +899,36 @@ const HandleMvdSubCommand = (index) => {
                 showMvdSubMenu(giveLicenseTo);
             }, 50);
             break;
+        case "auto_reissue_lic":
+            // ── Авто-перевыдача: /cancel → повтор последней команды /givelic ──────
+            if (_lastGiveLicData) {
+                const { targetId: _rl_id, type: _rl_type, price: _rl_price, name: _rl_name } = _lastGiveLicData;
+                const _rl_cmd = `/givelic ${_rl_id} ${_rl_type} ${_rl_price}`;
+                // 1) Сначала отменяем текущее предложение на сервере
+                if (typeof __mvdPrevSendChatInput === "function") {
+                    __mvdPrevSendChatInput("/cancel");
+                } else {
+                    engine.trigger("SendChatInput", "/cancel");
+                }
+                console.log(`[REISSUE] /cancel отправлен. Повтор через 600мс: ${_rl_cmd}`);
+                snAdd(`[1, "Авто-перевыдача", "/cancel → повтор через 600мс...", "FFA500", 2500]`);
+                // 2) Через 600мс повторяем команду /givelic
+                setTimeout(() => {
+                    if (typeof __mvdPrevSendChatInput === "function") {
+                        __mvdPrevSendChatInput(_rl_cmd);
+                    } else {
+                        engine.trigger("SendChatInput", _rl_cmd);
+                    }
+                    console.log(`[REISSUE] Команда повторена: ${_rl_cmd}`);
+                    snAdd(`[1, "Авто-перевыдача", "${_rl_name} → ID: ${_rl_id} | ${_rl_price.toLocaleString('ru-RU')}$", "00FF00", 3000]`);
+                }, 600);
+                // Закрываем меню сразу, не ждём
+                setTimeout(() => showMvdSubMenu(giveLicenseTo), 150);
+            } else {
+                snAdd(`[1, "Авто-перевыдача", "Нет данных — сначала выдайте лицензию через меню", "FF4444", 3500]`);
+                setTimeout(() => showMvdSubMenu(giveLicenseTo), 100);
+            }
+            break;
     }
 };
 // ПОДТВЕРЖДЕНИЕ ПРОВЕРКИ ДОКУМЕНТОВ (Alt x1 / Alt x2) После "Приветствия" снизу экрана показывается фирменное ZKM-уведомление с двумя карто...
@@ -1202,6 +1241,14 @@ window.showMvdSubMenu = (e) => {
     if (_isLicensorRank()) {
         availableSub.push({ name: "Выдача лицензии", id: "givelic" });
     }
+    // Авто-перевыдача: только для Лицензёра, если включена в установщике и есть сохранённая команда
+    if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _isLicensorRank() && _lastGiveLicData) {
+        const _rl = _lastGiveLicData;
+        availableSub.push({
+            name: `Авто-перевыдача | {00FF00}${_rl.name} [ID: ${_rl.targetId}]`,
+            id: "auto_reissue_lic"
+        });
+    }
     // Авто-снаряжение: только для Охранник[2] и Нач. Охраны[3]
     if (window.AUTO_GRAB === true && _isGrabAllowedRank()) {
         availableSub.push({ name: autoGrabName, id: "autograb" });
@@ -1315,6 +1362,15 @@ window.sendClientEventCustom = (event, ...args) => {
                         engine.trigger("SendChatInput", cmd);
                     }
                     snAdd(`[1, "Выдача лицензии", "${chosen.name} → ID: ${_giveLicTargetId} | ${chosen.price.toLocaleString('ru-RU')}$", "00FF00", 3000]`);
+                    // ── Сохраняем данные для Авто-перевыдачи ──────────────────────────────
+                    _lastGiveLicData = {
+                        targetId: _giveLicTargetId,
+                        type:     chosen.type,
+                        price:    chosen.price,
+                        name:     chosen.name
+                    };
+                    window._lastGiveLicData = _lastGiveLicData;
+                    console.log(`[GIVELIC] Данные сохранены для авто-перевыдачи: ${chosen.name} → ID: ${_giveLicTargetId}`);
                 }
             }
             _giveLicTargetId = -1; // сброс после выбора или отмены
@@ -1586,6 +1642,8 @@ var AUTO_GRAB_SKIP = [];
 // Явно пишем в window чтобы showMvdSubMenu (загруженный ДО eval) видел значение
 window.AUTO_GRAB = AUTO_GRAB;
 window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
+// Синхронизируем AUTO_REISSUE_LIC в window после eval (патч LoadPravo применяется ДО eval)
+window.AUTO_REISSUE_LIC = AUTO_REISSUE_LIC;
 // Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
 if (AUTO_GRAB || window.AUTO_GRAB === true) {
 (function() {
