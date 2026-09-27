@@ -231,7 +231,7 @@ console.log("[INIT] === PRAVO AHK v9.0 ЗАГРУЖЕН ===");
             var gt = window.interface && window.interface('GameText');
             if (gt && typeof gt.add === 'function') {
                 clearInterval(timer);
-                gt.add('[3, "АНК <span style=\\"color:#C0C0C0\\">ПРАВО</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
+                gt.add('[3, "АНК <span style=\\"color:#CCFF00\\">ПРАВИТЕЛЬСТВО</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
             }
         } catch(e) {}
         if (attempts >= 40) clearInterval(timer); // макс. 20 секунд ожидания
@@ -1315,7 +1315,7 @@ window.sendChatInputCustom = e => {
             try {
                 const gt = window.interface && window.interface("GameText");
                 if (gt && typeof gt.add === 'function') {
-                    gt.add('[3, "АНК <span style=\\"color:#C0C0C0\\">ПРАВО</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
+                    gt.add('[3, "АНК <span style=\\"color:#CCFF00\\">ПРАВИТЕЛЬСТВО</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
                 }
             } catch(e) {}
             showMvdMainMenuPage(args[1]);
