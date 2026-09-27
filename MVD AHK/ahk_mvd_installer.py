@@ -832,7 +832,7 @@ class InstallerAPI:
         save_settings({'department': dept})
         return True
 
-    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', eject_enabled=False, eject_key='Alt+U', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd', auto_reissue_lic=False, reissue_key='Alt+R'):
+    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', eject_enabled=False, eject_key='Alt+U', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd', auto_reissue_lic=False, reissue_key='Alt+R', givelic_key=''):
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
@@ -882,6 +882,10 @@ class InstallerAPI:
                 code = code.replace('const AUTO_REISSUE_LIC = false;', 'const AUTO_REISSUE_LIC = true;')
             if department == 'pravo' and safe_reissue_key:
                 code = code.replace('const REISSUE_KEY = "Alt+R";', f'const REISSUE_KEY = "{safe_reissue_key}";')
+            # ── Хоткей быстрой выдачи лицензии (только для Правительства) ────────────
+            safe_givelic_key = str(givelic_key).replace('"', '').replace("'", '')[:30] if givelic_key else ''
+            if department == 'pravo' and safe_givelic_key:
+                code = code.replace('const GIVELIC_KEY = "";', f'const GIVELIC_KEY = "{safe_givelic_key}";')
 
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
@@ -1013,6 +1017,7 @@ class InstallerAPI:
                     'department': 'fsb' if department == 'fsb' else ('fsin' if department == 'fsin' else ('pravo' if department == 'pravo' else 'mvd')),
                     'auto_reissue_lic': bool(auto_reissue_lic) if department == 'pravo' else False,
                     'reissue_key': safe_reissue_key if (auto_reissue_lic and department == 'pravo') else '',
+                    'givelic_key': safe_givelic_key if department == 'pravo' else '',
                 })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"
