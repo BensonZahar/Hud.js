@@ -1018,6 +1018,8 @@ class InstallerAPI:
                     'auto_reissue_lic': bool(auto_reissue_lic) if department == 'pravo' else False,
                     'reissue_key': safe_reissue_key if (auto_reissue_lic and department == 'pravo') else '',
                     'givelic_key': safe_givelic_key if department == 'pravo' else '',
+                    'givelic_on': bool(safe_givelic_key) and department == 'pravo',
+                    'licensor_helper': (bool(auto_reissue_lic) or bool(safe_givelic_key)) and department == 'pravo',
                 })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"
