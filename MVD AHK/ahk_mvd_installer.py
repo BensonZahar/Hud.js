@@ -930,7 +930,7 @@ class InstallerAPI:
                     code = code.replace('const AUTO_GRAB_THR_1270 = 20;',   f'const AUTO_GRAB_THR_1270 = {int(thr["ammo12x70"])};')
                 for key, mkey in [
                     ('medkit',     'MEDKIT'),   ('baton',      'BATON'),   ('bat',        'BAT'),
-                    ('vest',       'VEST'),     ('deagle',     'DEAGLE'),
+                    ('shield',     'SHIELD'),   ('vest',       'VEST'),    ('deagle',     'DEAGLE'),
                     ('ammo_magnum','AMMO_MAGNUM'),('akm',      'AKM'),  ('ammo_762',  'AMMO_762'),
                     ('painkiller', 'PAINKILLERS'),('baton2',   'WAND'),
                     ('taumeter',   'RADAR_GUN'),('diag',       'DIAGNOSTICS'),
