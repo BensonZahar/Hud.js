@@ -418,6 +418,13 @@ var _pravoHassleIntOpen = false;  // флаг: именно мы открыли 
     window.sendClientEvent = function(eventType, eventName) {
         if (String(eventName) === 'OnInteractionsClick') {
             var _clickType = parseInt(arguments[2]);
+            // ── НОВОЕ: открытие АНК-меню с Хасла ──
+            if (_clickType === 9900) {
+                _pravoHassleIntOpen = false;
+                try { window.closeInterface('Interactions'); } catch(e) {}
+                setTimeout(function() { window.sendChatInput('/dahk'); }, 50);
+                return; // не пробрасываем на сервер
+            }
             // ── Авто-перевыдача ──
             if (_clickType === _PRAVO_INT_REISSUE) {
                 _pravoHassleIntOpen = false;
@@ -435,7 +442,7 @@ var _pravoHassleIntOpen = false;  // флаг: именно мы открыли 
         }
         return _origSCE.apply(this, arguments);
     };
-    console.log('[PRAVO] 📱 Hassle Interaction hook установлен (типы 9901/9902)');
+    console.log('[PRAVO] 📱 Hassle Interaction hook установлен (типы 9900/9901/9902)');
 })();
 // ── END Hassle hook ──────────────────────────────────────────────────────────
 // Хранит данные последней успешно отправленной команды /givelic
@@ -763,6 +770,9 @@ function _pravoUpdateHassleInteraction(targetId) {
 
     var _items = [];
 
+    // ── НОВОЕ: кнопка главного меню АНК — всегда для Hassle ──
+    _items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
+
     // Авто-перевыдача — только если включена, есть цель И сохранённая команда
     if (targetId && targetId != -1 &&
         (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
@@ -775,7 +785,7 @@ function _pravoUpdateHassleInteraction(targetId) {
         _items.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
     }
 
-    if (!_items.length) return; // нечего показывать
+    // _items теперь НИКОГДА не пустой на Hassle (есть минимум кнопка АНК Меню)
 
     try {
         window.openInterface('Interactions', JSON.stringify(_items));
@@ -2565,12 +2575,12 @@ waitForApp(function() {
         loadPlayerProfile(function(data) {
             if (data && data.orgRangName) {
                 console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._pravoFirstName||'') + ' ' + (window._pravoLastName||''));
-                // Если звание «Лицензёр» и мы на Hassle — сразу показываем Interaction,
+                // Если мы на Hassle — сразу показываем Interaction для всех рангов,
                 // не дожидаясь первого открытия меню.
-                if (_isLicensorRank() && window.App && window.App.isMobile) {
+                if (window.App && window.App.isMobile) {
                     setTimeout(function() {
                         _pravoUpdateHassleInteraction(-1);
-                        console.log('[PRAVO] 📱 Hassle Interaction показан сразу (ранг Лицензёр определён при старте)');
+                        console.log('[PRAVO] 📱 Hassle Interaction показан при старте');
                     }, 500); // небольшая пауза — даём интерфейсам полностью смонтироваться
                 }
             } else {
