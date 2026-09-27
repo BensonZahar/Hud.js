@@ -303,14 +303,16 @@
         </div>
         </div><!-- /section-eject -->
 
-        <!-- Авто-перевыдача лицензии — только для Правительства (Лицензёр) -->
-        <div id="section-reissue" style="display:none">
-        <div class="chk-row" onclick="toggleAutoReissue()">
-          <div class="chk-box" id="chk-box-reissue"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-          <span class="chk-lbl">Авто-перевыдача лицензии (/givelic)</span>
+        <!-- Помощник для лицензёров — только для Правительства -->
+        <div id="section-lic-helper" style="display:none">
+        <div class="chk-row" onclick="toggleLicHelper()">
+          <div class="chk-box" id="chk-box-lic-helper"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+          <span class="chk-lbl">Помощник для лицензёров</span>
+          <span style="margin-left:auto;font-size:9.5px;color:var(--accent);background:rgba(253,160,47,.08);border:1px solid rgba(253,160,47,.25);border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;flex-shrink:0;">Для Лицензёров [6]</span>
         </div>
-        <!-- Кнопка авто-перевыдачи — показывается ТОЛЬКО когда включена -->
-        <div id="reissue-wrap">
+        <!-- Блок показывается ТОЛЬКО когда помощник включён -->
+        <div id="lic-helper-wrap">
+          <!-- Авто-перевыдача -->
           <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
               <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;flex-shrink:0"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
@@ -325,16 +327,11 @@
               <button class="btn btn-ghost" type="button" onclick="clearReissueKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
             </div>
           </div>
-        </div>
-        </div><!-- /section-reissue -->
-
-        <!-- Быстрая выдача лицензии — только для Правительства (Лицензёр) -->
-        <div id="section-givelic" style="display:none">
+          <!-- Быстрая выдача -->
           <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
               <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
               <span style="font-size:10px;color:var(--accent);font-weight:500">Быстрая выдача лицензии</span>
-              <span style="margin-left:auto;font-size:9.5px;color:var(--text3);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;flex-shrink:0;">Только Лицензёр</span>
             </div>
             <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
               <div style="flex:1">
@@ -345,7 +342,8 @@
               <button class="btn btn-ghost" type="button" onclick="clearGivelicKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
             </div>
           </div>
-        </div><!-- /section-givelic -->
+        </div>
+        </div><!-- /section-lic-helper -->
 
         <!-- Кнопка АХК-меню — всегда видна, стиль как у тазера -->
         <div id="menu-key-wrap">
