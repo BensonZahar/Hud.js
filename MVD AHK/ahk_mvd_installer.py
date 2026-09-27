@@ -57,6 +57,13 @@ FSIN_INTLOAD_URL  = f"{FSIN_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D
 FSIN_CUSTOM_UI_URL= f"{FSIN_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
 FSIN_LOADERS_URL  = f"{FSIN_CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
 
+# ── Правительство (в PRAVO AHK) ──
+PRAVO_RAW          = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/PRAVO%20AHK"
+PRAVO_AHK_URL      = f"{PRAVO_RAW}/LoadPravo.js"
+PRAVO_INTLOAD_URL  = f"{PRAVO_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B/IntLoad.js"
+PRAVO_CUSTOM_UI_URL= f"{PRAVO_RAW}/%D0%9A%D0%B0%D1%81%D1%82%D0%BE%D0%BC%20%D0%98%D0%BD%D1%82%D0%B5%D1%80%D1%84%D0%B5%D0%B9%D1%81%D1%8B"
+PRAVO_LOADERS_URL  = f"{PRAVO_CUSTOM_UI_URL}/%D0%97%D0%B0%D0%B3%D1%80%D1%83%D0%B7%D1%87%D0%B8%D0%BA%D0%B8"
+
 RETRY_COUNT = 5
 RETRY_DELAY = 4
 
@@ -90,8 +97,9 @@ HASSLE_CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
 def _intload_url(department: str) -> str:
-    if department == 'fsb':  return FSB_INTLOAD_URL
-    if department == 'fsin': return FSIN_INTLOAD_URL
+    if department == 'fsb':   return FSB_INTLOAD_URL
+    if department == 'fsin':  return FSIN_INTLOAD_URL
+    if department == 'pravo': return PRAVO_INTLOAD_URL
     return MVD_INTLOAD_URL
 
 
@@ -100,6 +108,8 @@ def _deploy_ui_url(department: str) -> str:
         custom_url, loaders_url = FSB_CUSTOM_UI_URL, FSB_LOADERS_URL
     elif department == 'fsin':
         custom_url, loaders_url = FSIN_CUSTOM_UI_URL, FSIN_LOADERS_URL
+    elif department == 'pravo':
+        custom_url, loaders_url = PRAVO_CUSTOM_UI_URL, PRAVO_LOADERS_URL
     else:
         custom_url, loaders_url = MVD_CUSTOM_UI_URL, MVD_LOADERS_URL
     return loaders_url if USE_LOADERS else custom_url
@@ -814,10 +824,11 @@ class InstallerAPI:
         return {"ok": True, "path": str(self.radmir_path)}
 
     def save_department(self, department: str) -> bool:
-        """Сохраняет выбранную структуру (mvd/fsb/fsin) в settings.json."""
-        if department == 'fsb':   dept = 'fsb'
+        """Сохраняет выбранную структуру (mvd/fsb/fsin/pravo) в settings.json."""
+        if department == 'fsb':    dept = 'fsb'
         elif department == 'fsin': dept = 'fsin'
-        else:                       dept = 'mvd'
+        elif department == 'pravo':dept = 'pravo'
+        else:                      dept = 'mvd'
         save_settings({'department': dept})
         return True
 
@@ -834,9 +845,10 @@ class InstallerAPI:
                 ifaces = self._fetch_custom_interfaces(department)
                 self._deploy_custom_ui_files(ifaces, department)
                 
-                if department == 'fsb':    loader_url = FSB_AHK_URL
+                if department == 'fsb':     loader_url = FSB_AHK_URL
                 elif department == 'fsin':  loader_url = FSIN_AHK_URL
-                else:                        loader_url = AHK_URL
+                elif department == 'pravo': loader_url = PRAVO_AHK_URL
+                else:                       loader_url = AHK_URL
                 code = None
                 for attempt in range(3):
                     try:
@@ -987,7 +999,7 @@ class InstallerAPI:
                     'menu_binds': binds_dict,
                     'menu_order': order_list,
                     'menu_timer_items': timer_list,
-                    'department': 'fsb' if department == 'fsb' else ('fsin' if department == 'fsin' else 'mvd'),
+                    'department': 'fsb' if department == 'fsb' else ('fsin' if department == 'fsin' else ('pravo' if department == 'pravo' else 'mvd')),
                 })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"

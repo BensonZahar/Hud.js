@@ -92,6 +92,10 @@
             <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <span>ФСИН</span>
           </button>
+          <button id="dept-pravo" class="dept-btn dept-pravo" onclick="setDepartment('pravo')">
+            <svg viewBox="0 0 24 24"><path d="M3 3h18v4H3zM3 10h18M3 14h18M3 18h18v3H3z"/><line x1="8" y1="7" x2="8" y2="10"/><line x1="16" y1="7" x2="16" y2="10"/></svg>
+            <span>ПРАВ-ВО</span>
+          </button>
         </div>
 
         <div class="card">
@@ -442,23 +446,26 @@ function setDepartment(dept){
   document.getElementById('dept-mvd').classList.toggle('active',dept==='mvd');
   document.getElementById('dept-fsb').classList.toggle('active',dept==='fsb');
   document.getElementById('dept-fsin').classList.toggle('active',dept==='fsin');
+  document.getElementById('dept-pravo').classList.toggle('active',dept==='pravo');
   applyDepartment(dept);
   if(api)api.save_department(dept);
 }
 function applyDepartment(dept){
   var isMvd=dept==='mvd';
   var isFsin=dept==='fsin';
-  // Для ФСИН скрываем Позывной и Авто-выброс из авто
+  var isPravo=dept==='pravo';
+  // Для ФСИН и Правительства скрываем Позывной и Авто-выброс из авто
+  var hideCallsign=isFsin||isPravo;
   var sectionCallsign=document.getElementById('section-callsign');
-  if(sectionCallsign)sectionCallsign.style.display=isFsin?'none':'';
+  if(sectionCallsign)sectionCallsign.style.display=hideCallsign?'none':'';
   var sectionEject=document.getElementById('section-eject');
-  if(sectionEject)sectionEject.style.display=isFsin?'none':'';
+  if(sectionEject)sectionEject.style.display=hideCallsign?'none':'';
   var lbl=document.getElementById('callsign-lbl');
   if(lbl)lbl.textContent=isMvd?'Позывной ОМОН':'Позывной';
   renderGrabItems(dept);
   // Обновляем подсказку на главной
   var infoEl=document.getElementById('info-dept');
-  if(infoEl)infoEl.textContent=isMvd?'МВД':(isFsin?'ФСИН':'ФСБ');
+  if(infoEl)infoEl.textContent=isMvd?'МВД':(isFsin?'ФСИН':(isPravo?'Правительство':'ФСБ'));
 }
 // action -> label для пунктов меню «Повседневная»
 var ALL_MENU_ITEMS=[
@@ -607,9 +614,22 @@ var GRAB_ITEM_DEFS={
     {id:'ammo762',    label:'Патроны (7.62x39)',    sub:'для АКМ'},
     {id:'ammo545',    label:'Патроны (5.45x39)',    sub:'для АКС-74У'},
     {id:'taser',      label:'Тазер'}
+  ],
+  pravo:[
+    {id:'painkiller', label:'Обезболивающее'},
+    {id:'medkit',     label:'Аптечка'},
+    {id:'baton',      label:'Дубинка'},
+    {id:'vest',       label:'Бронежилет'},
+    {id:'deagle',     label:'Desert Eagle',  weapon:true, ammo:'magnum'},
+    {id:'akm',        label:'АКМ',           weapon:true, ammo:'ammo762'},
+    {id:'aks74u',     label:'АКС-74У',       weapon:true, ammo:'ammo545'},
+    {id:'magnum',     label:'Патроны (.44 Magnum)', sub:'для Desert Eagle'},
+    {id:'ammo762',    label:'Патроны (7.62x39)',    sub:'для АКМ'},
+    {id:'ammo545',    label:'Патроны (5.45x39)',    sub:'для АКС-74У'},
+    {id:'taser',      label:'Тазер'}
   ]
 };
-var GRAB_TITLES={mvd:'ПОЛИЦЕЙСКАЯ СЛУЖБА', fsb:'ФСБ', fsin:'ФСИН'};
+var GRAB_TITLES={mvd:'ПОЛИЦЕЙСКАЯ СЛУЖБА', fsb:'ФСБ', fsin:'ФСИН', pravo:'ПРАВИТЕЛЬСТВО'};
 // Общий объект состояния чекбоксов — ключи предметов уникальны в рамках структуры,
 // пересекающиеся (painkiller, medkit, taser и т.д.) сохраняют своё состояние отдельно не требуется,
 // т.к. одновременно в DOM присутствуют только пункты активной структуры.
@@ -643,7 +663,8 @@ function toggleGrabWeapon(weapon,ammo){grabItems[weapon]=!grabItems[weapon];docu
 var GRAB_MENU_DEFAULTS={
   mvd:{painkiller:0,medkit:1,baton:2,baton2:3,vest:4,taumeter:5,diag:6,taser:7,deagle:8,akm:9,aks74u:10,remington:11,ammo_magnum:12,ammo_762:13,ammo_545:14,ammo_12x70:15},
   fsb:{painkiller:0,medkit:1,baton:2,bat:3,vest:4,taser:5,deagle:6,akm:7,hk416:8,aks74u:9,remington:10,ammo_magnum:11,ammo_762:12,ammo_545:13,ammo_556:14,ammo_12x70:15,flashbang:16,mask:17,repairkit:18},
-  fsin:{painkiller:0,medkit:1,baton:2,vest:3,deagle:4,akm:5,aks74u:6,ammo_magnum:7,ammo_762:8,ammo_545:9,taser:10}
+  fsin:{painkiller:0,medkit:1,baton:2,vest:3,deagle:4,akm:5,aks74u:6,ammo_magnum:7,ammo_762:8,ammo_545:9,taser:10},
+  pravo:{painkiller:0,medkit:1,baton:2,vest:3,deagle:4,akm:5,aks74u:6,ammo_magnum:7,ammo_762:8,ammo_545:9,taser:10}
 };
 function getGrabSettings(){var thr=(savedAutoGrab&&savedAutoGrab.thresholds)?savedAutoGrab.thresholds:{};var defaultMenu=GRAB_MENU_DEFAULTS[currentDepartment]||GRAB_MENU_DEFAULTS.mvd;var menu=(savedAutoGrab&&savedAutoGrab.menu&&savedAutoGrab.department===currentDepartment)?savedAutoGrab.menu:defaultMenu;var any=Object.values(grabItems).some(function(v){return v;});return{enabled:autoGrabOn&&any,items:grabItems,department:currentDepartment,thresholds:{magnum:thr.magnum!==undefined?thr.magnum:30,ammo762:thr.ammo762!==undefined?thr.ammo762:60,ammo545:thr.ammo545!==undefined?thr.ammo545:60,ammo556:thr.ammo556!==undefined?thr.ammo556:60,ammo12x70:thr.ammo12x70!==undefined?thr.ammo12x70:20},menu:menu};}
 
@@ -672,12 +693,13 @@ window.addEventListener('pywebviewready',function(){
       document.getElementById('st-code').textContent='Установлен';
       document.getElementById('st-code').className='cr-val ok';
     }
-    // Восстанавливаем выбор структуры (МВД/ФСБ/ФСИН)
-    if(s.department==='fsb'||s.department==='mvd'||s.department==='fsin'){
+    // Восстанавливаем выбор структуры (МВД/ФСБ/ФСИН/Правительство)
+    if(s.department==='fsb'||s.department==='mvd'||s.department==='fsin'||s.department==='pravo'){
       currentDepartment=s.department;
       document.getElementById('dept-mvd').classList.toggle('active',s.department==='mvd');
       document.getElementById('dept-fsb').classList.toggle('active',s.department==='fsb');
       document.getElementById('dept-fsin').classList.toggle('active',s.department==='fsin');
+      document.getElementById('dept-pravo').classList.toggle('active',s.department==='pravo');
       applyDepartment(s.department);
     }
     // Если путь рабочий — сразу открываем страницу вставки
