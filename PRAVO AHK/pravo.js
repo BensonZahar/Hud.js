@@ -840,28 +840,15 @@ function _pravoStyleOwnInteractionButtons(ownCount) {
             if (!intRoot) return;
             var items = intRoot.querySelectorAll('.interactions-list');
             items.forEach(function(item, idx) {
+                var bef = item.querySelector('.interactions-list__before');
+                if (!bef) return;
                 if (idx < ownCount) {
-                    // Наш пункт — оранжевый фон + левый акцент (цвет AHK-установщика #fda02f).
-                    // Текст (.interactions-title) НЕ трогаем — остаётся оригинальным.
-                    item.style.setProperty('background', 'rgba(253,160,47,0.10)', 'important');
-                    item.style.setProperty('box-shadow', 'inset 3px 0 0 0 rgba(253,160,47,0.75)', 'important');
-                    item.style.setProperty('border-radius', '4px', 'important');
-                    // На мобилке: тонируем __before (SVG-фон кнопки) в оранжевый
-                    var bef = item.querySelector('.interactions-list__before');
-                    if (bef) {
-                        bef.style.setProperty('filter', 'sepia(1) saturate(6) hue-rotate(-20deg) brightness(0.85)', 'important');
-                        bef.style.setProperty('opacity', '0.55', 'important');
-                    }
+                    // Наш пункт: только смещаем цвет SVG-фона в оранжевый (#fda02f).
+                    // Opacity, контейнер, текст — не трогаем, дизайн сохраняется.
+                    bef.style.setProperty('filter', 'sepia(1) saturate(6) hue-rotate(-30deg) brightness(1.1)', 'important');
                 } else {
                     // Серверный пункт — полный сброс
-                    item.style.removeProperty('background');
-                    item.style.removeProperty('box-shadow');
-                    item.style.removeProperty('border-radius');
-                    var bef = item.querySelector('.interactions-list__before');
-                    if (bef) {
-                        bef.style.removeProperty('filter');
-                        bef.style.removeProperty('opacity');
-                    }
+                    bef.style.removeProperty('filter');
                 }
             });
             console.log('[PRAVO] 🎨 Interactions: ' + ownCount + ' наших кнопок подсвечены оранжевым');
