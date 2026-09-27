@@ -842,10 +842,14 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
 // ── Тонкая обводка наших кнопок Interactions ─────────────────────────────────
 // Цвет из дизайна AHK-установщика: --accent: #fda02f.
-// SVG-фон сердцевины (.interactions-list__before) — НЕ трогаем:
-//   фильтры не навешиваем, оригинальный дизайн полностью сохраняется.
-// Вместо этого: тонкая оранжевая обводка + мягкое свечение на контейнере кнопки.
-// Серверные пункты (идут после ownCount) — полный сброс.
+//
+// Ключевой момент: .interactions-list__before (сердцевина) имеет opacity:0.38.
+// Любой border/box-shadow прямо на ней тоже даётся на 38% — бледно.
+// Решение: отдельный div-оверлей ._pravo_outline поверх сердцевины.
+//   - Не наследует opacity:0.38 от bef (он сиблинг, а не чайлд)
+//   - background:transparent — видна только обводка, SVG-фон сердцевины цел
+//   - pointer-events:none — тапы проходят насквозь, кнопка кликается нормально
+// Серверные пункты (после ownCount) — оверлей удаляется.
 // Файлы Interactions.js и Interactions.css не меняются.
 function _pravoStyleOwnInteractionButtons(ownCount) {
     setTimeout(function() {
@@ -856,24 +860,34 @@ function _pravoStyleOwnInteractionButtons(ownCount) {
             items.forEach(function(item, idx) {
                 var bef = item.querySelector('.interactions-list__before');
                 if (!bef) return;
+                // Сброс старых стилей (filter от старой версии, box-shadow от прошлой итерации)
+                bef.style.removeProperty('filter');
+                item.style.removeProperty('box-shadow');
+                var overlay = item.querySelector('._pravo_outline');
                 if (idx < ownCount) {
-                    // Наш пункт: SVG-фон сердцевины не трогаем.
-                    // Добавляем тонкую обводку вокруг контейнера кнопки:
-                    //   inset — 1.5px чёткая линия изнутри границы,
-                    //   outer — мягкое рассеянное свечение снаружи.
-                    bef.style.removeProperty('filter');
-                    item.style.setProperty(
+                    // Наш пункт: создаём оверлей один раз
+                    if (!overlay) {
+                        overlay = document.createElement('div');
+                        overlay.className = '_pravo_outline';
+                        overlay.style.cssText =
+                            'position:absolute;top:0;left:0;width:100%;height:100%;' +
+                            'pointer-events:none;z-index:5;box-sizing:border-box;' +
+                            'background:transparent;';
+                        item.appendChild(overlay);
+                    }
+                    // inset: 1.5px чёткая оранжевая линия по контуру сердцевины
+                    // outer: мягкое свечение снаружи кнопки
+                    overlay.style.setProperty(
                         'box-shadow',
-                        'inset 0 0 0 1.5px rgba(253,160,47,0.72), 0 0 9px rgba(253,160,47,0.22)',
+                        'inset 0 0 0 1.5px rgba(253,160,47,0.80), 0 0 10px rgba(253,160,47,0.28)',
                         'important'
                     );
                 } else {
-                    // Серверный пункт — полный сброс
-                    bef.style.removeProperty('filter');
-                    item.style.removeProperty('box-shadow');
+                    // Серверный пункт — убираем наш оверлей
+                    if (overlay) overlay.remove();
                 }
             });
-            console.log('[PRAVO] 🎨 Interactions: ' + ownCount + ' наших кнопок — тонкая обводка');
+            console.log('[PRAVO] 🎨 Interactions: ' + ownCount + ' наших кнопок — обводка сердцевины');
         } catch(_e) {
             console.warn('[PRAVO] Ошибка стилизации Interactions:', _e);
         }
