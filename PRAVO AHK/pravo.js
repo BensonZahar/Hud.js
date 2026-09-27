@@ -1356,22 +1356,26 @@ window.sendChatInputCustom = e => {
         snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
     }
     } else if (args[0] == "/givelic" && args.length === 1) {
-        // /givelic без аргументов — только для Лицензёра
-        if (_isLicensorRank()) {
-            window.showGiveLicIdInputDialog();
-        } else if (typeof __mvdPrevSendChatInput === "function") {
+        // Всегда пропускаем оригинальную команду на сервер
+        if (typeof __mvdPrevSendChatInput === "function") {
             __mvdPrevSendChatInput(e);
         } else {
             engine.trigger("SendChatInput", e);
         }
-    } else if (args[0] == "/givelic" && args.length === 2) {
-        // /givelic <id> — только для Лицензёра
+        // Дополнительно показываем наше меню только для Лицензёра
         if (_isLicensorRank()) {
-            window.showGiveLicTypeDialog(args[1]);
-        } else if (typeof __mvdPrevSendChatInput === "function") {
+            window.showGiveLicIdInputDialog();
+        }
+    } else if (args[0] == "/givelic" && args.length === 2) {
+        // Всегда пропускаем оригинальную команду на сервер
+        if (typeof __mvdPrevSendChatInput === "function") {
             __mvdPrevSendChatInput(e);
         } else {
             engine.trigger("SendChatInput", e);
+        }
+        // Дополнительно показываем наше меню только для Лицензёра
+        if (_isLicensorRank()) {
+            window.showGiveLicTypeDialog(args[1]);
         }
     } else if (args[0] == "/console") {
         try {
