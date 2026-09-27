@@ -303,49 +303,61 @@
         </div>
         </div><!-- /section-eject -->
 
-        <!-- Авто-перевыдача лицензии — только для Правительства (Лицензёр) -->
-        <div id="section-reissue" style="display:none">
-        <div class="chk-row" onclick="toggleAutoReissue()">
-          <div class="chk-box" id="chk-box-reissue"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
-          <span class="chk-lbl">Авто-перевыдача лицензии (/givelic)</span>
-        </div>
-        <!-- Кнопка авто-перевыдачи — показывается ТОЛЬКО когда включена -->
-        <div id="reissue-wrap">
-          <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-              <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;flex-shrink:0"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
-              <span style="font-size:10px;color:var(--accent);font-weight:500">Авто-перевыдача активна</span>
-            </div>
-            <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
-              <div style="flex:1">
-                <label class="inp-lbl">Кнопка авто-перевыдачи (toggle)</label>
-                <input class="inp inp-hotkey" id="f-reissue-key" placeholder="Нажмите кнопку..." readonly
-                  onfocus="startListeningReissueKey()" onblur="stopListeningReissueKey()">
-              </div>
-              <button class="btn btn-ghost" type="button" onclick="clearReissueKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
-            </div>
+        <!-- Помощник для лицензёров — только для Правительства -->
+        <div id="section-licensor" style="display:none">
+          <div class="chk-row" onclick="toggleLicensorHelper()">
+            <div class="chk-box" id="chk-box-licensor"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <span class="chk-lbl">Помощник для лицензёров</span>
+            <span style="margin-left:auto;font-size:9.5px;color:var(--accent);background:rgba(253,160,47,.08);border:1px solid rgba(253,160,47,.25);border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;flex-shrink:0;">Для Лицензёров [6]</span>
           </div>
-        </div>
-        </div><!-- /section-reissue -->
+          <div id="licensor-wrap">
 
-        <!-- Быстрая выдача лицензии — только для Правительства (Лицензёр) -->
-        <div id="section-givelic" style="display:none">
-          <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
-              <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              <span style="font-size:10px;color:var(--accent);font-weight:500">Быстрая выдача лицензии</span>
-              <span style="margin-left:auto;font-size:9.5px;color:var(--text3);background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;flex-shrink:0;">Только Лицензёр</span>
+            <!-- Авто-перевыдача лицензии -->
+            <div class="chk-row" onclick="toggleAutoReissue()">
+              <div class="chk-box" id="chk-box-reissue"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <span class="chk-lbl">Авто-перевыдача лицензии (/givelic)</span>
             </div>
-            <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
-              <div style="flex:1">
-                <label class="inp-lbl">Открыть диалог /givelic напрямую</label>
-                <input class="inp inp-hotkey" id="f-givelic-key" placeholder="Нажмите кнопку..." readonly
-                  onfocus="startListeningGivelicKey()" onblur="stopListeningGivelicKey()">
+            <div id="reissue-wrap">
+              <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                  <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;flex-shrink:0"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+                  <span style="font-size:10px;color:var(--accent);font-weight:500">Авто-перевыдача активна</span>
+                </div>
+                <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
+                  <div style="flex:1">
+                    <label class="inp-lbl">Кнопка авто-перевыдачи (toggle)</label>
+                    <input class="inp inp-hotkey" id="f-reissue-key" placeholder="Нажмите кнопку..." readonly
+                      onfocus="startListeningReissueKey()" onblur="stopListeningReissueKey()">
+                  </div>
+                  <button class="btn btn-ghost" type="button" onclick="clearReissueKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
+                </div>
               </div>
-              <button class="btn btn-ghost" type="button" onclick="clearGivelicKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
+            </div><!-- /reissue-wrap -->
+
+            <!-- Быстрая выдача лицензии — теперь с переключателем -->
+            <div class="chk-row" onclick="toggleGivelic()">
+              <div class="chk-box" id="chk-box-givelic"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <span class="chk-lbl">Быстрая выдача лицензии (/givelic)</span>
             </div>
-          </div>
-        </div><!-- /section-givelic -->
+            <div id="givelic-wrap">
+              <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                  <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  <span style="font-size:10px;color:var(--accent);font-weight:500">Быстрая выдача активна</span>
+                </div>
+                <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
+                  <div style="flex:1">
+                    <label class="inp-lbl">Открыть диалог /givelic напрямую</label>
+                    <input class="inp inp-hotkey" id="f-givelic-key" placeholder="Нажмите кнопку..." readonly
+                      onfocus="startListeningGivelicKey()" onblur="stopListeningGivelicKey()">
+                  </div>
+                  <button class="btn btn-ghost" type="button" onclick="clearGivelicKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
+                </div>
+              </div>
+            </div><!-- /givelic-wrap -->
+
+          </div><!-- /licensor-wrap -->
+        </div><!-- /section-licensor -->
 
         <!-- Кнопка АХК-меню — всегда видна, стиль как у тазера -->
         <div id="menu-key-wrap">
@@ -486,7 +498,8 @@ var folderSelected=false,callsignOn=false,autoPasswordOn=false,autoGrabOn=false;
 var savedAutoGrab=null,swapEnabled=false,swapKey='Alt+Q';
 var ejectEnabled=false,ejectKey='Alt+U';
 var autoReissueOn=false,reissueKey='Alt+R';
-var giveLicKey='';
+var licensorHelperOn=false;
+var givelicOn=false,giveLicKey='';
 var menuKey='Alt+0';
 var currentDepartment='mvd';
 
@@ -512,12 +525,9 @@ function applyDepartment(dept){
   // Для Правительства скрываем Авто-тазер
   var sectionSwap=document.getElementById('section-swap');
   if(sectionSwap)sectionSwap.style.display=isPravo?'none':'';
-  // Авто-перевыдача — только для Правительства
-  var sectionReissue=document.getElementById('section-reissue');
-  if(sectionReissue)sectionReissue.style.display=isPravo?'':'none';
-  // Быстрая выдача лицензии — только для Правительства
-  var sectionGivelic=document.getElementById('section-givelic');
-  if(sectionGivelic)sectionGivelic.style.display=isPravo?'':'none';
+  // Помощник для лицензёров — только для Правительства
+  var sectionLicensor=document.getElementById('section-licensor');
+  if(sectionLicensor)sectionLicensor.style.display=isPravo?'':'none';
   // Бейдж авто-снаряжения — только для Правительства
   var grabBadge=document.getElementById('grab-badge-pravo');
   if(grabBadge)grabBadge.style.display=isPravo?'':'none';
@@ -717,7 +727,9 @@ function renderGrabItems(dept){
 var api=null;
 
 function toggleAutoGrab(){autoGrabOn=!autoGrabOn;document.getElementById('chk-box-grab').classList.toggle('on',autoGrabOn);document.getElementById('grab-wrap').classList.toggle('show',autoGrabOn);}
+function toggleLicensorHelper(){licensorHelperOn=!licensorHelperOn;document.getElementById('chk-box-licensor').classList.toggle('on',licensorHelperOn);document.getElementById('licensor-wrap').classList.toggle('show',licensorHelperOn);}
 function toggleAutoReissue(){autoReissueOn=!autoReissueOn;document.getElementById('chk-box-reissue').classList.toggle('on',autoReissueOn);document.getElementById('reissue-wrap').classList.toggle('show',autoReissueOn);}
+function toggleGivelic(){givelicOn=!givelicOn;document.getElementById('chk-box-givelic').classList.toggle('on',givelicOn);document.getElementById('givelic-wrap').classList.toggle('show',givelicOn);}
 function toggleGrabItem(item){grabItems[item]=!grabItems[item];document.getElementById('wmi-'+item).classList.toggle('on',grabItems[item]);}
 var weaponAmmoMap={deagle:'magnum',akm:'ammo762',aks74u:'ammo545',remington:'ammo12x70',hk416:'ammo556'};
 function toggleGrabWeapon(weapon,ammo){grabItems[weapon]=!grabItems[weapon];document.getElementById('wmi-'+weapon).classList.toggle('on',grabItems[weapon]);if(grabItems[weapon]&&!grabItems[ammo]){grabItems[ammo]=true;document.getElementById('wmi-'+ammo).classList.add('on');}if(!grabItems[weapon]){var o=Object.entries(weaponAmmoMap).some(function(e){return e[1]===ammo&&e[0]!==weapon&&grabItems[e[0]];});if(!o){grabItems[ammo]=false;document.getElementById('wmi-'+ammo).classList.remove('on');}}}
@@ -742,8 +754,10 @@ window.addEventListener('pywebviewready',function(){
     if(typeof s.eject_enabled!=='undefined'){ejectEnabled=!!s.eject_enabled;document.getElementById('chk-box-eject').classList.toggle('on',ejectEnabled);document.getElementById('eject-wrap').classList.toggle('show',ejectEnabled);}
     if(s.eject_key!==undefined){ejectKey=s.eject_key||'Alt+U';}document.getElementById('f-eject-key').value=_keyDisplayRu(ejectKey);
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=_keyDisplayRu(menuKey);
+    if(typeof s.licensor_helper!=='undefined'){licensorHelperOn=!!s.licensor_helper;document.getElementById('chk-box-licensor').classList.toggle('on',licensorHelperOn);document.getElementById('licensor-wrap').classList.toggle('show',licensorHelperOn);}
     if(typeof s.auto_reissue_lic!=='undefined'){autoReissueOn=!!s.auto_reissue_lic;document.getElementById('chk-box-reissue').classList.toggle('on',autoReissueOn);document.getElementById('reissue-wrap').classList.toggle('show',autoReissueOn);}
     if(s.reissue_key!==undefined){reissueKey=s.reissue_key||'Alt+R';}document.getElementById('f-reissue-key').value=_keyDisplayRu(reissueKey);
+    if(typeof s.givelic_on!=='undefined'){givelicOn=!!s.givelic_on;document.getElementById('chk-box-givelic').classList.toggle('on',givelicOn);document.getElementById('givelic-wrap').classList.toggle('show',givelicOn);}
     if(s.givelic_key!==undefined){giveLicKey=s.givelic_key||'';var _glEl=document.getElementById('f-givelic-key');if(_glEl)_glEl.value=_keyDisplayRu(giveLicKey);}
     if(s.menu_binds&&typeof s.menu_binds==='object'){
       Object.keys(s.menu_binds).forEach(function(a){if(s.menu_binds[a]){menuItemBinds[a]=s.menu_binds[a];}});
@@ -1022,7 +1036,7 @@ document.addEventListener('wheel',function(e){
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
 function doInsert(){var btn=document.getElementById('btn-insert');var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();btn.disabled=true;if(insertTarget==='phone'){runBar('pbar-insert','pbar-insert-f',4000);var _api=window.pywebview&&window.pywebview.api;if(_api){/* передаём только поля, нужные для Hassle: callsign, use_callsign, password, menu_key, department, app_folder */
-_api.insert_hassle_code(cs,callsignOn,pwd,menuKey,currentDepartment,'').then(function(r){btn.disabled=false;if(r&&r.ok){flash(true);}else{flash(false);}});}else{flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment,autoReissueOn,reissueKey,giveLicKey).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+_api.insert_hassle_code(cs,callsignOn,pwd,menuKey,currentDepartment,'').then(function(r){btn.disabled=false;if(r&&r.ok){flash(true);}else{flash(false);}});}else{flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment,autoReissueOn,reissueKey,givelicOn?giveLicKey:'').then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){var btn=document.getElementById('btn-remove');btn.disabled=true;if(removeTarget==='phone'){_setHassleStatus('hassle-remove-status','Удаление с телефона...','muted');runBar('pbar-remove','pbar-remove-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.remove_hassle_code('').then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-remove-status',r.message||'Код удалён','ok');flash(true);}else{_setHassleStatus('hassle-remove-status',(r&&r.message)||'Ошибка удаления','err');flash(false);}});}else{_setHassleStatus('hassle-remove-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 

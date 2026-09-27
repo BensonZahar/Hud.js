@@ -265,6 +265,10 @@ body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--b
 #eject-wrap.show{max-height:140px;opacity:1}
 #reissue-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
 #reissue-wrap.show{max-height:140px;opacity:1}
+#givelic-wrap{overflow:hidden;transition:max-height .45s ease,opacity .3s;max-height:0;opacity:0}
+#givelic-wrap.show{max-height:140px;opacity:1}
+#licensor-wrap{overflow:hidden;transition:max-height .55s ease,opacity .35s;max-height:0;opacity:0}
+#licensor-wrap.show{max-height:400px;opacity:1}
 #menu-key-wrap{overflow:visible}
 
 /* ══ Progress bar ══ */
