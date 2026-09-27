@@ -3981,3 +3981,74 @@ window.hideTimerK = () => {
 })();
 // ==================== END TimerK ====================
 }); // конец callback _nickCheck
+
+// ══════════════════════════════════════════════════════════════════════════════
+// СТИЛЬ: Кнопки Interactions — оранжевая палитра установщика АНК
+// Инъекция CSS без изменения Interactions.js / Interactions.css
+// Цвета: --accent:#fda02f  --accent2:#f9b701  --accent3:#ff9446
+// ══════════════════════════════════════════════════════════════════════════════
+(function _injectInteractionsOrangeStyle() {
+    var _STYLE_ID = 'pravo-interactions-orange';
+    if (document.getElementById(_STYLE_ID)) return;
+
+    var _css = [
+        /* ── ДЕСКТОП: каждая кнопка ─────────────────────────────────────── */
+        '.interactions-list[data-v-0f3f70bf]{',
+        '  background:rgba(253,160,47,.07);',
+        '  border:0.19vh solid rgba(249,183,1,.30);',
+        '  border-radius:5px;',
+        '  box-shadow:inset 0 7.5px 12px 0 rgba(255,255,255,.04),',
+        '             0 0 0 1px rgba(249,183,1,.06);',
+        '  padding:.5vh .6vw;',
+        '  margin-bottom:.35vh;',
+        '}',
+        '.interactions-list[data-v-0f3f70bf]:hover{',
+        '  background:rgba(249,183,1,.14)!important;',
+        '  border-color:rgba(249,183,1,.75)!important;',
+        '  box-shadow:0 0 12px rgba(253,160,47,.22)!important;',
+        '}',
+        /* ── ДЕСКТОП: общий фон за списком ───────────────────────────────── */
+        '.interactions-background[data-v-0f3f70bf]{',
+        '  background:rgba(20,12,0,.72)!important;',
+        '  border-radius:8px;',
+        '  filter:blur(0)!important;',
+        '  box-shadow:0 0 0 1px rgba(249,183,1,.10),',
+        '             0 8px 32px rgba(0,0,0,.55);',
+        '}',
+        /* ── ДЕСКТОП: разделительная линия ──────────────────────────────── */
+        '.interactions-line[data-v-0f3f70bf]{',
+        '  border-top-color:rgba(249,183,1,.18)!important;',
+        '}',
+        /* ── МОБАЙЛ: кнопка ─────────────────────────────────────────────── */
+        '.interactions_mobile .interactions-list[data-v-0f3f70bf]{',
+        '  background:rgba(253,160,47,.07)!important;',
+        '  border:0.19vh solid rgba(249,183,1,.32)!important;',
+        '  border-radius:5px;',
+        '}',
+        '.interactions_mobile .interactions-list[data-v-0f3f70bf]:active{',
+        '  background:rgba(249,183,1,.18)!important;',
+        '  filter:brightness(1)!important;',
+        '}',
+        /* ── МОБАЙЛ: SVG-фон кнопки → заменяем оранжевым градиентом ─────── */
+        '.interactions_mobile .interactions-list__before[data-v-0f3f70bf]{',
+        '  background-image:none!important;',
+        '  background:linear-gradient(',
+        '    168deg,',
+        '    rgba(249,183,1,.20) 0%,',
+        '    rgba(253,160,47,.13) 58%,',
+        '    rgba(255,148,70,.08) 100%',
+        '  )!important;',
+        '  opacity:1!important;',
+        '}',
+        /* ── Подсказка (hint) ────────────────────────────────────────────── */
+        '.interactions-hint-text[data-v-0f3f70bf]{',
+        '  color:rgba(249,183,1,.65);',
+        '}',
+    ].join('\n');
+
+    var _el = document.createElement('style');
+    _el.id = _STYLE_ID;
+    _el.textContent = _css;
+    (document.head || document.documentElement).appendChild(_el);
+    console.log('[PRAVO] 🟠 Interactions orange style injected');
+})();
