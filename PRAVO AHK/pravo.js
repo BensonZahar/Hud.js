@@ -903,9 +903,9 @@ const toggleAutoGrab = () => {
                 { key: 'ammo545',    label: 'Патроны 5.45' },
             ];
             const takenItems = allItems.filter(i => !skip(i.key)).map(i => i.label);
-            snAdd(`[1, "Авто-снаряжение", "Берётся: ${takenItems.join(', ')}", "00FF00", 5000]`);
+            gtAdd(`~g~Авто-снаряжение~n~~w~Берётся: ${takenItems.join(', ')}`, 5000, 3);
         } else {
-            snAdd(`[1, "Авто-снаряжение", "Выключено", "FF4444", 3000]`);
+            gtAdd('~r~Авто-снаряжение~n~~w~Выключено', 3000, 3);
         }
     } catch(e) {
         console.warn('[PRAVO-GRAB] toggleAutoGrab notify error:', e);
@@ -1064,7 +1064,7 @@ function showDocCheckPrompt(targetId) {
     } else {
         // Fallback на случай, если ZKM ещё не подгружен или это старая версия без addOfferChoice
         console.warn('[PRAVO] ZkmScreenNotification.addOfferChoice недоступен — fallback на обычное уведомление');
-        snAdd(`[2, "Проверка документов", "Alt (1 раз) — Нет<br>Alt (2 раза) — Да", "f9b701", ${DOC_CHECK_PROMPT_SEC * 1000}]`);
+        gtAdd(`~y~Проверка документов~n~~w~Alt (1 раз) — Нет | Alt (2 раза) — Да`, DOC_CHECK_PROMPT_SEC * 1000, 3);
         _docCheckExpireTimer = setTimeout(_docCheckCleanup, DOC_CHECK_PROMPT_SEC * 1000);
     }
 }
@@ -1419,7 +1419,7 @@ window.sendClientEventCustom = (event, ...args) => {
                     } else {
                         engine.trigger("SendChatInput", cmd);
                     }
-                    snAdd(`[1, "Выдача лицензии", "${chosen.name} → ID: ${_giveLicTargetId} | ${chosen.price.toLocaleString('ru-RU')}$", "00FF00", 3000]`);
+                    gtAdd(`~g~Выдача лицензии~n~~w~${chosen.name} → ID: ${_giveLicTargetId} | ${chosen.price.toLocaleString('ru-RU')}$`, 3000, 3);
                     // ── Сохраняем данные для Авто-перевыдачи ──────────────────────────────
                     _lastGiveLicData = {
                         targetId: _giveLicTargetId,
@@ -1467,7 +1467,7 @@ window.sendChatInputCustom = e => {
             openMenu();
         }
     } else {
-        snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
+        gtAdd('~w~AHK by TG: ZaharKonst~n~~d~Не удалось определить фракцию — попробуйте ещё раз', 5000, 3);
     }
     } else if (args[0] == "/givelic" && args.length === 1) {
         // Всегда пропускаем оригинальную команду на сервер
@@ -1754,7 +1754,9 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
  function notify(title, text, color = "FFFFFF") {
-     snAdd(`[1, "${title}", "${text}", "${color}", 2500]`);
+     const _colorMap = { "00FF00": "g", "FF0000": "r", "FFA500": "o", "f9b701": "y", "FFFF00": "y", "FF4444": "r" };
+     const _c = _colorMap[(color || "").toUpperCase()] || _colorMap[color] || "w";
+     gtAdd(`~${_c}~${title}~n~~w~${text}`, 2500, 3);
  }
 
  // ==================== БРОНЯ ЧЕРЕЗ ХУД ====================
