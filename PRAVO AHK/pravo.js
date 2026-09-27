@@ -404,6 +404,8 @@ let _lastGiveLicData = null; // { targetId, type, price, name }
 var MENU_KEY = "Alt+0";
 // Хоткей авто-перевыдачи лицензии — настраивается установщиком (по умолчанию Alt+R)
 var REISSUE_KEY = "Alt+R";
+// Хоткей прямого открытия диалога /givelic — настраивается установщиком (пусто = отключено)
+var GIVELIC_KEY = "";
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
 var MENU_HIDDEN_ITEMS = [];
 // Биндинги прямого вызова пунктов меню — настраивается установщиком
@@ -535,11 +537,26 @@ window.addEventListener('keydown', function(e) {
             gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$`, 3000, 3);
         }
     }
+    // Хоткей прямого открытия диалога выдачи лицензии (GIVELIC_KEY)
+    if (GIVELIC_KEY && _isLicensorRank()) {
+        var _gp = GIVELIC_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+        var _gAlt   = _gp.indexOf('alt')   !== -1;
+        var _gCtrl  = _gp.indexOf('ctrl')  !== -1;
+        var _gShift = _gp.indexOf('shift') !== -1;
+        var _gMain  = _gp.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; })[0] || '';
+        var _gModOk = (!_gAlt || e.altKey) && (!_gCtrl || e.ctrlKey) && (!_gShift || e.shiftKey)
+                   && (_gAlt || !e.altKey) && (_gCtrl || !e.ctrlKey) && (_gShift || !e.shiftKey);
+        var _gKeyOk = e.key.toLowerCase() === _gMain || e.code.toLowerCase() === _gMain;
+        if (_gModOk && _gKeyOk) {
+            e.preventDefault && e.preventDefault();
+            window.showGiveLicIdInputDialog && window.showGiveLicIdInputDialog();
+        }
+    }
     // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
     // на основе настройки SWAP_KEY из установщика.
     // Прямые хоткеи здесь убраны — не дублируем.
-    // Мышь/колесо для REISSUE_KEY — НЕ здесь: keydown мышь не ловит.
-    // Обработчик живёт в LoadPravo.js и вызывает window._pravoDoReissue (ниже).
+    // Мышь/колесо для REISSUE_KEY и GIVELIC_KEY — НЕ здесь: keydown мышь не ловит.
+    // Обработчики живут в LoadPravo.js.
 
     // ==================== ALT — ПОКАЗАТЬ/СКРЫТЬ КУРСОР ПРИ ОТКРЫТОЙ КОНСОЛИ ====================
     if (e.keyCode === window.KEY_CODE_ALT) {

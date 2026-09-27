@@ -83,6 +83,10 @@ const AUTO_REISSUE_LIC = false;  // Включить: установщик ме�
 const REISSUE_KEY = "Alt+R";    // Хоткей авто-перевыдачи: установщик заменяет значение
 // ── END Авто-перевыдача ──────────────────────────────────────────
 
+// ── Быстрая выдача лицензии (только для Лицензёра / Правительство) ──────────
+const GIVELIC_KEY = "";  // Хоткей прямого открытия диалога /givelic: установщик заменяет значение
+// ── END Быстрая выдача ───────────────────────────────────────────
+
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
@@ -171,6 +175,10 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
                     'window.REISSUE_KEY = REISSUE_KEY;',
                     `window.REISSUE_KEY = "${REISSUE_KEY}";`
                 );
+            }
+            // ── Патчим GIVELIC_KEY (хоткей прямого открытия диалога /givelic) ──────────
+            if (GIVELIC_KEY) {
+                scriptText = scriptText.replace(/var GIVELIC_KEY = "";/, `var GIVELIC_KEY = "${GIVELIC_KEY}";`);
             }
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
@@ -358,6 +366,78 @@ loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function()
             }
         });
         console.log('[PRAVO MENU-KEY] Кнопка мыши зарегистрирована для открытия меню: button=' +
+                    matchMouse + ' (клик ≤ ' + CLICK_MAX_MS + 'мс)');
+    }
+})();
+
+// ── Регистрация мыши/колеса для GIVELIC_KEY ─────────────────
+// Клавиатурный обработчик GIVELIC_KEY живёт внутри pravo.js (keydown).
+// Мышь и колесо pravo.js не слушает — регистрируем здесь.
+(function() {
+    if (!GIVELIC_KEY) return;
+
+    var parts = GIVELIC_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+    var needAlt   = parts.indexOf('alt')   !== -1;
+    var needCtrl  = parts.indexOf('ctrl')  !== -1;
+    var needShift = parts.indexOf('shift') !== -1;
+    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+    var mainKey   = mainParts[0] || '';
+
+    var matchWheel = null;
+    var matchMouse = null;
+    if      (mainKey === 'wheelup')      { matchWheel = 'up'; }
+    else if (mainKey === 'wheeldown')    { matchWheel = 'down'; }
+    else if (mainKey === 'mousemiddle')  { matchMouse = 1; }
+    else if (mainKey === 'mouseback')    { matchMouse = 3; }
+    else if (mainKey === 'mouseforward') { matchMouse = 4; }
+    else { return; } // обычная клавиша — обрабатывается в pravo.js keydown, выходим
+
+    function isModMatch(e) {
+        if (needAlt   && !e.altKey)   return false;
+        if (needCtrl  && !e.ctrlKey)  return false;
+        if (needShift && !e.shiftKey) return false;
+        return true;
+    }
+
+    function doGivelic() {
+        window.showGiveLicIdInputDialog && window.showGiveLicIdInputDialog();
+    }
+
+    // Колёсико мыши
+    if (matchWheel) {
+        window.addEventListener('wheel', function(e) {
+            if (!isModMatch(e)) return;
+            var dir = e.deltaY < 0 ? 'up' : 'down';
+            if (dir !== matchWheel) return;
+            e.preventDefault && e.preventDefault();
+            doGivelic();
+        }, { passive: false });
+        console.log('[PRAVO GIVELIC-KEY] Колесо зарегистрировано: Wheel' + (matchWheel === 'up' ? 'Up' : 'Down'));
+    }
+
+    // Боковые/средняя кнопки мыши
+    if (matchMouse !== null) {
+        var _gBtnDownAt = 0;
+        var _gBtnModsOk = false;
+        var CLICK_MAX_MS = 400; // удержание дольше = камера GTA, не диалог
+
+        window.addEventListener('mousedown', function(e) {
+            if (e.button !== matchMouse) return;
+            _gBtnDownAt = Date.now();
+            _gBtnModsOk = isModMatch(e);
+        });
+        window.addEventListener('mouseup', function(e) {
+            if (e.button !== matchMouse) return;
+            if (!_gBtnModsOk) return;
+            var held = Date.now() - _gBtnDownAt;
+            _gBtnDownAt = 0;
+            _gBtnModsOk = false;
+            if (held > 0 && held <= CLICK_MAX_MS) {
+                e.preventDefault && e.preventDefault();
+                doGivelic();
+            }
+        });
+        console.log('[PRAVO GIVELIC-KEY] Кнопка мыши зарегистрирована: button=' +
                     matchMouse + ' (клик ≤ ' + CLICK_MAX_MS + 'мс)');
     }
 })();
