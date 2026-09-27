@@ -872,6 +872,11 @@ class InstallerAPI:
                 self._notify(False)
                 return
 
+            # Для Правительства авто-тазер и авто-выброс не используются
+            if department == 'pravo':
+                swap_enabled = False
+                eject_enabled = False
+
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
             if not swap_enabled or not safe_swap_key:
