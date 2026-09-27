@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.0 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.99 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -406,6 +406,7 @@ window.AUTO_REISSUE_LIC = AUTO_REISSUE_LIC;
 var _PRAVO_INT_REISSUE  = 9901;  // тип: авто-перевыдача лицензии
 var _PRAVO_INT_GIVELIC  = 9902;  // тип: быстрая выдача лицензии
 var _pravoHassleIntOpen = false;  // флаг: именно мы открыли Interactions
+var _pravoLastServerItems = [];   // FIX: кэш серверных пунктов — сохраняем, чтобы восстановить после наших диалогов
 
 // ── Hassle Interaction hook: обработка перенесена в sendClientEventCustom ──────
 // Хранит данные последней успешно отправленной команды /givelic
@@ -751,11 +752,17 @@ function _pravoUpdateHassleInteraction(targetId) {
     // _items теперь НИКОГДА не пустой на Hassle (есть минимум кнопка АНК Меню)
 
     try {
-        window.openInterface('Interactions', JSON.stringify(_items));
+        // FIX: передаём сохранённые серверные пункты вместе с нашими,
+        // чтобы хук openInterface мог их отфильтровать и слить обратно.
+        // Это восстанавливает серверные кнопки после закрытия наших диалогов
+        // (678/679 givelic, /dahk и т.д.), когда сервер не переотправляет setInfo.
+        var _mergedItems = _items.concat(_pravoLastServerItems);
+        window.openInterface('Interactions', JSON.stringify(_mergedItems));
         _pravoHassleIntOpen = true;
         console.log('[PRAVO] 📱 Hassle Interaction открыт'
             + (targetId && targetId != -1 ? ' для ID ' + targetId : ' (старт/ранг)')
-            + ': ' + _items.map(function(i){ return i[1]; }).join(' / '));
+            + ': ' + _items.map(function(i){ return i[1]; }).join(' / ')
+            + (_pravoLastServerItems.length ? ' + ' + _pravoLastServerItems.length + ' серверных' : ''));
     } catch(e) {
         console.warn('[PRAVO] ⚠️ Ошибка открытия Interactions:', e);
     }
@@ -812,6 +819,11 @@ function _pravoHookInteractionsSetInfo() {
                     }
                 }
             } catch(_e) {}
+
+            // FIX: сохраняем серверные пункты для восстановления после наших диалогов
+            if (serverItems.length > 0) {
+                _pravoLastServerItems = serverItems;
+            }
 
             var pravoItems = _pravoGetOwnItems();
             var combined  = pravoItems.concat(serverItems);
@@ -878,6 +890,11 @@ window._pravoStyleOwnInteractionButtons = _pravoStyleOwnInteractionButtons;
                 }
             } catch(_e) {}
 
+            // FIX: сохраняем серверные пункты для восстановления после наших диалогов
+            if (serverItems.length > 0) {
+                _pravoLastServerItems = serverItems;
+            }
+
             var pravoItems = _pravoGetOwnItems();
             var combined   = pravoItems.concat(serverItems);
             _pravoHassleIntOpen = true;
@@ -907,6 +924,10 @@ window._pravoStyleOwnInteractionButtons = _pravoStyleOwnInteractionButtons;
         var _result = _ciOrig.apply(this, arguments);
         if (_shouldRestore) {
             _pravoHassleIntOpen = false;
+            // FIX: сервер закрыл Interactions — очищаем кэш серверных пунктов,
+            // т.к. контекст NPC/объекта пропал. Если игрок снова подойдёт,
+            // сервер пришлёт свежие пункты через openInterface/setInfo.
+            _pravoLastServerItems = [];
             // Снимаем метку хука — компонент уничтожен, при следующем
             // openInterface он создастся заново и нужно хукать снова
             try {
