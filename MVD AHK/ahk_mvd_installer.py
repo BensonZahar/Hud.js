@@ -1280,7 +1280,7 @@ class InstallerAPI:
                         ('ammo_magnum', 'AMMO_MAGNUM'),('akm',       'AKM'),      ('ammo_762',   'AMMO_762'),
                         ('painkiller',  'PAINKILLERS'),('baton2',    'WAND'),
                         ('taumeter',    'RADAR_GUN'), ('diag',       'DIAGNOSTICS'),
-                        ('taser',       'TASER'),     ('aks74u',     'AKS74U'),
+                        ('shield',      'SHIELD'),    ('taser',      'TASER'),     ('aks74u',     'AKS74U'),
                         ('hk416',       'HK416'),     ('ammo_556',   'AMMO_556'),
                         ('remington',   'REMINGTON'), ('ammo_545',   'AMMO_545'), ('ammo_12x70', 'AMMO_1270'),
                         ('flashbang',   'FLASHBANG'), ('mask',       'MASK'),     ('repairkit',  'REPAIRKIT'),
