@@ -183,7 +183,7 @@
         <div class="chk-row" onclick="toggleAutoGrab()">
           <div class="chk-box" id="chk-box-grab"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <span class="chk-lbl">Авто-снаряжение</span>
-          <span style="margin-left:auto;font-size:9.5px;color:var(--accent);background:rgba(253,160,47,.08);border:1px solid rgba(253,160,47,.25);border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;flex-shrink:0;">Только Охранник[2] · Нач. Охраны[3]</span>
+          <span id="grab-badge-pravo" style="display:none;margin-left:auto;font-size:9.5px;color:var(--accent);background:rgba(253,160,47,.08);border:1px solid rgba(253,160,47,.25);border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;flex-shrink:0;">Только Охранник[2] · Нач. Охраны[3]</span>
         </div>
 
         <!-- Grab UI -->
@@ -466,6 +466,9 @@ function applyDepartment(dept){
   // Для Правительства скрываем Авто-тазер
   var sectionSwap=document.getElementById('section-swap');
   if(sectionSwap)sectionSwap.style.display=isPravo?'none':'';
+  // Бейдж авто-снаряжения — только для Правительства
+  var grabBadge=document.getElementById('grab-badge-pravo');
+  if(grabBadge)grabBadge.style.display=isPravo?'':'none';
   var lbl=document.getElementById('callsign-lbl');
   if(lbl)lbl.textContent=isMvd?'Позывной ОМОН':'Позывной';
   renderGrabItems(dept);
