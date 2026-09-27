@@ -343,7 +343,6 @@ setTimeout(() => {
     }
     trackSkinId();
 }, 500);
-let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
 let autoGrabEnabled = true;
 let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`;
 
@@ -384,7 +383,6 @@ let targetId = null;
 let currentMenu = null;
 let currentSubMenu = null;
 let currentAction = null;
-let autoCuffEnabled = false;
 
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
@@ -652,36 +650,6 @@ const setupChatHandler = () => {
                 console.log('[FILTER] ✋ Сообщение заблокировано');
                 return;
             }
-            // Auto-cuff logic
-            if (autoCuffEnabled && typeof message === 'string') {
-                const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
-                if (stunMatch) {
-                    const nickname = stunMatch[1];
-                    // Ищем ID оглушённого напрямую из списка игроков
-                    const foundId = getIdByNickFromList(nickname);
-                    if (foundId !== null) {
-                        console.log(`[AUTO-CUFF] ✅ ID из списка: ${nickname} → ${foundId}`);
-                        setTimeout(() => {
-                            sendMessagesWithDelay([`/cuff ${foundId}`, `/escort ${foundId}`], [0, 700]);
-                        }, 1000);
-                    } else {
-                        // Фолбэк — запрашиваем через /id (ответ поймает блок ниже)
-                        setTimeout(() => { sendChatInput(`/id ${nickname}`); }, 500);
-                    }
-                }
-         
-                // Фолбэк: разбираем ответ сервера на /id когда ID не нашёлся в списке
-                const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
-                if (idMatch && idMatch[2]) {
-                    const id = idMatch[2];
-                    setTimeout(() => {
-                        sendMessagesWithDelay([
-                            `/cuff ${id}`,
-                            `/escort ${id}`
-                        ], [0, 700]);
-                    }, 1000);
-                }
-            }
             // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
 
 
@@ -784,7 +752,7 @@ if (typeof message === 'string' && _MSG_REPLACE_RULES.length) {
 // ────────────────────────────────────────────────────────────────
             return originalAddFunction.apply(this, [message, ...args]);
         };
-        console.log('[Auto-cuff] Обработчик чата успешно установлен');
+        console.log('[PRAVO] Обработчик чата успешно установлен');
         _mainChatHandlerReady = true;
     } else {
         setTimeout(setupChatHandler, 100);
@@ -829,10 +797,6 @@ const snAdd = (payload) => {
             try { getZkmSN()?.add(payload); } catch(e) {}
         }, 100);
     } catch(e) {}
-};
-const toggleAutoCuff = () => {
-    autoCuffEnabled = !autoCuffEnabled;
-    autoCuffName = `Auto-cuff | ${autoCuffEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
 };
 const toggleAutoGrab = () => {
     autoGrabEnabled = !autoGrabEnabled;
@@ -910,21 +874,11 @@ const HandleMvdSubCommand = (index) => {
                 showPovsednevMenuPage(giveLicenseTo);
             }, 50);
             break;
-        case "autocuff":
-            toggleAutoCuff();
-            setTimeout(() => {
-                showMvdSubMenu(giveLicenseTo);
-            }, 50);
-            break;
         case "autograb":
             toggleAutoGrab();
             setTimeout(() => {
                 showMvdSubMenu(giveLicenseTo);
             }, 50);
-            break;
-        case "laws":
-            window._duranOpenMode = 'laws';
-            window.openInterface('Zkm');
             break;
     }
 };
@@ -1234,12 +1188,10 @@ window.showMvdSubMenu = (e) => {
     let availableSub = [
         { name: "Повседневная", id: "povsednev" }
     ];
-    availableSub.push({ name: autoCuffName, id: "autocuff" });
     // Авто-снаряжение: только для Охранник[2] и Нач. Охраны[3]
     if (window.AUTO_GRAB === true && _isGrabAllowedRank()) {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
-    availableSub.push({ name: "Законы", id: "laws" });
     shownMvdSubTypes = availableSub;
     let licenseList = 'AHK by konstt<n>';
     availableSub.forEach((license, index) => {
@@ -1374,8 +1326,6 @@ window.sendChatInputCustom = e => {
         currentSubMenu = null;
         currentAction = null;
         currentPage = 0;
-        autoCuffEnabled = false;
-        autoCuffName = `Auto-cuff | {FF0000}Выкл`;
         sendChatInput("Настройки ПРАВО сброшены. Следующее /dahk откроет главное меню.");
     } else if (args[0] == "/int") {
         // Просмотрщик интерфейсов (см.
