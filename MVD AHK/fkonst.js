@@ -9,7 +9,8 @@ const _ALLOWED_NICKS = [
     "Maxim_Vortex",
 	"Sergey_Gaben",
 	"Kenzo_Morales",
-	"Angel_El_Pel"
+	"Angel_El_Pel",
+	"Sonya_Sqwrtick"
 ];
 
 (function _nickCheck(callback) {
