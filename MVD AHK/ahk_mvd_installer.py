@@ -832,7 +832,7 @@ class InstallerAPI:
         save_settings({'department': dept})
         return True
 
-    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', eject_enabled=False, eject_key='Alt+U', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd', auto_reissue_lic=False):
+    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', eject_enabled=False, eject_key='Alt+U', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd', auto_reissue_lic=False, reissue_key='Alt+R'):
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
@@ -877,8 +877,11 @@ class InstallerAPI:
                 swap_enabled = False
                 eject_enabled = False
             # ── Авто-перевыдача лицензии (только для Правительства) ────────────────
+            safe_reissue_key = str(reissue_key).replace('"', '').replace("'", '')[:30] if reissue_key else ''
             if auto_reissue_lic and department == 'pravo':
                 code = code.replace('const AUTO_REISSUE_LIC = false;', 'const AUTO_REISSUE_LIC = true;')
+            if department == 'pravo' and safe_reissue_key:
+                code = code.replace('const REISSUE_KEY = "Alt+R";', f'const REISSUE_KEY = "{safe_reissue_key}";')
 
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
@@ -1009,6 +1012,7 @@ class InstallerAPI:
                     'menu_timer_items': timer_list,
                     'department': 'fsb' if department == 'fsb' else ('fsin' if department == 'fsin' else ('pravo' if department == 'pravo' else 'mvd')),
                     'auto_reissue_lic': bool(auto_reissue_lic) if department == 'pravo' else False,
+                    'reissue_key': safe_reissue_key if (auto_reissue_lic and department == 'pravo') else '',
                 })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"
@@ -1299,8 +1303,11 @@ class InstallerAPI:
             # ── Авто-перевыдача лицензии (только для Правительства) ─────────────────
             dept_saved = saved.get('department', 'mvd')
             auto_reissue_lic_saved = saved.get('auto_reissue_lic', False)
+            reissue_key_saved = str(saved.get('reissue_key', 'Alt+R')).replace('"', '').replace("'", '')[:30]
             if auto_reissue_lic_saved and dept_saved == 'pravo':
                 code = code.replace('const AUTO_REISSUE_LIC = false;', 'const AUTO_REISSUE_LIC = true;')
+            if dept_saved == 'pravo' and reissue_key_saved:
+                code = code.replace('const REISSUE_KEY = "Alt+R";', f'const REISSUE_KEY = "{reissue_key_saved}";')
         return code
 
     def get_hassle_status(self):
