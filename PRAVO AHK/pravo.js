@@ -346,6 +346,15 @@ setTimeout(() => {
 let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
 let autoGrabEnabled = true;
 let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`;
+
+// ── Авто-снаряжение: разрешённые звания (Охранник[2] и Нач. Охраны[3]) ──
+// Проверяет window._pravoRank — данные приходят из MainMenu (профиль персонажа).
+// Возвращает true только для этих двух рангов, для всех остальных — false.
+function _isGrabAllowedRank() {
+    var r = (window._pravoRank || '').trim();
+    // Поддерживаем оба формата: «Охранник» и «Охранник [2]» / «Охранник[2]»
+    return /Охранник/i.test(r) || /Нач[\.\s]*\s*Охран/i.test(r);
+}
 const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
@@ -1226,7 +1235,8 @@ window.showMvdSubMenu = (e) => {
         { name: "Повседневная", id: "povsednev" }
     ];
     availableSub.push({ name: autoCuffName, id: "autocuff" });
-    if (window.AUTO_GRAB === true) {
+    // Авто-снаряжение: только для Охранник[2] и Нач. Охраны[3]
+    if (window.AUTO_GRAB === true && _isGrabAllowedRank()) {
         availableSub.push({ name: autoGrabName, id: "autograb" });
     }
     availableSub.push({ name: "Законы", id: "laws" });
@@ -1513,7 +1523,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             }
 
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
-            if (style === 2 && dialogId === 0 && title.includes('СЛУЖБА БЕЗОПАСНОСТИ') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
+            if (style === 2 && dialogId === 0 && title.includes('СЛУЖБА БЕЗОПАСНОСТИ') && window.AUTO_GRAB && typeof window.autoGrab === 'function' && _isGrabAllowedRank()) {
                 if (!window._pravoGrabProcessing) {
                     console.log('[PRAVO-GRAB] === v2.1 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
@@ -1718,6 +1728,11 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
  // ==================== ОСНОВНАЯ ЛОГИКА ====================
  async function autoGrab() {
      if (typeof autoGrabEnabled !== 'undefined' && !autoGrabEnabled) return;
+     // Проверка звания: авто-снаряжение работает только для Охранник[2] и Нач. Охраны[3]
+     if (!_isGrabAllowedRank()) {
+         console.log(`[PRAVO-GRAB] ⛔ Звание "${window._pravoRank}" не в списке — авто-снаряжение пропущено`);
+         return;
+     }
      if (isProcessing) return;
      isProcessing = true;
 
