@@ -282,7 +282,8 @@ setTimeout(function() {
     try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
 }, 1000);
 // 1. СНАЧАЛА объявляем все константы и массивы
-const pravoSkins = [86, 128, 15398, 15399, 15400, 15401, 15402, 15403, 15404, 15405];
+// Скины Правительства: 57♂ 141♀ 147♂ 164♀ 165♂ 187♂ 208♂ 227♂ 16360♀
+const pravoSkins = [57, 141, 147, 164, 165, 187, 208, 227, 16360];
 
 let skinId = null;
 // 3. Функция получения скина
