@@ -832,7 +832,7 @@ class InstallerAPI:
         save_settings({'department': dept})
         return True
 
-    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', eject_enabled=False, eject_key='Alt+U', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd'):
+    def insert_code(self, callsign, use_callsign, auto_password='', auto_grab=None, swap_enabled=True, swap_key='Alt+Q', eject_enabled=False, eject_key='Alt+U', menu_key='Alt+0', menu_hidden=None, menu_binds=None, menu_order=None, menu_timer=None, department='mvd', auto_reissue_lic=False):
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
 
@@ -876,6 +876,9 @@ class InstallerAPI:
             if department == 'pravo':
                 swap_enabled = False
                 eject_enabled = False
+            # ── Авто-перевыдача лицензии (только для Правительства) ────────────────
+            if auto_reissue_lic and department == 'pravo':
+                code = code.replace('const AUTO_REISSUE_LIC = false;', 'const AUTO_REISSUE_LIC = true;')
 
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
@@ -1005,6 +1008,7 @@ class InstallerAPI:
                     'menu_order': order_list,
                     'menu_timer_items': timer_list,
                     'department': 'fsb' if department == 'fsb' else ('fsin' if department == 'fsin' else ('pravo' if department == 'pravo' else 'mvd')),
+                    'auto_reissue_lic': bool(auto_reissue_lic) if department == 'pravo' else False,
                 })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"
@@ -1292,6 +1296,11 @@ class InstallerAPI:
                     skip_js = json.dumps(skip)
                     code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                     code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
+            # ── Авто-перевыдача лицензии (только для Правительства) ─────────────────
+            dept_saved = saved.get('department', 'mvd')
+            auto_reissue_lic_saved = saved.get('auto_reissue_lic', False)
+            if auto_reissue_lic_saved and dept_saved == 'pravo':
+                code = code.replace('const AUTO_REISSUE_LIC = false;', 'const AUTO_REISSUE_LIC = true;')
         return code
 
     def get_hassle_status(self):
