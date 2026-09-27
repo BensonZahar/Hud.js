@@ -527,18 +527,12 @@ window.addEventListener('keydown', function(e) {
             const _rCmd = `/givelic ${_rId} ${_rType} ${_rPrice}`;
             if (typeof __mvdPrevSendChatInput === "function") {
                 __mvdPrevSendChatInput("/cancel");
+                __mvdPrevSendChatInput(_rCmd);
             } else {
                 engine.trigger("SendChatInput", "/cancel");
+                engine.trigger("SendChatInput", _rCmd);
             }
-            snAdd(`[1, "Авто-перевыдача", "/cancel → повтор через 600мс...", "FFA500", 2500]`);
-            setTimeout(() => {
-                if (typeof __mvdPrevSendChatInput === "function") {
-                    __mvdPrevSendChatInput(_rCmd);
-                } else {
-                    engine.trigger("SendChatInput", _rCmd);
-                }
-                snAdd(`[1, "Авто-перевыдача", "${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$", "00FF00", 3000]`);
-            }, 600);
+            gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$`, 3000, 3);
         }
     }
     // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
@@ -564,25 +558,19 @@ window.addEventListener('keydown', function(e) {
 window._pravoDoReissue = function() {
     if (!(AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true)) return;
     if (!_lastGiveLicData) {
-        snAdd('[1, "Авто-перевыдача", "Нет данных — сначала выдайте лицензию через меню", "FF4444", 3500]');
+        gtAdd('~r~Авто-перевыдача~n~~w~Нет данных — сначала выдайте лицензию через меню', 3500, 3);
         return;
     }
     const { targetId: _rId, type: _rType, price: _rPrice, name: _rName } = _lastGiveLicData;
     const _rCmd = `/givelic ${_rId} ${_rType} ${_rPrice}`;
     if (typeof __mvdPrevSendChatInput === "function") {
         __mvdPrevSendChatInput("/cancel");
+        __mvdPrevSendChatInput(_rCmd);
     } else {
         engine.trigger("SendChatInput", "/cancel");
+        engine.trigger("SendChatInput", _rCmd);
     }
-    snAdd(`[1, "Авто-перевыдача", "/cancel → повтор через 600мс...", "FFA500", 2500]`);
-    setTimeout(() => {
-        if (typeof __mvdPrevSendChatInput === "function") {
-            __mvdPrevSendChatInput(_rCmd);
-        } else {
-            engine.trigger("SendChatInput", _rCmd);
-        }
-        snAdd(`[1, "Авто-перевыдача", "${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$", "00FF00", 3000]`);
-    }, 600);
+    gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$`, 3000, 3);
 };
 // ── END Экспорт авто-перевыдачи ──────────────────────────────────────────────
 
@@ -877,6 +865,21 @@ const snAdd = (payload) => {
         }, 100);
     } catch(e) {}
 };
+// GameText-уведомление (замена ZKM для авто-перевыдачи и др.)
+// gtAdd(text, duration, type)
+//   text     — строка с ~n~ (перенос) и ~r~/~g~/~y~/~w~/~b~/~o~/~d~ (цвет)
+//   duration — мс (по умолчанию 3000)
+//   type     — 0=center, 1=top, 2=right, 3=bottom (по умолчанию 3)
+const gtAdd = (text, duration, type) => {
+    try {
+        const gt = window.interface && window.interface('GameText');
+        if (gt && typeof gt.add === 'function') {
+            const t    = (type     !== undefined) ? type     : 3;
+            const dur  = (duration !== undefined) ? duration : 3000;
+            gt.add(JSON.stringify([t, text, dur, 0, 0, true, false, 2.0]));
+        }
+    } catch(e) {}
+};
 const toggleAutoGrab = () => {
     autoGrabEnabled = !autoGrabEnabled;
     autoGrabName = `Авто-снаряжение | ${autoGrabEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
@@ -967,28 +970,20 @@ const HandleMvdSubCommand = (index) => {
             if (_lastGiveLicData) {
                 const { targetId: _rl_id, type: _rl_type, price: _rl_price, name: _rl_name } = _lastGiveLicData;
                 const _rl_cmd = `/givelic ${_rl_id} ${_rl_type} ${_rl_price}`;
-                // 1) Сначала отменяем текущее предложение на сервере
+                // 1) Отменяем и сразу повторяем — без задержки
                 if (typeof __mvdPrevSendChatInput === "function") {
                     __mvdPrevSendChatInput("/cancel");
+                    __mvdPrevSendChatInput(_rl_cmd);
                 } else {
                     engine.trigger("SendChatInput", "/cancel");
+                    engine.trigger("SendChatInput", _rl_cmd);
                 }
-                console.log(`[REISSUE] /cancel отправлен. Повтор через 600мс: ${_rl_cmd}`);
-                snAdd(`[1, "Авто-перевыдача", "/cancel → повтор через 600мс...", "FFA500", 2500]`);
-                // 2) Через 600мс повторяем команду /givelic
-                setTimeout(() => {
-                    if (typeof __mvdPrevSendChatInput === "function") {
-                        __mvdPrevSendChatInput(_rl_cmd);
-                    } else {
-                        engine.trigger("SendChatInput", _rl_cmd);
-                    }
-                    console.log(`[REISSUE] Команда повторена: ${_rl_cmd}`);
-                    snAdd(`[1, "Авто-перевыдача", "${_rl_name} → ID: ${_rl_id} | ${_rl_price.toLocaleString('ru-RU')}$", "00FF00", 3000]`);
-                }, 600);
+                console.log(`[REISSUE] /cancel + повтор отправлены мгновенно: ${_rl_cmd}`);
+                gtAdd(`~g~Авто-перевыдача~n~~w~${_rl_name} → ID: ${_rl_id} | ${_rl_price.toLocaleString('ru-RU')}$`, 3000, 3);
                 // Закрываем меню сразу, не ждём
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 150);
             } else {
-                snAdd(`[1, "Авто-перевыдача", "Нет данных — сначала выдайте лицензию через меню", "FF4444", 3500]`);
+                gtAdd('~r~Авто-перевыдача~n~~w~Нет данных — сначала выдайте лицензию через меню', 3500, 3);
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 100);
             }
             break;
@@ -1332,7 +1327,7 @@ window.showIdInputDialog = (e) => {
 // Типы лицензий: name — отображаемое название, type — код команды, price — цена
 const _GIVE_LIC_TYPES = [
     { name: "Права",       type: 1, price: 10000 },
-    { name: "Проф. права", type: 2, price: 35000 },
+    { name: "Проф. права", type: 2, price: 40000 },
     { name: "Оружие",      type: 3, price: 85000 },
     { name: "Рыбалка",     type: 4, price: 4000  },
     { name: "Охота",       type: 5, price: 65000 },
