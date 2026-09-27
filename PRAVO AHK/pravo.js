@@ -249,6 +249,8 @@ window.onUpdatePlayersList = function(e) {
                 cachedMyId = id;
             }
         }
+        // FIX: сохраняем полный список — нужен для getPlayerInfoFromList (device, nick, level)
+        window._mvdPlayerList = e;
     } catch(err) {
         console.warn('[PRAVO] Ошибка чтения local.id из onUpdatePlayersList:', err);
     }
@@ -742,32 +744,34 @@ function getPlayerInfoFromList(id) {
 }
 
 // ── Hassle: показать/обновить постоянный Interaction вместо хоткея ───────────
-// Вызывается при открытии подменю, после выдачи и после перевыдачи лицензии.
-// Если цель не Hassle (или нет активных функций) — закрывает наш Interaction.
+// Вызывается при загрузке профиля, открытии подменю, после выдачи/перевыдачи.
+// targetId == -1 допустим — кнопка «Выдать лицензию» не привязана к конкретному игроку.
+// Если МЫ не на Hassle (или нет активных функций) — закрывает наш Interaction.
 function _pravoUpdateHassleInteraction(targetId) {
-    if (!targetId || targetId == -1) return;
+    // FIX: проверяем устройство ОПЕРАТОРА скрипта, а не цели.
+    // Interaction нужен нам самим — когда мы на мобилке и не можем жать клавиши.
+    var _isLocalHassle = !!(window.App && window.App.isMobile);
 
-    var _info = getPlayerInfoFromList(targetId);
-
-    // Не Hassle — закрываем наш Interaction если мы его открывали
-    if (!_info || _info.device !== 'Hassle') {
+    if (!_isLocalHassle) {
         if (_pravoHassleIntOpen) {
             try { window.closeInterface('Interactions'); } catch(e) {}
             _pravoHassleIntOpen = false;
-            console.log('[PRAVO] 📱 Hassle Interaction закрыт (цель не на телефоне)');
+            console.log('[PRAVO] 📱 Hassle Interaction закрыт (мы на ПК, хоткеи доступны)');
         }
         return;
     }
 
     var _items = [];
 
-    // Авто-перевыдача — только если включена И есть сохранённая команда
-    if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
+    // Авто-перевыдача — только если включена, есть цель И сохранённая команда
+    if (targetId && targetId != -1 &&
+        (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
         _items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
     }
 
-    // Быстрая выдача — только если задан GIVELIC_KEY И звание Лицензёр
-    if (GIVELIC_KEY && _isLicensorRank()) {
+    // Быстрая выдача — показываем всегда при звании Лицензёр.
+    // На ПК есть хоткей GIVELIC_KEY, на Hassle клавиш нет — кнопка обязательна.
+    if (_isLicensorRank()) {
         _items.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
     }
 
@@ -776,7 +780,8 @@ function _pravoUpdateHassleInteraction(targetId) {
     try {
         window.openInterface('Interactions', JSON.stringify(_items));
         _pravoHassleIntOpen = true;
-        console.log('[PRAVO] 📱 Hassle Interaction открыт для ID ' + targetId
+        console.log('[PRAVO] 📱 Hassle Interaction открыт'
+            + (targetId && targetId != -1 ? ' для ID ' + targetId : ' (старт/ранг)')
             + ': ' + _items.map(function(i){ return i[1]; }).join(' / '));
     } catch(e) {
         console.warn('[PRAVO] ⚠️ Ошибка открытия Interactions:', e);
@@ -2560,6 +2565,14 @@ waitForApp(function() {
         loadPlayerProfile(function(data) {
             if (data && data.orgRangName) {
                 console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._pravoFirstName||'') + ' ' + (window._pravoLastName||''));
+                // Если звание «Лицензёр» и мы на Hassle — сразу показываем Interaction,
+                // не дожидаясь первого открытия меню.
+                if (_isLicensorRank() && window.App && window.App.isMobile) {
+                    setTimeout(function() {
+                        _pravoUpdateHassleInteraction(-1);
+                        console.log('[PRAVO] 📱 Hassle Interaction показан сразу (ранг Лицензёр определён при старте)');
+                    }, 500); // небольшая пауза — даём интерфейсам полностью смонтироваться
+                }
             } else {
                 console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
             }
