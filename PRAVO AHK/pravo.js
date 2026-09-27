@@ -354,6 +354,12 @@ function _isGrabAllowedRank() {
     // Поддерживаем оба формата: «Охранник» и «Охранник [2]» / «Охранник[2]»
     return /Охранник/i.test(r) || /Нач[\.\s]*\s*Охран/i.test(r);
 }
+// Проверяет, является ли текущее звание «Лицензёр» — открывает доступ к /givelic меню.
+// Учитываем оба написания: Лицензёр / Лицензер (е/ё).
+function _isLicensorRank() {
+    var r = (window._pravoRank || '').trim();
+    return /Лицензёр/i.test(r) || /Лицензер/i.test(r);
+}
 const povsednevOptions = [
     { name: "1. Приветствие", action: "greeting", needsId: true },
     { name: "2. Проверка документов", action: "checkDocuments" },
@@ -875,6 +881,9 @@ const HandleMvdSubCommand = (index) => {
                 showPovsednevMenuPage(giveLicenseTo);
             }, 50);
             break;
+        case "givelic":
+            setTimeout(() => window.showGiveLicIdInputDialog(), 50);
+            break;
         case "autograb":
             toggleAutoGrab();
             setTimeout(() => {
@@ -1189,6 +1198,10 @@ window.showMvdSubMenu = (e) => {
     let availableSub = [
         { name: "Повседневная", id: "povsednev" }
     ];
+    // Выдача лицензии: только для звания Лицензёр
+    if (_isLicensorRank()) {
+        availableSub.push({ name: "Выдача лицензии", id: "givelic" });
+    }
     // Авто-снаряжение: только для Охранник[2] и Нач. Охраны[3]
     if (window.AUTO_GRAB === true && _isGrabAllowedRank()) {
         availableSub.push({ name: autoGrabName, id: "autograb" });
@@ -1343,11 +1356,23 @@ window.sendChatInputCustom = e => {
         snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
     }
     } else if (args[0] == "/givelic" && args.length === 1) {
-        // /givelic без аргументов — открываем диалог ввода ID
-        window.showGiveLicIdInputDialog();
+        // /givelic без аргументов — только для Лицензёра
+        if (_isLicensorRank()) {
+            window.showGiveLicIdInputDialog();
+        } else if (typeof __mvdPrevSendChatInput === "function") {
+            __mvdPrevSendChatInput(e);
+        } else {
+            engine.trigger("SendChatInput", e);
+        }
     } else if (args[0] == "/givelic" && args.length === 2) {
-        // /givelic <id> — ID уже известен, открываем выбор типа лицензии
-        window.showGiveLicTypeDialog(args[1]);
+        // /givelic <id> — только для Лицензёра
+        if (_isLicensorRank()) {
+            window.showGiveLicTypeDialog(args[1]);
+        } else if (typeof __mvdPrevSendChatInput === "function") {
+            __mvdPrevSendChatInput(e);
+        } else {
+            engine.trigger("SendChatInput", e);
+        }
     } else if (args[0] == "/console") {
         try {
             const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
