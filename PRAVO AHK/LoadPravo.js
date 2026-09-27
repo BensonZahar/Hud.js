@@ -29,7 +29,7 @@
             if (gt && typeof gt.add === 'function') {
                 // Тип 3 = нижний GameText (как в /me, /do)
                 // ~n~ = перенос строки, ~g~ = зелёный цвет
-                gt.add('[3, "АНК <span style=\\"color:#CCFF00\\">ПРАВИТЕЛЬСТВО</span>&nbsp;by konstt~n~~g~Запущен", 5000, 0, 0, false, false, 2.0]');
+                gt.add('[3, "АНК <span style=\\"color:#CCFF00\\">СЛУЖБА БЕЗОПАСНОСТИ</span>&nbsp;by konstt~n~~g~Запущен", 5000, 0, 0, false, false, 2.0]');
                 console.log('[AHK] ✅ Стартовое уведомление показано');
                 return true;
             }
@@ -74,6 +74,7 @@ const AUTO_GRAB_MENU_AKS74U      = -1; // АКС-74У
 const AUTO_GRAB_MENU_AMMO_MAGNUM = -1; // Патроны .44
 const AUTO_GRAB_MENU_AMMO_762    = -1; // Патроны 7.62
 const AUTO_GRAB_MENU_AMMO_545    = -1; // Патроны 5.45
+const AUTO_GRAB_MENU_SHIELD      = -1; // Щит
 const AUTO_GRAB_SKIP = []; // Предметы которые НЕ брать: ["medkit","painkiller","baton","vest","taser","deagle","magnum","akm","ammo762","aks74u","ammo545"]
 // ── END Авто-снаряжение ─────────────────────────────────────────
 
@@ -108,7 +109,8 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
                     BATON: AUTO_GRAB_MENU_BATON, VEST: AUTO_GRAB_MENU_VEST,
                     TASER: AUTO_GRAB_MENU_TASER, DEAGLE: AUTO_GRAB_MENU_DEAGLE,
                     AKM: AUTO_GRAB_MENU_AKM, AKS74U: AUTO_GRAB_MENU_AKS74U,
-                    AMMO_MAGNUM: AUTO_GRAB_MENU_AMMO_MAGNUM, AMMO_762: AUTO_GRAB_MENU_AMMO_762, AMMO_545: AUTO_GRAB_MENU_AMMO_545
+                    AMMO_MAGNUM: AUTO_GRAB_MENU_AMMO_MAGNUM, AMMO_762: AUTO_GRAB_MENU_AMMO_762, AMMO_545: AUTO_GRAB_MENU_AMMO_545,
+                    SHIELD: AUTO_GRAB_MENU_SHIELD
                 };
                 // Патчим позиции ТОЛЬКО внутри блока const MENU = { ... }
                 // чтобы не задеть одноимённые ключи в const ITEM = { ... }

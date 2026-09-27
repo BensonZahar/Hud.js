@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === PRAVO AHK v9.0 ЗАГРУЖЕН ===");
+console.log("[INIT] === СЛУЖБА БЕЗОПАСНОСТИ AHK v9.0 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -231,7 +231,7 @@ console.log("[INIT] === PRAVO AHK v9.0 ЗАГРУЖЕН ===");
             var gt = window.interface && window.interface('GameText');
             if (gt && typeof gt.add === 'function') {
                 clearInterval(timer);
-                gt.add('[3, "АНК <span style=\\"color:#CCFF00\\">ПРАВИТЕЛЬСТВО</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
+                gt.add('[3, "АНК <span style=\\"color:#CCFF00\\">СЛУЖБА БЕЗОПАСНОСТИ</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
             }
         } catch(e) {}
         if (attempts >= 40) clearInterval(timer); // макс. 20 секунд ожидания
@@ -282,7 +282,7 @@ setTimeout(function() {
     try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
 }, 1000);
 // 1. СНАЧАЛА объявляем все константы и массивы
-// Скины Правительства: 57♂ 141♀ 147♂ 164♀ 165♂ 187♂ 208♂ 227♂ 16360♀
+// Скины СЛУЖБА БЕЗОПАСНОСТИ: 57♂ 141♀ 147♂ 164♀ 165♂ 187♂ 208♂ 227♂ 16360♀
 const pravoSkins = [57, 141, 147, 164, 165, 187, 208, 227, 16360];
 
 let skinId = null;
@@ -838,19 +838,14 @@ const toggleAutoGrab = () => {
                 { key: 'medkit',     label: 'Аптечка' },
                 { key: 'painkiller', label: 'Обезболивающее' },
                 { key: 'baton',      label: 'Дубинка' },
-                { key: 'baton2',     label: 'Жезл' },
+                { key: 'shield',     label: 'Щит' },
                 { key: 'vest',       label: 'Бронежилет' },
-                { key: 'taumeter',   label: 'Тауметр' },
-                { key: 'diag',       label: 'Диагностика' },
-                { key: 'taser',      label: 'Тазер' },
                 { key: 'deagle',     label: 'Desert Eagle' },
                 { key: 'magnum',     label: 'Патроны .44' },
                 { key: 'akm',        label: 'АКМ' },
                 { key: 'ammo762',    label: 'Патроны 7.62' },
                 { key: 'aks74u',     label: 'АКС-74У' },
                 { key: 'ammo545',    label: 'Патроны 5.45' },
-                { key: 'remington',  label: 'Remington 870' },
-                { key: 'ammo12x70',  label: 'Патроны 12x70' },
             ];
             const takenItems = allItems.filter(i => !skip(i.key)).map(i => i.label);
             snAdd(`[1, "Авто-снаряжение", "Берётся: ${takenItems.join(', ')}", "00FF00", 5000]`);
@@ -1111,14 +1106,14 @@ window.showGiveLicenseDialog = (e) => {
     currentMenu = null;
     let availableTypes = [];
     if (pravoSkins.includes(skinId)) {
-        availableTypes.push({ name: "ПРАВО", id: "mvd_main" });
+        availableTypes.push({ name: "СЛУЖБА БЕЗОПАСНОСТИ", id: "mvd_main" });
     }
     shownLicenseTypes = availableTypes;
     let licenseList = '';
     availableTypes.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-    window.addDialogInQueue(`[666,2,"АХК tg:ZaharKonst | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    window.addDialogInQueue(`[666,2,"АХК tg:ZaharKonst | СБ: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 // ── Внутренний построитель диалога 667 (Повседневная) ───────────────────────
 // Используется как window.showPovsednevMenuPage (начальный вызов, сбрасывает страницу),
@@ -1132,7 +1127,7 @@ function _buildPovsednevDialog() {
     let _content = 'AHK by konstt<n>';
     _visible.forEach(function(opt) { _content += opt.name + '<n>'; });
     window.addDialogInQueue(
-        '[667,4,"ПРАВО | Повседневная","","Выбрать","Назад",0,0]',
+        '[667,4,"СЛУЖБА БЕЗОПАСНОСТИ | Повседневная","","Выбрать","Назад",0,0]',
         _content, 0
     );
 }
@@ -1240,7 +1235,7 @@ window.showMvdSubMenu = (e) => {
     availableSub.forEach((license, index) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
-    window.addDialogInQueue(`[677,4,"ПРАВО","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    window.addDialogInQueue(`[677,4,"СЛУЖБА БЕЗОПАСНОСТИ","","Выбрать","Отмена",0,0]`, licenseList, 0);
 };
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
@@ -1313,7 +1308,7 @@ window.sendChatInputCustom = e => {
             try {
                 const gt = window.interface && window.interface("GameText");
                 if (gt && typeof gt.add === 'function') {
-                    gt.add('[3, "АНК <span style=\\"color:#CCFF00\\">ПРАВИТЕЛЬСТВО</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
+                    gt.add('[3, "АНК <span style=\\"color:#CCFF00\\">СЛУЖБА БЕЗОПАСНОСТИ</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
                 }
             } catch(e) {}
             showMvdMainMenuPage(args[1]);
@@ -1518,7 +1513,7 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
             }
 
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
-            if (style === 2 && dialogId === 0 && title.includes('ПРАВО') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
+            if (style === 2 && dialogId === 0 && title.includes('СЛУЖБА БЕЗОПАСНОСТИ') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
                 if (!window._pravoGrabProcessing) {
                     console.log('[PRAVO-GRAB] === v2.1 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
@@ -1553,7 +1548,8 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
      PAINKILLERS: 379,  // Обезболивающее
      MEDKIT:      2,    // Аптечка
      BATON:       32,   // Дубинка
-     TASER:       13,   // Тазер
+     SHIELD:      385,  // Щит ⚠️ уточни ID предмета в игре
+     TASER:       13,   // Тазер (не используется в СЛУЖБА БЕЗОПАСНОСТИ)
      DEAGLE:      19,   // Desert Eagle
      AKM:         21,   // АКМ
      AKS74U:      18,   // АКС-74У
@@ -1566,21 +1562,22 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
  const AMMO_THRESHOLD = { MAGNUM: 30, AK762: 60, AKS545: 60 };
 
  // ==================== ПОЗИЦИИ В МЕНЮ МВД (0-based) ====================
- // ======= ПОЗИЦИИ В МЕНЮ ПРАВО (0-based, по скриншоту) =======
- // 0:Обезбол 1:Аптечка 2:Дубинка 3:Бронежилет 4:Desert Eagle
- // 5:АКМ 6:АКС-74У 7:Патроны.44 8:Патроны7.62 9:Патроны5.45 10:Тазер
+ // ======= ПОЗИЦИИ В МЕНЮ СЛУЖБА БЕЗОПАСНОСТИ (0-based, по скриншоту) =======
+ // 0:Обезбол 1:Аптечка 2:Дубинка 3:Щит 4:Бронежилет 5:Desert Eagle
+ // 6:АКМ 7:АКС-74У 8:Патроны.44 9:Патроны7.62 10:Патроны5.45
  const MENU = {
      PAINKILLERS:  0,
      MEDKIT:       1,
      BATON:        2,
-     VEST:         3,
-     DEAGLE:       4,
-     AKM:          5,
-     AKS74U:       6,
-     AMMO_MAGNUM:  7,
-     AMMO_762:     8,
-     AMMO_545:     9,
-     TASER:       10,
+     SHIELD:       3,  // Щит
+     VEST:         4,
+     DEAGLE:       5,
+     AKM:          6,
+     AKS74U:       7,
+     AMMO_MAGNUM:  8,
+     AMMO_762:     9,
+     AMMO_545:    10,
+     // TASER убран из авто-снаряжения СЛУЖБА БЕЗОПАСНОСТИ
  };
 
  const DIALOG_ID = 0;
@@ -1804,8 +1801,8 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
              painkillers: skip('painkiller')  ? 1   : (findItem(ITEM.PAINKILLERS) ? 1 : 0),
              medkit:      skip('medkit')      ? 999 : (findItemInInv(ITEM.MEDKIT)  ? 1 : 0),
              baton:       skip('baton')       ? 1   : (findItem(ITEM.BATON)       ? 1 : 0),
-             vest:        skip('vest') ? 100 : armourVal,
-             taser:       skip('taser')       ? 1   : (findItem(ITEM.TASER)       ? 1 : 0),
+             shield:      skip('shield')      ? 1   : (findItem(ITEM.SHIELD)      ? 1 : 0),
+             vest:        skip('vest') ? 100 : armourVal,       skip('taser')       ? 1   : (findItem(ITEM.TASER)       ? 1 : 0),
              deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
              akm:         skip('akm')         ? 1   : (findItem(ITEM.AKM)         ? 1 : 0),
              aks74u:      skip('aks74u')      ? 1   : (findItem(ITEM.AKS74U)      ? 1 : 0),
@@ -1818,8 +1815,8 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
              painkillers: !has.painkillers,
              medkit:      has.medkit < 1,
              baton:       !has.baton,
+             shield:      !has.shield,
              vest:        has.vest < 10,
-             taser:       !has.taser,
              deagle:      !has.deagle,
              akm:         !has.akm,
              aks74u:      !has.aks74u,
@@ -1849,7 +1846,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
 
          // ── ВСЁ ЕСТЬ: выходим, инвентарь уже закрыт и невидим ──
          if (!Object.values(need).some(Boolean)) {
-             notify("ПРАВО", "Всё снаряжение есть ✓", "00FF00");
+             notify("СЛУЖБА БЕЗОПАСНОСТИ", "Всё снаряжение есть ✓", "00FF00");
              return; 
          }
 
@@ -1859,6 +1856,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          if (need.painkillers) toTake.push({ name: "Обезболивающее",                      idx: MENU.PAINKILLERS });
          if (need.medkit)      toTake.push({ name: "Аптечка",                             idx: MENU.MEDKIT });
          if (need.baton)       toTake.push({ name: "Дубинка",                             idx: MENU.BATON });
+         if (need.shield)      toTake.push({ name: "Щит",                                 idx: MENU.SHIELD });
          if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,          idx: MENU.VEST });
          if (need.deagle)      toTake.push({ name: "Desert Eagle",                        idx: MENU.DEAGLE });
          if (need.akm)         toTake.push({ name: "АКМ",                                 idx: MENU.AKM });
@@ -1866,7 +1864,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,   idx: MENU.AMMO_MAGNUM });
          if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`, idx: MENU.AMMO_762 });
          if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`, idx: MENU.AMMO_545 });
-         if (need.taser)       toTake.push({ name: "Тазер",                               idx: MENU.TASER });
+         // Тазер не используется в СЛУЖБА БЕЗОПАСНОСТИ
 
          for (let i = 0; i < toTake.length; i++) {
              console.log(`[PRAVO-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [МОМЕНТАЛЬНО]`);
@@ -1880,7 +1878,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          closeMenu();
 
          const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
-         notify("ПРАВО", notifyNames.join(", "), "00FF00");
+         notify("СЛУЖБА БЕЗОПАСНОСТИ", notifyNames.join(", "), "00FF00");
          window.playSound("inventory/take_light.mp3");
 
      } catch (err) {
