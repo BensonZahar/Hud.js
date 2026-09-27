@@ -362,4 +362,78 @@ loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function()
     }
 })();
 
+// ── Регистрация мыши/колеса для REISSUE_KEY ─────────────────
+// Клавиатурный обработчик REISSUE_KEY живёт внутри pravo.js (keydown).
+// Мышь и колесо pravo.js не слушает — регистрируем здесь, как у SWAP/EJECT в FSIN.
+(function() {
+    if (!AUTO_REISSUE_LIC || !REISSUE_KEY) return;
+
+    var parts = REISSUE_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+    var needAlt   = parts.indexOf('alt')   !== -1;
+    var needCtrl  = parts.indexOf('ctrl')  !== -1;
+    var needShift = parts.indexOf('shift') !== -1;
+    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+    var mainKey   = mainParts[0] || '';
+
+    var matchWheel = null;
+    var matchMouse = null;
+    if      (mainKey === 'wheelup')      { matchWheel = 'up'; }
+    else if (mainKey === 'wheeldown')    { matchWheel = 'down'; }
+    else if (mainKey === 'mousemiddle')  { matchMouse = 1; }
+    else if (mainKey === 'mouseback')    { matchMouse = 3; }
+    else if (mainKey === 'mouseforward') { matchMouse = 4; }
+    else { return; } // обычная клавиша — обрабатывается в pravo.js keydown, выходим
+
+    function isModMatch(e) {
+        if (needAlt   && !e.altKey)   return false;
+        if (needCtrl  && !e.ctrlKey)  return false;
+        if (needShift && !e.shiftKey) return false;
+        return true;
+    }
+
+    // Делегируем в pravo.js — там живёт вся логика + snAdd + __mvdPrevSendChatInput.
+    // Та же схема что у FSIN: LoadFsin.js вызывает window._fsinSwapTaserDeagle().
+    function doReissue() {
+        window._pravoDoReissue && window._pravoDoReissue();
+    }
+
+    // Колёсико мыши
+    if (matchWheel) {
+        window.addEventListener('wheel', function(e) {
+            if (!isModMatch(e)) return;
+            var dir = e.deltaY < 0 ? 'up' : 'down';
+            if (dir !== matchWheel) return;
+            e.preventDefault && e.preventDefault();
+            doReissue();
+        }, { passive: false });
+        console.log('[PRAVO REISSUE-KEY] Колесо зарегистрировано: Wheel' + (matchWheel === 'up' ? 'Up' : 'Down'));
+    }
+
+    // Боковые/средняя кнопки мыши
+    if (matchMouse !== null) {
+        var _rBtnDownAt = 0;
+        var _rBtnModsOk = false;
+        var CLICK_MAX_MS = 400; // удержание дольше = камера GTA, не перевыдача
+
+        window.addEventListener('mousedown', function(e) {
+            if (e.button !== matchMouse) return;
+            _rBtnDownAt = Date.now();
+            _rBtnModsOk = isModMatch(e);
+        });
+        window.addEventListener('mouseup', function(e) {
+            if (e.button !== matchMouse) return;
+            if (!_rBtnModsOk) return;
+            var held = Date.now() - _rBtnDownAt;
+            _rBtnDownAt = 0;
+            _rBtnModsOk = false;
+            if (held > 0 && held <= CLICK_MAX_MS) {
+                e.preventDefault && e.preventDefault();
+                doReissue();
+            }
+        });
+        console.log('[PRAVO REISSUE-KEY] Кнопка мыши зарегистрирована: button=' +
+                    matchMouse + ' (клик ≤ ' + CLICK_MAX_MS + 'мс, удержание = камера)');
+    }
 })();
+
+})()

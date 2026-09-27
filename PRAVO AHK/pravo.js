@@ -544,6 +544,8 @@ window.addEventListener('keydown', function(e) {
     // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
     // на основе настройки SWAP_KEY из установщика.
     // Прямые хоткеи здесь убраны — не дублируем.
+    // Мышь/колесо для REISSUE_KEY — НЕ здесь: keydown мышь не ловит.
+    // Обработчик живёт в LoadPravo.js и вызывает window._pravoDoReissue (ниже).
 
     // ==================== ALT — ПОКАЗАТЬ/СКРЫТЬ КУРСОР ПРИ ОТКРЫТОЙ КОНСОЛИ ====================
     if (e.keyCode === window.KEY_CODE_ALT) {
@@ -554,6 +556,35 @@ window.addEventListener('keydown', function(e) {
         }
     }
 });
+
+// ── Экспорт авто-перевыдачи для LoadPravo.js (мышь/колесо) ──────────────────
+// LoadPravo.js регистрирует mousedown/mouseup/wheel для REISSUE_KEY и вызывает
+// window._pravoDoReissue() — точно так же как LoadFsin.js вызывает
+// window._fsinSwapTaserDeagle(). keydown здесь мышь не ловит никогда.
+window._pravoDoReissue = function() {
+    if (!(AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true)) return;
+    if (!_lastGiveLicData) {
+        snAdd('[1, "Авто-перевыдача", "Нет данных — сначала выдайте лицензию через меню", "FF4444", 3500]');
+        return;
+    }
+    const { targetId: _rId, type: _rType, price: _rPrice, name: _rName } = _lastGiveLicData;
+    const _rCmd = `/givelic ${_rId} ${_rType} ${_rPrice}`;
+    if (typeof __mvdPrevSendChatInput === "function") {
+        __mvdPrevSendChatInput("/cancel");
+    } else {
+        engine.trigger("SendChatInput", "/cancel");
+    }
+    snAdd(`[1, "Авто-перевыдача", "/cancel → повтор через 600мс...", "FFA500", 2500]`);
+    setTimeout(() => {
+        if (typeof __mvdPrevSendChatInput === "function") {
+            __mvdPrevSendChatInput(_rCmd);
+        } else {
+            engine.trigger("SendChatInput", _rCmd);
+        }
+        snAdd(`[1, "Авто-перевыдача", "${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$", "00FF00", 3000]`);
+    }, 600);
+};
+// ── END Экспорт авто-перевыдачи ──────────────────────────────────────────────
 
 // ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
 // Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
