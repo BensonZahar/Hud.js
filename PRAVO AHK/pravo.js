@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.99 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.0 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -840,12 +840,32 @@ function _pravoHookInteractionsSetInfo() {
 }
 window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
-// ── Оранжевая подсветка наших кнопок Interactions ───────────────────────────
-// Цвет из дизайна AHK-установщика: --accent: #fda02f.
-// Красим ТОЛЬКО .interactions-title у первых ownCount пунктов (это наши).
-// Серверные пункты (идут после) сбрасываются к оригинальному цвету.
-// Файлы Interactions.js и Interactions.css не меняются.
+// ── Обводка наших кнопок Interactions (::after поверх __before) ─────────────
+// Вместо filter на __before — инжектируем ::after псевдоэлемент через <style>.
+// ::after рисуется ПОСЛЕ всех дочерних элементов (CSS spec step 8),
+// поэтому обводка видна поверх .interactions-list__before без влияния на фон.
+// Цвет акцента: #fda02f (--accent из AHK-дизайна).
 function _pravoStyleOwnInteractionButtons(ownCount) {
+    // Инжектируем CSS один раз за сессию
+    if (!document.getElementById('pravo-int-outline')) {
+        var s = document.createElement('style');
+        s.id = 'pravo-int-outline';
+        // ::after — тонкая обводка поверх кнопки + едва заметная оранжевая подложка
+        // transition: плавное появление при первом рендере
+        s.textContent =
+            '.interactions-list[data-pravo-own="1"]::after{' +
+                'content:"";' +
+                'position:absolute;' +
+                'inset:0;' +
+                'border:1.5px solid rgba(253,160,47,0.52);' +
+                'background:linear-gradient(135deg,rgba(253,160,47,0.04) 0%,rgba(253,160,47,0.07) 100%);' +
+                'pointer-events:none;' +
+                'z-index:10;' +
+                'transition:opacity 0.25s ease;' +
+            '}';
+        document.head.appendChild(s);
+    }
+
     setTimeout(function() {
         try {
             var intRoot = document.querySelector('.interactions');
@@ -853,17 +873,17 @@ function _pravoStyleOwnInteractionButtons(ownCount) {
             var items = intRoot.querySelectorAll('.interactions-list');
             items.forEach(function(item, idx) {
                 var bef = item.querySelector('.interactions-list__before');
-                if (!bef) return;
+                // Сбрасываем старый filter (если остался от предыдущей версии)
+                if (bef) bef.style.removeProperty('filter');
                 if (idx < ownCount) {
-                    // Наш пункт: только смещаем цвет SVG-фона в оранжевый (#fda02f).
-                    // Opacity, контейнер, текст — не трогаем, дизайн сохраняется.
-                    bef.style.setProperty('filter', 'sepia(1) saturate(6) hue-rotate(-30deg) brightness(1.1)', 'important');
+                    // Наш пункт: вешаем data-атрибут → CSS рисует ::after обводку
+                    item.setAttribute('data-pravo-own', '1');
                 } else {
-                    // Серверный пункт — полный сброс
-                    bef.style.removeProperty('filter');
+                    // Серверный пункт — убираем атрибут, обводки нет
+                    item.removeAttribute('data-pravo-own');
                 }
             });
-            console.log('[PRAVO] 🎨 Interactions: ' + ownCount + ' наших кнопок подсвечены оранжевым');
+            console.log('[PRAVO] 🎨 Interactions: ' + ownCount + ' наших кнопок с обводкой');
         } catch(_e) {
             console.warn('[PRAVO] Ошибка стилизации Interactions:', _e);
         }
