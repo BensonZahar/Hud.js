@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v99.0 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.0 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -724,7 +724,7 @@ function _pravoUpdateHassleInteraction(targetId) {
 
     if (!_isLocalHassle) {
         if (_pravoHassleIntOpen) {
-            _pravoHassleIntOpen = false; // FIX: сначала флаг, потом close — иначе hook зациклится
+            _pravoHassleIntOpen = false; // FIX: флаг ДО close, иначе closeInterface-хук зациклится
             try { window.closeInterface('Interactions'); } catch(e) {}
             console.log('[PRAVO] 📱 Hassle Interaction закрыт (мы на ПК, хоткеи доступны)');
         }
@@ -764,69 +764,129 @@ window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
 // ── END _pravoUpdateHassleInteraction ────────────────────────────────────────
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ПАТЧ: Interactions — серверные пункты показываем ВМЕСТЕ с нашими,
-//       а после закрытия серверного Interaction — восстанавливаем наши.
+// ПАТЧ: Interactions — всегда показываем наши пункты вместе с серверными.
+//
+// Проблема: движок вызывает component.setInfo(serverItems) НАПРЯМУЮ уже
+// после того как openInterface отработал с нашим merged-списком —
+// в результате наши пункты перезатираются.
+// Решение: хукаем setInfo на экземпляре компонента сразу после его открытия,
+// а после closeInterface восстанавливаем наши пункты.
 // ══════════════════════════════════════════════════════════════════════════════
+
+// ── Вспомогательная функция: строит массив наших пунктов ──────────────────
+function _pravoGetOwnItems() {
+    var items = [];
+    items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
+    if (giveLicenseTo && giveLicenseTo != -1 &&
+        (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
+        items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
+    }
+    if (typeof _isLicensorRank === 'function' && _isLicensorRank()) {
+        items.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
+    }
+    return items;
+}
+
+// ── Хук setInfo на экземпляре компонента ──────────────────────────────────
+// Устанавливается каждый раз после открытия Interactions.
+// Перехватывает любой вызов setInfo (от движка, от сервера) и
+// добавляет наши пункты поверх серверных.
+function _pravoHookInteractionsSetInfo() {
+    try {
+        var _ic = window.interface && window.interface('Interactions');
+        if (!_ic || _ic.__pravoSetInfoHooked) return false;
+
+        var _origSI = _ic.setInfo;
+        _ic.setInfo = function(rawData) {
+            // Парсим входящие данные
+            var serverItems = [];
+            try {
+                var d = typeof rawData === 'string' ? JSON.parse(rawData) : rawData;
+                for (var k in d) {
+                    var item = d[k];
+                    // Поддержка обоих форматов: [type,title] и {type,title}
+                    var tp = Array.isArray(item) ? item[0] : (item && item.type);
+                    // Фильтруем наши пункты чтобы не дублировать
+                    if (tp !== 9900 && tp !== _PRAVO_INT_REISSUE && tp !== _PRAVO_INT_GIVELIC) {
+                        serverItems.push(Array.isArray(item) ? item : [item.type, item.title]);
+                    }
+                }
+            } catch(_e) {}
+
+            var pravoItems = _pravoGetOwnItems();
+            var combined  = pravoItems.concat(serverItems);
+            console.log('[PRAVO] 🔀 setInfo merged: '
+                + pravoItems.length + ' наших + ' + serverItems.length + ' серверных');
+            _origSI.call(this, combined);
+        };
+        _ic.__pravoSetInfoHooked = true;
+        console.log('[PRAVO] ✅ Interactions.setInfo hooked');
+        return true;
+    } catch(_e) { return false; }
+}
+window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
+
+// ── Хуки openInterface и closeInterface ───────────────────────────────────
 (function _patchInteractionsHooks() {
-    // ── openInterface: всегда подмешиваем наши пункты ─────────────────────
+    // -- openInterface: передаём уже слитый список + сразу хукаем setInfo ---
     var _oiOrig = window.openInterface;
     window.openInterface = function(name, params) {
         if (name === 'Interactions' && !!(window.App && window.App.isMobile)) {
             // Парсим серверные пункты, отбрасываем наши (чтобы не дублировать)
             var serverItems = [];
             try {
-                var _parsed = typeof params === 'string' ? JSON.parse(params) : (params || []);
-                if (Array.isArray(_parsed)) {
-                    _parsed.forEach(function(it) {
-                        var tp = Array.isArray(it) ? it[0] : it[0];
-                        if (tp !== 9900 && tp !== _PRAVO_INT_REISSUE && tp !== _PRAVO_INT_GIVELIC) {
-                            serverItems.push(it);
-                        }
-                    });
+                var _p = typeof params === 'string' ? JSON.parse(params) : (params || []);
+                for (var _k in _p) {
+                    var _it = _p[_k];
+                    var _tp = Array.isArray(_it) ? _it[0] : (_it && _it[0]);
+                    if (_tp !== 9900 && _tp !== _PRAVO_INT_REISSUE && _tp !== _PRAVO_INT_GIVELIC) {
+                        serverItems.push(_it);
+                    }
                 }
             } catch(_e) {}
 
-            // Собираем наши пункты (зеркало _pravoUpdateHassleInteraction)
-            var pravoItems = [];
-            pravoItems.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
-            if (giveLicenseTo && giveLicenseTo != -1 &&
-                (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
-                pravoItems.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
-            }
-            if (typeof _isLicensorRank === 'function' && _isLicensorRank()) {
-                pravoItems.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
-            }
-
-            // Объединяем: наши сверху, серверные снизу
-            var combined = pravoItems.concat(serverItems);
+            var pravoItems = _pravoGetOwnItems();
+            var combined   = pravoItems.concat(serverItems);
             _pravoHassleIntOpen = true;
-            console.log('[PRAVO] 🔀 Interactions merged: ' + pravoItems.length
-                + ' наших + ' + serverItems.length + ' серверных');
-            return _oiOrig.call(this, name, JSON.stringify(combined));
+
+            // Вызываем оригинал с уже слитым списком
+            var _res = _oiOrig.call(this, name, JSON.stringify(combined));
+
+            // Хукаем setInfo на компоненте — движок может вызвать его
+            // напрямую уже после openInterface, перезатерев наш список
+            setTimeout(_pravoHookInteractionsSetInfo, 50);
+
+            console.log('[PRAVO] 🔀 openInterface merged: '
+                + pravoItems.length + ' наших + ' + serverItems.length + ' серверных');
+            return _res;
         }
         return _oiOrig.apply(this, arguments);
     };
 
-    // ── closeInterface: восстанавливаем наши пункты после чужого закрытия ──
+    // -- closeInterface: восстанавливаем наши пункты после чужого закрытия ---
+    // Наш код ВСЕГДА делает _pravoHassleIntOpen = false ДО вызова closeInterface,
+    // поэтому shouldRestore = true только когда закрывает кто-то другой (сервер).
     var _ciOrig = window.closeInterface;
     window.closeInterface = function(name) {
-        // Захватываем флаг ДО вызова — наш код всегда сбрасывает его перед close
         var _shouldRestore = (name === 'Interactions' && _pravoHassleIntOpen);
         var _result = _ciOrig.apply(this, arguments);
         if (_shouldRestore) {
-            // Закрыл сервер или игрок кликнул серверный пункт.
-            // Мы сами всегда делаем _pravoHassleIntOpen = false ДО этого вызова,
-            // поэтому сюда попадаем только при «чужом» close.
             _pravoHassleIntOpen = false;
+            // Снимаем метку хука — компонент уничтожен, при следующем
+            // openInterface он создастся заново и нужно хукать снова
+            try {
+                var _ic = window.interface && window.interface('Interactions');
+                if (_ic) _ic.__pravoSetInfoHooked = false;
+            } catch(_e) {}
             setTimeout(function() {
                 _pravoUpdateHassleInteraction(giveLicenseTo || -1);
             }, 200);
-            console.log('[PRAVO] 🔄 closeInterface Interactions: восстанавливаем после серверного close');
+            console.log('[PRAVO] 🔄 closeInterface Interactions: восстанавливаем наши пункты');
         }
         return _result;
     };
 
-    console.log('[PRAVO] ✅ Interactions hooks (open+close) установлены');
+    console.log('[PRAVO] ✅ Interactions hooks (open + close + setInfo) установлены');
 })();
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -1603,13 +1663,13 @@ window.sendClientEventCustom = (event, ...args) => {
                     setTimeout(() => window.showGiveLicTypeDialog(inputId), 50);
                 }
             } else {
-                // Отмена — возвращаем Interaction (FIX: раньше он не появлялся)
+                // Отмена — возвращаем Interaction (FIX: раньше не появлялся)
                 setTimeout(function() { _pravoUpdateHassleInteraction(giveLicenseTo || -1); }, 100);
             }
         }
         else if (args[1] === 679) { // /givelic: выбор типа лицензии
             if (args[2] !== 1) {
-                // Отмена — возвращаем Interaction (FIX: раньше он не появлялся)
+                // Отмена — возвращаем Interaction (FIX: раньше не появлялся)
                 setTimeout(function() { _pravoUpdateHassleInteraction(giveLicenseTo || -1); }, 100);
             }
             if (args[2] === 1) {
