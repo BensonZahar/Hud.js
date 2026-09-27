@@ -1,0 +1,5370 @@
+// ⚠️ ЧТО ЭТО ЗА ФАЙЛ pravo.js — ПОМОЩНИК ДЛЯ ТЕСТИРОВАНИЯ ПРАВО И ФУНКЦИЙ ДЛЯ РАЗРАБОТЧИКОВ ИГРЫ.
+
+// ПРОВЕРКА НИКА Добавляй/убирай ники здесь.
+const NICK_CHECK_ENABLED = true; // ← поменяй на true чтобы включить проверку
+
+const _ALLOWED_NICKS = [
+    "Zahar_Damidov",
+    "Denis_Galievskiy",
+	"Fura_Morales",
+    "Sergey_Gaben",
+	"Steel_Soprano"
+];
+
+// Показ уведомления о запрете доступа.
+// Приоритет: QuestsProgressInfo (HUD) → ZkmScreenNotification → чат.
+function _showAccessDenied(nick) {
+    var title = "AHK — Доступ запрещён";
+    var text  = "Ник «" + nick + "» не в списке AHK. Обратитесь к создателю.";
+    var shown = false;
+
+    function tryShow() {
+        if (shown) return;
+
+        // 1) QuestsProgressInfo — HUD-уведомление (правый верхний угол)
+        try {
+            if (typeof window.openInterface === 'function') {
+                // Пропускаем если интерфейс занят активным квестом
+                var questBusy = window.getInterfaceStatus && window.getInterfaceStatus("QuestsProgressInfo");
+                if (!questBusy) {
+                    window.openInterface("QuestsProgressInfo", JSON.stringify([
+                        false,  // ручной режим (не из QuestsInfo.js)
+                        0,      // currentScores
+                        1,      // maxScores
+                        title,  // progressName → заголовок
+                        text,   // progressTask → текст под заголовком
+                        0,      // showedProgress = 0 → без шкалы прогресса
+                        false,  // isShowLocateButton
+                        0       // progressMode: PERCENT
+                    ]));
+                    setTimeout(function () {
+                        try { window.closeInterface("QuestsProgressInfo"); } catch (e) {}
+                    }, 15000);
+                    shown = true;
+                    console.warn('[pravo] 🚫 Доступ запрещён: ник "' + nick + '" не в списке.');
+                    return;
+                }
+            }
+        } catch (e) {}
+
+        // 2) ZKM-уведомление (красивое, сверху экрана)
+        var sn = window.ZkmScreenNotification;
+        if (sn && typeof sn.add === 'function') {
+            try {
+                sn.add('[1, "' + title + '", "' + text + '", "FF3333", 15000]');
+                shown = true;
+                console.warn('[pravo] 🚫 Доступ запрещён (ZKM): ник "' + nick + '".');
+                return;
+            } catch (e) {}
+        }
+
+        // 3) Fallback — сообщение в чат (работает всегда)
+        if (typeof window.onChatMessage === 'function') {
+            try {
+                window.onChatMessage('{FF3333}[AHK] {FFFFFF}' + title + ': ' + text, [0, 0, 'FF3333']);
+                shown = true;
+                console.warn('[pravo] 🚫 Доступ запрещён (чат): ник "' + nick + '".');
+            } catch (e) {}
+        }
+    }
+
+    // Первая попытка сразу
+    tryShow();
+
+    // Если не получилось — повторяем каждые 500мс до 5 секунд
+    // (даём время загрузиться интерфейсам)
+    if (!shown) {
+        var attempts = 0;
+        var retryTimer = setInterval(function () {
+            attempts++;
+            tryShow();
+            if (shown || attempts >= 10) {
+                clearInterval(retryTimer);
+                if (!shown) console.warn('[pravo] 🚫 Ник "' + nick + '" — уведомление показать не удалось.');
+            }
+        }, 500);
+    }
+}
+
+(function _nickCheck(callback) {
+    // Если проверка отключена — сразу запускаем скрипт для всех
+    if (!NICK_CHECK_ENABLED) {
+        console.log('[pravo] ⚠️ Проверка ника ОТКЛЮЧЕНА (NICK_CHECK_ENABLED = false) — скрипт доступен всем.');
+        callback();
+        return;
+    }
+
+    function getNick() {
+        try {
+            var n = window.App && window.App.$store &&
+                    window.App.$store.getters &&
+                    window.App.$store.getters['player/nickName'];
+            // Игнорируем дефолтное значение стора ("Name_Surname")
+            if (n && n !== "Name_Surname") return n;
+            return null;
+        } catch (e) { return null; }
+    }
+
+    var nick = getNick();
+    if (nick) {
+        if (_ALLOWED_NICKS.indexOf(nick) !== -1) {
+            callback();
+        } else {
+            _showAccessDenied(nick);
+        }
+        return;
+    }
+
+    // Стор ещё не готов — ждём до 30 секунд
+    var attempts = 0;
+    var timer = setInterval(function() {
+        attempts++;
+        var n = getNick();
+        if (n) {
+            clearInterval(timer);
+            if (_ALLOWED_NICKS.indexOf(n) !== -1) {
+                callback();
+            } else {
+                _showAccessDenied(n);
+            }
+        } else if (attempts >= 60) { // 60 × 500мс = 30 сек
+            clearInterval(timer);
+            console.warn('[pravo] Не удалось получить ник — скрипт не запущен.');
+        }
+    }, 500);
+})(function() {
+// ПРЕФЕТЧ ВСЕХ КАСТОМНЫХ ИНТЕРФЕЙСОВ С GITHUB Грузим 5 файлов параллельно при старте игры.
+(function prefetchAllCustomUI() {
+    var BASE = 'https://raw.githubusercontent.com/BensonZahar/Hud.js/main/PRAVO%20AHK/'
+             + encodeURIComponent('Кастом Интерфейсы') + '/';
+    var FILES = {
+        zkm_js:       BASE + 'zkm.js',
+        zkm_css:      BASE + 'zkm.css',
+        zkmsn_js:     BASE + 'ZkmScreenNotification.js',
+        zkmsn_css:    BASE + 'ZkmScreenNotification.css',
+        dokladi_js:   BASE + 'dokladi.js',
+        dokladi_css:  BASE + 'dokladi.css',
+        sidemenu_js:  BASE + 'SideMenu.js',
+        sidemenu_css: BASE + 'SideMenu.css'
+    };
+    var RETRIES = 5, BASE_DELAY = 1000;
+
+    function xhrGet(url, attempt) {
+        return new Promise(function(resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url + '?_=' + Date.now(), true);
+            xhr.onload = function() {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(xhr.responseText);
+                } else if (attempt < RETRIES) {
+                    var d = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
+                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, d);
+                } else reject(new Error('HTTP ' + xhr.status));
+            };
+            xhr.onerror = function() {
+                if (attempt < RETRIES) {
+                    var d = Math.min(BASE_DELAY * Math.pow(2, attempt), 16000);
+                    setTimeout(function() { xhrGet(url, attempt + 1).then(resolve, reject); }, d);
+                } else reject(new Error('Network'));
+            };
+            xhr.send();
+        });
+    }
+
+    var promises = {};
+    for (var key in FILES) {
+        (function(k) {
+            promises[k] = xhrGet(FILES[k], 0)
+                .then(function(text) {
+                    window['__prefetch_' + k] = text;
+                    console.log('[pravo] ✅ префетч ' + k + ' (' + text.length + ' байт)');
+                    return text;
+                })
+                .catch(function(e) {
+                    console.warn('[pravo] ⚠️ префетч ' + k + ' не удался:', e.message);
+                    window['__prefetch_' + k + '_failed'] = true;
+                });
+        })(key);
+    }
+
+    // Сохраняем общий Promise чтобы локальные загрузчики могли await-нуть
+    window.__prefetch_promise = Promise.allSettled(Object.values(promises))
+        .then(function() {
+            console.log('[pravo] 🎯 все префетчи завершены');
+        });
+})();
+// END ПРЕФЕТЧ Загрузчик startup-интерфейсов Вставить в НАЧАЛО mvdF.js.
+;(function loadStartupInterfaces() {
+    var ifaces = window._duranCustomInterfaces;
+    if (!ifaces || !ifaces.length) return;
+
+    ifaces.forEach(function (iface) {
+        if (!iface.startup) return;
+        (iface.files || []).forEach(function (filename) {
+            var ext = filename.split('.').pop().toLowerCase();
+            if (ext === 'css') {
+                var link  = document.createElement('link');
+                link.rel  = 'stylesheet';
+                link.href = './' + filename;
+                document.head.appendChild(link);
+            } else if (ext === 'js') {
+                var script = document.createElement('script');
+                script.src = './' + filename;
+                document.head.appendChild(script);
+            }
+        });
+    });
+})();
+// ── конец загрузчика ──────────────────────────────────────────────────
+
+
+// ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
+
+// PRAVO AHK VERSION: 1.0
+console.log("[INIT] === PRAVO AHK v9.0 ЗАГРУЖЕН ===");
+// ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
+(function showStartupGameText() {
+    var attempts = 0;
+    var timer = setInterval(function() {
+        attempts++;
+        try {
+            var gt = window.interface && window.interface('GameText');
+            if (gt && typeof gt.add === 'function') {
+                clearInterval(timer);
+                gt.add('[3, "АНК <span style=\\"color:#C0C0C0\\">ПРАВО</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
+            }
+        } catch(e) {}
+        if (attempts >= 40) clearInterval(timer); // макс. 20 секунд ожидания
+    }, 500);
+})();
+// ──────────────────────────────────────────────────────────────────────
+// Надёжное получение своего ID через список игроков window.updatePlayerList() дёргает движковое событие "UpdatePlayersList", ответ на котор...
+let cachedMyId = 0;
+const _origOnUpdatePlayersList = window.onUpdatePlayersList;
+window.onUpdatePlayersList = function(e) {
+    try {
+        if (e && e.local && e.local.id !== undefined && e.local.id !== null) {
+            const id = parseInt(e.local.id, 10);
+            if (!isNaN(id) && id > 0) {
+                cachedMyId = id;
+            }
+        }
+    } catch(err) {
+        console.warn('[PRAVO] Ошибка чтения local.id из onUpdatePlayersList:', err);
+    }
+    if (typeof _origOnUpdatePlayersList === 'function') {
+        return _origOnUpdatePlayersList.apply(this, arguments);
+    }
+};
+
+// Получить свой ID: кэш из списка игроков, либо фолбэк на HUD
+function getMyId() {
+    if (cachedMyId > 0) return cachedMyId;
+    try {
+        const hud = window.interface && window.interface("Hud");
+        if (hud && hud.info && hud.info.id) {
+            return parseInt(hud.info.id, 10) || 0;
+        }
+    } catch(e) {
+        console.warn('[PRAVO] Ошибка получения ID из Hud:', e);
+    }
+    return 0;
+}
+
+// ── Авто-обновление собственного ID (каждые 30 секунд) ──
+setInterval(function() {
+    try {
+        if (window.updatePlayerList) window.updatePlayerList();
+    } catch(e) {}
+}, 30000);
+// Первый запрос — через 1 секунду после загрузки
+setTimeout(function() {
+    try { if (window.updatePlayerList) window.updatePlayerList(); } catch(e) {}
+}, 1000);
+// 1. СНАЧАЛА объявляем все константы и массивы
+const pravoSkins = [86, 128, 15398, 15399, 15400, 15401, 15402, 15403, 15404, 15405];
+
+let skinId = null;
+// 3. Функция получения скина
+function getSkinIdFromStore() {
+    try {
+        const menuInterface = window.interface("Menu");
+        if (menuInterface && menuInterface.$store && menuInterface.$store.getters["player/skinId"] !== undefined) {
+            return menuInterface.$store.getters["player/skinId"];
+        }
+        return null;
+    } catch (e) {
+        console.log(`[SKIN] Ошибка при получении Skin ID: ${e.message}`);
+        return null;
+    }
+}
+// 4. Функция отслеживания скина (ИСПРАВЛЕНА)
+function trackSkinId() {
+    const currentSkin = getSkinIdFromStore();
+    if (currentSkin !== null) {
+        const numericSkin = Number(currentSkin);
+        // ВАЖНО: сравниваем уже приведённые к числу значения,
+        // иначе store иногда отдаёт строку и проверка ложно
+        // считает это "изменением" скина каждый цикл опроса
+        if (numericSkin !== skinId) {
+            skinId = numericSkin;
+            window._pravoSkinId = skinId; // прокидываем наружу для проверки исключений (например СОБР для greeting)
+
+            console.log(`[SKIN] 🔍 Новый Skin ID обнаружен: ${skinId}`);
+
+            // Проверяем, является ли скин МВД
+            if (pravoSkins.includes(skinId)) {
+                console.log(`[SKIN] ✅ Скин ${skinId} - это МВД скин!`);
+            } else {
+                console.log(`[SKIN] ❌ Скин ${skinId} НЕ входит в список МВД`);
+            }
+        }
+    }
+    setTimeout(trackSkinId, 5000);
+}
+// 5. ЗАПУСК после загрузки
+setTimeout(() => {
+    console.log('[SKIN] 🚀 Запуск отслеживания скина МВД...');
+    const initialSkin = getSkinIdFromStore();
+    if (initialSkin !== null) {
+        // Приводим к числу сразу
+        skinId = Number(initialSkin);
+        window._pravoSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
+        console.log(`[SKIN] 📌 Начальный Skin ID: ${skinId}`);
+    
+        if (pravoSkins.includes(skinId)) {
+            console.log(`[SKIN] ✅ Скин ${skinId} в списке МВД - меню /dahk доступно`);
+        } else {
+            console.log(`[SKIN] ⚠️ Скин ${skinId} не является МВД скином`);
+        }
+    } else {
+        console.log('[SKIN] ❌ Не удалось получить начальный Skin ID');
+    }
+    trackSkinId();
+}, 500);
+let autoCuffName = `Auto-cuff | {FF0000}Выкл`;
+let autoGrabEnabled = true;
+let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`;
+const povsednevOptions = [
+    { name: "1. Приветствие", action: "greeting", needsId: true },
+    { name: "2. Проверка документов", action: "checkDocuments" },
+];
+const ITEMS_PER_PAGE = 7;
+// ==================== БЛОКИРОВКА СООБЩЕНИЯ "* Игрок слишком далеко" ====================
+const messageFilters = [
+    "* Игрок слишком далеко"
+];
+function shouldBlockMessage(message) {
+    if (typeof message !== 'string') return false;
+    const lowerMsg = message.toLowerCase();
+    for (const filter of messageFilters) {
+        if (lowerMsg.includes(filter.toLowerCase())) {
+            console.log(`[FILTER] Заблокировано: "${filter}"`);
+            return true;
+        }
+    }
+    return false;
+}
+let currentPage = 0;
+let shownLicenseTypes = [];
+let shownMvdSubTypes = [];
+let lastMenuType = null; // "povsednev" or "omon" or null
+let giveLicenseTo = -1;
+let targetId = null;
+let currentMenu = null;
+let currentSubMenu = null;
+let currentAction = null;
+let autoCuffEnabled = false;
+
+// Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
+var MENU_KEY = "Alt+0";
+// Хоткей авто-выброса из авто — настраивается установщиком через EJECT_KEY
+var EJECT_KEY = "Alt+U";
+// Скрытые пункты меню «Повседневная» — настраивается установщиком
+var MENU_HIDDEN_ITEMS = [];
+// Биндинги прямого вызова пунктов меню — настраивается установщиком
+// Формат: { "greeting": "Alt+G", "cuffing": "Alt+C", ... }
+var MENU_BINDS = {};
+// Порядок пунктов меню «Повседневная» — настраивается установщиком
+// Формат: ["greeting","cuffing","checkDocuments",...] (пусто = по умолчанию)
+var MENU_ORDER = [];
+// Пункты меню, после которых шлём "/c 60" и закрываем диалог "Точное время" через 1.5с
+// Формат: ["greeting","fine",...] (пусто = выключено везде) — настраивается установщиком
+var MENU_TIMER_ITEMS = [];
+
+// Флаг: ждём диалог "Точное время" именно как ОТВЕТ на нашу команду "/c 60" после отыгровки.
+let _awaitingTimerDialog = false;
+let _timerDialogResetTO = null;
+// Флаг: диалог "Точное время" сейчас открыт — ждём зелёного сообщения "Снимок экрана сохранен" для закрытия
+let _timerDialogOpen = false;
+// Флаг: Dokladi был открыт до доклада — восстановить его после закрытия "Точное время"
+let _timerDokladiWasOpen = false;
+
+// Таймер после отыгровки: "/c 60" (латинская C, слитно) + автозакрытие диалога "Точное время" Если для конкретного пункта включено в устано...
+function runPostActionTimer(actionKey) {
+    if (!Array.isArray(MENU_TIMER_ITEMS) || !MENU_TIMER_ITEMS.includes(actionKey)) return;
+    sendChatInput("/c 60");
+    console.log(`[AHK-TIMER] "${actionKey}": отправлена команда /c 60`);
+    // Взводим флаг ожидания — закрыть можно только диалог, пришедший, пока флаг взведён
+    _awaitingTimerDialog = true;
+    if (_timerDialogResetTO) clearTimeout(_timerDialogResetTO);
+    // Если сервер по какой-то причине не прислал диалог за 5с — снимаем флаг,
+    // чтобы случайный более поздний "Точное время" не закрылся по ошибке
+    _timerDialogResetTO = setTimeout(() => { _awaitingTimerDialog = false; }, 5000);
+}
+
+// Применяем порядок пунктов если задан
+(function() {
+    if (!MENU_ORDER || !MENU_ORDER.length) return;
+    var ordered = [];
+    // Сначала — пункты в заданном порядке
+    MENU_ORDER.forEach(function(action) {
+        var found = povsednevOptions.find(function(o) { return o.action === action; });
+        if (found) ordered.push(found);
+    });
+    // Затем — любые пункты которых не было в MENU_ORDER (новые, добавленные позже)
+    povsednevOptions.forEach(function(o) {
+        if (!ordered.find(function(x) { return x.action === o.action; })) {
+            ordered.push(o);
+        }
+    });
+    // Переписываем массив на месте чтобы все ссылки на povsednevOptions остались валидны
+    povsednevOptions.length = 0;
+    ordered.forEach(function(o) { povsednevOptions.push(o); });
+})();
+
+// Вспомогательная функция: проверяет совпадение e с комбо-строкой вида "Alt+G"
+function _matchesCombo(e, combo) {
+    if (!combo) return false;
+    var parts = combo.toLowerCase().split('+').map(function(s){ return s.trim(); });
+    var needAlt   = parts.indexOf('alt')   !== -1;
+    var needCtrl  = parts.indexOf('ctrl')  !== -1;
+    var needShift = parts.indexOf('shift') !== -1;
+    var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+    var mainKey   = mainParts[0] || '';
+    var modOk = (!needAlt   || e.altKey)   &&
+                (!needCtrl  || e.ctrlKey)  &&
+                (!needShift || e.shiftKey) &&
+                (needAlt   || !e.altKey)   &&
+                (needCtrl  || !e.ctrlKey)  &&
+                (needShift || !e.shiftKey);
+    return modOk && (e.key.toLowerCase() === mainKey || e.code.toLowerCase() === mainKey);
+}
+
+// Обработчик горячих клавиш
+window.addEventListener('keydown', function(e) {
+    if (MENU_KEY) {
+        var parts = MENU_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
+        var needAlt   = parts.indexOf('alt')   !== -1;
+        var needCtrl  = parts.indexOf('ctrl')  !== -1;
+        var needShift = parts.indexOf('shift') !== -1;
+        var mainParts = parts.filter(function(p){ return p !== 'alt' && p !== 'ctrl' && p !== 'shift'; });
+        var mainKey   = mainParts[0] || '';
+        var modOk = (!needAlt || e.altKey) && (!needCtrl || e.ctrlKey) && (!needShift || e.shiftKey);
+        var keyOk = e.key.toLowerCase() === mainKey || e.code.toLowerCase() === mainKey;
+        if (modOk && keyOk) {
+            sendChatInput('/dahk');
+        }
+    }
+    // Прямые биндинги пунктов меню «Повседневная»
+    if (MENU_BINDS && typeof MENU_BINDS === 'object') {
+        for (var _action in MENU_BINDS) {
+            if (!_matchesCombo(e, MENU_BINDS[_action])) continue;
+            e.preventDefault && e.preventDefault();
+            var _opt = povsednevOptions.find(function(o){ return o.action === _action; });
+            if (!_opt) break;
+            currentAction = _action;
+            currentMenu = "povsednev"; // FIX: устанавливаем currentMenu чтобы диалог 668 сработал
+            // FIX: СОБР-скин (15340) для greeting не требует ID — как в HandlePovsednevCommand
+            var _isOmonSkin = false /* ПРАВО: нет ОМОН */;
+            var _needsIdForThis = _opt.needsId && !(_action === 'greeting' && _isOmonSkin);
+            if (_needsIdForThis) {
+                // Открываем серверный диалог ввода ID (668) — нативный путь без MvdMenu
+                setTimeout(function(){ showIdInputDialog(giveLicenseTo); }, 50);
+            } else {
+                executePovsednevAction(_action, giveLicenseTo || -1);
+            }
+            break;
+        }
+    }
+    // Хоткей свапа тазер ↔ дигл теперь регистрируется в LoadAhk.js
+    // на основе настройки SWAP_KEY из установщика.
+    // Прямые хоткеи здесь убраны — не дублируем.
+
+    // ==================== ALT — ПОКАЗАТЬ/СКРЫТЬ КУРСОР ПРИ ОТКРЫТОЙ КОНСОЛИ ====================
+    if (e.keyCode === window.KEY_CODE_ALT) {
+        const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
+        if (consoleRef && consoleRef.isOpened) {
+            window.cursorStatus = !window.cursorStatus;
+            window.setCursorStatus('Console', window.cursorStatus);
+        }
+    }
+});
+
+// ==================== НАТИВНАЯ A/D НАВИГАЦИЯ (TABLIST_HEADERS) ====================
+// Диалоги с пагинацией используют стиль 5 (TABLIST_HEADERS) — движок сам добавляет A/D кнопки
+// и вызывает OnMultiDialogClickNavigButton при их нажатии
+const PAGINATED_DIALOG_IDS = [667];
+let _lastPaginatedDialogId = null; // ID последнего открытого пагинированного диалога
+let _navPending = false; // флаг: A/D навигация обработана, блокируем следующий OnDialogResponse(response=0)
+
+// Перехватываем нативные A/D кнопки навигации TABLIST_HEADERS диалогов
+const _origSendClientEventHandle = window.sendClientEventHandle;
+window.sendClientEventHandle = function(event, ...args) {
+    if (args[0] === 'OnMultiDialogClickNavigButton') {
+        const direction = parseInt(args[1]); // 0 = назад (A), 1 = вперёд (D)
+        const dlgId = parseInt(args[2]);
+        if (PAGINATED_DIALOG_IDS.includes(dlgId)) {
+            _navPending = true;
+            setTimeout(() => { _navPending = false; }, 300);
+            console.log(`[NAV] A/D dlg=${dlgId} dir=${direction}`);
+            if (direction === 0) {
+                // A — назад в родительское меню (одна страница — пагинации нет)
+                if (dlgId === 667) {
+                    lastMenuType = null; currentMenu = null;
+                    setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                }
+            }
+            // D — нет следующей страницы, ничего не делаем
+            return;
+        }
+    }
+    return _origSendClientEventHandle.call(this, event, ...args);
+};
+// ==================== END A/D ====================
+
+// ==================== CHAT LOGGING HELPERS ====================
+function normalizeColor(color) {
+    let normalized = String(color).toUpperCase();
+    if (normalized.startsWith('#')) normalized = normalized.slice(1);
+    if (normalized.length === 8) normalized = normalized.slice(0, 6);
+    return '0x' + normalized;
+}
+// Экранирует спецсимволы regex (на случай нестандартных ников)
+function escapeRegex(str) {
+    return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+// ==================== END CHAT LOGGING HELPERS ====================
+
+// ── Поиск ника по ID из актуального списка игроков ────────────────────────
+// Возвращает строку-ник или null. Список живёт в window._mvdPlayerList и
+// обновляется движком через onUpdatePlayersList (каждые ~30с + по запросу).
+function getNickByIdFromList(id) {
+    try {
+        const list = window._mvdPlayerList;
+        if (!list) return null;
+        const strId = String(id);
+        if (list.local && String(list.local.id) === strId) return list.local.name;
+        if (Array.isArray(list.players)) {
+            const found = list.players.find(p => String(p.id) === strId);
+            return found ? found.name : null;
+        }
+        return null;
+    } catch (e) { return null; }
+}
+
+// ── Поиск ID по нику из актуального списка игроков ────────────────────────
+// Возвращает числовой/строковый ID или null. Используется там, где раньше
+// отправлялась команда /id <ник> ради получения ID через ответ чата.
+function getIdByNickFromList(nick) {
+    try {
+        const list = window._mvdPlayerList;
+        if (!list || !nick) return null;
+        if (list.local && list.local.name === nick) return list.local.id;
+        if (Array.isArray(list.players)) {
+            const found = list.players.find(p => p.name === nick);
+            return found ? found.id : null;
+        }
+        return null;
+    } catch (e) { return null; }
+}
+
+// ── Полная информация об игроке по ID из списка ────────────────────────────
+// Возвращает { nick, level, device } где device = 'Radmir' (ПК) или 'Hassle' (телефон).
+// Все поля null если игрок не найден в списке.
+function getPlayerInfoFromList(id) {
+    try {
+        const list = window._mvdPlayerList;
+        if (!list) return { nick: null, level: null, device: null };
+        const strId = String(id);
+        let player = null;
+        if (list.local && String(list.local.id) === strId) {
+            player = list.local;
+        } else if (Array.isArray(list.players)) {
+            player = list.players.find(p => String(p.id) === strId) || null;
+        }
+        if (!player) return { nick: null, level: null, device: null };
+        return {
+            nick:   player.name   || null,
+            level:  player.level  != null ? player.level : null,
+            device: player.mobile ? 'Hassle' : 'Radmir'
+        };
+    } catch (e) { return { nick: null, level: null, device: null }; }
+}
+
+let _mainChatHandlerReady = false;
+
+
+const setupChatHandler = () => {
+    if (window.interface && window.interface('Hud')?.$refs?.chat?.add) {
+        const originalAddFunction = window.interface('Hud').$refs.chat.add;
+ 
+        window.interface('Hud').$refs.chat.add = function(message, ...args) {
+            // ========== ЛОГИРОВАНИЕ ЧАТА (как в Code.js) ==========
+            try {
+                const _msg    = String(message);
+                const _color  = args[0];          // первый arg — цвет (если есть)
+                const _now    = new Date();
+                const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
+                const _actualColor = normalizeColor(_color).replace('0x', '');
+                const _colorTag = `[#${_actualColor}]`;
+                console.log(`[${_ts}]${_colorTag} ${_msg}`);
+            } catch (_e) { /* тихо игнорируем */ }
+            // КОНЕЦ ЛОГИРОВАНИЯ ОТМЕНА ПОДТВЕРЖДЕНИЯ ПРОВЕРКИ ДОКУМЕНТОВ Если игрок явно отказался показать документы ("Vlad_Giovanni отказался от Ваше...
+            if (typeof message === 'string') {
+                if (message.includes('отказался от Вашего предложения') ||
+                    message.includes('Игрок слишком далеко') ||
+                    message.includes('Такого игрока нет')) {
+
+                    if (_docCheckActive) {
+                        console.log('[PRAVO] 🚫 Проверка документов отменена (отказ/далеко/нет игрока)');
+                        _docCheckCleanup();
+                        _docCheckHideNotif();
+                    }
+
+                    // Гонка: сервер может ответить "слишком далеко" / "такого игрока нет" РАНЬШЕ, чем showDocCheckPrompt() успеет выставить docCheckActive = tr...
+                    _docCheckAbortedTargetId = (_docCheckTargetId !== -1)
+                        ? _docCheckTargetId
+                        : (giveLicenseTo || -1);
+                    _docCheckAbortedAt = Date.now();
+                }
+            }
+            // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
+            if (shouldBlockMessage(message)) {
+                console.log('[FILTER] ✋ Сообщение заблокировано');
+                return;
+            }
+            // Auto-cuff logic
+            if (autoCuffEnabled && typeof message === 'string') {
+                const stunMatch = message.match(/Вы оглушили (\w+) на \d+ секунд/);
+                if (stunMatch) {
+                    const nickname = stunMatch[1];
+                    // Ищем ID оглушённого напрямую из списка игроков
+                    const foundId = getIdByNickFromList(nickname);
+                    if (foundId !== null) {
+                        console.log(`[AUTO-CUFF] ✅ ID из списка: ${nickname} → ${foundId}`);
+                        setTimeout(() => {
+                            sendMessagesWithDelay([`/cuff ${foundId}`, `/escort ${foundId}`], [0, 700]);
+                        }, 1000);
+                    } else {
+                        // Фолбэк — запрашиваем через /id (ответ поймает блок ниже)
+                        setTimeout(() => { sendChatInput(`/id ${nickname}`); }, 500);
+                    }
+                }
+         
+                // Фолбэк: разбираем ответ сервера на /id когда ID не нашёлся в списке
+                const idMatch = message.match(/\d+\. {[A-F0-9]{6}}(\w+){ffffff}, ID: (\d+),/);
+                if (idMatch && idMatch[2]) {
+                    const id = idMatch[2];
+                    setTimeout(() => {
+                        sendMessagesWithDelay([
+                            `/cuff ${id}`,
+                            `/escort ${id}`
+                        ], [0, 700]);
+                    }, 1000);
+                }
+            }
+            // ==================== КОНЕЦ ОТСЛЕЖИВАНИЯ ====================
+
+
+
+            // ── Закрытие "Точное время" и восстановление Dokladi по скриншоту ──
+            // Движок шлёт сообщение {3EB936}Снимок экрана сохранен {FFFFFF}radmir-....jpg
+            // именно через chat.add (основной обработчик), а не через onChatMessage.
+            try {
+                if (_timerDialogOpen && typeof message === 'string' &&
+                    (message.includes('Снимок экрана сохранен') ||
+                     (message.includes('3EB936') && message.toLowerCase().includes('снимок')))) {
+                    _timerDialogOpen = false;
+                    if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
+                    setTimeout(() => {
+                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт — скриншот подтверждён');
+                        // Восстанавливаем тост таймера
+                        try {
+                            window._dokladToastSuppressed = false;
+                        } catch(e) {}
+                        // Возвращаем Dokladi если он был открыт до доклада
+                        if (_timerDokladiWasOpen) {
+                            _timerDokladiWasOpen = false;
+                            setTimeout(() => {
+                                try { window.openInterface('Dokladi'); } catch(e) {}
+                                console.log('[AHK-TIMER] Dokladi восстановлен');
+                            }, 200);
+                        }
+                    }, 200);
+                }
+            } catch (_e) { /* тихо игнорируем */ }
+
+// ==================== ЗАМЕНА СООБЩЕНИЙ В ЧАТЕ ====================
+// Вставить ПЕРЕД строкой:
+//   return originalAddFunction.apply(this, [message, ...args]);
+// внутри setupChatHandler → window.interface('Hud').$refs.chat.add = function(message, ...args)
+
+// ──────────────────────────────────────────────────────────────────
+// НАСТРОЙКА: добавляй/убирай правила замены здесь.
+//
+// Каждое правило — объект с полями:
+//   nick    (необязательно) — ник отправителя вида {v:Nick_Name} или Mask_ в сообщении
+//   id      (необязательно) — ID отправителя в квадратных скобках [172] в сообщении
+//   find    — текст/подстрока которую ищем в сообщении (регистр не важен)
+//   replace — на что заменяем
+//
+// Если указаны и nick и id — оба должны совпасть.
+// Если указан только find — работает для ВСЕХ отправителей.
+// ──────────────────────────────────────────────────────────────────
+const _MSG_REPLACE_RULES = [
+    // Пример 2: любой игрок пишет "тест" — показываем "[ТЕСТ]"
+    // {
+    //     find:    'тест',
+    //     replace: '[ТЕСТ]'
+    // },
+
+    // Пример 3: только ID 172, текст "ок" → "понял"
+    // {
+    //     id:      '172',
+    //     find:    'ок',
+    //     replace: 'понял'
+    // },
+];
+
+// ── Движок замены — трогать не нужно ────────────────────────────
+if (typeof message === 'string' && _MSG_REPLACE_RULES.length) {
+    try {
+        for (const _rule of _MSG_REPLACE_RULES) {
+            // Проверяем совпадение по нику (тег {v:Nick} или просто Nick[ID])
+            if (_rule.nick) {
+                const _nickRe = new RegExp(
+                    `(?:\\{v:${_rule.nick.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\}|\\b${_rule.nick.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\b)`,
+                    'i'
+                );
+                if (!_nickRe.test(message)) continue; // ник не совпал — пропускаем правило
+            }
+            // Проверяем совпадение по ID в [ID]
+            if (_rule.id) {
+                const _idRe = new RegExp(`\\[${String(_rule.id).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}\\]`);
+                if (!_idRe.test(message)) continue; // ID не совпал — пропускаем правило
+            }
+            // Подстрока find должна присутствовать в сообщении
+            if (_rule.find && message.toLowerCase().includes(_rule.find.toLowerCase())) {
+                // Заменяем все вхождения find на replace (регистр оригинала)
+                const _findRe = new RegExp(_rule.find.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'gi');
+                const _msgBefore = message;
+                message = message.replace(_findRe, _rule.replace);
+                if (message !== _msgBefore) {
+                    console.log(`[MSG-REPLACE] Заменено: "${_rule.find}" → "${_rule.replace}" (ник: ${_rule.nick||'any'}, id: ${_rule.id||'any'})`);
+                }
+            }
+        }
+    } catch (_replErr) {
+        console.warn('[MSG-REPLACE] Ошибка замены:', _replErr);
+    }
+}
+// ==================== КОНЕЦ ЗАМЕНЫ СООБЩЕНИЙ ====================
+
+// Замена стиля одежды перенесена в fkonst.js
+// ────────────────────────────────────────────────────────────────
+            return originalAddFunction.apply(this, [message, ...args]);
+        };
+        console.log('[Auto-cuff] Обработчик чата успешно установлен');
+        _mainChatHandlerReady = true;
+    } else {
+        setTimeout(setupChatHandler, 100);
+    }
+};
+setupChatHandler();
+
+// РАННЕЕ ЛОГИРОВАНИЕ ВСЕХ ЧАТ-СООБЩЕНИЙ window.onChatMessage вызывается движком для КАЖДОГО сообщения с сервера, доступен с самого старта (...
+(() => {
+    const originalOnChatMessage = window.onChatMessage;
+    if (typeof originalOnChatMessage !== 'function') {
+        console.log('[PRAVO-CHAT] window.onChatMessage не найден — раннее логирование не установлено');
+        return;
+    }
+    window.onChatMessage = function(message, args) {
+        if (!_mainChatHandlerReady) {
+            try {
+                const _msg    = String(message);
+                // args приходит как массив, args[2] (после .slice(2) внутри оригинала) — цвет
+                const _color  = Array.isArray(args) ? args[2] : undefined;
+                const _now    = new Date();
+                const _ts     = `${String(_now.getHours()).padStart(2,'0')}:${String(_now.getMinutes()).padStart(2,'0')}:${String(_now.getSeconds()).padStart(2,'0')}`;
+                const _actualColor = normalizeColor(_color).replace('0x', '');
+                const _colorTag = `[#${_actualColor}]`;
+                console.log(`[${_ts}]${_colorTag} ${_msg}`);
+            } catch (_e) { /* тихо игнорируем */ }
+        }
+        return originalOnChatMessage.apply(this, arguments);
+    };
+    console.log('[PRAVO-CHAT] Раннее логирование чата установлено (onChatMessage)');
+})();
+// ==================== КОНЕЦ РАННЕГО ЛОГИРОВАНИЯ ====================
+
+// ФУНКЦИИ SCREENNOTIFICATION ВАЖНО: используем ТОЛЬКО изолированный window.ZkmScreenNotification (см.
+const getZkmSN = () => window.ZkmScreenNotification || null;
+
+const snAdd = (payload) => {
+    try {
+        const sn = getZkmSN();
+        if (sn && typeof sn.hideAll === 'function') sn.hideAll();
+        setTimeout(() => {
+            try { getZkmSN()?.add(payload); } catch(e) {}
+        }, 100);
+    } catch(e) {}
+};
+const toggleAutoCuff = () => {
+    autoCuffEnabled = !autoCuffEnabled;
+    autoCuffName = `Auto-cuff | ${autoCuffEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
+};
+const toggleAutoGrab = () => {
+    autoGrabEnabled = !autoGrabEnabled;
+    autoGrabName = `Авто-снаряжение | ${autoGrabEnabled ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
+    try {
+        if (autoGrabEnabled) {
+            const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length)
+                ? AUTO_GRAB_SKIP
+                : ((typeof window._pravoGrabSkip !== 'undefined') ? window._pravoGrabSkip : []);
+            const skip = (key) => skipList.includes(key);
+            const allItems = [
+                { key: 'medkit',     label: 'Аптечка' },
+                { key: 'painkiller', label: 'Обезболивающее' },
+                { key: 'baton',      label: 'Дубинка' },
+                { key: 'baton2',     label: 'Жезл' },
+                { key: 'vest',       label: 'Бронежилет' },
+                { key: 'taumeter',   label: 'Тауметр' },
+                { key: 'diag',       label: 'Диагностика' },
+                { key: 'taser',      label: 'Тазер' },
+                { key: 'deagle',     label: 'Desert Eagle' },
+                { key: 'magnum',     label: 'Патроны .44' },
+                { key: 'akm',        label: 'АКМ' },
+                { key: 'ammo762',    label: 'Патроны 7.62' },
+                { key: 'aks74u',     label: 'АКС-74У' },
+                { key: 'ammo545',    label: 'Патроны 5.45' },
+                { key: 'remington',  label: 'Remington 870' },
+                { key: 'ammo12x70',  label: 'Патроны 12x70' },
+            ];
+            const takenItems = allItems.filter(i => !skip(i.key)).map(i => i.label);
+            snAdd(`[1, "Авто-снаряжение", "Берётся: ${takenItems.join(', ')}", "00FF00", 5000]`);
+        } else {
+            snAdd(`[1, "Авто-снаряжение", "Выключено", "FF4444", 3000]`);
+        }
+    } catch(e) {
+        console.warn('[PRAVO-GRAB] toggleAutoGrab notify error:', e);
+    }
+};
+const SendGiveLicenseCommand = (to, index) => {
+    if (index < 0 || index >= shownLicenseTypes.length)
+        return;
+    const selected = shownLicenseTypes[index];
+    switch (selected.id) {
+        case "mvd_main": // МВД
+            lastMenuType = "mvd_sub";
+            setTimeout(() => {
+                showMvdSubMenu(giveLicenseTo);
+            }, 100);
+            break;
+    }
+};
+const HandlePovsednevCommand = (optionIndex) => {
+    const _visible = povsednevOptions.filter(o => !MENU_HIDDEN_ITEMS.includes(o.action));
+    const adjustedIndex = optionIndex; // все пункты на одной странице, смещение не нужно
+    if (adjustedIndex >= 0 && adjustedIndex < _visible.length) {
+        const option = _visible[adjustedIndex];
+        currentAction = option.action;
+  
+        // Динамическая проверка needsId: для "greeting" не запрашивать ID, если скин ОМОН (15340)
+        const isOmonSkin = false /* ПРАВО: нет ОМОН */;
+        const needsIdForThis = option.needsId && !(option.action === "greeting" && isOmonSkin);
+  
+        if (needsIdForThis) {
+            setTimeout(() => {
+                showIdInputDialog(giveLicenseTo);
+            }, 50);
+        } else {
+            executePovsednevAction(option.action, giveLicenseTo);
+        }
+    }
+};
+const HandleMvdSubCommand = (index) => {
+    if (index < 0 || index >= shownMvdSubTypes.length)
+        return;
+    const selected = shownMvdSubTypes[index];
+    switch (selected.id) {
+        case "povsednev":
+            lastMenuType = "povsednev";
+            currentPage = 0;
+            setTimeout(() => {
+                showPovsednevMenuPage(giveLicenseTo);
+            }, 50);
+            break;
+        case "autocuff":
+            toggleAutoCuff();
+            setTimeout(() => {
+                showMvdSubMenu(giveLicenseTo);
+            }, 50);
+            break;
+        case "autograb":
+            toggleAutoGrab();
+            setTimeout(() => {
+                showMvdSubMenu(giveLicenseTo);
+            }, 50);
+            break;
+        case "laws":
+            window._duranOpenMode = 'laws';
+            window.openInterface('Zkm');
+            break;
+    }
+};
+// ПОДТВЕРЖДЕНИЕ ПРОВЕРКИ ДОКУМЕНТОВ (Alt x1 / Alt x2) После "Приветствия" снизу экрана показывается фирменное ZKM-уведомление с двумя карто...
+const DOC_CHECK_PROMPT_SEC = 10;  // длительность таймера уведомления, сек
+const DOC_CHECK_DBLTAP_MS  = 400; // макс. интервал между двумя Alt для "Да"
+
+let _docCheckActive       = false;
+let _docCheckAltPressedAt = 0;
+let _docCheckSingleTimer  = null;
+let _docCheckExpireTimer  = null; // fallback-таймер, см. ниже
+let _docCheckTargetId     = -1;
+let _docCheckSnId         = null; // id уведомления addOfferChoice() в ZKM (offerQueue)
+let _docCheckAbortedTargetId = null; // цель, по которой недавно пришла отмена
+let _docCheckAbortedAt       = 0;    // Date.now() момента отмены
+const DOC_CHECK_ABORT_WINDOW_MS = 3000; // окно, в течение которого отмена ещё "свежая"
+
+function _docCheckCleanup() {
+    _docCheckActive = false;
+    if (_docCheckSingleTimer) { clearTimeout(_docCheckSingleTimer); _docCheckSingleTimer = null; }
+    if (_docCheckExpireTimer) { clearTimeout(_docCheckExpireTimer); _docCheckExpireTimer = null; }
+    _docCheckAltPressedAt = 0;
+}
+
+// Убирает ZKM-уведомление вручную (решение принято раньше, чем истёк таймер)
+function _docCheckHideNotif() {
+    if (_docCheckSnId !== null) {
+        try { getZkmSN()?.hideOfferChoice(_docCheckSnId); } catch (err) {}
+        _docCheckSnId = null;
+    }
+}
+
+function showDocCheckPrompt(targetId) {
+    _docCheckCleanup();
+    _docCheckHideNotif();
+
+    const _resolvedTarget = (targetId != null && targetId !== -1) ? targetId : (giveLicenseTo || -1);
+
+    // Если по этой же цели только что (в пределах окна) уже пришло "слишком
+    // далеко" / "такого игрока нет" / отказ — это гонка: ответ сервера обогнал
+    // открытие уведомления. Не показываем уведомление вовсе.
+    if (_docCheckAbortedTargetId !== null &&
+        String(_docCheckAbortedTargetId) === String(_resolvedTarget) &&
+        (Date.now() - _docCheckAbortedAt) < DOC_CHECK_ABORT_WINDOW_MS) {
+        console.log('[PRAVO] 🚫 Проверка документов пропущена (недавняя отмена по этой цели)');
+        _docCheckAbortedTargetId = null;
+        return;
+    }
+
+    _docCheckActive   = true;
+    _docCheckTargetId = _resolvedTarget;
+
+    const sn = getZkmSN();
+    if (sn && typeof sn.addOfferChoice === 'function') {
+        // Дизайн уведомления теперь один-в-один с Offer.js/Offer.css
+        // (круглые кнопки N/Y, slide-энтер снизу экрана) — см.
+        // addOfferChoice() в ZkmScreenNotification.js. Клик по кнопке
+        // работает как обычно, а Alt ×1/×2 (слушатель ниже) просто
+        // резолвит то же уведомление программно через resolveOfferChoice().
+        _docCheckSnId = sn.addOfferChoice(
+            JSON.stringify(['Проверка документов', 'Alt ×1 — отмена, Alt ×2 — подтвердить', DOC_CHECK_PROMPT_SEC]),
+            function (id, result) {
+                // Сюда попадаем при любом закрытии: клик по кнопке,
+                // resolveOfferChoice() из Alt-слушателя или истечение таймера
+                _docCheckSnId = null;
+                if (result === 'yes') {
+                    const tId = _docCheckTargetId;
+                    _docCheckCleanup();
+                    executePovsednevAction('checkDocuments', tId);
+                } else {
+                    // 'no' (клик по N) или 'expire' (никто не ответил) — отмена
+                    _docCheckCleanup();
+                }
+            }
+        );
+    } else {
+        // Fallback на случай, если ZKM ещё не подгружен или это старая версия без addOfferChoice
+        console.warn('[PRAVO] ZkmScreenNotification.addOfferChoice недоступен — fallback на обычное уведомление');
+        snAdd(`[2, "Проверка документов", "Alt (1 раз) — Нет<br>Alt (2 раза) — Да", "f9b701", ${DOC_CHECK_PROMPT_SEC * 1000}]`);
+        _docCheckExpireTimer = setTimeout(_docCheckCleanup, DOC_CHECK_PROMPT_SEC * 1000);
+    }
+}
+
+// Отдельный слушатель Alt — реагирует ТОЛЬКО пока активно окно решения
+// (_docCheckActive), поэтому не пересекается с существующей логикой
+// курсора в консоли (см. KEY_CODE_ALT выше) и с MENU_BINDS.
+window.addEventListener('keydown', function (e) {
+    if (!_docCheckActive) return;
+    if (e.keyCode !== window.KEY_CODE_ALT) return;
+
+    const sn  = getZkmSN();
+    const now = Date.now();
+
+    if (_docCheckAltPressedAt && (now - _docCheckAltPressedAt) <= DOC_CHECK_DBLTAP_MS) {
+        // Двойное нажатие Alt — "Да": подсвечиваем кнопку Y и резолвим
+        // уведомление так же, как клик по ней (см. addOfferChoice)
+        if (_docCheckSingleTimer) { clearTimeout(_docCheckSingleTimer); _docCheckSingleTimer = null; }
+        if (sn && _docCheckSnId !== null) sn.highlightOfferChoice(_docCheckSnId, 'yes', true);
+        setTimeout(function () {
+            if (sn && _docCheckSnId !== null) sn.resolveOfferChoice(_docCheckSnId, 'yes');
+        }, 90); // короткая пауза, чтобы подсветка кнопки успела мигнуть перед закрытием
+        return;
+    }
+
+    _docCheckAltPressedAt = now;
+    if (sn && _docCheckSnId !== null) sn.highlightOfferChoice(_docCheckSnId, 'no', true);
+    if (_docCheckSingleTimer) clearTimeout(_docCheckSingleTimer);
+    _docCheckSingleTimer = setTimeout(function () {
+        // Второй Alt не пришёл вовремя — одиночное нажатие = "Нет"
+        if (sn && _docCheckSnId !== null) {
+            sn.highlightOfferChoice(_docCheckSnId, 'no', false);
+            sn.resolveOfferChoice(_docCheckSnId, 'no');
+        }
+    }, DOC_CHECK_DBLTAP_MS);
+});
+// ==================== КОНЕЦ ПОДТВЕРЖДЕНИЯ ПРОВЕРКИ ДОКУМЕНТОВ ====================
+
+
+
+const executePovsednevAction = (action, targetId) => {
+    if (!targetId) targetId = giveLicenseTo;
+    const isOmonSkin = false /* ПРАВО: нет ОМОН */;
+    switch (action) {
+	case "greeting":
+		const _rank = window._pravoRank || '';
+		const _firstName = window._pravoFirstName || '';
+		const _lastName = window._pravoLastName || '';
+		const _callsign = CALLSIGN || window._pravoCallsign || '';
+
+		if (isOmonSkin) {
+			sendMessagesWithDelay([
+				`Работает сотрудник ПРАВО | Мой позывной ${_callsign}`,
+				"Предъявите, пожалуйста, Ваши документы, удостоверяющие Вашу личность.",
+				"Если Вы в течение 30 секунд не предъявите мне документы я сочту это за 5.2 УК.",
+				"Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК."
+			], [0, 500, 500, 500]);
+			setTimeout(() => showDocCheckPrompt(targetId), 1800);
+			setTimeout(() => runPostActionTimer('greeting'), 1800);
+		} else {
+			sendMessagesWithDelay([
+				`Здравия желаю, Вас беспокоит ${_rank} - ${_firstName} ${_lastName}.`,
+				`/doc ${targetId}` 
+			], [0, 1000]);
+			setTimeout(() => showDocCheckPrompt(targetId), 1300);
+			setTimeout(() => runPostActionTimer('greeting'), 1300);
+		}
+		break;
+      
+     case "checkDocuments":
+         if (isOmonSkin) {
+             sendMessagesWithDelay([
+                 "/s Работает ПРАВО, руки за голову!",
+                 "/s Если Вы убежите или попробуете это сделать я сочту это за 5.2.1 УК",
+                 "/s Готовим свои документы!"
+             ], [750, 1000, 1000]);
+         } else {
+             // ── Определяем скины ГУВД ──
+             const guvdSkins = []; // ПРАВО: нет ГУВД-подразделений
+             const isGuvdSkin = guvdSkins.includes(skinId);
+             
+             // ── Получаем свой ID (список игроков, с фолбэком на HUD) ──
+             let myId = getMyId();
+             
+             if (isGuvdSkin) {
+                 // ── ГУВД: только паспорт, без прав и ремня ──
+                 sendMessagesWithDelay([
+                     "Будьте добры предъявить Ваши документы, а именно:",
+                     "Паспорт.",
+                     `/n /pass ${myId}`
+                 ], [0, 1000, 1000]);
+             } else {
+                 // ── Остальные скины: полный комплект (паспорт + права + документы на т/с + ремень) ──
+                 sendMessagesWithDelay([
+                     "Будьте добры предъявить Ваши документы, а именно:",
+                     "Паспорт, вод.права и документы на т/с.",
+                     `/n /pass ${myId}, /carpass ${myId}`,
+                     "А также, отстегните пожалуйста ремень безопасности.",
+                     "/n /rem"
+                 ], [0, 1000, 1000, 1000, 1000]);
+             }
+         }
+         break;
+      
+    }
+};
+window.showGiveLicenseDialog = (e) => {
+    giveLicenseTo = e;
+    currentMenu = null;
+    let availableTypes = [];
+    if (pravoSkins.includes(skinId)) {
+        availableTypes.push({ name: "ПРАВО", id: "mvd_main" });
+    }
+    shownLicenseTypes = availableTypes;
+    let licenseList = '';
+    availableTypes.forEach((license, index) => {
+        licenseList += `${index + 1}. ${license.name}<n>`;
+    });
+    window.addDialogInQueue(`[666,2,"АХК tg:ZaharKonst | P: ${giveLicenseTo}","","Выбрать","Отмена",0,0]`, licenseList, 0);
+};
+// ── Внутренний построитель диалога 667 (Повседневная) ───────────────────────
+// Используется как window.showPovsednevMenuPage (начальный вызов, сбрасывает страницу),
+// так и из A/D-обработчика напрямую (страница уже обновлена до вызова).
+function _buildPovsednevDialog() {
+    const _visible = povsednevOptions.filter(function(o) {
+        return !MENU_HIDDEN_ITEMS.includes(o.action);
+    });
+    // Стиль 4 = list_title: первая строка — серый нон-кликабельный заголовок,
+    // остальные кликабельны. Индексы ответа считаются БЕЗ заголовка (0 = первый пункт).
+    let _content = 'AHK by konstt<n>';
+    _visible.forEach(function(opt) { _content += opt.name + '<n>'; });
+    window.addDialogInQueue(
+        '[667,4,"ПРАВО | Повседневная","","Выбрать","Назад",0,0]',
+        _content, 0
+    );
+}
+
+window.showPovsednevMenuPage = (e) => {
+    giveLicenseTo = e;
+    currentMenu = "povsednev";
+    currentPage = 0;   // сброс пагинации при каждом свежем открытии
+    _buildPovsednevDialog();
+};
+
+// Открыть главное меню МВД — для хоткея MENU_KEY: открываем серверный диалог 677
+window.showMvdMainMenuPage = (e) => {
+    giveLicenseTo = e;
+    currentMenu = "main";
+    currentPage = 0;
+    showMvdSubMenu(e);
+};
+
+// Публичный API — выполнить действие Повседневной напрямую (хоткеи, внешний вызов)
+window._mvdExecuteAction = function(action, id) {
+    giveLicenseTo = (id !== undefined && id !== null && id !== -1) ? id : giveLicenseTo;
+    currentAction = action;
+    currentMenu = "povsednev";
+    // FIX: если профиль ещё не загружен (бинд нажат раньше открытия меню) —
+    // сначала загружаем rank/firstName/lastName, потом выполняем действие.
+    var doExecute = function() { executePovsednevAction(action, giveLicenseTo); };
+    if (!window._pravoFirstName || !window._pravoLastName || !window._pravoRank) {
+        if (typeof window._pravoLoadPlayerProfile === 'function') {
+            window._pravoLoadPlayerProfile(doExecute);
+        } else {
+            doExecute();
+        }
+    } else {
+        doExecute();
+    }
+};
+// Публичный API для Dokladi — отправить доклад по посту/патрулю (стадия: start/middle/end)
+// reportType: "post" | "patrol", stage: "start" | "middle" | "end"
+window._mvdExecuteDoklad = function(reportType, reportName, stage) {
+    var doSend = function() {
+        const _rank = window._pravoRank || '';
+        const _lastName = window._pravoLastName || '';
+        const name = reportName || '';
+        let text = '';
+        if (reportType === 'post') {
+            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Занял пост ${name}. Сост.: Стабильное.`;
+            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю стоять на посту ${name}. Сост.: Стабильное.`;
+            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Закончил стоять на посту ${name}. Сост.: Стабильное.`;
+        } else if (reportType === 'patrol') {
+            if (stage === 'start')       text = `/r Докладывает: ${_rank} ${_lastName}. Выехал в патруль ${name}. Сост.: Стабильное.`;
+            else if (stage === 'middle') text = `/r Докладывает: ${_rank} ${_lastName}. Продолжаю патрулировать ${name}. Сост.: Стабильное.`;
+            else if (stage === 'end')    text = `/r Докладывает: ${_rank} ${_lastName}. Завершаю патрулировать ${name}. Сост.: Стабильное.`;
+        }
+        if (text) {
+            sendChatInput(text);
+            // Отдельной командой (не частью текста доклада) — переключение на канал
+            // 60. Важно: слитно "/c", без пробела между слэшем и "c".
+            sendChatInput('/c 60');
+            // Взводим флаг ожидания диалога "Точное время" — без него onShowDialog
+            // не выставит _timerDialogOpen, и chat.add не закроет диалог после скрина.
+            _awaitingTimerDialog = true;
+            if (_timerDialogResetTO) clearTimeout(_timerDialogResetTO);
+            _timerDialogResetTO = setTimeout(() => { _awaitingTimerDialog = false; }, 8000);
+            // Если Dokladi открыт — скрываем его до получения скриншота,
+            // откроем заново после того как диалог "Точное время" закроется.
+            _timerDokladiWasOpen = !!window._dokladMenuMounted;
+            if (_timerDokladiWasOpen) {
+                try { window.closeInterface('Dokladi'); } catch(e) {}
+                console.log('[AHK-TIMER] Dokladi скрыт — жду скриншот');
+            }
+            // Скрываем плавающий тост с таймером, чтоб он не попал на скрин
+            try {
+                window._dokladToastSuppressed = true;
+                const _toast = document.getElementById('dokladi-toast');
+                if (_toast) _toast.remove();
+            } catch(e) {}
+        }
+    };
+    // Как и в _mvdExecuteAction: если профиль (звание/фамилия) ещё не загружен —
+    // сначала подгружаем его, потом отправляем доклад.
+    if (!window._pravoLastName || !window._pravoRank) {
+        if (typeof window._pravoLoadPlayerProfile === 'function') {
+            window._pravoLoadPlayerProfile(doSend);
+        } else {
+            doSend();
+        }
+    } else {
+        doSend();
+    }
+};
+window.showMvdSubMenu = (e) => {
+    giveLicenseTo = e;
+    currentMenu = "mvd_sub";
+    let availableSub = [
+        { name: "Повседневная", id: "povsednev" }
+    ];
+    availableSub.push({ name: autoCuffName, id: "autocuff" });
+    if (window.AUTO_GRAB === true) {
+        availableSub.push({ name: autoGrabName, id: "autograb" });
+    }
+    availableSub.push({ name: "Законы", id: "laws" });
+    shownMvdSubTypes = availableSub;
+    let licenseList = 'AHK by konstt<n>';
+    availableSub.forEach((license, index) => {
+        licenseList += `${index + 1}. ${license.name}<n>`;
+    });
+    window.addDialogInQueue(`[677,4,"ПРАВО","","Выбрать","Отмена",0,0]`, licenseList, 0);
+};
+window.showIdInputDialog = (e) => {
+    giveLicenseTo = e;
+    window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
+};
+window.sendClientEventCustom = (event, ...args) => {
+    console.log(`[EVENT] Событие: ${event}, Аргументы:`, args);
+
+    // Alt+Q — авто-тазер (своп тазер ↔ дигл) перехватывается через keydown (браузерный уровень)
+
+    if (args[0] === "OnDialogResponse" && (args[1] >= 666 && args[1] <= 677)) {
+        if (args[1] === 666) { // Главное меню
+            const listitem = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                SendGiveLicenseCommand(giveLicenseTo, listitem);
+            } else {
+                lastMenuType = null;
+                currentMenu = null;
+            }
+        }
+        else if (args[1] === 667) { // Меню Повседневная
+            const optionIndex = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandlePovsednevCommand(optionIndex);
+            } else if (args[2] === 0 && _navPending) {
+                _navPending = false;
+                return;
+            } else if (args[2] === 0) {
+                // ESC — возврат в МВД подменю
+                currentPage = 0;
+                lastMenuType = null; currentMenu = null;
+                setTimeout(() => showMvdSubMenu(giveLicenseTo), 50);
+                return;
+            }
+        }
+        else if (args[1] === 668) { // Диалог ввода ID
+            const inputId = args[4];
+            // Читаем action из currentAction (биндинги) или _mvdMenuPendingAction (fallback)
+            const resolvedAction = currentAction || window._mvdMenuPendingAction || null;
+            if (args[2] === 1 && resolvedAction) {
+                giveLicenseTo = inputId;
+                executePovsednevAction(resolvedAction, inputId);
+            }
+            currentAction = null;
+            window._mvdMenuPendingAction = null;
+        }
+        else if (args[1] === 677) { // Меню МВД sub
+            const listitem = args[3];
+            if (args[2] === 1 && giveLicenseTo !== -1) {
+                HandleMvdSubCommand(listitem);
+            } else if (args[2] === 0) {
+                // Отмена / ESC — закрываем меню
+            }
+        }
+    } else {
+        window.sendClientEventHandle(event, ...args);
+    }
+};
+var __mvdPrevSendChatInput = window.sendChatInput;
+window.sendChatInputCustom = e => {
+    const args = e.split(" ");
+    if (args[0] == "/dahk") {
+    targetId = args[1];
+    const freshSkin = getSkinIdFromStore();
+    if (freshSkin !== null) skinId = Number(freshSkin);
+    window._pravoSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
+    if (pravoSkins.includes(skinId)) {
+        
+        const openMenu = () => {
+            try {
+                const gt = window.interface && window.interface("GameText");
+                if (gt && typeof gt.add === 'function') {
+                    gt.add('[3, "АНК <span style=\\"color:#C0C0C0\\">ПРАВО</span>&nbsp;by konstt", 5000, 0, 0, false, false, 2.0]');
+                }
+            } catch(e) {}
+            showMvdMainMenuPage(args[1]);
+        };
+
+        // Если данные уже загружены — открываем меню МГНОВЕННО
+        if (window._pravoFirstName && window._pravoLastName && window._pravoRank) {
+            openMenu();
+        } else if (typeof window._pravoLoadPlayerProfile === 'function') {
+            // Первый раз — загружаем профиль, потом открываем
+            window._pravoLoadPlayerProfile(openMenu);
+        } else {
+            openMenu();
+        }
+    } else {
+        snAdd('[0, "AHK by TG: ZaharKonst", "Не удалось определить фракцию попробуйте ещё раз", "FFFFFF", 5000]');
+    }
+    } else if (args[0] == "/console") {
+        try {
+            const consoleRef = window.App && window.App.$refs && window.App.$refs.console;
+            const willOpen = !consoleRef || !consoleRef.isOpened;
+            if (willOpen && window.App) {
+                if (!window.App.isDevelopment) {
+                    window.App.isDevelopment = true;
+                    if (window.App.engine != "legacy" && typeof engine !== "undefined") {
+                        engine.trigger("ActivateDevelopmentMode");
+                    }
+                }
+                if (typeof window.App.setConsoleActive === "function") {
+                    window.App.setConsoleActive(true);
+                }
+            }
+            if (consoleRef && typeof consoleRef.toggle === 'function') {
+                consoleRef.toggle();
+            } else {
+                console.log('[CONSOLE] Интерфейс console не найден');
+            }
+            if (!willOpen && window.App && typeof window.App.setConsoleActive === "function") {
+                // Было открыто — теперь закрываем не просто сворачивая, а полностью прячем виджет
+                window.App.setConsoleActive(false);
+            }
+            if (!willOpen && typeof window.setCursorStatus === "function") {
+                // Курсор мог быть включён через Alt пока консоль была открыта — гасим его при закрытии
+                window.cursorStatus = false;
+                window.setCursorStatus('Console', false);
+            }
+        } catch (e) {
+            console.log('[CONSOLE] Ошибка переключения консоли:', e.message);
+        }
+    } else if (args[0] == "/mvdreset") {
+        lastMenuType = null;
+        currentMenu = null;
+        currentSubMenu = null;
+        currentAction = null;
+        currentPage = 0;
+        autoCuffEnabled = false;
+        autoCuffName = `Auto-cuff | {FF0000}Выкл`;
+        sendChatInput("Настройки ПРАВО сброшены. Следующее /dahk откроет главное меню.");
+    } else if (args[0] == "/int") {
+        // Просмотрщик интерфейсов (см.
+        try {
+            if (window.zkInterfaceViewer && typeof window.zkInterfaceViewer.toggle === "function") {
+                window.zkInterfaceViewer.toggle();
+            } else {
+                console.warn('[ZK-VIEW] window.zkInterfaceViewer ещё не готов (интерфейс не успел загрузиться)');
+            }
+        } catch (err) {
+            console.warn('[ZK-VIEW] /int toggle error:', err);
+        }
+    } else if (typeof __mvdPrevSendChatInput === "function") {
+        // отдаём команду предыдущему обработчику
+        __mvdPrevSendChatInput(e);
+    } else {
+        window.App.developmentMode || engine.trigger("SendChatInput", e);
+    }
+};
+// Максимальная длина чат-сообщения (лимит сервера)
+const _CHAT_MAX_LEN = 120;
+
+// Разбивает текст цитирования на строки по 83 символа (как в C++ хелпере)
+// с разбивкой по пробелу; пустые строки пропускаются
+function _splitCitation83(text) {
+    const maxLen = 83;
+    const result = [];
+    for (const rawLine of text.split('\n')) {
+        if (!rawLine) continue;
+        let s = rawLine;
+        while (s.length > maxLen) {
+            let cut = s.lastIndexOf(' ', maxLen);
+            if (cut <= 0) cut = maxLen;
+            result.push(s.slice(0, cut));
+            s = s.slice(cut).replace(/^\s+/, '');
+        }
+        if (s) result.push(s);
+    }
+    return result;
+}
+
+// Разбивает длинный текст на части по границам слов
+function _splitChatMessage(text) {
+    if (!text || text.length <= _CHAT_MAX_LEN) return [text];
+    const parts = [];
+    let s = text;
+    while (s.length > _CHAT_MAX_LEN) {
+        let cut = s.lastIndexOf(' ', _CHAT_MAX_LEN);
+        if (cut <= 0) cut = _CHAT_MAX_LEN; // нет пробела — жёсткий обрез
+        parts.push(s.slice(0, cut));
+        s = s.slice(cut).replace(/^\s+/, '');
+    }
+    if (s) parts.push(s);
+    return parts;
+}
+
+function sendMessagesWithDelay(messages, delays, index = 0) {
+    if (index >= messages.length) return;
+    setTimeout(() => {
+        const parts = _splitChatMessage(messages[index]);
+        sendChatInput(parts[0]);
+        // Если сообщение разбилось — шлём хвосты с паузой 700мс, потом идём дальше
+        let extraWait = 0;
+        for (let i = 1; i < parts.length; i++) {
+            extraWait += 700;
+            const _p = parts[i];
+            setTimeout(() => sendChatInput(_p), extraWait);
+        }
+        setTimeout(() => sendMessagesWithDelay(messages, delays, index + 1), extraWait);
+    }, delays[index]);
+}
+
+
+sendChatInput = sendChatInputCustom;
+sendClientEvent = sendClientEventCustom;
+
+
+
+
+// ==================== DIALOG MONITOR (console only) ====================
+// Перехват серверных диалогов — вывод в консоль + авто-действия
+
+
+const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
+window.addDialogInQueue = function(dialogParams, content, priority) {
+    try {
+        if (dialogParams && typeof dialogParams === 'string') {
+            const parsed = JSON.parse(dialogParams.trim());
+            const dialogId = parseInt(parsed[0]);
+            const style    = parseInt(parsed[1]);
+            const title    = (parsed[2] || '').replace(/\{[A-Fa-f0-9]{6}\}/g, '');
+            const info     = (parsed[3] || '').replace(/\{[A-Fa-f0-9]{6}\}/g, '');
+            const button1  = (parsed[4] || '');
+            const button2  = (parsed[5] || '');
+
+            const styleNames = {0:'MSGBOX', 1:'INPUT', 2:'LIST', 3:'PASSWORD', 4:'TABLIST', 5:'TABLIST_HEADERS'};
+
+            let contentText = '';
+            if (content) {
+                const raw = Array.isArray(content) ? content.join('') : String(content);
+                contentText = raw
+                    .replace(/<t>/gi, ' | ')
+                    .replace(/\{[A-Fa-f0-9]{6}\}/g, '')
+                    .replace(/<br\s*\/?>/gi, '\n')
+                    .replace(/<[^>]+>/g, '')
+                    .split('<n>').join('\n')
+                    .trim();
+            }
+
+            console.log(
+                `[DIALOG] id=${dialogId} style=${styleNames[style] || style}\n` +
+                `  Заголовок: ${title}\n` +
+                `  Инфо: ${info}\n` +
+                (contentText ? `  Контент:\n${contentText.split('\n').map(l => '    ' + l).join('\n')}\n` : '') +
+                `  Кнопки: [${button1}] [${button2}]`
+            );
+
+            // Авто-закрытие диалога "Точное время" (открывается после команды /c 60)
+            // Закрываем ТОЛЬКО если этот диалог пришёл в ответ на НАШУ команду /c 60,
+            // и ТОЛЬКО после появления зелёного сообщения "Снимок экрана сохранен" в чате.
+            if (style === 0 && title.includes('Точное время') && _awaitingTimerDialog) {
+                _awaitingTimerDialog = false;
+                if (_timerDialogResetTO) { clearTimeout(_timerDialogResetTO); _timerDialogResetTO = null; }
+                _timerDialogOpen = true;
+                console.log('[AHK-TIMER] Диалог "Точное время" открыт — жду сообщение "Снимок экрана сохранен" в чате');
+                // Защитный таймаут: если скриншот так и не появился за 30 секунд — всё равно закрываем
+                _timerDialogResetTO = setTimeout(() => {
+                    if (_timerDialogOpen) {
+                        _timerDialogOpen = false;
+                        try { window.App && typeof window.App.closeLastDialog === 'function' && window.App.closeLastDialog(); } catch(e) {}
+                        console.log('[AHK-TIMER] Диалог "Точное время" закрыт по таймауту (30с)');
+                        // Восстанавливаем тост и Dokladi
+                        try { window._dokladToastSuppressed = false; } catch(e) {}
+                        if (_timerDokladiWasOpen) { _timerDokladiWasOpen = false; try { window.openInterface('Dokladi'); } catch(e) {} }
+                    }
+                }, 30000);
+            }
+
+            // ── Трекинг пагинированных диалогов для Q/E перелистывания ──
+            if (PAGINATED_DIALOG_IDS.includes(dialogId)) {
+                _lastPaginatedDialogId = dialogId;
+                console.log(`[Q/E] Открыт пагинированный диалог ${dialogId}`);
+            } else {
+                _lastPaginatedDialogId = null;
+            }
+
+            // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
+            if (style === 2 && dialogId === 0 && title.includes('ПРАВО') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
+                if (!window._pravoGrabProcessing) {
+                    console.log('[PRAVO-GRAB] === v2.1 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
+                    setTimeout(() => window.autoGrab(), 150);
+                }
+            }
+
+
+        }
+    } catch (err) {
+        console.error('[DIALOG] Ошибка перехвата:', err.message);
+    }
+    return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+};
+
+console.log('[DIALOG MONITOR] Загружен. Все диалоги выводятся в консоль.');
+// ==================== END DIALOG MONITOR ====================
+
+// АВТОБРАНИЕ МВД Авто-снаряжение — включается только если AUTO_GRAB === true (LoadAhk патчит константы ниже перед eval) Используем var чтоб...
+var AUTO_GRAB = false;
+var AUTO_GRAB_SKIP = [];
+// Явно пишем в window чтобы showMvdSubMenu (загруженный ДО eval) видел значение
+window.AUTO_GRAB = AUTO_GRAB;
+window.AUTO_GRAB_SKIP = AUTO_GRAB_SKIP;
+// Проверяем и локальную переменную и window (на случай если патч LoadAhk сработал через window)
+if (AUTO_GRAB || window.AUTO_GRAB === true) {
+(function() {
+console.log('[PRAVO-GRAB] === v2.2 🔫 БЛОК AUTO_GRAB ЗАПУЩЕН (МОМЕНТАЛЬНЫЙ) ===');
+window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = true внутри блока
+
+// ==================== ID ПРЕДМЕТОВ ====================
+ const ITEM = {
+     PAINKILLERS: 379,  // Обезболивающее
+     MEDKIT:      2,    // Аптечка
+     BATON:       32,   // Дубинка
+     TASER:       13,   // Тазер
+     DEAGLE:      19,   // Desert Eagle
+     AKM:         21,   // АКМ
+     AKS74U:      18,   // АКС-74У
+     AMMO_MAGNUM: 363,  // Патроны .44 Magnum
+     AMMO_762:    368,  // Патроны 7.62x39
+     AMMO_545:    366,  // Патроны 5.45x39
+ };
+
+ // ==================== ПОРОГИ ПАТРОНОВ ====================
+ const AMMO_THRESHOLD = { MAGNUM: 30, AK762: 60, AKS545: 60 };
+
+ // ==================== ПОЗИЦИИ В МЕНЮ МВД (0-based) ====================
+ // ======= ПОЗИЦИИ В МЕНЮ ПРАВО (0-based, по скриншоту) =======
+ // 0:Обезбол 1:Аптечка 2:Дубинка 3:Бронежилет 4:Desert Eagle
+ // 5:АКМ 6:АКС-74У 7:Патроны.44 8:Патроны7.62 9:Патроны5.45 10:Тазер
+ const MENU = {
+     PAINKILLERS:  0,
+     MEDKIT:       1,
+     BATON:        2,
+     VEST:         3,
+     DEAGLE:       4,
+     AKM:          5,
+     AKS74U:       6,
+     AMMO_MAGNUM:  7,
+     AMMO_762:     8,
+     AMMO_545:     9,
+     TASER:       10,
+ };
+
+ const DIALOG_ID = 0;
+ const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
+
+ let isProcessing = false;
+
+ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+ function notify(title, text, color = "FFFFFF") {
+     snAdd(`[1, "${title}", "${text}", "${color}", 2500]`);
+ }
+
+ // ==================== БРОНЯ ЧЕРЕЗ ХУД ====================
+ function getArmourValue() {
+     try {
+         const hud = window.interface("Hud");
+         if (!hud) return 0;
+         const armour = hud.$data?.info?.armour ?? hud.data?.info?.armour ?? 0;
+         return Number(armour) || 0;
+     } catch(e) { return 0; }
+ }
+
+ // ==================== ИНВЕНТАРЬ ====================
+ const CT_NAMES_GRAB = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
+
+ function logInventoryGrab(label) {
+     try {
+         const inv = window.interface("InventoryNew");
+         if (!inv?.items) { console.log(`[GRAB-LOG] ${label}: items недоступны`); return; }
+         const lines = [`[GRAB-LOG] ── ${label} ──`];
+         for (const cid of [0, 1, 2, 3]) {
+             const c = inv.items[cid];
+             if (!c) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): нет контейнера`); continue; }
+             const entries = Object.entries(c);
+             if (entries.length === 0) { lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}): пусто`); continue; }
+             for (const [slot, item] of entries) {
+                 if (!item) continue;
+                 lines.push(`  ${CT_NAMES_GRAB[cid]}(${cid}) slot${slot}: id=${item.id} x${item.count||1} w=${item.weight}`);
+             }
+         }
+         console.log(lines.join('\n'));
+     } catch(e) { console.log(`[GRAB-LOG] ${label}: ошибка`, e); }
+ }
+
+ function findItem(itemId) {
+     try {
+         const inv = window.interface("InventoryNew");
+         if (!inv?.items) return null;
+         for (const cid of [CT.INV, CT.BACK, CT.ACC]) {
+             const c = inv.items[cid];
+             if (!c) continue;
+             for (const [slot, item] of Object.entries(c)) {
+                 if (item?.id === itemId) {
+                     console.log(`[GRAB] findItem(id=${itemId}): найден в ${CT_NAMES_GRAB[cid]} slot${slot} x${item.count||1}`);
+                     return { cid, slot: parseInt(slot), count: item.count || 1 };
+                 }
+             }
+         }
+     } catch(e) {}
+     console.log(`[GRAB] findItem(id=${itemId}): НЕ НАЙДЕН`);
+     return null;
+ }
+
+ function findItemInInv(itemId) {
+     try {
+         const inv = window.interface("InventoryNew");
+         if (!inv?.items) return null;
+         const c = inv.items[CT.INV];
+         if (!c) return null;
+         for (const [slot, item] of Object.entries(c)) {
+             if (item?.id === itemId) {
+                 console.log(`[GRAB] findItemInInv(id=${itemId}): найден в INV slot${slot} x${item.count||1}`);
+                 return { cid: CT.INV, slot: parseInt(slot), count: item.count || 1 };
+             }
+         }
+     } catch(e) {}
+     console.log(`[GRAB] findItemInInv(id=${itemId}): НЕ НАЙДЕН (в поясе)`);
+     return null;
+ }
+
+ function countItem(itemId) {
+     try {
+         const inv = window.interface("InventoryNew");
+         if (!inv?.items) return 0;
+         let total = 0;
+         for (const cid of [CT.INV, CT.BACK]) {
+             const c = inv.items[cid];
+             if (!c) continue;
+             for (const item of Object.values(c)) {
+                 if (item?.id === itemId) total += (item.count || 1);
+             }
+         }
+         console.log(`[GRAB] countItem(id=${itemId}): итого x${total}`);
+         return total;
+     } catch(e) { return 0; }
+ }
+
+ function openInventory() {
+     console.log('[GRAB] openInventory()');
+     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+ }
+
+ function closeInventory() {
+ 	console.log('[GRAB] closeInventory() — через сервер (синхронизация)');
+ 	sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnInventoryDisplayChange");
+ }
+
+ async function waitInventory(maxMs = 1000) {
+     console.log(`[GRAB] waitInventory(${maxMs}ms)...`);
+     for (let i = 0; i < maxMs; i += 50) {
+         try {
+             const inv = window.interface("InventoryNew");
+             if (inv?.items?.[CT.INV] !== undefined) {
+                 console.log(`[GRAB] waitInventory: готов за ${i}мс`);
+                 return true;
+             }
+         } catch(e) {}
+         await sleep(50);
+     }
+     console.error(`[GRAB] waitInventory: таймаут!`);
+     return false;
+ }
+
+ // ==================== МЕНЮ ====================
+ function take(index) {
+     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 1, index, "");
+ }
+
+ function closeMenu() {
+     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnDialogResponse", DIALOG_ID, 0, 0, "");
+ }
+
+ function openMenu() {
+     sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
+ }
+
+ // ==================== ОСНОВНАЯ ЛОГИКА ====================
+ async function autoGrab() {
+     if (typeof autoGrabEnabled !== 'undefined' && !autoGrabEnabled) return;
+     if (isProcessing) return;
+     isProcessing = true;
+
+     // ── ПАТЧИ: скрываем визуал инвентаря на ВЕСЬ авто-граб ──
+     const _grabOrigPlaySound         = window.playSound;
+     const _grabOrigSetHudStatus      = window.setHudStatus;
+     const _grabOrigSetDrawLabel      = window.setDrawLabelStatus;
+     let _grabPatchesActive = true;
+
+     function applyGrabPatches() {
+         _grabPatchesActive = true;
+         window.playSound = function(path, ...rest) {
+             if (_grabPatchesActive && typeof path === 'string' && path.includes('inventory')) {
+                 return;
+             }
+             return _grabOrigPlaySound.apply(this, [path, ...rest]);
+         };
+         window.setHudStatus = function(status) {
+             if (_grabPatchesActive) return;
+             return _grabOrigSetHudStatus.apply(this, arguments);
+         };
+         window.setDrawLabelStatus = function(status) {
+             if (_grabPatchesActive) return;
+             return _grabOrigSetDrawLabel.apply(this, arguments);
+         };
+     }
+
+     function restoreGrabPatches() {
+         _grabPatchesActive = false;
+         window.playSound          = _grabOrigPlaySound;
+         window.setHudStatus       = _grabOrigSetHudStatus;
+         window.setDrawLabelStatus = _grabOrigSetDrawLabel;
+     }
+
+     function hideInventoryUI() {
+         const id = setInterval(() => {
+             const el = document.querySelector('.iface-container.inventory')
+                     || document.querySelector('.inventory')
+                     || document.querySelector('[class*="InventoryNew"]')
+                     || document.querySelector('.iface-container');
+             if (el && el.style.visibility !== 'hidden') {
+                 el.style.visibility = 'hidden';
+                 el.style.pointerEvents = 'none';
+                 el.style.opacity = '0';
+             }
+             const dlg = document.querySelector('.dialog-container')
+                      || document.querySelector('[class*="Dialog"]');
+             if (dlg && dlg.style.visibility !== 'hidden') {
+                 dlg.style.visibility = 'hidden';
+                 dlg.style.pointerEvents = 'none';
+                 dlg.style.opacity = '0';
+             }
+         }, 10);
+         return id;
+     }
+
+     applyGrabPatches();
+     const hideInterval = hideInventoryUI();
+
+     try {
+         const armourVal = getArmourValue();
+
+         // ── Шаг 1: открываем инвентарь (невидимо благодаря патчам выше) ──
+         let ready = false;
+         for (let attempt = 0; attempt < 2 && !ready; attempt++) {
+             if (attempt > 0) await sleep(300);
+             openInventory();
+             ready = await waitInventory(1500);
+         }
+         if (!ready) {
+             notify("Ошибка", "Инвентарь не открылся", "FF0000");
+             return; 
+         }
+
+         // ── Шаг 2: читаем что нужно ──
+         logInventoryGrab('GRAB ДО ВЗЯТИЯ');
+         const skipList = (typeof AUTO_GRAB_SKIP !== 'undefined' && AUTO_GRAB_SKIP.length) ? AUTO_GRAB_SKIP : ((typeof window._pravoGrabSkip !== 'undefined') ? window._pravoGrabSkip : []);
+         const skip = (key) => skipList.includes(key);
+
+         const has = {
+             painkillers: skip('painkiller')  ? 1   : (findItem(ITEM.PAINKILLERS) ? 1 : 0),
+             medkit:      skip('medkit')      ? 999 : (findItemInInv(ITEM.MEDKIT)  ? 1 : 0),
+             baton:       skip('baton')       ? 1   : (findItem(ITEM.BATON)       ? 1 : 0),
+             vest:        skip('vest') ? 100 : armourVal,
+             taser:       skip('taser')       ? 1   : (findItem(ITEM.TASER)       ? 1 : 0),
+             deagle:      skip('deagle')      ? 1   : (findItem(ITEM.DEAGLE)      ? 1 : 0),
+             akm:         skip('akm')         ? 1   : (findItem(ITEM.AKM)         ? 1 : 0),
+             aks74u:      skip('aks74u')      ? 1   : (findItem(ITEM.AKS74U)      ? 1 : 0),
+             magnum:      skip('magnum')      ? 999 : countItem(ITEM.AMMO_MAGNUM),
+             ammo762:     skip('ammo762')     ? 999 : countItem(ITEM.AMMO_762),
+             ammo545:     skip('ammo545')     ? 999 : countItem(ITEM.AMMO_545),
+         };
+
+         const need = {
+             painkillers: !has.painkillers,
+             medkit:      has.medkit < 1,
+             baton:       !has.baton,
+             vest:        has.vest < 10,
+             taser:       !has.taser,
+             deagle:      !has.deagle,
+             akm:         !has.akm,
+             aks74u:      !has.aks74u,
+             magnum:      has.magnum < AMMO_THRESHOLD.MAGNUM,
+             ammo762:     has.ammo762 < AMMO_THRESHOLD.AK762,
+             ammo545:     has.ammo545 < AMMO_THRESHOLD.AKS545,
+         };
+
+         console.log('[GRAB] has:', JSON.stringify(has));
+         console.log('[GRAB] need:', JSON.stringify(need));
+
+         // ── Шаг 3: запоминаем слоты и закрываем инвентарь (невидимо) ──
+         const freeInvSlots = [];
+         const freeBACKSlots = [];
+         try {
+             const inv0 = window.interface("InventoryNew");
+             if (inv0?.items) {
+                 const invMap  = inv0.items[CT.INV]  || {};
+                 const backMap = inv0.items[CT.BACK] || {};
+                 for (let s = 0; s < 20; s++) if (!invMap[s])  freeInvSlots.push(s);
+                 for (let s = 0; s < 50; s++) if (!backMap[s]) freeBACKSlots.push(s);
+             }
+         } catch(e) {}
+         
+         closeInventory();
+         await sleep(50);
+
+         // ── ВСЁ ЕСТЬ: выходим, инвентарь уже закрыт и невидим ──
+         if (!Object.values(need).some(Boolean)) {
+             notify("ПРАВО", "Всё снаряжение есть ✓", "00FF00");
+             return; 
+         }
+
+         // ── Шаг 4: МОМЕНТАЛЬНО берём предметы из меню ──
+         // toTake: строго в порядке меню ПРАВО (0→10) чтобы не было двойных нажатий
+         const toTake = [];
+         if (need.painkillers) toTake.push({ name: "Обезболивающее",                      idx: MENU.PAINKILLERS });
+         if (need.medkit)      toTake.push({ name: "Аптечка",                             idx: MENU.MEDKIT });
+         if (need.baton)       toTake.push({ name: "Дубинка",                             idx: MENU.BATON });
+         if (need.vest)        toTake.push({ name: `Бронежилет (${armourVal}%)`,          idx: MENU.VEST });
+         if (need.deagle)      toTake.push({ name: "Desert Eagle",                        idx: MENU.DEAGLE });
+         if (need.akm)         toTake.push({ name: "АКМ",                                 idx: MENU.AKM });
+         if (need.aks74u)      toTake.push({ name: "АКС-74У",                             idx: MENU.AKS74U });
+         if (need.magnum)      toTake.push({ name: `Патроны .44 (есть: ${has.magnum})`,   idx: MENU.AMMO_MAGNUM });
+         if (need.ammo762)     toTake.push({ name: `Патроны 7.62 (есть: ${has.ammo762})`, idx: MENU.AMMO_762 });
+         if (need.ammo545)     toTake.push({ name: `Патроны 5.45 (есть: ${has.ammo545})`, idx: MENU.AMMO_545 });
+         if (need.taser)       toTake.push({ name: "Тазер",                               idx: MENU.TASER });
+
+         for (let i = 0; i < toTake.length; i++) {
+             console.log(`[PRAVO-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [МОМЕНТАЛЬНО]`);
+             take(toTake[i].idx);
+             // Микро-задержка 20мс на случай жесткого анти-флуда на сервере.
+             // Для глаза это выглядит как мгновенное выполнение.
+             await sleep(20); 
+         }
+
+         // ⚠️ ВАЖНО: Закрываем меню принудительно, чтобы сервер не переоткрывал диалог
+         closeMenu();
+
+         const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
+         notify("ПРАВО", notifyNames.join(", "), "00FF00");
+         window.playSound("inventory/take_light.mp3");
+
+     } catch (err) {
+         console.error('[PRAVO-GRAB] Ошибка:', err);
+         notify("Ошибка", err.message, "FF0000");
+     } finally {
+         // ── Гарантированное восстановление при ЛЮБОМ выходе ──
+         clearInterval(hideInterval);
+         try {
+             document.querySelectorAll('.iface-container.inventory, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"]').forEach(el => {
+                 el.style.visibility = '';
+                 el.style.pointerEvents = '';
+                 el.style.opacity = '';
+             });
+         } catch(e) {}
+         restoreGrabPatches();
+         isProcessing = false;
+         console.log('[PRAVO-GRAB] готов (моментальный + закрытие меню)');
+     }
+ }
+
+ // ==================== ТРИГГЕР ====================
+ window.autoGrab = autoGrab;
+ Object.defineProperty(window, '_pravoGrabProcessing', {
+     get: () => isProcessing,
+     configurable: true
+ });
+ console.log('[PRAVO-GRAB] === v2.2 ✅ ГОТОВ — жду диалог Полицейская служба ===');
+})();
+} // end if (AUTO_GRAB)
+// ==================== END АВТОБРАНИЕ МВД ====================
+
+// ==================== АВТО-ТАЗЕР v19 — USE ACTION (без рюкзака) ====================
+// Вместо физического перемещения между контейнерами — симулируем ПКМ "Использовать".
+// Не нужен рюкзак. Первое нажатие → Использовать Тазер. Повторное → Использовать Дигл.
+(function() {
+    const ITEM_DEAGLE = 19;
+    const ITEM_TASER  = 13;
+    const CT = { ACC: 0, INV: 1, BACK: 2, EXTRA: 3 };
+    const CT_NAMES = { 0: 'ACC', 1: 'INV', 2: 'BACK', 3: 'EXTRA' };
+
+    let _busy        = false;
+    let _busyTimer   = null;
+    let _swapActive  = false;
+    // false = дигл активен → следующее нажатие: "Использовать" тазер
+    // true  = тазер активен → следующее нажатие: "Использовать" дигл
+    let _taserEquipped = false;
+
+    const _origSetCursorStatus = window.setCursorStatus;
+
+    function applyPatches() {
+        _swapActive = true;
+        // Скрываем курсор инвентаря, но оставляем движение персонажа
+        window.setCursorStatus = function(name, status, allowMovement) {
+            if (_swapActive && name === 'InventoryNew') {
+                try {
+                    if (typeof engine !== 'undefined' && engine.trigger) {
+                        engine.trigger("SetCursorStatus", false, true);
+                    }
+                } catch(e) {}
+                return;
+            }
+            return _origSetCursorStatus.apply(this, arguments);
+        };
+    }
+
+    function restoreOriginals() {
+        window.setCursorStatus = _origSetCursorStatus;
+    }
+
+    function clearBusy() {
+        clearTimeout(_busyTimer);
+        _busy       = false;
+        _swapActive = false;
+        restoreOriginals();
+        console.log('[АВТО-ТАЗЕР] готов');
+    }
+
+    // Ищем предмет во всех контейнерах инвентаря
+    function findItemAnywhere(items, itemId) {
+        for (const cid of [CT.INV, CT.BACK, CT.ACC, CT.EXTRA]) {
+            const c = items[cid];
+            if (!c) continue;
+            for (const [slot, item] of Object.entries(c)) {
+                if (item?.id === itemId) {
+                    const loc = { cid, slot: parseInt(slot), count: item.count || 1 };
+                    console.log(`[АВТО-ТАЗЕР] findItem(id=${itemId}): ${CT_NAMES[cid]} slot${loc.slot}`);
+                    return loc;
+                }
+            }
+        }
+        return null;
+    }
+
+    function tryGetItems() {
+        try {
+            const inv   = window.interface('InventoryNew');
+            const items = inv?.items;
+            if (!items) return null;
+            if (items[CT.INV] !== undefined || items[CT.BACK] !== undefined) return items;
+        } catch(e) {}
+        return null;
+    }
+
+    // GameText-уведомление для авто-тазера (bottom-type, тип 3)
+    // text — строка с ~X~ тегами (~r~ красный, ~g~ зелёный, ~b~ синий, ~o~ оранжевый, ~w~ белый)
+    // ~n~ — перенос строки внутри GameText
+    function _swapGtNotify(text, duration) {
+        try {
+            var gt = window.interface && window.interface('GameText');
+            if (gt && typeof gt.add === 'function') {
+                // [type, text, duration, offset, keyCode, forceShow, playSound, fontSize]
+                gt.add(JSON.stringify([3, text, duration, 0, 0, true, false, 2]));
+                return true;
+            }
+        } catch(e) {}
+        return false; // фоллбэк — вызывающий позовёт snAdd
+    }
+
+    function swapTaserDeagle() {
+        if (!pravoSkins.includes(skinId)) {
+            console.log('[АВТО-ТАЗЕР] не МВД форма, пропуск');
+            return;
+        }
+        if (_busy) {
+            console.log('[АВТО-ТАЗЕР] занят, пропуск');
+            return;
+        }
+        _busy = true;
+        _busyTimer = setTimeout(() => {
+            if (_busy) {
+                _busy       = false;
+                _swapActive = false;
+                restoreOriginals();
+                console.log('[АВТО-ТАЗЕР] таймаут сброса');
+            }
+        }, 5000);
+
+        // Если тазер одет — следующее нажатие даёт дигл, и наоборот
+        const targetItemId = _taserEquipped ? ITEM_DEAGLE : ITEM_TASER;
+        const targetName   = _taserEquipped ? 'Дигл'      : 'Тазер';
+
+        const clientThinksOpen = !!(
+            window.getInterfaceStatus &&
+            window.getInterfaceStatus('InventoryNew')
+        );
+
+        function doOpenAndUse() {
+            applyPatches();
+            console.log('[АВТО-ТАЗЕР] открываем инвентарь (USE mode)...');
+            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+
+            let attempts    = 0;
+            const maxAttempts = 40; // 40 × 50мс = 2 секунды
+            const poll = setInterval(() => {
+                attempts++;
+                const items = tryGetItems();
+
+                if (!items) {
+                    if (attempts >= maxAttempts) {
+                        clearInterval(poll);
+                        console.log('[АВТО-ТАЗЕР] items не появились, отмена');
+                        sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                        if (!_swapGtNotify('~r~АВТО-ТАЗЕР~n~~w~Ошибка: инвентарь не открылся', 3000))
+                            snAdd('[1, "АВТО-ТАЗЕР", "Ошибка: инвентарь не открылся", "FF0000", 3000]');
+                        clearBusy();
+                    }
+                    return;
+                }
+
+                clearInterval(poll);
+                console.log(`[АВТО-ТАЗЕР] items получены (попытка ${attempts})`);
+
+                const itemLoc = findItemAnywhere(items, targetItemId);
+                if (!itemLoc) {
+                    console.log(`[АВТО-ТАЗЕР] ${targetName} не найден`);
+                    sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+                    if (!_swapGtNotify('~o~АВТО-ТАЗЕР~n~~w~' + targetName + ' не найден в инвентаре', 3000))
+                        snAdd(`[1, "АВТО-ТАЗЕР", "${targetName} не найден в инвентаре", "FF4400", 3000]`);
+                    clearBusy();
+                    return;
+                }
+
+                // Симулируем ПКМ "Использовать" — точно как движок: OnInventoryItemUse, cid, slot
+                sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryItemUse',
+                    itemLoc.cid, itemLoc.slot);
+                console.log(`[АВТО-ТАЗЕР] OnInventoryItemUse: cid=${itemLoc.cid} slot=${itemLoc.slot}`);
+
+                setTimeout(() => {
+                    // ── 1. Восстанавливаем оригинальный setCursorStatus ──
+                    clearBusy();
+
+                    // ── 2. Принудительно убираем курсор (мог застрять из-за патча) ──
+                    try { window.setCursorStatus('InventoryNew', false); } catch(e) {}
+
+                    // ── 3. Закрываем инвентарь ТОЛЬКО на клиенте, БЕЗ серверного события ──
+                    // ВАЖНО: НЕ отправляем OnInventoryDisplayChange на сервер!
+                    // После OnInventoryItemUse сервер сам закрывает инвентарь (CloseInterface).
+                    // Если отправить DisplayChange когда сервер уже закрыл — он снова ОТКРОЕТ
+                    // (race condition: toggle-событие переключает закрытый инвентарь в открытый).
+                    // Вместо этого — даём серверу 200мс и закрываем только клиентски если нужно.
+                    setTimeout(() => {
+                        try {
+                            if (window.getInterfaceStatus && window.getInterfaceStatus('InventoryNew')) {
+                                console.log('[АВТО-ТАЗЕР] сервер не закрыл инвентарь — клиентское закрытие');
+                                window.closeInterface('InventoryNew');
+                            } else {
+                                console.log('[АВТО-ТАЗЕР] инвентарь уже закрыт сервером');
+                            }
+                        } catch(e) {}
+                    }, 200);
+
+                    // ── 4. Переключаем состояние и уведомление ──
+                    _taserEquipped = !_taserEquipped;
+                    const label   = _taserEquipped ? 'Тазер активен' : 'Дигл активен';
+                    const gtColor = _taserEquipped ? '~g~'            : '~b~';
+                    if (!_swapGtNotify('~w~АВТО-ТАЗЕР~n~' + gtColor + label, 2000))
+                        snAdd(`[1, "АВТО-ТАЗЕР", "${label}", "00CC44", 2000]`);
+                }, 300);
+            }, 50);
+        }
+
+        if (clientThinksOpen) {
+            // Клиент считает инвентарь открытым — сначала синхронизируем
+            console.log('[АВТО-ТАЗЕР] ⚠️ Клиент считает инвентарь открытым — синхронизация');
+            sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, 'OnInventoryDisplayChange');
+            try { window.closeInterface('InventoryNew'); } catch(e) {}
+            setTimeout(() => { doOpenAndUse(); }, 300);
+        } else {
+            doOpenAndUse();
+        }
+    }
+
+    window._pravoSwapTaserDeagle = swapTaserDeagle;
+    console.log('[АВТО-ТАЗЕР] v20 готов (USE action — без рюкзака, race-condition fix)');
+})();
+// ==================== END АВТО-ТАЗЕР: USE ACTION ====================
+
+// ==================== АВТО-ВЫБРОС ИЗ АВТО (Alt+U — /ejectout каждую секунду) ====================
+(function() {
+    var _ejectActive = false;   // флаг: выброс сейчас работает
+    var _ejectTimer  = null;    // setInterval id
+    var _ejectTick   = 0;       // счётчик тиков (для лога)
+
+    function startEject() {
+        if (_ejectActive) {
+            // Повторное нажатие — останавливаем
+            stopEject();
+            return;
+        }
+        _ejectActive = true;
+        _ejectTick   = 0;
+
+        // Уведомление: выброс начат
+        snAdd('[1, "АВТО-ВЫБРОС", "Выбрасываем из авто...", "FF8800", 2000]');
+        console.log('[АВТО-ВЫБРОС] запущен');
+
+        // Первый /ejectout немедленно
+        sendChatInput('/ejectout');
+        _ejectTick++;
+
+        // Далее каждую секунду
+        _ejectTimer = setInterval(function() {
+            if (!_ejectActive) {
+                clearInterval(_ejectTimer);
+                _ejectTimer = null;
+                return;
+            }
+            sendChatInput('/ejectout');
+            _ejectTick++;
+            console.log('[АВТО-ВЫБРОС] тик #' + _ejectTick);
+        }, 1000);
+    }
+
+    function stopEject() {
+        if (!_ejectActive) return;
+        _ejectActive = false;
+        if (_ejectTimer) {
+            clearInterval(_ejectTimer);
+            _ejectTimer = null;
+        }
+        snAdd('[1, "АВТО-ВЫБРОС", "Остановлен", "FF4444", 2000]');
+        console.log('[АВТО-ВЫБРОС] остановлен после ' + _ejectTick + ' тиков');
+    }
+
+    function toggleEject() {
+        if (_ejectActive) {
+            stopEject();
+        } else {
+            startEject();
+        }
+    }
+
+    // Экспортируем — LoadAhk.js вызывает через window._pravoAutoEject()
+    window._pravoAutoEject    = toggleEject;
+    window._mvdStopEject    = stopEject;   // на случай принудительной остановки снаружи
+
+    console.log('[АВТО-ВЫБРОС] v1 готов (Alt+U → /ejectout каждую секунду)');
+})();
+// ==================== END АВТО-ВЫБРОС ИЗ АВТО ====================
+// ==================== ПРОСМОТРЩИК ИНТЕРФЕЙСОВ (/int, доступ: Zahar_Loidov) ====================
+
+/* ============================================================
+   [ZK-INTERFACE-VIEWER START]
+   Дев-команда: список всех зарегистрированных интерфейсов с
+   возможностью пролистывать стрелками ↑ / ↓ или кликать прямо
+   по списку. Чат при этом не перекрывается.
+
+   Запуск/выход: команда в чате  /int
+   Навигация:    ↑  /  ↓  — переключить на предыдущий/следующий
+                 клик по строке в списке — открыть конкретный
+                 поле поиска вверху панели — фильтрует список по
+                 имени, Enter — открыть первый найденный
+   Выход:        Esc  /  /int ещё раз  /  window.zkInterfaceViewer.stop()
+
+   Доступ:       /int работает ТОЛЬКО на аккаунте с ником Zahar_Loidov —
+                 ник читаем через window.App.$store.getters['player/nickName'],
+                 см. ALLOWED_NICK / getOwnNick() ниже. На любом другом
+                 аккаунте команда молча ничего не делает.
+
+   Снять блок целиком — удалить всё между START и END.
+   ============================================================ */
+(function () {
+  const STEP_DEBOUNCE_MS = 120;
+
+  // Просмотрщик интерфейсов — дев-инструмент, доступ к нему выдан только одному конкретному аккаунту.
+  const ALLOWED_NICK = "Zahar_Damidov";
+
+  function getOwnNick() {
+    try {
+      return window.App && window.App.$store && window.App.$store.getters && window.App.$store.getters['player/nickName'];
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function isAllowed() {
+    return getOwnNick() === ALLOWED_NICK;
+  }
+
+  let active = false;
+  let names = [];
+  let idx = -1;
+  let openedByUs = null;
+  let panelEl = null;
+  let listEl = null;
+  let counterEl = null;
+  let searchInputEl = null;
+  let query = "";
+  let lastStepAt = 0;
+
+  function getAllInterfaceNames() {
+    try {
+      return Object.keys((window.App && window.App.components) || {}).sort();
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function getHudChatEl() {
+    try {
+      const hud = window.interface("Hud");
+      return hud && hud.$refs && hud.$refs.chat ? hud.$refs.chat.$el : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Раньше тут была попытка "перебить" скрытие чата через CSS (z-index/position у $refs.chat.$el).
+  function neutralizeHideChat() {
+    if (typeof window.shouldHideChat !== "function" || window.shouldHideChat.__zkPatched) return;
+    const original = window.shouldHideChat;
+    const patched = function () {
+      return false;
+    };
+    patched.__zkPatched = true;
+    patched.__zkOriginal = original;
+    window.shouldHideChat = patched;
+  }
+
+  function restoreHideChat() {
+    if (typeof window.shouldHideChat === "function" && window.shouldHideChat.__zkPatched) {
+      window.shouldHideChat = window.shouldHideChat.__zkOriginal;
+    }
+  }
+
+  // Курсор и блокировка движения персонажа управляются через window.setCursorStatus(name, isOn, allowMovement).
+  const CURSOR_LOCK_NAME = "zkInterfaceViewer";
+
+  function lockCursorAndMovement() {
+    try {
+      window.setCursorStatus(CURSOR_LOCK_NAME, true, false);
+    } catch (e) {
+      console.warn("[ZK-VIEW] setCursorStatus error:", e);
+    }
+  }
+
+  function unlockCursorAndMovement() {
+    try {
+      window.setCursorStatus(CURSOR_LOCK_NAME, false);
+    } catch (e) {
+      console.warn("[ZK-VIEW] setCursorStatus error:", e);
+    }
+  }
+
+  // Панель живёт вне дерева Vue-приложения (просто appendChild к body), поэтому жёстко заданный системный шрифт ("Segoe UI") иногда рисует ки...
+  function getGameFontFamily() {
+    try {
+      const appEl = document.getElementById("app");
+      if (appEl) {
+        const f = getComputedStyle(appEl).fontFamily;
+        if (f && f.trim()) return f;
+      }
+    } catch (e) {}
+    return '"Segoe UI", Arial, sans-serif';
+  }
+
+  function buildPanel() {
+    if (panelEl) return panelEl;
+
+    panelEl = document.createElement("div");
+    panelEl.id = "zk-interface-viewer-panel";
+    Object.assign(panelEl.style, {
+      position: "fixed",
+      zIndex: "2147483647",
+      fontFamily: getGameFontFamily(),
+      color: "#f5e9d3",
+      background: "#0d1117",
+      border: "1px solid #d2a65e",
+      borderRadius: "6px",
+      boxShadow: "0 4px 16px rgba(0,0,0,0.6)",
+      width: "260px",
+      maxHeight: "70vh",
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden",
+    });
+
+    const header = document.createElement("div");
+    Object.assign(header.style, {
+      padding: "8px 10px",
+      borderBottom: "1px solid #30363d",
+      fontSize: "13px",
+      fontWeight: "600",
+      color: "#d2a65e",
+      flex: "0 0 auto",
+    });
+    header.textContent = "Просмотр интерфейсов";
+    panelEl.appendChild(header);
+
+    // Поиск по имени интерфейса.
+    const searchWrap = document.createElement("div");
+    Object.assign(searchWrap.style, {
+      padding: "6px 10px",
+      borderBottom: "1px solid #30363d",
+      flex: "0 0 auto",
+    });
+    searchInputEl = document.createElement("input");
+    searchInputEl.type = "text";
+    searchInputEl.placeholder = "Поиск интерфейса...";
+    Object.assign(searchInputEl.style, {
+      width: "100%",
+      boxSizing: "border-box",
+      background: "#0000004d",
+      border: "1px solid #30363d",
+      borderRadius: "4px",
+      color: "#f5e9d3",
+      font: "inherit",
+      fontSize: "12px",
+      padding: "5px 7px",
+      outline: "none",
+    });
+    searchInputEl.addEventListener("focus", () => {
+      try {
+        window.setInputFocus(true);
+      } catch (e) {}
+    });
+    searchInputEl.addEventListener("blur", () => {
+      try {
+        window.setInputFocus(false);
+      } catch (e) {}
+    });
+    searchInputEl.addEventListener("input", () => {
+      query = searchInputEl.value;
+      renderList();
+    });
+    // Стрелки/Enter/Esc внутри поля не должны улетать дальше в document-обработчик движка (см.
+    searchInputEl.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const visible = getVisibleNames();
+        if (visible.length) openByIndex(names.indexOf(visible[0]));
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        if (query) {
+          query = "";
+          searchInputEl.value = "";
+          renderList();
+        } else {
+          stop();
+        }
+      }
+    });
+    // keyup тоже глушим — у движка отдельный document-листенер на keyup
+    // (window.onKeyUp) с горячими клавишами (M — карта, E/Q — циклический
+    // выбор и т.д.), который иначе сработает на каждую отпущенную букву.
+    searchInputEl.addEventListener("keyup", (e) => {
+      e.stopPropagation();
+    });
+    searchWrap.appendChild(searchInputEl);
+    panelEl.appendChild(searchWrap);
+
+    counterEl = document.createElement("div");
+    Object.assign(counterEl.style, {
+      padding: "4px 10px",
+      borderBottom: "1px solid #30363d",
+      fontSize: "11px",
+      color: "#7a7f87",
+      flex: "0 0 auto",
+    });
+    panelEl.appendChild(counterEl);
+
+    listEl = document.createElement("div");
+    // КЛЮЧЕВОЙ фикс прокрутки: у flex-элемента по умолчанию min-height:auto, то есть он не может сжаться меньше высоты своего содержимого.
+    Object.assign(listEl.style, {
+      overflowY: "auto",
+      flex: "1 1 auto",
+      minHeight: "0",
+      padding: "4px",
+    });
+    panelEl.appendChild(listEl);
+
+    const footer = document.createElement("div");
+    Object.assign(footer.style, {
+      padding: "6px 10px",
+      borderTop: "1px solid #30363d",
+      fontSize: "11px",
+      color: "#7a7f87",
+      flex: "0 0 auto",
+    });
+    footer.innerHTML = "&uarr; / &darr; — листать &middot; клик — открыть &middot; поиск + Enter &middot; /int — выход";
+    panelEl.appendChild(footer);
+
+    document.body.appendChild(panelEl);
+    return panelEl;
+  }
+
+  function positionPanel() {
+    const panel = buildPanel();
+    const chatEl = getHudChatEl();
+    if (chatEl) {
+      const r = chatEl.getBoundingClientRect();
+      let left = r.right + 12;
+      if (left + 260 > window.innerWidth) left = Math.max(8, r.left - 272);
+      panel.style.left = left + "px";
+      panel.style.top = Math.max(8, r.top) + "px";
+      panel.style.right = "";
+      panel.style.bottom = "";
+    } else {
+      panel.style.right = "20px";
+      panel.style.bottom = "20px";
+      panel.style.left = "";
+      panel.style.top = "";
+    }
+  }
+
+  function getVisibleNames() {
+    if (!query) return names;
+    const q = query.toLowerCase();
+    return names.filter((n) => n.toLowerCase().includes(q));
+  }
+
+  // Скроллим список к выделенному пункту так же, как это сделано в нативных окнах игры (см.
+  function scrollSelectedIntoView(rowEl) {
+    if (!listEl || !rowEl) return;
+    const itemHeight = rowEl.offsetHeight;
+    if (!itemHeight) return;
+    const bufferPx = itemHeight * 2;
+    const maxScroll = Math.max(listEl.scrollHeight - listEl.clientHeight, 0);
+    const rowTopWithinList = rowEl.getBoundingClientRect().top - listEl.getBoundingClientRect().top + listEl.scrollTop;
+    let target = rowTopWithinList - bufferPx;
+    if (target < 0) target = 0;
+    if (target > maxScroll) target = maxScroll;
+    listEl.scrollTop = target;
+  }
+
+  function renderList() {
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    const visible = getVisibleNames();
+
+    if (counterEl) {
+      const total = names.length;
+      const currentNum = idx >= 0 ? idx + 1 : 0;
+      let text = `Интерфейс ${currentNum} из ${total}`;
+      if (query) text += ` (найдено: ${visible.length})`;
+      counterEl.textContent = text;
+    }
+
+    if (!visible.length) {
+      const empty = document.createElement("div");
+      empty.textContent = "Ничего не найдено";
+      Object.assign(empty.style, {
+        padding: "16px 8px",
+        fontSize: "12px",
+        fontStyle: "italic",
+        color: "#7a7f87",
+        textAlign: "center",
+      });
+      listEl.appendChild(empty);
+      return;
+    }
+
+    // Поиск только фильтрует, что показано в панели и куда ведёт клик — индекс для каждой строки берём из общего списка names, поэтому стрелки...
+    let currentRow = null;
+    visible.forEach((name) => {
+      const globalIndex = names.indexOf(name);
+      const row = document.createElement("div");
+      row.textContent = name;
+      row.dataset.index = String(globalIndex);
+      const isCurrent = globalIndex === idx;
+      Object.assign(row.style, {
+        padding: "5px 8px",
+        marginBottom: "2px",
+        borderRadius: "4px",
+        fontSize: "12px",
+        cursor: "pointer",
+        background: isCurrent ? "#1f6feb33" : "transparent",
+        border: isCurrent ? "1px solid #d2a65e" : "1px solid transparent",
+        color: isCurrent ? "#f5e9d3" : "#c9ced6",
+      });
+      row.addEventListener("mouseenter", () => {
+        if (globalIndex !== idx) row.style.background = "#30363d66";
+      });
+      row.addEventListener("mouseleave", () => {
+        if (globalIndex !== idx) row.style.background = "transparent";
+      });
+      row.addEventListener("click", () => openByIndex(globalIndex));
+      listEl.appendChild(row);
+      if (isCurrent) currentRow = row;
+    });
+
+    if (currentRow) scrollSelectedIntoView(currentRow);
+  }
+
+  function removePanel() {
+    if (panelEl && panelEl.parentNode) panelEl.parentNode.removeChild(panelEl);
+    panelEl = null;
+    listEl = null;
+    counterEl = null;
+    searchInputEl = null;
+  }
+
+  function closeOpenedByUs() {
+    if (openedByUs && window.getInterfaceStatus && window.getInterfaceStatus(openedByUs)) {
+      try {
+        window.closeInterface(openedByUs);
+      } catch (e) {
+        console.warn("[ZK-VIEW] closeInterface error:", openedByUs, e);
+      }
+    }
+    openedByUs = null;
+  }
+
+  function openByIndex(i) {
+    if (!names.length) return;
+    closeOpenedByUs();
+    idx = ((i % names.length) + names.length) % names.length;
+    const name = names[idx];
+    openedByUs = name;
+    try {
+      window.openInterface(name);
+    } catch (e) {
+      console.warn("[ZK-VIEW] openInterface error:", name, e);
+    }
+    lockCursorAndMovement();
+    positionPanel();
+    renderList();
+  }
+
+  function step(delta) {
+    const now = Date.now();
+    if (now - lastStepAt < STEP_DEBOUNCE_MS) return;
+    lastStepAt = now;
+    openByIndex(idx + delta);
+  }
+
+  function start() {
+    if (active) return;
+    // Единая точка входа: проверка ника здесь закрывает разом и команду
+    // /int, и toggle(), и прямой вызов window.zkInterfaceViewer.start()
+    // из консоли — на чужом аккаунте просмотрщик просто не запустится.
+    if (!isAllowed()) {
+      console.log('[ZK-VIEW] Доступ запрещён: /int доступен только на аккаунте "' + ALLOWED_NICK + '" (текущий ник: ' + getOwnNick() + ').');
+      return;
+    }
+    names = getAllInterfaceNames();
+    if (!names.length) {
+      console.warn("[ZK-VIEW] Интерфейсы не найдены (window.App.components пуст).");
+      return;
+    }
+    active = true;
+    query = "";
+    neutralizeHideChat();
+    lockCursorAndMovement();
+    buildPanel();
+    openByIndex(0);
+    console.log("[ZK-VIEW] Запущено. Всего интерфейсов:", names.length);
+  }
+
+  function stop() {
+    if (!active) return;
+    active = false;
+    closeOpenedByUs();
+    restoreHideChat();
+    unlockCursorAndMovement();
+    try {
+      window.setInputFocus(false);
+    } catch (e) {}
+    removePanel();
+    console.log("[ZK-VIEW] Остановлено.");
+  }
+
+  function toggle() {
+    active ? stop() : start();
+  }
+
+  // Перехват стрелок через тот же канал, что использует движок document уже слушает keydown и зовёт window.onKeyDown(keyCode) — вместо отдель...
+  const originalOnKeyDown = window.onKeyDown;
+  window.onKeyDown = function (e) {
+    if (active) {
+      if (e === window.KEY_CODE_ARROW_TOP) {
+        step(-1);
+        return;
+      }
+      if (e === window.KEY_CODE_ARROW_BOTTOM) {
+        step(1);
+        return;
+      }
+      if (e === window.KEY_CODE_ESC) {
+        stop();
+        return;
+      }
+    }
+    return originalOnKeyDown.apply(this, arguments);
+  };
+
+  // Команда /int теперь обрабатывается внутри sendChatInputCustom (см.
+
+  window.zkInterfaceViewer = { start, stop, toggle, next: () => step(1), prev: () => step(-1) };
+})();
+/* ============================================================
+   [ZK-INTERFACE-VIEWER END]
+   ============================================================ */
+// ==================== END ПРОСМОТРЩИК ИНТЕРФЕЙСОВ ====================
+
+// ЗАГРУЗЧИК ПРОФИЛЯ ИГРОКА (ник + звание) При первом открытии меню /dahk один раз считывает актуальные данные персонажа (ник, звание, должн...
+(function() {
+'use strict';
+var _fetching = false;
+
+// Аварийная очистка при (пере)загрузке скрипта: если предыдущий экземпляр оставил "залипший" стиль (например, скрипт был перезапущен посред...
+try {
+    var _leftoverStyle = document.getElementById('mvd-profile-styles');
+    if (_leftoverStyle && _leftoverStyle.parentNode) {
+        _leftoverStyle.parentNode.removeChild(_leftoverStyle);
+    }
+    var _leftoverOverlay = document.getElementById('mvd-profile-scan-overlay');
+    if (_leftoverOverlay && _leftoverOverlay.parentNode) {
+        _leftoverOverlay.parentNode.removeChild(_leftoverOverlay);
+    }
+} catch(e) {}
+
+// ── Сохраняем оригиналы системных функций ──
+var _origSetCursorStatus = window.setCursorStatus;
+var _origSetDrawLabelStatus = window.setDrawLabelStatus;
+var _patchesActive = false;
+function applyCursorPatch() {
+    _patchesActive = true;
+    window.setCursorStatus = function(name, status, allowMovement) {
+        if (_patchesActive && name === 'MainMenu') {
+            try {
+                if (typeof engine !== 'undefined' && engine.trigger) {
+                    engine.trigger("SetCursorStatus", false, true);
+                }
+            } catch(e) {}
+            return;
+        }
+        return _origSetCursorStatus.apply(this, arguments);
+    };
+    // Блокируем скрытие ников (setDrawLabelStatus(false)) пока грузим профиль.
+    // MainMenu при открытии вызывает setCursorStatus → движок вызывает setDrawLabelStatus(false) →
+    // ники над головами пропадают. Подменяем функцию: false — игнорируем, true — пропускаем как есть.
+    window.setDrawLabelStatus = function(status) {
+        if (_patchesActive && !status) {
+            console.log('[Profile] 🔒 setDrawLabelStatus(false) заблокировано — ники остаются видны');
+            return;
+        }
+        return _origSetDrawLabelStatus && _origSetDrawLabelStatus.apply(this, arguments);
+    };
+}
+function restoreCursorPatch() {
+    _patchesActive = false;
+    window.setCursorStatus = _origSetCursorStatus;
+    window.setDrawLabelStatus = _origSetDrawLabelStatus;
+    // Явно восстанавливаем ники на случай если до патча они были видны
+    try { _origSetDrawLabelStatus && _origSetDrawLabelStatus.call(window, true); } catch(e) {}
+}
+
+// ── Подмена опций интерфейса для корректной работы загрузки ──
+var _origHideHud = null;
+var _origHideChat = null;
+function patchMainMenuOptions() {
+    try {
+        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+        if (!mmComp || !mmComp.options) return;
+        _origHideHud = mmComp.options.hideHud;
+        _origHideChat = mmComp.options.hideChat;
+        mmComp.options.hideHud = false;
+        mmComp.options.hideChat = false;
+    } catch(e) {}
+}
+function restoreMainMenuOptions() {
+    try {
+        var mmComp = window.App && window.App.components && window.App.components.MainMenu;
+        if (!mmComp || !mmComp.options) return;
+        if (_origHideHud !== null) mmComp.options.hideHud = _origHideHud;
+        if (_origHideChat !== null) mmComp.options.hideChat = _origHideChat;
+        _origHideHud = null;
+        _origHideChat = null;
+    } catch(e) {}
+}
+
+// Безопасное скрытие меню через ИНЛАЙН-СТИЛИ (не ломает Vue Transition) Почему инлайн, а не CSS-тег <style>? MainMenu.js использует Vue Tra...
+// Используем MutationObserver вместо setInterval — он срабатывает в той же
+// задаче сразу после добавления элемента в DOM, ДО перерисовки браузера.
+// Это полностью исключает мерцание (setInterval с 50мс давал 0-50мс окно,
+// за которое браузер успевал нарисовать кадр с видимым меню).
+var _profileObserver = null;
+
+function applyProfileStyles(skipHiding) {
+    removeProfileStyles();
+    if (skipHiding) return; // Меню уже открыто игроком — не трогаем его
+
+    _profileObserver = new MutationObserver(function() {
+        var el = document.querySelector('.main-menu');
+        if (el) {
+            el.style.opacity = '0';
+            el.style.pointerEvents = 'none';
+            _profileObserver.disconnect();
+            _profileObserver = null;
+        }
+    });
+    // subtree:true — ловим вложенные добавления; childList:true — добавление узлов
+    _profileObserver.observe(document.documentElement, { childList: true, subtree: true });
+}
+
+function removeProfileStyles() {
+    if (_profileObserver) {
+        _profileObserver.disconnect();
+        _profileObserver = null;
+    }
+    // ВАЖНО: инлайн-стили НЕ убираем намеренно!
+    // closeInterface() удалит DOM-элемент вместе с ними.
+    // Следующее openInterface() создаст чистый элемент без инлайн-стилей.
+}
+
+// ── Извлечение данных из профиля ──
+function extractProfileData(mm) {
+    try {
+        var s = mm.statistics;
+        if (!s) return null;
+        var org  = s.organization || {};
+        var info = s.info || {};
+
+        // ── Заглушка MainMenu.js: до прихода данных с сервера
+        // organization содержит mock-значения "Officer" / "Police departament".
+        // Принимать их нельзя — ждём настоящий ответ сервера.
+        if (org.rangName === 'Officer' || org.title === 'Police departament') {
+            console.log('[Profile] ⏳ Пропускаем mock-данные (Officer / Police departament) — ждём сервер...');
+            return null;
+        }
+
+        var realNick = null;
+        try {
+            realNick = window.App && window.App.$store && 
+                       window.App.$store.getters['player/nickName'];
+        } catch(e) {}
+        return {
+            orgRangName: org.rangName || null,
+            nickname:    realNick || info.nickname || null,
+            fetchedAt: Date.now()
+        };
+    } catch(e) {
+        return null;
+    }
+}
+
+// ── Основная функция: считывает ОДИН РАЗ, дальше возвращает сохранённые данные ──
+function loadPlayerProfile(callback) {
+    // Если данные уже загружены — НЕ открываем профиль повторно
+    if (window._pravoFirstName && window._pravoLastName && window._pravoRank) {
+        console.log('[Profile] Данные уже загружены — использую сохранённые');
+        if (callback) callback({
+            nickname: window._pravoCallsign,
+            orgRangName: window._pravoRank
+        });
+        return;
+    }
+    
+    if (_fetching) {
+        // Уже идёт загрузка — ждём завершения
+        var waitPoll = setInterval(function() {
+            if (!_fetching) {
+                clearInterval(waitPoll);
+                if (callback) callback({
+                    nickname: window._pravoCallsign,
+                    orgRangName: window._pravoRank
+                });
+            }
+        }, 100);
+        return;
+    }
+    
+    _fetching = true;
+    window._mvdProfileLoading = true; // блокируем патч вкладки пока читаем профиль
+    console.log('[Profile] Загрузка данных персонажа (первый раз)...');
+
+    var _done = false;
+    var _watchdog = null;
+
+    // Если игрок уже сам открыл MainMenu (например, нажал M) — не трогаем
+    // его открытие/закрытие вообще, просто читаем то, что уже на экране.
+    var _wasAlreadyOpen = false;
+    try { _wasAlreadyOpen = !!window.getInterfaceStatus('MainMenu'); } catch(e) {}
+
+    // Единая точка выхода.
+    function finishFlow(result) {
+        if (_done) return;
+        _done = true;
+        if (_watchdog) { clearTimeout(_watchdog); _watchdog = null; }
+
+        // Закрываем ТОЛЬКО если открывали сами — и обязательно уведомляем об этом сервер тем же событием, что уходит при нажатии ESC.
+        if (!_wasAlreadyOpen) {
+            try {
+                var mmForClose = window.interface('MainMenu');
+                if (mmForClose && typeof mmForClose.sendCloseEvent === 'function') {
+                    mmForClose.sendCloseEvent();
+                } else if (typeof window.sendClientEvent === 'function') {
+                    window.sendClientEvent(0, "MainMenu_OnPlayerCloseInterface");
+                }
+            } catch(e) {}
+            try { window.closeInterface('MainMenu'); } catch(e) {}
+        }
+
+        restoreMainMenuOptions();
+        restoreCursorPatch();
+        removeProfileStyles();
+        _fetching = false;
+        window._mvdProfileLoading = false; // разблокируем патч вкладки
+        if (callback) callback(result);
+    }
+
+    // ── Аварийный предохранитель: что бы ни пошло не так дальше
+    // (подвисший поллинг, ошибка в чужом коде, перерендер интерфейса),
+    // авточтение не может провисеть дольше 8 секунд. ──
+    _watchdog = setTimeout(function() {
+        console.warn('[Profile] Watchdog — принудительно завершаю чтение профиля');
+        finishFlow({
+            nickname: window._pravoCallsign || '',
+            orgRangName: window._pravoRank || ''
+        });
+    }, 8000);
+
+    patchMainMenuOptions();
+    applyCursorPatch();
+    applyProfileStyles(_wasAlreadyOpen);
+
+    if (!_wasAlreadyOpen) {
+        try {
+            window.openInterface('MainMenu');
+        } catch(e) {
+            console.error('[Profile] Ошибка открытия профиля:', e);
+            finishFlow(null);
+            return;
+        }
+    }
+
+    setTimeout(function() {
+        if (_done) return; // watchdog уже всё снял — дальше не лезем
+        var mm = window.interface('MainMenu');
+        if (!mm) {
+            console.error('[Profile] Профиль не найден');
+            finishFlow(null);
+            return;
+        }
+        try {
+            if (typeof mm.selectTab === 'function') mm.selectTab('Statistics');
+        } catch(e) {}
+
+        var attempts = 0;
+        var maxAttempts = 30;
+        // Стабилизация: не принимаем данные по первому же непустому результату — сервер может сперва прислать заглушку (например, звание по умолчан...
+        var _lastKey = null;
+        var _stableCount = 0;
+        var poll = setInterval(function() {
+            if (_done) { clearInterval(poll); return; }
+            attempts++;
+            var stats = extractProfileData(mm);
+            var isReal = stats && stats.nickname && stats.orgRangName;
+
+            if (isReal) {
+                var key = stats.nickname + '|' + stats.orgRangName;
+                if (key === _lastKey) {
+                    _stableCount++;
+                } else {
+                    _lastKey = key;
+                    _stableCount = 1;
+                }
+            } else {
+                _lastKey = null;
+                _stableCount = 0;
+            }
+
+            if ((isReal && _stableCount >= 2) || attempts >= maxAttempts) {
+                clearInterval(poll);
+
+                if (stats && isReal) {
+                    console.log('[Profile] Данные успешно загружены:', stats);
+
+                    // Сохраняем в window НАВСЕГДА
+                    window._pravoCallsign = stats.nickname || '';
+                    window._pravoRank = stats.orgRangName || '';
+
+                    // Парсим ник на Имя и Фамилию
+                    var nickParts = (stats.nickname || '').split(/[_\s]+/);
+                    window._pravoFirstName = nickParts[0] || '';
+                    window._pravoLastName = nickParts[1] || '';
+
+                    console.log('[Profile] Запомнено: ' + window._pravoRank + ' ' + window._pravoFirstName + ' ' + window._pravoLastName);
+                } else {
+                    console.warn('[Profile] Таймаут — данные не получены');
+                }
+
+                setTimeout(function() {
+                    finishFlow({
+                        nickname: window._pravoCallsign,
+                        orgRangName: window._pravoRank
+                    });
+                }, 150);
+            }
+        }, 100); // ↓ 200→100ms: быстрее считываем данные
+    }, 250);  // ↓ 600→250ms: Vue успевает примонтироваться, но не ждём лишнего
+}
+
+// ── Команда /mmenu для принудительного обновления данных ──
+function waitForApp(cb, attempts) {
+    attempts = attempts || 0;
+    if (window.App && window.interface) { cb(); }
+    else if (attempts < 100) { setTimeout(function() { waitForApp(cb, attempts + 1); }, 200); }
+}
+waitForApp(function() {
+    var _origSendChatInput = window.sendChatInput;
+    window.sendChatInput = function(cmd) {
+        if (typeof cmd === 'string') {
+            var trimmed = cmd.trim().toLowerCase();
+            if (trimmed === '/mmenu') {
+                // Принудительный сброс — перечитать данные
+                window._pravoFirstName = null;
+                window._pravoLastName = null;
+                window._pravoRank = null;
+                window._pravoCallsign = null;
+                loadPlayerProfile(function(data) {
+                    if (data) {
+                        try {
+                            var sn = window.ZkmScreenNotification;
+                            if (sn && typeof sn.add === 'function') {
+                                sn.add('[1, "Профиль", "Данные обновлены", "00CC44", 3000]');
+                            }
+                        } catch(e) {}
+                    }
+                });
+                return;
+            }
+        }
+        return _origSendChatInput.apply(this, arguments);
+    };
+    console.log('[Profile] Загрузчик профиля готов. Команда: /mmenu (обновить данные)');
+
+    // ── Фоновая предзагрузка профиля при старте ──────────────────────────────
+    // Запускаем loadPlayerProfile сразу после готовности App — невидимо для
+    // игрока — чтобы к первому /dahk данные уже лежали в window._pravoRank /
+    // _mvdFirstName / _mvdLastName и MvdMenu открывалось мгновенно.
+    setTimeout(function() {
+        if (window._pravoFirstName && window._pravoLastName && window._pravoRank) return;
+        console.log('[Profile] 🔄 Фоновая предзагрузка профиля при старте...');
+        loadPlayerProfile(function(data) {
+            if (data && data.orgRangName) {
+                console.log('[Profile] ✅ Предзагрузка готова: ' + data.orgRangName + ' ' + (window._pravoFirstName||'') + ' ' + (window._pravoLastName||''));
+            } else {
+                console.warn('[Profile] ⚠️ Предзагрузка: данные не получены — при первом /dahk будет обычная загрузка');
+            }
+        });
+    }, 1500);
+});
+
+window._pravoLoadPlayerProfile = loadPlayerProfile;
+})();
+// ==================== END ЗАГРУЗЧИК ПРОФИЛЯ ====================
+
+// ==================== ПАТЧ: MainMenu открывается сразу на «Персонаж» ====================
+// Когда игрок нажимает M (или любой другой код открывает MainMenu напрямую),
+// автоматически переключаем на вкладку Statistics («Персонаж»).
+// Пока работает loadPlayerProfile (_mvdProfileLoading = true) — патч пассивен,
+// чтобы не мешать невидимому считыванию данных.
+(function() {
+'use strict';
+function applyMainMenuTabPatch() {
+    var _origOI = window.openInterface;
+    window.openInterface = function(name) {
+        var result = _origOI.apply(this, arguments);
+        if (name === 'MainMenu' && !window._mvdProfileLoading) {
+            // Небольшая задержка: Vue-компонент должен смонтироваться
+            setTimeout(function() {
+                try {
+                    var mm = window.interface && window.interface('MainMenu');
+                    if (mm && typeof mm.selectTab === 'function') {
+                        mm.selectTab('Statistics');
+                    }
+                } catch(e) {}
+            }, 80);
+        }
+        return result;
+    };
+    console.log('[PRAVO] Патч MainMenu→Персонаж активен');
+}
+
+// Ждём готовности App (openInterface и window.interface могут появиться позже)
+(function tryApply(n) {
+    if (window.openInterface && window.interface) {
+        applyMainMenuTabPatch();
+    } else if (n < 100) {
+        setTimeout(function() { tryApply(n + 1); }, 200);
+    }
+})(0);
+})();
+// ==================== END ПАТЧ MainMenu→Персонаж ====================
+
+// /are и /are_s перенесены в fkonst.js
+
+// ==================== /SCC — БЛОК АРЕСТОВАННЫХ ПРЕСТУПНИКОВ ====================
+// /scc         → выбор периода → таблица TOP-20 с A/D навигацией (как серверная)
+// /scc <число> → то же самое, но в список вставляется свой ник с указанным числом
+(function () {
+
+    // ── Dialog ID (уникальные, не пересекаются с основными диалогами) ──────────
+    var SCC_PERIOD_DLG = 695;   // список выбора временного периода
+    var SCC_TABLE_DLG  = 696;   // таблица TABLIST_HEADERS
+
+    // ── Временные периоды (копия с сервера) ─────────────────────────────────────
+    var SCC_PERIODS = [
+        'За последний час',
+        'За сегодня',
+        'За последние 3 дня',
+        'За последние 7 дней',
+        'За последние 30 дней',
+        'За всё время'
+    ];
+
+    // ── Базовые данные (из скриншота, строка за строкой) ────────────────────────
+    var SCC_BASE = [
+        { nick: 'Stepa_Bambino',       count: 50 },
+        { nick: 'Don_Royale',          count: 44 },
+        { nick: 'Shine_Reinhartz',     count: 43 },
+        { nick: 'Ilyha_Prime',         count: 37 },
+        { nick: 'Kasper_Winston',      count: 32 },
+        { nick: 'Finter_Danter',       count: 29 },
+        { nick: 'Vadim_Berkutov',      count: 28 },
+        { nick: 'Exstazzy_Freimovich', count: 27 },
+        { nick: 'Hamallian_Nagasaki',  count: 24 },
+        { nick: 'Dmitry_Chipkin',      count: 23 },
+        { nick: 'Skovel_Bartosh',      count: 21 },
+        { nick: 'Luis_Janvier',        count: 21 },
+        { nick: 'Miko_Hasanov',        count: 20 },
+        { nick: 'Bonaparte_Syncrage',  count: 19 },
+        { nick: 'Loker_Jerkmeoff',     count: 19 },
+        { nick: 'Sarkis_Manucharov',   count: 18 },
+        { nick: 'Denis_Veratti',       count: 18 },
+        { nick: 'Adusik_Ponal',        count: 18 },
+        { nick: 'Bodya_Shevchenky',    count: 18 },
+        { nick: 'Aekas_Blesses',       count: 17 }
+    ];
+
+    // ── Состояние ────────────────────────────────────────────────────────────────
+    var _sccMyCount = null;   // число из /scc N (null = не задано)
+    var _sccOpen    = false;  // true пока диалог /scc активен (блокирует посторонние ID)
+
+    // ── Получить свой ник из стора ───────────────────────────────────────────────
+    function _sccGetMyNick() {
+        try {
+            var n = window.App && window.App.$store &&
+                    window.App.$store.getters &&
+                    window.App.$store.getters['player/nickName'];
+            if (n && n !== 'Name_Surname') return n;
+        } catch (e) {}
+        return null;
+    }
+
+    // ── Построить список для таблицы ────────────────────────────────────────────
+    // Если задан _sccMyCount — вставляем себя в нужную позицию после сортировки.
+    function _sccBuildList() {
+        var list = SCC_BASE.map(function (e) { return { nick: e.nick, count: e.count }; });
+        if (_sccMyCount !== null) {
+            var myNick = _sccGetMyNick();
+            if (myNick) {
+                // Убираем свой ник, если случайно уже есть в базе
+                list = list.filter(function (e) { return e.nick !== myNick; });
+                list.push({ nick: myNick, count: _sccMyCount });
+                // Сортируем по убыванию (как на сервере)
+                list.sort(function (a, b) { return b.count - a.count; });
+            }
+        }
+        return list;
+    }
+
+    // ── Показать диалог выбора периода ──────────────────────────────────────────
+    function _sccShowPeriod() {
+        _sccOpen = true;
+        var content = SCC_PERIODS.map(function (p, i) {
+            return (i + 1) + '. ' + p;
+        }).join('<n>');
+        // style 2 = LIST, кнопки "Далее" / "Назад" — точно как на сервере
+        window.addDialogInQueue(
+            '[' + SCC_PERIOD_DLG + ',2,"ПРАВО | Арестованные преступники","","Далее","Назад",0,0]',
+            content,
+            0
+        );
+        console.log('[SCC] Диалог выбора периода открыт');
+    }
+
+    // ── Показать таблицу арестованных ───────────────────────────────────────────
+    function _sccShowTable() {
+        var list = _sccBuildList();
+        // style 5 = TABLIST_HEADERS
+        // Первая строка — заголовки (разделитель колонок <t>), дальше строки данных (<n>)
+        // Одна кнопка "Назад" — как в оригинале
+        var content = 'Имя<t>Количество';
+        list.forEach(function (e, i) {
+            content += '<n>' + (i + 1) + '. ' + e.nick + '<t>' + e.count;
+        });
+        window.addDialogInQueue(
+            '[' + SCC_TABLE_DLG + ',5,"Количество арестованных преступников","","Назад","",0,0]',
+            content,
+            0
+        );
+        console.log('[SCC] Таблица арестованных открыта (своё число: ' + _sccMyCount + ')');
+    }
+
+    // ── Перехват sendChatInput ───────────────────────────────────────────────────
+    var _sccPrevChat = window.sendChatInput;
+    window.sendChatInput = function (text) {
+        if (text && /^\/scc(\s|$)/i.test(text.trim())) {
+            var parts = text.trim().split(/\s+/);
+            var rawN  = parseInt(parts[1], 10);
+            _sccMyCount = (!isNaN(rawN) && rawN >= 0) ? rawN : null;
+            _sccShowPeriod();
+            console.log('[SCC] Команда: ' + text.trim() + ' | своё число: ' + _sccMyCount);
+            return;
+        }
+        return _sccPrevChat.apply(this, arguments);
+    };
+    sendChatInput = window.sendChatInput; // синхронизируем локальный alias
+
+    // ── Перехват sendClientEvent (OnDialogResponse для наших ID) ────────────────
+    var _sccPrevClientEvent = window.sendClientEvent;
+    window.sendClientEvent = function (event) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        if (args[0] === 'OnDialogResponse' && _sccOpen) {
+            var dlgId    = parseInt(args[1], 10);
+            var response = parseInt(args[2], 10);
+            // 1 = левая кнопка (Далее / Назад), 0 = правая кнопка / ESC
+
+            if (dlgId === SCC_PERIOD_DLG) {
+                if (response === 1) {
+                    // "Далее" — показать таблицу
+                    setTimeout(_sccShowTable, 50);
+                } else {
+                    // "Назад" / ESC — закрываем сессию
+                    _sccOpen = false;
+                    console.log('[SCC] Закрыт (выбор периода отменён)');
+                }
+                return; // не передаём в движок
+            }
+
+            if (dlgId === SCC_TABLE_DLG) {
+                // Кнопка "Назад" (response=1) или ESC (response=0) — оба ведут назад к периоду
+                setTimeout(_sccShowPeriod, 50);
+                return; // не передаём в движок
+            }
+        }
+        return _sccPrevClientEvent.apply(this, arguments);
+    };
+    sendClientEvent = window.sendClientEvent;
+
+    // ── Перехват sendClientEventHandle (A/D навигация в таблице) ────────────────
+    // Движок шлёт OnMultiDialogClickNavigButton ПЕРЕД OnDialogResponse при нажатии A/D.
+    // direction: 0 = A (назад), 1 = D (вперёд)
+    var _sccPrevEventHandle = window.sendClientEventHandle;
+    window.sendClientEventHandle = function (event) {
+        var args = Array.prototype.slice.call(arguments, 1);
+        if (args[0] === 'OnMultiDialogClickNavigButton' && _sccOpen) {
+            var direction = parseInt(args[1], 10);
+            var dlgId     = parseInt(args[2], 10);
+
+            if (dlgId === SCC_TABLE_DLG) {
+                if (direction === 0) {
+                    // A — назад к выбору периода
+                    console.log('[SCC] A-навигация → возврат к выбору периода');
+                    setTimeout(_sccShowPeriod, 50);
+                } else {
+                    // D — единственная страница, листать некуда; показываем ту же таблицу
+                    console.log('[SCC] D-навигация → одна страница, перезагрузка таблицы');
+                    setTimeout(_sccShowTable, 50);
+                }
+                return; // блокируем стандартный обработчик
+            }
+        }
+        return _sccPrevEventHandle.apply(this, arguments);
+    };
+
+    console.log('[SCC] ✅ Загружен | /scc — таблица арестованных | /scc <число> — со своим ником');
+
+})();
+// ==================== END /SCC ====================
+// ==================== START PRAVO AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
+(function () {
+'use strict';
+if (window.__pravoAutofillLoaded__) return;
+window.__pravoAutofillLoaded__ = true;
+
+// ── SVG-иконки (вместо эмодзи — в CEF они не рендерятся) ────────────────────
+// Штриховые, «чернильные»: round-cap/round-join = мягкий рукописный вид.
+// Цвет наследуется через currentColor — управляется CSS родителя.
+var _SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"';
+var ICONS = {
+    // карандаш (поиск)
+    pencil: _SVG + ' stroke-width="1.8">' +
+        '<path d="M16.9 3.5a2.45 2.45 0 0 1 3.5 3.5L8.1 19.3l-4.7 1.3 1.3-4.7Z"/>' +
+        '<path d="m14.7 5.7 3.5 3.5"/>' +
+        '<path d="m5.6 18.4 2.5-2.5"/>' +
+        '</svg>',
+    // крестик (очистить поиск)
+    cross: _SVG + ' stroke-width="2.6">' +
+        '<path d="M6.4 6.4l11.2 11.2M17.6 6.4L6.4 17.6"/>' +
+        '</svg>',
+    // шеврон вниз (спойлер главы, как spoiler-arrow.svg книги)
+    arrow: _SVG + ' stroke-width="2.4">' +
+        '<path d="M5.4 8.8l6.6 6.4 6.6-6.4"/>' +
+        '</svg>'
+};
+
+// ── Статьи УК ПРАВО (ПОЛНЫЕ ФОРМУЛИРОВКИ) ──────────────────────────────────────
+var CHAPTERS = [
+    {
+        title: 'Глава 1. Преступления с причинением вреда здоровью',
+        articles: [
+            { text: 'В случае драки между двумя заключёнными, два заключенных получат по 20 минут к сроку.', minutes: 20 },
+            { text: 'За попытку нападения на сотрудника ПРАВО, заключённому будет добавлено 20 минут к сроку.', minutes: 20 },
+            { text: 'При нападении на сотрудника ПРАВО через клетку/двери, заключённому будет добавлено 20 минут к сроку.', minutes: 20 },
+            { text: 'При совершении убийства другого заключённого, заключённому будет добавлено 40 минут к сроку.', minutes: 40 },
+            { text: 'При совершении вооруженного нападения на сотрудника ПРАВО, заключённому будет добавлено 60 минут к сроку.', minutes: 60 },
+            { text: 'За преступление в виде убийства сотрудника ПРАВО, заключённому будет добавлено 60 минут к сроку.', minutes: 60 },
+            { text: 'В случае убийства адвоката или любого гражданского лица, заключённому будет добавлено 60 минут к сроку.', minutes: 60 }
+        ]
+    },
+    {
+        title: 'Глава 2. Непристойное поведение / Оскорбления / Нецензурная лексика / Неадекватное поведение',
+        articles: [
+            { text: 'За использование нецензурной лексики, заключенному добавляется 5 минут к сроку.', minutes: 5 },
+            { text: 'За оскорбление других заключенных в особо грубой форме, заключенному добавляется 25 минут к сроку.', minutes: 25 },
+            { text: 'За оскорбление сотрудников тюрьмы, заключенному добавляется 30 минут к сроку.', minutes: 30 },
+            { text: 'За оскорбление посетителей или адвокатов находящихся на территории тюрьмы, заключенному добавляется 30 минут к сроку.', minutes: 30 },
+            { text: 'В случае неподчинении сотруднику ПРАВО, заключённому будет добавлено 20 минут к сроку.', minutes: 20 }
+        ]
+    },
+    {
+        title: 'Глава 3. Бунт / Побег',
+        articles: [
+            { text: 'При попытке организации бунта, заключённому будет добавлено 20 минут к сроку.', minutes: 20 },
+            { text: 'За попытку побега, заключенному добавляется 25 минут к сроку.', minutes: 25 },
+            { text: 'За попытку побега, в следствии чего сбежал другой заключённый, заключенному добавляется 25 минут к сроку.', minutes: 25 }
+        ]
+    },
+    {
+        title: 'Глава 4. Попрошайничество',
+        articles: [
+            { text: 'За просьбы заключенного вывести его из камеры не по графику, заключенному добавляется 10 минут к сроку.', minutes: 10 },
+            { text: 'За просьбы заключенного снизить ему срок, заключенному добавляется 10 минут к сроку. (если игрок попросил 2 и более раза)', minutes: 10 }
+        ]
+    },
+    {
+        title: 'Глава 5. Запрещенные вещества / Оружие',
+        articles: [
+            { text: 'При употреблении или ношении наркотических веществ, заключённому будет добавлено 20 минут к сроку.', minutes: 20 },
+            { text: 'При ношении любого вида оружия, патронов, заключённому будет добавлено 20 минут к сроку.', minutes: 20 },
+            { text: 'За хранение или использование отмычек, заключённому будет добавлено 20 минут к сроку.', minutes: 20 }
+        ]
+    }
+];
+
+var MAX_REASON = 32;
+var MAX_SECS   = 3 * 60 * 60; // 3:00
+var MIN_SECS   = 1 * 60;      // 0:01
+
+var cachedProxy       = null;
+var selectedArticles  = [];
+var baseJailTimeLeft  = null;
+var leafEl            = null;
+var footerTotalEl     = null;
+var footerReasonEl    = null;
+var chapterCounterEls = [];
+var searchInputEl     = null;
+var searchClearEl     = null;
+var emptyEl           = null;
+var _leafVisible      = false;
+
+// ── Переменные поиска заключённых (BASE PAGE) ─────────────────────────────────
+var searchLeafEl       = null;
+var searchLeafInputEl  = null;
+var searchLeafClearEl  = null;
+var _searchLeafVisible = false;
+var _prisonerQuery     = '';
+
+// ── Проверка открыт ли JailBook ─────────────────────────────────────────────
+function isJailBookOpen() {
+    try {
+        if (typeof window.getInterfaceStatus === 'function') {
+            return !!window.getInterfaceStatus('JailBook');
+        }
+    } catch (e) {}
+    return !!document.querySelector('.jail-book');
+}
+
+// ── Открыта ли страница «Изменить срок» ─────────────────────────────────────
+function isChangeTimePage() {
+    return !!document.querySelector('.jail-book-personal-change-time');
+}
+
+// ── Открыта ли страница списка заключённых (BASE) ────────────────────────────
+function isBasePage() {
+    return !!document.querySelector('.jail-book-base') &&
+           !document.querySelector('.jail-book-personal');
+}
+
+// ── Валидация Vue-прокси компонента PersonalChangeTime ─────────────────────
+function isValidProxy(proxy) {
+    try {
+        if (!proxy) return false;
+        if (typeof proxy.jailTimeLeft !== 'number') return false;
+        if (!('reason' in proxy)) return false;
+        if (proxy.$ && proxy.$.isUnmounted) return false;
+        return true;
+    } catch (e) { return false; }
+}
+
+// ── Поиск proxy через vnode-дерево ──────────────────────────────────────────
+function findPersonalChangeTimeProxy() {
+    var jailBook = null;
+    try {
+        if (typeof window.interface === 'function') {
+            jailBook = window.interface('JailBook');
+        }
+    } catch (e) { jailBook = null; }
+    if (!jailBook || !jailBook.$ || !jailBook.$.subTree) return null;
+    var seen = new WeakSet();
+    return searchVnodeTree(jailBook.$.subTree, seen, 0);
+}
+
+function searchVnodeTree(vnode, seen, depth) {
+    if (!vnode || typeof vnode !== 'object' || depth > 200) return null;
+    if (seen.has(vnode)) return null;
+    seen.add(vnode);
+    if (vnode.component) {
+        var comp = vnode.component;
+        if (!seen.has(comp)) {
+            seen.add(comp);
+            try {
+                var proxy = comp.proxy;
+                if (isValidProxy(proxy)) return proxy;
+            } catch (e) {}
+            if (comp.subTree) {
+                var found = searchVnodeTree(comp.subTree, seen, depth + 1);
+                if (found) return found;
+            }
+        }
+    }
+    if (Array.isArray(vnode.children)) {
+        for (var i = 0; i < vnode.children.length; i++) {
+            var child = vnode.children[i];
+            if (child && typeof child === 'object') {
+                var foundChild = searchVnodeTree(child, seen, depth + 1);
+                if (foundChild) return foundChild;
+            }
+        }
+    }
+    return null;
+}
+
+function getProxy() {
+    if (isValidProxy(cachedProxy)) return cachedProxy;
+    cachedProxy = findPersonalChangeTimeProxy();
+    return cachedProxy;
+}
+
+// ── Компактная причина: "1,3 КПП" / "1,3 2,1 КТП" ────────────────────────────
+function buildReason(selected) {
+    if (selected.length === 0) return '';
+    var parts = selected.map(function (s) {
+        return (s.chapterIdx + 1) + ',' + (s.articleIdx + 1);
+    });
+    var suffix = ' КТП';
+    var reason = parts.join(' ') + suffix;
+    if (reason.length > MAX_REASON) reason = reason.slice(0, MAX_REASON);
+    return reason;
+}
+
+// ── Применить выборку к прокси ───────────────────────────────────────────────
+function applySelection() {
+    var proxy = getProxy();
+    if (!proxy) {
+        console.warn('[PRAVO-AutoFill] PersonalChangeTime proxy не найден');
+        return;
+    }
+    var base = (isFinite(baseJailTimeLeft) && baseJailTimeLeft >= 0) ? baseJailTimeLeft : 0;
+    var totalMinutes = selectedArticles.reduce(function (sum, s) { return sum + s.minutes; }, 0);
+    var newTime = base + totalMinutes * 60;
+    if (newTime > MAX_SECS) newTime = MAX_SECS;
+    if (newTime < MIN_SECS) newTime = MIN_SECS;
+    try {
+        proxy.jailTimeLeft = newTime;
+        proxy.reason = buildReason(selectedArticles);
+    } catch (e) {
+        console.warn('[PRAVO-AutoFill] Не удалось применить статью', e);
+    }
+}
+
+// ── Toggle статьи ────────────────────────────────────────────────────────────
+function toggleArticle(chapterIdx, articleIdx, minutes, btn) {
+    var existingIdx = -1;
+    for (var i = 0; i < selectedArticles.length; i++) {
+        if (selectedArticles[i].chapterIdx === chapterIdx &&
+            selectedArticles[i].articleIdx === articleIdx) {
+            existingIdx = i;
+            break;
+        }
+    }
+    if (existingIdx !== -1) {
+        selectedArticles.splice(existingIdx, 1);
+        btn.classList.remove('pravo-leaf__article--selected');
+    } else {
+        selectedArticles.push({ chapterIdx: chapterIdx, articleIdx: articleIdx, minutes: minutes });
+        btn.classList.add('pravo-leaf__article--selected');
+    }
+    applySelection();
+}
+
+// ── ПОИСК: фильтрация статей по тексту ───────────────────────────────────────
+function applySearch(query) {
+    if (!leafEl) return;
+    query = (query || '').toLowerCase().trim();
+    var chapterEls = leafEl.querySelectorAll('.pravo-leaf__chapter');
+    var totalMatches = 0;
+
+    CHAPTERS.forEach(function (chapter, ci) {
+        var chEl = chapterEls[ci];
+        if (!chEl) return;
+        var btns = chEl.querySelectorAll('.pravo-leaf__article');
+        var matches = 0;
+        chapter.articles.forEach(function (art, ai) {
+            var haystack = ('№' + (ai + 1) + ' ' + art.text).toLowerCase();
+            var match = !query || haystack.indexOf(query) !== -1;
+            if (btns[ai]) btns[ai].style.display = match ? '' : 'none';
+            if (match) matches++;
+        });
+
+        if (!query) {
+            // Пустой запрос: все главы видны, все свёрнуты
+            chEl.style.display = '';
+            chEl.classList.remove('pravo-leaf__chapter--open');
+        } else if (matches > 0) {
+            // Есть совпадения: глава видна и раскрыта
+            chEl.style.display = '';
+            chEl.classList.add('pravo-leaf__chapter--open');
+            totalMatches += matches;
+        } else {
+            chEl.style.display = 'none';
+        }
+    });
+
+    if (emptyEl) {
+        emptyEl.style.display = (query && totalMatches === 0) ? '' : 'none';
+    }
+    if (searchClearEl) {
+        searchClearEl.classList.toggle('pravo-leaf__search-clear--visible', !!query);
+    }
+}
+
+function clearSearch() {
+    if (searchInputEl) searchInputEl.value = '';
+    applySearch('');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── ПОИСК ЗАКЛЮЧЁННЫХ (BASE PAGE) ────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Фильтрация строк таблицы по имени заключённого
+function applyPrisonerSearch(query) {
+    _prisonerQuery = (query || '').toLowerCase().trim();
+    var firstRows  = document.querySelectorAll('.jail-book-base__table_first .jail-book-table__row');
+    var secondRows = document.querySelectorAll('.jail-book-base__table_second .jail-book-table__row');
+    firstRows.forEach(function (row, i) {
+        var cell = row.querySelector('.jail-book-table__cell');
+        var text = cell ? cell.textContent.toLowerCase() : '';
+        var match = !_prisonerQuery || text.indexOf(_prisonerQuery) !== -1;
+        row.style.display = match ? '' : 'none';
+        if (secondRows[i]) secondRows[i].style.display = match ? '' : 'none';
+    });
+    if (searchLeafClearEl) {
+        searchLeafClearEl.classList.toggle('pravo-leaf__search-clear--visible', !!_prisonerQuery);
+    }
+}
+
+function clearPrisonerSearch() {
+    _prisonerQuery = '';
+    if (searchLeafInputEl) searchLeafInputEl.value = '';
+    applyPrisonerSearch('');
+}
+
+// Создание листика поиска
+function buildSearchLeaf() {
+    if (searchLeafEl) return searchLeafEl;
+    injectStyles();
+
+    // Отдельный стиль для левого листика (зеркальный наклон)
+    var old = document.getElementById('pravo-search-leaf-style');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var st = document.createElement('style');
+    st.id = 'pravo-search-leaf-style';
+    st.textContent = '.pravo-search-leaf{transform:rotate(-1.4deg);}';
+    document.head.appendChild(st);
+
+    var el = document.createElement('div');
+    el.className = 'pravo-leaf pravo-search-leaf';
+
+    var clip = document.createElement('div');
+    clip.className = 'pravo-leaf__clip';
+    el.appendChild(clip);
+
+    // шапка
+    var header = document.createElement('div');
+    header.className = 'pravo-leaf__header';
+    var title = document.createElement('div');
+    title.className = 'pravo-leaf__title';
+    title.textContent = 'Список заключённых';
+    var subtitle = document.createElement('div');
+    subtitle.className = 'pravo-leaf__subtitle';
+    subtitle.textContent = 'Поиск по имени';
+    header.appendChild(title);
+    header.appendChild(subtitle);
+    el.appendChild(header);
+
+    // поле поиска (тот же стиль pravo-leaf__search)
+    var searchWrap = document.createElement('div');
+    searchWrap.className = 'pravo-leaf__search';
+
+    var searchIcon = document.createElement('div');
+    searchIcon.className = 'pravo-leaf__search-icon';
+    searchIcon.innerHTML = ICONS.pencil;
+
+    searchLeafInputEl = document.createElement('input');
+    searchLeafInputEl.type = 'text';
+    searchLeafInputEl.className = 'pravo-leaf__search-input';
+    searchLeafInputEl.placeholder = 'Имя заключённого...';
+    searchLeafInputEl.setAttribute('maxlength', '32');
+
+    searchLeafClearEl = document.createElement('div');
+    searchLeafClearEl.className = 'pravo-leaf__search-clear';
+    searchLeafClearEl.innerHTML = ICONS.cross;
+    searchLeafClearEl.title = 'Очистить поиск';
+    searchLeafClearEl.addEventListener('click', function () {
+        clearPrisonerSearch();
+        if (searchLeafInputEl) searchLeafInputEl.focus();
+    });
+
+    searchLeafInputEl.addEventListener('focus', function () {
+        try { window.setInputFocus && window.setInputFocus(true); } catch (e) {}
+    });
+    searchLeafInputEl.addEventListener('blur', function () {
+        try { window.setInputFocus && window.setInputFocus(false); } catch (e) {}
+    });
+    searchLeafInputEl.addEventListener('keydown', function (e) {
+        e.stopPropagation();
+        if (e.key === 'Escape') { e.preventDefault(); clearPrisonerSearch(); }
+    });
+    searchLeafInputEl.addEventListener('keyup', function (e) { e.stopPropagation(); });
+    searchLeafInputEl.addEventListener('input', function () {
+        applyPrisonerSearch(searchLeafInputEl.value);
+    });
+
+    searchWrap.appendChild(searchIcon);
+    searchWrap.appendChild(searchLeafInputEl);
+    searchWrap.appendChild(searchLeafClearEl);
+    el.appendChild(searchWrap);
+
+    // подсказка в теле листика
+    var body = document.createElement('div');
+    body.className = 'pravo-leaf__body';
+    var hint = document.createElement('div');
+    hint.style.cssText = [
+        'font-family:"Caveat",var(--fallback-font);',
+        'font-size:0.8vw;font-weight:700;',
+        'color:rgba(1,1,6,0.4);',
+        'line-height:1.5;',
+        'text-align:center;',
+        'padding:0.3vw 0;',
+        'transform:rotate(-0.8deg);',
+    ].join('');
+    hint.textContent = 'Поиск применяется к текущей странице';
+    body.appendChild(hint);
+    el.appendChild(body);
+
+    document.body.appendChild(el);
+    searchLeafEl = el;
+    return el;
+}
+
+function positionSearchLeaf() {
+    if (!searchLeafEl) return;
+    var book = document.querySelector('.jail-book-book');
+    if (!book) return;
+    var rect  = book.getBoundingClientRect();
+    var gap   = window.innerWidth * 0.012;
+    var leafW = searchLeafEl.offsetWidth;
+    var leafH = searchLeafEl.offsetHeight;
+    // листик слева от книги (зеркально автофиллу)
+    var left = rect.left - gap - leafW;
+    if (left < 8) left = 8;
+    var top = rect.top + rect.height * 0.06;
+    if (top + leafH > window.innerHeight - 8) {
+        top = Math.max(8, window.innerHeight - leafH - 8);
+    }
+    searchLeafEl.style.left = left + 'px';
+    searchLeafEl.style.top  = top  + 'px';
+}
+
+function showSearchLeaf() {
+    if (_searchLeafVisible) return;
+    buildSearchLeaf();
+    clearPrisonerSearch();
+    _searchLeafVisible = true;
+    requestAnimationFrame(function() {
+        positionSearchLeaf();
+        searchLeafEl.classList.add('pravo-leaf--visible');
+    });
+}
+
+function hideSearchLeaf() {
+    if (!_searchLeafVisible || !searchLeafEl) return;
+    searchLeafEl.classList.remove('pravo-leaf--visible');
+    _searchLeafVisible = false;
+    // восстановить скрытые строки
+    document.querySelectorAll(
+        '.jail-book-base__table_first .jail-book-table__row,' +
+        '.jail-book-base__table_second .jail-book-table__row'
+    ).forEach(function (r) { r.style.display = ''; });
+    try {
+        if (searchLeafInputEl && document.activeElement === searchLeafInputEl) {
+            searchLeafInputEl.blur();
+        }
+    } catch (e) {}
+}
+
+// ── Стили листика ────────────────────────────────────────────────────────────
+function injectStyles() {
+    var old = document.getElementById('pravo-autofill-style');
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    var style = document.createElement('style');
+    style.id = 'pravo-autofill-style';
+    style.textContent = [
+        /* ═══ Листик справа от книги ═══ */
+        '.pravo-leaf{',
+        '  position:fixed; z-index:99999;',
+        '  width:15.5vw; min-width:230px; max-height:42vw;',
+        '  display:flex; flex-direction:column;',
+        '  background:linear-gradient(168deg,#f7f2e3 0%,#f0e8d0 45%,#e9dfc4 100%);',
+        '  border-radius:0.3vw 0.3vw 0.6vw 0.3vw;',
+        '  box-shadow:0.15vw 0.25vw 0.8vw rgba(1,1,6,0.35),0 0.05vw 0.2vw rgba(1,1,6,0.18),inset 0 0 2.5vw rgba(1,1,6,0.04);',
+        '  transform:rotate(1.6deg); transform-origin:top center;',
+        '  font-family:"Open Sans",var(--fallback-font);',
+        '  overflow:hidden; opacity:0; pointer-events:none;',
+        '  visibility:hidden;',
+        '  transition:opacity 0.25s ease, visibility 0s linear 0.25s;',
+        '}',
+        '.pravo-leaf--visible{visibility:visible; opacity:1; pointer-events:auto; transition:opacity 0.25s ease, visibility 0s;}',
+
+        /* скрепка */
+        '.pravo-leaf__clip{',
+        '  position:absolute; top:-0.35vw; left:50%;',
+        '  transform:translateX(-50%) rotate(-1deg);',
+        '  width:3.2vw; height:0.75vw;',
+        '  background:linear-gradient(180deg,#c9b98a,#b5a272);',
+        '  border-radius:0.15vw;',
+        '  box-shadow:0 0.06vw 0.15vw rgba(1,1,6,0.25); z-index:2;',
+        '}',
+
+        /* шапка */
+        '.pravo-leaf__header{padding:1vw 0.9vw 0.5vw; text-align:center; border-bottom:0.08vw solid rgba(1,1,6,0.12);}',
+        '.pravo-leaf__title{font-family:"Caveat",var(--fallback-font); font-size:1.3vw; font-weight:700; color:#010106; line-height:1.1;}',
+        '.pravo-leaf__subtitle{font-size:0.52vw; color:rgba(1,1,6,0.45); text-transform:uppercase; letter-spacing:0.06vw; margin-top:0.12vw;}',
+        '.pravo-leaf__header::after{content:""; display:block; margin:0.4vw auto 0; width:60%; height:0.09vw; background:#df313a; border-radius:0.05vw; opacity:0.7;}',
+
+        /* ═══ поиск «карандашом» (SVG-иконки) ═══ */
+        '.pravo-leaf__search{',
+        '  display:flex; align-items:center; gap:0.3vw;',
+        '  padding:0.32vw 0.8vw 0.26vw;',
+        '  border-bottom:0.05vw dashed rgba(1,1,6,0.25);',
+        '}',
+        '.pravo-leaf__search-icon{',
+        '  flex:0 0 auto; display:flex; align-items:center;',
+        '  color:rgba(1,1,6,0.5);',
+        '  transform:rotate(-12deg);',
+        '  margin-top:-0.05vw;',
+        '}',
+        '.pravo-leaf__search-icon svg{width:0.85vw; height:0.85vw; display:block;}',
+        '.pravo-leaf__search-input{',
+        '  flex:1 1 auto; min-width:0;',
+        '  background:transparent; border:none; outline:none;',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:0.92vw; font-weight:700; color:#010106;',
+        '  caret-color:#df313a;',
+        '  border-bottom:0.04vw dashed rgba(1,1,6,0.18);',
+        '  padding:0 0 0.06vw;',
+        '}',
+        '.pravo-leaf__search-input::placeholder{color:rgba(1,1,6,0.35); font-style:italic;}',
+        '.pravo-leaf__search-input:focus{border-bottom-color:#df313a;}',
+        '.pravo-leaf__search-clear{',
+        '  flex:0 0 auto; display:none; align-items:center; justify-content:center;',
+        '  cursor:pointer; color:rgba(1,1,6,0.4);',
+        '  padding:0.1vw; border-radius:50%;',
+        '  transition:color 0.15s;',
+        '}',
+        '.pravo-leaf__search-clear--visible{display:flex;}',
+        '.pravo-leaf__search-clear:hover{color:#df313a;}',
+        '.pravo-leaf__search-clear svg{width:0.55vw; height:0.55vw; display:block;}',
+
+        /* тело со спойлерами глав */
+        '.pravo-leaf__body{flex:1 1 auto; overflow-y:auto; overflow-x:hidden; padding:0.4vw 0.55vw 0.6vw; min-height:0;}',
+        '.pravo-leaf__body::-webkit-scrollbar{width:0.22vw;}',
+        '.pravo-leaf__body::-webkit-scrollbar-track{background:transparent;}',
+        '.pravo-leaf__body::-webkit-scrollbar-thumb{background:rgba(1,1,6,0.22); border-radius:0.12vw;}',
+
+        /* «ничего не найдено» */
+        '.pravo-leaf__empty{',
+        '  display:none; padding:1vw 0.5vw; text-align:center;',
+        '  font-family:"Caveat",var(--fallback-font);',
+        '  font-size:0.95vw; font-weight:700;',
+        '  color:rgba(1,1,6,0.4);',
+        '  transform:rotate(-1.2deg);',
+        '}',
+
+        /* глава-спойлер */
+        '.pravo-leaf__chapter{margin-bottom:0.35vw; border-bottom:0.04vw dashed rgba(1,1,6,0.15);}',
+        '.pravo-leaf__chapter:last-child{margin-bottom:0; border-bottom:none;}',
+        '.pravo-leaf__chapter-head{display:flex; align-items:flex-start; gap:0.3vw; padding:0.28vw 0.2vw; cursor:pointer; position:relative;}',
+        '.pravo-leaf__chapter-head:hover .pravo-leaf__chapter-title{color:#df313a;}',
+        '.pravo-leaf__chapter-title{flex:1 1 auto; font-family:"Caveat",var(--fallback-font); font-size:0.95vw; font-weight:700; color:#010106; line-height:1.2; transition:color 0.15s;}',
+        /* красный счётчик — как у спойлеров книги */
+        '.pravo-leaf__chapter-counter{',
+        '  flex:0 0 auto; min-width:0.95vw; height:0.95vw; padding:0 0.15vw; box-sizing:border-box;',
+        '  display:none; align-items:center; justify-content:center;',
+        '  background:#df313a; border-radius:50%; color:#fff;',
+        '  font-family:"Caveat",var(--fallback-font); font-size:0.7vw; font-weight:700;',
+        '  margin-top:0.05vw;',
+        '}',
+        '.pravo-leaf__chapter-counter--visible{display:flex;}',
+        /* SVG-шеврон вместо ▼ */
+        '.pravo-leaf__chapter-arrow{',
+        '  flex:0 0 auto; display:flex; align-items:center; justify-content:center;',
+        '  color:#01010699; margin-top:0.12vw;',
+        '  transform:rotate(-90deg); transition:transform 0.2s;',
+        '}',
+        '.pravo-leaf__chapter-arrow svg{width:0.6vw; height:0.6vw; display:block;}',
+        '.pravo-leaf__chapter--open .pravo-leaf__chapter-arrow{transform:rotate(0deg);}',
+        '.pravo-leaf__chapter-body{display:none; padding:0.1vw 0 0.3vw;}',
+        '.pravo-leaf__chapter--open .pravo-leaf__chapter-body{display:block;}',
+
+        /* статья — полный текст */
+        '.pravo-leaf__article{',
+        '  display:flex; align-items:flex-start; gap:0.3vw;',
+        '  width:100%; box-sizing:border-box;',
+        '  padding:0.24vw 0.4vw; margin-bottom:0.14vw;',
+        '  background:transparent; border:0.05vw solid transparent; border-radius:0.15vw;',
+        '  color:#010106; font-family:"Caveat",var(--fallback-font);',
+        '  font-size:0.8vw; font-weight:700; line-height:1.25;',
+        '  cursor:pointer; text-align:left; white-space:normal;',
+        '  transition:background 0.15s,color 0.15s,border-color 0.15s;',
+        '  position:relative;',
+        '}',
+        '.pravo-leaf__article:hover{background:rgba(1,1,6,0.07); border-color:rgba(1,1,6,0.12);}',
+        '.pravo-leaf__article:active{background:rgba(223,49,58,0.12);}',
+        '.pravo-leaf__article-num{flex:0 0 auto; color:rgba(1,1,6,0.55);}',
+        '.pravo-leaf__article-text{flex:1 1 auto;}',
+        '.pravo-leaf__article-min{',
+        '  flex:0 0 auto; font-family:"Open Sans",var(--fallback-font);',
+        '  font-size:0.5vw; font-weight:700; color:#df313a;',
+        '  border:0.05vw solid rgba(223,49,58,0.4); border-radius:0.1vw;',
+        '  padding:0.06vw 0.22vw; margin-top:0.08vw; white-space:nowrap;',
+        '}',
+        '.pravo-leaf__article--selected{background:rgba(223,49,58,0.1); border-color:#df313a; padding-left:0.8vw;}',
+        '.pravo-leaf__article--selected:hover{background:rgba(223,49,58,0.18);}',
+        '.pravo-leaf__article--selected .pravo-leaf__article-num{color:#df313a;}',
+        /* SVG-галочка вместо ✓ (data-URI, цвет #df313a зашит) */
+        '.pravo-leaf__article--selected::before{',
+        '  content:""; position:absolute; left:0.12vw; top:0.3vw;',
+        '  width:0.55vw; height:0.55vw;',
+        '  background-image:url(\'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23df313a" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.6l5.4 5.4L20 6.4"/></svg>\');',
+        '  background-size:contain; background-repeat:no-repeat; background-position:center;',
+        '}',
+
+        /* итог */
+        '.pravo-leaf__footer{padding:0.4vw 0.7vw 0.55vw; border-top:0.06vw solid rgba(1,1,6,0.1); text-align:center;}',
+        '.pravo-leaf__total{font-family:"Caveat",var(--fallback-font); font-size:0.95vw; font-weight:700; color:#010106;}',
+        '.pravo-leaf__total span{color:#df313a;}',
+        '.pravo-leaf__reason{font-size:0.55vw; color:rgba(1,1,6,0.55); margin-top:0.12vw; word-break:break-all;}',
+
+        /* мобильная адаптация */
+        '@media (platform:mobile){',
+        '  .pravo-leaf{width:24vw; min-width:200px; max-height:48vw; transform:rotate(1.2deg);}',
+        '  .pravo-leaf__clip{width:4.5vw; height:1vw; top:-0.45vw;}',
+        '  .pravo-leaf__title{font-size:1.8vw;}',
+        '  .pravo-leaf__subtitle{font-size:0.7vw;}',
+        '  .pravo-leaf__search-icon svg{width:1.15vw; height:1.15vw;}',
+        '  .pravo-leaf__search-input{font-size:1.2vw;}',
+        '  .pravo-leaf__search-clear svg{width:0.8vw; height:0.8vw;}',
+        '  .pravo-leaf__empty{font-size:1.25vw;}',
+        '  .pravo-leaf__chapter-title{font-size:1.3vw;}',
+        '  .pravo-leaf__chapter-counter{min-width:1.3vw; height:1.3vw; font-size:0.95vw;}',
+        '  .pravo-leaf__chapter-arrow svg{width:0.85vw; height:0.85vw;}',
+        '  .pravo-leaf__article{font-size:1.1vw; padding:0.3vw 0.5vw;}',
+        '  .pravo-leaf__article--selected{padding-left:1.1vw;}',
+        '  .pravo-leaf__article--selected::before{width:0.8vw; height:0.8vw; top:0.38vw;}',
+        '  .pravo-leaf__article-min{font-size:0.7vw;}',
+        '  .pravo-leaf__total{font-size:1.25vw;}',
+        '  .pravo-leaf__reason{font-size:0.75vw;}',
+        '}',
+    ].join('');
+    document.head.appendChild(style);
+}
+
+// ── Создание листика ─────────────────────────────────────────────────────────
+function buildLeaf() {
+    if (leafEl) return leafEl;
+    injectStyles();
+
+    var el = document.createElement('div');
+    el.className = 'pravo-leaf';
+
+    var clip = document.createElement('div');
+    clip.className = 'pravo-leaf__clip';
+    el.appendChild(clip);
+
+    // ── шапка ──
+    var header = document.createElement('div');
+    header.className = 'pravo-leaf__header';
+    var title = document.createElement('div');
+    title.className = 'pravo-leaf__title';
+    title.textContent = 'КТП by konst';
+    var subtitle = document.createElement('div');
+    subtitle.className = 'pravo-leaf__subtitle';
+    subtitle.textContent = 'Статьи для изменения срока';
+    header.appendChild(title);
+    header.appendChild(subtitle);
+    el.appendChild(header);
+
+    // ── поиск «карандашом» (SVG) ──
+    var searchWrap = document.createElement('div');
+    searchWrap.className = 'pravo-leaf__search';
+
+    var searchIcon = document.createElement('div');
+    searchIcon.className = 'pravo-leaf__search-icon';
+    searchIcon.innerHTML = ICONS.pencil;   // SVG-карандаш вместо ✎
+
+    searchInputEl = document.createElement('input');
+    searchInputEl.type = 'text';
+    searchInputEl.className = 'pravo-leaf__search-input';
+    searchInputEl.placeholder = 'Поиск статьи...';
+    searchInputEl.setAttribute('maxlength', '40');
+
+    searchClearEl = document.createElement('div');
+    searchClearEl.className = 'pravo-leaf__search-clear';
+    searchClearEl.innerHTML = ICONS.cross; // SVG-крестик вместо ✕
+    searchClearEl.title = 'Очистить поиск';
+    searchClearEl.addEventListener('click', function () {
+        clearSearch();
+        if (searchInputEl) searchInputEl.focus();
+    });
+
+    // Клавиатура: изолируем от игровых хоткеев
+    searchInputEl.addEventListener('focus', function () {
+        try { window.setInputFocus && window.setInputFocus(true); } catch (e) {}
+    });
+    searchInputEl.addEventListener('blur', function () {
+        try { window.setInputFocus && window.setInputFocus(false); } catch (e) {}
+    });
+    searchInputEl.addEventListener('keydown', function (e) {
+        e.stopPropagation();
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            clearSearch();
+        }
+    });
+    searchInputEl.addEventListener('keyup', function (e) {
+        e.stopPropagation();
+    });
+    searchInputEl.addEventListener('input', function () {
+        applySearch(searchInputEl.value);
+    });
+
+    searchWrap.appendChild(searchIcon);
+    searchWrap.appendChild(searchInputEl);
+    searchWrap.appendChild(searchClearEl);
+    el.appendChild(searchWrap);
+
+    // ── тело: главы-спойлеры ──
+    var body = document.createElement('div');
+    body.className = 'pravo-leaf__body';
+    chapterCounterEls = [];
+
+    CHAPTERS.forEach(function (chapter, chapterIdx) {
+        var ch = document.createElement('div');
+        ch.className = 'pravo-leaf__chapter'; // ВСЕГДА свёрнута по умолчанию
+
+        var head = document.createElement('div');
+        head.className = 'pravo-leaf__chapter-head';
+
+        var chTitle = document.createElement('div');
+        chTitle.className = 'pravo-leaf__chapter-title';
+        chTitle.textContent = chapter.title;
+
+        var counter = document.createElement('div');
+        counter.className = 'pravo-leaf__chapter-counter';
+        chapterCounterEls[chapterIdx] = counter;
+
+        var arrow = document.createElement('div');
+        arrow.className = 'pravo-leaf__chapter-arrow';
+        arrow.innerHTML = ICONS.arrow;       // SVG-шеврон вместо ▼
+
+        head.appendChild(chTitle);
+        head.appendChild(counter);
+        head.appendChild(arrow);
+        head.addEventListener('click', function () {
+            ch.classList.toggle('pravo-leaf__chapter--open');
+        });
+
+        var cbody = document.createElement('div');
+        cbody.className = 'pravo-leaf__chapter-body';
+
+        chapter.articles.forEach(function (art, articleIdx) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'pravo-leaf__article';
+
+            var num = document.createElement('span');
+            num.className = 'pravo-leaf__article-num';
+            num.textContent = '№' + (articleIdx + 1) + '.';
+
+            var txt = document.createElement('span');
+            txt.className = 'pravo-leaf__article-text';
+            txt.textContent = art.text;
+
+            var min = document.createElement('span');
+            min.className = 'pravo-leaf__article-min';
+            min.textContent = '+' + art.minutes + ' мин';
+
+            btn.appendChild(num);
+            btn.appendChild(txt);
+            btn.appendChild(min);
+
+            (function (ci, ai, m, b) {
+                b.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    toggleArticle(ci, ai, m, b);
+                    updateTotals();
+                });
+            })(chapterIdx, articleIdx, art.minutes, btn);
+
+            cbody.appendChild(btn);
+        });
+
+        ch.appendChild(head);
+        ch.appendChild(cbody);
+        body.appendChild(ch);
+    });
+
+    // «ничего не найдено»
+    emptyEl = document.createElement('div');
+    emptyEl.className = 'pravo-leaf__empty';
+    emptyEl.textContent = 'Ничего не найдено...';
+    body.appendChild(emptyEl);
+
+    el.appendChild(body);
+
+    // ── итог ──
+    var footer = document.createElement('div');
+    footer.className = 'pravo-leaf__footer';
+    footerTotalEl = document.createElement('div');
+    footerTotalEl.className = 'pravo-leaf__total';
+    footerReasonEl = document.createElement('div');
+    footerReasonEl.className = 'pravo-leaf__reason';
+    footer.appendChild(footerTotalEl);
+    footer.appendChild(footerReasonEl);
+    el.appendChild(footer);
+
+    document.body.appendChild(el);
+    leafEl = el;
+    return el;
+}
+
+// ── Итог: минуты + причина + счётчики глав ──────────────────────────────────
+function updateTotals() {
+    if (!footerTotalEl || !footerReasonEl) return;
+    var totalMin = selectedArticles.reduce(function (s, a) { return s + a.minutes; }, 0);
+    footerTotalEl.innerHTML = 'Выбрано: <span>' + totalMin + '</span> мин';
+    footerReasonEl.textContent = 'Причина: ' + (selectedArticles.length ? buildReason(selectedArticles) : '—');
+    for (var ci = 0; ci < CHAPTERS.length; ci++) {
+        var count = 0;
+        for (var i = 0; i < selectedArticles.length; i++) {
+            if (selectedArticles[i].chapterIdx === ci) count++;
+        }
+        var counterEl = chapterCounterEls[ci];
+        if (counterEl) {
+            counterEl.textContent = count;
+            counterEl.classList.toggle('pravo-leaf__chapter-counter--visible', count > 0);
+        }
+    }
+}
+
+// ── Позиционирование справа от книги ────────────────────────────────────────
+function positionLeaf() {
+    if (!leafEl) return;
+    var book = document.querySelector('.jail-book-book');
+    if (!book) return;
+    var rect = book.getBoundingClientRect();
+    var gap = window.innerWidth * 0.012;
+    var leafW = leafEl.offsetWidth;
+    var leafH = leafEl.offsetHeight;
+    var left = rect.right + gap;
+    if (left + leafW > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - leafW - 8);
+    }
+    var top = rect.top + rect.height * 0.06;
+    if (top + leafH > window.innerHeight - 8) {
+        top = Math.max(8, window.innerHeight - leafH - 8);
+    }
+    leafEl.style.left = left + 'px';
+    leafEl.style.top = top + 'px';
+}
+
+// ── Показать / скрыть ───────────────────────────────────────────────────────
+function showLeaf() {
+    if (_leafVisible) return;
+    var el = buildLeaf();
+
+    // сброс выборки при каждом новом открытии страницы «Изменить срок»
+    selectedArticles = [];
+    var proxy = getProxy();
+    baseJailTimeLeft = proxy ? Number(proxy.jailTimeLeft) : 0;
+    if (!isFinite(baseJailTimeLeft) || baseJailTimeLeft < 0) baseJailTimeLeft = 0;
+
+    el.querySelectorAll('.pravo-leaf__article--selected').forEach(function (b) {
+        b.classList.remove('pravo-leaf__article--selected');
+    });
+
+    // ВСЕ главы свёрнуты, видимость восстановлена
+    el.querySelectorAll('.pravo-leaf__chapter').forEach(function (ch) {
+        ch.classList.remove('pravo-leaf__chapter--open');
+        ch.style.display = '';
+    });
+    el.querySelectorAll('.pravo-leaf__article').forEach(function (b) {
+        b.style.display = '';
+    });
+
+    // сброс поиска
+    clearSearch();
+    if (emptyEl) emptyEl.style.display = 'none';
+
+    updateTotals();
+
+    _leafVisible = true;
+    requestAnimationFrame(function() {
+        positionLeaf();
+        el.classList.add('pravo-leaf--visible');
+    });
+}
+
+function hideLeaf() {
+    if (!_leafVisible || !leafEl) return;
+    leafEl.classList.remove('pravo-leaf--visible');
+    _leafVisible = false;
+    try {
+        if (searchInputEl && document.activeElement === searchInputEl) searchInputEl.blur();
+    } catch (e) {}
+}
+
+// ── Цикл видимости ──────────────────────────────────────────────────────────
+function tick() {
+    try {
+        var bookOpen   = isJailBookOpen();
+        var changePage = bookOpen && isChangeTimePage();
+        var basePage   = bookOpen && isBasePage();
+
+        if (changePage) {
+            // Страница «Изменить срок»: показываем автофилл, прячем поиск
+            showLeaf();
+            positionLeaf();
+            if (_searchLeafVisible) hideSearchLeaf();
+        } else if (basePage) {
+            // Страница списка заключённых: показываем поиск, прячем автофилл
+            if (_leafVisible) hideLeaf();
+            showSearchLeaf();
+            positionSearchLeaf();
+            // Повторно применяем фильтр после смены страницы (Vue заменяет строки)
+            if (_prisonerQuery) applyPrisonerSearch(_prisonerQuery);
+        } else {
+            // JailBook закрыт или страница личного дела — всё прячем
+            if (_leafVisible) hideLeaf();
+            if (_searchLeafVisible) hideSearchLeaf();
+        }
+    } catch (e) {}
+}
+
+// ── Инициализация ────────────────────────────────────────────────────────────
+function init() {
+    window.addEventListener('resize', function () {
+        if (_leafVisible) positionLeaf();
+        if (_searchLeafVisible) positionSearchLeaf();
+    });
+    setInterval(tick, 300);
+    tick();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+} else {
+    init();
+}
+})();
+// ==================== END PRAVO AUTO-FILL / АВТОВЫДАЧА СРОКА ====================
+// ── КОНЕЦ БЛОКА ПРОВЕРКИ НИКА ─────────────────────────────────
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║                                                                          ║
+// ║          ⬇  НАСТРОЙКА SideMenu / СТРОЙ  —  РЕДАКТИРУЙ ЗДЕСЬ  ⬇         ║
+// ║                                                                          ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+// ── Команда для открытия / закрытия меню ─────────────────────────────────────
+//    Поменяй строку ниже, если хочешь другую команду.
+var STROI_COMMAND = '/stroi';
+
+// ── Пункты меню и сообщение, которое ПЕЧАТАЕТСЯ В ЧАТ при выборе ─────────────
+//    • id      — уникальное имя (латиница, без пробелов)
+//    • title   — текст пункта в меню
+//    • message — что будет напечатано в чат (посимвольно, как живой набор)
+//
+//    Добавляй строки, удаляй, меняй title/message — остальное подхватится само.
+window._stroiMenuItems = [
+    {
+        id: 'lecture',
+        title: 'Лекция',
+        // subItems открывают второй экран в SideMenu.
+        // ESC на нём возвращает назад, как в оригинальном Window/Modal.
+        // Каждый пункт имеет messages[] — массив /s-команд, отправляемых
+        // последовательно с паузой 4 с между ними (см. sendSequentialMessages в SideMenu.js).
+        subItems: [
+            {
+                id: 'lecture_1',
+                title: '1. Заключённые',
+                messages: [
+                    '/s Доброго времени суток, тема лекции, общие положения о заключённых.',
+                    '/s Обыскивайте камеры на запрещённые предметы. При бунте, наручники и карцер. При групповом, подмога и дубинки.',
+                    '/s Выводите заключённых на улицу, кухню, цех и прачечную. Навещайте карцер.',
+                    '/s Лекция окончена.'
+                ]
+            },
+            {
+                id: 'lecture_2',
+                title: '2. Субординация',
+                messages: [
+                    '/s Доброго времени суток, тема лекции, субординация.',
+                    '/s К старшим по званию "Товарищ [звание]", ко всем сослуживцам на "Вы". Нарушение устава, глава 4 пункт 1.',
+                    '/s Лекция окончена.'
+                ]
+            },
+            {
+                id: 'lecture_3',
+                title: '3. Поведение в строю',
+                messages: [
+                    '/s Доброго времени суток, тема лекции, поведение в строю.',
+                    '/s В строю запрещено разговаривать, выходить, пользоваться телефоном и доставать оружие.',
+                    '/s Есть вопрос, говорите "Разрешите обратиться". Глава 6 устава. Лекция окончена.'
+                ]
+            },
+            {
+                id: 'lecture_4',
+                title: '4. Служебный транспорт',
+                messages: [
+                    '/s Доброго времени суток, тема лекции, служебный транспорт.',
+                    '/s Паркуйтесь только на парковке по ПДД. Блокировать ворота запрещено. У ворот зоны парковаться только в крайних случаях.',
+                    '/s Лекция окончена.'
+                ]
+            },
+            {
+                id: 'lecture_5',
+                title: '5. Несение службы',
+                messages: [
+                    '/s Доброго времени суток, слушайте внимательно.',
+                    '/s Доклады каждые 10 минут. Пост покидать только с разрешения. Транспорт и оружие только с разрешения. Стрелять по гражданам запрещено.',
+                    '/s Лекция окончена.'
+                ]
+            },
+            {
+                id: 'lecture_6',
+                title: '6. Рация',
+                messages: [
+                    '/s Доброго времени суток, тема лекции, рация.',
+                    '/s Рация это средство связи для докладов. Запрещены оскорбления, мат и бессмысленные сообщения. За нарушение выговор.',
+                    '/s Лекция окончена.'
+                ]
+            },
+            {
+                id: 'lecture_7',
+                title: '7. КПП с гражданскими',
+                messages: [
+                    '/s Доброго времени суток, тема лекции, поведение на КПП.',
+                    '/s Приветствуйте гостя, уберите оружие и спросите цель визита. Не допускайте конфликтов.',
+                    '/s Если гражданин нарушает, попросите отойти на 30 метров. Не подчиняется, досчитайте до 10 и применяйте силу. Бить и стрелять без причины, увольнение и ЧС ПРАВО.',
+                    '/s Лекция окончена.'
+                ]
+            },
+            {
+                id: 'lecture_8',
+                title: '8. Тренировка',
+                messages: [
+                    '/s Доброго времени суток, тема лекции, поведение на тренировке.',
+                    '/s Слушайтесь старших, оружие по приказу, в строю молчать. Проводит тренировку сотрудник от звания Инспектор и выше.',
+                    '/s Устали, подойдите к организатору. Сон в строю, выговор. Лекция окончена.'
+                ]
+            }
+        ]
+    },
+    { id: 'training', title: 'Тренировка',   message: 'Сейчас пройдет тренировка'  },
+    { id: 'special',  title: 'Спец задания', message: 'Сейчас пройдут спец задания' },
+    // Примеры — раскомментируй или добавь свои:
+    // { id: 'briefing', title: 'Инструктаж',   message: 'Начинается инструктаж'},
+    // { id: 'checkout', title: 'Проверка',      message: 'Проводится проверка личного состава'},
+];
+
+// ── Регистрация команды (не трогай) ──────────────────────────────────────────
+;(function(){
+    var _prev = window.sendChatInput;
+    window.sendChatInput = function(text){
+        if(typeof text === 'string' && text.trim().toLowerCase() === STROI_COMMAND.toLowerCase()){
+            if(window.getInterfaceStatus('SideMenu')){
+                var comp = window.interface('SideMenu');
+                if(comp) comp.close();
+            } else {
+                window.openInterface('SideMenu');
+            }
+            return;
+        }
+        return _prev && _prev(text);
+    };
+    sendChatInput = window.sendChatInput;
+    console.log('[STROI] Команда ' + STROI_COMMAND + ' зарегистрирована. Пунктов меню: ' + window._stroiMenuItems.length);
+})();
+
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║          ⬆  КОНЕЦ НАСТРОЙКИ SideMenu  ⬆                                ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
+
+
+
+// ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG v5 ====================
+// Скрытие курсора (короткий Alt), скрытие диалога (Alt удержание >=500 мс)
+// и перетаскивание за заголовок — для серверных диалогов 666–677, 695–696,
+// отрисовываемых Window.js / Modal.js. Window.js и Modal.js не трогаем.
+//
+// Исправлено:
+//   • курсор скрывается реально, потому что гасятся настоящие имена Window0/Window1/...
+//   • скрытие диалога мгновенное, включая кнопки ControlsContaineredButton;
+//   • drag работает через делегирование и переживает замену DOM после переходов;
+//   • позиция 677 и 667 общая, так как это один тип меню;
+//   • при пагинации / переходах позиция восстанавливается корректно.
+;(function () {
+'use strict';
+
+// Защита от двойного подключения
+if (window.__pravoWindowModalV5) return;
+window.__pravoWindowModalV5 = true;
+
+var CURSOR_NAME = 'Window';
+var ALT_HOLD_MS = 500;
+var STYLE_ID = 'pravo-window-modal-v5-style';
+
+var _active = false;
+var _menuHidden = false;
+var _altHoldTimer = null;
+var _altHoldFired = false;
+var _blurredInput = null;
+var _cursorVisible = true;
+var _hiddenCursorNames = [];
+
+var _currentDialogId = null;
+var _currentDialogStyle = null;
+var _currentCursorName = null;
+
+var _savedPositions = {};
+
+var _prevOnKeyDown = null;
+var _prevOnKeyUp = null;
+
+var _drag = null;
+var _pollTimer = null;
+
+// ── Определение движка / платформы ────────────────────────────────────────
+// PC (Radmir) : window.App.engine === 'legacy'  → мышь
+// Мобилка (Hassle) : window.App.isMobile        → тач + клик
+function _isMobile() {
+    return !!(window.App && window.App.isMobile);
+}
+
+// Флаг: палец сдвинулся после touchstart — нужен для отличия drag от тапа
+var _touchMoved = false;
+
+// Сброс сохранённых позиций
+window._pravoResetDialogPositions = function () {
+    _savedPositions = {};
+    console.log('[PRAVO] Позиции диалогов сброшены');
+};
+
+function _isOurDialog(id) {
+    return (id >= 666 && id <= 677) || id === 695 || id === 696;
+}
+
+// ── CSS: мгновенное скрытие диалога ───────────────────────────────────────
+function _injectStyles() {
+    if (document.getElementById(STYLE_ID)) return;
+
+    var st = document.createElement('style');
+    st.id = STYLE_ID;
+    st.textContent = [
+        '.pravo-dialog-hidden,',
+        '.pravo-dialog-hidden *,',
+        '.pravo-dialog-hidden *::before,',
+        '.pravo-dialog-hidden *::after{',
+        '  display:none !important;',
+        '  visibility:hidden !important;',
+        '  opacity:0 !important;',
+        '  pointer-events:none !important;',
+        '  transition:none !important;',
+        '  animation:none !important;',
+        '}',
+
+        '.modal__title{',
+        '  user-select:none !important;',
+        '  -webkit-user-select:none !important;',
+        '  cursor:grab;',
+        '  touch-action:none;',
+        '}',
+
+        '.modal__title:active{',
+        '  cursor:grabbing;',
+        '}'
+    ].join('\n');
+
+    document.head.appendChild(st);
+}
+
+// ── Ключ позиции ─────────────────────────────────────────────────────────
+// 667 и 677 используют одну позицию, потому что это один тип меню.
+// Если хочешь, чтобы вообще все ПРАВО-диалоги 666–677 имели одну позицию,
+// поставь им всем одну группу, например 'pravo-common'.
+function _getPositionKey() {
+    var groups = {
+        667: 'pravo-list-menu',
+        677: 'pravo-list-menu',
+
+        666: 'pravo-select',
+        668: 'pravo-input',
+
+        695: 'scc-period',
+        696: 'scc-table'
+    };
+
+    if (_currentDialogId !== null && groups[_currentDialogId]) {
+        return groups[_currentDialogId];
+    }
+
+    if (_currentDialogStyle !== null) {
+        return 'dialog-style-' + _currentDialogStyle;
+    }
+
+    return 'dialog-' + _currentDialogId;
+}
+
+// ── Получаем реальные имена курсоров из index.js ─────────────────────────
+// index.js открывает диалоговый курсор как Window0, Window1, Window2 и т.д.
+// Поэтому нужно гасить именно их, а не абстрактный "Window".
+function _getWindowCursorNames() {
+    var names = [];
+
+    if (_currentCursorName) {
+        names.push(_currentCursorName);
+    }
+
+    try {
+        if (window.App && Array.isArray(window.App.dialogsQueue)) {
+            window.App.dialogsQueue.forEach(function (q) {
+                var idx = Array.isArray(q) ? q[0] : q;
+                if (idx !== undefined && idx !== null) {
+                    names.push('Window' + idx);
+                }
+            });
+        }
+    } catch (e) {}
+
+    try {
+        if (window.App && window.App.components) {
+            Object.keys(window.App.components).forEach(function (key) {
+                if (!/^Window\d+$/.test(key)) return;
+
+                var comp = window.App.components[key];
+                if (comp && comp.open && comp.open.status) {
+                    names.push(key);
+                }
+            });
+        }
+    } catch (e) {}
+
+    // Убираем дубли
+    return names.filter(function (name, index) {
+        return names.indexOf(name) === index;
+    });
+}
+
+// ── Скрытие / показ курсора ────────────────────────────────────────────────
+function hideCursor() {
+    if (!_cursorVisible) return;
+
+    _cursorVisible = false;
+
+    var wrapper = _getActiveWrapper();
+    var ae = document.activeElement;
+
+    if (
+        ae &&
+        wrapper &&
+        wrapper.contains(ae) &&
+        (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA')
+    ) {
+        _blurredInput = ae;
+        ae.blur();
+    } else {
+        _blurredInput = null;
+    }
+
+    var names = _getWindowCursorNames();
+    _hiddenCursorNames = names.slice();
+
+    if (typeof window.setCursorStatus === 'function') {
+        names.forEach(function (name) {
+            try {
+                window.setCursorStatus(name, false);
+            } catch (e) {}
+        });
+
+        // Старое служебное имя — на всякий случай тоже гасим
+        try {
+            window.setCursorStatus(CURSOR_NAME, false);
+        } catch (e) {}
+    }
+}
+
+function showCursor() {
+    if (_cursorVisible) return;
+
+    _cursorVisible = true;
+
+    var names = _getWindowCursorNames();
+
+    if (!names.length && _hiddenCursorNames.length) {
+        names = _hiddenCursorNames;
+    }
+
+    if (typeof window.setCursorStatus === 'function') {
+        names.forEach(function (name) {
+            try {
+                window.setCursorStatus(name, true);
+            } catch (e) {}
+        });
+    }
+
+    _hiddenCursorNames = [];
+
+    if (
+        !(window.App && window.App.developmentMode) &&
+        typeof window.setDrawLabelStatus === 'function'
+    ) {
+        window.setDrawLabelStatus(true);
+    }
+
+    var el = _blurredInput;
+    _blurredInput = null;
+
+    if (el && el.isConnected) {
+        setTimeout(function () {
+            if (el.isConnected) el.focus();
+        }, 0);
+    }
+}
+
+// ── DOM-хелперы ───────────────────────────────────────────────────────────
+function _getRoots() {
+    var roots = [];
+    var wrappers = document.querySelectorAll('.modal-container-wrapper');
+
+    Array.prototype.forEach.call(wrappers, function (w) {
+        if (!w.isConnected) return;
+        if (!w.closest || !w.closest('.window')) return;
+
+        var root = w.closest('.iface-centered') || w;
+
+        if (roots.indexOf(root) === -1) {
+            roots.push(root);
+        }
+    });
+
+    return roots;
+}
+
+function _getActiveWrapper() {
+    var all = Array.prototype.slice.call(document.querySelectorAll('.modal-container-wrapper'));
+    var i, w;
+
+    // Сначала ищем живой wrapper, который не находится в leave-анимации
+    for (i = all.length - 1; i >= 0; i--) {
+        w = all[i];
+
+        if (!w.isConnected) continue;
+        if (!w.closest || !w.closest('.window')) continue;
+        if (String(w.className || '').indexOf('leave-active') !== -1) continue;
+
+        if (w.querySelector('.modal__title')) {
+            return w;
+        }
+    }
+
+    // Fallback: любой живой Window-wrapper
+    for (i = all.length - 1; i >= 0; i--) {
+        w = all[i];
+
+        if (!w.isConnected) continue;
+        if (!w.closest || !w.closest('.window')) continue;
+
+        if (w.querySelector('.modal__title')) {
+            return w;
+        }
+    }
+
+    return null;
+}
+
+// ── Позиция ───────────────────────────────────────────────────────────────
+function _applySavedPosition() {
+    if (!_active || _currentDialogId === null) return;
+
+    var w = _getActiveWrapper();
+    if (!w) return;
+
+    // Если элемент скрыт или ещё не получил размеры — не применяем позицию,
+    // чтобы не записать/не пересчитать её в нулевой размер.
+    if (!w.offsetWidth && !w.offsetHeight) return;
+
+    var posKey = _getPositionKey();
+
+    // mark включает и группу, и текущий ID, чтобы при смене диалога внутри
+    // одной группы позиция всё равно повторно применялась.
+    var mark = 'pravo-pos-' + posKey + '-' + _currentDialogId;
+
+    if (w.getAttribute('data-pravo-pos') === mark) return;
+
+    var pos = _savedPositions[posKey];
+
+    if (pos) {
+        var left = parseFloat(pos.left) || 0;
+        var top = parseFloat(pos.top) || 0;
+
+        left = Math.max(0, Math.min(left, window.innerWidth - (w.offsetWidth || 0)));
+        top = Math.max(0, Math.min(top, window.innerHeight - (w.offsetHeight || 0)));
+
+        w.style.position = 'absolute';
+        w.style.margin = '0';
+        w.style.transform = 'none';
+        w.style.left = left + 'px';
+        w.style.top = top + 'px';
+    }
+
+    w.setAttribute('data-pravo-pos', mark);
+}
+
+// ── Скрытие / показ диалога ───────────────────────────────────────────────
+function _syncHidden() {
+    if (!_active) return;
+
+    var roots = _getRoots();
+
+    Array.prototype.forEach.call(roots, function (root) {
+        if (_menuHidden) {
+            root.classList.add('pravo-dialog-hidden');
+        } else {
+            root.classList.remove('pravo-dialog-hidden');
+        }
+    });
+}
+
+function _updateUi() {
+    if (!_active) return;
+    _applySavedPosition();
+    _syncHidden();
+}
+
+function _startPoll() {
+    if (_pollTimer) return;
+
+    _pollTimer = setInterval(_updateUi, 100);
+    _updateUi();
+}
+
+function _stopPoll() {
+    if (_pollTimer) {
+        clearInterval(_pollTimer);
+        _pollTimer = null;
+    }
+}
+
+function _setHidden(state) {
+    if (_menuHidden === state) return;
+
+    _menuHidden = state;
+
+    _injectStyles();
+    _syncHidden();
+
+    if (state) {
+        hideCursor();
+    } else {
+        showCursor();
+    }
+}
+
+// ── Drag ──────────────────────────────────────────────────────────────────
+function _ensureAbsolute(wrapper) {
+    if (
+        wrapper.style.position === 'absolute' &&
+        wrapper.style.left !== '' &&
+        wrapper.style.top !== ''
+    ) {
+        return;
+    }
+
+    var rect = wrapper.getBoundingClientRect();
+    var parent = wrapper.offsetParent || document.body;
+    var parentRect = parent.getBoundingClientRect();
+
+    wrapper.style.position = 'absolute';
+    wrapper.style.margin = '0';
+    wrapper.style.transform = 'none';
+    wrapper.style.left = (rect.left - parentRect.left) + 'px';
+    wrapper.style.top = (rect.top - parentRect.top) + 'px';
+}
+
+function _onMouseDown(e) {
+    if (_isMobile()) return;           // Мобилка (Hassle) — только тач, мышь не используем
+    if (!_active || _menuHidden) return;
+    if (e.button !== 0) return;
+
+    var target = e.target;
+    if (!target || !target.closest) return;
+
+    var title = target.closest('.modal__title');
+    if (!title) return;
+
+    var wrapper = title.closest('.modal-container-wrapper');
+    if (!wrapper || !wrapper.isConnected) return;
+    if (!wrapper.closest('.window')) return;
+
+    // Не трогаем старый диалог, который уходит через transition
+    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
+
+    _ensureAbsolute(wrapper);
+
+    _drag = {
+        wrapper: wrapper,
+        sx: e.clientX,
+        sy: e.clientY,
+        sl: parseFloat(wrapper.style.left) || 0,
+        st: parseFloat(wrapper.style.top) || 0,
+        ew: wrapper.offsetWidth || wrapper.getBoundingClientRect().width,
+        eh: wrapper.offsetHeight || wrapper.getBoundingClientRect().height,
+        ww: window.innerWidth,
+        wh: window.innerHeight
+    };
+
+    document.body.style.userSelect = 'none';
+
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onMouseMove(e) {
+    if (_isMobile()) return;           // Мобилка (Hassle) — игнорируем mousemove
+    if (!_drag) return;
+
+    var left = _drag.sl + (e.clientX - _drag.sx);
+    var top = _drag.st + (e.clientY - _drag.sy);
+
+    left = Math.max(0, Math.min(left, _drag.ww - _drag.ew));
+    top = Math.max(0, Math.min(top, _drag.wh - _drag.eh));
+
+    _drag.wrapper.style.left = left + 'px';
+    _drag.wrapper.style.top = top + 'px';
+
+    e.preventDefault();
+}
+
+function _onMouseUp() {
+    if (_isMobile()) return;           // Мобилка (Hassle) — игнорируем mouseup
+    if (!_drag) return;
+
+    var wrapper = _drag.wrapper;
+
+    if (_currentDialogId !== null) {
+        _savedPositions[_getPositionKey()] = {
+            left: wrapper.style.left,
+            top: wrapper.style.top
+        };
+    }
+
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
+// ── Touch-drag (мобилка / Hassle) ─────────────────────────────────────────
+function _onTouchStart(e) {
+    if (!_isMobile()) return;          // ПК (Radmir) — только мышь, тач не используем
+    if (!_active || _menuHidden) return;
+
+    _touchMoved = false;               // Сбрасываем флаг для определения тапа
+
+    var touch = e.touches[0];
+    if (!touch) return;
+
+    var target = touch.target;
+    if (!target || !target.closest) return;
+
+    var title = target.closest('.modal__title');
+    if (!title) return;
+
+    var wrapper = title.closest('.modal-container-wrapper');
+    if (!wrapper || !wrapper.isConnected) return;
+    if (!wrapper.closest('.window')) return;
+
+    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
+
+    _ensureAbsolute(wrapper);
+
+    _drag = {
+        wrapper: wrapper,
+        sx: touch.clientX,
+        sy: touch.clientY,
+        sl: parseFloat(wrapper.style.left) || 0,
+        st: parseFloat(wrapper.style.top) || 0,
+        ew: wrapper.offsetWidth || wrapper.getBoundingClientRect().width,
+        eh: wrapper.offsetHeight || wrapper.getBoundingClientRect().height,
+        ww: window.innerWidth,
+        wh: window.innerHeight
+    };
+
+    document.body.style.userSelect = 'none';
+
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onTouchMove(e) {
+    if (!_isMobile()) return;          // ПК (Radmir) — игнорируем touchmove
+    _touchMoved = true;                // Палец двигается — это drag, не тап
+    if (!_drag) return;
+
+    var touch = e.touches[0];
+    if (!touch) return;
+
+    var left = _drag.sl + (touch.clientX - _drag.sx);
+    var top  = _drag.st + (touch.clientY - _drag.sy);
+
+    left = Math.max(0, Math.min(left, _drag.ww - _drag.ew));
+    top  = Math.max(0, Math.min(top,  _drag.wh - _drag.eh));
+
+    _drag.wrapper.style.left = left + 'px';
+    _drag.wrapper.style.top  = top  + 'px';
+
+    e.preventDefault();
+}
+
+function _onTouchEnd() {
+    if (!_isMobile()) return;          // ПК (Radmir) — игнорируем touchend
+    if (!_drag) return;
+
+    var wrapper = _drag.wrapper;
+
+    if (_currentDialogId !== null) {
+        _savedPositions[_getPositionKey()] = {
+            left: wrapper.style.left,
+            top: wrapper.style.top
+        };
+    }
+
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
+// ── Клик / тап по заголовку (Hassle / мобилка) ───────────────────────────
+// Одиночный тап (без перетаскивания) центрирует диалог на экране.
+// _touchMoved исключает срабатывание после drag-жеста.
+function _onTitleTap(e) {
+    if (!_isMobile() || !_active || _menuHidden) return;
+    if (_touchMoved) return;           // Это был drag — клик не обрабатываем
+
+    var target = e.target;
+    if (!target || !target.closest) return;
+
+    var title = target.closest('.modal__title');
+    if (!title) return;
+
+    var wrapper = title.closest('.modal-container-wrapper');
+    if (!wrapper || !wrapper.isConnected) return;
+    if (!wrapper.closest('.window')) return;
+    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
+
+    // Центрируем диалог по экрану
+    _ensureAbsolute(wrapper);
+    var left = Math.max(0, Math.round((window.innerWidth  - (wrapper.offsetWidth  || 0)) / 2));
+    var top  = Math.max(0, Math.round((window.innerHeight - (wrapper.offsetHeight || 0)) / 2));
+    wrapper.style.left = left + 'px';
+    wrapper.style.top  = top  + 'px';
+
+    if (_currentDialogId !== null) {
+        _savedPositions[_getPositionKey()] = {
+            left: wrapper.style.left,
+            top:  wrapper.style.top
+        };
+    }
+}
+
+// ── Делегирование на document ─────────────────────────────────────────────
+// Решает проблему замены DOM после переходов между диалогами.
+//
+// PC (Radmir)  → engine === 'legacy'  → только мышь (mouse*)
+// Мобилка (Hassle) → isMobile = true  → тач (touch*) + клик
+//
+// Каждый обработчик самостоятельно проверяет платформу через _isMobile(),
+// поэтому лишние события просто «проваливаются» на первой строке.
+
+document.addEventListener('mousedown', _onMouseDown, true);
+document.addEventListener('mousemove', _onMouseMove, true);
+document.addEventListener('mouseup',   _onMouseUp,   true);
+
+// Touch-drag: passive:false обязателен, иначе preventDefault() выбросит ошибку
+document.addEventListener('touchstart', _onTouchStart, { capture: true, passive: false });
+document.addEventListener('touchmove',  _onTouchMove,  { capture: true, passive: false });
+document.addEventListener('touchend',   _onTouchEnd,   { capture: true, passive: true  });
+
+// Клик / тап — Hassle: одиночный тап по заголовку = центрировать диалог
+document.addEventListener('click', _onTitleTap, true);
+
+// ── Подключение / отключение ───────────────────────────────────────────────
+function _attach() {
+    if (_active) return;
+
+    _active = true;
+    _menuHidden = false;
+    _altHoldFired = false;
+    _blurredInput = null;
+    _cursorVisible = true;
+    _hiddenCursorNames = [];
+
+    _injectStyles();
+
+    if (
+        !(window.App && window.App.developmentMode) &&
+        typeof window.setDrawLabelStatus === 'function'
+    ) {
+        window.setDrawLabelStatus(true);
+    }
+
+    _prevOnKeyDown = window.onKeyDown;
+    _prevOnKeyUp = window.onKeyUp;
+
+    window.onKeyDown = function (e) {
+        if (e === window.KEY_CODE_ALT) {
+            if (!_altHoldTimer && !_altHoldFired) {
+                _altHoldTimer = setTimeout(function () {
+                    _altHoldTimer = null;
+                    _altHoldFired = true;
+                    _setHidden(!_menuHidden);
+                }, ALT_HOLD_MS);
+            }
+            return;
+        }
+
+        if (typeof _prevOnKeyDown === 'function') {
+            return _prevOnKeyDown(e);
+        }
+    };
+
+    window.onKeyUp = function (e) {
+        if (e === window.KEY_CODE_ALT) {
+            if (_altHoldTimer) {
+                clearTimeout(_altHoldTimer);
+                _altHoldTimer = null;
+
+                if (!_menuHidden) {
+                    if (_cursorVisible) {
+                        hideCursor();
+                    } else {
+                        showCursor();
+                    }
+                }
+            }
+
+            _altHoldFired = false;
+            return;
+        }
+
+        if (typeof _prevOnKeyUp === 'function') {
+            return _prevOnKeyUp(e);
+        }
+    };
+
+    _startPoll();
+}
+
+function _detach() {
+    if (!_active) return;
+
+    _active = false;
+
+    if (_altHoldTimer) {
+        clearTimeout(_altHoldTimer);
+        _altHoldTimer = null;
+    }
+
+    window.onKeyDown = _prevOnKeyDown;
+    window.onKeyUp = _prevOnKeyUp;
+
+    _prevOnKeyDown = null;
+    _prevOnKeyUp = null;
+
+    _stopPoll();
+
+    _drag = null;
+    _menuHidden = false;
+    _blurredInput = null;
+    _cursorVisible = true;
+    _hiddenCursorNames = [];
+    _currentCursorName = null;
+
+    // Страховка: снимаем класс скрытия, если DOM ещё жив
+    Array.prototype.forEach.call(
+        document.querySelectorAll('.pravo-dialog-hidden'),
+        function (el) {
+            el.classList.remove('pravo-dialog-hidden');
+        }
+    );
+}
+
+// ── Хук открытия диалога ───────────────────────────────────────────────────
+var _prevAddDialog = window.addDialogInQueue;
+
+window.addDialogInQueue = function (dialogParams, content, priority) {
+    var dialogId = null;
+    var dialogStyle = null;
+
+    try {
+        if (dialogParams && typeof dialogParams === 'string') {
+            var parsed = JSON.parse(dialogParams.trim());
+            dialogId = parseInt(parsed[0], 10);
+            dialogStyle = parseInt(parsed[1], 10);
+        }
+    } catch (e) {}
+
+    var isOur = _isOurDialog(dialogId);
+
+    if (isOur) {
+        _currentDialogId = dialogId;
+        _currentDialogStyle = dialogStyle;
+    }
+
+    var result;
+
+    if (typeof _prevAddDialog === 'function') {
+        result = _prevAddDialog.apply(this, arguments);
+    } else if (window.App && typeof window.App.addDialogInQueue === 'function') {
+        result = window.App.addDialogInQueue(dialogParams, content, priority);
+    }
+
+    if (isOur) {
+        _currentDialogId = dialogId;
+        _currentDialogStyle = dialogStyle;
+
+        // index.js увеличивает dialogIdx после добавления диалога.
+        // Реальный курсор будет называться Window(dialogIdx - 1).
+        try {
+            if (
+                window.App &&
+                typeof window.App.dialogIdx === 'number' &&
+                window.App.dialogIdx > 0
+            ) {
+                _currentCursorName = 'Window' + (window.App.dialogIdx - 1);
+            }
+        } catch (e) {}
+
+        setTimeout(function () {
+            if (_active) {
+                _updateUi();
+            } else {
+                _attach();
+            }
+        }, 80);
+
+        // Дополнительные проверки, пока Vue/Transition перерисовывает диалог
+        setTimeout(_updateUi, 250);
+        setTimeout(_updateUi, 600);
+        setTimeout(_updateUi, 1000);
+    }
+
+    return result;
+};
+
+// ── Хук закрытия диалога ───────────────────────────────────────────────────
+var _prevCloseLastDialog = window.closeLastDialog;
+
+window.closeLastDialog = function () {
+    _detach();
+
+    if (typeof _prevCloseLastDialog === 'function') {
+        return _prevCloseLastDialog.apply(this, arguments);
+    }
+
+    if (window.App && typeof window.App.closeLastDialog === 'function') {
+        return window.App.closeLastDialog();
+    }
+};
+
+console.log('[PRAVO] Window/Modal cursor/hide/drag v5 готов (engine detection: PC=mouse / Hassle=touch+tap)');
+console.log('[PRAVO]   • Alt (короткий) = скрыть/показать курсор');
+console.log('[PRAVO]   • Alt (>=500мс)  = скрыть/показать диалог вместе с курсором');
+console.log('[PRAVO]   • 677 и 667 используют одну позицию меню');
+console.log('[PRAVO]   • курсор гасится через реальные имена Window0/Window1/...');
+
+})();
+// ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
+
+// ==================== ZKM / SIDEMENU: DRAG ====================
+// Перетаскивание для кастомных интерфейсов ZKM и SideMenu.
+// Работает независимо от Window/Modal drag (не требует _active —
+// тот взводится только для серверных диалогов через addDialogInQueue,
+// а ZKM/SideMenu открываются через openInterface).
+//
+// PC (Radmir): мышь. Hassle (мобилка): тач.
+// Позиционирование: absolute left/top — идентично Window/Modal drag.
+// Позиция сохраняется в _savedPos и восстанавливается при повторном
+// открытии через setInterval-поллинг (200 мс).
+;(function () {
+'use strict';
+
+if (window.__pravoCustomIfaceDragV1) return;
+window.__pravoCustomIfaceDragV1 = true;
+
+// ── Описание интерфейсов ──────────────────────────────────────────────────
+// rootSel    — CSS-селектор корневого .modal элемента интерфейса
+// dragZone   — зоны за которые можно тащить (inside card)
+// noInteract — элементы внутри dragZone, по которым клик НЕ начинает drag
+// posKey     — ключ для _savedPos
+var IFACES = [
+    {
+        rootSel:    '.modal.zkm',
+        dragZone:   '.modal__title, .zkm__subheader',
+        noInteract: '.laws-helper__icon-btn, .laws-helper__tab',
+        posKey:     'zkm'
+    },
+    {
+        rootSel:    '.modal.side-menu',
+        dragZone:   '.modal__title',
+        noInteract: null,
+        posKey:     'side-menu'
+    }
+];
+
+var _savedPos   = {};       // сохранённые позиции по posKey
+var _drag       = null;     // активный drag-стейт
+var _touchMoved = false;    // true = палец двигался → это drag, не тап
+
+function _isMobile() {
+    return !!(window.App && window.App.isMobile);
+}
+
+// Находит wrapper и конфиг по целевому элементу; null — не наша зона
+function _resolve(target) {
+    if (!target || !target.closest) return null;
+    for (var i = 0; i < IFACES.length; i++) {
+        var cfg  = IFACES[i];
+        var zone = target.closest(cfg.dragZone);
+        if (!zone) continue;
+        if (cfg.noInteract && target.closest(cfg.noInteract)) return null;
+        var wrapper = zone.closest('.modal-container-wrapper');
+        if (!wrapper || !wrapper.isConnected) return null;
+        if (!wrapper.closest(cfg.rootSel)) return null;
+        // Не трогаем карточку, которая уходит через transition
+        if (String(wrapper.className || '').indexOf('leave-active') !== -1) return null;
+        return { wrapper: wrapper, cfg: cfg };
+    }
+    return null;
+}
+
+// Переводим wrapper в absolute-позиционирование, сохраняя видимую позицию.
+// Сбрасываем transform — ZKM ранее использовал translate(), теперь left/top.
+function _ensureAbsolute(wrapper) {
+    if (
+        wrapper.style.position === 'absolute' &&
+        wrapper.style.left !== '' &&
+        wrapper.style.top  !== ''
+    ) return;
+
+    var rect   = wrapper.getBoundingClientRect();
+    var parent = wrapper.offsetParent || document.body;
+    var pRect  = parent.getBoundingClientRect();
+
+    wrapper.style.position  = 'absolute';
+    wrapper.style.margin    = '0';
+    wrapper.style.transform = 'none';   // убираем translate() если был
+    wrapper.style.left = (rect.left - pRect.left) + 'px';
+    wrapper.style.top  = (rect.top  - pRect.top ) + 'px';
+}
+
+// Ограничиваем позицию границами экрана
+function _clamp(wrapper, left, top) {
+    var ew = wrapper.offsetWidth  || wrapper.getBoundingClientRect().width;
+    var eh = wrapper.offsetHeight || wrapper.getBoundingClientRect().height;
+    return {
+        left: Math.max(0, Math.min(left, window.innerWidth  - ew)),
+        top:  Math.max(0, Math.min(top,  window.innerHeight - eh))
+    };
+}
+
+// Применяем сохранённую позицию к wrapper (один раз на жизнь элемента,
+// пока тот не будет пересоздан — тогда атрибут data-cif-pos сбросится)
+function _applyPos(wrapper, posKey) {
+    var pos  = _savedPos[posKey];
+    if (!pos) return;
+    var mark = 'cif-' + posKey;
+    if (wrapper.getAttribute('data-cif-pos') === mark) return;
+    if (!wrapper.offsetWidth && !wrapper.offsetHeight) return; // ещё не в DOM
+
+    _ensureAbsolute(wrapper);
+    var c = _clamp(wrapper, parseFloat(pos.left) || 0, parseFloat(pos.top) || 0);
+    wrapper.style.left = c.left + 'px';
+    wrapper.style.top  = c.top  + 'px';
+    wrapper.setAttribute('data-cif-pos', mark);
+}
+
+// Поллинг: 200 мс — восстанавливаем позицию при повторном открытии интерфейса
+setInterval(function () {
+    for (var i = 0; i < IFACES.length; i++) {
+        var cfg  = IFACES[i];
+        var root = document.querySelector(cfg.rootSel);
+        if (!root) continue;
+        var wrapper = root.querySelector('.modal-container-wrapper');
+        if (!wrapper || !wrapper.isConnected) continue;
+        if (String(wrapper.className || '').indexOf('leave-active') !== -1) continue;
+        _applyPos(wrapper, cfg.posKey);
+    }
+}, 200);
+
+// ── Мышь (PC / Radmir) ─────────────────────────────────────────────────────
+
+function _onMouseDown(e) {
+    if (_isMobile()) return;
+    if (e.button !== 0) return;
+    var found = _resolve(e.target);
+    if (!found) return;
+
+    _ensureAbsolute(found.wrapper);
+    _drag = {
+        wrapper: found.wrapper,
+        posKey:  found.cfg.posKey,
+        sx: e.clientX,
+        sy: e.clientY,
+        sl: parseFloat(found.wrapper.style.left) || 0,
+        st: parseFloat(found.wrapper.style.top)  || 0
+    };
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onMouseMove(e) {
+    if (_isMobile()) return;
+    if (!_drag) return;
+    var c = _clamp(
+        _drag.wrapper,
+        _drag.sl + (e.clientX - _drag.sx),
+        _drag.st + (e.clientY - _drag.sy)
+    );
+    _drag.wrapper.style.left = c.left + 'px';
+    _drag.wrapper.style.top  = c.top  + 'px';
+    e.preventDefault();
+}
+
+function _onMouseUp() {
+    if (_isMobile()) return;
+    if (!_drag) return;
+    _savedPos[_drag.posKey] = {
+        left: _drag.wrapper.style.left,
+        top:  _drag.wrapper.style.top
+    };
+    _drag.wrapper.setAttribute('data-cif-pos', 'cif-' + _drag.posKey);
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
+// ── Тач (Hassle / мобилка) ─────────────────────────────────────────────────
+
+function _onTouchStart(e) {
+    if (!_isMobile()) return;
+    _touchMoved = false;
+    var touch = e.touches[0];
+    if (!touch) return;
+    var found = _resolve(touch.target);
+    if (!found) return;
+
+    _ensureAbsolute(found.wrapper);
+    _drag = {
+        wrapper: found.wrapper,
+        posKey:  found.cfg.posKey,
+        sx: touch.clientX,
+        sy: touch.clientY,
+        sl: parseFloat(found.wrapper.style.left) || 0,
+        st: parseFloat(found.wrapper.style.top)  || 0
+    };
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+    e.stopPropagation();
+}
+
+function _onTouchMove(e) {
+    if (!_isMobile()) return;
+    _touchMoved = true;
+    if (!_drag) return;
+    var touch = e.touches[0];
+    if (!touch) return;
+    var c = _clamp(
+        _drag.wrapper,
+        _drag.sl + (touch.clientX - _drag.sx),
+        _drag.st + (touch.clientY - _drag.sy)
+    );
+    _drag.wrapper.style.left = c.left + 'px';
+    _drag.wrapper.style.top  = c.top  + 'px';
+    e.preventDefault();
+}
+
+function _onTouchEnd() {
+    if (!_isMobile()) return;
+    if (!_drag) return;
+    _savedPos[_drag.posKey] = {
+        left: _drag.wrapper.style.left,
+        top:  _drag.wrapper.style.top
+    };
+    _drag.wrapper.setAttribute('data-cif-pos', 'cif-' + _drag.posKey);
+    _drag = null;
+    document.body.style.userSelect = '';
+}
+
+// ── Регистрация событий (delegation на document, capture-фаза) ─────────────
+// Capture — чтобы перехватить раньше vue-обработчиков внутри карточки.
+// touchstart/move — passive:false обязателен для preventDefault().
+
+document.addEventListener('mousedown', _onMouseDown, true);
+document.addEventListener('mousemove', _onMouseMove, true);
+document.addEventListener('mouseup',   _onMouseUp,   true);
+
+document.addEventListener('touchstart', _onTouchStart, { capture: true, passive: false });
+document.addEventListener('touchmove',  _onTouchMove,  { capture: true, passive: false });
+document.addEventListener('touchend',   _onTouchEnd,   { capture: true, passive: true  });
+
+// Утилита для сброса позиций через консоль браузера
+window._pravoResetCustomIfacePos = function () {
+    _savedPos = {};
+    console.log('[PRAVO] Позиции ZKM/SideMenu сброшены');
+};
+
+console.log('[PRAVO] ZKM/SideMenu drag v1 готов  (PC=mouse / Hassle=touch)');
+
+})();
+// ==================== END ZKM / SIDEMENU: DRAG ====================
+
+// ============================================================
+//  TimerK — таймер подачи такси
+//  Регистрация: IntLoad.js (name: "TimerK").
+//  Логика обводки радара живёт в TimerK.js (_setRadarBorder).
+// ============================================================
+
+/* openTimerK(секунды, текст, вариант)
+   вариант 1 = жёлтый (activity), 0 = danger (красный) */
+window.openTimerK = (e = 254, t = "Время подачи", o = 1) => {
+    if (window.getInterfaceStatus("TimerK")) {
+        const n = window.interface("TimerK");
+        n && n.start(e, t, o);
+    } else {
+        window.openInterface("TimerK", JSON.stringify([e, t, o]));
+    }
+};
+
+window.hideTimerK = () => {
+    window.closeInterface("TimerK");
+};
+
+/* ── /tt — перехват на уровне engine.trigger ──────────────────────────────
+   /tt              — 254 с, "Время подачи", вариант 1
+   /tt <сек>        — свои секунды
+   /tt <сек> <текст> [0|1] — секунды + текст + вариант
+   /tt stop / off   — скрыть таймер                                       */
+(() => {
+    const eng = window.engine;
+    if (!eng || !eng.trigger) return;
+
+    const _orig = eng.trigger.bind(eng);
+    eng.trigger = function(name) {
+        if (name === 'SendChatInput') {
+            const msg = ((arguments[1]) || '').trim();
+            if (/^\/tt(\s|$)/i.test(msg)) {
+                const args = msg.slice(3).trim().split(/\s+/).filter(Boolean);
+                if (args.length && /^(stop|off|hide)$/i.test(args[0])) {
+                    window.hideTimerK && window.hideTimerK();
+                } else if (!args.length) {
+                    window.openTimerK && window.openTimerK();
+                } else {
+                    const dur  = parseInt(args[0]) > 0 ? parseInt(args[0]) : 254;
+                    const rest = args.slice(1);
+                    const lastIsVar = rest.length && /^[012]$/.test(rest[rest.length - 1]);
+                    const v    = lastIsVar ? +rest.pop() : 1;
+                    const text = rest.join(' ') || 'Время подачи';
+                    window.openTimerK && window.openTimerK(dur, text, v);
+                }
+                return;
+            }
+        }
+        return _orig.apply(eng, arguments);
+    };
+})();
+// ==================== END TimerK ====================
+}); // конец callback _nickCheck
