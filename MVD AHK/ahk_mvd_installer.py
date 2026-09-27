@@ -1208,6 +1208,8 @@ class InstallerAPI:
             loader_url = FSB_AHK_URL
         elif department == "fsin":
             loader_url = FSIN_AHK_URL
+        elif department == "pravo":
+            loader_url = PRAVO_AHK_URL
         else:
             loader_url = AHK_URL
         url = HASSLE_LOADER_URL or loader_url
