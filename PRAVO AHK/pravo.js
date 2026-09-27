@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v9.0 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.0 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -405,10 +405,7 @@ window.AUTO_REISSUE_LIC = AUTO_REISSUE_LIC;
 // AUTO_REISSUE_LIC / GIVELIC_KEY показывается постоянный Interaction на экране.
 var _PRAVO_INT_REISSUE  = 9901;  // тип: авто-перевыдача лицензии
 var _PRAVO_INT_GIVELIC  = 9902;  // тип: быстрая выдача лицензии
-var _pravoHassleIntOpen  = false;  // флаг: именно мы открыли Interactions
-var _pravoServerItems   = null;   // элементы присланные сервером (для слияния)
-var _pravoSkipIntercept = false;  // флаг: мы сами вызываем openInterface('Interactions')
-var _pravoOwnClosing    = false;  // флаг: мы сами вызываем closeInterface('Interactions')
+var _pravoHassleIntOpen = false;  // флаг: именно мы открыли Interactions
 
 // ── Hassle Interaction hook: обработка перенесена в sendClientEventCustom ──────
 // Хранит данные последней успешно отправленной команды /givelic
@@ -716,48 +713,43 @@ function getPlayerInfoFromList(id) {
     } catch (e) { return { nick: null, level: null, device: null }; }
 }
 
-// ── Hassle: формирует список НАШИХ кнопок Interactions ──────────────────────
-function _buildPravoItems(targetId) {
-    var items = [];
-    items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
-    if (targetId && targetId != -1 &&
-        (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
-        items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
-    }
-    if (_isLicensorRank()) {
-        items.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
-    }
-    return items;
-}
-
-// ── Закрыть Interactions (наш вызов, не от сервера) ─────────────────────────
-function _pravoCloseInteractions() {
-    _pravoHassleIntOpen = false;
-    _pravoOwnClosing = true;
-    try { window.closeInterface('Interactions'); } catch(e) {}
-    _pravoOwnClosing = false;
-}
-
-// ── Hassle: показать/обновить Interactions (наши + серверные вместе) ─────────
-// targetId == -1 допустим. Если МЫ не на Hassle — закрывает наш Interaction.
+// ── Hassle: показать/обновить постоянный Interaction вместо хоткея ───────────
+// Вызывается при загрузке профиля, открытии подменю, после выдачи/перевыдачи.
+// targetId == -1 допустим — кнопка «Выдать лицензию» не привязана к конкретному игроку.
+// Если МЫ не на Hassle (или нет активных функций) — закрывает наш Interaction.
 function _pravoUpdateHassleInteraction(targetId) {
+    // FIX: проверяем устройство ОПЕРАТОРА скрипта, а не цели.
+    // Interaction нужен нам самим — когда мы на мобилке и не можем жать клавиши.
     var _isLocalHassle = !!(window.App && window.App.isMobile);
 
     if (!_isLocalHassle) {
         if (_pravoHassleIntOpen) {
-            _pravoCloseInteractions();
+            _pravoHassleIntOpen = false; // FIX: сначала флаг, потом close — иначе hook зациклится
+            try { window.closeInterface('Interactions'); } catch(e) {}
             console.log('[PRAVO] 📱 Hassle Interaction закрыт (мы на ПК, хоткеи доступны)');
         }
         return;
     }
 
-    // Наши кнопки + кнопки сервера (если есть) — объединяем в один список
-    var _items = _buildPravoItems(targetId);
-    if (_pravoServerItems && _pravoServerItems.length) {
-        _items = _items.concat(_pravoServerItems);
+    var _items = [];
+
+    // ── НОВОЕ: кнопка главного меню АНК — всегда для Hassle ──
+    _items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
+
+    // Авто-перевыдача — только если включена, есть цель И сохранённая команда
+    if (targetId && targetId != -1 &&
+        (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
+        _items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
     }
 
-    _pravoSkipIntercept = true;
+    // Быстрая выдача — показываем всегда при звании Лицензёр.
+    // На ПК есть хоткей GIVELIC_KEY, на Hassle клавиш нет — кнопка обязательна.
+    if (_isLicensorRank()) {
+        _items.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
+    }
+
+    // _items теперь НИКОГДА не пустой на Hassle (есть минимум кнопка АНК Меню)
+
     try {
         window.openInterface('Interactions', JSON.stringify(_items));
         _pravoHassleIntOpen = true;
@@ -767,54 +759,76 @@ function _pravoUpdateHassleInteraction(targetId) {
     } catch(e) {
         console.warn('[PRAVO] ⚠️ Ошибка открытия Interactions:', e);
     }
-    _pravoSkipIntercept = false;
 }
 window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
-
-// ── Хуки openInterface / closeInterface для слияния серверных Interactions ───
-;(function() {
-    // openInterface: сервер открывает Interactions → сохраняем его элементы
-    // и переоткрываем с нашими кнопками перед ними.
-    var _origOI = window.openInterface;
-    window.openInterface = function(name) {
-        if (name === 'Interactions' && !_pravoSkipIntercept) {
-            var _isLocalHassle = !!(window.App && window.App.isMobile);
-            if (_isLocalHassle) {
-                try {
-                    var raw = arguments[1];
-                    _pravoServerItems = typeof raw === 'string'
-                        ? JSON.parse(raw)
-                        : (Array.isArray(raw) ? raw : []);
-                } catch(e) { _pravoServerItems = []; }
-                // Открываем merged-список вместо чисто серверного
-                _pravoUpdateHassleInteraction(giveLicenseTo || -1);
-                return;
-            }
-        }
-        return _origOI.apply(this, arguments);
-    };
-
-    // closeInterface: сервер (или движок) закрывает Interactions →
-    // очищаем серверные элементы и через 150 мс возвращаем наши кнопки.
-    var _origCI = window.closeInterface;
-    window.closeInterface = function(name) {
-        if (name === 'Interactions' && !_pravoOwnClosing) {
-            _pravoServerItems = null;
-            var result = _origCI.apply(this, arguments);
-            var _isLocalHassle = !!(window.App && window.App.isMobile);
-            if (_isLocalHassle) {
-                setTimeout(function() {
-                    _pravoUpdateHassleInteraction(giveLicenseTo || -1);
-                }, 150);
-            }
-            return result;
-        }
-        return _origCI.apply(this, arguments);
-    };
-
-    console.log('[PRAVO] 📱 Interactions merge hook готов (openInterface / closeInterface)');
-})();
 // ── END _pravoUpdateHassleInteraction ────────────────────────────────────────
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ПАТЧ: Interactions — серверные пункты показываем ВМЕСТЕ с нашими,
+//       а после закрытия серверного Interaction — восстанавливаем наши.
+// ══════════════════════════════════════════════════════════════════════════════
+(function _patchInteractionsHooks() {
+    // ── openInterface: всегда подмешиваем наши пункты ─────────────────────
+    var _oiOrig = window.openInterface;
+    window.openInterface = function(name, params) {
+        if (name === 'Interactions' && !!(window.App && window.App.isMobile)) {
+            // Парсим серверные пункты, отбрасываем наши (чтобы не дублировать)
+            var serverItems = [];
+            try {
+                var _parsed = typeof params === 'string' ? JSON.parse(params) : (params || []);
+                if (Array.isArray(_parsed)) {
+                    _parsed.forEach(function(it) {
+                        var tp = Array.isArray(it) ? it[0] : it[0];
+                        if (tp !== 9900 && tp !== _PRAVO_INT_REISSUE && tp !== _PRAVO_INT_GIVELIC) {
+                            serverItems.push(it);
+                        }
+                    });
+                }
+            } catch(_e) {}
+
+            // Собираем наши пункты (зеркало _pravoUpdateHassleInteraction)
+            var pravoItems = [];
+            pravoItems.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
+            if (giveLicenseTo && giveLicenseTo != -1 &&
+                (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
+                pravoItems.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
+            }
+            if (typeof _isLicensorRank === 'function' && _isLicensorRank()) {
+                pravoItems.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
+            }
+
+            // Объединяем: наши сверху, серверные снизу
+            var combined = pravoItems.concat(serverItems);
+            _pravoHassleIntOpen = true;
+            console.log('[PRAVO] 🔀 Interactions merged: ' + pravoItems.length
+                + ' наших + ' + serverItems.length + ' серверных');
+            return _oiOrig.call(this, name, JSON.stringify(combined));
+        }
+        return _oiOrig.apply(this, arguments);
+    };
+
+    // ── closeInterface: восстанавливаем наши пункты после чужого закрытия ──
+    var _ciOrig = window.closeInterface;
+    window.closeInterface = function(name) {
+        // Захватываем флаг ДО вызова — наш код всегда сбрасывает его перед close
+        var _shouldRestore = (name === 'Interactions' && _pravoHassleIntOpen);
+        var _result = _ciOrig.apply(this, arguments);
+        if (_shouldRestore) {
+            // Закрыл сервер или игрок кликнул серверный пункт.
+            // Мы сами всегда делаем _pravoHassleIntOpen = false ДО этого вызова,
+            // поэтому сюда попадаем только при «чужом» close.
+            _pravoHassleIntOpen = false;
+            setTimeout(function() {
+                _pravoUpdateHassleInteraction(giveLicenseTo || -1);
+            }, 200);
+            console.log('[PRAVO] 🔄 closeInterface Interactions: восстанавливаем после серверного close');
+        }
+        return _result;
+    };
+
+    console.log('[PRAVO] ✅ Interactions hooks (open+close) установлены');
+})();
+// ══════════════════════════════════════════════════════════════════════════════
 
 let _mainChatHandlerReady = false;
 
@@ -1516,17 +1530,20 @@ window.sendClientEventCustom = (event, ...args) => {
     if (args[0] === 'OnInteractionsClick') {
         const _hInt = parseInt(args[1]);
         if (_hInt === 9900) {
-            _pravoCloseInteractions();
+            _pravoHassleIntOpen = false;
+            try { window.closeInterface('Interactions'); } catch(e) {}
             setTimeout(function() { window.sendChatInput('/dahk'); }, 50);
             return;
         }
         if (_hInt === _PRAVO_INT_REISSUE) {
-            _pravoCloseInteractions();
+            _pravoHassleIntOpen = false;
+            try { window.closeInterface('Interactions'); } catch(e) {}
             if (typeof window._pravoDoReissue === 'function') window._pravoDoReissue();
             return;
         }
         if (_hInt === _PRAVO_INT_GIVELIC) {
-            _pravoCloseInteractions();
+            _pravoHassleIntOpen = false;
+            try { window.closeInterface('Interactions'); } catch(e) {}
             if (typeof window.showGiveLicIdInputDialog === 'function') window.showGiveLicIdInputDialog();
             return;
         }
@@ -1543,7 +1560,6 @@ window.sendClientEventCustom = (event, ...args) => {
             } else {
                 lastMenuType = null;
                 currentMenu = null;
-                setTimeout(() => _pravoUpdateHassleInteraction(giveLicenseTo || -1), 100);
             }
         }
         else if (args[1] === 667) { // Меню Повседневная
@@ -1571,16 +1587,13 @@ window.sendClientEventCustom = (event, ...args) => {
             }
             currentAction = null;
             window._mvdMenuPendingAction = null;
-            // Возвращаем Interactions после ввода ID (и при успехе, и при отмене)
-            setTimeout(() => _pravoUpdateHassleInteraction(giveLicenseTo || -1), 200);
         }
         else if (args[1] === 677) { // Меню МВД sub
             const listitem = args[3];
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleMvdSubCommand(listitem);
             } else if (args[2] === 0) {
-                // Отмена / ESC — возвращаем Interactions
-                setTimeout(() => _pravoUpdateHassleInteraction(giveLicenseTo || -1), 100);
+                // Отмена / ESC — закрываем меню
             }
         }
         else if (args[1] === 678) { // /givelic: ввод ID игрока
@@ -1589,12 +1602,16 @@ window.sendClientEventCustom = (event, ...args) => {
                 if (inputId) {
                     setTimeout(() => window.showGiveLicTypeDialog(inputId), 50);
                 }
-            }
             } else {
-                // Отмена — возвращаем Interactions
-                setTimeout(() => _pravoUpdateHassleInteraction(giveLicenseTo || -1), 100);
+                // Отмена — возвращаем Interaction (FIX: раньше он не появлялся)
+                setTimeout(function() { _pravoUpdateHassleInteraction(giveLicenseTo || -1); }, 100);
             }
+        }
         else if (args[1] === 679) { // /givelic: выбор типа лицензии
+            if (args[2] !== 1) {
+                // Отмена — возвращаем Interaction (FIX: раньше он не появлялся)
+                setTimeout(function() { _pravoUpdateHassleInteraction(giveLicenseTo || -1); }, 100);
+            }
             if (args[2] === 1) {
                 const idx = parseInt(args[3]);
                 if (idx >= 0 && idx < _GIVE_LIC_TYPES.length) {
@@ -1622,10 +1639,6 @@ window.sendClientEventCustom = (event, ...args) => {
                         setTimeout(function() { _pravoUpdateHassleInteraction(_savedTid); }, 350);
                     })(_giveLicTargetId);
                 }
-            }
-            if (args[2] !== 1) {
-                // Отмена — возвращаем Interactions
-                setTimeout(() => _pravoUpdateHassleInteraction(giveLicenseTo || -1), 100);
             }
             _giveLicTargetId = -1; // сброс после выбора или отмены
         }
