@@ -397,6 +397,45 @@ let currentAction = null;
 var AUTO_REISSUE_LIC = false;
 // Прокидываем наружу чтобы showMvdSubMenu видел значение
 window.AUTO_REISSUE_LIC = AUTO_REISSUE_LIC;
+
+// ── Hassle-режим: постоянный Interaction вместо хоткея ───────────────────────
+// Если цель использует мобильный клиент (Hassle), вместо нажатия клавиш
+// AUTO_REISSUE_LIC / GIVELIC_KEY показывается постоянный Interaction на экране.
+var _PRAVO_INT_REISSUE  = 9901;  // тип: авто-перевыдача лицензии
+var _PRAVO_INT_GIVELIC  = 9902;  // тип: быстрая выдача лицензии
+var _pravoHassleIntOpen = false;  // флаг: именно мы открыли Interactions
+
+// Перехватываем sendClientEvent чтобы поймать тапы по нашим Interaction-типам
+// до того как они уйдут на сервер (где движок не знает типы 9901/9902).
+(function _installPravoInteractionHook() {
+    var _origSCE = window.sendClientEvent;
+    if (typeof _origSCE !== 'function') {
+        console.warn('[PRAVO] window.sendClientEvent не найден — Hassle Interaction hook пропущен');
+        return;
+    }
+    window.sendClientEvent = function(eventType, eventName) {
+        if (String(eventName) === 'OnInteractionsClick') {
+            var _clickType = parseInt(arguments[2]);
+            // ── Авто-перевыдача ──
+            if (_clickType === _PRAVO_INT_REISSUE) {
+                _pravoHassleIntOpen = false;
+                try { window.closeInterface('Interactions'); } catch(e) {}
+                if (typeof window._pravoDoReissue === 'function') window._pravoDoReissue();
+                return; // не пробрасываем на сервер
+            }
+            // ── Быстрая выдача лицензии ──
+            if (_clickType === _PRAVO_INT_GIVELIC) {
+                _pravoHassleIntOpen = false;
+                try { window.closeInterface('Interactions'); } catch(e) {}
+                if (typeof window.showGiveLicIdInputDialog === 'function') window.showGiveLicIdInputDialog();
+                return;
+            }
+        }
+        return _origSCE.apply(this, arguments);
+    };
+    console.log('[PRAVO] 📱 Hassle Interaction hook установлен (типы 9901/9902)');
+})();
+// ── END Hassle hook ──────────────────────────────────────────────────────────
 // Хранит данные последней успешно отправленной команды /givelic
 let _lastGiveLicData = null; // { targetId, type, price, name }
 
@@ -535,6 +574,10 @@ window.addEventListener('keydown', function(e) {
                 engine.trigger("SendChatInput", _rCmd);
             }
             gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$`, 3000, 3);
+            // ── Hassle: хоткей тоже восстанавливает Interaction (постоянный режим) ──
+            (function(_rkid) {
+                setTimeout(function() { _pravoUpdateHassleInteraction(_rkid); }, 550);
+            })(_rId);
         }
     }
     // Хоткей прямого открытия диалога выдачи лицензии (GIVELIC_KEY)
@@ -588,6 +631,12 @@ window._pravoDoReissue = function() {
         engine.trigger("SendChatInput", _rCmd);
     }
     gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$`, 3000, 3);
+    // ── Hassle: переоткрываем Interaction после перевыдачи (постоянный режим) ──
+    // Пауза 550 мс — даём команде уйти и нотификации появиться,
+    // потом снова вешаем Interaction на экран.
+    (function(_rtid) {
+        setTimeout(function() { _pravoUpdateHassleInteraction(_rtid); }, 550);
+    })(_rId);
 };
 // ── END Экспорт авто-перевыдачи ──────────────────────────────────────────────
 
@@ -691,6 +740,50 @@ function getPlayerInfoFromList(id) {
         };
     } catch (e) { return { nick: null, level: null, device: null }; }
 }
+
+// ── Hassle: показать/обновить постоянный Interaction вместо хоткея ───────────
+// Вызывается при открытии подменю, после выдачи и после перевыдачи лицензии.
+// Если цель не Hassle (или нет активных функций) — закрывает наш Interaction.
+function _pravoUpdateHassleInteraction(targetId) {
+    if (!targetId || targetId == -1) return;
+
+    var _info = getPlayerInfoFromList(targetId);
+
+    // Не Hassle — закрываем наш Interaction если мы его открывали
+    if (!_info || _info.device !== 'Hassle') {
+        if (_pravoHassleIntOpen) {
+            try { window.closeInterface('Interactions'); } catch(e) {}
+            _pravoHassleIntOpen = false;
+            console.log('[PRAVO] 📱 Hassle Interaction закрыт (цель не на телефоне)');
+        }
+        return;
+    }
+
+    var _items = [];
+
+    // Авто-перевыдача — только если включена И есть сохранённая команда
+    if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
+        _items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
+    }
+
+    // Быстрая выдача — только если задан GIVELIC_KEY И звание Лицензёр
+    if (GIVELIC_KEY && _isLicensorRank()) {
+        _items.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
+    }
+
+    if (!_items.length) return; // нечего показывать
+
+    try {
+        window.openInterface('Interactions', JSON.stringify(_items));
+        _pravoHassleIntOpen = true;
+        console.log('[PRAVO] 📱 Hassle Interaction открыт для ID ' + targetId
+            + ': ' + _items.map(function(i){ return i[1]; }).join(' / '));
+    } catch(e) {
+        console.warn('[PRAVO] ⚠️ Ошибка открытия Interactions:', e);
+    }
+}
+window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
+// ── END _pravoUpdateHassleInteraction ────────────────────────────────────────
 
 let _mainChatHandlerReady = false;
 
@@ -1349,6 +1442,11 @@ window.showMvdSubMenu = (e) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
     window.addDialogInQueue(`[677,4,"ПРАВИТЕЛЬСТВО","","Выбрать","Отмена",0,0]`, licenseList, 0);
+    // ── Hassle: если цель на телефоне — показываем постоянный Interaction ──────
+    // Короткая задержка чтобы диалог успел отрисоваться, Interaction поверх него.
+    (function(_glt) {
+        setTimeout(function() { _pravoUpdateHassleInteraction(_glt); }, 120);
+    })(giveLicenseTo);
 };
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
@@ -1460,6 +1558,11 @@ window.sendClientEventCustom = (event, ...args) => {
                     };
                     window._lastGiveLicData = _lastGiveLicData;
                     console.log(`[GIVELIC] Данные сохранены для авто-перевыдачи: ${chosen.name} → ID: ${_giveLicTargetId}`);
+                    // ── Hassle: проверяем устройство цели и показываем Interaction ──────────
+                    // Захватываем _giveLicTargetId ДО его сброса в -1 ниже.
+                    (function(_savedTid) {
+                        setTimeout(function() { _pravoUpdateHassleInteraction(_savedTid); }, 350);
+                    })(_giveLicTargetId);
                 }
             }
             _giveLicTargetId = -1; // сброс после выбора или отмены
