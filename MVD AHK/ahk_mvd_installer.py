@@ -1309,16 +1309,20 @@ class InstallerAPI:
                     skip_js = json.dumps(skip)
                     code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                     code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
-            # ── Авто-перевыдача лицензии (только для Правительства) ─────────────────
+            # ── Помощник лицензёра (только для Правительства) ─────────────────────
+            # Если licensor_helper не был включён при вставке ПК-кода —
+            # авто-перевыдача и /givelic не активируются и для Hastle тоже.
             dept_saved = saved.get('department', 'mvd')
-            auto_reissue_lic_saved = saved.get('auto_reissue_lic', False)
-            reissue_key_saved = str(saved.get('reissue_key', 'Alt+R')).replace('"', '').replace("'", '')[:30]
+            licensor_helper_saved = saved.get('licensor_helper', False)
+            auto_reissue_lic_saved = saved.get('auto_reissue_lic', False) if licensor_helper_saved else False
+            givelic_on_saved      = saved.get('givelic_on', False)         if licensor_helper_saved else False
+            givelic_key_saved     = str(saved.get('givelic_key', '')).replace('"', '').replace("'", '')[:30] if givelic_on_saved else ''
+            reissue_key_saved     = str(saved.get('reissue_key', 'Alt+R')).replace('"', '').replace("'", '')[:30]
             if auto_reissue_lic_saved and dept_saved == 'pravo':
                 code = code.replace('const AUTO_REISSUE_LIC = false;', 'const AUTO_REISSUE_LIC = true;')
             if dept_saved == 'pravo' and reissue_key_saved:
                 code = code.replace('const REISSUE_KEY = "Alt+R";', f'const REISSUE_KEY = "{reissue_key_saved}";')
-            # ── Быстрая выдача лицензии (только для Правительства) ──────────────────
-            givelic_key_saved = str(saved.get('givelic_key', '')).replace('"', '').replace("'", '')[:30]
+            # ── Быстрая выдача лицензии для Hastle ──────────────────────────────────
             if dept_saved == 'pravo' and givelic_key_saved:
                 code = code.replace('const GIVELIC_KEY = "";', f'const GIVELIC_KEY = "{givelic_key_saved}";')
         return code
