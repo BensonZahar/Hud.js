@@ -744,9 +744,12 @@ function _pravoUpdateHassleInteraction(targetId) {
     // ── НОВОЕ: кнопка главного меню АНК — всегда для Hassle ──
     _items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
 
-    // Авто-перевыдача — показываем ТОЛЬКО если включена И есть кому перевыдавать
-    if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
-        _items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
+    // Авто-перевыдача — показываем всегда при включённой AUTO_REISSUE_LIC (независимо от наличия цели)
+    if (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) {
+        var _reissueLabel = _lastGiveLicData
+            ? ('Перевыдать: ' + _lastGiveLicData.name)
+            : 'Авто-перевыдача';
+        _items.push([_PRAVO_INT_REISSUE, _reissueLabel]);
     }
 
     // Быстрая выдача — показываем если помощник лицензёра включён И звание Лицензёр.
@@ -810,9 +813,12 @@ window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
 function _pravoGetOwnItems() {
     var items = [];
     items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
-    // Авто-перевыдача — показываем ТОЛЬКО если включена И есть кому перевыдавать
-    if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
-        items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
+    // Авто-перевыдача — показываем всегда при включённой AUTO_REISSUE_LIC
+    if (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) {
+        var _reissueLabel = _lastGiveLicData
+            ? ('Перевыдать: ' + _lastGiveLicData.name)
+            : 'Авто-перевыдача';
+        items.push([_PRAVO_INT_REISSUE, _reissueLabel]);
     }
     if (typeof _isLicensorRank === 'function' && _isLicensorRank()
         && (LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
@@ -979,13 +985,18 @@ const setupChatHandler = () => {
                 if (message.includes('У человека есть неоплаченные штрафы') && _lastGiveLicData) {
                     const _fId = _lastGiveLicData.targetId;
                     setTimeout(() => {
-                        const _fMsg = `Жетон ${_fId} у вас есть неоплаченные штрафы. Оплатите их в банкомате`;
+                        // Пытаемся взять ник из списка игроков, фолбэк — "Жетон ID"
+                        const _fNickRaw = getNickByIdFromList(_fId);
+                        const _fAddr   = _fNickRaw
+                            ? _fNickRaw.split('_').join(' ')   // Ivan_Petrov → Ivan Petrov
+                            : `Жетон ${_fId}`;
+                        const _fMsg = `${_fAddr} у вас есть неоплаченные штрафы. Оплатите их в банкомате`;
                         if (typeof __mvdPrevSendChatInput === "function") {
                             __mvdPrevSendChatInput(_fMsg);
                         } else {
                             engine.trigger("SendChatInput", _fMsg);
                         }
-                        console.log(`[PRAVO] 💬 Отправлено уведомление о штрафах → ID ${_fId}`);
+                        console.log(`[PRAVO] 💬 Отправлено уведомление о штрафах → ${_fAddr} (ID ${_fId})`);
                     }, 300);
                 }
                 // ─────────────────────────────────────────────────────────────────────
