@@ -1070,6 +1070,26 @@ const setupChatHandler = () => {
                         console.log(`[PRAVO] 💬 Отправлено уведомление о штрафах → ${_fAddr} (ID ${_fId})`);
                     }, 300);
                 }
+                // ── Авто-сообщение о запрете на покупку лицензии на оружие ──────────
+                if (message.includes('наложен запрет на покупку лицензии на оружие') && _lastGiveLicData) {
+                    const _bId = _lastGiveLicData.targetId;
+                    const _bHoursMatch = message.match(/Осталось\s+(\d+)\s+час/i);
+                    const _bHours = _bHoursMatch ? _bHoursMatch[1] : null;
+                    setTimeout(() => {
+                        const _bNickRaw = getNickByIdFromList(_bId);
+                        const _bAddr = _bNickRaw
+                            ? _bNickRaw.split('_').join(' ')
+                            : `Жетон ${_bId}`;
+                        const _bMsg = `${_bAddr} на вас наложен запрет на покупку лицензии на оружие` +
+                            (_bHours ? `. Осталось ${_bHours} час(а)` : '');
+                        if (typeof __mvdPrevSendChatInput === "function") {
+                            __mvdPrevSendChatInput(_bMsg);
+                        } else {
+                            engine.trigger("SendChatInput", _bMsg);
+                        }
+                        console.log(`[PRAVO] 💬 Отправлено уведомление о запрете лицензии → ${_bAddr} (ID ${_bId})`);
+                    }, 300);
+                }
                 // ─────────────────────────────────────────────────────────────────────
             }
             // ========== ФИЛЬТРАЦИЯ СООБЩЕНИЙ ==========
