@@ -873,9 +873,9 @@ class InstallerAPI:
                 return
 
             # Для Правительства авто-тазер и авто-выброс не используются
-            if department == 'pravo':
-                swap_enabled = False
-                eject_enabled = False
+            # (не переприсваиваем swap_enabled/eject_enabled — внутри вложенной run() это делает их локальными)
+            _swap_on  = bool(swap_enabled)  and department != 'pravo'
+            _eject_on = bool(eject_enabled) and department != 'pravo'
             # ── Авто-перевыдача лицензии (только для Правительства) ────────────────
             safe_reissue_key = str(reissue_key).replace('"', '').replace("'", '')[:30] if reissue_key else ''
             if auto_reissue_lic and department == 'pravo':
@@ -896,14 +896,14 @@ class InstallerAPI:
 
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
-            if not swap_enabled or not safe_swap_key:
+            if not _swap_on or not safe_swap_key:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = false;')
                 code = code.replace('const SWAP_KEY = "Alt+Q";', 'const SWAP_KEY = "";')
             else:
                 code = code.replace('const SWAP_ENABLED = true;', 'const SWAP_ENABLED = true;')
                 code = code.replace('const SWAP_KEY = "Alt+Q";', f'const SWAP_KEY = "{safe_swap_key}";')
             safe_eject_key = str(eject_key).replace('"', '').replace("'", '')[:30] if eject_key else ''
-            if not eject_enabled or not safe_eject_key:
+            if not _eject_on or not safe_eject_key:
                 # дефолт уже false — ничего не меняем, просто очищаем ключ
                 code = code.replace('const EJECT_KEY = "Alt+U";', 'const EJECT_KEY = "";')
             else:
@@ -1012,10 +1012,10 @@ class InstallerAPI:
                     'use_auto_password': bool(auto_password),
                     'radmir_path': str(self.radmir_path) if self.radmir_path else current.get('radmir_path', ''),
                     'auto_grab': (lambda ag: {**ag, 'enabled': ag.get('enabled', False) and any_item})(auto_grab) if auto_grab and isinstance(auto_grab, dict) else {},
-                    'swap_enabled': bool(swap_enabled),
-                    'swap_key': safe_swap_key if swap_enabled else '',
-                    'eject_enabled': bool(eject_enabled),
-                    'eject_key': safe_eject_key if eject_enabled else '',
+                    'swap_enabled': _swap_on,
+                    'swap_key': safe_swap_key if _swap_on else '',
+                    'eject_enabled': _eject_on,
+                    'eject_key': safe_eject_key if _eject_on else '',
                     'menu_key': safe_menu_key,
                     'menu_hidden': hidden_list,
                     'menu_binds': binds_dict,
