@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1226,9 +1226,21 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     }
 
     // Закрываем так же, как это делает сам компонент (close()): интерфейс + событие серверу
+    // Компонент PlayerInteraction мы НЕ открываем вообще (см. обёртку openInterface ниже),
+    // поэтому закрывать нечего — только говорим серверу, что меню «закрыто».
     function closeInteraction() {
-        try { window.closeInterface('PlayerInteraction'); } catch (e) {}
         try { window.sendClientEventHandle(window.gm.EVENT_EXECUTE_PUBLIC, 'MenuInt_OnCloseInterface', 0); } catch (e) {}
+    }
+
+    // Если комбинация не сработала (нет ID / нажали R) — показываем перехваченное меню как обычно
+    var swallowedParams = null;
+    function restoreMenu() {
+        var p = swallowedParams;
+        swallowedParams = null;
+        if (p === null) return;
+        disarm();
+        dbg('restore: открываю обычное меню');
+        try { _oi.call(window, 'PlayerInteraction', p); } catch (e) {}
     }
 
     function canFire() {
@@ -1252,11 +1264,11 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (now - lastRKey < 700) { dbg('skip: только что нажат R'); return; }
         lastFire = now;
         armed = true;
+        swallowedParams = null;
         dbg('fire: отправляю MenuInt_OnPlayerKey');
         dropE = true; // не отправлять серверу «E» при отпускании клавиши
         if (dropETimer) clearTimeout(dropETimer);
         dropETimer = setTimeout(function () { dropE = false; }, 3000); // страховка
-        hideUi(true);
         armTimer = setTimeout(function () {
             if (!armed) return;
             disarm();
@@ -1286,17 +1298,18 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         var nick = (typeof raw === 'string') ? raw.trim() : '';
 
         function fail() {
-            disarm(); // меню остаётся открытым — можно продолжить вручную
+            restoreMenu(); // не смогли определить цель — показываем обычное меню
             console.warn('[PRAVO] ⚠ Быстрая выдача: не удалось определить ID. params =', params);
             notify('~r~Выдача лицензии~n~~w~Не удалось определить ID цели');
         }
         if (!nick) return fail();
 
         resolveId(nick, 0, function (id) {
-            if (!armed) return;
+            if (!armed) return restoreMenu(); // комбинацию отменили (например, нажали R) — отдаём меню
             if (id === null) return fail();
             window._pravoLastInteractionTarget = { nick: nick, id: id, src: 'quicklic', time: Date.now() };
             console.log('[PRAVO] 🪪 E+ПКМ: выдача лицензии → "' + nick + '" | ID: ' + id);
+            swallowedParams = null;
             closeInteraction();
             disarm();
             setTimeout(function () {
@@ -1308,11 +1321,13 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     // ── перехват открытия PlayerInteraction (оборачиваем уже обёрнутый логгер цели) ──
     var _oi = window.openInterface;
     window.openInterface = function (name, params) {
-        if (name === 'PlayerInteraction' && armed) {
-            var res = _oi.apply(this, arguments);
-            // даём Vue смонтировать компонент, потом разбираем цель
-            setTimeout(function () { try { onInteractionOpened(params); } catch (e) { disarm(); } }, 60);
-            return res;
+        if (name === 'PlayerInteraction' && armed && swallowedParams === null) {
+            // Компонент НЕ открываем: открыть-и-сразу-закрыть ломало следующие открытия меню
+            // (счётчики скрытия HUD/меток, mount/unmount компонента). Просто забираем параметры.
+            swallowedParams = (params === undefined || params === null) ? '' : params;
+            dbg('open перехвачен, params =', params);
+            setTimeout(function () { try { onInteractionOpened(params); } catch (e) { restoreMenu(); } }, 0);
+            return Promise.resolve();
         }
         return _oi.apply(this, arguments);
     };
@@ -1336,7 +1351,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             // чтобы обычное радиальное меню не пряталось и не закрывалось
             if (e.keyCode === 82) {
                 lastRKey = Date.now();
-                if (armed) { dbg('R во время armed → disarm'); disarm(); }
+                if (armed) { dbg('R во время armed → disarm'); if (swallowedParams !== null) restoreMenu(); else disarm(); }
             }
             return;
         }
