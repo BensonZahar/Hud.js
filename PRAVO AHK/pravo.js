@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.444 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.333 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1153,6 +1153,192 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     }
 
     console.log('[PRAVO] ✅ PlayerInteraction target logger установлен');
+})();
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════════
+// E + ПКМ по игроку → сразу диалог выбора лицензии (/givelic) для этого игрока.
+//
+// Как работает: комбинация шлёт на сервер то же событие, что и клавиша R
+// (MenuInt_OnPlayerKey) — сервер определяет цель, на которую ты навёл ПКМ, и
+// открывает PlayerInteraction. Блок ловит это открытие (openInterface), достаёт ник
+// из params[0], находит ID в window._mvdPlayerList, прячет и закрывает радиальное
+// меню и открывает showGiveLicTypeDialog(ID).
+// Работает только у Лицензёра (как и GIVELIC_KEY) и только в правительственном скине.
+// Обычный ПКМ + R не затронут. Отключить: window.PRAVO_QUICKLIC_ENABLED = false.
+// ══════════════════════════════════════════════════════════════════════════════
+(function _pravoQuickLicenseOnTarget() {
+    if (window.__pravoQuickLic) return;
+    window.__pravoQuickLic = true;
+
+    var KEY_E = 69, MOUSE_RIGHT = 2;
+    var ARM_TIMEOUT = 2500;   // сколько ждём, пока сервер откроет PlayerInteraction
+    var COOLDOWN = 1200;      // антиспам комбинации
+    var rmbDown = false, eDown = false;
+    var armed = false, armTimer = null, lastFire = 0;
+    var dropE = false, dropETimer = null;
+    var styleEl = null;
+
+    function notify(text) {
+        try { if (typeof gtAdd === 'function') gtAdd(text, 3000, 3); } catch (e) {}
+    }
+
+    function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
+
+    function findId(nick) {
+        try {
+            var list = window._mvdPlayerList, n = norm(nick);
+            if (!list || !nick) return null;
+            if (list.local && norm(list.local.name) === n) return list.local.id;
+            if (Array.isArray(list.players)) {
+                var f = list.players.find(function (p) { return norm(p.name) === n; });
+                return f ? f.id : null;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    // Прячем радиальное меню на время «невидимого» открытия, чтобы оно не мигало
+    function hideUi(on) {
+        try {
+            if (on && !styleEl) {
+                styleEl = document.createElement('style');
+                styleEl.textContent = '.player-interaction,.player-interaction-layer{opacity:0!important;transition:none!important}';
+                (document.head || document.documentElement).appendChild(styleEl);
+            } else if (!on && styleEl) {
+                styleEl.remove();
+                styleEl = null;
+            }
+        } catch (e) {}
+    }
+
+    function disarm() {
+        armed = false;
+        if (armTimer) { clearTimeout(armTimer); armTimer = null; }
+        hideUi(false);
+    }
+
+    // Закрываем так же, как это делает сам компонент (close()): интерфейс + событие серверу
+    function closeInteraction() {
+        try { window.closeInterface('PlayerInteraction'); } catch (e) {}
+        try { window.sendClientEventHandle(window.gm.EVENT_EXECUTE_PUBLIC, 'MenuInt_OnCloseInterface', 0); } catch (e) {}
+    }
+
+    function canFire() {
+        if (window.PRAVO_QUICKLIC_ENABLED === false) return false;
+        try {
+            if (typeof pravoSkins !== 'undefined' && typeof skinId !== 'undefined' && !pravoSkins.includes(skinId)) return false;
+        } catch (e) {}
+        if (typeof _isLicensorRank === 'function' && !_isLicensorRank()) return false;
+        // те же условия, при которых клиент вообще отправляет R
+        if (window.inputFocus || window.isBluredInput === false) return false;
+        if (typeof window.IsDialogOpened === 'function' && window.IsDialogOpened()) return false;
+        if (typeof window.isOpenedChat === 'function' && window.isOpenedChat()) return false;
+        if (window.getInterfaceStatus('PlayerInteraction') || window.getInterfaceStatus('Police')) return false;
+        return true;
+    }
+
+    function fire() {
+        var now = Date.now();
+        if (armed || now - lastFire < COOLDOWN || !canFire()) return;
+        lastFire = now;
+        armed = true;
+        dropE = true; // не отправлять серверу «E» при отпускании клавиши
+        if (dropETimer) clearTimeout(dropETimer);
+        dropETimer = setTimeout(function () { dropE = false; }, 10000); // страховка
+        hideUi(true);
+        armTimer = setTimeout(function () {
+            if (!armed) return;
+            disarm();
+            notify('~r~Выдача лицензии~n~~w~Игрок не найден — наведитесь на него ПКМ');
+        }, ARM_TIMEOUT);
+        window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'MenuInt_OnPlayerKey'); // как клавиша R
+    }
+
+    function resolveId(nick, tries, cb) {
+        var id = findId(nick);
+        if (id !== null) return cb(id);
+        if (tries >= 4) return cb(null);
+        // список игроков обновляется редко — просим движок обновить
+        if (tries === 0 && typeof window.updatePlayerList === 'function') {
+            try { window.updatePlayerList(); } catch (e) {}
+        }
+        setTimeout(function () { resolveId(nick, tries + 1, cb); }, 250);
+    }
+
+    function onInteractionOpened(params) {
+        if (armTimer) { clearTimeout(armTimer); armTimer = null; }
+        var p = null;
+        try {
+            p = (typeof params === 'string') ? JSON.parse(params.replace(/\n/, '\\n')) : params;
+        } catch (e) {}
+        var raw = Array.isArray(p) ? p[0] : null;
+        var nick = (typeof raw === 'string') ? raw.trim() : '';
+
+        function fail() {
+            disarm(); // меню остаётся открытым — можно продолжить вручную
+            console.warn('[PRAVO] ⚠ Быстрая выдача: не удалось определить ID. params =', params);
+            notify('~r~Выдача лицензии~n~~w~Не удалось определить ID цели');
+        }
+        if (!nick) return fail();
+
+        resolveId(nick, 0, function (id) {
+            if (!armed) return;
+            if (id === null) return fail();
+            window._pravoLastInteractionTarget = { nick: nick, id: id, src: 'quicklic', time: Date.now() };
+            console.log('[PRAVO] 🪪 E+ПКМ: выдача лицензии → "' + nick + '" | ID: ' + id);
+            closeInteraction();
+            disarm();
+            setTimeout(function () {
+                if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id);
+            }, 80);
+        });
+    }
+
+    // ── перехват открытия PlayerInteraction (оборачиваем уже обёрнутый логгер цели) ──
+    var _oi = window.openInterface;
+    window.openInterface = function (name, params) {
+        if (name === 'PlayerInteraction' && armed) {
+            var res = _oi.apply(this, arguments);
+            // даём Vue смонтировать компонент, потом разбираем цель
+            setTimeout(function () { try { onInteractionOpened(params); } catch (e) { disarm(); } }, 60);
+            return res;
+        }
+        return _oi.apply(this, arguments);
+    };
+
+    // ── при комбинации не отправляем серверу «E» (клиент шлёт его на keyup) ──
+    var _sce = window.sendClientEvent;
+    if (typeof _sce === 'function') {
+        window.sendClientEvent = function () {
+            if (dropE && arguments[1] === 'OnPlayerClientSideKey' && arguments[2] === KEY_E) return;
+            return _sce.apply(this, arguments);
+        };
+    }
+
+    // ── отслеживание E и ПКМ (capture — раньше остальных обработчиков) ──
+    window.addEventListener('keydown', function (e) {
+        if (e.keyCode !== KEY_E || e.repeat) return;
+        eDown = true;
+        if (rmbDown) fire();
+    }, true);
+    window.addEventListener('keyup', function (e) {
+        if (e.keyCode !== KEY_E) return;
+        eDown = false;
+        // флаг снимаем чуть позже: обработчик игры отправит «E» в этом же событии
+        if (dropE) setTimeout(function () { dropE = false; }, 80);
+    }, true);
+    window.addEventListener('mousedown', function (e) {
+        if (e.button !== MOUSE_RIGHT) return;
+        rmbDown = true;
+        if (eDown) fire();
+    }, true);
+    window.addEventListener('mouseup', function (e) {
+        if (e.button === MOUSE_RIGHT) rmbDown = false;
+    }, true);
+    window.addEventListener('blur', function () { rmbDown = false; eDown = false; });
+
+    console.log('[PRAVO] ✅ Быстрая выдача лицензии (E + ПКМ) установлена');
 })();
 // ══════════════════════════════════════════════════════════════════════════════
 
