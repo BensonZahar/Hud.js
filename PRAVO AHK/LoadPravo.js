@@ -87,6 +87,10 @@ const REISSUE_KEY = "Alt+R";    // Хоткей авто-перевыдачи: �
 const GIVELIC_KEY = "";  // Хоткей прямого открытия диалога /givelic: установщик заменяет значение
 // ── END Быстрая выдача ───────────────────────────────────────────
 
+// ── Помощник лицензёра (флаг — патчится установщиком) ──────────
+const LICENSOR_HELPER_ENABLED = false;  // установщик меняет на true если помощник включён
+// ── END Помощник лицензёра ───────────────────────────────────────
+
 // Параметры загрузки скрипта
 const username = 'BensonZahar';
 const repo = 'Hud.js';
@@ -180,10 +184,20 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
             if (GIVELIC_KEY) {
                 scriptText = scriptText.replace(/var GIVELIC_KEY = "";/, `var GIVELIC_KEY = "${GIVELIC_KEY}";`);
             }
+            // ── Патчим LICENSOR_HELPER_ENABLED (флаг помощника лицензёра) ────────────
+            if (LICENSOR_HELPER_ENABLED) {
+                scriptText = scriptText.replace(/var LICENSOR_HELPER_ENABLED = false;/, 'var LICENSOR_HELPER_ENABLED = true;');
+                scriptText = scriptText.replace(
+                    'window.LICENSOR_HELPER_ENABLED = LICENSOR_HELPER_ENABLED;',
+                    'window.LICENSOR_HELPER_ENABLED = true;'
+                );
+            }
             // ── Патчим wantedFine и fine: открываем LawsHelper вместо диалогов 681/678 ──
             // Делаем это ПОСЛЕ eval — mvdF определяет эти функции в window,
             // перезаписываем их сразу после eval.
             eval(scriptText);
+            // Прокидываем LICENSOR_HELPER_ENABLED в window после eval
+            window.LICENSOR_HELPER_ENABLED = LICENSOR_HELPER_ENABLED;
             if (typeof onSuccess === 'function') onSuccess();
             // ── Перехват window.showUkInputDialog (РОЗЫСК) ───────────────────
             // Вызывается mvdF при action === 'wantedFine'.

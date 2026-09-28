@@ -418,6 +418,10 @@ var MENU_KEY = "Alt+0";
 var REISSUE_KEY = "Alt+R";
 // Хоткей прямого открытия диалога /givelic — настраивается установщиком (пусто = отключено)
 var GIVELIC_KEY = "";
+// Флаг "Помощник лицензёра" — патчится установщиком через LoadPravo.js (false = выключено)
+var LICENSOR_HELPER_ENABLED = false;
+// Прокидываем наружу чтобы LoadPravo.js мог получить актуальное значение
+window.LICENSOR_HELPER_ENABLED = LICENSOR_HELPER_ENABLED;
 // Скрытые пункты меню «Повседневная» — настраивается установщиком
 var MENU_HIDDEN_ITEMS = [];
 // Биндинги прямого вызова пунктов меню — настраивается установщиком
@@ -743,9 +747,10 @@ function _pravoUpdateHassleInteraction(targetId) {
         _items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
     }
 
-    // Быстрая выдача — показываем всегда при звании Лицензёр.
+    // Быстрая выдача — показываем только если помощник лицензёра включён И звание Лицензёр.
     // На ПК есть хоткей GIVELIC_KEY, на Hassle клавиш нет — кнопка обязательна.
-    if (_isLicensorRank()) {
+    // Без флага LICENSOR_HELPER_ENABLED кнопка не появляется даже при нужном звании.
+    if (_isLicensorRank() && (LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
         _items.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
     }
 
@@ -788,7 +793,8 @@ function _pravoGetOwnItems() {
         (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
         items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
     }
-    if (typeof _isLicensorRank === 'function' && _isLicensorRank()) {
+    if (typeof _isLicensorRank === 'function' && _isLicensorRank()
+        && (LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
         items.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
     }
     return items;
@@ -1766,8 +1772,8 @@ window.sendChatInputCustom = e => {
         } else {
             engine.trigger("SendChatInput", e);
         }
-        // Дополнительно показываем наше меню только для Лицензёра
-        if (_isLicensorRank()) {
+        // Дополнительно показываем наше меню только если помощник лицензёра включён И звание Лицензёр
+        if (_isLicensorRank() && (LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
             window.showGiveLicIdInputDialog();
         }
     } else if (args[0] == "/givelic" && args.length === 2) {
@@ -1777,8 +1783,8 @@ window.sendChatInputCustom = e => {
         } else {
             engine.trigger("SendChatInput", e);
         }
-        // Дополнительно показываем наше меню только для Лицензёра
-        if (_isLicensorRank()) {
+        // Дополнительно показываем наше меню только если помощник лицензёра включён И звание Лицензёр
+        if (_isLicensorRank() && (LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
             window.showGiveLicTypeDialog(args[1]);
         }
     } else if (args[0] == "/console") {
