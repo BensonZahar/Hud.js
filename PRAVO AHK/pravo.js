@@ -1061,7 +1061,7 @@ const setupChatHandler = () => {
                         const _fAddr   = _fNickRaw
                             ? _fNickRaw.split('_').join(' ')   // Ivan_Petrov → Ivan Petrov
                             : `Жетон ${_fId}`;
-                        const _fMsg = `${_fAddr} у вас есть неоплаченные штрафы. Оплатите их в банкомате`;
+                        const _fMsg = `${_fAddr}, у вас имеются неоплаченные штрафы. Оплатить их можно в любом банкомате`;
                         if (typeof __mvdPrevSendChatInput === "function") {
                             __mvdPrevSendChatInput(_fMsg);
                         } else {
@@ -1080,7 +1080,7 @@ const setupChatHandler = () => {
                         const _bAddr = _bNickRaw
                             ? _bNickRaw.split('_').join(' ')
                             : `Жетон ${_bId}`;
-                        const _bMsg = `${_bAddr} на вас наложен запрет на покупку лицензии на оружие` +
+                        const _bMsg = `${_bAddr}, на вас наложен запрет на покупку лицензии на оружие` +
                             (_bHours ? `. Осталось ${_bHours} час(а)` : '');
                         if (typeof __mvdPrevSendChatInput === "function") {
                             __mvdPrevSendChatInput(_bMsg);
@@ -1088,6 +1088,35 @@ const setupChatHandler = () => {
                             engine.trigger("SendChatInput", _bMsg);
                         }
                         console.log(`[PRAVO] 💬 Отправлено уведомление о запрете лицензии → ${_bAddr} (ID ${_bId})`);
+                    }, 300);
+                }
+                // ── Авто-ответ: недостаточно денег / лицензия уже есть ──────────────
+                if (_lastGiveLicData &&
+                    (message.includes('У покупателя недостаточно денег') ||
+                     message.includes('У покупателя уже есть этот тип лицензии'))) {
+                    const _ld = _lastGiveLicData;
+                    const _noMoney = message.includes('У покупателя недостаточно денег');
+                    setTimeout(() => {
+                        const _nickRaw = getNickByIdFromList(_ld.targetId);
+                        const _addr = _nickRaw ? _nickRaw.split('_').join(' ') : `Жетон ${_ld.targetId}`;
+                        const _priceStr = Number(_ld.price).toLocaleString('ru-RU').replace(/\s/g, ' ');
+                        const _LIC_PHRASE = {
+                            1: { nom: 'водительские права',        acc: 'водительские права' },
+                            2: { nom: 'профессиональные права',    acc: 'профессиональные права' },
+                            3: { nom: 'лицензия на оружие',        acc: 'лицензию на оружие' },
+                            4: { nom: 'лицензия на рыбалку',       acc: 'лицензию на рыбалку' },
+                            5: { nom: 'лицензия на охоту',         acc: 'лицензию на охоту' }
+                        };
+                        const _ph = _LIC_PHRASE[_ld.type] || { nom: _ld.name, acc: _ld.name };
+                        const _txt = _noMoney
+                            ? `${_addr}, у вас недостаточно денег на ${_ph.acc}. Стоимость: ${_priceStr} руб.`
+                            : `${_addr}, у вас уже есть ${_ph.nom}`;
+                        if (typeof __mvdPrevSendChatInput === "function") {
+                            __mvdPrevSendChatInput(_txt);
+                        } else {
+                            engine.trigger("SendChatInput", _txt);
+                        }
+                        console.log(`[PRAVO] 💬 Авто-ответ (${_noMoney ? 'нет денег' : 'уже есть'}) → ${_addr} (ID ${_ld.targetId})`);
                     }, 300);
                 }
                 // ─────────────────────────────────────────────────────────────────────
