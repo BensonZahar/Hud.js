@@ -744,18 +744,13 @@ function _pravoUpdateHassleInteraction(targetId) {
     // ── НОВОЕ: кнопка главного меню АНК — всегда для Hassle ──
     _items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
 
-    // Авто-перевыдача — показываем всегда при включённой AUTO_REISSUE_LIC (независимо от наличия цели)
-    if (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) {
-        var _reissueLabel;
-        if (_lastGiveLicData) {
-            var _rNickRaw = getNickByIdFromList(_lastGiveLicData.targetId);
-            var _rDisplay = _rNickRaw
-                ? _rNickRaw.split('_').join(' ')
-                : _lastGiveLicData.name;
-            _reissueLabel = 'Перевыдать на ' + _lastGiveLicData.name + ': ' + _rDisplay;
-        } else {
-            _reissueLabel = 'Авто-перевыдача';
-        }
+    // Авто-перевыдача — показываем только если есть сохранённая цель
+    if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
+        var _rNickRaw = getNickByIdFromList(_lastGiveLicData.targetId);
+        var _rDisplay = _rNickRaw
+            ? _rNickRaw.split('_').join(' ')
+            : _lastGiveLicData.name;
+        var _reissueLabel = 'Перевыдать на ' + _lastGiveLicData.name + ': ' + _rDisplay;
         _items.push([_PRAVO_INT_REISSUE, _reissueLabel]);
     }
 
@@ -820,18 +815,13 @@ window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
 function _pravoGetOwnItems() {
     var items = [];
     items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
-    // Авто-перевыдача — показываем всегда при включённой AUTO_REISSUE_LIC
-    if (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) {
-        var _reissueLabel;
-        if (_lastGiveLicData) {
-            var _rNickRaw = getNickByIdFromList(_lastGiveLicData.targetId);
-            var _rDisplay = _rNickRaw
-                ? _rNickRaw.split('_').join(' ')
-                : _lastGiveLicData.name;
-            _reissueLabel = 'Перевыдать на ' + _lastGiveLicData.name + ': ' + _rDisplay;
-        } else {
-            _reissueLabel = 'Авто-перевыдача';
-        }
+    // Авто-перевыдача — показываем только если есть сохранённая цель
+    if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
+        var _rNickRaw = getNickByIdFromList(_lastGiveLicData.targetId);
+        var _rDisplay = _rNickRaw
+            ? _rNickRaw.split('_').join(' ')
+            : _lastGiveLicData.name;
+        var _reissueLabel = 'Перевыдать на ' + _lastGiveLicData.name + ': ' + _rDisplay;
         items.push([_PRAVO_INT_REISSUE, _reissueLabel]);
     }
     if (typeof _isLicensorRank === 'function' && _isLicensorRank()
