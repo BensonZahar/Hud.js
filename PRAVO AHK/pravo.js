@@ -5161,4 +5161,170 @@ console.log('[PRAVO] Interactions drag v1 готов  (PC=mouse / Hassle=touch)'
 
 })();
 // ==================== END INTERACTIONS: DRAG ====================
+// ==================== HASSLE: КВАДРАТИКИ ИГРОКОВ НА РАДАРЕ ====================
+// Проблема: на Hassle (мобилка) квадратики игроков рядом не рисуются на радаре,
+// на ПК — рисуются.
+// Что делает блок: на Hassle (App.isMobile) сам рисует квадратики поверх карты
+// радара (.hud-hassle-map) по данным движка — событие UpdateRadar:
+//   (x, y, поворот стрелки, поворот карты, зум, JSON игроков рядом)
+//   игрок = [x, y, угол, R, G, B, прозрачность 0..255]
+// Математика скопирована из LegacyHudMap (Hud.js), поэтому квадратики стоят там же,
+// где их рисует игра на ПК: размер 8% карты, рамка 10%, min opacity 0.5.
+// Родные квадратики на Hassle прячутся (display:none), чтобы не было дублей.
+// На ПК блок ничего не делает. Отладка: window._pravoHassleNearby (счётчики,
+// последний список игроков) и window._pravoHassleNearbyDebug() в консоль.
+;(function () {
+'use strict';
+
+if (window.__pravoHassleNearbyV1) return;
+window.__pravoHassleNearbyV1 = true;
+
+var WORLD_K     = 6144 / 12000; // Hud.js: G / tu — мировые координаты → пиксели карты
+var MAX_ZOOM_M  = 0.6;          // Hud.js: потолок зума на мобилке
+var SIZE_REL    = 0.08;         // размер квадрата относительно карты
+var BORDER_REL  = 0.1;          // рамка относительно квадрата
+var MIN_OPACITY = 0.5;
+var LAYER_ID    = 'pravo-hassle-nearby';
+var STYLE_ID    = 'pravo-hassle-nearby-style';
+
+var state = { events: 0, drawn: 0, lastPlayers: [], lastArgs: null, attached: false, layerReady: false };
+window._pravoHassleNearby = state;
+window._pravoHassleNearbyDebug = function () {
+    console.log('[PRAVO] 🟥 Radar squares:', JSON.stringify({
+        isHassle: isHassle(), attached: state.attached, events: state.events,
+        players: state.lastPlayers.length, drawn: state.drawn, layer: state.layerReady,
+        map: !!findMap(), lastArgs: state.lastArgs
+    }));
+    return state;
+};
+
+function isHassle() { return !!(window.App && window.App.isMobile); }
+
+function findMap() {
+    var m = document.querySelector('.hud-hassle-radar .hud-hassle-map') || document.querySelector('.hud-hassle-map');
+    return (m && m.isConnected) ? m : null;
+}
+
+var layer = null, pool = [];
+
+function ensureStyle() {
+    if (document.getElementById(STYLE_ID)) return;
+    var st = document.createElement('style');
+    st.id = STYLE_ID;
+    // родные квадратики прячем — рисуем свои
+    st.textContent = '.hud-hassle-map .nearby-players-container{display:none!important}';
+    (document.head || document.documentElement).appendChild(st);
+}
+
+function ensureLayer(map) {
+    if (layer && layer.parentNode === map) return layer;
+    var old = document.getElementById(LAYER_ID);
+    if (old && old.parentNode) old.parentNode.removeChild(old);
+    layer = document.createElement('div');
+    layer.id = LAYER_ID;
+    layer.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;'
+        + 'border-radius:50%;overflow:hidden;pointer-events:none;z-index:100;';
+    map.appendChild(layer);
+    pool = [];
+    state.layerReady = true;
+    return layer;
+}
+
+function getSquare(i) {
+    var s = pool[i];
+    if (!s) {
+        s = document.createElement('div');
+        s.style.cssText = 'position:absolute;left:50%;top:50%;border-style:solid;border-color:#000;';
+        layer.appendChild(s);
+        pool[i] = s;
+    }
+    return s;
+}
+
+var pending = null, raf = 0;
+
+function draw() {
+    raf = 0;
+    var d = pending; pending = null;
+    if (!d || !isHassle()) return;
+
+    var map = findMap();
+    if (!map) return;
+    ensureStyle();
+    ensureLayer(map);
+
+    var mapSize = map.offsetWidth;
+    if (!mapSize) return;
+    var R      = mapSize / 2;
+    var size   = mapSize * SIZE_REL;
+    var border = size * BORDER_REL;
+    var zoomK  = Math.min(d.zoom * (window.scale || 1), MAX_ZOOM_M);
+    if (!isFinite(zoomK) || zoomK <= 0) zoomK = 0.6;
+
+    var shown = 0;
+    for (var i = 0; i < d.players.length; i++) {
+        var p = d.players[i];
+        if (!p || p.length < 2) continue;
+
+        // смещение от центра карты в пикселях (как translate+scale в LegacyHudMap)
+        var dx =  (p[0] - d.x) * WORLD_K * zoomK;
+        var dy = -(p[1] - d.y) * WORLD_K * zoomK;
+        if (Math.sqrt(dx * dx + dy * dy) > R) continue; // за краем радара
+
+        var s = getSquare(shown++);
+        s.style.display = 'block';
+        s.style.width   = size + 'px';
+        s.style.height  = size + 'px';
+        s.style.borderWidth = border + 'px';
+        s.style.marginLeft = s.style.marginTop = (-(size / 2 + border)) + 'px';
+        s.style.background = 'rgb(' + (p[3] | 0) + ',' + (p[4] | 0) + ',' + (p[5] | 0) + ')';
+        s.style.opacity = String(Math.max(MIN_OPACITY, (Number(p[6]) || 255) / 255));
+        // карта повёрнута на -rot, квадрат поворачиваем обратно — остаётся ровным
+        s.style.transform = 'translate(' + dx + 'px,' + dy + 'px) rotate(' + d.rot + 'deg)';
+    }
+    for (var j = shown; j < pool.length; j++) pool[j].style.display = 'none';
+    state.drawn = shown;
+}
+
+function onUpdateRadar(x, y, targetRot, rot, zoom, players) {
+    if (!isHassle()) return;
+    state.events++;
+    if (typeof players === 'string') {
+        try { players = JSON.parse(players); } catch (e) { players = []; }
+    }
+    if (!Array.isArray(players)) players = [];
+    state.lastPlayers = players;
+    if (state.events === 1) {
+        state.lastArgs = { x: x, y: y, rot: rot, zoom: zoom, playersType: typeof arguments[5] };
+        console.log('[PRAVO] 🟥 Radar squares: UpdateRadar пошёл, игроков в пакете: ' + players.length);
+    }
+    pending = { x: +x, y: +y, rot: +rot || 0, zoom: +zoom || 1, players: players };
+    if (!raf) raf = requestAnimationFrame(draw);
+}
+
+// engine может появиться позже нас — ждём
+var tries = 0;
+var timer = setInterval(function () {
+    tries++;
+    if (window.engine && typeof window.engine.on === 'function') {
+        clearInterval(timer);
+        try {
+            window.engine.on('UpdateRadar', onUpdateRadar);
+            state.attached = true;
+            console.log('[PRAVO] 🟥 Radar squares (Hassle) v1 готов');
+        } catch (e) { console.warn('[PRAVO] Radar squares: engine.on упал', e); }
+        // если за 15с на мобилке событие так и не пришло — на клиенте другая версия карты
+        setTimeout(function () {
+            if (isHassle() && state.events === 0) {
+                console.warn('[PRAVO] 🟥 Radar squares: UpdateRadar не приходит — '
+                    + 'скорее всего карта на data-bind (не Unity). Вызови _pravoHassleNearbyDebug()');
+            }
+        }, 15000);
+    } else if (tries > 120) {
+        clearInterval(timer);
+    }
+}, 500);
+
+})();
+// ==================== END HASSLE: КВАДРАТИКИ ИГРОКОВ НА РАДАРЕ ====================
 }); // конец callback _nickCheck
