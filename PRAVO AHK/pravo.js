@@ -741,15 +741,17 @@ function _pravoUpdateHassleInteraction(targetId) {
     // ── НОВОЕ: кнопка главного меню АНК — всегда для Hassle ──
     _items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
 
-    // Авто-перевыдача — только если включена, есть цель И сохранённая команда
-    if (targetId && targetId != -1 &&
-        (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
-        _items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
+    // Авто-перевыдача — показываем всегда при включённой AUTO_REISSUE_LIC (независимо от наличия цели)
+    if (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) {
+        var _reissueLabel = _lastGiveLicData
+            ? ('Перевыдать: ' + _lastGiveLicData.name)
+            : 'Авто-перевыдача';
+        _items.push([_PRAVO_INT_REISSUE, _reissueLabel]);
     }
 
-    // Быстрая выдача — показываем только если помощник лицензёра включён И звание Лицензёр.
+    // Быстрая выдача — показываем если помощник лицензёра включён И звание Лицензёр.
     // На ПК есть хоткей GIVELIC_KEY, на Hassle клавиш нет — кнопка обязательна.
-    // Без флага LICENSOR_HELPER_ENABLED кнопка не появляется даже при нужном звании.
+    // LICENSOR_HELPER_ENABLED теперь корректно патчится при Hassle-вставке через insert_hassle_code.
     if (_isLicensorRank() && (LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
         _items.push([_PRAVO_INT_GIVELIC, 'Выдать лицензию']);
     }
@@ -789,9 +791,12 @@ window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
 function _pravoGetOwnItems() {
     var items = [];
     items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
-    if (giveLicenseTo && giveLicenseTo != -1 &&
-        (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
-        items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
+    // Авто-перевыдача — показываем всегда при включённой AUTO_REISSUE_LIC
+    if (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) {
+        var _reissueLabel = _lastGiveLicData
+            ? ('Перевыдать: ' + _lastGiveLicData.name)
+            : 'Авто-перевыдача';
+        items.push([_PRAVO_INT_REISSUE, _reissueLabel]);
     }
     if (typeof _isLicensorRank === 'function' && _isLicensorRank()
         && (LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
