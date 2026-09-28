@@ -287,6 +287,9 @@ setTimeout(function() {
 // Скины ПРАВИТЕЛЬСТВО: 57♂ 141♀ 147♂ 164♀ 165♂ 187♂ 208♂ 227♂ 16360♀
 const pravoSkins = [57, 141, 147, 164, 165, 187, 208, 227, 16360];
 
+// Хелпер для проверки правительственного скина — используется и в LoadPravo.js
+window._isPravoSkin = function() { return pravoSkins.includes(skinId); };
+
 let skinId = null;
 // 3. Функция получения скина
 function getSkinIdFromStore() {
@@ -496,6 +499,8 @@ function _matchesCombo(e, combo) {
 
 // Обработчик горячих клавиш
 window.addEventListener('keydown', function(e) {
+    // Все хоткеи работают только при правительственном скине
+    if (!pravoSkins.includes(skinId)) return;
     if (MENU_KEY) {
         var parts = MENU_KEY.toLowerCase().split('+').map(function(s){ return s.trim(); });
         var needAlt   = parts.indexOf('alt')   !== -1;
@@ -735,6 +740,16 @@ function _pravoUpdateHassleInteraction(targetId) {
             _pravoHassleIntOpen = false; // FIX: флаг ДО close, иначе closeInterface-хук зациклится
             try { window.closeInterface('Interactions'); } catch(e) {}
             console.log('[PRAVO] 📱 Hassle Interaction закрыт (мы на ПК, хоткеи доступны)');
+        }
+        return;
+    }
+
+    // Если скин не правительственный — закрываем наш Interaction и выходим
+    if (!pravoSkins.includes(skinId)) {
+        if (_pravoHassleIntOpen) {
+            _pravoHassleIntOpen = false;
+            try { window.closeInterface('Interactions'); } catch(e) {}
+            console.log('[PRAVO] 🚫 Hassle Interaction закрыт (не правительственный скин)');
         }
         return;
     }
