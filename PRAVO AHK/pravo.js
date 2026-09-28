@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1222,6 +1222,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     function disarm() {
         armed = false;
         if (armTimer) { clearTimeout(armTimer); armTimer = null; }
+        if (typeof cancelHold === 'function') cancelHold();
         hideUi(false);
     }
 
@@ -1320,14 +1321,79 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
     // ── перехват открытия PlayerInteraction (оборачиваем уже обёрнутый логгер цели) ──
     var _oi = window.openInterface;
+
+    // ── МОБИЛКА (Hassle): удержание пальца на игроке → наше меню, обычный тап → обычное меню ──
+    // Тап по игроку обрабатывает движок → сервер (OnEntitySelected) → openInterface('PlayerInteraction').
+    // Мы следим за пальцем: если к моменту открытия палец держат дольше HOLD_MS (или его только
+    // что отпустили после такого удержания) — перехватываем меню и открываем выдачу лицензии.
+    // Короткий тап проходит как раньше. Отключить: window.PRAVO_QUICKLIC_HOLD = false.
+    // Время удержания: window.PRAVO_QUICKLIC_HOLD_MS (по умолчанию 450 мс).
+    var HOLD_GRACE = 700, MOVE_PX = 24;
+    var tId = null, tDown = false, tStart = 0, tEnd = 0, tDur = 0, tMoved = false, tX = 0, tY = 0;
+    var holdTimer = null;
+
+    function holdMs() { return +window.PRAVO_QUICKLIC_HOLD_MS > 0 ? +window.PRAVO_QUICKLIC_HOLD_MS : 450; }
+    function holdEnabled() { return window.PRAVO_QUICKLIC_HOLD !== false && !!(window.App && window.App.isMobile); }
+    function cancelHold() { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } }
+    function hasTouch(list, id) {
+        for (var i = 0; list && i < list.length; i++) if (list[i].identifier === id) return list[i];
+        return null;
+    }
+
+    window.addEventListener('touchstart', function (e) {
+        var t = e.changedTouches && e.changedTouches[0];
+        if (!t) return;
+        tId = t.identifier; tDown = true; tStart = Date.now(); tMoved = false; tX = t.clientX; tY = t.clientY;
+    }, { capture: true, passive: true });
+    window.addEventListener('touchmove', function (e) {
+        var t = hasTouch(e.changedTouches, tId);
+        if (t && Math.hypot(t.clientX - tX, t.clientY - tY) > MOVE_PX) tMoved = true; // двигали палец — это камера, не удержание
+    }, { capture: true, passive: true });
+    function onTouchEnd(e) {
+        if (!hasTouch(e.changedTouches, tId)) return;
+        tDown = false; tEnd = Date.now(); tDur = tEnd - tStart;
+        // палец отпустили раньше времени удержания, а меню уже перехвачено → это был обычный тап
+        if (holdTimer) { cancelHold(); dbg('touchend раньше удержания → обычное меню'); restoreMenu(); }
+    }
+    window.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
+    window.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true });
+
     window.openInterface = function (name, params) {
-        if (name === 'PlayerInteraction' && armed && swallowedParams === null) {
-            // Компонент НЕ открываем: открыть-и-сразу-закрыть ломало следующие открытия меню
-            // (счётчики скрытия HUD/меток, mount/unmount компонента). Просто забираем параметры.
-            swallowedParams = (params === undefined || params === null) ? '' : params;
-            dbg('open перехвачен, params =', params);
-            setTimeout(function () { try { onInteractionOpened(params); } catch (e) { restoreMenu(); } }, 0);
-            return Promise.resolve();
+        if (name === 'PlayerInteraction' && swallowedParams === null) {
+            if (armed) {
+                // ПК: комбинация ПКМ+E
+                // Компонент НЕ открываем: открыть-и-сразу-закрыть ломало следующие открытия меню
+                // (счётчики скрытия HUD/меток, mount/unmount компонента). Просто забираем параметры.
+                swallowedParams = (params === undefined || params === null) ? '' : params;
+                dbg('open перехвачен, params =', params);
+                setTimeout(function () { try { onInteractionOpened(params); } catch (e) { restoreMenu(); } }, 0);
+                return Promise.resolve();
+            }
+            if (holdEnabled() && !window.getInterfaceStatus('PlayerInteraction') && canFire()) {
+                var now = Date.now(), need = holdMs(), state = 'no', remain = 0;
+                if (tDown && !tMoved) {
+                    remain = need - (now - tStart);
+                    state = remain <= 0 ? 'yes' : 'pending';
+                } else if (!tDown && !tMoved && now - tEnd < HOLD_GRACE && tDur >= need) {
+                    state = 'yes';
+                }
+                dbg('mobile open: state =', state, '| down =', tDown, '| dur =', tDown ? now - tStart : tDur, '| moved =', tMoved);
+                if (state !== 'no') {
+                    armed = true;
+                    swallowedParams = (params === undefined || params === null) ? '' : params;
+                    if (state === 'yes') {
+                        setTimeout(function () { try { onInteractionOpened(params); } catch (e) { restoreMenu(); } }, 0);
+                    } else {
+                        holdTimer = setTimeout(function () {
+                            holdTimer = null;
+                            if (!armed) return;
+                            if (tDown && !tMoved) { try { onInteractionOpened(params); } catch (e) { restoreMenu(); } }
+                            else restoreMenu();
+                        }, remain);
+                    }
+                    return Promise.resolve();
+                }
+            }
         }
         return _oi.apply(this, arguments);
     };
