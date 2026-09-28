@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.666 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1787,6 +1787,54 @@ window.showMvdSubMenu = (e) => {
                     console.log('[PRAVO-KB] setDrawLabelStatus(true) — ники видны');
                 }
 
+                // ── FIX: hook send() → авто-подтверждение диалога 678/668 ──────────────
+                // Перехватываем ctx.send Vue-компонента клавиатуры.
+                // При нажатии «Send» сами вызываем sendClientEventCustom(OnDialogResponse) —
+                // диалог не слушает Enter-событие на document, которое шлёт оригинальный send().
+                try {
+                    var _kbElH = document.querySelector('.keyboard');
+                    var _vcH   = _kbElH && (
+                        _kbElH.__vueParentComponent ||
+                        _kbElH._vueParentComponent  ||
+                        _kbElH.__vue__
+                    );
+                    var _ctxH  = _vcH && _vcH.ctx;
+
+                    if (_ctxH && typeof _ctxH.send === 'function' && !_ctxH._pravoSendHooked) {
+                        (function(_orig) {
+                            _ctxH.send = function() {
+                                // Читаем текст ДО вызова оригинала (this = proxy → this.text реактивен)
+                                var _sv  = (this && this.text != null)
+                                             ? String(this.text)
+                                             : ((window.currentKeyboardInput && window.currentKeyboardInput.value) || '');
+                                var _sid = window._pravoKbDialogId || null;
+
+                                // Оригинальное поведение: addHistory → hide → Enter-диспатч
+                                _orig.apply(this, arguments);
+
+                                // Авто-подтверждение: только если мы открыли этот диалог и есть ввод
+                                if (_sid && _sv.trim() !== '') {
+                                    window._pravoKbDialogId = null;
+                                    setTimeout(function() {
+                                        window.sendClientEventCustom(0, 'OnDialogResponse', _sid, 1, 0, _sv);
+                                        console.log('[PRAVO-KB] ✅ авто-ответ dlg=' + _sid + ' val="' + _sv + '"');
+                                    }, 80);
+                                }
+
+                                // Hook одноразовый — восстанавливаем оригинал
+                                _ctxH.send = _orig;
+                                _ctxH._pravoSendHooked = false;
+                            };
+                            _ctxH._pravoSendHooked = true;
+                        })(_ctxH.send);
+
+                        console.log('[PRAVO-KB] 🎣 send() hook → dlg=' + (window._pravoKbDialogId || 'none'));
+                    }
+                } catch (_he) {
+                    console.warn('[PRAVO-KB] send() hook ошибка:', _he);
+                }
+                // ─────────────────────────────────────────────────────────────────────────
+
                 clearInterval(_t);
             } catch(e) {
                 console.warn('[PRAVO-KB] Ошибка в поллинге:', e);
@@ -1805,6 +1853,7 @@ window.showMvdSubMenu = (e) => {
 
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
+    window._pravoKbDialogId = 668; // FIX: авто-подтверждение через клавиатуру
     window._pravoScheduleKeyboardNumeric && window._pravoScheduleKeyboardNumeric();
     window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
 };
@@ -1821,6 +1870,7 @@ const _GIVE_LIC_TYPES = [
 
 // Диалог 678 — ввод ID игрока для /givelic
 window.showGiveLicIdInputDialog = () => {
+    window._pravoKbDialogId = 678; // FIX: авто-подтверждение через клавиатуру
     window._pravoScheduleKeyboardNumeric && window._pravoScheduleKeyboardNumeric();
     window.addDialogInQueue(`[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]`, "", 0);
 };
