@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.333 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1178,6 +1178,13 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     var armed = false, armTimer = null, lastFire = 0;
     var dropE = false, dropETimer = null;
     var styleEl = null;
+    var lastRKey = 0;         // когда игрок сам нажал R (обычное открытие меню)
+
+    // Отладка: window.PRAVO_QUICKLIC_DEBUG = true — пишет в консоль ход комбинации
+    function dbg() {
+        if (!window.PRAVO_QUICKLIC_DEBUG) return;
+        try { console.log.apply(console, ['[PRAVO][QL]'].concat([].slice.call(arguments))); } catch (e) {}
+    }
 
     function notify(text) {
         try { if (typeof gtAdd === 'function') gtAdd(text, 3000, 3); } catch (e) {}
@@ -1241,11 +1248,14 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     function fire() {
         var now = Date.now();
         if (armed || now - lastFire < COOLDOWN || !canFire()) return;
+        // игрок только что сам нажал R — его меню не трогаем (иначе оно спрячется/закроется)
+        if (now - lastRKey < 700) { dbg('skip: только что нажат R'); return; }
         lastFire = now;
         armed = true;
+        dbg('fire: отправляю MenuInt_OnPlayerKey');
         dropE = true; // не отправлять серверу «E» при отпускании клавиши
         if (dropETimer) clearTimeout(dropETimer);
-        dropETimer = setTimeout(function () { dropE = false; }, 10000); // страховка
+        dropETimer = setTimeout(function () { dropE = false; }, 3000); // страховка
         hideUi(true);
         armTimer = setTimeout(function () {
             if (!armed) return;
@@ -1318,7 +1328,19 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
     // ── отслеживание E и ПКМ (capture — раньше остальных обработчиков) ──
     window.addEventListener('keydown', function (e) {
-        if (e.keyCode !== KEY_E || e.repeat) return;
+        if (e.keyCode !== KEY_E) {
+            if (e.repeat) return;
+            // любая другая клавиша сбрасывает «залипший» E (keyup мог не дойти до страницы)
+            eDown = false;
+            // игрок сам открывает меню клавишей R — снимаем наш «невидимый» режим,
+            // чтобы обычное радиальное меню не пряталось и не закрывалось
+            if (e.keyCode === 82) {
+                lastRKey = Date.now();
+                if (armed) { dbg('R во время armed → disarm'); disarm(); }
+            }
+            return;
+        }
+        if (e.repeat) return;
         eDown = true;
         if (rmbDown) fire();
     }, true);
@@ -1335,6 +1357,10 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     }, true);
     window.addEventListener('mouseup', function (e) {
         if (e.button === MOUSE_RIGHT) rmbDown = false;
+    }, true);
+    // ПКМ «залип» (mouseup не дошёл) — синхронизируемся по e.buttons
+    window.addEventListener('mousemove', function (e) {
+        if (rmbDown && !(e.buttons & 2)) rmbDown = false;
     }, true);
     window.addEventListener('blur', function () { rmbDown = false; eDown = false; });
 
