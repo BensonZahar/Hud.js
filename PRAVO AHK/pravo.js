@@ -1798,6 +1798,31 @@ const setupChatHandler = () => {
                         console.log(`[PRAVO] 💬 Отправлено уведомление о штрафах → ${_fAddr} (ID ${_fId})`);
                     }, 300);
                 }
+                // ── «Просьба о чае»: сервер подтвердил выдачу (покупатель принял оффер) ──
+                // Пример: Вы выдали "Лицензия на ношение и хранение оружия" игроку Allishka_Holod за 85.000 руб
+                // Формат в исходнике мода (offer.pwn): Вы выдали лицензию `Название` игроку Ник за N руб — тоже ловим
+                if (window.PRAVO_TEA_ASK === true && message.includes('Вы выдали')) {
+                    try {
+                        const _tm = message.replace(/\{[0-9a-fA-F]{6}\}/g, '')
+                            .match(/Вы выдали\s+(?:лицензию\s+)?["«“`'][^"»”`']+["»”`']\s+игроку\s+(\S+)\s+за\s+[\d.\s]+\s*руб/i);
+                        if (_tm && _isLicensorRank()) {
+                            const _tNick = _tm[1];
+                            const _tNow = Date.now();
+                            // защита от дубля одного и того же сообщения
+                            if (!(window._pravoTeaLast && window._pravoTeaLast.nick === _tNick && _tNow - window._pravoTeaLast.t < 5000)) {
+                                window._pravoTeaLast = { nick: _tNick, t: _tNow };
+                                const _tText = '/n ' + String(window.PRAVO_TEA_TEXT).split('{nick}').join(_tNick);
+                                const _tSend = () => {
+                                    const _w = _pravoFloodWait(1);   // антифлуд: не раздуваем счётчик
+                                    if (_w > 0) { setTimeout(_tSend, _w + 5); return; }
+                                    _pravoSendCmd(_tText);
+                                    console.log('[PRAVO] ☕ Просьба о чае → ' + _tNick);
+                                };
+                                setTimeout(_tSend, 1500);
+                            }
+                        }
+                    } catch (_te) {}
+                }
                 // ── Авто-сообщение о запрете на покупку лицензии на оружие ──────────
                 if (message.includes('наложен запрет на покупку лицензии на оружие') && _lastGiveLicData) {
                     const _bId = _lastGiveLicData.targetId;
@@ -2060,6 +2085,21 @@ window._pravoCircleAllowed = function () {
     if (window.App && window.App.isMobile) return !!(GIVELIC_KEY || LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED);
     return true;
 };
+// ── «Просьба о чае»: после успешной выдачи лицензии (игрок купил) пишем в /n просьбу о чае ──
+// Изначально ВЫКЛ. Триггер — сообщение сервера лицензёру после покупки:
+//   Вы выдали "Лицензия на ..." игроку Ник_Фамилия за 85.000 руб
+// Текст меняется через window.PRAVO_TEA_TEXT ({nick} подставится ником игрока).
+if (typeof window.PRAVO_TEA_ASK !== 'boolean') window.PRAVO_TEA_ASK = false;
+if (typeof window.PRAVO_TEA_TEXT !== 'string') window.PRAVO_TEA_TEXT = '{nick}, на чай не найдётся? А то 10 процентов с лицензии, буду благодарен';
+const teaAskName = () => `Просьба о чае | ${window.PRAVO_TEA_ASK ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
+const toggleTeaAsk = () => {
+    window.PRAVO_TEA_ASK = !window.PRAVO_TEA_ASK;
+    if (window.PRAVO_TEA_ASK) {
+        gtAdd('~g~Просьба о чае~n~~w~Вкл: после выдачи лицензии напишу игроку в /n', 4000, 3);
+    } else {
+        gtAdd('~r~Просьба о чае~n~~w~Выкл', 3000, 3);
+    }
+};
 const circleLicName = () => `Круговое меню | ${window.PRAVO_CIRCLE_LIC ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
 const toggleCircleLic = () => {
     window.PRAVO_CIRCLE_LIC = !window.PRAVO_CIRCLE_LIC;
@@ -2116,6 +2156,12 @@ const HandleMvdSubCommand = (index) => {
             break;
         case "givelic":
             setTimeout(() => window.showGiveLicIdInputDialog(), 50);
+            break;
+        case "tea_ask":
+            toggleTeaAsk();
+            setTimeout(() => {
+                showMvdSubMenu(giveLicenseTo);
+            }, 50);
             break;
         case "circle_lic":
             toggleCircleLic();
@@ -2457,6 +2503,10 @@ window.showMvdSubMenu = (e) => {
     // «Круговое меню» — после «Выдача лицензии» (ПК: достаточно звания Лицензёр; мобилка: + помощник)
     if (window._pravoCircleAllowed()) {
         availableSub.push({ name: circleLicName(), id: "circle_lic" });
+    }
+    // «Просьба о чае» — после «Круговое меню» (те же условия: Лицензёр; на мобилке + помощник)
+    if (window._pravoCircleAllowed()) {
+        availableSub.push({ name: teaAskName(), id: "tea_ask" });
     }
     // Авто-перевыдача: только для Лицензёра, если включена в установщике и есть сохранённая команда
     if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _isLicensorRank() && _lastGiveLicData) {
