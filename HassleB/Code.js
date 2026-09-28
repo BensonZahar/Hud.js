@@ -1607,7 +1607,8 @@ let _dbg3Rec = {                 // мониторинг реконнекта
     spawnedAt: null,
 };
 
-const _DBG3_TG_FLUSH_MS = 3000;
+const _DBG3_TG_FLUSH_MS = 8000; // FIX: было 3000 — упирались в лимит 20 сообщений/мин в группе
+let _dbg3LastFlushAt = 0;
 const _DBG3_POS_EPS = 5;
 
 // ── Время ────────────────────────────────────────────────────
@@ -1625,7 +1626,15 @@ function _dbg3Log(msg) {
 function _dbg3TgPush(text, critical = false) {
     if (!_dbg3TgActive) return;           // тихо когда ТГ не включён (/dbg_on не вызван)
     _dbg3TgQueue.push({ t: _dbg3Ts(), text });
-    if (critical) { _dbg3TgFlush(); }
+    if (critical) {
+        // FIX: critical-записи не чаще раза в 1.5с, иначе это поток правок и 429
+        const _wait = Math.max(0, 1500 - (Date.now() - _dbg3LastFlushAt));
+        if (_wait === 0) { _dbg3TgFlush(); }
+        else {
+            if (_dbg3TgFlushTimer) clearTimeout(_dbg3TgFlushTimer);
+            _dbg3TgFlushTimer = setTimeout(_dbg3TgFlush, _wait);
+        }
+    }
     else if (!_dbg3TgFlushTimer) {
         _dbg3TgFlushTimer = setTimeout(_dbg3TgFlush, _DBG3_TG_FLUSH_MS);
     }
@@ -1636,6 +1645,7 @@ function _dbg3TgFlush() {
     if (_dbg3TgFlushTimer) { clearTimeout(_dbg3TgFlushTimer); _dbg3TgFlushTimer = null; }
     if (_dbg3TgQueue.length === 0) return;
     if (!_dbg3TgActive) { _dbg3TgQueue = []; return; }
+    _dbg3LastFlushAt = Date.now();
 
     const newLines = _dbg3TgQueue.map(q => `[${q.t}] ${q.text}`).join('\n');
     _dbg3TgQueue = [];
@@ -1661,7 +1671,21 @@ function _dbg3TgFlush() {
                 _dbg3TgMsgIds[chatId]   = data.result.message_id;
                 _dbg3TgMsgTexts[chatId] = txt;
                 _dbg3Log(`[TG] Создано debug-сообщение ${data.result.message_id} в чате ${chatId}`);
-            }, s => _dbg3Log(`[TG] Ошибка отправки debug: ${s}`));
+            }, (s, body) => {
+                _dbg3Log(`[TG] Ошибка отправки debug: ${s}`);
+                // FIX: кривая HTML-разметка в логе (400 parse entities) — шлём то же самое без тегов
+                if (s === 400 && /parse entities/i.test(body || '')) {
+                    tgApi('sendMessage', {
+                        chat_id: chatId,
+                        text: txt.replace(/<[^>]+>/g, ''),
+                        disable_notification: true
+                    }, data => {
+                        if (!data || !data.result) return;
+                        _dbg3TgMsgIds[chatId]   = data.result.message_id;
+                        _dbg3TgMsgTexts[chatId] = txt;
+                    });
+                }
+            });
         }
 
         if (!_dbg3TgMsgIds[chatId]) {
@@ -1676,10 +1700,21 @@ function _dbg3TgFlush() {
                 parse_mode: 'HTML'
             }, () => {
                 _dbg3TgMsgTexts[chatId] = combined;
-            }, (status) => {
-                if (status === 400) {
-                    // Сообщение удалено пользователем — создаём новое
-                    _dbg3Log(`[TG] Сообщение ${_dbg3TgMsgIds[chatId]} удалено — создаём новое`);
+            }, (status, body) => {
+                // FIX: раньше ЛЮБОЙ 400 считался «сообщение удалено» и плодил новые сообщения
+                body = body || '';
+                if (status === 400 && /message is not modified/i.test(body)) {
+                    _dbg3TgMsgTexts[chatId] = combined;
+                } else if (status === 400 && /parse entities/i.test(body)) {
+                    // Кривая разметка — правим то же сообщение без тегов
+                    tgApi('editMessageText', {
+                        chat_id: chatId,
+                        message_id: _dbg3TgMsgIds[chatId],
+                        text: combined.replace(/<[^>]+>/g, '')
+                    }, () => { _dbg3TgMsgTexts[chatId] = combined; });
+                } else if (status === 400) {
+                    // Сообщение удалено пользователем / нельзя редактировать — создаём новое
+                    _dbg3Log(`[TG] Сообщение ${_dbg3TgMsgIds[chatId]} недоступно (${body.slice(0, 80)}) — создаём новое`);
                     _dbg3TgMsgIds[chatId]   = null;
                     _dbg3TgMsgTexts[chatId] = '';
                     _sendNew();
@@ -2326,6 +2361,15 @@ function createButton(text, command, style) {
 // FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
 function tgApi(method, payload, onSuccess, onError, _retryCount) {
     _retryCount = _retryCount || 0;
+    // FIX: общий backoff — после 429 все запросы (кроме answerCallbackQuery) ждут вместе,
+    // а не бьют по API каждый со своим таймером
+    if (method !== 'answerCallbackQuery') {
+        const _blockWait = (window._hassleTgBlockedUntil || 0) - Date.now();
+        if (_blockWait > 0) {
+            setTimeout(() => tgApi(method, payload, onSuccess, onError, _retryCount), _blockWait + 50);
+            return;
+        }
+    }
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/${method}`, true);
     xhr.setRequestHeader('Content-Type', 'application/json');
@@ -2346,6 +2390,7 @@ function tgApi(method, payload, onSuccess, onError, _retryCount) {
                 }
             } catch(e) {}
             debugLog(`tgApi ${method} 429 — повтор через ${retryAfter}с (попытка ${_retryCount + 1}/3)`);
+            window._hassleTgBlockedUntil = Math.max(window._hassleTgBlockedUntil || 0, Date.now() + retryAfter * 1000);
             setTimeout(() => tgApi(method, payload, onSuccess, onError, _retryCount + 1), retryAfter * 1000);
         } else {
             debugLog(`tgApi ${method} error: ${xhr.status} ${xhr.responseText}`);
@@ -2390,9 +2435,17 @@ function editMessageText(chatId, messageId, text, replyMarkup = null) {
         }
     });
 }
+// FIX: каждый callback подтверждается ровно один раз и как можно раньше (см. checkTelegramCommands).
+// Повторные вызовы из обработчиков — no-op. Ретраи отключены (_retryCount=3): поздний ответ бесполезен.
+const _answeredCb = new Set();
 function answerCallbackQuery(callbackQueryId) {
+    if (!callbackQueryId || _answeredCb.has(callbackQueryId)) return;
+    _answeredCb.add(callbackQueryId);
+    if (_answeredCb.size > 300) _answeredCb.delete(_answeredCb.values().next().value);
     tgApi('answerCallbackQuery', { callback_query_id: callbackQueryId },
-        () => debugLog(`Callback_query ${callbackQueryId} подтверждён`));
+        () => debugLog(`Callback_query ${callbackQueryId} подтверждён`),
+        (s) => debugLog(`Callback_query ${callbackQueryId} не подтверждён: ${s}`),
+        3);
 }
 // Функция спам-пингов при обнаружении администратора.
 // Основное сообщение с кнопками стоит на месте (editMessage).
@@ -3879,6 +3932,9 @@ let _pollRestartScheduled = false; // FIX: предотвращает двойн
 // Прерывает текущий long-poll и немедленно перезапускает с timeout=0.
 // Вызывать перед sendMessage — освобождает соединение для срочных API-вызовов.
 function _abortPollAndRestartFast() {
+    // FIX: вызывается из обработчиков внутри onload, когда опроса в полёте уже нет —
+    // тогда перезапуск сделает сам onload, лишний цикл не нужен
+    if (!_pollXhr) return;
     _pollRestartScheduled = true;
     if (_pollXhr) {
         _pollXhr.abort();
@@ -3933,7 +3989,7 @@ function checkTelegramCommands() {
 
     // -1 = свежий старт с пустой очередью; слать Telegram offset=0 (получать всё новое)
     const effectiveOffset = config.lastUpdateId < 0 ? 0 : config.lastUpdateId + 1;
-    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${effectiveOffset}&timeout=25`;
+    const url = `https://api.telegram.org/bot${config.botToken}/getUpdates?offset=${effectiveOffset}&timeout=25&allowed_updates=${encodeURIComponent('["message","callback_query","channel_post"]')}`;
     const xhr = new XMLHttpRequest();
     _pollXhr = xhr;
     window._hassleCurrentPollXhr = xhr; // FIX: для hassleCleanupHooks
@@ -3942,14 +3998,49 @@ function checkTelegramCommands() {
     xhr.onload = function() {
         if (_pollXhr === xhr) { _pollXhr = null; window._hassleCurrentPollXhr = null; }
         if (xhr.status === 200) {
+            let data = null;
             try {
-                const data = JSON.parse(xhr.responseText);
-                if (data.ok && data.result.length > 0) {
-                    processUpdates(data.result);
-                }
+                data = JSON.parse(xhr.responseText);
             } catch (e) {
                 debugLog('Ошибка парсинга ответа Telegram:', e);
             }
+            if (data && data.ok && data.result.length > 0) {
+                // FIX: подтверждаем ВСЕ нажатия кнопок сразу, до обработчиков —
+                // индикатор загрузки на кнопке пропадает мгновенно
+                for (const u of data.result) {
+                    const cq = u.callback_query;
+                    if (cq && cq.message && cq.message.chat &&
+                        config.chatIds.includes(String(cq.message.chat.id))) {
+                        answerCallbackQuery(cq.id);
+                    }
+                }
+                // FIX: каждый update отдельно и в try/catch — ошибка в одном обработчике
+                // не обрывает пачку и не даёт update «застрять» в очереди
+                for (const u of data.result) {
+                    try {
+                        processUpdates([u]);
+                    } catch (e) {
+                        debugLog(`Ошибка обработки update ${u.update_id}: ${e && e.message}`);
+                    }
+                    config.lastUpdateId = u.update_id;
+                    setSharedLastUpdateId(config.lastUpdateId);
+                }
+            }
+        } else {
+            // FIX: раньше при 409/429/401/5xx опрос перезапускался с задержкой 0 мс (бесконечный цикл)
+            let delay = 2000;
+            if (xhr.status === 409) delay = 3000;
+            else if (xhr.status === 401 || xhr.status === 404) {
+                delay = 60000;
+                debugLog(`[POLL] Токен отклонён (HTTP ${xhr.status}) — проверьте BOT_TOKENS в List.js. Повтор через 60с`);
+            } else if (xhr.status === 429) {
+                delay = 5000;
+                try { delay = (JSON.parse(xhr.responseText).parameters.retry_after || 5) * 1000; } catch (e) {}
+            }
+            debugLog(`[POLL] getUpdates HTTP ${xhr.status}, повтор через ${delay}мс`);
+            _pollRestartScheduled = false;
+            setTimeout(checkTelegramCommands, delay);
+            return;
         }
         // Если _abortPollAndRestartFast уже запланировал новый цикл — не дублируем
         if (!_pollRestartScheduled) {

@@ -347,25 +347,19 @@ function dlgSendToTelegram() {
     const text     = dlgBuildText();
     const keyboard = dlgBuildKeyboard();
 
+    // FIX: раньше был «голый» XHR в обход tgApi — без обработки 429 и общего backoff
     config.chatIds.forEach(chatId => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `https://api.telegram.org/bot${config.botToken}/sendMessage`, true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                try {
-                    const data = JSON.parse(xhr.responseText);
-                    dlg.tgMsgs.push({ chatId, messageId: data.result.message_id });
-                    debugLog(`[DLG] Отправлено в чат ${chatId}: msg ${data.result.message_id}`);
-                } catch (e) {}
-            }
-        };
-        xhr.send(JSON.stringify({
+        tgApi('sendMessage', {
             chat_id:      chatId,
             text:         text,
             parse_mode:   'HTML',
             reply_markup: JSON.stringify(keyboard)
-        }));
+        }, data => {
+            try {
+                dlg.tgMsgs.push({ chatId, messageId: data.result.message_id });
+                debugLog(`[DLG] Отправлено в чат ${chatId}: msg ${data.result.message_id}`);
+            } catch (e) {}
+        });
     });
 }
 
@@ -903,6 +897,7 @@ processUpdates = function(updates) {
                     cbData.endsWith(`_${uniqueId}`) ||
                     cbData.includes(`_${uniqueId}_`);
 
+                answerCallbackQuery(cbQueryId); // FIX: подтверждаем сразу (дубли отсекаются внутри)
                 if (isOurs) {
                     handleDialogTgCallback(cbData, cbChatId, cbMessageId, cbQueryId);
                 } else {
