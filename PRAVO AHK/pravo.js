@@ -762,19 +762,38 @@ function _pravoUpdateHassleInteraction(targetId) {
     // _items теперь НИКОГДА не пустой на Hassle (есть минимум кнопка АНК Меню)
 
     try {
-        // FIX: передаём сохранённые серверные пункты вместе с нашими,
-        // чтобы хук openInterface мог их отфильтровать и слить обратно.
-        // Это восстанавливает серверные кнопки после закрытия наших диалогов
-        // (678/679 givelic, /dahk и т.д.), когда сервер не переотправляет setInfo.
         var _mergedItems = _items.concat(_pravoLastServerItems);
-        window.openInterface('Interactions', JSON.stringify(_mergedItems));
-        _pravoHassleIntOpen = true;
-        console.log('[PRAVO] 📱 Hassle Interaction открыт'
-            + (targetId && targetId != -1 ? ' для ID ' + targetId : ' (старт/ранг)')
-            + ': ' + _items.map(function(i){ return i[1]; }).join(' / ')
-            + (_pravoLastServerItems.length ? ' + ' + _pravoLastServerItems.length + ' серверных' : ''));
+
+        // ─────────────────────────────────────────────────────────────────────
+        // FIX МЕРЦАНИЕ: openInterface делает early-return если интерфейс уже
+        // открыт (index.js: `if(getInterfaceStatus(e)||blockInterfaces)return`).
+        // Поэтому при открытой панели обновляем список НАПРЯМУЮ через setInfo
+        // на экземпляре компонента — без закрытия и повторного открытия.
+        // openInterface используем только при первом открытии панели.
+        // ─────────────────────────────────────────────────────────────────────
+        var _icInst = window.interface && window.interface('Interactions');
+        var _alreadyOpen = _pravoHassleIntOpen
+            && _icInst
+            && typeof window.getInterfaceStatus === 'function'
+            && window.getInterfaceStatus('Interactions');
+
+        if (_alreadyOpen) {
+            // Панель открыта — обновляем список без перезагрузки (нет мерцания)
+            _icInst.setInfo(JSON.stringify(_mergedItems));
+            console.log('[PRAVO] 🔄 Hassle Interaction обновлён (setInfo, без перезагрузки)'
+                + ': ' + _items.map(function(i){ return i[1]; }).join(' / ')
+                + (_pravoLastServerItems.length ? ' + ' + _pravoLastServerItems.length + ' серверных' : ''));
+        } else {
+            // Панель закрыта — открываем её впервые
+            window.openInterface('Interactions', JSON.stringify(_mergedItems));
+            _pravoHassleIntOpen = true;
+            console.log('[PRAVO] 📱 Hassle Interaction открыт'
+                + (targetId && targetId != -1 ? ' для ID ' + targetId : ' (старт/ранг)')
+                + ': ' + _items.map(function(i){ return i[1]; }).join(' / ')
+                + (_pravoLastServerItems.length ? ' + ' + _pravoLastServerItems.length + ' серверных' : ''));
+        }
     } catch(e) {
-        console.warn('[PRAVO] ⚠️ Ошибка открытия Interactions:', e);
+        console.warn('[PRAVO] ⚠️ Ошибка обновления Interactions:', e);
     }
 }
 window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
@@ -1638,8 +1657,9 @@ window.sendClientEventCustom = (event, ...args) => {
             return;
         }
         if (_hInt === _PRAVO_INT_REISSUE) {
-            _pravoHassleIntOpen = false;
-            try { window.closeInterface('Interactions'); } catch(e) {}
+            // FIX: НЕ закрываем Interactions перед вызовом — панель остаётся открытой.
+            // После выдачи _pravoDoReissue вызовет _pravoUpdateHassleInteraction,
+            // которая теперь обновляет список через setInfo (без мерцания).
             if (typeof window._pravoDoReissue === 'function') window._pravoDoReissue();
             return;
         }
