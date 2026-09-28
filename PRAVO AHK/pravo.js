@@ -744,8 +744,7 @@ function _pravoUpdateHassleInteraction(targetId) {
     // ── НОВОЕ: кнопка главного меню АНК — всегда для Hassle ──
     _items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
 
-    // Авто-перевыдача — показываем ТОЛЬКО если включена И уже есть сохранённая команда для повтора.
-    // Пока лицензия ни разу не выдана (_lastGiveLicData = null) — кнопки нет.
+    // Авто-перевыдача — показываем ТОЛЬКО если включена И есть кому перевыдавать
     if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
         _items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
     }
@@ -811,7 +810,7 @@ window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
 function _pravoGetOwnItems() {
     var items = [];
     items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
-    // Авто-перевыдача — только если включена И уже есть данные для повтора
+    // Авто-перевыдача — показываем ТОЛЬКО если включена И есть кому перевыдавать
     if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
         items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
     }
