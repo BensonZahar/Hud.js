@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.444 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1697,7 +1697,22 @@ window.showMvdSubMenu = (e) => {
 ;(function _pravoKeyboardPatch() {
     window._pravoIsOurKeyboard = false;
 
-    // ── Блокируем скрытие ников ТОЛЬКО пока наша клавиатура открыта ──────────
+    // ── Есть ли открытый интерфейс, который штатно должен скрывать ники (hideHud/hideLabels) ──
+    window._pravoShouldHideLabels = function() {
+        try {
+            if (window._pravoIsOurKeyboard) return false; // наш диалог ввода ID — ники нужны
+            var comps = window.App && window.App.components;
+            if (!comps) return false;
+            for (var name in comps) {
+                var c = comps[name];
+                if (c && c.open && c.open.status && c.options && !c.options.hud &&
+                    (c.options.hideHud || c.options.hideLabels)) return true;
+            }
+        } catch (e) {}
+        return false;
+    };
+
+    // ── Блокируем скрытие ников ТОЛЬКО пока наша клавиатура реально открыта ──────────
     function _patchSdls() {
         var _orig = window.setDrawLabelStatus;
         if (typeof _orig !== 'function') return false;
@@ -1708,8 +1723,18 @@ window.showMvdSubMenu = (e) => {
             if (!window._pravoIsOurKeyboard) return _orig.apply(this, arguments);
             // Наш диалог: блокируем только вызовы false (скрытие ников)
             if (!value) {
-                console.log('[PRAVO-KB] setDrawLabelStatus(false) заблокирован — ники остаются видны');
-                return;
+                var _pauseOpen = false;
+                try {
+                    _pauseOpen = !!(window.getInterfaceStatus &&
+                        (window.getInterfaceStatus('PauseMenu') || window.getInterfaceStatus('MainMenu')));
+                } catch (e) {}
+                var _kbVisible = !!document.querySelector('.keyboard-container');
+                if (_kbVisible && !_pauseOpen) {
+                    console.log('[PRAVO-KB] setDrawLabelStatus(false) заблокирован — ники остаются видны');
+                    return;
+                }
+                // Клавиатуры уже нет или открыта пауза/меню — флаг залип, сбрасываем и пропускаем вызов
+                window._pravoIsOurKeyboard = false;
             }
             return _orig.apply(this, arguments);
         };
@@ -1721,6 +1746,11 @@ window.showMvdSubMenu = (e) => {
             if (_patchSdls()) clearInterval(_sdlsTimer);
         }, 200);
     }
+
+    // ── Страховка: ESC тоже сбрасывает флаг ──────────────────────────────────
+    window.addEventListener('keyup', function(e) {
+        if (e.keyCode === 27) window._pravoIsOurKeyboard = false;
+    });
 
     // ── Сбрасываем флаг при закрытии клавиатуры ──────────────────────────────
     function _patchHideKb() {
@@ -2563,6 +2593,7 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
      const _grabOrigSetHudStatus      = window.setHudStatus;
      const _grabOrigSetDrawLabel      = window.setDrawLabelStatus;
      let _grabPatchesActive = true;
+     let _grabSdlsWrapper = null;
 
      function applyGrabPatches() {
          _grabPatchesActive = true;
@@ -2576,17 +2607,19 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
              if (_grabPatchesActive) return;
              return _grabOrigSetHudStatus.apply(this, arguments);
          };
-         window.setDrawLabelStatus = function(status) {
+         _grabSdlsWrapper = function(status) {
              if (_grabPatchesActive) return;
              return _grabOrigSetDrawLabel.apply(this, arguments);
          };
+         window.setDrawLabelStatus = _grabSdlsWrapper;
      }
 
      function restoreGrabPatches() {
          _grabPatchesActive = false;
          window.playSound          = _grabOrigPlaySound;
          window.setHudStatus       = _grabOrigSetHudStatus;
-         window.setDrawLabelStatus = _grabOrigSetDrawLabel;
+         // Восстанавливаем только если наша обёртка всё ещё стоит (не затираем чужие патчи)
+         if (window.setDrawLabelStatus === _grabSdlsWrapper) window.setDrawLabelStatus = _grabOrigSetDrawLabel;
      }
 
      function hideInventoryUI() {
@@ -2768,6 +2801,7 @@ try {
 var _origSetCursorStatus = window.setCursorStatus;
 var _origSetDrawLabelStatus = window.setDrawLabelStatus;
 var _patchesActive = false;
+var _profileSdlsWrapper = null;
 function applyCursorPatch() {
     _patchesActive = true;
     window.setCursorStatus = function(name, status, allowMovement) {
@@ -2784,20 +2818,30 @@ function applyCursorPatch() {
     // Блокируем скрытие ников (setDrawLabelStatus(false)) пока грузим профиль.
     // MainMenu при открытии вызывает setCursorStatus → движок вызывает setDrawLabelStatus(false) →
     // ники над головами пропадают. Подменяем функцию: false — игнорируем, true — пропускаем как есть.
-    window.setDrawLabelStatus = function(status) {
+    _profileSdlsWrapper = function(status) {
         if (_patchesActive && !status) {
             console.log('[Profile] 🔒 setDrawLabelStatus(false) заблокировано — ники остаются видны');
             return;
         }
         return _origSetDrawLabelStatus && _origSetDrawLabelStatus.apply(this, arguments);
     };
+    window.setDrawLabelStatus = _profileSdlsWrapper;
 }
 function restoreCursorPatch() {
     _patchesActive = false;
     window.setCursorStatus = _origSetCursorStatus;
-    window.setDrawLabelStatus = _origSetDrawLabelStatus;
-    // Явно восстанавливаем ники на случай если до патча они были видны
-    try { _origSetDrawLabelStatus && _origSetDrawLabelStatus.call(window, true); } catch(e) {}
+    if (window.setDrawLabelStatus === _profileSdlsWrapper) window.setDrawLabelStatus = _origSetDrawLabelStatus;
+    // Возвращаем ники только если сейчас не открыт интерфейс, который должен их скрывать (пауза, меню и т.д.)
+    try {
+        var _menuOpen = false;
+        try {
+            _menuOpen = !!(window.getInterfaceStatus &&
+                (window.getInterfaceStatus('PauseMenu') || window.getInterfaceStatus('MainMenu')));
+        } catch(e2) {}
+        if (!_menuOpen && !(window._pravoShouldHideLabels && window._pravoShouldHideLabels())) {
+            window.setDrawLabelStatus && window.setDrawLabelStatus(true);
+        }
+    } catch(e) {}
 }
 
 // ── Подмена опций интерфейса для корректной работы загрузки ──
@@ -3510,7 +3554,8 @@ function showCursor() {
 
     if (
         !(window.App && window.App.developmentMode) &&
-        typeof window.setDrawLabelStatus === 'function'
+        typeof window.setDrawLabelStatus === 'function' &&
+        !(window._pravoShouldHideLabels && window._pravoShouldHideLabels())
     ) {
         window.setDrawLabelStatus(true);
     }
@@ -3904,7 +3949,8 @@ function _attach() {
 
     if (
         !(window.App && window.App.developmentMode) &&
-        typeof window.setDrawLabelStatus === 'function'
+        typeof window.setDrawLabelStatus === 'function' &&
+        !(window._pravoShouldHideLabels && window._pravoShouldHideLabels())
     ) {
         window.setDrawLabelStatus(true);
     }
@@ -4375,7 +4421,4 @@ window.hideTimerK = () => {
     };
 })();
 // ==================== END TimerK ====================
-// ==================== INTERACTIONS: DRAG ====================
-;(function(){'use strict';if(window.__pravoInteractionsDragV1)return;window.__pravoInteractionsDragV1=true;var ROOT_SEL='.interactions',CONT_SEL='.interactions__container',NO_DRAG='.interactions-list, .interactions-hint',HANDLE_CLS='pravo-inter-handle',_savedPos=null,_drag=null,_touchMoved=false;function _isMobile(){return!!(window.App&&window.App.isMobile)}(function(){var id='pravo-inter-drag-css';if(document.getElementById(id))return;var s=document.createElement('style');s.id=id;s.textContent='.interactions__container{pointer-events:auto!important;cursor:grab}.interactions-list,.interactions-hint{cursor:default}.'+HANDLE_CLS+'{display:flex;align-items:center;justify-content:center;width:100%;height:3vh;pointer-events:auto;cursor:grab;flex-basis:100%;flex-shrink:0;order:-1}.'+HANDLE_CLS+':active{cursor:grabbing}.'+HANDLE_CLS+'::after{content:"";display:block;width:5vh;height:.35vh;background:rgba(255,255,255,.35);border-radius:1vh}';document.head.appendChild(s)})();function _cb(el){var p=el.parentElement;while(p&&p!==document.body){var cs=window.getComputedStyle(p),t=cs.transform,hasT=t&&t!=='none'&&t!=='matrix(1, 0, 0, 1, 0, 0)',hasP=cs.position!=='static';if(hasT||hasP){var r=p.getBoundingClientRect(),sw=p.offsetWidth||1,sh=p.offsetHeight||1;return{rect:r,sx:r.width/sw,sy:r.height/sh}}p=p.parentElement}return{rect:{left:0,top:0},sx:1,sy:1}}function _ensureAbsolute(el){if(el.style.position==='absolute'&&el.style.left!==''&&el.style.top!=='')return;var info=_cb(el),rect=el.getBoundingClientRect();el.style.position='absolute';el.style.right='auto';el.style.margin='0';el.style.left=((rect.left-info.rect.left)/info.sx)+'px';el.style.top=((rect.top-info.rect.top)/info.sy)+'px'}function _clamp(el,left,top,info){info=info||_cb(el);var ew=el.offsetWidth,eh=el.offsetHeight,maxL=(window.innerWidth-info.rect.left)/info.sx-ew,maxT=(window.innerHeight-info.rect.top)/info.sy-eh,minL=-info.rect.left/info.sx,minT=-info.rect.top/info.sy;return{left:Math.max(minL,Math.min(left,maxL)),top:Math.max(minT,Math.min(top,maxT))}}function _resolve(target){if(!target||!target.closest)return null;var cont=target.closest(CONT_SEL);if(!cont||!cont.closest(ROOT_SEL)||target.closest(NO_DRAG))return null;return cont}setInterval(function(){var cont=document.querySelector(ROOT_SEL+' '+CONT_SEL);if(!cont||!cont.isConnected)return;if(_isMobile()&&!cont.querySelector('.'+HANDLE_CLS)){var h=document.createElement('div');h.className=HANDLE_CLS;cont.insertBefore(h,cont.firstChild)}if(!_savedPos||cont.getAttribute('data-pr-inter-pos')==='1'||!cont.offsetWidth)return;_ensureAbsolute(cont);var info=_cb(cont),c=_clamp(cont,_savedPos.left,_savedPos.top,info);cont.style.left=c.left+'px';cont.style.top=c.top+'px';cont.setAttribute('data-pr-inter-pos','1')},200);function _onMouseDown(e){if(_isMobile()||e.button!==0)return;var el=_resolve(e.target);if(!el)return;_ensureAbsolute(el);_drag={el:el,info:_cb(el),sx:e.clientX,sy:e.clientY,sl:parseFloat(el.style.left)||0,st:parseFloat(el.style.top)||0};document.body.style.userSelect='none';e.preventDefault();e.stopPropagation()}function _onMouseMove(e){if(_isMobile()||!_drag)return;var c=_clamp(_drag.el,_drag.sl+(e.clientX-_drag.sx)/_drag.info.sx,_drag.st+(e.clientY-_drag.sy)/_drag.info.sy,_drag.info);_drag.el.style.left=c.left+'px';_drag.el.style.top=c.top+'px';e.preventDefault()}function _onMouseUp(){if(_isMobile()||!_drag)return;_savedPos={left:parseFloat(_drag.el.style.left),top:parseFloat(_drag.el.style.top)};_drag.el.setAttribute('data-pr-inter-pos','1');_drag=null;document.body.style.userSelect=''}function _onTouchStart(e){if(!_isMobile())return;_touchMoved=false;var t=e.touches[0];if(!t)return;var el=_resolve(t.target);if(!el)return;_ensureAbsolute(el);_drag={el:el,info:_cb(el),sx:t.clientX,sy:t.clientY,sl:parseFloat(el.style.left)||0,st:parseFloat(el.style.top)||0};document.body.style.userSelect='none';e.preventDefault();e.stopPropagation()}function _onTouchMove(e){if(!_isMobile())return;_touchMoved=true;if(!_drag)return;var t=e.touches[0];if(!t)return;var c=_clamp(_drag.el,_drag.sl+(t.clientX-_drag.sx)/_drag.info.sx,_drag.st+(t.clientY-_drag.sy)/_drag.info.sy,_drag.info);_drag.el.style.left=c.left+'px';_drag.el.style.top=c.top+'px';e.preventDefault()}function _onTouchEnd(){if(!_isMobile()||!_drag)return;_savedPos={left:parseFloat(_drag.el.style.left),top:parseFloat(_drag.el.style.top)};_drag.el.setAttribute('data-pr-inter-pos','1');_drag=null;document.body.style.userSelect=''}document.addEventListener('mousedown',_onMouseDown,{capture:true});document.addEventListener('mousemove',_onMouseMove,{capture:true});document.addEventListener('mouseup',_onMouseUp,{capture:true});document.addEventListener('touchstart',_onTouchStart,{capture:true,passive:false});document.addEventListener('touchmove',_onTouchMove,{capture:true,passive:false});document.addEventListener('touchend',_onTouchEnd,{capture:true,passive:true});window._pravoResetInteractionsPos=function(){_savedPos=null;var el=document.querySelector(ROOT_SEL+' '+CONT_SEL);if(el)el.removeAttribute('data-pr-inter-pos');console.log('[PRAVO] Interactions позиция сброшена')};console.log('[PRAVO] Interactions drag v1 готов  (PC=mouse / Hassle=touch)')})();
-// ==================== END INTERACTIONS: DRAG ====================
 }); // конец callback _nickCheck
