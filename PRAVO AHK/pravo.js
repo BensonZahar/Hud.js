@@ -1091,7 +1091,7 @@ const setupChatHandler = () => {
                 if (message.includes('Пожалуйста, подождите несколько секунд')) _pravoFloodServerSaid(true);
                 else if (message.includes('Не флудите')) _pravoFloodServerSaid(false);
                 if (message.includes('отказался от Вашего предложения') ||
-                    message.includes('Игрок слишком далеко') ||
+                    message.includes('слишком далеко') ||   // сервер: "Игрок находится слишком далеко"
                     message.includes('Такого игрока нет')) {
 
                     if (_docCheckActive) {
@@ -2178,11 +2178,79 @@ window.sendClientEventCustom = (event, ...args) => {
 };
 var __mvdPrevSendChatInput = window.sendChatInput;
 // Считаем в антифлуд-счётчик всё, что мы отправляем серверу (команды, авто-ответы, чат)
+// ── ЗАЩИТА ОТ «Слишком длинное сообщение» ────────────────────────────────────
+// Сервер (OnPlayerText) отбрасывает обычный чат длиннее 83 символов: if(str_len > 83).
+// Команды (/...) под этот лимит не попадают, их не трогаем.
+// Любой обычный текст, который уходит через __mvdPrevSendChatInput (авто-ответы
+// лицензёра, приветствия, ручной ввод), автоматически режется на части ≤ 83
+// и отправляется по очереди, чтобы порядок и антифлуд сохранялись.
+const PRAVO_SERVER_CHAT_LIMIT = 83;
+const PRAVO_CHAT_PART_DELAY   = 700; // мс между частями одного сообщения
+
+function _pravoSplitChat(text, max) {
+    max = max || PRAVO_SERVER_CHAT_LIMIT;
+    if (typeof text !== 'string') return [text];
+    if (text.charAt(0) === '/') return [text];          // команды не режем
+    text = text.trim();
+    if (text.length <= max) return [text];
+    const parts = [];
+    let s = text;
+    while (s.length > max) {
+        const win = s.slice(0, max + 1);                 // окно с запасом в 1 символ
+        let cut = -1;
+        // 1) конец предложения (. ! ?), если он не слишком близко к началу
+        for (const m of ['. ', '! ', '? ']) {
+            const i = win.lastIndexOf(m);
+            if (i >= max * 0.4) cut = Math.max(cut, i + 1);
+        }
+        // 2) запятая / точка с запятой
+        if (cut === -1) {
+            for (const m of [', ', '; ']) {
+                const i = win.lastIndexOf(m);
+                if (i >= max * 0.4) cut = Math.max(cut, i + 1);
+            }
+        }
+        // 3) любой пробел
+        if (cut === -1) {
+            const i = win.lastIndexOf(' ');
+            if (i > 0) cut = i;
+        }
+        // 4) нет пробелов вообще — жёсткий обрез
+        if (cut <= 0) cut = max;
+        parts.push(s.slice(0, cut).trim());
+        s = s.slice(cut).trim();
+    }
+    if (s) parts.push(s);
+    return parts.filter(Boolean);
+}
+
 if (typeof __mvdPrevSendChatInput === "function") {
     (function(_rawSend) {
-        __mvdPrevSendChatInput = function(t) {
+        const _queue = [];
+        let _draining = false;
+        function _drain() {
+            if (!_queue.length) { _draining = false; return; }
+            _draining = true;
+            const part = _queue.shift();
             _pravoFloodNote(1);
-            return _rawSend.apply(window, arguments);
+            _rawSend.call(window, part);
+            setTimeout(_drain, PRAVO_CHAT_PART_DELAY);
+        }
+        __mvdPrevSendChatInput = function(t) {
+            // команды и не-строки — как раньше
+            if (typeof t !== 'string' || t.charAt(0) === '/') {
+                _pravoFloodNote(1);
+                return _rawSend.apply(window, arguments);
+            }
+            const parts = _pravoSplitChat(t);
+            // короткое сообщение и очередь пуста — отправляем сразу
+            if (parts.length === 1 && !_draining) {
+                _pravoFloodNote(1);
+                return _rawSend.call(window, parts[0]);
+            }
+            // иначе — в очередь (сохраняем порядок)
+            for (const p of parts) _queue.push(p);
+            if (!_draining) _drain();
         };
     })(__mvdPrevSendChatInput);
 }
@@ -2297,7 +2365,7 @@ window.sendChatInputCustom = e => {
     }
 };
 // Максимальная длина чат-сообщения (лимит сервера)
-const _CHAT_MAX_LEN = 120;
+const _CHAT_MAX_LEN = PRAVO_SERVER_CHAT_LIMIT; // было 120 — сервер режет всё, что длиннее 83
 
 // Разбивает текст цитирования на строки по 83 символа (как в C++ хелпере)
 // с разбивкой по пробелу; пустые строки пропускаются
@@ -2318,19 +2386,9 @@ function _splitCitation83(text) {
     return result;
 }
 
-// Разбивает длинный текст на части по границам слов
+// Разбивает длинный текст на части по границам предложений/слов (команды не трогает)
 function _splitChatMessage(text) {
-    if (!text || text.length <= _CHAT_MAX_LEN) return [text];
-    const parts = [];
-    let s = text;
-    while (s.length > _CHAT_MAX_LEN) {
-        let cut = s.lastIndexOf(' ', _CHAT_MAX_LEN);
-        if (cut <= 0) cut = _CHAT_MAX_LEN; // нет пробела — жёсткий обрез
-        parts.push(s.slice(0, cut));
-        s = s.slice(cut).replace(/^\s+/, '');
-    }
-    if (s) parts.push(s);
-    return parts;
+    return _pravoSplitChat(text, _CHAT_MAX_LEN);
 }
 
 function sendMessagesWithDelay(messages, delays, index = 0) {
