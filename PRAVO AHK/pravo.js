@@ -1824,9 +1824,19 @@ const setupChatHandler = () => {
                     } catch (_te) {}
                 }
                 // ── Авто-сообщение о запрете на покупку лицензии на оружие ──────────
-                if (message.includes('наложен запрет на покупку лицензии на оружие') && _lastGiveLicData) {
+                // FIX: раньше условие было includes('наложен запрет на покупку лицензии на оружие') —
+                // это совпадало и с ЭХОМ нашего же сообщения в чате («на вас наложен запрет...»),
+                // отсюда цикл: своё сообщение → эхо → новое сообщение → ... → «Не флудите».
+                // Теперь реагируем только на системную строку сервера «У покупателя наложен запрет...»,
+                // не на строки чата игроков (они кончаются на «(Ник)[id]»), плюс кулдаун.
+                const _bClean = message.replace(/\{[0-9a-fA-F]{6}\}/g, '');
+                if (_bClean.includes('У покупателя наложен запрет на покупку лицензии на оружие') &&
+                    !/\(\S+\)\[\d+\]\s*$/.test(_bClean) &&
+                    _lastGiveLicData &&
+                    !(window._pravoBanMsgAt && Date.now() - window._pravoBanMsgAt < 8000)) {
+                    window._pravoBanMsgAt = Date.now();
                     const _bId = _lastGiveLicData.targetId;
-                    const _bHoursMatch = message.match(/Осталось\s+(\d+)\s+час/i);
+                    const _bHoursMatch = _bClean.match(/Осталось\s+(\d+)\s+час/i);
                     const _bHours = _bHoursMatch ? _bHoursMatch[1] : null;
                     setTimeout(() => {
                         const _bNickRaw = getNickByIdFromList(_bId);
