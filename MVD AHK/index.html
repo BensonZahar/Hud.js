@@ -92,6 +92,10 @@
             <svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <span>ФСИН</span>
           </button>
+          <button id="dept-pravo" class="dept-btn dept-pravo" onclick="setDepartment('pravo')">
+            <svg viewBox="0 0 24 24"><path d="M3 3h18v4H3zM3 10h18M3 14h18M3 18h18v3H3z"/><line x1="8" y1="7" x2="8" y2="10"/><line x1="16" y1="7" x2="16" y2="10"/></svg>
+            <span>ПРАВИТЕЛЬСТВО</span>
+          </button>
         </div>
 
         <div class="card">
@@ -179,6 +183,7 @@
         <div class="chk-row" onclick="toggleAutoGrab()">
           <div class="chk-box" id="chk-box-grab"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
           <span class="chk-lbl">Авто-снаряжение</span>
+          <span id="grab-badge-pravo" style="display:none;margin-left:auto;font-size:9.5px;color:var(--accent);background:rgba(253,160,47,.08);border:1px solid rgba(253,160,47,.25);border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;flex-shrink:0;">Только Охранник[2] · Нач. Охраны[3]</span>
         </div>
 
         <!-- Grab UI -->
@@ -248,6 +253,7 @@
         </div>
         </div><!-- /section-grab -->
 
+        <div id="section-swap">
         <!-- Auto-taser toggle -->
         <div class="chk-row" onclick="toggleSwap()">
           <div class="chk-box" id="chk-box-swap"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -270,6 +276,7 @@
             </div>
           </div>
         </div>
+        </div><!-- /section-swap -->
 
         <div id="section-eject">
         <!-- Auto-eject toggle -->
@@ -295,6 +302,62 @@
           </div>
         </div>
         </div><!-- /section-eject -->
+
+        <!-- Помощник для лицензёров — только для Правительства -->
+        <div id="section-licensor" style="display:none">
+          <div class="chk-row" onclick="toggleLicensorHelper()">
+            <div class="chk-box" id="chk-box-licensor"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+            <span class="chk-lbl">Помощник для лицензёров</span>
+            <span style="margin-left:auto;font-size:9.5px;color:var(--accent);background:rgba(253,160,47,.08);border:1px solid rgba(253,160,47,.25);border-radius:4px;padding:2px 7px;white-space:nowrap;pointer-events:none;flex-shrink:0;">Для Лицензёров [6]</span>
+          </div>
+          <div id="licensor-wrap">
+
+            <!-- Авто-перевыдача лицензии -->
+            <div class="chk-row" onclick="toggleAutoReissue()">
+              <div class="chk-box" id="chk-box-reissue"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <span class="chk-lbl">Авто-перевыдача лицензии (/givelic)</span>
+            </div>
+            <div id="reissue-wrap">
+              <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                  <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;flex-shrink:0"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.5"/></svg>
+                  <span style="font-size:10px;color:var(--accent);font-weight:500">Авто-перевыдача активна</span>
+                </div>
+                <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
+                  <div style="flex:1">
+                    <label class="inp-lbl">Кнопка авто-перевыдачи (toggle)</label>
+                    <input class="inp inp-hotkey" id="f-reissue-key" placeholder="Нажмите кнопку..." readonly
+                      onfocus="startListeningReissueKey()" onblur="stopListeningReissueKey()">
+                  </div>
+                  <button class="btn btn-ghost" type="button" onclick="clearReissueKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
+                </div>
+              </div>
+            </div><!-- /reissue-wrap -->
+
+            <!-- Быстрая выдача лицензии — теперь с переключателем -->
+            <div class="chk-row" onclick="toggleGivelic()">
+              <div class="chk-box" id="chk-box-givelic"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg></div>
+              <span class="chk-lbl">Быстрая выдача лицензии (/givelic)</span>
+            </div>
+            <div id="givelic-wrap">
+              <div style="background:rgba(249,183,1,.08);border:.5px solid rgba(249,183,1,.2);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">
+                  <svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--accent);stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  <span style="font-size:10px;color:var(--accent);font-weight:500">Быстрая выдача активна</span>
+                </div>
+                <div class="inp-grp" style="display:flex;gap:8px;align-items:flex-end;margin-bottom:0">
+                  <div style="flex:1">
+                    <label class="inp-lbl">Открыть диалог /givelic напрямую</label>
+                    <input class="inp inp-hotkey" id="f-givelic-key" placeholder="Нажмите кнопку..." readonly
+                      onfocus="startListeningGivelicKey()" onblur="stopListeningGivelicKey()">
+                  </div>
+                  <button class="btn btn-ghost" type="button" onclick="clearGivelicKey()" style="height:34px;padding:0 10px;font-size:11px;flex-shrink:0">✕</button>
+                </div>
+              </div>
+            </div><!-- /givelic-wrap -->
+
+          </div><!-- /licensor-wrap -->
+        </div><!-- /section-licensor -->
 
         <!-- Кнопка АХК-меню — всегда видна, стиль как у тазера -->
         <div id="menu-key-wrap">
@@ -434,6 +497,9 @@
 var folderSelected=false,callsignOn=false,autoPasswordOn=false,autoGrabOn=false;
 var savedAutoGrab=null,swapEnabled=false,swapKey='Alt+Q';
 var ejectEnabled=false,ejectKey='Alt+U';
+var autoReissueOn=false,reissueKey='Alt+R';
+var licensorHelperOn=false;
+var givelicOn=false,giveLicKey='';
 var menuKey='Alt+0';
 var currentDepartment='mvd';
 
@@ -442,23 +508,35 @@ function setDepartment(dept){
   document.getElementById('dept-mvd').classList.toggle('active',dept==='mvd');
   document.getElementById('dept-fsb').classList.toggle('active',dept==='fsb');
   document.getElementById('dept-fsin').classList.toggle('active',dept==='fsin');
+  document.getElementById('dept-pravo').classList.toggle('active',dept==='pravo');
   applyDepartment(dept);
   if(api)api.save_department(dept);
 }
 function applyDepartment(dept){
   var isMvd=dept==='mvd';
   var isFsin=dept==='fsin';
-  // Для ФСИН скрываем Позывной и Авто-выброс из авто
+  var isPravo=dept==='pravo';
+  // Для ФСИН и Правительства скрываем Позывной и Авто-выброс из авто
+  var hideCallsign=isFsin||isPravo;
   var sectionCallsign=document.getElementById('section-callsign');
-  if(sectionCallsign)sectionCallsign.style.display=isFsin?'none':'';
+  if(sectionCallsign)sectionCallsign.style.display=hideCallsign?'none':'';
   var sectionEject=document.getElementById('section-eject');
-  if(sectionEject)sectionEject.style.display=isFsin?'none':'';
+  if(sectionEject)sectionEject.style.display=hideCallsign?'none':'';
+  // Для Правительства скрываем Авто-тазер
+  var sectionSwap=document.getElementById('section-swap');
+  if(sectionSwap)sectionSwap.style.display=isPravo?'none':'';
+  // Помощник для лицензёров — только для Правительства
+  var sectionLicensor=document.getElementById('section-licensor');
+  if(sectionLicensor)sectionLicensor.style.display=isPravo?'':'none';
+  // Бейдж авто-снаряжения — только для Правительства
+  var grabBadge=document.getElementById('grab-badge-pravo');
+  if(grabBadge)grabBadge.style.display=isPravo?'':'none';
   var lbl=document.getElementById('callsign-lbl');
   if(lbl)lbl.textContent=isMvd?'Позывной ОМОН':'Позывной';
   renderGrabItems(dept);
   // Обновляем подсказку на главной
   var infoEl=document.getElementById('info-dept');
-  if(infoEl)infoEl.textContent=isMvd?'МВД':(isFsin?'ФСИН':'ФСБ');
+  if(infoEl)infoEl.textContent=isMvd?'МВД':(isFsin?'ФСИН':(isPravo?'Правительство':'ФСБ'));
 }
 // action -> label для пунктов меню «Повседневная»
 var ALL_MENU_ITEMS=[
@@ -599,21 +677,34 @@ var GRAB_ITEM_DEFS={
     {id:'painkiller', label:'Обезболивающее'},
     {id:'medkit',     label:'Аптечка'},
     {id:'baton',      label:'Дубинка'},
+    {id:'shield',     label:'Щит'},
     {id:'vest',       label:'Бронежилет'},
     {id:'deagle',     label:'Desert Eagle',  weapon:true, ammo:'magnum'},
     {id:'akm',        label:'АКМ',           weapon:true, ammo:'ammo762'},
     {id:'aks74u',     label:'АКС-74У',       weapon:true, ammo:'ammo545'},
     {id:'magnum',     label:'Патроны (.44 Magnum)', sub:'для Desert Eagle'},
     {id:'ammo762',    label:'Патроны (7.62x39)',    sub:'для АКМ'},
-    {id:'ammo545',    label:'Патроны (5.45x39)',    sub:'для АКС-74У'},
-    {id:'taser',      label:'Тазер'}
+    {id:'ammo545',    label:'Патроны (5.45x39)',    sub:'для АКС-74У'}
+  ],
+  pravo:[
+    {id:'painkiller', label:'Обезболивающее'},
+    {id:'medkit',     label:'Аптечка'},
+    {id:'baton',      label:'Дубинка'},
+    {id:'shield',     label:'Щит'},
+    {id:'vest',       label:'Бронежилет'},
+    {id:'deagle',     label:'Desert Eagle',  weapon:true, ammo:'magnum'},
+    {id:'akm',        label:'АКМ',           weapon:true, ammo:'ammo762'},
+    {id:'aks74u',     label:'АКС-74У',       weapon:true, ammo:'ammo545'},
+    {id:'magnum',     label:'Патроны (.44 Magnum)', sub:'для Desert Eagle'},
+    {id:'ammo762',    label:'Патроны (7.62x39)',    sub:'для АКМ'},
+    {id:'ammo545',    label:'Патроны (5.45x39)',    sub:'для АКС-74У'}
   ]
 };
-var GRAB_TITLES={mvd:'ПОЛИЦЕЙСКАЯ СЛУЖБА', fsb:'ФСБ', fsin:'ФСИН'};
+var GRAB_TITLES={mvd:'ПОЛИЦЕЙСКАЯ СЛУЖБА', fsb:'ФСБ', fsin:'ФСИН', pravo:'СЛУЖБА БЕЗОПАСНОСТИ'};
 // Общий объект состояния чекбоксов — ключи предметов уникальны в рамках структуры,
 // пересекающиеся (painkiller, medkit, taser и т.д.) сохраняют своё состояние отдельно не требуется,
 // т.к. одновременно в DOM присутствуют только пункты активной структуры.
-var grabItems={painkiller:false,medkit:false,baton:false,baton2:false,bat:false,vest:false,taumeter:false,diag:false,taser:false,deagle:false,akm:false,hk416:false,aks74u:false,remington:false,magnum:false,ammo762:false,ammo545:false,ammo556:false,ammo12x70:false,flashbang:false,mask:false,repairkit:false};
+var grabItems={painkiller:false,medkit:false,baton:false,baton2:false,bat:false,shield:false,vest:false,taumeter:false,diag:false,taser:false,deagle:false,akm:false,hk416:false,aks74u:false,remington:false,magnum:false,ammo762:false,ammo545:false,ammo556:false,ammo12x70:false,flashbang:false,mask:false,repairkit:false};
 function renderGrabItems(dept){
   var defs=GRAB_ITEM_DEFS[dept]||GRAB_ITEM_DEFS.mvd;
   var titleEl=document.getElementById('grab-title');
@@ -636,6 +727,9 @@ function renderGrabItems(dept){
 var api=null;
 
 function toggleAutoGrab(){autoGrabOn=!autoGrabOn;document.getElementById('chk-box-grab').classList.toggle('on',autoGrabOn);document.getElementById('grab-wrap').classList.toggle('show',autoGrabOn);}
+function toggleLicensorHelper(){licensorHelperOn=!licensorHelperOn;document.getElementById('chk-box-licensor').classList.toggle('on',licensorHelperOn);document.getElementById('licensor-wrap').classList.toggle('show',licensorHelperOn);}
+function toggleAutoReissue(){autoReissueOn=!autoReissueOn;document.getElementById('chk-box-reissue').classList.toggle('on',autoReissueOn);document.getElementById('reissue-wrap').classList.toggle('show',autoReissueOn);}
+function toggleGivelic(){givelicOn=!givelicOn;document.getElementById('chk-box-givelic').classList.toggle('on',givelicOn);document.getElementById('givelic-wrap').classList.toggle('show',givelicOn);}
 function toggleGrabItem(item){grabItems[item]=!grabItems[item];document.getElementById('wmi-'+item).classList.toggle('on',grabItems[item]);}
 var weaponAmmoMap={deagle:'magnum',akm:'ammo762',aks74u:'ammo545',remington:'ammo12x70',hk416:'ammo556'};
 function toggleGrabWeapon(weapon,ammo){grabItems[weapon]=!grabItems[weapon];document.getElementById('wmi-'+weapon).classList.toggle('on',grabItems[weapon]);if(grabItems[weapon]&&!grabItems[ammo]){grabItems[ammo]=true;document.getElementById('wmi-'+ammo).classList.add('on');}if(!grabItems[weapon]){var o=Object.entries(weaponAmmoMap).some(function(e){return e[1]===ammo&&e[0]!==weapon&&grabItems[e[0]];});if(!o){grabItems[ammo]=false;document.getElementById('wmi-'+ammo).classList.remove('on');}}}
@@ -643,7 +737,8 @@ function toggleGrabWeapon(weapon,ammo){grabItems[weapon]=!grabItems[weapon];docu
 var GRAB_MENU_DEFAULTS={
   mvd:{painkiller:0,medkit:1,baton:2,baton2:3,vest:4,taumeter:5,diag:6,taser:7,deagle:8,akm:9,aks74u:10,remington:11,ammo_magnum:12,ammo_762:13,ammo_545:14,ammo_12x70:15},
   fsb:{painkiller:0,medkit:1,baton:2,bat:3,vest:4,taser:5,deagle:6,akm:7,hk416:8,aks74u:9,remington:10,ammo_magnum:11,ammo_762:12,ammo_545:13,ammo_556:14,ammo_12x70:15,flashbang:16,mask:17,repairkit:18},
-  fsin:{painkiller:0,medkit:1,baton:2,vest:3,deagle:4,akm:5,aks74u:6,ammo_magnum:7,ammo_762:8,ammo_545:9,taser:10}
+  fsin:{painkiller:0,medkit:1,baton:2,shield:3,vest:4,deagle:5,akm:6,aks74u:7,ammo_magnum:8,ammo_762:9,ammo_545:10},
+  pravo:{painkiller:0,medkit:1,baton:2,shield:3,vest:4,deagle:5,akm:6,aks74u:7,ammo_magnum:8,ammo_762:9,ammo_545:10}
 };
 function getGrabSettings(){var thr=(savedAutoGrab&&savedAutoGrab.thresholds)?savedAutoGrab.thresholds:{};var defaultMenu=GRAB_MENU_DEFAULTS[currentDepartment]||GRAB_MENU_DEFAULTS.mvd;var menu=(savedAutoGrab&&savedAutoGrab.menu&&savedAutoGrab.department===currentDepartment)?savedAutoGrab.menu:defaultMenu;var any=Object.values(grabItems).some(function(v){return v;});return{enabled:autoGrabOn&&any,items:grabItems,department:currentDepartment,thresholds:{magnum:thr.magnum!==undefined?thr.magnum:30,ammo762:thr.ammo762!==undefined?thr.ammo762:60,ammo545:thr.ammo545!==undefined?thr.ammo545:60,ammo556:thr.ammo556!==undefined?thr.ammo556:60,ammo12x70:thr.ammo12x70!==undefined?thr.ammo12x70:20},menu:menu};}
 
@@ -659,6 +754,11 @@ window.addEventListener('pywebviewready',function(){
     if(typeof s.eject_enabled!=='undefined'){ejectEnabled=!!s.eject_enabled;document.getElementById('chk-box-eject').classList.toggle('on',ejectEnabled);document.getElementById('eject-wrap').classList.toggle('show',ejectEnabled);}
     if(s.eject_key!==undefined){ejectKey=s.eject_key||'Alt+U';}document.getElementById('f-eject-key').value=_keyDisplayRu(ejectKey);
     if(s.menu_key!==undefined){menuKey=s.menu_key||'Alt+0';}document.getElementById('f-menu-key').value=_keyDisplayRu(menuKey);
+    if(typeof s.licensor_helper!=='undefined'){licensorHelperOn=!!s.licensor_helper;document.getElementById('chk-box-licensor').classList.toggle('on',licensorHelperOn);document.getElementById('licensor-wrap').classList.toggle('show',licensorHelperOn);}
+    if(typeof s.auto_reissue_lic!=='undefined'){autoReissueOn=!!s.auto_reissue_lic;document.getElementById('chk-box-reissue').classList.toggle('on',autoReissueOn);document.getElementById('reissue-wrap').classList.toggle('show',autoReissueOn);}
+    if(s.reissue_key!==undefined){reissueKey=s.reissue_key||'Alt+R';}document.getElementById('f-reissue-key').value=_keyDisplayRu(reissueKey);
+    if(typeof s.givelic_on!=='undefined'){givelicOn=!!s.givelic_on;document.getElementById('chk-box-givelic').classList.toggle('on',givelicOn);document.getElementById('givelic-wrap').classList.toggle('show',givelicOn);}
+    if(s.givelic_key!==undefined){giveLicKey=s.givelic_key||'';var _glEl=document.getElementById('f-givelic-key');if(_glEl)_glEl.value=_keyDisplayRu(giveLicKey);}
     if(s.menu_binds&&typeof s.menu_binds==='object'){
       Object.keys(s.menu_binds).forEach(function(a){if(s.menu_binds[a]){menuItemBinds[a]=s.menu_binds[a];}});
     }
@@ -672,12 +772,13 @@ window.addEventListener('pywebviewready',function(){
       document.getElementById('st-code').textContent='Установлен';
       document.getElementById('st-code').className='cr-val ok';
     }
-    // Восстанавливаем выбор структуры (МВД/ФСБ/ФСИН)
-    if(s.department==='fsb'||s.department==='mvd'||s.department==='fsin'){
+    // Восстанавливаем выбор структуры (МВД/ФСБ/ФСИН/Правительство)
+    if(s.department==='fsb'||s.department==='mvd'||s.department==='fsin'||s.department==='pravo'){
       currentDepartment=s.department;
       document.getElementById('dept-mvd').classList.toggle('active',s.department==='mvd');
       document.getElementById('dept-fsb').classList.toggle('active',s.department==='fsb');
       document.getElementById('dept-fsin').classList.toggle('active',s.department==='fsin');
+      document.getElementById('dept-pravo').classList.toggle('active',s.department==='pravo');
       applyDepartment(s.department);
     }
     // Если путь рабочий — сразу открываем страницу вставки
@@ -790,6 +891,8 @@ function _showOverlay(target){
   var title=document.getElementById('key-overlay-title');
   if(target==='swap') title.textContent='Кнопка свапа тазер ↔ дигл';
   else if(target==='eject') title.textContent='Кнопка авто-выброса из авто';
+  else if(target==='reissue') title.textContent='Кнопка авто-перевыдачи лицензии';
+  else if(target==='givelic') title.textContent='Кнопка быстрой выдачи лицензии (/givelic)';
   else if(target==='menu') title.textContent='Кнопка открытия меню АХК';
   else if(target.indexOf('bind:')=== 0){
     var action=target.slice(5);
@@ -809,6 +912,12 @@ function _applyCapture(combo){
   } else if(_captureTarget==='eject'){
     ejectKey=combo;
     document.getElementById('f-eject-key').value=_keyDisplayRu(combo);
+  } else if(_captureTarget==='reissue'){
+    reissueKey=combo;
+    document.getElementById('f-reissue-key').value=_keyDisplayRu(combo);
+  } else if(_captureTarget==='givelic'){
+    giveLicKey=combo;
+    document.getElementById('f-givelic-key').value=_keyDisplayRu(combo);
   } else if(_captureTarget==='menu'){
     menuKey=combo;
     document.getElementById('f-menu-key').value=_keyDisplayRu(combo);
@@ -829,6 +938,12 @@ function clearSwapKey(){swapKey='';document.getElementById('f-swap-key').value='
 function startListeningEjectKey(){_showOverlay('eject');}
 function stopListeningEjectKey(){/* blur — оверлей управляет сам */}
 function clearEjectKey(){ejectKey='';document.getElementById('f-eject-key').value='';}
+function startListeningReissueKey(){_showOverlay('reissue');}
+function stopListeningReissueKey(){/* blur — оверлей управляет сам */}
+function clearReissueKey(){reissueKey='';document.getElementById('f-reissue-key').value='';}
+function startListeningGivelicKey(){_showOverlay('givelic');}
+function stopListeningGivelicKey(){/* blur — оверлей управляет сам */}
+function clearGivelicKey(){giveLicKey='';document.getElementById('f-givelic-key').value='';}
 function startListeningMenuKey(){_showOverlay('menu');}
 function stopListeningMenuKey(){/* blur — оверлей управляет сам */}
 function clearMenuKey(){menuKey='';document.getElementById('f-menu-key').value='';}
@@ -921,7 +1036,7 @@ document.addEventListener('wheel',function(e){
 function runBar(barId,fillId,dur,cb){var bar=document.getElementById(barId),fill=document.getElementById(fillId);bar.classList.add('show');fill.style.width='0%';_barRunning=true;_pendingFlash=null;var start=Date.now();var iv=setInterval(function(){var pct=Math.min(100,(Date.now()-start)/dur*100);fill.style.width=pct+'%';if(pct>=100){clearInterval(iv);setTimeout(function(){bar.classList.remove('show');fill.style.width='0%';_barRunning=false;if(_pendingFlash!==null){flash(_pendingFlash==='ok');_pendingFlash=null;}if(cb)cb();},200);}},25);}
 
 function doInsert(){var btn=document.getElementById('btn-insert');var cs=callsignOn?document.getElementById('f-callsign').value.trim():'';var pwd=autoPasswordOn?document.getElementById('f-password').value:'';var grab=getGrabSettings();var binds=getMenuBinds();var timerItems=getMenuTimerItems();btn.disabled=true;if(insertTarget==='phone'){runBar('pbar-insert','pbar-insert-f',4000);var _api=window.pywebview&&window.pywebview.api;if(_api){/* передаём только поля, нужные для Hassle: callsign, use_callsign, password, menu_key, department, app_folder */
-_api.insert_hassle_code(cs,callsignOn,pwd,menuKey,currentDepartment,'').then(function(r){btn.disabled=false;if(r&&r.ok){flash(true);}else{flash(false);}});}else{flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment).then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
+_api.insert_hassle_code(cs,callsignOn,pwd,menuKey,currentDepartment,'',licensorHelperOn?autoReissueOn:false,reissueKey,(licensorHelperOn&&givelicOn)?giveLicKey:'',licensorHelperOn&&currentDepartment==='pravo',licensorHelperOn&&givelicOn&&currentDepartment==='pravo').then(function(r){btn.disabled=false;if(r&&r.ok){flash(true);}else{flash(false);}});}else{flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-insert','pbar-insert-f',3000);if(api){api.insert_code(cs,callsignOn,pwd,grab,swapEnabled,swapKey,ejectEnabled,ejectKey,menuKey,[],binds,[],timerItems,currentDepartment,licensorHelperOn?autoReissueOn:false,reissueKey,(licensorHelperOn&&givelicOn)?giveLicKey:'').then(function(){btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
 function doRemove(){var btn=document.getElementById('btn-remove');btn.disabled=true;if(removeTarget==='phone'){_setHassleStatus('hassle-remove-status','Удаление с телефона...','muted');runBar('pbar-remove','pbar-remove-f',2000);var _api=window.pywebview&&window.pywebview.api;if(_api){_api.remove_hassle_code('').then(function(r){btn.disabled=false;if(r&&r.ok){_setHassleStatus('hassle-remove-status',r.message||'Код удалён','ok');flash(true);}else{_setHassleStatus('hassle-remove-status',(r&&r.message)||'Ошибка удаления','err');flash(false);}});}else{_setHassleStatus('hassle-remove-status','pywebview API не готов','err');flash(false);btn.disabled=false;}return;}if(!folderSelected){flash(false);setTab('home',null);btn.disabled=false;return;}runBar('pbar-remove','pbar-remove-f',1500);if(api){api.remove_code().then(function(){document.getElementById('st-code-rm').textContent='Не установлен';document.getElementById('st-code-rm').className='cr-val muted';btn.disabled=false;});}else{flash(false);btn.disabled=false;}}
 
