@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.99 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.8888 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2078,7 +2078,55 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
     } catch (err) {
         console.error('[DIALOG] Ошибка перехвата:', err.message);
     }
-    return _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+    const _dlgResult = _dlgOrigAddDialogInQueue.call(this, dialogParams, content, priority);
+
+    // ── МОБИЛА (Hassle): авто-открытие клавиатуры при INPUT-диалогах ввода ID ──
+    // Диалоги 668 («Ввод ID»)  и  678 («Выдача лицензии — Введите ID игрока»)
+    try {
+        if (
+            window.App && window.App.isMobile &&
+            dialogParams && typeof dialogParams === 'string'
+        ) {
+            const _kb_p     = JSON.parse(dialogParams.trim());
+            const _kb_style = parseInt(_kb_p[1]);  // 1 = INPUT dialog
+            const _kb_dlgId = parseInt(_kb_p[0]);
+
+            if (_kb_style === 1 && (_kb_dlgId === 668 || _kb_dlgId === 678)) {
+                // Ждём ~200 мс — Vue успеет отрисовать Window-компонент
+                setTimeout(function _pravoOpenHassleKeyboard() {
+                    try {
+                        const _kb_q = window.App.dialogsQueue;
+                        if (!_kb_q || !_kb_q.length) return;
+
+                        // dialogsQueue.unshift([idx, priority]) → свежий диалог первый
+                        const _kb_idx = _kb_q[0][0];
+                        let _kb_dlg = window.App.$refs['Window' + _kb_idx];
+                        if (Array.isArray(_kb_dlg)) _kb_dlg = _kb_dlg[0];
+                        if (!_kb_dlg || !_kb_dlg.$el) return;
+
+                        // Берём <input> из диалога (type=INPUT рендерит текстовое поле)
+                        const _kb_inp = _kb_dlg.$el.querySelector('input, textarea');
+                        if (!_kb_inp) return;
+
+                        // Устанавливаем target и открываем клавиатуру Hassle
+                        window.currentKeyboardInput = _kb_inp;
+                        if (typeof window.showKeyboard === 'function') {
+                            window.showKeyboard('game');
+                            console.log(
+                                '[PRAVO-KB] ⌨️ Клавиатура Hassle открыта для диалога ID=' +
+                                _kb_dlgId + ' (Window' + _kb_idx + ')'
+                            );
+                        }
+                    } catch (_kb_e2) {
+                        console.warn('[PRAVO-KB] Авто-клавиатура — ошибка:', _kb_e2.message);
+                    }
+                }, 200);
+            }
+        }
+    } catch (_kb_e) { /* не критично */ }
+    // ── END МОБИЛА авто-клавиатура ─────────────────────────────────────────
+
+    return _dlgResult;
 };
 
 console.log('[DIALOG MONITOR] Загружен. Все диалоги выводятся в консоль.');
