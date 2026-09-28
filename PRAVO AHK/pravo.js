@@ -407,6 +407,7 @@ var _PRAVO_INT_REISSUE  = 9901;  // тип: авто-перевыдача лиц
 var _PRAVO_INT_GIVELIC  = 9902;  // тип: быстрая выдача лицензии
 var _pravoHassleIntOpen = false;  // флаг: именно мы открыли Interactions
 var _pravoLastServerItems = [];   // FIX: кэш серверных пунктов — сохраняем, чтобы восстановить после наших диалогов
+var _pravoSkipIntReopen  = false; // FIX: true пока диалог открыт кнопкой 9900 — блокирует повторное появление Interactions в showMvdSubMenu
 
 // ── Hassle Interaction hook: обработка перенесена в sendClientEventCustom ──────
 // Хранит данные последней успешно отправленной команды /givelic
@@ -596,6 +597,8 @@ window._pravoDoReissue = function() {
     if (!(AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true)) return;
     if (!_lastGiveLicData) {
         gtAdd('~r~Авто-перевыдача~n~~w~Нет данных — сначала выдайте лицензию через меню', 3500, 3);
+        // FIX: возвращаем Interactions — панель была закрыта перед вызовом, нужно восстановить
+        setTimeout(function() { _pravoUpdateHassleInteraction(giveLicenseTo || -1); }, 200);
         return;
     }
     const { targetId: _rId, type: _rType, price: _rPrice, name: _rName } = _lastGiveLicData;
@@ -1581,11 +1584,15 @@ window.showMvdSubMenu = (e) => {
         licenseList += `${index + 1}. ${license.name}<n>`;
     });
     window.addDialogInQueue(`[677,4,"ПРАВИТЕЛЬСТВО","","Выбрать","Отмена",0,0]`, licenseList, 0);
-    // ── Hassle: если цель на телефоне — показываем постоянный Interaction ──────
-    // Короткая задержка чтобы диалог успел отрисоваться, Interaction поверх него.
-    (function(_glt) {
-        setTimeout(function() { _pravoUpdateHassleInteraction(_glt); }, 120);
-    })(giveLicenseTo);
+    // ── Hassle: показываем Interaction поверх диалога (только если диалог открыт НЕ из кнопки Interactions) ──
+    // Если диалог открыт кнопкой 9900 (АНК Меню) — Interactions уже были закрыты и не должны появляться
+    // поверх диалога. Флаг _pravoSkipIntReopen выставляется обработчиком 9900 и сбрасывается здесь.
+    if (!_pravoSkipIntReopen) {
+        (function(_glt) {
+            setTimeout(function() { _pravoUpdateHassleInteraction(_glt); }, 120);
+        })(giveLicenseTo);
+    }
+    _pravoSkipIntReopen = false; // сбрасываем флаг в любом случае
 };
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
@@ -1625,6 +1632,7 @@ window.sendClientEventCustom = (event, ...args) => {
         const _hInt = parseInt(args[1]);
         if (_hInt === 9900) {
             _pravoHassleIntOpen = false;
+            _pravoSkipIntReopen = true; // FIX: диалог открывается из кнопки — блокируем повторное появление Interactions в showMvdSubMenu
             try { window.closeInterface('Interactions'); } catch(e) {}
             setTimeout(function() { window.sendChatInput('/dahk'); }, 50);
             return;
@@ -1687,7 +1695,9 @@ window.sendClientEventCustom = (event, ...args) => {
             if (args[2] === 1 && giveLicenseTo !== -1) {
                 HandleMvdSubCommand(listitem);
             } else if (args[2] === 0) {
-                // Отмена / ESC — закрываем меню
+                // Отмена / ESC — закрываем меню и восстанавливаем Interaction
+                // (актуально когда диалог был открыт кнопкой 9900 и Interactions были скрыты)
+                setTimeout(function() { _pravoUpdateHassleInteraction(giveLicenseTo || -1); }, 120);
             }
         }
         else if (args[1] === 678) { // /givelic: ввод ID игрока
