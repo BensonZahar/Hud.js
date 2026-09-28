@@ -1361,18 +1361,31 @@ class InstallerAPI:
             return {"adb": False, "device": False, "folders": [], "saved_folder": "", "error": str(e)}
 
     def insert_hassle_code(self, callsign='', use_callsign=False, auto_password='',
-                           menu_key='Alt+0', department=None, app_folder=None, **_kwargs):
+                           menu_key='Alt+0', department=None, app_folder=None,
+                           auto_reissue_lic=False, reissue_key='Alt+R',
+                           givelic_key='', licensor_helper=False, **_kwargs):
         """Вставляет AHK код в Index.js на телефоне.
-        JS передаёт те же 6 аргументов что и всегда (позиционно).
-        Остальные настройки (auto_grab, swap, eject, и т.д.) _hassle_build_code
+        Настройки licensor (auto_reissue_lic, givelic_key и др.) передаются явно
+        и сохраняются в settings.json, чтобы _hassle_build_code мог их применить —
+        независимо от того, была ли ПК-вставка с этими же настройками.
+        Остальные настройки (auto_grab, swap, eject) _hassle_build_code
         читает напрямую из settings.json, куда их сохраняет insert_code при вставке ПК."""
-        # Сохраняем только то, что JS реально передаёт.
-        # save_settings делает merge, поэтому auto_grab и остальные сохранённые ПК-настройки не затираются.
+        _dept = department or load_settings().get('department', 'mvd')
+        _is_pravo = _dept == 'pravo'
+        _safe_reissue_key = str(reissue_key).replace('"', '').replace("'", '')[:30] if reissue_key else ''
+        _safe_givelic_key = str(givelic_key).replace('"', '').replace("'", '')[:30] if givelic_key else ''
+        _lh = bool(licensor_helper) and _is_pravo
+        # save_settings делает merge, поэтому auto_grab и остальные ПК-настройки не затираются.
         save_settings({
-            'callsign':     callsign if use_callsign else '',
-            'use_callsign': bool(use_callsign),
-            'auto_password': auto_password,
-            'menu_key':     menu_key or 'Alt+0',
+            'callsign':         callsign if use_callsign else '',
+            'use_callsign':     bool(use_callsign),
+            'auto_password':    auto_password,
+            'menu_key':         menu_key or 'Alt+0',
+            'licensor_helper':  _lh,
+            'auto_reissue_lic': bool(auto_reissue_lic) and _is_pravo,
+            'reissue_key':      _safe_reissue_key if (auto_reissue_lic and _is_pravo) else '',
+            'givelic_key':      _safe_givelic_key if _is_pravo else '',
+            'givelic_on':       bool(_safe_givelic_key) and _is_pravo,
         })
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
