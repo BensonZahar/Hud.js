@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.8 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.666 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1720,33 +1720,81 @@ window.showMvdSubMenu = (e) => {
     }
 
     // ── Переключение на 123 + восстановление ников после mount клавиатуры ────
+    // Три уровня: interface() → Vue internal → DOM-клик по кнопке "123"
     window._pravoScheduleKeyboardNumeric = function() {
         window._pravoIsOurKeyboard = true;
         var _a = 0;
         var _t = setInterval(function() {
             _a++;
             try {
-                var kb = window.interface && window.interface('Keyboard');
-                if (kb && kb.state === 1) {
-                    // 1) Переключить на числовую раскладку если ещё не переключено
-                    if (!kb.isNumbers) {
-                        kb.toggleNumbers();
-                        console.log('[PRAVO-KB] ✅ Клавиатура переключена на раскладку 123');
+                // .keyboard-container рендерится только при state=1 (клавиатура видна)
+                var _kbContainer = document.querySelector('.keyboard-container');
+                if (!_kbContainer) return; // ещё не показалась — ждём
+
+                var _switched = false;
+
+                // А: window.interface('Keyboard')
+                try {
+                    var kb = window.interface && window.interface('Keyboard');
+                    if (kb && typeof kb.toggleNumbers === 'function') {
+                        if (!kb.isNumbers) kb.toggleNumbers();
+                        _switched = true;
+                        console.log('[PRAVO-KB] A: toggleNumbers() via interface');
                     }
-                    // 2) Гарантируем видимость ников (перекрываем mounted() который мог сбросить в false)
-                    var _sdls = window._pravoSdlsOrig;
-                    if (typeof _sdls === 'function') {
-                        _sdls.call(window, true);
-                        console.log('[PRAVO-KB] ✅ setDrawLabelStatus(true) — ники видны');
-                    }
-                    clearInterval(_t);
-                    return;
+                } catch(_e) {}
+
+                // Б: Vue internal (__vueParentComponent)
+                if (!_switched) {
+                    try {
+                        var _kbEl = document.querySelector('.keyboard');
+                        var _vc = _kbEl && (_kbEl.__vueParentComponent || _kbEl._vueParentComponent || _kbEl.__vue__);
+                        var _proxy = _vc && (_vc.proxy || _vc);
+                        if (_proxy && typeof _proxy.toggleNumbers === 'function') {
+                            if (!_proxy.isNumbers) _proxy.toggleNumbers();
+                            _switched = true;
+                            console.log('[PRAVO-KB] Б: toggleNumbers() via __vueParentComponent');
+                        }
+                    } catch(_e) {}
                 }
-            } catch(e) {}
-            if (_a >= 30) { // таймаут 3 сек
+
+                // В: прямой DOM-клик по кнопке «123» — самый надёжный
+                // <div class="keyboard-key keyboard-key_controller"> ← onClick=toggleNumbers
+                //   <div class="keyboard-key__value">123</div>
+                // </div>
+                if (!_switched) {
+                    try {
+                        var _vals = _kbContainer.querySelectorAll('.keyboard-key__value');
+                        for (var _i = 0; _i < _vals.length; _i++) {
+                            if ((_vals[_i].textContent || '').trim() === '123') {
+                                var _keyEl = _vals[_i].parentElement;
+                                if (_keyEl) {
+                                    _keyEl.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                                    _switched = true;
+                                    console.log('[PRAVO-KB] В: DOM-клик по кнопке 123 ✅');
+                                }
+                                break;
+                            }
+                        }
+                    } catch(_e) {}
+                }
+
+                if (!_switched) console.warn('[PRAVO-KB] Все три метода не сработали');
+
+                // Показываем ники (перекрываем возможный mounted()-вызов false)
+                var _sdls = window._pravoSdlsOrig;
+                if (typeof _sdls === 'function') {
+                    _sdls.call(window, true);
+                    console.log('[PRAVO-KB] setDrawLabelStatus(true) — ники видны');
+                }
+
+                clearInterval(_t);
+            } catch(e) {
+                console.warn('[PRAVO-KB] Ошибка в поллинге:', e);
+            }
+            if (_a >= 30) {
                 clearInterval(_t);
                 window._pravoIsOurKeyboard = false;
-                console.warn('[PRAVO-KB] ⏱️ Таймаут — клавиатура не появилась за 3 сек');
+                console.warn('[PRAVO-KB] Таймаут — .keyboard-container не появился за 3 сек');
             }
         }, 100);
     };
