@@ -886,13 +886,6 @@ class InstallerAPI:
             safe_givelic_key = str(givelic_key).replace('"', '').replace("'", '')[:30] if givelic_key else ''
             if department == 'pravo' and safe_givelic_key:
                 code = code.replace('const GIVELIC_KEY = "";', f'const GIVELIC_KEY = "{safe_givelic_key}";')
-            # ── Флаг помощника лицензёра (только для Правительства) ──────────────────
-            # true если хотя бы одна из функций помощника включена: авто-перевыдача или быстрая выдача
-            _licensor_helper = (bool(auto_reissue_lic) or bool(safe_givelic_key)) and department == 'pravo'
-            # LICENSOR_HELPER_ENABLED управляет только кнопкой «Выдать лицензию» (Быстрая выдача).
-            # Авто-перевыдача живёт в отдельном флаге AUTO_REISSUE_LIC — не трогаем здесь.
-            if bool(safe_givelic_key) and department == 'pravo':
-                code = code.replace('const LICENSOR_HELPER_ENABLED = false;', 'const LICENSOR_HELPER_ENABLED = true;')
 
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
@@ -1026,7 +1019,7 @@ class InstallerAPI:
                     'reissue_key': safe_reissue_key if (auto_reissue_lic and department == 'pravo') else '',
                     'givelic_key': safe_givelic_key if department == 'pravo' else '',
                     'givelic_on': bool(safe_givelic_key) and department == 'pravo',
-                    'licensor_helper': (bool(auto_reissue_lic) or bool(safe_givelic_key)) and department == 'pravo',  # гейт: любая функция помощника включена
+                    'licensor_helper': (bool(auto_reissue_lic) or bool(safe_givelic_key)) and department == 'pravo',
                 })
                 result_data["ok"] = True
                 result_data["message"] = "Код успешно установлен!"
@@ -1316,28 +1309,14 @@ class InstallerAPI:
                     skip_js = json.dumps(skip)
                     code = code.replace('const AUTO_GRAB_SKIP = [];', f'const AUTO_GRAB_SKIP = {skip_js};')
                     code = code.replace('var AUTO_GRAB_SKIP = [];', f'var AUTO_GRAB_SKIP = {skip_js};')
-            # ── Помощник лицензёра (только для Правительства) ─────────────────────
-            # Если licensor_helper не был включён при вставке ПК-кода —
-            # авто-перевыдача и /givelic не активируются и для Hastle тоже.
+            # ── Авто-перевыдача лицензии (только для Правительства) ─────────────────
             dept_saved = saved.get('department', 'mvd')
-            licensor_helper_saved = saved.get('licensor_helper', False)
-            auto_reissue_lic_saved = saved.get('auto_reissue_lic', False) if licensor_helper_saved else False
-            givelic_on_saved      = saved.get('givelic_on', False)         if licensor_helper_saved else False
-            givelic_key_saved     = str(saved.get('givelic_key', '')).replace('"', '').replace("'", '')[:30] if givelic_on_saved else ''
-            reissue_key_saved     = str(saved.get('reissue_key', 'Alt+R')).replace('"', '').replace("'", '')[:30]
+            auto_reissue_lic_saved = saved.get('auto_reissue_lic', False)
+            reissue_key_saved = str(saved.get('reissue_key', 'Alt+R')).replace('"', '').replace("'", '')[:30]
             if auto_reissue_lic_saved and dept_saved == 'pravo':
                 code = code.replace('const AUTO_REISSUE_LIC = false;', 'const AUTO_REISSUE_LIC = true;')
             if dept_saved == 'pravo' and reissue_key_saved:
                 code = code.replace('const REISSUE_KEY = "Alt+R";', f'const REISSUE_KEY = "{reissue_key_saved}";')
-            # ── Быстрая выдача лицензии для Hastle ──────────────────────────────────
-            if dept_saved == 'pravo' and givelic_key_saved:
-                code = code.replace('const GIVELIC_KEY = "";', f'const GIVELIC_KEY = "{givelic_key_saved}";')
-            # ── Флаг помощника лицензёра для Hastle ──────────────────────────────────
-            # LICENSOR_HELPER_ENABLED управляет только кнопкой «Выдать лицензию» (Быстрая выдача).
-            # Авто-перевыдача уже обработана выше через AUTO_REISSUE_LIC — отдельный флаг.
-            # Поэтому включаем только если givelic_on сохранён (галочка «Быстрая выдача» стояла).
-            if licensor_helper_saved and givelic_on_saved and dept_saved == 'pravo':
-                code = code.replace('const LICENSOR_HELPER_ENABLED = false;', 'const LICENSOR_HELPER_ENABLED = true;')
         return code
 
     def get_hassle_status(self):
@@ -1365,34 +1344,18 @@ class InstallerAPI:
             return {"adb": False, "device": False, "folders": [], "saved_folder": "", "error": str(e)}
 
     def insert_hassle_code(self, callsign='', use_callsign=False, auto_password='',
-                           menu_key='Alt+0', department=None, app_folder=None,
-                           auto_reissue_lic=False, reissue_key='Alt+R',
-                           givelic_key='', licensor_helper=False, givelic_button_on=False, **_kwargs):
+                           menu_key='Alt+0', department=None, app_folder=None, **_kwargs):
         """Вставляет AHK код в Index.js на телефоне.
-        Настройки licensor (auto_reissue_lic, givelic_key и др.) передаются явно
-        и сохраняются в settings.json, чтобы _hassle_build_code мог их применить —
-        независимо от того, была ли ПК-вставка с этими же настройками.
-        Остальные настройки (auto_grab, swap, eject) _hassle_build_code
+        JS передаёт те же 6 аргументов что и всегда (позиционно).
+        Остальные настройки (auto_grab, swap, eject, и т.д.) _hassle_build_code
         читает напрямую из settings.json, куда их сохраняет insert_code при вставке ПК."""
-        _dept = department or load_settings().get('department', 'mvd')
-        _is_pravo = _dept == 'pravo'
-        _safe_reissue_key = str(reissue_key).replace('"', '').replace("'", '')[:30] if reissue_key else ''
-        _safe_givelic_key = str(givelic_key).replace('"', '').replace("'", '')[:30] if givelic_key else ''
-        _lh = bool(licensor_helper) and _is_pravo
-        # save_settings делает merge, поэтому auto_grab и остальные ПК-настройки не затираются.
+        # Сохраняем только то, что JS реально передаёт.
+        # save_settings делает merge, поэтому auto_grab и остальные сохранённые ПК-настройки не затираются.
         save_settings({
-            'callsign':         callsign if use_callsign else '',
-            'use_callsign':     bool(use_callsign),
-            'auto_password':    auto_password,
-            'menu_key':         menu_key or 'Alt+0',
-            'licensor_helper':  _lh,
-            'auto_reissue_lic': bool(auto_reissue_lic) and _is_pravo,
-            'reissue_key':      _safe_reissue_key if (auto_reissue_lic and _is_pravo) else '',
-            'givelic_key':      _safe_givelic_key if _is_pravo else '',
-            # На Hassle клавиш нет — кнопка «Выдать лицензию» заменяет хоткей.
-            # Поэтому givelic_on = True если галочка стоит (givelic_button_on),
-            # даже когда givelic_key пуст (ключ не нужен на телефоне).
-            'givelic_on':       (bool(_safe_givelic_key) or bool(givelic_button_on)) and _is_pravo,
+            'callsign':     callsign if use_callsign else '',
+            'use_callsign': bool(use_callsign),
+            'auto_password': auto_password,
+            'menu_key':     menu_key or 'Alt+0',
         })
         result_event = threading.Event()
         result_data = {"ok": False, "message": "Неизвестная ошибка"}
