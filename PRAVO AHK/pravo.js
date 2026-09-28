@@ -575,7 +575,7 @@ window.addEventListener('keydown', function(e) {
                 engine.trigger("SendChatInput", "/cancel");
                 engine.trigger("SendChatInput", _rCmd);
             }
-            gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$`, 3000, 3);
+            gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')} ₽`, 3000, 3);
             // ── Hassle: хоткей тоже восстанавливает Interaction (постоянный режим) ──
             (function(_rkid) {
                 setTimeout(function() { _pravoUpdateHassleInteraction(_rkid); }, 550);
@@ -634,7 +634,7 @@ window._pravoDoReissue = function() {
         engine.trigger("SendChatInput", "/cancel");
         engine.trigger("SendChatInput", _rCmd);
     }
-    gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')}$`, 3000, 3);
+    gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')} ₽`, 3000, 3);
     // ── Hassle: переоткрываем Interaction после перевыдачи (постоянный режим) ──
     // Пауза 550 мс — даём команде уйти и нотификации появиться,
     // потом снова вешаем Interaction на экран.
@@ -1339,7 +1339,7 @@ const HandleMvdSubCommand = (index) => {
                     engine.trigger("SendChatInput", _rl_cmd);
                 }
                 console.log(`[REISSUE] /cancel + повтор отправлены мгновенно: ${_rl_cmd}`);
-                gtAdd(`~g~Авто-перевыдача~n~~w~${_rl_name} → ID: ${_rl_id} | ${_rl_price.toLocaleString('ru-RU')}$`, 3000, 3);
+                gtAdd(`~g~Авто-перевыдача~n~~w~${_rl_name} → ID: ${_rl_id} | ${_rl_price.toLocaleString('ru-RU')} ₽`, 3000, 3);
                 // Закрываем меню сразу, не ждём
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 150);
             } else {
@@ -1905,7 +1905,7 @@ const _GIVE_LIC_TYPES = [
     { name: "Права",       type: 1, price: 10000 },
     { name: "Проф. права", type: 2, price: 40000 },
     { name: "Оружие",      type: 3, price: 85000 },
-    { name: "Рыбалка",     type: 4, price: 4000  },
+    { name: "Рыбалка",     type: 4, price: 40000 },
     { name: "Охота",       type: 5, price: 65000 },
 ];
 
@@ -1921,7 +1921,7 @@ window.showGiveLicTypeDialog = (id) => {
     _giveLicTargetId = id;
     let list = 'Выберите тип лицензии:<n>';
     _GIVE_LIC_TYPES.forEach((t, i) => {
-        list += `${i + 1}. ${t.name}  [${t.price.toLocaleString('ru-RU')}$]<n>`;
+        list += `${i + 1}. ${t.name}  [${t.price.toLocaleString('ru-RU')} ₽]<n>`;
     });
     window.addDialogInQueue(`[679,4,"Выдача лицензии | ID: ${id}","","Выдать","Отмена",0,0]`, list, 0);
 };
