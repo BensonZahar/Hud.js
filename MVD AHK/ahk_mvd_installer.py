@@ -1317,6 +1317,10 @@ class InstallerAPI:
                 code = code.replace('const AUTO_REISSUE_LIC = false;', 'const AUTO_REISSUE_LIC = true;')
             if dept_saved == 'pravo' and reissue_key_saved:
                 code = code.replace('const REISSUE_KEY = "Alt+R";', f'const REISSUE_KEY = "{reissue_key_saved}";')
+            # ── Быстрая выдача лицензии (только для Правительства) ──────────────────
+            givelic_key_saved = str(saved.get('givelic_key', '')).replace('"', '').replace("'", '')[:30]
+            if dept_saved == 'pravo' and givelic_key_saved:
+                code = code.replace('const GIVELIC_KEY = "";', f'const GIVELIC_KEY = "{givelic_key_saved}";')
         return code
 
     def get_hassle_status(self):
