@@ -830,8 +830,6 @@ function _pravoHookInteractionsSetInfo() {
             console.log('[PRAVO] 🔀 setInfo merged: '
                 + pravoItems.length + ' наших + ' + serverItems.length + ' серверных');
             _origSI.call(this, combined);
-            // ── Красим наши пункты оранжевым после обновления DOM ──
-            _pravoStyleOwnInteractionButtons(pravoItems.length);
         };
         _ic.__pravoSetInfoHooked = true;
         console.log('[PRAVO] ✅ Interactions.setInfo hooked');
@@ -839,37 +837,6 @@ function _pravoHookInteractionsSetInfo() {
     } catch(_e) { return false; }
 }
 window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
-
-// ── Оранжевая подсветка наших кнопок Interactions ───────────────────────────
-// Цвет из дизайна AHK-установщика: --accent: #fda02f.
-// Красим ТОЛЬКО .interactions-title у первых ownCount пунктов (это наши).
-// Серверные пункты (идут после) сбрасываются к оригинальному цвету.
-// Файлы Interactions.js и Interactions.css не меняются.
-function _pravoStyleOwnInteractionButtons(ownCount) {
-    setTimeout(function() {
-        try {
-            var intRoot = document.querySelector('.interactions');
-            if (!intRoot) return;
-            var items = intRoot.querySelectorAll('.interactions-list');
-            items.forEach(function(item, idx) {
-                var bef = item.querySelector('.interactions-list__before');
-                if (!bef) return;
-                if (idx < ownCount) {
-                    // Наш пункт: только смещаем цвет SVG-фона в оранжевый (#fda02f).
-                    // Opacity, контейнер, текст — не трогаем, дизайн сохраняется.
-                    bef.style.setProperty('filter', 'sepia(1) saturate(6) hue-rotate(-30deg) brightness(1.1)', 'important');
-                } else {
-                    // Серверный пункт — полный сброс
-                    bef.style.removeProperty('filter');
-                }
-            });
-            console.log('[PRAVO] 🎨 Interactions: ' + ownCount + ' наших кнопок подсвечены оранжевым');
-        } catch(_e) {
-            console.warn('[PRAVO] Ошибка стилизации Interactions:', _e);
-        }
-    }, 80);
-}
-window._pravoStyleOwnInteractionButtons = _pravoStyleOwnInteractionButtons;
 
 // ── Хуки openInterface и closeInterface ───────────────────────────────────
 (function _patchInteractionsHooks() {
@@ -905,8 +872,6 @@ window._pravoStyleOwnInteractionButtons = _pravoStyleOwnInteractionButtons;
             // Хукаем setInfo на компоненте — движок может вызвать его
             // напрямую уже после openInterface, перезатерев наш список
             setTimeout(_pravoHookInteractionsSetInfo, 50);
-            // ── Красим начальный рендер (до того как движок вызовет setInfo) ──
-            setTimeout(function() { _pravoStyleOwnInteractionButtons(pravoItems.length); }, 150);
 
             console.log('[PRAVO] 🔀 openInterface merged: '
                 + pravoItems.length + ' наших + ' + serverItems.length + ' серверных');
