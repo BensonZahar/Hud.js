@@ -435,6 +435,86 @@ var _pravoSkipIntReopen  = false; // FIX: true пока диалог откры�
 // Хранит данные последней успешно отправленной команды /givelic
 let _lastGiveLicData = null; // { targetId, type, price, name }
 
+// ══════════════════════════════════════════════════════════════════════════
+// АНТИФЛУД-ПЛАНИРОВЩИК — зеркало серверного антифлуда мода (CheckPlayerFlood)
+//   Сервер на КАЖДУЮ команду/сообщение (даже заблокированную): rate += 1000,
+//   затем rate -= (мс с прошлой проверки), не ниже 0.
+//   rate >= 3000 → «Не флудите», команда НЕ выполняется (счётчик всё равно растёт);
+//   rate >= 6000 → кик «Flood».
+// Перевыдача = /cancel + /givelic = 2 команды = +2000. Поэтому:
+//   • из «тишины» перевыдача уходит МГНОВЕННО;
+//   • если лимит исчерпан — команды НЕ отправляются (не раздуваем счётчик),
+//     а одна отложенная перевыдача уходит в первый же допустимый момент.
+// ══════════════════════════════════════════════════════════════════════════
+var PRAVO_FLOOD_MAX    = 3000; // MAX_FLOOD_RATE на сервере
+var PRAVO_FLOOD_INC    = 1000; // FLOOD_RATE_INC на сервере (цена одной команды)
+var PRAVO_FLOOD_MARGIN = 200;  // запас (мс) на разброс пинга; 0 = впритык
+var _pravoFlood = { rate: 0, last: Date.now() };
+var _pravoReissueTimer = null;
+
+function _pravoFloodDecay() {
+    var now = Date.now();
+    _pravoFlood.rate = Math.max(0, _pravoFlood.rate - (now - _pravoFlood.last));
+    _pravoFlood.last = now;
+}
+// Учесть n отправленных серверу команд/сообщений
+function _pravoFloodNote(n) {
+    _pravoFloodDecay();
+    _pravoFlood.rate += (n || 1) * PRAVO_FLOOD_INC;
+}
+// Сколько мс надо подождать, чтобы n команд подряд прошли без «Не флудите» (0 = можно сейчас)
+function _pravoFloodWait(n) {
+    _pravoFloodDecay();
+    var over = _pravoFlood.rate + n * PRAVO_FLOOD_INC - (PRAVO_FLOOD_MAX - PRAVO_FLOOD_MARGIN);
+    return over > 0 ? Math.ceil(over) : 0;
+}
+// Сервер сам сказал «Не флудите» — подтягиваем нашу модель к реальности
+function _pravoFloodServerSaid(hard) {
+    _pravoFloodDecay();
+    _pravoFlood.rate = Math.max(_pravoFlood.rate, PRAVO_FLOOD_MAX + (hard ? 500 : 0));
+}
+// Отправка команды серверу (обёртка sendChatInput ниже сама считает в счётчик)
+function _pravoSendCmd(text) {
+    if (typeof __mvdPrevSendChatInput === "function") {
+        __mvdPrevSendChatInput(text);
+    } else {
+        _pravoFloodNote(1);
+        engine.trigger("SendChatInput", text);
+    }
+}
+// Реальная отправка перевыдачи: /cancel + повтор /givelic (без задержки между ними)
+function _pravoReissueSend(opts) {
+    opts = opts || {};
+    var d = _lastGiveLicData;
+    if (!d) return;
+    var cmd = '/givelic ' + d.targetId + ' ' + d.type + ' ' + d.price;
+    _pravoSendCmd('/cancel');
+    _pravoSendCmd(cmd);
+    console.log('[REISSUE] /cancel + повтор отправлены: ' + cmd);
+    gtAdd(`~g~Авто-перевыдача~n~~w~${d.name} → ID: ${d.targetId} | ${d.price.toLocaleString('ru-RU')} ₽`, 3000, 3);
+    // Hassle: переоткрываем Interaction (пауза 550 мс — даём нотификации появиться)
+    if (opts.hassle) {
+        setTimeout(function() { _pravoUpdateHassleInteraction(d.targetId); }, 550);
+    }
+}
+// Точка входа для ВСЕХ способов перевыдачи (хоткей, мышь/колесо, меню, Hassle-кнопка)
+function _pravoReissueLic(opts) {
+    if (!_lastGiveLicData) return false;
+    if (_pravoReissueTimer) return true;          // уже стоит в очереди — повторные нажатия не плодим
+    var wait = _pravoFloodWait(2);
+    if (wait <= 0) { _pravoReissueSend(opts); return true; }   // МГНОВЕННО
+    gtAdd('~y~Антифлуд~n~~w~Перевыдача через ' + (wait / 1000).toFixed(1) + ' с', Math.min(wait + 300, 2500), 3);
+    var _tick = function() {
+        _pravoReissueTimer = null;
+        var w = _pravoFloodWait(2);                 // пере-проверяем: за время ожидания могли уйти другие сообщения
+        if (w > 0) { _pravoReissueTimer = setTimeout(_tick, w + 5); return; }
+        _pravoReissueSend(opts);
+    };
+    _pravoReissueTimer = setTimeout(_tick, wait + 5);
+    return true;
+}
+// ── END АНТИФЛУД-ПЛАНИРОВЩИК ────────────────────────────────────────────────
+
 // Хоткей открытия меню МВД — настраивается установщиком через MENU_KEY (по умолчанию Alt+0)
 var MENU_KEY = "Alt+0";
 // Хоткей авто-перевыдачи лицензии — настраивается установщиком (по умолчанию Alt+R)
@@ -566,20 +646,7 @@ window.addEventListener('keydown', function(e) {
         var _rKeyOk = e.key.toLowerCase() === _rMain || e.code.toLowerCase() === _rMain;
         if (_rModOk && _rKeyOk && _lastGiveLicData) {
             e.preventDefault && e.preventDefault();
-            const { targetId: _rId, type: _rType, price: _rPrice, name: _rName } = _lastGiveLicData;
-            const _rCmd = `/givelic ${_rId} ${_rType} ${_rPrice}`;
-            if (typeof __mvdPrevSendChatInput === "function") {
-                __mvdPrevSendChatInput("/cancel");
-                __mvdPrevSendChatInput(_rCmd);
-            } else {
-                engine.trigger("SendChatInput", "/cancel");
-                engine.trigger("SendChatInput", _rCmd);
-            }
-            gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')} ₽`, 3000, 3);
-            // ── Hassle: хоткей тоже восстанавливает Interaction (постоянный режим) ──
-            (function(_rkid) {
-                setTimeout(function() { _pravoUpdateHassleInteraction(_rkid); }, 550);
-            })(_rId);
+            _pravoReissueLic({ hassle: true }); // мгновенно, либо в первый допустимый момент (антифлуд)
         }
     }
     // Хоткей прямого открытия диалога выдачи лицензии (GIVELIC_KEY)
@@ -625,22 +692,7 @@ window._pravoDoReissue = function() {
         setTimeout(function() { _pravoUpdateHassleInteraction(giveLicenseTo || -1); }, 200);
         return;
     }
-    const { targetId: _rId, type: _rType, price: _rPrice, name: _rName } = _lastGiveLicData;
-    const _rCmd = `/givelic ${_rId} ${_rType} ${_rPrice}`;
-    if (typeof __mvdPrevSendChatInput === "function") {
-        __mvdPrevSendChatInput("/cancel");
-        __mvdPrevSendChatInput(_rCmd);
-    } else {
-        engine.trigger("SendChatInput", "/cancel");
-        engine.trigger("SendChatInput", _rCmd);
-    }
-    gtAdd(`~g~Авто-перевыдача~n~~w~${_rName} → ID: ${_rId} | ${_rPrice.toLocaleString('ru-RU')} ₽`, 3000, 3);
-    // ── Hassle: переоткрываем Interaction после перевыдачи (постоянный режим) ──
-    // Пауза 550 мс — даём команде уйти и нотификации появиться,
-    // потом снова вешаем Interaction на экран.
-    (function(_rtid) {
-        setTimeout(function() { _pravoUpdateHassleInteraction(_rtid); }, 550);
-    })(_rId);
+    _pravoReissueLic({ hassle: true }); // мгновенно, либо в первый допустимый момент (антифлуд)
 };
 // ── END Экспорт авто-перевыдачи ──────────────────────────────────────────────
 
@@ -1035,6 +1087,9 @@ const setupChatHandler = () => {
             } catch (_e) { /* тихо игнорируем */ }
             // КОНЕЦ ЛОГИРОВАНИЯ ОТМЕНА ПОДТВЕРЖДЕНИЯ ПРОВЕРКИ ДОКУМЕНТОВ Если игрок явно отказался показать документы ("Vlad_Giovanni отказался от Ваше...
             if (typeof message === 'string') {
+                // Сервер сказал «Не флудите» — подтягиваем модель антифлуда к реальному счётчику
+                if (message.includes('Пожалуйста, подождите несколько секунд')) _pravoFloodServerSaid(true);
+                else if (message.includes('Не флудите')) _pravoFloodServerSaid(false);
                 if (message.includes('отказался от Вашего предложения') ||
                     message.includes('Игрок слишком далеко') ||
                     message.includes('Такого игрока нет')) {
@@ -1377,18 +1432,7 @@ const HandleMvdSubCommand = (index) => {
         case "auto_reissue_lic":
             // ── Авто-перевыдача: /cancel → повтор последней команды /givelic ──────
             if (_lastGiveLicData) {
-                const { targetId: _rl_id, type: _rl_type, price: _rl_price, name: _rl_name } = _lastGiveLicData;
-                const _rl_cmd = `/givelic ${_rl_id} ${_rl_type} ${_rl_price}`;
-                // 1) Отменяем и сразу повторяем — без задержки
-                if (typeof __mvdPrevSendChatInput === "function") {
-                    __mvdPrevSendChatInput("/cancel");
-                    __mvdPrevSendChatInput(_rl_cmd);
-                } else {
-                    engine.trigger("SendChatInput", "/cancel");
-                    engine.trigger("SendChatInput", _rl_cmd);
-                }
-                console.log(`[REISSUE] /cancel + повтор отправлены мгновенно: ${_rl_cmd}`);
-                gtAdd(`~g~Авто-перевыдача~n~~w~${_rl_name} → ID: ${_rl_id} | ${_rl_price.toLocaleString('ru-RU')} ₽`, 3000, 3);
+                _pravoReissueLic({}); // мгновенно, либо в первый допустимый момент (антифлуд)
                 // Закрываем меню сразу, не ждём
                 setTimeout(() => showMvdSubMenu(giveLicenseTo), 150);
             } else {
@@ -2133,6 +2177,15 @@ window.sendClientEventCustom = (event, ...args) => {
     }
 };
 var __mvdPrevSendChatInput = window.sendChatInput;
+// Считаем в антифлуд-счётчик всё, что мы отправляем серверу (команды, авто-ответы, чат)
+if (typeof __mvdPrevSendChatInput === "function") {
+    (function(_rawSend) {
+        __mvdPrevSendChatInput = function(t) {
+            _pravoFloodNote(1);
+            return _rawSend.apply(window, arguments);
+        };
+    })(__mvdPrevSendChatInput);
+}
 window.sendChatInputCustom = e => {
     const args = e.split(" ");
     if (args[0] == "/dahk") {
