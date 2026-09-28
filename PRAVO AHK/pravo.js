@@ -3327,6 +3327,154 @@ window._stroiMenuItems = [
 
 
 
+// ==================== DRAG ENGINE (общий для всех drag-модулей) ====================
+// Один набор обработчиков mouse/touch/click на document (capture-фаза).
+// Каждый модуль ниже регистрирует «зону» через _pravoDrag.add({...}):
+//   find(target)          → { el, key } | null — что тащим за этот target
+//   save(el, key)         — вызывается при отпускании (запомнить позицию)
+//   tap: true             — (мобилка) одиночный тап по зоне центрирует элемент
+//   absolute / info / clamp — необязательно: своя математика (по умолчанию —
+//                           позиционирование по offsetParent и границы экрана)
+// PC (Radmir): мышь. Hassle (App.isMobile): тач + тап.
+var _pravoDrag = window._pravoDrag || (window._pravoDrag = (function () {
+    var zones = [], drag = null, touchMoved = false;
+
+    function isMobile() { return !!(window.App && window.App.isMobile); }
+    function leaving(el) { return String(el.className || '').indexOf('leave-active') !== -1; }
+
+    // Переводим элемент в absolute, сохраняя видимую позицию (сбрасываем transform)
+    function absolute(el) {
+        if (el.style.position === 'absolute' && el.style.left !== '' && el.style.top !== '') return;
+        var r = el.getBoundingClientRect();
+        var p = (el.offsetParent || document.body).getBoundingClientRect();
+        el.style.position = 'absolute';
+        el.style.margin = '0';
+        el.style.transform = 'none';
+        el.style.left = (r.left - p.left) + 'px';
+        el.style.top = (r.top - p.top) + 'px';
+    }
+
+    // Границы экрана
+    function clamp(el, left, top) {
+        var w = el.offsetWidth || el.getBoundingClientRect().width;
+        var h = el.offsetHeight || el.getBoundingClientRect().height;
+        return {
+            left: Math.max(0, Math.min(left, window.innerWidth - w)),
+            top: Math.max(0, Math.min(top, window.innerHeight - h))
+        };
+    }
+
+    // Применяет сохранённую позицию один раз на элемент (mark хранится в атрибуте,
+    // при пересоздании DOM атрибут пропадает и позиция применится заново)
+    function place(el, pos, attr, mark) {
+        if (el.getAttribute(attr) === mark) return;
+        if (!el.offsetWidth && !el.offsetHeight) return; // ещё не в DOM
+        if (pos) {
+            var c = clamp(el, parseFloat(pos.left) || 0, parseFloat(pos.top) || 0);
+            el.style.position = 'absolute';
+            el.style.margin = '0';
+            el.style.transform = 'none';
+            el.style.left = c.left + 'px';
+            el.style.top = c.top + 'px';
+        }
+        el.setAttribute(attr, mark);
+    }
+
+    function find(target) {
+        if (!target || !target.closest) return null;
+        for (var i = 0; i < zones.length; i++) {
+            var f = zones[i].find(target);
+            if (f) { f.zone = zones[i]; return f; }
+        }
+        return null;
+    }
+
+    function begin(e, pt) {
+        var f = find(pt.target);
+        if (!f) return;
+        var z = f.zone;
+        (z.absolute || absolute)(f.el);
+        drag = {
+            zone: z, el: f.el, key: f.key,
+            info: z.info ? z.info(f.el) : null,
+            sx: pt.clientX, sy: pt.clientY,
+            sl: parseFloat(f.el.style.left) || 0,
+            st: parseFloat(f.el.style.top) || 0
+        };
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function move(e, pt) {
+        var d = drag, i = d.info;
+        var c = (d.zone.clamp || clamp)(
+            d.el,
+            d.sl + (pt.clientX - d.sx) / (i ? i.sx : 1),
+            d.st + (pt.clientY - d.sy) / (i ? i.sy : 1),
+            i
+        );
+        d.el.style.left = c.left + 'px';
+        d.el.style.top = c.top + 'px';
+        e.preventDefault();
+    }
+
+    function end() {
+        if (!drag) return;
+        var d = drag;
+        drag = null;
+        d.zone.save(d.el, d.key);
+        document.body.style.userSelect = '';
+    }
+
+    // Мышь (PC)
+    document.addEventListener('mousedown', function (e) {
+        if (isMobile() || e.button !== 0) return;
+        begin(e, e);
+    }, true);
+    document.addEventListener('mousemove', function (e) {
+        if (isMobile() || !drag) return;
+        move(e, e);
+    }, true);
+    document.addEventListener('mouseup', function () {
+        if (!isMobile()) end();
+    }, true);
+
+    // Тач (мобилка): passive:false обязателен для preventDefault()
+    document.addEventListener('touchstart', function (e) {
+        if (!isMobile()) return;
+        touchMoved = false;
+        if (e.touches[0]) begin(e, e.touches[0]);
+    }, { capture: true, passive: false });
+    document.addEventListener('touchmove', function (e) {
+        if (!isMobile()) return;
+        touchMoved = true; // палец двигался → это drag, не тап
+        if (drag && e.touches[0]) move(e, e.touches[0]);
+    }, { capture: true, passive: false });
+    document.addEventListener('touchend', function () {
+        if (isMobile()) end();
+    }, { capture: true, passive: true });
+
+    // Тап (мобилка): одиночный тап по зоне с tap:true центрирует элемент
+    document.addEventListener('click', function (e) {
+        if (!isMobile() || touchMoved) return;
+        var f = find(e.target);
+        if (!f || !f.zone.tap) return;
+        var el = f.el;
+        absolute(el);
+        el.style.left = Math.max(0, Math.round((window.innerWidth - (el.offsetWidth || 0)) / 2)) + 'px';
+        el.style.top = Math.max(0, Math.round((window.innerHeight - (el.offsetHeight || 0)) / 2)) + 'px';
+        f.zone.save(el, f.key);
+    }, true);
+
+    return {
+        add: function (z) { zones.push(z); },
+        cancel: function () { drag = null; },
+        isMobile: isMobile, leaving: leaving, place: place
+    };
+})());
+// ==================== END DRAG ENGINE ====================
+
 // ==================== WINDOW/MODAL: CURSOR / HIDE / DRAG v5 ====================
 // Скрытие курсора (короткий Alt), скрытие диалога (Alt удержание >=500 мс)
 // и перетаскивание за заголовок — для серверных диалогов 666–677, 695–696,
@@ -3366,18 +3514,7 @@ var _savedPositions = {};
 var _prevOnKeyDown = null;
 var _prevOnKeyUp = null;
 
-var _drag = null;
 var _pollTimer = null;
-
-// ── Определение движка / платформы ────────────────────────────────────────
-// PC (Radmir) : window.App.engine === 'legacy'  → мышь
-// Мобилка (Hassle) : window.App.isMobile        → тач + клик
-function _isMobile() {
-    return !!(window.App && window.App.isMobile);
-}
-
-// Флаг: палец сдвинулся после touchstart — нужен для отличия drag от тапа
-var _touchMoved = false;
 
 // Сброс сохранённых позиций
 window._pravoResetDialogPositions = function () {
@@ -3628,35 +3765,10 @@ function _applySavedPosition() {
     var w = _getActiveWrapper();
     if (!w) return;
 
-    // Если элемент скрыт или ещё не получил размеры — не применяем позицию,
-    // чтобы не записать/не пересчитать её в нулевой размер.
-    if (!w.offsetWidth && !w.offsetHeight) return;
-
-    var posKey = _getPositionKey();
-
     // mark включает и группу, и текущий ID, чтобы при смене диалога внутри
     // одной группы позиция всё равно повторно применялась.
-    var mark = 'pravo-pos-' + posKey + '-' + _currentDialogId;
-
-    if (w.getAttribute('data-pravo-pos') === mark) return;
-
-    var pos = _savedPositions[posKey];
-
-    if (pos) {
-        var left = parseFloat(pos.left) || 0;
-        var top = parseFloat(pos.top) || 0;
-
-        left = Math.max(0, Math.min(left, window.innerWidth - (w.offsetWidth || 0)));
-        top = Math.max(0, Math.min(top, window.innerHeight - (w.offsetHeight || 0)));
-
-        w.style.position = 'absolute';
-        w.style.margin = '0';
-        w.style.transform = 'none';
-        w.style.left = left + 'px';
-        w.style.top = top + 'px';
-    }
-
-    w.setAttribute('data-pravo-pos', mark);
+    var key = _getPositionKey();
+    _pravoDrag.place(w, _savedPositions[key], 'data-pravo-pos', 'pravo-pos-' + key + '-' + _currentDialogId);
 }
 
 // ── Скрытие / показ диалога ───────────────────────────────────────────────
@@ -3710,229 +3822,23 @@ function _setHidden(state) {
 }
 
 // ── Drag ──────────────────────────────────────────────────────────────────
-function _ensureAbsolute(wrapper) {
-    if (
-        wrapper.style.position === 'absolute' &&
-        wrapper.style.left !== '' &&
-        wrapper.style.top !== ''
-    ) {
-        return;
+// Логика перетаскивания/тапа — в общем _pravoDrag. Здесь только: что считается
+// заголовком нашего диалога и куда сохранять позицию.
+_pravoDrag.add({
+    tap: true,
+    find: function (t) {
+        if (!_active || _menuHidden) return null;
+        var title = t.closest('.modal__title');
+        if (!title) return null;
+        var w = title.closest('.modal-container-wrapper');
+        if (!w || !w.isConnected || !w.closest('.window') || _pravoDrag.leaving(w)) return null;
+        return { el: w };
+    },
+    save: function (w) {
+        if (_currentDialogId === null) return;
+        _savedPositions[_getPositionKey()] = { left: w.style.left, top: w.style.top };
     }
-
-    var rect = wrapper.getBoundingClientRect();
-    var parent = wrapper.offsetParent || document.body;
-    var parentRect = parent.getBoundingClientRect();
-
-    wrapper.style.position = 'absolute';
-    wrapper.style.margin = '0';
-    wrapper.style.transform = 'none';
-    wrapper.style.left = (rect.left - parentRect.left) + 'px';
-    wrapper.style.top = (rect.top - parentRect.top) + 'px';
-}
-
-function _onMouseDown(e) {
-    if (_isMobile()) return;           // Мобилка (Hassle) — только тач, мышь не используем
-    if (!_active || _menuHidden) return;
-    if (e.button !== 0) return;
-
-    var target = e.target;
-    if (!target || !target.closest) return;
-
-    var title = target.closest('.modal__title');
-    if (!title) return;
-
-    var wrapper = title.closest('.modal-container-wrapper');
-    if (!wrapper || !wrapper.isConnected) return;
-    if (!wrapper.closest('.window')) return;
-
-    // Не трогаем старый диалог, который уходит через transition
-    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
-
-    _ensureAbsolute(wrapper);
-
-    _drag = {
-        wrapper: wrapper,
-        sx: e.clientX,
-        sy: e.clientY,
-        sl: parseFloat(wrapper.style.left) || 0,
-        st: parseFloat(wrapper.style.top) || 0,
-        ew: wrapper.offsetWidth || wrapper.getBoundingClientRect().width,
-        eh: wrapper.offsetHeight || wrapper.getBoundingClientRect().height,
-        ww: window.innerWidth,
-        wh: window.innerHeight
-    };
-
-    document.body.style.userSelect = 'none';
-
-    e.preventDefault();
-    e.stopPropagation();
-}
-
-function _onMouseMove(e) {
-    if (_isMobile()) return;           // Мобилка (Hassle) — игнорируем mousemove
-    if (!_drag) return;
-
-    var left = _drag.sl + (e.clientX - _drag.sx);
-    var top = _drag.st + (e.clientY - _drag.sy);
-
-    left = Math.max(0, Math.min(left, _drag.ww - _drag.ew));
-    top = Math.max(0, Math.min(top, _drag.wh - _drag.eh));
-
-    _drag.wrapper.style.left = left + 'px';
-    _drag.wrapper.style.top = top + 'px';
-
-    e.preventDefault();
-}
-
-function _onMouseUp() {
-    if (_isMobile()) return;           // Мобилка (Hassle) — игнорируем mouseup
-    if (!_drag) return;
-
-    var wrapper = _drag.wrapper;
-
-    if (_currentDialogId !== null) {
-        _savedPositions[_getPositionKey()] = {
-            left: wrapper.style.left,
-            top: wrapper.style.top
-        };
-    }
-
-    _drag = null;
-    document.body.style.userSelect = '';
-}
-
-// ── Touch-drag (мобилка / Hassle) ─────────────────────────────────────────
-function _onTouchStart(e) {
-    if (!_isMobile()) return;          // ПК (Radmir) — только мышь, тач не используем
-    if (!_active || _menuHidden) return;
-
-    _touchMoved = false;               // Сбрасываем флаг для определения тапа
-
-    var touch = e.touches[0];
-    if (!touch) return;
-
-    var target = touch.target;
-    if (!target || !target.closest) return;
-
-    var title = target.closest('.modal__title');
-    if (!title) return;
-
-    var wrapper = title.closest('.modal-container-wrapper');
-    if (!wrapper || !wrapper.isConnected) return;
-    if (!wrapper.closest('.window')) return;
-
-    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
-
-    _ensureAbsolute(wrapper);
-
-    _drag = {
-        wrapper: wrapper,
-        sx: touch.clientX,
-        sy: touch.clientY,
-        sl: parseFloat(wrapper.style.left) || 0,
-        st: parseFloat(wrapper.style.top) || 0,
-        ew: wrapper.offsetWidth || wrapper.getBoundingClientRect().width,
-        eh: wrapper.offsetHeight || wrapper.getBoundingClientRect().height,
-        ww: window.innerWidth,
-        wh: window.innerHeight
-    };
-
-    document.body.style.userSelect = 'none';
-
-    e.preventDefault();
-    e.stopPropagation();
-}
-
-function _onTouchMove(e) {
-    if (!_isMobile()) return;          // ПК (Radmir) — игнорируем touchmove
-    _touchMoved = true;                // Палец двигается — это drag, не тап
-    if (!_drag) return;
-
-    var touch = e.touches[0];
-    if (!touch) return;
-
-    var left = _drag.sl + (touch.clientX - _drag.sx);
-    var top  = _drag.st + (touch.clientY - _drag.sy);
-
-    left = Math.max(0, Math.min(left, _drag.ww - _drag.ew));
-    top  = Math.max(0, Math.min(top,  _drag.wh - _drag.eh));
-
-    _drag.wrapper.style.left = left + 'px';
-    _drag.wrapper.style.top  = top  + 'px';
-
-    e.preventDefault();
-}
-
-function _onTouchEnd() {
-    if (!_isMobile()) return;          // ПК (Radmir) — игнорируем touchend
-    if (!_drag) return;
-
-    var wrapper = _drag.wrapper;
-
-    if (_currentDialogId !== null) {
-        _savedPositions[_getPositionKey()] = {
-            left: wrapper.style.left,
-            top: wrapper.style.top
-        };
-    }
-
-    _drag = null;
-    document.body.style.userSelect = '';
-}
-
-// ── Клик / тап по заголовку (Hassle / мобилка) ───────────────────────────
-// Одиночный тап (без перетаскивания) центрирует диалог на экране.
-// _touchMoved исключает срабатывание после drag-жеста.
-function _onTitleTap(e) {
-    if (!_isMobile() || !_active || _menuHidden) return;
-    if (_touchMoved) return;           // Это был drag — клик не обрабатываем
-
-    var target = e.target;
-    if (!target || !target.closest) return;
-
-    var title = target.closest('.modal__title');
-    if (!title) return;
-
-    var wrapper = title.closest('.modal-container-wrapper');
-    if (!wrapper || !wrapper.isConnected) return;
-    if (!wrapper.closest('.window')) return;
-    if (String(wrapper.className || '').indexOf('leave-active') !== -1) return;
-
-    // Центрируем диалог по экрану
-    _ensureAbsolute(wrapper);
-    var left = Math.max(0, Math.round((window.innerWidth  - (wrapper.offsetWidth  || 0)) / 2));
-    var top  = Math.max(0, Math.round((window.innerHeight - (wrapper.offsetHeight || 0)) / 2));
-    wrapper.style.left = left + 'px';
-    wrapper.style.top  = top  + 'px';
-
-    if (_currentDialogId !== null) {
-        _savedPositions[_getPositionKey()] = {
-            left: wrapper.style.left,
-            top:  wrapper.style.top
-        };
-    }
-}
-
-// ── Делегирование на document ─────────────────────────────────────────────
-// Решает проблему замены DOM после переходов между диалогами.
-//
-// PC (Radmir)  → engine === 'legacy'  → только мышь (mouse*)
-// Мобилка (Hassle) → isMobile = true  → тач (touch*) + клик
-//
-// Каждый обработчик самостоятельно проверяет платформу через _isMobile(),
-// поэтому лишние события просто «проваливаются» на первой строке.
-
-document.addEventListener('mousedown', _onMouseDown, true);
-document.addEventListener('mousemove', _onMouseMove, true);
-document.addEventListener('mouseup',   _onMouseUp,   true);
-
-// Touch-drag: passive:false обязателен, иначе preventDefault() выбросит ошибку
-document.addEventListener('touchstart', _onTouchStart, { capture: true, passive: false });
-document.addEventListener('touchmove',  _onTouchMove,  { capture: true, passive: false });
-document.addEventListener('touchend',   _onTouchEnd,   { capture: true, passive: true  });
-
-// Клик / тап — Hassle: одиночный тап по заголовку = центрировать диалог
-document.addEventListener('click', _onTitleTap, true);
+});
 
 // ── Подключение / отключение ───────────────────────────────────────────────
 function _attach() {
@@ -4020,7 +3926,7 @@ function _detach() {
 
     _stopPoll();
 
-    _drag = null;
+    _pravoDrag.cancel();
     _menuHidden = false;
     _blurredInput = null;
     _cursorVisible = true;
@@ -4114,248 +4020,63 @@ window.closeLastDialog = function () {
     }
 };
 
-console.log('[PRAVO] Window/Modal cursor/hide/drag v5 готов (engine detection: PC=mouse / Hassle=touch+tap)');
-console.log('[PRAVO]   • Alt (короткий) = скрыть/показать курсор');
-console.log('[PRAVO]   • Alt (>=500мс)  = скрыть/показать диалог вместе с курсором');
-console.log('[PRAVO]   • 677 и 667 используют одну позицию меню');
-console.log('[PRAVO]   • курсор гасится через реальные имена Window0/Window1/...');
+console.log('[PRAVO] Window/Modal cursor/hide/drag v5 готов (Alt=курсор, Alt>=500мс=диалог)');
 
 })();
 // ==================== END WINDOW/MODAL: CURSOR / HIDE / DRAG ====================
 
 // ==================== ZKM / SIDEMENU: DRAG ====================
-// Перетаскивание для кастомных интерфейсов ZKM и SideMenu.
-// Работает независимо от Window/Modal drag (не требует _active —
-// тот взводится только для серверных диалогов через addDialogInQueue,
-// а ZKM/SideMenu открываются через openInterface).
-//
-// PC (Radmir): мышь. Hassle (мобилка): тач.
-// Позиционирование: absolute left/top — идентично Window/Modal drag.
-// Позиция сохраняется в _savedPos и восстанавливается при повторном
-// открытии через setInterval-поллинг (200 мс).
+// Перетаскивание кастомных интерфейсов ZKM и SideMenu (открываются через
+// openInterface, поэтому не зависят от Window/Modal drag). Сама механика — в _pravoDrag.
+// Позиция хранится в _savedPos и восстанавливается поллингом (200 мс).
 ;(function () {
 'use strict';
 
 if (window.__pravoCustomIfaceDragV1) return;
 window.__pravoCustomIfaceDragV1 = true;
 
-// ── Описание интерфейсов ──────────────────────────────────────────────────
-// rootSel    — CSS-селектор корневого .modal элемента интерфейса
-// dragZone   — зоны за которые можно тащить (inside card)
-// noInteract — элементы внутри dragZone, по которым клик НЕ начинает drag
+// rootSel    — корневой .modal интерфейса
+// dragZone   — зоны, за которые тащим
+// noInteract — элементы внутри dragZone, по которым drag НЕ начинается
 // posKey     — ключ для _savedPos
 var IFACES = [
-    {
-        rootSel:    '.modal.zkm',
-        dragZone:   '.modal__title, .zkm__subheader',
-        noInteract: '.laws-helper__icon-btn, .laws-helper__tab',
-        posKey:     'zkm'
-    },
-    {
-        rootSel:    '.modal.side-menu',
-        dragZone:   '.modal__title',
-        noInteract: null,
-        posKey:     'side-menu'
-    }
+    { rootSel: '.modal.zkm', dragZone: '.modal__title, .zkm__subheader',
+      noInteract: '.laws-helper__icon-btn, .laws-helper__tab', posKey: 'zkm' },
+    { rootSel: '.modal.side-menu', dragZone: '.modal__title', noInteract: null, posKey: 'side-menu' }
 ];
 
-var _savedPos   = {};       // сохранённые позиции по posKey
-var _drag       = null;     // активный drag-стейт
-var _touchMoved = false;    // true = палец двигался → это drag, не тап
+var _savedPos = {};
 
-function _isMobile() {
-    return !!(window.App && window.App.isMobile);
-}
-
-// Находит wrapper и конфиг по целевому элементу; null — не наша зона
-function _resolve(target) {
-    if (!target || !target.closest) return null;
-    for (var i = 0; i < IFACES.length; i++) {
-        var cfg  = IFACES[i];
-        var zone = target.closest(cfg.dragZone);
-        if (!zone) continue;
-        if (cfg.noInteract && target.closest(cfg.noInteract)) return null;
-        var wrapper = zone.closest('.modal-container-wrapper');
-        if (!wrapper || !wrapper.isConnected) return null;
-        if (!wrapper.closest(cfg.rootSel)) return null;
-        // Не трогаем карточку, которая уходит через transition
-        if (String(wrapper.className || '').indexOf('leave-active') !== -1) return null;
-        return { wrapper: wrapper, cfg: cfg };
+_pravoDrag.add({
+    find: function (t) {
+        for (var i = 0; i < IFACES.length; i++) {
+            var cfg = IFACES[i], zone = t.closest(cfg.dragZone);
+            if (!zone) continue;
+            if (cfg.noInteract && t.closest(cfg.noInteract)) return null;
+            var w = zone.closest('.modal-container-wrapper');
+            // не трогаем карточку, которая уходит через transition
+            if (!w || !w.isConnected || !w.closest(cfg.rootSel) || _pravoDrag.leaving(w)) return null;
+            return { el: w, key: cfg.posKey };
+        }
+        return null;
+    },
+    save: function (w, key) {
+        _savedPos[key] = { left: w.style.left, top: w.style.top };
+        w.setAttribute('data-cif-pos', 'cif-' + key);
     }
-    return null;
-}
+});
 
-// Переводим wrapper в absolute-позиционирование, сохраняя видимую позицию.
-// Сбрасываем transform — ZKM ранее использовал translate(), теперь left/top.
-function _ensureAbsolute(wrapper) {
-    if (
-        wrapper.style.position === 'absolute' &&
-        wrapper.style.left !== '' &&
-        wrapper.style.top  !== ''
-    ) return;
-
-    var rect   = wrapper.getBoundingClientRect();
-    var parent = wrapper.offsetParent || document.body;
-    var pRect  = parent.getBoundingClientRect();
-
-    wrapper.style.position  = 'absolute';
-    wrapper.style.margin    = '0';
-    wrapper.style.transform = 'none';   // убираем translate() если был
-    wrapper.style.left = (rect.left - pRect.left) + 'px';
-    wrapper.style.top  = (rect.top  - pRect.top ) + 'px';
-}
-
-// Ограничиваем позицию границами экрана
-function _clamp(wrapper, left, top) {
-    var ew = wrapper.offsetWidth  || wrapper.getBoundingClientRect().width;
-    var eh = wrapper.offsetHeight || wrapper.getBoundingClientRect().height;
-    return {
-        left: Math.max(0, Math.min(left, window.innerWidth  - ew)),
-        top:  Math.max(0, Math.min(top,  window.innerHeight - eh))
-    };
-}
-
-// Применяем сохранённую позицию к wrapper (один раз на жизнь элемента,
-// пока тот не будет пересоздан — тогда атрибут data-cif-pos сбросится)
-function _applyPos(wrapper, posKey) {
-    var pos  = _savedPos[posKey];
-    if (!pos) return;
-    var mark = 'cif-' + posKey;
-    if (wrapper.getAttribute('data-cif-pos') === mark) return;
-    if (!wrapper.offsetWidth && !wrapper.offsetHeight) return; // ещё не в DOM
-
-    _ensureAbsolute(wrapper);
-    var c = _clamp(wrapper, parseFloat(pos.left) || 0, parseFloat(pos.top) || 0);
-    wrapper.style.left = c.left + 'px';
-    wrapper.style.top  = c.top  + 'px';
-    wrapper.setAttribute('data-cif-pos', mark);
-}
-
-// Поллинг: 200 мс — восстанавливаем позицию при повторном открытии интерфейса
+// Восстановление позиции при повторном открытии интерфейса
 setInterval(function () {
-    for (var i = 0; i < IFACES.length; i++) {
-        var cfg  = IFACES[i];
+    IFACES.forEach(function (cfg) {
         var root = document.querySelector(cfg.rootSel);
-        if (!root) continue;
-        var wrapper = root.querySelector('.modal-container-wrapper');
-        if (!wrapper || !wrapper.isConnected) continue;
-        if (String(wrapper.className || '').indexOf('leave-active') !== -1) continue;
-        _applyPos(wrapper, cfg.posKey);
-    }
+        var w = root && root.querySelector('.modal-container-wrapper');
+        if (!w || !w.isConnected || _pravoDrag.leaving(w)) return;
+        _pravoDrag.place(w, _savedPos[cfg.posKey], 'data-cif-pos', 'cif-' + cfg.posKey);
+    });
 }, 200);
 
-// ── Мышь (PC / Radmir) ─────────────────────────────────────────────────────
-
-function _onMouseDown(e) {
-    if (_isMobile()) return;
-    if (e.button !== 0) return;
-    var found = _resolve(e.target);
-    if (!found) return;
-
-    _ensureAbsolute(found.wrapper);
-    _drag = {
-        wrapper: found.wrapper,
-        posKey:  found.cfg.posKey,
-        sx: e.clientX,
-        sy: e.clientY,
-        sl: parseFloat(found.wrapper.style.left) || 0,
-        st: parseFloat(found.wrapper.style.top)  || 0
-    };
-    document.body.style.userSelect = 'none';
-    e.preventDefault();
-    e.stopPropagation();
-}
-
-function _onMouseMove(e) {
-    if (_isMobile()) return;
-    if (!_drag) return;
-    var c = _clamp(
-        _drag.wrapper,
-        _drag.sl + (e.clientX - _drag.sx),
-        _drag.st + (e.clientY - _drag.sy)
-    );
-    _drag.wrapper.style.left = c.left + 'px';
-    _drag.wrapper.style.top  = c.top  + 'px';
-    e.preventDefault();
-}
-
-function _onMouseUp() {
-    if (_isMobile()) return;
-    if (!_drag) return;
-    _savedPos[_drag.posKey] = {
-        left: _drag.wrapper.style.left,
-        top:  _drag.wrapper.style.top
-    };
-    _drag.wrapper.setAttribute('data-cif-pos', 'cif-' + _drag.posKey);
-    _drag = null;
-    document.body.style.userSelect = '';
-}
-
-// ── Тач (Hassle / мобилка) ─────────────────────────────────────────────────
-
-function _onTouchStart(e) {
-    if (!_isMobile()) return;
-    _touchMoved = false;
-    var touch = e.touches[0];
-    if (!touch) return;
-    var found = _resolve(touch.target);
-    if (!found) return;
-
-    _ensureAbsolute(found.wrapper);
-    _drag = {
-        wrapper: found.wrapper,
-        posKey:  found.cfg.posKey,
-        sx: touch.clientX,
-        sy: touch.clientY,
-        sl: parseFloat(found.wrapper.style.left) || 0,
-        st: parseFloat(found.wrapper.style.top)  || 0
-    };
-    document.body.style.userSelect = 'none';
-    e.preventDefault();
-    e.stopPropagation();
-}
-
-function _onTouchMove(e) {
-    if (!_isMobile()) return;
-    _touchMoved = true;
-    if (!_drag) return;
-    var touch = e.touches[0];
-    if (!touch) return;
-    var c = _clamp(
-        _drag.wrapper,
-        _drag.sl + (touch.clientX - _drag.sx),
-        _drag.st + (touch.clientY - _drag.sy)
-    );
-    _drag.wrapper.style.left = c.left + 'px';
-    _drag.wrapper.style.top  = c.top  + 'px';
-    e.preventDefault();
-}
-
-function _onTouchEnd() {
-    if (!_isMobile()) return;
-    if (!_drag) return;
-    _savedPos[_drag.posKey] = {
-        left: _drag.wrapper.style.left,
-        top:  _drag.wrapper.style.top
-    };
-    _drag.wrapper.setAttribute('data-cif-pos', 'cif-' + _drag.posKey);
-    _drag = null;
-    document.body.style.userSelect = '';
-}
-
-// ── Регистрация событий (delegation на document, capture-фаза) ─────────────
-// Capture — чтобы перехватить раньше vue-обработчиков внутри карточки.
-// touchstart/move — passive:false обязателен для preventDefault().
-
-document.addEventListener('mousedown', _onMouseDown, true);
-document.addEventListener('mousemove', _onMouseMove, true);
-document.addEventListener('mouseup',   _onMouseUp,   true);
-
-document.addEventListener('touchstart', _onTouchStart, { capture: true, passive: false });
-document.addEventListener('touchmove',  _onTouchMove,  { capture: true, passive: false });
-document.addEventListener('touchend',   _onTouchEnd,   { capture: true, passive: true  });
-
-// Утилита для сброса позиций через консоль браузера
+// Сброс позиций через консоль браузера
 window._pravoResetCustomIfacePos = function () {
     _savedPos = {};
     console.log('[PRAVO] Позиции ZKM/SideMenu сброшены');
@@ -4422,6 +4143,98 @@ window.hideTimerK = () => {
 })();
 // ==================== END TimerK ====================
 // ==================== INTERACTIONS: DRAG ====================
-;(function(){'use strict';if(window.__pravoInteractionsDragV1)return;window.__pravoInteractionsDragV1=true;var ROOT_SEL='.interactions',CONT_SEL='.interactions__container',NO_DRAG='.interactions-list, .interactions-hint',HANDLE_CLS='pravo-inter-handle',_savedPos=null,_drag=null,_touchMoved=false;function _isMobile(){return!!(window.App&&window.App.isMobile)}(function(){var id='pravo-inter-drag-css';if(document.getElementById(id))return;var s=document.createElement('style');s.id=id;s.textContent='.interactions__container{pointer-events:auto!important;cursor:grab}.interactions-list,.interactions-hint{cursor:default}.'+HANDLE_CLS+'{display:flex;align-items:center;justify-content:center;width:100%;height:3vh;pointer-events:auto;cursor:grab;flex-basis:100%;flex-shrink:0;order:-1}.'+HANDLE_CLS+':active{cursor:grabbing}.'+HANDLE_CLS+'::after{content:"";display:block;width:5vh;height:.35vh;background:rgba(255,255,255,.35);border-radius:1vh}';document.head.appendChild(s)})();function _cb(el){var p=el.parentElement;while(p&&p!==document.body){var cs=window.getComputedStyle(p),t=cs.transform,hasT=t&&t!=='none'&&t!=='matrix(1, 0, 0, 1, 0, 0)',hasP=cs.position!=='static';if(hasT||hasP){var r=p.getBoundingClientRect(),sw=p.offsetWidth||1,sh=p.offsetHeight||1;return{rect:r,sx:r.width/sw,sy:r.height/sh}}p=p.parentElement}return{rect:{left:0,top:0},sx:1,sy:1}}function _ensureAbsolute(el){if(el.style.position==='absolute'&&el.style.left!==''&&el.style.top!=='')return;var info=_cb(el),rect=el.getBoundingClientRect();el.style.position='absolute';el.style.right='auto';el.style.margin='0';el.style.left=((rect.left-info.rect.left)/info.sx)+'px';el.style.top=((rect.top-info.rect.top)/info.sy)+'px'}function _clamp(el,left,top,info){info=info||_cb(el);var ew=el.offsetWidth,eh=el.offsetHeight,maxL=(window.innerWidth-info.rect.left)/info.sx-ew,maxT=(window.innerHeight-info.rect.top)/info.sy-eh,minL=-info.rect.left/info.sx,minT=-info.rect.top/info.sy;return{left:Math.max(minL,Math.min(left,maxL)),top:Math.max(minT,Math.min(top,maxT))}}function _resolve(target){if(!target||!target.closest)return null;var cont=target.closest(CONT_SEL);if(!cont||!cont.closest(ROOT_SEL)||target.closest(NO_DRAG))return null;return cont}setInterval(function(){var cont=document.querySelector(ROOT_SEL+' '+CONT_SEL);if(!cont||!cont.isConnected)return;if(_isMobile()&&!cont.querySelector('.'+HANDLE_CLS)){var h=document.createElement('div');h.className=HANDLE_CLS;cont.insertBefore(h,cont.firstChild)}if(!_savedPos||cont.getAttribute('data-pr-inter-pos')==='1'||!cont.offsetWidth)return;_ensureAbsolute(cont);var info=_cb(cont),c=_clamp(cont,_savedPos.left,_savedPos.top,info);cont.style.left=c.left+'px';cont.style.top=c.top+'px';cont.setAttribute('data-pr-inter-pos','1')},200);function _onMouseDown(e){if(_isMobile()||e.button!==0)return;var el=_resolve(e.target);if(!el)return;_ensureAbsolute(el);_drag={el:el,info:_cb(el),sx:e.clientX,sy:e.clientY,sl:parseFloat(el.style.left)||0,st:parseFloat(el.style.top)||0};document.body.style.userSelect='none';e.preventDefault();e.stopPropagation()}function _onMouseMove(e){if(_isMobile()||!_drag)return;var c=_clamp(_drag.el,_drag.sl+(e.clientX-_drag.sx)/_drag.info.sx,_drag.st+(e.clientY-_drag.sy)/_drag.info.sy,_drag.info);_drag.el.style.left=c.left+'px';_drag.el.style.top=c.top+'px';e.preventDefault()}function _onMouseUp(){if(_isMobile()||!_drag)return;_savedPos={left:parseFloat(_drag.el.style.left),top:parseFloat(_drag.el.style.top)};_drag.el.setAttribute('data-pr-inter-pos','1');_drag=null;document.body.style.userSelect=''}function _onTouchStart(e){if(!_isMobile())return;_touchMoved=false;var t=e.touches[0];if(!t)return;var el=_resolve(t.target);if(!el)return;_ensureAbsolute(el);_drag={el:el,info:_cb(el),sx:t.clientX,sy:t.clientY,sl:parseFloat(el.style.left)||0,st:parseFloat(el.style.top)||0};document.body.style.userSelect='none';e.preventDefault();e.stopPropagation()}function _onTouchMove(e){if(!_isMobile())return;_touchMoved=true;if(!_drag)return;var t=e.touches[0];if(!t)return;var c=_clamp(_drag.el,_drag.sl+(t.clientX-_drag.sx)/_drag.info.sx,_drag.st+(t.clientY-_drag.sy)/_drag.info.sy,_drag.info);_drag.el.style.left=c.left+'px';_drag.el.style.top=c.top+'px';e.preventDefault()}function _onTouchEnd(){if(!_isMobile()||!_drag)return;_savedPos={left:parseFloat(_drag.el.style.left),top:parseFloat(_drag.el.style.top)};_drag.el.setAttribute('data-pr-inter-pos','1');_drag=null;document.body.style.userSelect=''}document.addEventListener('mousedown',_onMouseDown,{capture:true});document.addEventListener('mousemove',_onMouseMove,{capture:true});document.addEventListener('mouseup',_onMouseUp,{capture:true});document.addEventListener('touchstart',_onTouchStart,{capture:true,passive:false});document.addEventListener('touchmove',_onTouchMove,{capture:true,passive:false});document.addEventListener('touchend',_onTouchEnd,{capture:true,passive:true});window._pravoResetInteractionsPos=function(){_savedPos=null;var el=document.querySelector(ROOT_SEL+' '+CONT_SEL);if(el)el.removeAttribute('data-pr-inter-pos');console.log('[PRAVO] Interactions позиция сброшена')};console.log('[PRAVO] Interactions drag v1 готов  (PC=mouse / Hassle=touch)')})();
+// Drag для .interactions__container. У Interactions масштабируемый контейнер
+// (transform: scale), поэтому своя математика координат: info/absolute/clamp.
+;(function () {
+'use strict';
+
+if (window.__pravoInteractionsDragV1) return;
+window.__pravoInteractionsDragV1 = true;
+
+var ROOT = '.interactions', CONT = '.interactions__container',
+    NO_DRAG = '.interactions-list, .interactions-hint', HANDLE = 'pravo-inter-handle',
+    _savedPos = null;
+
+(function () {
+    var id = 'pravo-inter-drag-css';
+    if (document.getElementById(id)) return;
+    var s = document.createElement('style');
+    s.id = id;
+    s.textContent = '.interactions__container{pointer-events:auto!important;cursor:grab}.interactions-list,.interactions-hint{cursor:default}.' + HANDLE + '{display:flex;align-items:center;justify-content:center;width:100%;height:3vh;pointer-events:auto;cursor:grab;flex-basis:100%;flex-shrink:0;order:-1}.' + HANDLE + ':active{cursor:grabbing}.' + HANDLE + '::after{content:"";display:block;width:5vh;height:.35vh;background:rgba(255,255,255,.35);border-radius:1vh}';
+    document.head.appendChild(s);
+})();
+
+// Ближайший предок с transform/position: его rect и масштаб
+function _cb(el) {
+    for (var p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+        var cs = window.getComputedStyle(p), t = cs.transform;
+        if ((t && t !== 'none' && t !== 'matrix(1, 0, 0, 1, 0, 0)') || cs.position !== 'static') {
+            var r = p.getBoundingClientRect();
+            return { rect: r, sx: r.width / (p.offsetWidth || 1), sy: r.height / (p.offsetHeight || 1) };
+        }
+    }
+    return { rect: { left: 0, top: 0 }, sx: 1, sy: 1 };
+}
+
+function _abs(el) {
+    if (el.style.position === 'absolute' && el.style.left !== '' && el.style.top !== '') return;
+    var i = _cb(el), r = el.getBoundingClientRect();
+    el.style.position = 'absolute';
+    el.style.right = 'auto';
+    el.style.margin = '0';
+    el.style.left = ((r.left - i.rect.left) / i.sx) + 'px';
+    el.style.top = ((r.top - i.rect.top) / i.sy) + 'px';
+}
+
+function _clampS(el, left, top, i) {
+    i = i || _cb(el);
+    var maxL = (window.innerWidth - i.rect.left) / i.sx - el.offsetWidth,
+        maxT = (window.innerHeight - i.rect.top) / i.sy - el.offsetHeight;
+    return {
+        left: Math.max(-i.rect.left / i.sx, Math.min(left, maxL)),
+        top: Math.max(-i.rect.top / i.sy, Math.min(top, maxT))
+    };
+}
+
+_pravoDrag.add({
+    info: _cb, absolute: _abs, clamp: _clampS,
+    find: function (t) {
+        var c = t.closest(CONT);
+        if (!c || !c.closest(ROOT) || t.closest(NO_DRAG)) return null;
+        return { el: c };
+    },
+    save: function (el) {
+        _savedPos = { left: parseFloat(el.style.left), top: parseFloat(el.style.top) };
+        el.setAttribute('data-pr-inter-pos', '1');
+    }
+});
+
+// Поллинг: ручка для тача (мобилка) + восстановление позиции
+setInterval(function () {
+    var c = document.querySelector(ROOT + ' ' + CONT);
+    if (!c || !c.isConnected) return;
+    if (_pravoDrag.isMobile() && !c.querySelector('.' + HANDLE)) {
+        var h = document.createElement('div');
+        h.className = HANDLE;
+        c.insertBefore(h, c.firstChild);
+    }
+    if (!_savedPos || c.getAttribute('data-pr-inter-pos') === '1' || !c.offsetWidth) return;
+    _abs(c);
+    var p = _clampS(c, _savedPos.left, _savedPos.top, _cb(c));
+    c.style.left = p.left + 'px';
+    c.style.top = p.top + 'px';
+    c.setAttribute('data-pr-inter-pos', '1');
+}, 200);
+
+window._pravoResetInteractionsPos = function () {
+    _savedPos = null;
+    var el = document.querySelector(ROOT + ' ' + CONT);
+    if (el) el.removeAttribute('data-pr-inter-pos');
+    console.log('[PRAVO] Interactions позиция сброшена');
+};
+
+console.log('[PRAVO] Interactions drag v1 готов  (PC=mouse / Hassle=touch)');
+
+})();
 // ==================== END INTERACTIONS: DRAG ====================
 }); // конец callback _nickCheck
