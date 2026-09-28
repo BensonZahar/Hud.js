@@ -744,12 +744,10 @@ function _pravoUpdateHassleInteraction(targetId) {
     // ── НОВОЕ: кнопка главного меню АНК — всегда для Hassle ──
     _items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
 
-    // Авто-перевыдача — показываем всегда при включённой AUTO_REISSUE_LIC (независимо от наличия цели)
-    if (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) {
-        var _reissueLabel = _lastGiveLicData
-            ? ('Перевыдать: ' + _lastGiveLicData.name)
-            : 'Авто-перевыдача';
-        _items.push([_PRAVO_INT_REISSUE, _reissueLabel]);
+    // Авто-перевыдача — показываем ТОЛЬКО если включена И уже есть сохранённая команда для повтора.
+    // Пока лицензия ни разу не выдана (_lastGiveLicData = null) — кнопки нет.
+    if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
+        _items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
     }
 
     // Быстрая выдача — показываем если помощник лицензёра включён И звание Лицензёр.
@@ -813,12 +811,9 @@ window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
 function _pravoGetOwnItems() {
     var items = [];
     items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
-    // Авто-перевыдача — показываем всегда при включённой AUTO_REISSUE_LIC
-    if (AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) {
-        var _reissueLabel = _lastGiveLicData
-            ? ('Перевыдать: ' + _lastGiveLicData.name)
-            : 'Авто-перевыдача';
-        items.push([_PRAVO_INT_REISSUE, _reissueLabel]);
+    // Авто-перевыдача — только если включена И уже есть данные для повтора
+    if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _lastGiveLicData) {
+        items.push([_PRAVO_INT_REISSUE, 'Перевыдать: ' + _lastGiveLicData.name]);
     }
     if (typeof _isLicensorRank === 'function' && _isLicensorRank()
         && (LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
