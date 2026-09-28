@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.777 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.444 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -314,16 +314,24 @@ function trackSkinId() {
         // считает это "изменением" скина каждый цикл опроса
         if (numericSkin !== skinId) {
             skinId = numericSkin;
-            window._pravoSkinId = skinId; // прокидываем наружу для проверки исключений (например СОБР для greeting)
+            window._pravoSkinId = skinId;
 
-            console.log(`[SKIN] 🔍 Новый Skin ID обнаружен: ${skinId}`);
-
-            // Проверяем, является ли скин МВД
             if (pravoSkins.includes(skinId)) {
-                console.log(`[SKIN] ✅ Скин ${skinId} - это МВД скин!`);
+                console.log(`[SKIN] ✅ Скин ${skinId} — правительственный, открываем Interactions`);
             } else {
-                console.log(`[SKIN] ❌ Скин ${skinId} НЕ входит в список МВД`);
+                console.log(`[SKIN] ❌ Скин ${skinId} — не правительственный, закрываем Interactions`);
             }
+
+            // Реагируем на смену формы немедленно:
+            // _pravoUpdateHassleInteraction сама решит — закрыть (не правительственный)
+            // или открыть (правительственный) панель Interactions на Hassle.
+            setTimeout(function() {
+                if (typeof _pravoUpdateHassleInteraction === 'function') {
+                    _pravoUpdateHassleInteraction(
+                        typeof giveLicenseTo !== 'undefined' ? (giveLicenseTo || -1) : -1
+                    );
+                }
+            }, 150);
         }
     }
     setTimeout(trackSkinId, 5000);
@@ -746,7 +754,13 @@ function _pravoUpdateHassleInteraction(targetId) {
 
     // Если скин не правительственный — закрываем наш Interaction и выходим
     if (!pravoSkins.includes(skinId)) {
-        if (_pravoHassleIntOpen) {
+        // FIX: проверяем реальный статус через getInterfaceStatus, а не только флаг.
+        // _pravoHassleIntOpen может быть false если сервер успел сбросить флаг
+        // через closeInterface-хук до того как trackSkinId это зафиксировал —
+        // но панель при этом могла быть снова открыта сервером уже без нашего флага.
+        var _intReallyOpen = typeof window.getInterfaceStatus === 'function'
+            && window.getInterfaceStatus('Interactions');
+        if (_pravoHassleIntOpen || _intReallyOpen) {
             _pravoHassleIntOpen = false;
             try { window.closeInterface('Interactions'); } catch(e) {}
             console.log('[PRAVO] 🚫 Hassle Interaction закрыт (не правительственный скин)');
@@ -828,6 +842,8 @@ window._pravoUpdateHassleInteraction = _pravoUpdateHassleInteraction;
 
 // ── Вспомогательная функция: строит массив наших пунктов ──────────────────
 function _pravoGetOwnItems() {
+    // FIX: если скин не правительственный — ничего не добавляем
+    if (!pravoSkins.includes(skinId)) return [];
     var items = [];
     items.push([9900, 'АНК Меню (ПРАВИТЕЛЬСТВО)']);
     // Авто-перевыдача — показываем только если есть сохранённая цель
@@ -915,6 +931,12 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             }
 
             var pravoItems = _pravoGetOwnItems();
+            // FIX: не правительственный скин — не внедряем наши пункты,
+            // не ставим флаг, просто пропускаем в оригинальный openInterface
+            if (pravoItems.length === 0) {
+                return _oiOrig.apply(this, arguments);
+            }
+
             var combined   = pravoItems.concat(serverItems);
             _pravoHassleIntOpen = true;
 
