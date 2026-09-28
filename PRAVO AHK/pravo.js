@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.000 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1222,7 +1222,6 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     function disarm() {
         armed = false;
         if (armTimer) { clearTimeout(armTimer); armTimer = null; }
-        if (typeof cancelHold === 'function') cancelHold();
         hideUi(false);
     }
 
@@ -1321,79 +1320,14 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
     // ── перехват открытия PlayerInteraction (оборачиваем уже обёрнутый логгер цели) ──
     var _oi = window.openInterface;
-
-    // ── МОБИЛКА (Hassle): удержание пальца на игроке → наше меню, обычный тап → обычное меню ──
-    // Тап по игроку обрабатывает движок → сервер (OnEntitySelected) → openInterface('PlayerInteraction').
-    // Мы следим за пальцем: если к моменту открытия палец держат дольше HOLD_MS (или его только
-    // что отпустили после такого удержания) — перехватываем меню и открываем выдачу лицензии.
-    // Короткий тап проходит как раньше. Отключить: window.PRAVO_QUICKLIC_HOLD = false.
-    // Время удержания: window.PRAVO_QUICKLIC_HOLD_MS (по умолчанию 450 мс).
-    var HOLD_GRACE = 700, MOVE_PX = 24;
-    var tId = null, tDown = false, tStart = 0, tEnd = 0, tDur = 0, tMoved = false, tX = 0, tY = 0;
-    var holdTimer = null;
-
-    function holdMs() { return +window.PRAVO_QUICKLIC_HOLD_MS > 0 ? +window.PRAVO_QUICKLIC_HOLD_MS : 450; }
-    function holdEnabled() { return window.PRAVO_QUICKLIC_HOLD !== false && !!(window.App && window.App.isMobile); }
-    function cancelHold() { if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; } }
-    function hasTouch(list, id) {
-        for (var i = 0; list && i < list.length; i++) if (list[i].identifier === id) return list[i];
-        return null;
-    }
-
-    window.addEventListener('touchstart', function (e) {
-        var t = e.changedTouches && e.changedTouches[0];
-        if (!t) return;
-        tId = t.identifier; tDown = true; tStart = Date.now(); tMoved = false; tX = t.clientX; tY = t.clientY;
-    }, { capture: true, passive: true });
-    window.addEventListener('touchmove', function (e) {
-        var t = hasTouch(e.changedTouches, tId);
-        if (t && Math.hypot(t.clientX - tX, t.clientY - tY) > MOVE_PX) tMoved = true; // двигали палец — это камера, не удержание
-    }, { capture: true, passive: true });
-    function onTouchEnd(e) {
-        if (!hasTouch(e.changedTouches, tId)) return;
-        tDown = false; tEnd = Date.now(); tDur = tEnd - tStart;
-        // палец отпустили раньше времени удержания, а меню уже перехвачено → это был обычный тап
-        if (holdTimer) { cancelHold(); dbg('touchend раньше удержания → обычное меню'); restoreMenu(); }
-    }
-    window.addEventListener('touchend', onTouchEnd, { capture: true, passive: true });
-    window.addEventListener('touchcancel', onTouchEnd, { capture: true, passive: true });
-
     window.openInterface = function (name, params) {
-        if (name === 'PlayerInteraction' && swallowedParams === null) {
-            if (armed) {
-                // ПК: комбинация ПКМ+E
-                // Компонент НЕ открываем: открыть-и-сразу-закрыть ломало следующие открытия меню
-                // (счётчики скрытия HUD/меток, mount/unmount компонента). Просто забираем параметры.
-                swallowedParams = (params === undefined || params === null) ? '' : params;
-                dbg('open перехвачен, params =', params);
-                setTimeout(function () { try { onInteractionOpened(params); } catch (e) { restoreMenu(); } }, 0);
-                return Promise.resolve();
-            }
-            if (holdEnabled() && !window.getInterfaceStatus('PlayerInteraction') && canFire()) {
-                var now = Date.now(), need = holdMs(), state = 'no', remain = 0;
-                if (tDown && !tMoved) {
-                    remain = need - (now - tStart);
-                    state = remain <= 0 ? 'yes' : 'pending';
-                } else if (!tDown && !tMoved && now - tEnd < HOLD_GRACE && tDur >= need) {
-                    state = 'yes';
-                }
-                dbg('mobile open: state =', state, '| down =', tDown, '| dur =', tDown ? now - tStart : tDur, '| moved =', tMoved);
-                if (state !== 'no') {
-                    armed = true;
-                    swallowedParams = (params === undefined || params === null) ? '' : params;
-                    if (state === 'yes') {
-                        setTimeout(function () { try { onInteractionOpened(params); } catch (e) { restoreMenu(); } }, 0);
-                    } else {
-                        holdTimer = setTimeout(function () {
-                            holdTimer = null;
-                            if (!armed) return;
-                            if (tDown && !tMoved) { try { onInteractionOpened(params); } catch (e) { restoreMenu(); } }
-                            else restoreMenu();
-                        }, remain);
-                    }
-                    return Promise.resolve();
-                }
-            }
+        if (name === 'PlayerInteraction' && armed && swallowedParams === null) {
+            // Компонент НЕ открываем: открыть-и-сразу-закрыть ломало следующие открытия меню
+            // (счётчики скрытия HUD/меток, mount/unmount компонента). Просто забираем параметры.
+            swallowedParams = (params === undefined || params === null) ? '' : params;
+            dbg('open перехвачен, params =', params);
+            setTimeout(function () { try { onInteractionOpened(params); } catch (e) { restoreMenu(); } }, 0);
+            return Promise.resolve();
         }
         return _oi.apply(this, arguments);
     };
@@ -1446,6 +1380,180 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     window.addEventListener('blur', function () { rmbDown = false; eDown = false; });
 
     console.log('[PRAVO] ✅ Быстрая выдача лицензии (E + ПКМ) установлена');
+})();
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Hassle (мобилка): кнопка «Выдача лицензии» СЛЕВА в оригинальном PlayerInteraction.
+//
+// На телефоне нет «навод на игрока + E», поэтому кнопка добавляется прямо в DOM радиального
+// меню (файлы PlayerInteraction.js/.css НЕ меняются). Ник цели берётся из params[0]
+// при openInterface/updateParams('PlayerInteraction'), ID — из window._mvdPlayerList.
+// Нажатие: закрывает меню (как close() компонента) → showGiveLicTypeDialog(ID) → /givelic.
+// Показывается только на мобилке, у Лицензёра, в правительственном скине и при включённом
+// «Помощнике лицензёра» (те же условия, что у кнопки «Выдать лицензию» в Hassle-Interactions).
+// Отключить: window.PRAVO_MOBLIC_BTN_ENABLED = false.
+// ══════════════════════════════════════════════════════════════════════════════
+(function _pravoMobileLicenseButton() {
+    if (window.__pravoMobLicBtn) return;
+    window.__pravoMobLicBtn = true;
+
+    var BTN_ID = 'pravo-moblic-btn', STYLE_ID = 'pravo-moblic-style';
+    var lastNick = '', busy = false;
+
+    function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
+
+    function parseNick(params) {
+        try {
+            var p = (typeof params === 'string') ? JSON.parse(params.replace(/\n/, '\\n')) : params;
+            var raw = Array.isArray(p) ? p[0] : null;
+            return (typeof raw === 'string') ? raw.trim().split(' ').join('_') : '';
+        } catch (e) { return ''; }
+    }
+
+    function notify(text) {
+        try { if (typeof gtAdd === 'function') gtAdd(text, 3000, 3); } catch (e) {}
+    }
+
+    function findId(nick) {
+        try {
+            var list = window._mvdPlayerList, n = norm(nick);
+            if (!list || !nick) return null;
+            if (list.local && norm(list.local.name) === n) return list.local.id;
+            if (Array.isArray(list.players)) {
+                var f = list.players.find(function (p) { return norm(p.name) === n; });
+                return f ? f.id : null;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function canShow(nick) {
+        if (window.PRAVO_MOBLIC_BTN_ENABLED === false) return false;
+        if (!(window.App && window.App.isMobile)) return false;
+        if (typeof window.showGiveLicTypeDialog !== 'function') return false;
+        if (typeof _isLicensorRank !== 'function' || !_isLicensorRank()) return false;
+        if (!(LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) return false;
+        try { if (!pravoSkins.includes(skinId)) return false; } catch (e) { return false; }
+        // только меню игрока: «Имя_Фамилия» (у машин/гаражей/NPC другой заголовок)
+        return /^[^\s_]+_[^\s_]+$/.test(nick);
+    }
+
+    function ensureStyle() {
+        if (document.getElementById(STYLE_ID)) return;
+        var st = document.createElement('style');
+        st.id = STYLE_ID;
+        st.textContent =
+            '#' + BTN_ID + '{position:absolute;left:-29vh;top:50%;transform:translateY(-50%);width:12.42vh;height:12.42vh;' +
+            'border-radius:50%;border:0.09vh solid #f4f1e133;display:flex;flex-direction:column;align-items:center;' +
+            'justify-content:center;cursor:pointer;z-index:10000;pointer-events:auto;-webkit-tap-highlight-color:transparent;' +
+            'background:linear-gradient(136.3deg,#f4f1e100 -0.6%,#f4f1e100 75.57%);transition:background 0.25s ease}' +
+            '#' + BTN_ID + ':active{background:linear-gradient(136.3deg,#f4f1e140 -0.6%,#f4f1e100 75.57%)}' +
+            '#' + BTN_ID + ' svg{width:4.2vh;height:4.2vh;fill:#e0bf3e;margin-bottom:0.6vh}' +
+            '#' + BTN_ID + ' div{color:#f4f1e1;font-size:1.48vh;font-weight:600;line-height:1.85vh;text-align:center;width:80%}';
+        (document.head || document.documentElement).appendChild(st);
+    }
+
+    function removeBtn() {
+        var old = document.getElementById(BTN_ID);
+        if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
+
+    function isOpen() {
+        try { return !!window.getInterfaceStatus('PlayerInteraction'); } catch (e) { return false; }
+    }
+
+    // Закрываем как компонент: closeInterface + событие серверу
+    function closeMenu() {
+        try { window.closeInterface('PlayerInteraction'); } catch (e) {}
+        try { window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'MenuInt_OnCloseInterface', 0); } catch (e) {}
+    }
+
+    function openDialog(id) {
+        closeMenu();
+        setTimeout(function () {
+            busy = false;
+            if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id);
+        }, 80);
+    }
+
+    function onClick(e) {
+        try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
+        if (busy) return;
+        var nick = lastNick;
+        if (!nick) { notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
+        try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
+        busy = true;
+        var id = findId(nick);
+        if (id !== null) return openDialog(id);
+        // список игроков обновляется редко — просим движок обновить и ждём до ~1с
+        try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (er) {}
+        var tries = 0;
+        var t = setInterval(function () {
+            if (!isOpen()) { clearInterval(t); busy = false; return; }
+            var f = findId(nick);
+            if (f !== null) { clearInterval(t); return openDialog(f); }
+            if (++tries >= 4) {
+                clearInterval(t);
+                busy = false;
+                notify('~r~Выдача лицензии~n~~w~Не удалось определить ID игрока');
+            }
+        }, 250);
+    }
+
+    // Вставляем кнопку в круг меню (position:relative) — при закрытии меню Vue удалит её вместе с DOM
+    function inject(tries) {
+        if (!isOpen()) return;
+        var box = document.querySelector('.player-interaction__container');
+        if (!box) {
+            if (tries < 30) setTimeout(function () { inject(tries + 1); }, 100);
+            return;
+        }
+        removeBtn();
+        if (!canShow(lastNick)) return;
+        ensureStyle();
+        var b = document.createElement('div');
+        b.id = BTN_ID;
+        b.innerHTML =
+            '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" ' +
+            'd="M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM4 7v10h16V7H4zM6 9h5v6H6V9zM13 10h5v1.5h-5V10zM13 13h5v1.5h-5V13z"/></svg>' +
+            '<div>Выдача лицензии</div>';
+        b.addEventListener('click', onClick);
+        box.appendChild(b);
+    }
+
+    // openInterface('PlayerInteraction', params)
+    var _oi = window.openInterface;
+    window.openInterface = function (name, params) {
+        var was = false;
+        if (name === 'PlayerInteraction') { try { was = isOpen(); } catch (e) {} }
+        var r = _oi.apply(this, arguments);
+        if (name === 'PlayerInteraction' && !was) {
+            try {
+                lastNick = parseNick(params);
+                busy = false;
+                setTimeout(function () { inject(0); }, 0);
+            } catch (e) {}
+        }
+        return r;
+    };
+
+    // updateParams('PlayerInteraction', json) — сервер может обновить меню на лету
+    var _up = window.updateParams;
+    if (typeof _up === 'function') {
+        window.updateParams = function (name, params) {
+            var r = _up.apply(this, arguments);
+            if (name === 'PlayerInteraction') {
+                try {
+                    var n = parseNick(params);
+                    if (n && n !== lastNick) { lastNick = n; setTimeout(function () { inject(0); }, 150); }
+                } catch (e) {}
+            }
+            return r;
+        };
+    }
+
+    console.log('[PRAVO] ✅ Кнопка «Выдача лицензии» в PlayerInteraction (Hassle) установлена');
 })();
 // ══════════════════════════════════════════════════════════════════════════════
 
