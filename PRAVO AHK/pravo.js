@@ -986,31 +986,29 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         return _oiOrig.apply(this, arguments);
     };
 
-    // -- closeInterface: восстанавливаем наши пункты после чужого закрытия ---
+    // -- closeInterface: сервер закрывает Interactions — НЕ закрываем панель,
+    // просто убираем серверные пункты из списка.
     // Наш код ВСЕГДА делает _pravoHassleIntOpen = false ДО вызова closeInterface,
-    // поэтому shouldRestore = true только когда закрывает кто-то другой (сервер).
+    // поэтому _shouldRestore = true только когда закрывает кто-то другой (сервер).
     var _ciOrig = window.closeInterface;
     window.closeInterface = function(name) {
         var _shouldRestore = (name === 'Interactions' && _pravoHassleIntOpen);
-        var _result = _ciOrig.apply(this, arguments);
         if (_shouldRestore) {
-            _pravoHassleIntOpen = false;
-            // FIX: сервер закрыл Interactions — очищаем кэш серверных пунктов,
-            // т.к. контекст NPC/объекта пропал. Если игрок снова подойдёт,
-            // сервер пришлёт свежие пункты через openInterface/setInfo.
+            // Сервер пытается закрыть Interactions, но наши пункты должны остаться.
+            // Не вызываем _ciOrig — панель остаётся открытой.
+            // Просто убираем серверные пункты и обновляем список.
             _pravoLastServerItems = [];
-            // Снимаем метку хука — компонент уничтожен, при следующем
-            // openInterface он создастся заново и нужно хукать снова
             try {
                 var _ic = window.interface && window.interface('Interactions');
-                if (_ic) _ic.__pravoSetInfoHooked = false;
+                if (_ic && typeof _ic.setInfo === 'function') {
+                    var _ownItems = _pravoGetOwnItems();
+                    _ic.setInfo(JSON.stringify(_ownItems));
+                    console.log('[PRAVO] 🔄 closeInterface Interactions перехвачен: убрали серверные, осталось ' + _ownItems.length + ' наших');
+                }
             } catch(_e) {}
-            setTimeout(function() {
-                _pravoUpdateHassleInteraction(giveLicenseTo || -1);
-            }, 200);
-            console.log('[PRAVO] 🔄 closeInterface Interactions: восстанавливаем наши пункты');
+            return;
         }
-        return _result;
+        return _ciOrig.apply(this, arguments);
     };
 
     console.log('[PRAVO] ✅ Interactions hooks (open + close + setInfo) установлены');
