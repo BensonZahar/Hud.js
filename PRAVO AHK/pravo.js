@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.8888 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.8 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1670,8 +1670,94 @@ window.showMvdSubMenu = (e) => {
     }
     _pravoSkipIntReopen = false; // сбрасываем флаг в любом случае
 };
+// ==================== KEYBOARD PATCH: 123-РАСКЛАДКА + НИКИ ДЛЯ НАШИХ ДИАЛОГОВ ====================
+// При открытии ввода ID (диалоги 668 и 678) клавиатура на Hassle автоматически:
+//   1) Открывается на числовой раскладке "123" (toggleNumbers)
+//   2) Показывает ники над головами (setDrawLabelStatus остаётся true)
+// Для всех обычных диалогов и обычной клавиатуры поведение НЕ меняется.
+;(function _pravoKeyboardPatch() {
+    window._pravoIsOurKeyboard = false;
+
+    // ── Блокируем скрытие ников ТОЛЬКО пока наша клавиатура открыта ──────────
+    function _patchSdls() {
+        var _orig = window.setDrawLabelStatus;
+        if (typeof _orig !== 'function') return false;
+        // Сохраняем оригинал для прямого вызова внутри патча
+        window._pravoSdlsOrig = _orig;
+        window.setDrawLabelStatus = function(value) {
+            // Обычная клавиатура (наш флаг не выставлен) — пропускаем всё как есть
+            if (!window._pravoIsOurKeyboard) return _orig.apply(this, arguments);
+            // Наш диалог: блокируем только вызовы false (скрытие ников)
+            if (!value) {
+                console.log('[PRAVO-KB] setDrawLabelStatus(false) заблокирован — ники остаются видны');
+                return;
+            }
+            return _orig.apply(this, arguments);
+        };
+        return true;
+    }
+    if (!_patchSdls()) {
+        // setDrawLabelStatus ещё не появилась (маловероятно) — ждём
+        var _sdlsTimer = setInterval(function() {
+            if (_patchSdls()) clearInterval(_sdlsTimer);
+        }, 200);
+    }
+
+    // ── Сбрасываем флаг при закрытии клавиатуры ──────────────────────────────
+    function _patchHideKb() {
+        var _origHK = window.hideKeyboard;
+        if (typeof _origHK !== 'function') return false;
+        window.hideKeyboard = function() {
+            window._pravoIsOurKeyboard = false;
+            return _origHK.apply(this, arguments);
+        };
+        return true;
+    }
+    if (!_patchHideKb()) {
+        var _hkTimer = setInterval(function() {
+            if (_patchHideKb()) clearInterval(_hkTimer);
+        }, 200);
+    }
+
+    // ── Переключение на 123 + восстановление ников после mount клавиатуры ────
+    window._pravoScheduleKeyboardNumeric = function() {
+        window._pravoIsOurKeyboard = true;
+        var _a = 0;
+        var _t = setInterval(function() {
+            _a++;
+            try {
+                var kb = window.interface && window.interface('Keyboard');
+                if (kb && kb.state === 1) {
+                    // 1) Переключить на числовую раскладку если ещё не переключено
+                    if (!kb.isNumbers) {
+                        kb.toggleNumbers();
+                        console.log('[PRAVO-KB] ✅ Клавиатура переключена на раскладку 123');
+                    }
+                    // 2) Гарантируем видимость ников (перекрываем mounted() который мог сбросить в false)
+                    var _sdls = window._pravoSdlsOrig;
+                    if (typeof _sdls === 'function') {
+                        _sdls.call(window, true);
+                        console.log('[PRAVO-KB] ✅ setDrawLabelStatus(true) — ники видны');
+                    }
+                    clearInterval(_t);
+                    return;
+                }
+            } catch(e) {}
+            if (_a >= 30) { // таймаут 3 сек
+                clearInterval(_t);
+                window._pravoIsOurKeyboard = false;
+                console.warn('[PRAVO-KB] ⏱️ Таймаут — клавиатура не появилась за 3 сек');
+            }
+        }, 100);
+    };
+
+    console.log('[PRAVO-KB] Патч клавиатуры (123 + ники) установлен');
+})();
+// ==================== END KEYBOARD PATCH ====================
+
 window.showIdInputDialog = (e) => {
     giveLicenseTo = e;
+    window._pravoScheduleKeyboardNumeric && window._pravoScheduleKeyboardNumeric();
     window.addDialogInQueue(`[668,1,"Ввод ID","Введите ID игрока:","Подтвердить","Отмена",0,0]`, "", 0);
 };
 
@@ -1687,6 +1773,7 @@ const _GIVE_LIC_TYPES = [
 
 // Диалог 678 — ввод ID игрока для /givelic
 window.showGiveLicIdInputDialog = () => {
+    window._pravoScheduleKeyboardNumeric && window._pravoScheduleKeyboardNumeric();
     window.addDialogInQueue(`[678,1,"Выдача лицензии","Введите ID игрока:","Далее","Отмена",0,0]`, "", 0);
 };
 
