@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.000 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1384,22 +1384,32 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Hassle (мобилка): кнопка «Выдача лицензии» СЛЕВА в оригинальном PlayerInteraction.
+// Hassle (мобилка): кнопка «Выдача лицензии» В КРУГЕ радиального меню PlayerInteraction.
 //
-// На телефоне нет «навод на игрока + E», поэтому кнопка добавляется прямо в DOM радиального
-// меню (файлы PlayerInteraction.js/.css НЕ меняются). Ник цели берётся из params[0]
-// при openInterface/updateParams('PlayerInteraction'), ID — из window._mvdPlayerList.
-// Нажатие: закрывает меню (как close() компонента) → showGiveLicTypeDialog(ID) → /givelic.
+// Выглядит как кнопки категорий («Персонаж», «Транспорт»…): иконка + подпись на свободном
+// секторе круга (слева). Файлы PlayerInteraction.js/.css НЕ меняются — кнопка создаётся
+// из pravo.js с теми же классами (player-interaction__item / __icon / __title), поэтому
+// размеры, шрифт и цвет берутся из самой игры.
+//
+// Ник цели — params[0] при openInterface/updateParams('PlayerInteraction'), ID — из
+// window._mvdPlayerList. Нажатие: закрывает меню → showGiveLicTypeDialog(ID) → /givelic.
 // Показывается только на мобилке, у Лицензёра, в правительственном скине и при включённом
-// «Помощнике лицензёра» (те же условия, что у кнопки «Выдать лицензию» в Hassle-Interactions).
-// Отключить: window.PRAVO_MOBLIC_BTN_ENABLED = false.
+// «Помощнике лицензёра» (как кнопка «Выдать лицензию» в Hassle-Interactions).
+//
+// Настройки:
+//   PRAVO_MOBLIC_ICON  — своя картинка: URL или data:image/... (пусто = встроенная иконка)
+//   window.PRAVO_MOBLIC_SLOT — номер сектора 0..7 (0 сверху, дальше по часовой; 6 = слева).
+//                              По умолчанию — самый левый СВОБОДНЫЙ сектор.
+//   window.PRAVO_MOBLIC_BTN_ENABLED = false — отключить кнопку.
 // ══════════════════════════════════════════════════════════════════════════════
 (function _pravoMobileLicenseButton() {
     if (window.__pravoMobLicBtn) return;
     window.__pravoMobLicBtn = true;
 
-    var BTN_ID = 'pravo-moblic-btn', STYLE_ID = 'pravo-moblic-style';
-    var lastNick = '', busy = false;
+    var PRAVO_MOBLIC_ICON = '';   // ← сюда свою картинку (URL или data:image/png;base64,...)
+    var BTN_ID = 'pravo-moblic-btn';
+    var TITLE = 'Выдача лицензии';
+    var lastNick = '', busy = false, syncTimer = null;
 
     function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
 
@@ -1439,28 +1449,48 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         return /^[^\s_]+_[^\s_]+$/.test(nick);
     }
 
-    function ensureStyle() {
-        if (document.getElementById(STYLE_ID)) return;
-        var st = document.createElement('style');
-        st.id = STYLE_ID;
-        st.textContent =
-            '#' + BTN_ID + '{position:absolute;left:-29vh;top:50%;transform:translateY(-50%);width:12.42vh;height:12.42vh;' +
-            'border-radius:50%;border:0.09vh solid #f4f1e133;display:flex;flex-direction:column;align-items:center;' +
-            'justify-content:center;cursor:pointer;z-index:10000;pointer-events:auto;-webkit-tap-highlight-color:transparent;' +
-            'background:linear-gradient(136.3deg,#f4f1e100 -0.6%,#f4f1e100 75.57%);transition:background 0.25s ease}' +
-            '#' + BTN_ID + ':active{background:linear-gradient(136.3deg,#f4f1e140 -0.6%,#f4f1e100 75.57%)}' +
-            '#' + BTN_ID + ' svg{width:4.2vh;height:4.2vh;fill:#e0bf3e;margin-bottom:0.6vh}' +
-            '#' + BTN_ID + ' div{color:#f4f1e1;font-size:1.48vh;font-weight:600;line-height:1.85vh;text-align:center;width:80%}';
-        (document.head || document.documentElement).appendChild(st);
+    function isOpen() {
+        try { return !!window.getInterfaceStatus('PlayerInteraction'); } catch (e) { return false; }
+    }
+    function getVm() {
+        try { return window.interface('PlayerInteraction') || null; } catch (e) { return null; }
+    }
+
+    // ── выбор сектора: явный PRAVO_MOBLIC_SLOT, иначе самый левый свободный ──────
+    // Секторы: i-й идёт по часовой от верха (0 верх, 2 право, 4 низ, 6 лево),
+    // категории с сервера занимают 0..menu.length-1, остальное — свободные пустые секторы.
+    function pickSlot(vm) {
+        var total = vm.DEFAULT_MENU_COUNT || 8;
+        var slot = window.PRAVO_MOBLIC_SLOT;
+        if (typeof slot === 'number' && slot >= 0 && slot < total) return slot;
+        var best = -1, bestX = Infinity;
+        for (var i = vm.menu.length; i < total; i++) {
+            var c = coordsFor(vm, i);
+            if (c && c.x < bestX) { bestX = c.x; best = i; }
+        }
+        return best;
+    }
+    function coordsFor(vm, slot) {
+        try {
+            var ang = (vm.k * slot + Math.PI / 2) % (Math.PI * 2);
+            return vm.getCoords(vm.innerRadius, ang);   // те же координаты, что у кнопок категорий
+        } catch (e) { return null; }
+    }
+
+    function scopeAttr(box) {
+        try {
+            var ref = box.querySelector('.player-interaction__item') || box;
+            for (var i = 0; i < ref.attributes.length; i++) {
+                if (ref.attributes[i].name.indexOf('data-v-') === 0) return ref.attributes[i].name;
+            }
+        } catch (e) {}
+        return 'data-v-96e76c6f';
     }
 
     function removeBtn() {
+        if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
         var old = document.getElementById(BTN_ID);
         if (old && old.parentNode) old.parentNode.removeChild(old);
-    }
-
-    function isOpen() {
-        try { return !!window.getInterfaceStatus('PlayerInteraction'); } catch (e) { return false; }
     }
 
     // Закрываем как компонент: closeInterface + событие серверу
@@ -1468,7 +1498,6 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         try { window.closeInterface('PlayerInteraction'); } catch (e) {}
         try { window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'MenuInt_OnCloseInterface', 0); } catch (e) {}
     }
-
     function openDialog(id) {
         closeMenu();
         setTimeout(function () {
@@ -1476,7 +1505,6 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id);
         }, 80);
     }
-
     function onClick(e) {
         try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
         if (busy) return;
@@ -1501,25 +1529,50 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         }, 250);
     }
 
-    // Вставляем кнопку в круг меню (position:relative) — при закрытии меню Vue удалит её вместе с DOM
+    // Компонент строит секторы асинхронно (после mounted + ответа сервера) — ждём готовности
     function inject(tries) {
         if (!isOpen()) return;
         var box = document.querySelector('.player-interaction__container');
-        if (!box) {
-            if (tries < 30) setTimeout(function () { inject(tries + 1); }, 100);
+        var vm = getVm();
+        var ready = box && vm && vm.k != null && vm.innerRadius != null && vm.menu && vm.menu.length
+            && typeof vm.menu[vm.menu.length - 1].x === 'number';
+        if (!ready) {
+            if (tries < 40) setTimeout(function () { inject(tries + 1); }, 100);
             return;
         }
         removeBtn();
         if (!canShow(lastNick)) return;
-        ensureStyle();
+        var slot = pickSlot(vm);
+        if (slot < 0) { console.warn('[PRAVO] Нет свободного сектора в PlayerInteraction для кнопки лицензии'); return; }
+        var c = coordsFor(vm, slot);
+        if (!c) return;
+
+        var sa = scopeAttr(box);
         var b = document.createElement('div');
         b.id = BTN_ID;
-        b.innerHTML =
-            '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" ' +
-            'd="M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM4 7v10h16V7H4zM6 9h5v6H6V9zM13 10h5v1.5h-5V10zM13 13h5v1.5h-5V13z"/></svg>' +
-            '<div>Выдача лицензии</div>';
+        b.className = 'player-interaction__item';
+        b.setAttribute(sa, '');
+        b.style.transform = 'translate(' + c.x + 'px, ' + c.y + 'px)';
+        b.style.cursor = 'pointer';
+        b.style.webkitTapHighlightColor = 'transparent';
+        var icon = PRAVO_MOBLIC_ICON
+            ? '<img ' + sa + ' src="' + PRAVO_MOBLIC_ICON + '" style="width:2.96vh;height:2.96vh;object-fit:contain;display:block">'
+            : '<svg ' + sa + ' class="player-interaction__icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" ' +
+              'style="width:2.96vh;height:2.96vh;fill:#e0bf3e"><path fill-rule="evenodd" ' +
+              'd="M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM4 7v10h16V7H4zM6 9h5v6H6V9zM13 10h5v1.5h-5V10zM13 13h5v1.5h-5V13z"/></svg>';
+        b.innerHTML = icon + '<div ' + sa + ' class="player-interaction__title">' + TITLE + '</div>';
         b.addEventListener('click', onClick);
+        b.addEventListener('touchstart', function () { b.style.filter = 'brightness(0.6)'; }, { passive: true });
+        b.addEventListener('touchend', function () { b.style.filter = ''; }, { passive: true });
+        b.addEventListener('touchcancel', function () { b.style.filter = ''; }, { passive: true });
         box.appendChild(b);
+
+        // как у остальных кнопок: когда открыта подкатегория — приглушаем (opacity .6)
+        syncTimer = setInterval(function () {
+            var el = document.getElementById(BTN_ID), v = getVm();
+            if (!el || !isOpen()) { removeBtn(); return; }
+            if (v) el.style.opacity = (v.selectedOption !== null && v.selectedOption !== undefined) ? '0.6' : '1';
+        }, 200);
     }
 
     // openInterface('PlayerInteraction', params)
@@ -1546,14 +1599,15 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             if (name === 'PlayerInteraction') {
                 try {
                     var n = parseNick(params);
-                    if (n && n !== lastNick) { lastNick = n; setTimeout(function () { inject(0); }, 150); }
+                    if (n) lastNick = n;
+                    setTimeout(function () { inject(0); }, 250);
                 } catch (e) {}
             }
             return r;
         };
     }
 
-    console.log('[PRAVO] ✅ Кнопка «Выдача лицензии» в PlayerInteraction (Hassle) установлена');
+    console.log('[PRAVO] ✅ Кнопка «Выдача лицензии» в круге PlayerInteraction (Hassle) установлена');
 })();
 // ══════════════════════════════════════════════════════════════════════════════
 
