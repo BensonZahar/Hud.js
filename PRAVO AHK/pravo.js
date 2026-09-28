@@ -1557,8 +1557,10 @@ window.showMvdSubMenu = (e) => {
     let availableSub = [
         { name: "Повседневная", id: "povsednev" }
     ];
-    // Выдача лицензии: только для звания Лицензёр
-    if (_isLicensorRank()) {
+    // Выдача лицензии: только для Лицензёра И если фича включена в установщике.
+    // ПК: проверяем GIVELIC_KEY (хоткей «Быстрой выдачи»).
+    // Hassle: проверяем LICENSOR_HELPER_ENABLED (галочка «Быстрая выдача» в установщике).
+    if (_isLicensorRank() && (GIVELIC_KEY || LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
         availableSub.push({ name: "Выдача лицензии", id: "givelic" });
     }
     // Авто-перевыдача: только для Лицензёра, если включена в установщике и есть сохранённая команда
