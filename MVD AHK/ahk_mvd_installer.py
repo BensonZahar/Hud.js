@@ -886,6 +886,11 @@ class InstallerAPI:
             safe_givelic_key = str(givelic_key).replace('"', '').replace("'", '')[:30] if givelic_key else ''
             if department == 'pravo' and safe_givelic_key:
                 code = code.replace('const GIVELIC_KEY = "";', f'const GIVELIC_KEY = "{safe_givelic_key}";')
+            # ── Флаг помощника лицензёра (только для Правительства) ──────────────────
+            # true если хотя бы одна из функций помощника включена: авто-перевыдача или быстрая выдача
+            _licensor_helper = (bool(auto_reissue_lic) or bool(safe_givelic_key)) and department == 'pravo'
+            if _licensor_helper:
+                code = code.replace('const LICENSOR_HELPER_ENABLED = false;', 'const LICENSOR_HELPER_ENABLED = true;')
 
             code = code.replace('const HWID = "";',       f'const HWID = "{get_hwid()}";')
             safe_swap_key = str(swap_key).replace('"', '').replace("'", '')[:30] if swap_key else ''
@@ -1325,6 +1330,10 @@ class InstallerAPI:
             # ── Быстрая выдача лицензии для Hastle ──────────────────────────────────
             if dept_saved == 'pravo' and givelic_key_saved:
                 code = code.replace('const GIVELIC_KEY = "";', f'const GIVELIC_KEY = "{givelic_key_saved}";')
+            # ── Флаг помощника лицензёра для Hastle ──────────────────────────────────
+            # Если licensor_helper не был включён при вставке ПК-кода — не активируем и для Hassle.
+            if licensor_helper_saved and dept_saved == 'pravo':
+                code = code.replace('const LICENSOR_HELPER_ENABLED = false;', 'const LICENSOR_HELPER_ENABLED = true;')
         return code
 
     def get_hassle_status(self):
