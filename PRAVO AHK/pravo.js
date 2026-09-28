@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.444 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1809,12 +1809,14 @@ window.showMvdSubMenu = (e) => {
                                              : ((window.currentKeyboardInput && window.currentKeyboardInput.value) || '');
                                 var _sid = window._pravoKbDialogId || null;
 
+                                // Сбрасываем ДО _orig.apply() — Enter-fallback (ниже) увидит null и не задублирует
+                                if (_sid) window._pravoKbDialogId = null;
+
                                 // Оригинальное поведение: addHistory → hide → Enter-диспатч
                                 _orig.apply(this, arguments);
 
                                 // Авто-подтверждение: только если мы открыли этот диалог и есть ввод
                                 if (_sid && _sv.trim() !== '') {
-                                    window._pravoKbDialogId = null;
                                     setTimeout(function() {
                                         window.sendClientEventCustom(0, 'OnDialogResponse', _sid, 1, 0, _sv);
                                         console.log('[PRAVO-KB] ✅ авто-ответ dlg=' + _sid + ' val="' + _sv + '"');
@@ -1847,7 +1849,27 @@ window.showMvdSubMenu = (e) => {
         }, 100);
     };
 
-    console.log('[PRAVO-KB] Патч клавиатуры (123 + ники) установлен');
+    // ── FALLBACK: синтетический Enter от keyboard.send() ──────────────────────────
+    // keyboard.send() всегда вызывает dispatchEvent(new KeyboardEvent("keydown",...))
+    // Такой ивент имеет isTrusted=false — отличаем от реального нажатия Enter.
+    // Срабатывает если ctx.send hook не установился (основной баг на Hassle).
+    // ctx.send hook при успешной установке обнуляет _pravoKbDialogId ДО _orig.apply(),
+    // поэтому здесь увидим null и не задублируем вызов.
+    document.addEventListener('keydown', function(e) {
+        if ((e.key !== 'Enter' && e.keyCode !== 13) || e.isTrusted) return;
+        var sid = window._pravoKbDialogId;
+        if (!sid) return;
+        window._pravoKbDialogId = null;
+        var sv = (window.currentKeyboardInput && window.currentKeyboardInput.value) || '';
+        if (sv.trim() !== '') {
+            setTimeout(function() {
+                window.sendClientEventCustom(0, 'OnDialogResponse', sid, 1, 0, sv);
+                console.log('[PRAVO-KB] ✅ Enter-fallback dlg=' + sid + ' val="' + sv + '"');
+            }, 80);
+        }
+    }, true); // capture — перехватываем ДО Vue и движка
+
+    console.log('[PRAVO-KB] Патч клавиатуры (123 + ники) установлен + Enter-fallback');
 })();
 // ==================== END KEYBOARD PATCH ====================
 
