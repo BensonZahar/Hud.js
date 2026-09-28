@@ -1066,6 +1066,132 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     console.log('[PRAVO] ✅ Interactions hooks (open + close + setInfo) установлены');
 })();
 
+// ══════════════════════════════════════════════════════════════════════════════
+// «Круговое меню» (window.PRAVO_CIRCLE_LIC, переключатель в диалоге «ПРАВИТЕЛЬСТВО»).
+// Если ВКЛ и сервер открывает PlayerInteraction для ИГРОКА — сам компонент не открываем
+// (как в блоке E+ПКМ ниже: открыть-и-закрыть ломало следующие открытия), а сразу
+// открываем showGiveLicTypeDialog(ID). Если ID не нашёлся — показываем обычное меню.
+// Действует только у Лицензёра в правительственном скине при включённом помощнике.
+// Стоит РАНЬШЕ блока E+ПКМ и кнопки в круге, поэтому они видят открытие первыми.
+// ══════════════════════════════════════════════════════════════════════════════
+(function _pravoCircleLicenseAuto() {
+    if (window.__pravoCircleLic) return;
+    window.__pravoCircleLic = true;
+
+    var pending = false, bypass = false, pendTimer = null;
+
+    function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
+
+    function parseNick(params) {
+        try {
+            var p = (typeof params === 'string') ? JSON.parse(params.replace(/\n/, '\\n')) : params;
+            var raw = Array.isArray(p) ? p[0] : null;
+            return (typeof raw === 'string') ? raw.trim().split(' ').join('_') : '';
+        } catch (e) { return ''; }
+    }
+
+    function findId(nick) {
+        try {
+            var list = window._mvdPlayerList, n = norm(nick);
+            if (!list || !nick) return null;
+            if (list.local && norm(list.local.name) === n) return list.local.id;
+            if (Array.isArray(list.players)) {
+                var f = list.players.find(function (p) { return norm(p.name) === n; });
+                return f ? f.id : null;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function notify(text) {
+        try { if (typeof gtAdd === 'function') gtAdd(text, 3000, 3); } catch (e) {}
+    }
+
+    function canIntercept(nick) {
+        if (window.PRAVO_CIRCLE_LIC !== true) return false;
+        if (typeof window._pravoCircleAllowed !== 'function' || !window._pravoCircleAllowed()) return false;
+        if (typeof window.showGiveLicTypeDialog !== 'function') return false;
+        // только меню игрока «Имя_Фамилия» (у машин/домов/NPC другой заголовок)
+        return /^[^\s_]+_[^\s_]+$/.test(nick);
+    }
+
+    // Сообщаем серверу, что меню «закрыто» (компонент мы не открывали)
+    function tellServerClosed() {
+        try {
+            var f = (typeof window.sendClientEventHandle === 'function') ? window.sendClientEventHandle : window.sendClientEvent;
+            f(window.gm.EVENT_EXECUTE_PUBLIC, 'MenuInt_OnCloseInterface', 0);
+        } catch (e) {}
+    }
+
+    function resolveId(nick, tries, cb) {
+        var id = findId(nick);
+        if (id !== null) return cb(id);
+        if (tries >= 4) return cb(null);
+        // список игроков обновляется редко — просим движок обновить
+        if (tries === 0 && typeof window.updatePlayerList === 'function') {
+            try { window.updatePlayerList(); } catch (e) {}
+        }
+        setTimeout(function () { resolveId(nick, tries + 1, cb); }, 250);
+    }
+
+    function done() {
+        pending = false;
+        if (pendTimer) { clearTimeout(pendTimer); pendTimer = null; }
+    }
+
+    // Не смогли определить цель — показываем обычное круговое меню
+    function showNormal(params) {
+        done();
+        bypass = true;
+        try { _oi.call(window, 'PlayerInteraction', params); } catch (e) {}
+        bypass = false;
+    }
+
+    function handle(nick, params) {
+        pending = true;
+        if (pendTimer) clearTimeout(pendTimer);
+        pendTimer = setTimeout(function () { if (pending) { showNormal(params); } }, 3000); // страховка
+        resolveId(nick, 0, function (id) {
+            if (!pending) return;
+            if (id === null) {
+                showNormal(params);
+                notify('~r~Круговое меню~n~~w~Не удалось определить ID игрока');
+                return;
+            }
+            done();
+            window._pravoLastInteractionTarget = { nick: nick, id: id, src: 'circlelic', time: Date.now() };
+            console.log('[PRAVO] 🪪 Круговое меню: выдача лицензии → "' + nick + '" | ID: ' + id);
+            tellServerClosed();
+            setTimeout(function () {
+                if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id);
+            }, 80);
+        });
+    }
+
+    var _oi = window.openInterface;
+    window.openInterface = function (name, params) {
+        if (name === 'PlayerInteraction' && !bypass) {
+            var was = false;
+            try { was = !!window.getInterfaceStatus('PlayerInteraction'); } catch (e) {}
+            if (!was) {
+                if (pending) return Promise.resolve(); // уже обрабатываем это открытие
+                var nick = '';
+                try { nick = parseNick(params); } catch (e) {}
+                var ok = false;
+                try { ok = !!nick && canIntercept(nick); } catch (e) {}
+                if (ok) {
+                    try { handle(nick, params); } catch (e) { return showNormal(params); }
+                    return Promise.resolve();
+                }
+            }
+        }
+        return _oi.apply(this, arguments);
+    };
+
+    console.log('[PRAVO] ✅ «Круговое меню» (сразу выдача лицензии) установлено');
+})();
+// ══════════════════════════════════════════════════════════════════════════════
+
 // ── PlayerInteraction: лог ника и ID цели при открытии радиального меню ──────
 // Вставить в pravo.js ПОСЛЕ блока _patchInteractionsHooks (после его `})();`)
 // или просто в конец файла.
@@ -1165,7 +1291,8 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // из params[0], находит ID в window._mvdPlayerList, прячет и закрывает радиальное
 // меню и открывает showGiveLicTypeDialog(ID).
 // Работает только у Лицензёра (как и GIVELIC_KEY) и только в правительственном скине.
-// Обычный ПКМ + R не затронут. Отключить: window.PRAVO_QUICKLIC_ENABLED = false.
+// Обычный ПКМ + R не затронут. С версии «Круговое меню» ОТКЛЮЧЕНО по умолчанию;
+// включить обратно: window.PRAVO_QUICKLIC_ENABLED = true.
 // ══════════════════════════════════════════════════════════════════════════════
 (function _pravoQuickLicenseOnTarget() {
     if (window.__pravoQuickLic) return;
@@ -1244,7 +1371,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     }
 
     function canFire() {
-        if (window.PRAVO_QUICKLIC_ENABLED === false) return false;
+        // По умолчанию комбинация ОТКЛЮЧЕНА — её заменяет «Круговое меню» (ПРАВИТЕЛЬСТВО).
+        // Вернуть старое поведение: window.PRAVO_QUICKLIC_ENABLED = true.
+        if (window.PRAVO_QUICKLIC_ENABLED !== true) return false;
         try {
             if (typeof pravoSkins !== 'undefined' && typeof skinId !== 'undefined' && !pravoSkins.includes(skinId)) return false;
         } catch (e) {}
@@ -1919,6 +2048,27 @@ const toggleAutoGrab = () => {
         console.warn('[PRAVO-GRAB] toggleAutoGrab notify error:', e);
     }
 };
+// ── «Круговое меню»: при открытии PlayerInteraction игрока сразу открывается выдача лицензии ──
+// Изначально ВЫКЛ. Включается пунктом «Круговое меню» в диалоге «ПРАВИТЕЛЬСТВО».
+// Само поведение — в блоке _pravoCircleLicenseAuto (перед логгером цели PlayerInteraction).
+if (typeof window.PRAVO_CIRCLE_LIC !== 'boolean') window.PRAVO_CIRCLE_LIC = false;
+// Доступность режима: ПК — Лицензёр в правительственном скине (как раньше у E+ПКМ);
+// мобилка — дополнительно нужен помощник лицензёра (как у кнопки в круге).
+window._pravoCircleAllowed = function () {
+    try { if (!pravoSkins.includes(skinId)) return false; } catch (e) { return false; }
+    if (typeof _isLicensorRank !== 'function' || !_isLicensorRank()) return false;
+    if (window.App && window.App.isMobile) return !!(GIVELIC_KEY || LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED);
+    return true;
+};
+const circleLicName = () => `Круговое меню | ${window.PRAVO_CIRCLE_LIC ? "{00FF00}Вкл" : "{FF0000}Выкл"}`;
+const toggleCircleLic = () => {
+    window.PRAVO_CIRCLE_LIC = !window.PRAVO_CIRCLE_LIC;
+    if (window.PRAVO_CIRCLE_LIC) {
+        gtAdd('~g~Круговое меню~n~~w~Вкл: при открытии меню игрока сразу откроется выдача лицензии', 4000, 3);
+    } else {
+        gtAdd('~r~Круговое меню~n~~w~Выкл: меню игрока открывается как обычно', 3000, 3);
+    }
+};
 const SendGiveLicenseCommand = (to, index) => {
     if (index < 0 || index >= shownLicenseTypes.length)
         return;
@@ -1966,6 +2116,12 @@ const HandleMvdSubCommand = (index) => {
             break;
         case "givelic":
             setTimeout(() => window.showGiveLicIdInputDialog(), 50);
+            break;
+        case "circle_lic":
+            toggleCircleLic();
+            setTimeout(() => {
+                showMvdSubMenu(giveLicenseTo);
+            }, 50);
             break;
         case "autograb":
             toggleAutoGrab();
@@ -2297,6 +2453,10 @@ window.showMvdSubMenu = (e) => {
     // Hassle: проверяем LICENSOR_HELPER_ENABLED (галочка «Быстрая выдача» в установщике).
     if (_isLicensorRank() && (GIVELIC_KEY || LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
         availableSub.push({ name: "Выдача лицензии", id: "givelic" });
+    }
+    // «Круговое меню» — после «Выдача лицензии» (ПК: достаточно звания Лицензёр; мобилка: + помощник)
+    if (window._pravoCircleAllowed()) {
+        availableSub.push({ name: circleLicName(), id: "circle_lic" });
     }
     // Авто-перевыдача: только для Лицензёра, если включена в установщике и есть сохранённая команда
     if ((AUTO_REISSUE_LIC || window.AUTO_REISSUE_LIC === true) && _isLicensorRank() && _lastGiveLicData) {
