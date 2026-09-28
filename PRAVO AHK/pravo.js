@@ -951,7 +951,28 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             var combined   = pravoItems.concat(serverItems);
             _pravoHassleIntOpen = true;
 
-            // Вызываем оригинал с уже слитым списком
+            // FIX: оригинальный openInterface делает early-return если интерфейс уже открыт
+            // (`if(getInterfaceStatus(e)||blockInterfaces)return` — index.js).
+            // В этом случае combined-список теряется и серверные пункты не отображаются.
+            // Решение: если панель уже открыта — обновляем напрямую через setInfo.
+            var _icNow = window.interface && window.interface('Interactions');
+            var _isAlreadyOpen = _icNow
+                && typeof window.getInterfaceStatus === 'function'
+                && window.getInterfaceStatus('Interactions');
+
+            if (_isAlreadyOpen) {
+                // Ставим хук если ещё не установлен, затем обновляем список.
+                // combined содержит наши + серверные пункты.
+                // Если хук установлен — он отфильтрует наши дубли и добавит свежие.
+                // Если нет — combined уже содержит всё нужное.
+                _pravoHookInteractionsSetInfo();
+                _icNow.setInfo(JSON.stringify(combined));
+                console.log('[PRAVO] 🔀 openInterface (уже открыт, direct setInfo): '
+                    + pravoItems.length + ' наших + ' + serverItems.length + ' серверных');
+                return;
+            }
+
+            // Панель закрыта — открываем впервые с объединённым списком
             var _res = _oiOrig.call(this, name, JSON.stringify(combined));
 
             // Хукаем setInfo на компоненте — движок может вызвать его
