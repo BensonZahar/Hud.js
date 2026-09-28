@@ -339,6 +339,7 @@ loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function()
         return true;
     }
     function openMenuAction() {
+        if (!window._isPravoSkin || !window._isPravoSkin()) return;
         // sendChatInput доступен после загрузки mvdF.js (после eval в onload xhr)
         if (typeof window.sendChatInput === 'function') {
             window.sendChatInput('/dahk');
@@ -414,6 +415,7 @@ loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function()
     }
 
     function doGivelic() {
+        if (!window._isPravoSkin || !window._isPravoSkin()) return;
         window.showGiveLicIdInputDialog && window.showGiveLicIdInputDialog();
     }
 
@@ -488,6 +490,7 @@ loadScriptFromGitHub(username, repo, fkonstFolder, fkonstFilename, 5, function()
     // Делегируем в pravo.js — там живёт вся логика + snAdd + __mvdPrevSendChatInput.
     // Та же схема что у FSIN: LoadFsin.js вызывает window._fsinSwapTaserDeagle().
     function doReissue() {
+        if (!window._isPravoSkin || !window._isPravoSkin()) return;
         window._pravoDoReissue && window._pravoDoReissue();
     }
 
