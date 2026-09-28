@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.444 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.99 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -305,47 +305,39 @@ function getSkinIdFromStore() {
     }
 }
 // 4. Функция отслеживания скина (ИСПРАВЛЕНА)
-function trackSkinId() {
-    const currentSkin = getSkinIdFromStore();
-    if (currentSkin !== null) {
-        const numericSkin = Number(currentSkin);
-        // ВАЖНО: сравниваем уже приведённые к числу значения,
-        // иначе store иногда отдаёт строку и проверка ложно
-        // считает это "изменением" скина каждый цикл опроса
-        if (numericSkin !== skinId) {
-            skinId = numericSkin;
-            window._pravoSkinId = skinId;
+// ── Общий обработчик смены скина (вызывается как watcher-ом, так и при старте) ──
+function _onSkinChange(numericSkin) {
+    skinId = numericSkin;
+    window._pravoSkinId = skinId;
 
-            if (pravoSkins.includes(skinId)) {
-                console.log(`[SKIN] ✅ Скин ${skinId} — правительственный, открываем Interactions`);
-            } else {
-                console.log(`[SKIN] ❌ Скин ${skinId} — не правительственный, закрываем Interactions`);
-            }
-
-            // Реагируем на смену формы немедленно:
-            // _pravoUpdateHassleInteraction сама решит — закрыть (не правительственный)
-            // или открыть (правительственный) панель Interactions на Hassle.
-            setTimeout(function() {
-                if (typeof _pravoUpdateHassleInteraction === 'function') {
-                    _pravoUpdateHassleInteraction(
-                        typeof giveLicenseTo !== 'undefined' ? (giveLicenseTo || -1) : -1
-                    );
-                }
-            }, 150);
-        }
+    if (pravoSkins.includes(skinId)) {
+        console.log(`[SKIN] ✅ Скин ${skinId} — правительственный, открываем Interactions`);
+    } else {
+        console.log(`[SKIN] ❌ Скин ${skinId} — не правительственный, закрываем Interactions`);
     }
-    setTimeout(trackSkinId, 5000);
+
+    // Небольшая задержка чтобы store и DOM успели обновиться
+    setTimeout(function() {
+        if (typeof _pravoUpdateHassleInteraction === 'function') {
+            _pravoUpdateHassleInteraction(
+                typeof giveLicenseTo !== 'undefined' ? (giveLicenseTo || -1) : -1
+            );
+        }
+    }, 150);
 }
-// 5. ЗАПУСК после загрузки
+
+// 5. ЗАПУСК после загрузки — реактивный Vuex watcher вместо поллинга каждые 5с.
+// index.js: window.setPlayerSkinId = e => W.commit("player/setSkin", e)
+// Каждый раз когда сервер меняет скин — store.state.player.skinId обновляется,
+// watcher срабатывает мгновенно (в том же тике Vue), без любых задержек.
 setTimeout(() => {
     console.log('[SKIN] 🚀 Запуск отслеживания скина МВД...');
     const initialSkin = getSkinIdFromStore();
     if (initialSkin !== null) {
-        // Приводим к числу сразу
         skinId = Number(initialSkin);
         window._pravoSkinId = skinId; // FIX: прокидываем наружу для MvdMenu.js
         console.log(`[SKIN] 📌 Начальный Skin ID: ${skinId}`);
-    
+
         if (pravoSkins.includes(skinId)) {
             console.log(`[SKIN] ✅ Скин ${skinId} в списке МВД - меню /dahk доступно`);
         } else {
@@ -354,7 +346,26 @@ setTimeout(() => {
     } else {
         console.log('[SKIN] ❌ Не удалось получить начальный Skin ID');
     }
-    trackSkinId();
+
+    // Vuex store.watch — мгновенная реакция на смену скина без поллинга
+    (function _startSkinWatcher() {
+        var store = window.App && window.App.$store;
+        if (!store || !store.state || !store.state.player) {
+            // store ещё не готов — повторим через 200ms
+            setTimeout(_startSkinWatcher, 200);
+            return;
+        }
+        store.watch(
+            function(state) { return state.player.skinId; },
+            function(newVal) {
+                var numericSkin = Number(newVal);
+                if (numericSkin !== skinId) {
+                    _onSkinChange(numericSkin);
+                }
+            }
+        );
+        console.log('[SKIN] 👁️ Реактивный watcher установлен — смена скина определяется мгновенно');
+    })();
 }, 500);
 let autoGrabEnabled = true;
 let autoGrabName = `Авто-снаряжение | {00FF00}Вкл`;
