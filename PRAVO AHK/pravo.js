@@ -2198,6 +2198,41 @@ function _pravoAddSmsButton(message) {
     })();
 })();
 
+// Вместо иконки звонка рисуем в кружке текст «SMS» (только у наших SMS-кнопок)
+(function _pravoSmsBadge() {
+    try {
+        var st = document.createElement('style');
+        st.textContent =
+            '.pravo-sms-badge{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;' +
+            'font:700 0.8vh/1 Arial,sans-serif;letter-spacing:0;color:#fff;pointer-events:none;transition:color .25s ease}' +
+            '.chat-message-content__action:hover .pravo-sms-badge{color:#000}' +
+            '.pravo-sms-done .chat-message-content__action-image{display:none!important}';
+        (document.head || document.documentElement).appendChild(st);
+        var scheduled = false;
+        function scan() {
+            scheduled = false;
+            try {
+                var ps = document.querySelectorAll('p.chat-message-content:not([data-pravo-sms])');
+                for (var i = 0; i < ps.length; i++) {
+                    var p = ps[i];
+                    var btn = p.querySelector('.chat-message-content__action');
+                    if (!btn) continue;
+                    p.setAttribute('data-pravo-sms', '1');
+                    if (!/SMS:.*Отправитель/.test(p.textContent)) continue;
+                    btn.classList.add('pravo-sms-done');
+                    var b = document.createElement('span');
+                    b.className = 'pravo-sms-badge';
+                    b.textContent = 'SMS';
+                    btn.appendChild(b);
+                }
+            } catch (e) {}
+        }
+        new MutationObserver(function () {
+            if (!scheduled) { scheduled = true; requestAnimationFrame(scan); }
+        }).observe(document.documentElement, { childList: true, subtree: true });
+    } catch (e) {}
+})();
+
 let _mainChatHandlerReady = false;
 
 
