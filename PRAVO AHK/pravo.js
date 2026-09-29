@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.666 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2204,33 +2204,37 @@ function _pravoAddSmsButton(message) {
         var st = document.createElement('style');
         st.textContent =
             '.pravo-sms-badge{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;' +
-            'font:700 0.8vh/1 Arial,sans-serif;letter-spacing:0;color:#fff;pointer-events:none;transition:color .25s ease}' +
+            'font:700 0.8vh/1 Arial,sans-serif;color:#fff;pointer-events:none;transition:color .25s ease}' +
             '.chat-message-content__action:hover .pravo-sms-badge{color:#000}' +
             '.pravo-sms-done .chat-message-content__action-image{display:none!important}' +
-            '@media (platform:mobile){.pravo-sms-badge{font-size:1.3vh}}';
+            '@media (platform:mobile){' +
+                '.pravo-sms-done .chat-message-content__action-background{width:3.8vh!important;height:3.8vh!important}' +
+                '.pravo-sms-badge{font-size:1.6vh}' +
+            '}';
         (document.head || document.documentElement).appendChild(st);
-        var scheduled = false;
         function scan() {
-            scheduled = false;
             try {
-                var ps = document.querySelectorAll('p.chat-message-content:not([data-pravo-sms])');
-                for (var i = 0; i < ps.length; i++) {
-                    var p = ps[i];
-                    var btn = p.querySelector('.chat-message-content__action');
-                    if (!btn) continue;
-                    p.setAttribute('data-pravo-sms', '1');
-                    if (!/SMS:.*Отправитель/.test(p.textContent)) continue;
+                var btns = document.querySelectorAll('.chat-message-content__action:not(.pravo-sms-done)');
+                for (var i = 0; i < btns.length; i++) {
+                    var btn = btns[i];
+                    var row = btn.closest('.chat-message') || btn.closest('p') || btn.parentNode;
+                    var txt = row ? row.textContent : '';
+                    if (!/SMS:/.test(txt) || txt.indexOf('Отправитель') === -1) continue;
                     btn.classList.add('pravo-sms-done');
-                    var b = document.createElement('span');
-                    b.className = 'pravo-sms-badge';
-                    b.textContent = 'SMS';
-                    btn.appendChild(b);
+                    var img = btn.querySelector('.chat-message-content__action-image');
+                    if (img) img.style.setProperty('display', 'none', 'important');
+                    if (!btn.querySelector('.pravo-sms-badge')) {
+                        var b = document.createElement('span');
+                        b.className = 'pravo-sms-badge';
+                        b.textContent = 'SMS';
+                        btn.appendChild(b);
+                    }
                 }
             } catch (e) {}
         }
-        new MutationObserver(function () {
-            if (!scheduled) { scheduled = true; requestAnimationFrame(scan); }
-        }).observe(document.documentElement, { childList: true, subtree: true });
+        setInterval(scan, 300);
+        new MutationObserver(function () { requestAnimationFrame(scan); })
+            .observe(document.documentElement, { childList: true, subtree: true });
     } catch (e) {}
 })();
 
