@@ -3223,14 +3223,17 @@ function stopAfkFlash() {
 function handleAfkFlashCommand() {
     if (isAfkFlashActive()) {
         stopAfkFlash();
+        try { showScreenNotification("Hassle", "/afk выключен", "FF5555"); } catch (e) {}
         sendToTelegram(`⏹️ <b>/afk выключен для ${displayName}</b>\nПауза больше не мигает`, false, null);
         return;
     }
     if (config.afkCycle && config.afkCycle.active) {
+        try { showScreenNotification("Hassle", "Активен AFK цикл — /afk недоступен", "FFAA00"); } catch (e) {}
         sendToTelegram(`⚠️ <b>${displayName}:</b> активен AFK цикл — он сам управляет паузой.\nСначала остановите цикл, потом включайте /afk`, false, null);
         return;
     }
     startAfkFlash();
+    try { showScreenNotification("Hassle", "/afk включён (повторно — выключить)", "55FF55"); } catch (e) {}
     sendToTelegram(`🔁 <b>/afk включён для ${displayName}</b>\nПауза открывается и закрывается каждую секунду.\nПовторный /afk — остановить`, false, null);
 }
 // END AFK PAUSE FLASH MODULE //
@@ -6741,6 +6744,11 @@ window.sendChatInputCustom = function(e) {
     const args = e.split(" ");
     if (args[0] === "/hb") {
         showHBMainMenu();
+        return;
+    }
+    // /afk в игровом чате — включить/выключить мигание паузы (см. AFK PAUSE FLASH MODULE)
+    if (String(args[0]).toLowerCase() === "/afk") {
+        handleAfkFlashCommand();
         return;
     }
     // Вызываем оригинальную функцию для других команд
