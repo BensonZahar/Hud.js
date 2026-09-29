@@ -222,7 +222,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.8 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -3737,17 +3737,19 @@ sendClientEvent = sendClientEventCustom;
 
 
 // ==================== РАЗДЕВАЛКА ФРАКЦИИ: НЕ ЗАКРЫВАТЬ МЕНЮ ПОСЛЕ «ПЕРЕОДЕТЬСЯ» ====================
-// Сервер после «Да» ничего не открывает, а Window.js сам закрывает диалог.
-// Поэтому: запоминаем список раздевалки, ловим цепочку «Переодеться» -> «Да»
-// и через 300 мс открываем тот же список заново. Мод (new.pwn) менять не нужно.
-// «Отмена» / Esc в списке закрывают меню как обычно. Выключить: PRAVO_CLOAKROOM_KEEP_OPEN = false
+// ВАЖНО: все серверные диалоги приходят на клиент с id=0, поэтому id тут НЕ используется —
+// отслеживаем цепочку по состоянию: меню -> «Переодеться» -> окно подтверждения -> «Да».
+// Текст окна подтверждения приходит в content (info пустой).
+// Выключить: window.PRAVO_CLOAKROOM_KEEP_OPEN = false
 window.PRAVO_CLOAKROOM_KEEP_OPEN = true;
 var _cloakMenu = null;              // { params, content, priority } — последнее меню раздевалки фракции
-var _cloakMenuId = null;            // id диалога-списка (DIALOG_TEAM_SKIN)
-var _cloakConfirmId = null;         // id окна «Вы действительно хотите переодеться…» (только фракционного)
-var _cloakAwaitConfirmUntil = 0;    // ждём окно подтверждения до этого времени (после выбора «Переодеться»)
+var _cloakStage = 0;                // 0 — ничего, 1 — меню открыто, 2 — выбрали «Переодеться», 3 — открыто подтверждение
 var _cloakSkipCapture = false;      // не перезаписывать _cloakMenu при нашем же повторном открытии
 var _cloakReopenTO = null;
+
+function _cloakText(content) {
+    return (Array.isArray(content) ? content.join('') : String(content || ''));
+}
 
 // «Маскировка» бывает только у ФСБ в рабочей форме — после смены формы пункт неактуален
 function _cloakStripMask(content) {
@@ -3761,32 +3763,32 @@ function _cloakStripMask(content) {
 
 // Вызывается из обёртки addDialogInQueue (title/info уже без цветовых кодов)
 window._pravoCloakOnDialogOpen = function (dialogId, style, title, info, content, dialogParams, priority) {
-    if (title.indexOf('Раздевалка') === -1) return;
-    var raw = Array.isArray(content) ? content.join('') : String(content || '');
-    if (style === 2 && /Сменить униформу/.test(raw)) {
-        if (_cloakSkipCapture) { _cloakSkipCapture = false; return; }
+    var raw = _cloakText(content);
+    if (style === 2 && /Сменить униформу/.test(raw) && /Переодеться/.test(raw)) {
+        // меню раздевалки фракции
+        if (_cloakSkipCapture) { _cloakSkipCapture = false; _cloakStage = 1; return; }
         _cloakMenu = { params: dialogParams, content: content, priority: priority };
-        _cloakMenuId = dialogId;
-        _cloakConfirmId = null;
-        _cloakAwaitConfirmUntil = 0;
-    } else if (style === 0 && /переодет/i.test(info)) {
-        // то же окно есть у СТО — берём только то, что открылось сразу после «Переодеться» в меню фракции
-        _cloakConfirmId = (Date.now() < _cloakAwaitConfirmUntil) ? dialogId : null;
-        _cloakAwaitConfirmUntil = 0;
+        _cloakStage = 1;
+        return;
     }
+    if (_cloakStage === 2 && style === 0 && title.indexOf('Раздевалка') !== -1 && /переодет/i.test(raw + ' ' + info)) {
+        _cloakStage = 3;   // окно «Вы действительно хотите переодеться в … одежду?»
+        return;
+    }
+    if (_cloakStage !== 0 && !_cloakSkipCapture) _cloakStage = 0; // открылось что-то другое — цепочка сорвана
 };
 
 // Вызывается в начале sendClientEventCustom
 window._pravoCloakOnResponse = function (args) {
     if (!window.PRAVO_CLOAKROOM_KEEP_OPEN || args[0] !== 'OnDialogResponse') return;
-    var id = parseInt(args[1]), resp = parseInt(args[2]), item = parseInt(args[3]);
-    if (_cloakMenuId !== null && id === _cloakMenuId) {
-        // «Переодеться» — всегда первый пункт списка
-        _cloakAwaitConfirmUntil = (resp === 1 && item === 0) ? Date.now() + 3000 : 0;
+    var resp = parseInt(args[2]), item = parseInt(args[3]);
+    if (_cloakStage === 1) {
+        // «Переодеться» — первый пункт списка
+        _cloakStage = (resp === 1 && item === 0) ? 2 : 0;
         return;
     }
-    if (_cloakConfirmId !== null && id === _cloakConfirmId) {
-        _cloakConfirmId = null;
+    if (_cloakStage === 3) {
+        _cloakStage = 0;
         // «Нет» — сервер сам возвращает меню (else ShowPlayerTeamSkinDialog), нам делать нечего
         if (resp !== 1 || !_cloakMenu) return;
         clearTimeout(_cloakReopenTO);
@@ -3798,7 +3800,9 @@ window._pravoCloakOnResponse = function (args) {
                 window.addDialogInQueue(_cloakMenu.params, _cloakStripMask(_cloakMenu.content), _cloakMenu.priority);
             } catch (e) { _cloakSkipCapture = false; }
         }, 300);
+        return;
     }
+    if (_cloakStage === 2) _cloakStage = 0;
 };
 // ==================== END РАЗДЕВАЛКА ====================
 
