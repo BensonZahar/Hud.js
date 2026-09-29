@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.444 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2167,7 +2167,7 @@ var PRAVO_SMS_BTN_ENABLED = true;
 var PRAVO_SMS_TEXT = 'Привет я лицензер';
 // Входящее: "SMS: текст | Отправитель: {v:Ник} [т.333351]"; группа 1 = номер
 var PRAVO_SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
-var PRAVO_SMS_ACTION = 'pravoSms';
+var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
 
 function _pravoAddSmsButton(message) {
     try {
@@ -2189,7 +2189,7 @@ function _pravoAddSmsButton(message) {
             return;
         }
         window.onChatMessageAction = function (button, action, value) {
-            if (action === PRAVO_SMS_ACTION) {
+            if (String(action) === String(PRAVO_SMS_ACTION)) {
                 _pravoSendCmd('/sms ' + value + ' ' + PRAVO_SMS_TEXT);
                 return;
             }
