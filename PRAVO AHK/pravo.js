@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.123 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1531,8 +1531,12 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 //
 // Настройки:
 //   PRAVO_MOBLIC_ICON  — своя картинка вместо встроенной иконки: URL или data:image/... (пусто = встроенная)
-//   window.PRAVO_MOBLIC_SLOT — номер сектора 0..7 (0 сверху, дальше по часовой). По умолчанию — следующий
-//                              за последней категорией сервера (сектора между ними заполняются пустышками).
+//   По умолчанию пункт ставится СЛЕВА от категории «Персонаж» (соседний сектор против часовой стрелки).
+//     Сектор свободен — занимаем его (сектора между ним и категориями сервера заполняются пустышками);
+//     занят — вставляем вплотную перед «Персонажем», а его и следующие категории сдвигаем на сектор по кругу.
+//   window.PRAVO_MOBLIC_SIDE = 'right' — ставить справа от «Персонажа» (по часовой), а не слева.
+//   window.PRAVO_MOBLIC_SLOT — жёстко задать номер сектора 0..7 (0 сверху, дальше по часовой); главнее SIDE.
+//                              Если сектор занят категорией сервера — она и следующие сдвигаются на один.
 //   window.PRAVO_MOBLIC_NATIVE = false — не встраивать в круг, сразу использовать запасную DOM-кнопку.
 //   window.PRAVO_MOBLIC_BTN_ENABLED = false — отключить кнопку совсем.
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1540,7 +1544,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     if (window.__pravoMobLicBtn) return;
     window.__pravoMobLicBtn = true;
 
-    var VERSION = 'native-v4';
+    var VERSION = 'native-v5';
     var PRAVO_MOBLIC_ICON = '';   // ← сюда свою картинку (URL или data:image/png;base64,...)
     var ENTRY_ID = 'pravo_lic';   // id нашего пункта в vm.menu (строка — не пересечётся с числовыми id сервера)
     var MASK_ID = 'pravoLicMask';
@@ -1701,36 +1705,79 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         return out;
     }
 
+    // Индекс родной категории «Персонаж» (наш собственный пункт с той же иконкой не считаем)
+    function characterIndex(vm) {
+        try {
+            for (var i = 0; i < vm.menu.length; i++) {
+                var m = vm.menu[i];
+                if (m && !m._pravoLic && !m._pravoPad && (m.icon === 'Character' || m.title === 'Персонаж')) return i;
+            }
+        } catch (e) {}
+        return -1;
+    }
+
+    // Куда ставим пункт. Порядок секторов: 0 — сверху, дальше по часовой (3 — справа снизу, 7 — слева сверху).
+    function targetSlot(vm, total) {
+        var len = vm.menu.length;
+        var want = window.PRAVO_MOBLIC_SLOT;
+        if (typeof want === 'number' && want >= 0 && want < total) return want;
+        var ch = characterIndex(vm);
+        if (ch < 0) return len;                                   // «Персонажа» нет — как раньше, за последней категорией
+        var right = (window.PRAVO_MOBLIC_SIDE === 'right');
+        var t = right ? (ch + 1) % total : (ch - 1 + total) % total;
+        if (t >= len) return t;                                    // соседний сектор свободен — занимаем его, ничего не сдвигая
+        return right ? t : ch;                                     // занят — вставляем вплотную к «Персонажу», остальных сдвигаем
+    }
+
+    // Пересчитать координаты секторов и позиции подпунктов у пунктов начиная с индекса from
+    function relayout(vm, from) {
+        for (var i = from; i < vm.menu.length; i++) {
+            var m = vm.menu[i], c = coordsFor(vm, i);
+            if (!m || !c) continue;
+            m.x = c.x; m.y = c.y;
+            if (m.options && m.options.length) m.options = vm.setOptionsPositions(i, m.options);
+        }
+    }
+
     function addEntry(vm) {
         var total = vm.DEFAULT_MENU_COUNT || 8;
-        var idx = vm.menu.length;
-        var want = window.PRAVO_MOBLIC_SLOT;
-        if (typeof want === 'number' && want >= idx && want < total) idx = want;
-        if (idx >= total) return false;
+        var len = vm.menu.length;
+        if (len >= total) return false;
         var opts = licOptions();
         if (!opts.length) return false;
-        var adds = [];
-        for (var p = vm.menu.length; p < idx; p++) {           // пустышки до выбранного сектора
-            var pc = coordsFor(vm, p);
-            if (!pc) return false;
-            adds.push({ id: 'pravo_pad_' + p, title: '', options: [], _pravoPad: true, x: pc.x, y: pc.y });
-        }
+        var idx = targetSlot(vm, total);
+        if (idx < 0 || idx >= total) return false;
         var c = coordsFor(vm, idx);
         if (!c) return false;
-        adds.push({
-            id: ENTRY_ID, icon: 'Character', title: TITLE, _pravoLic: true, x: c.x, y: c.y,
-            options: vm.setOptionsPositions(idx, opts)          // позиции подпунктов считает сам компонент
-        });
-        for (var a = 0; a < adds.length; a++) vm.menu.push(adds[a]);
+        var entry = { id: ENTRY_ID, icon: 'Character', title: TITLE, _pravoLic: true, x: c.x, y: c.y };
+        if (idx >= len) {
+            // сектор свободен: пустышки до него + сам пункт
+            var adds = [];
+            for (var p = len; p < idx; p++) {
+                var pc = coordsFor(vm, p);
+                if (!pc) return false;
+                adds.push({ id: 'pravo_pad_' + p, title: '', options: [], _pravoPad: true, x: pc.x, y: pc.y });
+            }
+            entry.options = vm.setOptionsPositions(idx, opts);     // позиции подпунктов считает сам компонент
+            adds.push(entry);
+            for (var a = 0; a < adds.length; a++) vm.menu.push(adds[a]);
+        } else {
+            // сектор занят категорией сервера: вставляем и сдвигаем её и следующие на один сектор по часовой
+            entry.options = vm.setOptionsPositions(idx, opts);
+            vm.menu.splice(idx, 0, entry);
+            relayout(vm, idx + 1);
+        }
         return true;
     }
 
     function removeEntry(vm) {
         try {
+            var first = -1;
             for (var i = vm.menu.length - 1; i >= 0; i--) {
                 var m = vm.menu[i];
-                if (m && (m._pravoLic || m._pravoPad)) vm.menu.splice(i, 1);
+                if (m && (m._pravoLic || m._pravoPad)) { vm.menu.splice(i, 1); first = i; }
             }
+            if (first >= 0) relayout(vm, first);                   // вернуть сдвинутые категории на свои места
         } catch (e) {}
     }
 
@@ -1869,6 +1916,8 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (!box || idx < 0) return;
         var el = box.querySelectorAll('.player-interaction__item')[idx];
         if (!el || (el.textContent || '').indexOf(TITLE) < 0) return;     // элемент ещё не отрисован
+        var stale = box.querySelectorAll('[data-pravo-lic-item]');
+        for (var sI = 0; sI < stale.length; sI++) if (stale[sI] !== el) stale[sI].removeAttribute('data-pravo-lic-item');
         if (!el.hasAttribute('data-pravo-lic-item')) el.setAttribute('data-pravo-lic-item', '1');
         var svg = el.querySelector('svg');
         if (!svg || svg.hasAttribute('data-pravo-lic')) return;
@@ -1918,6 +1967,8 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         var total = vm.DEFAULT_MENU_COUNT || 8;
         var slot = window.PRAVO_MOBLIC_SLOT;
         if (typeof slot === 'number' && slot >= 0 && slot < total) return slot;
+        var want = targetSlot(vm, total);                     // «слева от Персонажа», если сектор свободен (сдвигать в DOM-режиме нельзя)
+        if (want >= vm.menu.length && want < total) return want;
         var best = -1, bestX = Infinity;
         for (var i = vm.menu.length; i < total; i++) {
             var c = coordsFor(vm, i);
