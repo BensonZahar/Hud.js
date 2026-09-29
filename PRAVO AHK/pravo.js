@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2168,6 +2168,69 @@ var PRAVO_SMS_TEXT = 'Привет я лицензер';
 // Входящее: "SMS: текст | Отправитель: {v:Ник} [т.333351]"; группа 1 = номер
 var PRAVO_SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
 var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
+var PRAVO_SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
+var PRAVO_SMS_LABEL = 'SMS'; // надпись на кнопке
+var PRAVO_SMS_MOBILE_SCALE = 2; // Хасл: во сколько раз кнопка больше, чем стандартная мобильная (2.78vh)
+
+// ── Стили кнопки «SMS» (вместо круглой иконки-трубки) ─────────────────────────
+(function _pravoSmsBtnStyle() {
+    var id = 'pravo-sms-btn-css';
+    if (document.getElementById(id)) return;
+    var pcH = 1.85;                                   // высота на ПК (как у штатного кружка)
+    var mbH = 2.78 * PRAVO_SMS_MOBILE_SCALE;          // высота на Хасле (штатные 2.78vh * scale)
+    var css = function (h) {
+        return 'height:' + h + 'vh!important;min-width:' + (h * 1.85).toFixed(2) + 'vh!important;' +
+               'padding:0 ' + (h * 0.38).toFixed(2) + 'vh!important;border-radius:' + (h / 2).toFixed(2) + 'vh!important;' +
+               'font-size:' + (h * 0.56).toFixed(2) + 'vh!important;';
+    };
+    var s = document.createElement('style');
+    s.id = id;
+    s.textContent =
+        '.chat-message-content__action.pravo-sms-btn{' + css(pcH) +
+            'box-sizing:border-box;background:rgba(255,255,255,.25);color:inherit;font-weight:700;line-height:1;' +
+            'letter-spacing:.05em;font-family:inherit;user-select:none;-webkit-user-select:none;}' +
+        '.chat-message-content__action.pravo-sms-btn:hover{background:#fff;color:#000;}' +
+        '.chat-message-content__action.pravo-sms-btn>*{display:none!important;}' +
+        '.chat-message-content__action.pravo-sms-btn::after{content:"' + PRAVO_SMS_LABEL + '";}' +
+        '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}';
+    document.head.appendChild(s);
+})();
+
+// Помечаем кнопки SMS в чате: у них нет иконки (id PRAVO_SMS_ICON не существует) и рядом текст «SMS:»
+function _pravoMarkSmsBtns(root) {
+    try {
+        var scope = (root && root.querySelectorAll) ? root : document;
+        var imgs = scope.querySelectorAll('.chat-message-content__action-image');
+        var mobile = !!(window.App && window.App.isMobile);
+        for (var i = 0; i < imgs.length; i++) {
+            var src = imgs[i].getAttribute('src');
+            if (src && !/undefined$/.test(src)) continue;         // у обычных кнопок иконка есть
+            var btn = imgs[i].parentNode;
+            if (!btn || !btn.classList || btn.classList.contains('pravo-sms-btn')) continue;
+            var p = btn.parentNode;
+            if (!p || String(p.textContent || '').indexOf('SMS:') === -1) continue;
+            btn.classList.add('pravo-sms-btn');
+            if (mobile) btn.classList.add('pravo-sms-btn--mobile');
+        }
+    } catch (e) {}
+}
+(function _pravoSmsBtnObserver() {
+    var tries = 0;
+    (function start() {
+        if (!document.body) { if (++tries < 100) setTimeout(start, 100); return; }
+        try {
+            new MutationObserver(function (muts) {
+                for (var i = 0; i < muts.length; i++) {
+                    var added = muts[i].addedNodes;
+                    for (var j = 0; j < added.length; j++) {
+                        if (added[j].nodeType === 1) _pravoMarkSmsBtns(added[j]);
+                    }
+                }
+            }).observe(document.body, { childList: true, subtree: true });
+        } catch (e) {}
+        _pravoMarkSmsBtns(document);
+    })();
+})();
 
 function _pravoAddSmsButton(message) {
     try {
@@ -2176,7 +2239,7 @@ function _pravoAddSmsButton(message) {
         if (message.indexOf('{btn:') !== -1) return message; // уже есть кнопка
         var m = message.match(PRAVO_SMS_RE);
         if (!m) return message;
-        return message + ' {btn:0:' + PRAVO_SMS_ACTION + ':' + m[1] + '}';
+        return message + ' {btn:' + PRAVO_SMS_ICON + ':' + PRAVO_SMS_ACTION + ':' + m[1] + '}';
     } catch (e) { return message; }
 }
 
