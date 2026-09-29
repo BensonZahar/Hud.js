@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.123 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1513,35 +1513,42 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Hassle (мобилка) И ПК (Radmir): кнопка «Выдача лицензии» В КРУГЕ радиального меню PlayerInteraction.
+// Hassle (мобилка) И ПК (Radmir): пункт «Выдача лицензии» В КРУГЕ радиального меню PlayerInteraction.
 //
-// Выглядит как кнопки категорий («Персонаж», «Транспорт»…): иконка + подпись на свободном
-// секторе круга (слева). Файлы PlayerInteraction.js/.css НЕ меняются — кнопка создаётся
-// из pravo.js с теми же классами (player-interaction__item / __icon / __title), поэтому
-// размеры, шрифт и цвет берутся из самой игры.
+// Пункт добавляется ПРЯМО В ДАННЫЕ компонента (vm.menu) — как обычная категория («Персонаж», «Транспорт»…):
+//   • иконку рисует сама игра (родной компонент «Персонаж»), сверху добавляется карточка-лицензия;
+//   • по нажатию открывается ВЫБОР В КРУГЕ (подпункты кольца, как у «Персонажа»): Права / Проф. права /
+//     Оружие / Рыбалка / Охота; выбор типа → меню закрывается → уходит /givelic <ID> <тип> <цена>;
+//   • серверу ничего лишнего не отправляется: клики по нашему пункту перехватываются локально.
+// Если нативный способ не удался (нет нужных методов у компонента / нет свободного сектора), включается
+// запасная кнопка-DOM поверх круга (нажатие открывает старый диалог выбора лицензии).
 //
-// Ник цели — params[0] при openInterface/updateParams('PlayerInteraction'), ID — из
-// window._mvdPlayerList. Нажатие: закрывает меню → showGiveLicTypeDialog(ID) → /givelic.
+// Ник цели — params[0] при openInterface/updateParams('PlayerInteraction'), ID — из window._mvdPlayerList.
 // Условия показа — те же, что у «Кругового меню» (window._pravoCircleAllowed):
 //   ПК      — Лицензёр в правительственном скине;
 //   мобилка — то же + включённый «Помощник лицензёра» (как кнопка «Выдать лицензию» в Hassle-Interactions).
-// Отладка: window.PRAVO_MOBLIC_DEBUG = true — в консоль пишется, почему кнопка не показана.
+// Отладка: window.PRAVO_MOBLIC_DEBUG = true — в консоль пишется режим работы и причины, почему кнопки нет.
 //
 // Настройки:
-//   PRAVO_MOBLIC_ICON  — своя картинка: URL или data:image/... (пусто = встроенная иконка)
-//   window.PRAVO_MOBLIC_SLOT — номер сектора 0..7 (0 сверху, дальше по часовой; 6 = слева).
-//                              По умолчанию — самый левый СВОБОДНЫЙ сектор.
-//   window.PRAVO_MOBLIC_BTN_ENABLED = false — отключить кнопку.
+//   PRAVO_MOBLIC_ICON  — своя картинка вместо встроенной иконки: URL или data:image/... (пусто = встроенная)
+//   window.PRAVO_MOBLIC_SLOT — номер сектора 0..7 (0 сверху, дальше по часовой). По умолчанию — следующий
+//                              за последней категорией сервера (сектора между ними заполняются пустышками).
+//   window.PRAVO_MOBLIC_NATIVE = false — не встраивать в круг, сразу использовать запасную DOM-кнопку.
+//   window.PRAVO_MOBLIC_BTN_ENABLED = false — отключить кнопку совсем.
 // ══════════════════════════════════════════════════════════════════════════════
 (function _pravoMobileLicenseButton() {
     if (window.__pravoMobLicBtn) return;
     window.__pravoMobLicBtn = true;
 
+    var VERSION = 'native-v4';
     var PRAVO_MOBLIC_ICON = '';   // ← сюда свою картинку (URL или data:image/png;base64,...)
+    var ENTRY_ID = 'pravo_lic';   // id нашего пункта в vm.menu (строка — не пересечётся с числовыми id сервера)
+    var MASK_ID = 'pravoLicMask';
     var BTN_ID = 'pravo-moblic-btn';
     var HOV_ID = 'pravo-moblic-hover';
     var TITLE = 'Выдача лицензии';
-    var lastNick = '', busy = false, syncTimer = null;
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    var lastNick = '', busy = false, syncTimer = null, mode = '', patchedFor = null, capBox = null, warned = false;
 
     function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
 
@@ -1598,24 +1605,11 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         try { return window.interface('PlayerInteraction') || null; } catch (e) { return null; }
     }
 
-    // ── выбор сектора: явный PRAVO_MOBLIC_SLOT, иначе самый левый свободный ──────
-    // Секторы: i-й идёт по часовой от верха (0 верх, 2 право, 4 низ, 6 лево),
-    // категории с сервера занимают 0..menu.length-1, остальное — свободные пустые секторы.
-    function pickSlot(vm) {
-        var total = vm.DEFAULT_MENU_COUNT || 8;
-        var slot = window.PRAVO_MOBLIC_SLOT;
-        if (typeof slot === 'number' && slot >= 0 && slot < total) return slot;
-        var best = -1, bestX = Infinity;
-        for (var i = vm.menu.length; i < total; i++) {
-            var c = coordsFor(vm, i);
-            if (c && c.x < bestX) { bestX = c.x; best = i; }
-        }
-        return best;
-    }
+    // Координаты сектора i (0 — верх, по часовой) — те же, что игра считает для кнопок категорий
     function coordsFor(vm, slot) {
         try {
             var ang = (vm.k * slot + Math.PI / 2) % (Math.PI * 2);
-            return vm.getCoords(vm.innerRadius, ang);   // те же координаты, что у кнопок категорий
+            return vm.getCoords(vm.innerRadius, ang);
         } catch (e) { return null; }
     }
 
@@ -1633,12 +1627,20 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         var h = document.getElementById(HOV_ID);
         if (h && h.parentNode) h.parentNode.removeChild(h);
     }
-
+    function stopSync() {
+        if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+    }
     function removeBtn() {
         hideHover();
-        if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
         var old = document.getElementById(BTN_ID);
         if (old && old.parentNode) old.parentNode.removeChild(old);
+    }
+    function cleanup() {
+        stopSync();
+        removeBtn();
+        detachCapture();
+        mode = '';
+        patchedFor = null;
     }
 
     // Закрываем как компонент: closeInterface + событие серверу
@@ -1646,6 +1648,284 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         try { window.closeInterface('PlayerInteraction'); } catch (e) {}
         try { window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'MenuInt_OnCloseInterface', 0); } catch (e) {}
     }
+
+    // Определяем ID цели по нику; список игроков обновляется редко — просим движок обновить и ждём до ~1с
+    function withTargetId(cb) {
+        var nick = lastNick;
+        if (!nick) { busy = false; notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
+        var id = findId(nick);
+        if (id !== null) return cb(id);
+        try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (er) {}
+        var tries = 0;
+        var t = setInterval(function () {
+            if (!isOpen()) { clearInterval(t); busy = false; return; }
+            var f = findId(nick);
+            if (f !== null) { clearInterval(t); return cb(f); }
+            if (++tries >= 4) {
+                clearInterval(t);
+                busy = false;
+                notify('~r~Выдача лицензии~n~~w~Не удалось определить ID игрока');
+            }
+        }, 250);
+    }
+
+    // Выдача по индексу типа лицензии (Права / Проф. права / …); запасной путь — старый диалог
+    function giveLicense(id, idx) {
+        try {
+            if (typeof window.pravoGiveLicenseByIndex === 'function' && window.pravoGiveLicenseByIndex(id, idx)) return;
+        } catch (er) { console.warn('[PRAVO] выдача лицензии из круга:', er); }
+        if (typeof window.showGiveLicTypeDialog === 'function') window.showGiveLicTypeDialog(id);
+    }
+
+    // ══════════════ НАТИВНЫЙ РЕЖИМ: пункт внутри vm.menu ══════════════
+
+    function hasEntry(vm) {
+        try { return vm.menu.some(function (m) { return m && m._pravoLic; }); } catch (e) { return false; }
+    }
+    function ownIndex(vm) {
+        try {
+            for (var i = 0; i < vm.menu.length; i++) if (vm.menu[i] && vm.menu[i]._pravoLic) return i;
+        } catch (e) {}
+        return -1;
+    }
+    function isOwnSelected(vm) {
+        try { var m = vm.menu[vm.selectedOption]; return !!(m && m._pravoLic); } catch (e) { return false; }
+    }
+
+    // Подпункты кольца — типы лицензий из _GIVE_LIC_TYPES (Права, Проф. права, Оружие, Рыбалка, Охота)
+    function licOptions() {
+        var list = [];
+        try { list = _GIVE_LIC_TYPES; } catch (e) {}
+        var out = [];
+        for (var i = 0; i < list.length; i++) out.push({ id: 'pravo_lic_' + i, title: list[i].name, _pravoLicIdx: i });
+        return out;
+    }
+
+    function addEntry(vm) {
+        var total = vm.DEFAULT_MENU_COUNT || 8;
+        var idx = vm.menu.length;
+        var want = window.PRAVO_MOBLIC_SLOT;
+        if (typeof want === 'number' && want >= idx && want < total) idx = want;
+        if (idx >= total) return false;
+        var opts = licOptions();
+        if (!opts.length) return false;
+        var adds = [];
+        for (var p = vm.menu.length; p < idx; p++) {           // пустышки до выбранного сектора
+            var pc = coordsFor(vm, p);
+            if (!pc) return false;
+            adds.push({ id: 'pravo_pad_' + p, title: '', options: [], _pravoPad: true, x: pc.x, y: pc.y });
+        }
+        var c = coordsFor(vm, idx);
+        if (!c) return false;
+        adds.push({
+            id: ENTRY_ID, icon: 'Character', title: TITLE, _pravoLic: true, x: c.x, y: c.y,
+            options: vm.setOptionsPositions(idx, opts)          // позиции подпунктов считает сам компонент
+        });
+        for (var a = 0; a < adds.length; a++) vm.menu.push(adds[a]);
+        return true;
+    }
+
+    function removeEntry(vm) {
+        try {
+            for (var i = vm.menu.length - 1; i >= 0; i--) {
+                var m = vm.menu[i];
+                if (m && (m._pravoLic || m._pravoPad)) vm.menu.splice(i, 1);
+            }
+        } catch (e) {}
+    }
+
+    // Нажатие на наш пункт: как ответ сервера для обычной категории — выбираем её локально, серверу ничего не шлём
+    function openOwn(vm, t) {
+        var m = vm.menu[t];
+        if (!m) return;
+        vm.onSelectOption(m.id);
+    }
+
+    // Выбор типа лицензии в кольце: закрываем меню и отправляем /givelic
+    function pickType(vm, i) {
+        var m = vm.menu[vm.selectedOption];
+        var o = m && m.options && m.options[i];
+        if (!o || !o.title || busy) return;
+        var typeIdx = (typeof o._pravoLicIdx === 'number') ? o._pravoLicIdx : i;
+        busy = true;
+        try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
+        withTargetId(function (id) {
+            closeMenu();
+            setTimeout(function () { busy = false; giveLicense(id, typeIdx); }, 80);
+        });
+    }
+
+    // Подменяем методы компонента — на случай, если игра вызовет их сама (клик в центре круга и т.п.)
+    function patchVm(vm) {
+        if (patchedFor === vm) return true;
+        var oSel = vm.selectOption, oLay = vm.selectLayerOption, oTS = vm.onTouchStart, oTE = vm.onTouchEnd;
+        if (typeof oSel !== 'function' || typeof oLay !== 'function') return false;
+        vm.selectOption = function (e, t) {
+            try {
+                var m = vm.menu[t];
+                if (m && m._pravoLic) {
+                    if (!(e && e.target && e.target._prevClass === 'controls-button--text')) openOwn(vm, t);
+                    return;
+                }
+            } catch (er) { dbg('selectOption:', er); }
+            return oSel.apply(this, arguments);
+        };
+        vm.selectLayerOption = function (i) {
+            try {
+                if (isOwnSelected(vm)) { pickType(vm, i); return; }
+            } catch (er) { dbg('selectLayerOption:', er); }
+            return oLay.apply(this, arguments);
+        };
+        // на мобилке долгое нажатие на подпункт перетаскивает его в «избранное» и шлёт серверу его id — для нашего не нужно
+        if (typeof oTS === 'function') vm.onTouchStart = function () { if (isOwnSelected(vm)) return; return oTS.apply(this, arguments); };
+        if (typeof oTE === 'function') vm.onTouchEnd = function () { if (isOwnSelected(vm)) return; return oTE.apply(this, arguments); };
+        var ok = vm.selectOption !== oSel && vm.selectLayerOption !== oLay;
+        if (ok) patchedFor = vm;
+        return ok;
+    }
+
+    // Перехват кликов на контейнере (capture) — независимо от того, как именно шаблон вызывает методы
+    function stopEv(e) { try { e.stopPropagation(); e.preventDefault(); } catch (er) {} }
+    function onCapClick(e) {
+        try {
+            var v = getVm();
+            if (!v || !hasEntry(v)) return;
+            var t = e.target;
+            if (!t || !t.closest) return;
+            if (t.closest('[data-pravo-lic-item]')) {                       // клик по нашему пункту круга
+                stopEv(e); openOwn(v, ownIndex(v)); return;
+            }
+            if (isOwnSelected(v)) {                                         // подпункт нашей категории
+                var li = t.closest('.player-interaction-layer__item');
+                if (li && li.parentNode) {
+                    var all = li.parentNode.querySelectorAll('.player-interaction-layer__item');
+                    var pos = Array.prototype.indexOf.call(all, li);
+                    if (pos >= 0) {
+                        stopEv(e);
+                        pickType(v, ((v.pageOptions && v.pageOptions.startIndex) || 0) + pos);
+                    }
+                    return;
+                }
+            }
+            var inner = t.closest('.player-interaction__inner');            // клик в центре по наведённому сектору
+            var h = v.hoveredOption;
+            if (inner && h !== null && h !== undefined && v.menu[h] && v.menu[h]._pravoLic && t._prevClass !== 'controls-button--text') {
+                stopEv(e); openOwn(v, h);
+            }
+        } catch (er) { dbg('capture click:', er); }
+    }
+    function onCapTouch(e) {
+        try {
+            var v = getVm();
+            if (!v || !isOwnSelected(v)) return;
+            var t = e.target;
+            if (t && t.closest && t.closest('.player-interaction-layer__item')) e.stopPropagation();
+        } catch (er) {}
+    }
+    function attachCapture(box) {
+        if (capBox === box) return;
+        detachCapture();
+        box.addEventListener('click', onCapClick, true);
+        box.addEventListener('touchstart', onCapTouch, true);
+        capBox = box;
+    }
+    function detachCapture() {
+        if (!capBox) return;
+        capBox.removeEventListener('click', onCapClick, true);
+        capBox.removeEventListener('touchstart', onCapTouch, true);
+        capBox = null;
+    }
+
+    // Иконка: берём родной <svg> «Персонажа» (его отрисовала игра) и дорисовываем карточку-лицензию.
+    // Если дорисовка почему-то не сработает — останется обычная иконка «Персонаж», пункт без картинки не бывает.
+    var CARD_D = 'M17.5 17.4H29A2.5 2.5 0 0 1 31.5 19.9V28.5A2.5 2.5 0 0 1 29 31H17.5A2.5 2.5 0 0 1 15 28.5V19.9A2.5 2.5 0 0 1 17.5 17.4Z' +
+        'M17 20.2H20.6V24.6H17ZM22.2 20.4H29.4V21.9H22.2ZM22.2 23.2H29.4V24.7H22.2ZM17 26.6H29.4V28.1H17Z';
+    function mk(tag, attrs) {
+        var el = document.createElementNS(SVG_NS, tag);
+        for (var k in attrs) el.setAttribute(k, attrs[k]);
+        return el;
+    }
+    function paintIcon(svg) {
+        var paths = svg.querySelectorAll('path');             // сначала берём родные path — карточку добавим после
+        if (PRAVO_MOBLIC_ICON) {
+            for (var q = 0; q < paths.length; q++) paths[q].style.display = 'none';
+            var im = mk('image', { x: '0', y: '0', width: '32', height: '32', href: PRAVO_MOBLIC_ICON });
+            im.setAttributeNS('http://www.w3.org/1999/xlink', 'href', PRAVO_MOBLIC_ICON);
+            svg.appendChild(im);
+            return;
+        }
+        var defs = mk('defs', {});
+        var mask = mk('mask', { id: MASK_ID, maskUnits: 'userSpaceOnUse', x: '0', y: '0', width: '32', height: '32' });
+        mask.appendChild(mk('rect', { width: '32', height: '32', fill: '#fff' }));
+        mask.appendChild(mk('rect', { x: '13.4', y: '15.6', width: '20', height: '17', rx: '4', fill: '#000' }));
+        defs.appendChild(mask);
+        svg.appendChild(defs);
+        for (var i = 0; i < paths.length; i++) paths[i].setAttribute('mask', 'url(#' + MASK_ID + ')');
+        svg.appendChild(mk('path', { 'fill-rule': 'evenodd', d: CARD_D }));
+    }
+    function decorate(vm) {
+        var box = document.querySelector('.player-interaction__container');
+        var idx = ownIndex(vm);
+        if (!box || idx < 0) return;
+        var el = box.querySelectorAll('.player-interaction__item')[idx];
+        if (!el || (el.textContent || '').indexOf(TITLE) < 0) return;     // элемент ещё не отрисован
+        if (!el.hasAttribute('data-pravo-lic-item')) el.setAttribute('data-pravo-lic-item', '1');
+        var svg = el.querySelector('svg');
+        if (!svg || svg.hasAttribute('data-pravo-lic')) return;
+        svg.setAttribute('data-pravo-lic', '1');
+        try { paintIcon(svg); dbg('иконка дорисована'); } catch (er) { dbg('иконка: ошибка дорисовки', er); }
+    }
+
+    function syncNative() {
+        var v = getVm();
+        if (!isOpen() || !v) { cleanup(); return; }
+        try {
+            if (!hasEntry(v) && Array.isArray(v.menu) && v.k != null && v.innerRadius != null && canShow(lastNick)) {
+                patchVm(v);
+                addEntry(v);                                   // сервер пересобрал меню — возвращаем пункт
+            }
+            decorate(v);
+        } catch (er) { dbg('sync:', er); }
+    }
+
+    function tryNative(vm, box) {
+        if (window.PRAVO_MOBLIC_NATIVE === false) { dbg('native: выключено PRAVO_MOBLIC_NATIVE=false'); return false; }
+        try {
+            if (!Array.isArray(vm.menu) || typeof vm.onSelectOption !== 'function' || typeof vm.setOptionsPositions !== 'function') {
+                dbg('native: у компонента нет нужных данных/методов'); return false;
+            }
+            if (!patchVm(vm)) { dbg('native: не удалось подменить методы компонента'); return false; }
+            if (!hasEntry(vm) && !addEntry(vm)) { dbg('native: нет свободного сектора или пустой список лицензий'); return false; }
+            stopSync();
+            removeBtn();
+            attachCapture(box);
+            mode = 'native';
+            syncTimer = setInterval(syncNative, 200);
+            setTimeout(syncNative, 30);
+            dbg('режим: native | слот:', ownIndex(vm), '| ник:', lastNick, '| mobile:', !!(window.App && window.App.isMobile));
+            return true;
+        } catch (er) {
+            dbg('native: ошибка', er);
+            try { removeEntry(vm); } catch (e2) {}
+            return false;
+        }
+    }
+
+    // ══════════════ ЗАПАСНОЙ РЕЖИМ: отдельная кнопка-DOM поверх круга ══════════════
+
+    // выбор сектора: явный PRAVO_MOBLIC_SLOT, иначе самый левый свободный
+    function pickSlot(vm) {
+        var total = vm.DEFAULT_MENU_COUNT || 8;
+        var slot = window.PRAVO_MOBLIC_SLOT;
+        if (typeof slot === 'number' && slot >= 0 && slot < total) return slot;
+        var best = -1, bestX = Infinity;
+        for (var i = vm.menu.length; i < total; i++) {
+            var c = coordsFor(vm, i);
+            if (c && c.x < bestX) { bestX = c.x; best = i; }
+        }
+        return best;
+    }
+
     function openDialog(id) {
         closeMenu();
         setTimeout(function () {
@@ -1656,33 +1936,13 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     function onClick(e) {
         try { e.stopPropagation(); e.preventDefault(); } catch (er) {}
         if (busy) return;
-        var nick = lastNick;
-        if (!nick) { notify('~r~Выдача лицензии~n~~w~Не удалось определить игрока'); return; }
         try { window.playSound('player_interaction/click-fast.mp3'); } catch (er) {}
         busy = true;
-        var id = findId(nick);
-        if (id !== null) return openDialog(id);
-        // список игроков обновляется редко — просим движок обновить и ждём до ~1с
-        try { if (typeof window.updatePlayerList === 'function') window.updatePlayerList(); } catch (er) {}
-        var tries = 0;
-        var t = setInterval(function () {
-            if (!isOpen()) { clearInterval(t); busy = false; return; }
-            var f = findId(nick);
-            if (f !== null) { clearInterval(t); return openDialog(f); }
-            if (++tries >= 4) {
-                clearInterval(t);
-                busy = false;
-                notify('~r~Выдача лицензии~n~~w~Не удалось определить ID игрока');
-            }
-        }, 250);
+        withTargetId(openDialog);
     }
 
-    // ── Иконка: голова и плечи из «Персонажа» + карточка-лицензия ──────────────────────────
-    // Рисуем НЕ как inline-<svg>, а как <img> с SVG в data-URI: так картинка не зависит ни от CSS страницы
-    // (fill / scoped-стили / маски), ни от того, как движок разбирает встроенный svg. Цвет #e0bf3e — как у
-    // родных иконок — зашит в сам SVG. Голова и плечи — ровно контуры иконки «Персонаж» (уменьшены до 76%),
-    // вокруг карточки маской вырезан зазор, чтобы силуэт с ней не сливался.
-    var LIC_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="#e0bf3e"><defs><mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32"><rect width="32" height="32" fill="#fff"/><rect x="11" y="14" width="22" height="20" rx="4" fill="#000"/></mask></defs><g mask="url(#m)"><g transform="scale(.76)"><path d="M24 8C24 12.4183 20.4183 16 16 16C11.5817 16 8 12.4183 8 8C8 3.58172 11.5817 0 16 0C20.4183 0 24 3.58172 24 8Z"/><path d="M26.0113 32H32C32 27.7565 30.3143 23.6869 27.3137 20.6863C24.3131 17.6857 20.2435 16 16 16C11.7565 16 7.68688 17.6857 4.68629 20.6863C1.68571 23.6869 0 27.7565 0 32H6.65881C7.17634 28.7259 8.34695 25.3575 10.3003 23.1111C9.45815 24.9955 8.58027 28.4528 9.12668 32L23.5435 32C24.0899 28.4528 23.212 24.9955 22.3698 23.1111C24.3232 25.3575 25.4938 28.7259 26.0113 32Z"/></g></g><path fill-rule="evenodd" d="M15.5 16.5H29.5A2.5 2.5 0 0 1 32 19V29A2.5 2.5 0 0 1 29.5 31.5H15.5A2.5 2.5 0 0 1 13 29V19A2.5 2.5 0 0 1 15.5 16.5ZM15.4 19.4H19.4V24.4H15.4ZM21.4 19.6H29.6V21.2H21.4ZM21.4 22.8H29.6V24.4H21.4ZM15.4 26.6H29.6V28.2H15.4Z"/></svg>';
+    // Иконка запасной кнопки: <img> с SVG в data-URI (не зависит от CSS страницы)
+    var LIC_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="#e0bf3e"><defs><mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32"><rect width="32" height="32" fill="#fff"/><rect x="13.4" y="15.6" width="20" height="17" rx="4" fill="#000"/></mask></defs><g mask="url(#m)"><path d="M24 8C24 12.4183 20.4183 16 16 16C11.5817 16 8 12.4183 8 8C8 3.58172 11.5817 0 16 0C20.4183 0 24 3.58172 24 8Z"/><path d="M26.0113 32H32C32 27.7565 30.3143 23.6869 27.3137 20.6863C24.3131 17.6857 20.2435 16 16 16C11.7565 16 7.68688 17.6857 4.68629 20.6863C1.68571 23.6869 0 27.7565 0 32H6.65881C7.17634 28.7259 8.34695 25.3575 10.3003 23.1111C9.45815 24.9955 8.58027 28.4528 9.12668 32L23.5435 32C24.0899 28.4528 23.212 24.9955 22.3698 23.1111C24.3232 25.3575 25.4938 28.7259 26.0113 32Z"/></g><path fill-rule="evenodd" d="' + CARD_D + '"/></svg>';
     var LIC_ICON_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(LIC_ICON_SVG);
 
     function buildIcon(sa) {
@@ -1690,19 +1950,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             ' style="display:block;width:2.96vh;height:2.96vh;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none">';
     }
 
-    // Компонент строит секторы асинхронно (после mounted + ответа сервера) — ждём готовности
-    function inject(tries) {
-        if (!isOpen()) return;
-        var box = document.querySelector('.player-interaction__container');
-        var vm = getVm();
-        var ready = box && vm && vm.k != null && vm.innerRadius != null && vm.menu && vm.menu.length
-            && typeof vm.menu[vm.menu.length - 1].x === 'number';
-        if (!ready) {
-            if (tries < 40) setTimeout(function () { inject(tries + 1); }, 100);
-            return;
-        }
+    function injectDom(vm, box) {
+        stopSync();
         removeBtn();
-        if (!canShow(lastNick)) return;
         var slot = pickSlot(vm);
         if (slot < 0) { console.warn('[PRAVO] Нет свободного сектора в PlayerInteraction для кнопки лицензии'); return; }
         var c = coordsFor(vm, slot);
@@ -1760,14 +2010,32 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             b.addEventListener('mouseup', function () { b.style.filter = ''; });
         }
         box.appendChild(b);
-        dbg('кнопка добавлена | слот:', slot, '| ник:', lastNick, '| mobile:', !!(window.App && window.App.isMobile));
+        mode = 'dom';
+        if (!warned) { warned = true; console.warn('[PRAVO][MOBLIC] пункт в круге не встроился — включена запасная кнопка (включите PRAVO_MOBLIC_DEBUG для причин)'); }
+        dbg('режим: dom | слот:', slot, '| ник:', lastNick, '| mobile:', !!(window.App && window.App.isMobile));
 
         // как у остальных кнопок: когда открыта подкатегория — приглушаем (opacity .6)
         syncTimer = setInterval(function () {
             var el = document.getElementById(BTN_ID), v = getVm();
-            if (!el || !isOpen()) { removeBtn(); return; }
+            if (!el || !isOpen()) { cleanup(); return; }
             if (v) el.style.opacity = (v.selectedOption !== null && v.selectedOption !== undefined) ? '0.6' : '1';
         }, 200);
+    }
+
+    // Компонент строит секторы асинхронно (после mounted + ответа сервера) — ждём готовности
+    function inject(tries) {
+        if (!isOpen()) return;
+        var box = document.querySelector('.player-interaction__container');
+        var vm = getVm();
+        var ready = box && vm && vm.k != null && vm.innerRadius != null && vm.menu && vm.menu.length
+            && typeof vm.menu[vm.menu.length - 1].x === 'number';
+        if (!ready) {
+            if (tries < 40) setTimeout(function () { inject(tries + 1); }, 100);
+            return;
+        }
+        if (!canShow(lastNick)) { removeEntry(vm); cleanup(); return; }
+        if (tryNative(vm, box)) return;
+        injectDom(vm, box);
     }
 
     // openInterface('PlayerInteraction', params)
@@ -1802,7 +2070,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         };
     }
 
-    console.log('[PRAVO] ✅ Кнопка «Выдача лицензии» в круге PlayerInteraction (Hassle) установлена');
+    console.log('[PRAVO] ✅ Пункт «Выдача лицензии» в круге PlayerInteraction установлен (' + VERSION + ')');
 })();
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -2877,6 +3145,28 @@ window.showGiveLicTypeDialog = (id) => {
         list += `${i + 1}. ${t.name}  [${t.price.toLocaleString('ru-RU')} ₽]<n>`;
     });
     window.addDialogInQueue(`[679,4,"Выдача лицензии | ID: ${id}","","Выдать","Отмена",0,0]`, list, 0);
+};
+// Прямая выдача по индексу типа лицензии — для выбора в кольце PlayerInteraction (без диалога 679).
+// Делает то же, что ветка диалога 679: шлёт /givelic, запоминает данные для авто-перевыдачи, обновляет Interaction.
+window.pravoGiveLicenseByIndex = (targetId, idx) => {
+    const chosen = _GIVE_LIC_TYPES[idx];
+    if (!chosen || targetId === null || targetId === undefined || targetId === '') return false;
+    const cmd = `/givelic ${targetId} ${chosen.type} ${chosen.price}`;
+    console.log(`[GIVELIC] (круг) Отправка команды: ${cmd}`);
+    if (typeof __mvdPrevSendChatInput === "function") {
+        __mvdPrevSendChatInput(cmd);
+    } else {
+        engine.trigger("SendChatInput", cmd);
+    }
+    _lastGiveLicData = {
+        targetId: targetId,
+        type:     chosen.type,
+        price:    chosen.price,
+        name:     chosen.name
+    };
+    window._lastGiveLicData = _lastGiveLicData;
+    setTimeout(function () { _pravoUpdateHassleInteraction(targetId); }, 350);
+    return true;
 };
 // ==================== END /givelic ====================
 window.sendClientEventCustom = (event, ...args) => {
