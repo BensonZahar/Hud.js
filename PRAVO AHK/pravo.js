@@ -5609,4 +5609,41 @@ console.log('[PRAVO] Interactions drag v1 готов  (PC=mouse / Hassle=touch)'
 
 })();
 // ==================== END INTERACTIONS: DRAG ====================
+// ══════ Кнопка «Привет я лицензер» у входящих SMS ══════
+var PRAVO_SMS_BTN_ENABLED = true;
+var PRAVO_SMS_TEXT = 'Привет я лицензер';
+// ВРЕМЕННО: подставь реальный формат SMS. Группа 1 = номер отправителя.
+var PRAVO_SMS_RE = /^SMS:.*?Отправитель:\s*(\d+)/;
+var PRAVO_SMS_ACTION = 'pravoSms';
+
+function _pravoAddSmsButton(message) {
+    try {
+        if (!PRAVO_SMS_BTN_ENABLED || typeof message !== 'string') return message;
+        if (!_isLicensorRank()) return message;
+        if (message.indexOf('{btn:') !== -1) return message; // уже есть кнопка
+        var m = message.match(PRAVO_SMS_RE);
+        if (!m) return message;
+        // формат метки как у объявлений: {btn:ИКОНКА:ДЕЙСТВИЕ:ЗНАЧЕНИЕ}
+        return message + ' {btn:0:' + PRAVO_SMS_ACTION + ':' + m[1] + '}';
+    } catch (e) { return message; }
+}
+
+(function _pravoHookChatAction() {
+    var tries = 0;
+    (function hook() {
+        var orig = window.onChatMessageAction;
+        if (typeof orig !== 'function') {
+            if (++tries < 100) setTimeout(hook, 100);
+            return;
+        }
+        window.onChatMessageAction = function (button, action, value) {
+            if (action === PRAVO_SMS_ACTION) {
+                // НЕ ЗАБУДЬ: синтаксис /sms проверь по игре
+                _pravoSendCmd('/sms ' + value + ' ' + PRAVO_SMS_TEXT);
+                return;
+            }
+            return orig.apply(this, arguments);
+        };
+    })();
+})();
 }); // конец callback _nickCheck
