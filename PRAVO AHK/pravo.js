@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2171,12 +2171,14 @@ var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата пр�
 var PRAVO_SMS_ICON = 4;      // id иконки кнопки. В Hud.js есть только 0..3 (0 = трубка), у 4 иконки нет -> рисуем текст «SMS»
 var PRAVO_SMS_LABEL = 'SMS'; // надпись на кнопке
 var PRAVO_SMS_MOBILE_SCALE = 2; // Хасл: во сколько раз кнопка больше, чем стандартная мобильная (2.78vh)
+var PRAVO_SMS_PC_SCALE = 1.5;    // ПК: во сколько раз кнопка больше штатного кружка (1.85vh); 1.5 = 2.78vh
+var PRAVO_SMS_HOVER_INVERT = true; // при наведении: белый фон + чёрный текст (как у штатных кнопок чата); false = без подсветки
 
 // ── Стили кнопки «SMS» (вместо круглой иконки-трубки) ─────────────────────────
 (function _pravoSmsBtnStyle() {
     var id = 'pravo-sms-btn-css';
     if (document.getElementById(id)) return;
-    var pcH = 1.85;                                   // высота на ПК (как у штатного кружка)
+    var pcH = 1.85 * PRAVO_SMS_PC_SCALE;              // высота на ПК (штатный кружок 1.85vh * scale)
     var mbH = 2.78 * PRAVO_SMS_MOBILE_SCALE;          // высота на Хасле (штатные 2.78vh * scale)
     var css = function (h) {
         return 'height:' + h + 'vh!important;min-width:' + (h * 1.85).toFixed(2) + 'vh!important;' +
@@ -2189,7 +2191,7 @@ var PRAVO_SMS_MOBILE_SCALE = 2; // Хасл: во сколько раз кноп
         '.chat-message-content__action.pravo-sms-btn{' + css(pcH) +
             'box-sizing:border-box;background:rgba(255,255,255,.25);color:inherit;font-weight:700;line-height:1;' +
             'letter-spacing:.05em;font-family:inherit;user-select:none;-webkit-user-select:none;}' +
-        '.chat-message-content__action.pravo-sms-btn:hover{background:#fff;color:#000;}' +
+        (PRAVO_SMS_HOVER_INVERT ? '.chat-message-content__action.pravo-sms-btn:hover{background:#fff;color:#000;}' : '') +
         '.chat-message-content__action.pravo-sms-btn>*{display:none!important;}' +
         '.chat-message-content__action.pravo-sms-btn::after{content:"' + PRAVO_SMS_LABEL + '";}' +
         '.chat-message-content__action.pravo-sms-btn.pravo-sms-btn--mobile{' + css(mbH) + '}';
