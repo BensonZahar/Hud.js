@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.666 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2206,7 +2206,8 @@ function _pravoAddSmsButton(message) {
             '.pravo-sms-badge{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;' +
             'font:700 0.8vh/1 Arial,sans-serif;letter-spacing:0;color:#fff;pointer-events:none;transition:color .25s ease}' +
             '.chat-message-content__action:hover .pravo-sms-badge{color:#000}' +
-            '.pravo-sms-done .chat-message-content__action-image{display:none!important}';
+            '.pravo-sms-done .chat-message-content__action-image{display:none!important}' +
+            '@media (platform:mobile){.pravo-sms-badge{font-size:1.3vh}}';
         (document.head || document.documentElement).appendChild(st);
         var scheduled = false;
         function scan() {
