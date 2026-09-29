@@ -1677,45 +1677,17 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         }, 250);
     }
 
-    // ── Иконка: берём за основу «Персонаж» (те же голова и плечи), рядом — карточка-лицензия ──
-    // Сам <svg> клонируем у настоящей кнопки «Персонаж» (классы, data-v-атрибут, размер и цвет — родные),
-    // внутри заменяем содержимое. Маска вырезает зазор вокруг карточки, чтобы силуэт не сливался с ней.
-    var LIC_ICON_INNER =
-        '<defs><mask id="pravoLicMask"><rect width="32" height="32" fill="#fff"/>' +
-        '<rect x="13" y="15" width="21" height="19" rx="3.5" fill="#000"/></mask></defs>' +
-        '<g mask="url(#pravoLicMask)"><g transform="scale(.82)">' +
-        // голова и плечи — ровно из иконки «Персонаж»
-        '<path d="M24 8C24 12.4183 20.4183 16 16 16C11.5817 16 8 12.4183 8 8C8 3.58172 11.5817 0 16 0C20.4183 0 24 3.58172 24 8Z"/>' +
-        '<path d="M26.0113 32H32C32 27.7565 30.3143 23.6869 27.3137 20.6863C24.3131 17.6857 20.2435 16 16 16C11.7565 16 7.68688 17.6857 4.68629 20.6863C1.68571 23.6869 0 27.7565 0 32H6.65881C7.17634 28.7259 8.34695 25.3575 10.3003 23.1111C9.45815 24.9955 8.58027 28.4528 9.12668 32L23.5435 32C24.0899 28.4528 23.212 24.9955 22.3698 23.1111C24.3232 25.3575 25.4938 28.7259 26.0113 32Z"/>' +
-        '</g></g>' +
-        // карточка-лицензия: рамка + две строки
-        '<path fill-rule="evenodd" d="M17 17H29a2 2 0 0 1 2 2V29a2 2 0 0 1-2 2H17a2 2 0 0 1-2-2V19a2 2 0 0 1 2-2zM16.5 18.5v11h13v-11z"/>' +
-        '<rect x="18.2" y="21" width="10" height="1.6"/><rect x="18.2" y="24.6" width="6" height="1.6"/>';
+    // ── Иконка: голова и плечи из «Персонажа» + карточка-лицензия ──────────────────────────
+    // Рисуем НЕ как inline-<svg>, а как <img> с SVG в data-URI: так картинка не зависит ни от CSS страницы
+    // (fill / scoped-стили / маски), ни от того, как движок разбирает встроенный svg. Цвет #e0bf3e — как у
+    // родных иконок — зашит в сам SVG. Голова и плечи — ровно контуры иконки «Персонаж» (уменьшены до 76%),
+    // вокруг карточки маской вырезан зазор, чтобы силуэт с ней не сливался.
+    var LIC_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="#e0bf3e"><defs><mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32"><rect width="32" height="32" fill="#fff"/><rect x="11" y="14" width="22" height="20" rx="4" fill="#000"/></mask></defs><g mask="url(#m)"><g transform="scale(.76)"><path d="M24 8C24 12.4183 20.4183 16 16 16C11.5817 16 8 12.4183 8 8C8 3.58172 11.5817 0 16 0C20.4183 0 24 3.58172 24 8Z"/><path d="M26.0113 32H32C32 27.7565 30.3143 23.6869 27.3137 20.6863C24.3131 17.6857 20.2435 16 16 16C11.7565 16 7.68688 17.6857 4.68629 20.6863C1.68571 23.6869 0 27.7565 0 32H6.65881C7.17634 28.7259 8.34695 25.3575 10.3003 23.1111C9.45815 24.9955 8.58027 28.4528 9.12668 32L23.5435 32C24.0899 28.4528 23.212 24.9955 22.3698 23.1111C24.3232 25.3575 25.4938 28.7259 26.0113 32Z"/></g></g><path fill-rule="evenodd" d="M15.5 16.5H29.5A2.5 2.5 0 0 1 32 19V29A2.5 2.5 0 0 1 29.5 31.5H15.5A2.5 2.5 0 0 1 13 29V19A2.5 2.5 0 0 1 15.5 16.5ZM15.4 19.4H19.4V24.4H15.4ZM21.4 19.6H29.6V21.2H21.4ZM21.4 22.8H29.6V24.4H21.4ZM15.4 26.6H29.6V28.2H15.4Z"/></svg>';
+    var LIC_ICON_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(LIC_ICON_SVG);
 
-    function buildIcon(vm, box, sa) {
-        var svg = null;
-        try {
-            var items = box.querySelectorAll('.player-interaction__item');
-            var idx = -1;
-            for (var i = 0; i < vm.menu.length; i++) {
-                if (vm.menu[i] && vm.menu[i].icon === 'Character') { idx = i; break; }
-            }
-            var src = (idx >= 0 && items[idx]) ? items[idx].querySelector('svg') : null;
-            if (src) svg = src.cloneNode(false);      // без детей: атрибуты/классы родные
-        } catch (e) {}
-        if (!svg) {                                    // «Персонажа» нет в меню — рисуем сами с теми же классами
-            svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-            svg.setAttribute(sa, '');
-        }
-        svg.setAttribute('class', 'player-interaction__icon');   // без _active, даже если «Персонаж» сейчас выбран
-        svg.setAttribute('viewBox', '0 0 32 32');
-        svg.setAttribute('width', '32');
-        svg.setAttribute('height', '32');
-        svg.style.width = '2.96vh';
-        svg.style.height = '2.96vh';
-        svg.style.fill = '#e0bf3e';
-        svg.innerHTML = LIC_ICON_INNER;
-        return svg.outerHTML;
+    function buildIcon(sa) {
+        return '<img ' + sa + ' class="player-interaction__icon-lic" draggable="false" alt="" src="' + LIC_ICON_URI + '"' +
+            ' style="display:block;width:2.96vh;height:2.96vh;object-fit:contain;pointer-events:none;user-select:none;-webkit-user-drag:none">';
     }
 
     // Компонент строит секторы асинхронно (после mounted + ответа сервера) — ждём готовности
@@ -1746,8 +1718,15 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         b.style.webkitTapHighlightColor = 'transparent';
         var icon = PRAVO_MOBLIC_ICON
             ? '<img ' + sa + ' src="' + PRAVO_MOBLIC_ICON + '" style="width:2.96vh;height:2.96vh;object-fit:contain;display:block">'
-            : buildIcon(vm, box, sa);
+            : buildIcon(sa);
         b.innerHTML = icon + '<div ' + sa + ' class="player-interaction__title">' + TITLE + '</div>';
+        try {   // для отладки: видно, загрузилась ли картинка
+            var _im = b.querySelector('img');
+            if (_im) {
+                _im.addEventListener('load', function () { dbg('иконка загружена', _im.naturalWidth + 'x' + _im.naturalHeight); });
+                _im.addEventListener('error', function () { dbg('иконка НЕ загрузилась (data-URI)'); });
+            }
+        } catch (er) {}
         b.addEventListener('click', onClick);
         b.addEventListener('touchstart', function () { b.style.filter = 'brightness(0.6)'; }, { passive: true });
         b.addEventListener('touchend', function () { b.style.filter = ''; }, { passive: true });
