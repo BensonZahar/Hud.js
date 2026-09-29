@@ -8,8 +8,7 @@ const _ALLOWED_NICKS = [
     "Denis_Galievskiy",
 	"Fura_Morales",
     "Sergey_Gaben",
-	"Steel_Soprano",
-	"Kiramo_Vultures"
+	"Steel_Soprano"
 ];
 
 // Показ уведомления о запрете доступа.
@@ -2165,7 +2164,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
 // ══════ Кнопка авто-ответа «Нахожусь в правительстве» у входящих SMS ══════
 var PRAVO_SMS_BTN_ENABLED = true;
-var PRAVO_SMS_TEXT = 'Здравствуйте, нахожусь в правительстве [/gps - Правительство]';
+var PRAVO_SMS_TEXT = 'Здравствуйте, я не выездной, нахожусь в правительстве [/gps - Правительство]';
 // Входящее: "SMS: текст | Отправитель: {v:Ник} [т.333351]"; группа 1 = номер
 var PRAVO_SMS_RE = /SMS:.*\|\s*Отправитель:.*?\[т\.(\d+)\]/;
 var PRAVO_SMS_ACTION = 9001; // числовой id: парсер чата принимает только {btn:число:число:число}
