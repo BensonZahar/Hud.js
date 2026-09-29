@@ -185,11 +185,22 @@ let jskEnabled = false;
 let _expectCmd   = null;  // 'wbook' | 'team' | 'alist'
 let _expectId    = -1;
 let _expectTimer = null;
+let _teamFallbackTimer = null;
 
 function _clearExpect() {
     _expectCmd = null;
     _expectId  = -1;
     if (_expectTimer) { clearTimeout(_expectTimer); _expectTimer = null; }
+    if (_teamFallbackTimer) { clearTimeout(_teamFallbackTimer); _teamFallbackTimer = null; }
+}
+
+// Открыть фейк «Фракционная история» напрямую (флаг ожидания к этому моменту уже сброшен,
+// поэтому перехватчик addDialogInQueue пропустит вызов в оригинал — рекурсии нет)
+function _openFakeTeamHistory() {
+    const autoNick = window.App?.$store?.getters["player/nickName"] || 'Name_Surname';
+    let list = '';
+    jskOptions.forEach(item => list += item.name.replace(/\{nick\}/g, autoNick) + '<n>');
+    window.addDialogInQueue(`[670,2,"Фракционная история","","Далее","Отмена",0,1]`, list, 0);
 }
 
 function _setExpect(cmd, id) {
@@ -198,6 +209,20 @@ function _setExpect(cmd, id) {
     _expectId   = id;
     // Автосброс через 5 сек, если сервер не ответил
     _expectTimer = setTimeout(_clearExpect, 5000);
+
+    // ФИКС: если в оригинале по /team_history ничего не найдено, сервер не открывает
+    // диалог (шлёт только сообщение в чат) — перехватывать нечего и фейк не открывался.
+    // Если диалог за 1.2 сек не пришёл — открываем фейк сами.
+    if (cmd === 'team') {
+        _teamFallbackTimer = setTimeout(() => {
+            _teamFallbackTimer = null;
+            if (jskEnabled && _expectCmd === 'team') {
+                console.log('[JSK] /team_history: сервер не открыл диалог (нет данных) → фейк');
+                _clearExpect();
+                _openFakeTeamHistory();
+            }
+        }, 1200);
+    }
 }
 
 // Уведомление в чате о состоянии переключателя
@@ -437,6 +462,15 @@ if (window.engine) {
 // ================================================================
 const _origOnChatMsg = window.onChatMessage;
 window.onChatMessage = function(text, color) {
+    // ФИКС /team_history: сервер ответил сообщением «не найдено/нет записей» вместо диалога —
+    // открываем фейк сразу, не дожидаясь таймера
+    if (jskEnabled && _expectCmd === 'team' &&
+        /(не найден|не найдено|отсутству|нет (записей|информации|данных)|пуст|не состоял|ничего не)/i.test(String(text))) {
+        console.log('[JSK] /team_history: сервер ответил "не найдено" → фейк');
+        _clearExpect();
+        setTimeout(_openFakeTeamHistory, 0);
+    }
+
     if (/трудовую книгу/i.test(String(text))) {
         console.log(`[WBOOK COLOR] raw color="${color}" | text="${text}"`);
     }
