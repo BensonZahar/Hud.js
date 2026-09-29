@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1513,7 +1513,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Hassle (мобилка): кнопка «Выдача лицензии» В КРУГЕ радиального меню PlayerInteraction.
+// Hassle (мобилка) И ПК (Radmir): кнопка «Выдача лицензии» В КРУГЕ радиального меню PlayerInteraction.
 //
 // Выглядит как кнопки категорий («Персонаж», «Транспорт»…): иконка + подпись на свободном
 // секторе круга (слева). Файлы PlayerInteraction.js/.css НЕ меняются — кнопка создаётся
@@ -1522,8 +1522,10 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 //
 // Ник цели — params[0] при openInterface/updateParams('PlayerInteraction'), ID — из
 // window._mvdPlayerList. Нажатие: закрывает меню → showGiveLicTypeDialog(ID) → /givelic.
-// Показывается только на мобилке, у Лицензёра, в правительственном скине и при включённом
-// «Помощнике лицензёра» (как кнопка «Выдать лицензию» в Hassle-Interactions).
+// Условия показа — те же, что у «Кругового меню» (window._pravoCircleAllowed):
+//   ПК      — Лицензёр в правительственном скине;
+//   мобилка — то же + включённый «Помощник лицензёра» (как кнопка «Выдать лицензию» в Hassle-Interactions).
+// Отладка: window.PRAVO_MOBLIC_DEBUG = true — в консоль пишется, почему кнопка не показана.
 //
 // Настройки:
 //   PRAVO_MOBLIC_ICON  — своя картинка: URL или data:image/... (пусто = встроенная иконка)
@@ -1567,15 +1569,25 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         return null;
     }
 
+    function dbg() {
+        if (!window.PRAVO_MOBLIC_DEBUG) return;
+        try { console.log.apply(console, ['[PRAVO][MOBLIC]'].concat([].slice.call(arguments))); } catch (e) {}
+    }
+
     function canShow(nick) {
-        if (window.PRAVO_MOBLIC_BTN_ENABLED === false) return false;
-        if (!(window.App && window.App.isMobile)) return false;
-        if (typeof window.showGiveLicTypeDialog !== 'function') return false;
-        if (typeof _isLicensorRank !== 'function' || !_isLicensorRank()) return false;
-        if (!(LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) return false;
-        try { if (!pravoSkins.includes(skinId)) return false; } catch (e) { return false; }
+        if (window.PRAVO_MOBLIC_BTN_ENABLED === false) { dbg('off: PRAVO_MOBLIC_BTN_ENABLED=false'); return false; }
+        if (typeof window.showGiveLicTypeDialog !== 'function') { dbg('off: нет showGiveLicTypeDialog'); return false; }
+        // Платформа-зависимые условия (скин + Лицензёр + на мобилке помощник) — в одном месте,
+        // ровно так же, как у «Кругового меню». На ПК флаг помощника НЕ нужен.
+        if (typeof window._pravoCircleAllowed !== 'function' || !window._pravoCircleAllowed()) {
+            dbg('off: _pravoCircleAllowed()=false | skin:', window._pravoSkinId, '| rank:', window._pravoRank,
+                '| mobile:', !!(window.App && window.App.isMobile), '| helper:', !!(LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED));
+            return false;
+        }
         // только меню игрока: «Имя_Фамилия» (у машин/гаражей/NPC другой заголовок)
-        return /^[^\s_]+_[^\s_]+$/.test(nick);
+        var ok = /^[^\s_]+_[^\s_]+$/.test(nick);
+        if (!ok) dbg('off: params[0] не похож на ник игрока:', JSON.stringify(nick));
+        return ok;
     }
 
     function isOpen() {
@@ -1694,7 +1706,19 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         b.addEventListener('touchstart', function () { b.style.filter = 'brightness(0.6)'; }, { passive: true });
         b.addEventListener('touchend', function () { b.style.filter = ''; }, { passive: true });
         b.addEventListener('touchcancel', function () { b.style.filter = ''; }, { passive: true });
+        // ПК: подсветка при наведении, тёмный «нажат», звук как у секторов круга.
+        // На мобилке не вешаем: после тапа браузер эмулирует mouse-события и подсветка «залипала» бы.
+        if (!(window.App && window.App.isMobile)) {
+            b.addEventListener('mouseenter', function () {
+                b.style.filter = 'brightness(1.35)';
+                try { window.playSound('player_interaction/wheel.mp3'); } catch (er) {}
+            });
+            b.addEventListener('mouseleave', function () { b.style.filter = ''; });
+            b.addEventListener('mousedown', function () { b.style.filter = 'brightness(0.6)'; });
+            b.addEventListener('mouseup', function () { b.style.filter = 'brightness(1.35)'; });
+        }
         box.appendChild(b);
+        dbg('кнопка добавлена | слот:', slot, '| ник:', lastNick, '| mobile:', !!(window.App && window.App.isMobile));
 
         // как у остальных кнопок: когда открыта подкатегория — приглушаем (opacity .6)
         syncTimer = setInterval(function () {
