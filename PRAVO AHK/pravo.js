@@ -222,7 +222,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.8 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -3367,9 +3367,6 @@ window.pravoGiveLicenseByIndex = (targetId, idx) => {
 window.sendClientEventCustom = (event, ...args) => {
     console.log(`[EVENT] Событие: ${event}, Аргументы:`, args);
 
-    // Раздевалка фракции: после «Переодеться» -> «Да» возвращаем меню
-    try { if (typeof window._pravoCloakOnResponse === 'function') window._pravoCloakOnResponse(args); } catch (e) {}
-
     // ── HASSLE: перехват кликов по Interaction-типам (9900/9901/9902) ───────
     if (args[0] === 'OnInteractionsClick') {
         const _hInt = parseInt(args[1]);
@@ -3736,76 +3733,6 @@ sendClientEvent = sendClientEventCustom;
 // Перехват серверных диалогов — вывод в консоль + авто-действия
 
 
-// ==================== РАЗДЕВАЛКА ФРАКЦИИ: НЕ ЗАКРЫВАТЬ МЕНЮ ПОСЛЕ «ПЕРЕОДЕТЬСЯ» ====================
-// ВАЖНО: все серверные диалоги приходят на клиент с id=0, поэтому id тут НЕ используется —
-// отслеживаем цепочку по состоянию: меню -> «Переодеться» -> окно подтверждения -> «Да».
-// Текст окна подтверждения приходит в content (info пустой).
-// Выключить: window.PRAVO_CLOAKROOM_KEEP_OPEN = false
-window.PRAVO_CLOAKROOM_KEEP_OPEN = true;
-var _cloakMenu = null;              // { params, content, priority } — последнее меню раздевалки фракции
-var _cloakStage = 0;                // 0 — ничего, 1 — меню открыто, 2 — выбрали «Переодеться», 3 — открыто подтверждение
-var _cloakSkipCapture = false;      // не перезаписывать _cloakMenu при нашем же повторном открытии
-var _cloakReopenTO = null;
-
-function _cloakText(content) {
-    return (Array.isArray(content) ? content.join('') : String(content || ''));
-}
-
-// «Маскировка» бывает только у ФСБ в рабочей форме — после смены формы пункт неактуален
-function _cloakStripMask(content) {
-    if (Array.isArray(content)) return content.filter(function (r) { return !/Маскировка/.test(String(r)); });
-    var s = String(content), trail = /<n>$/.test(s);
-    var rows = s.split('<n>');
-    if (trail) rows.pop();
-    rows = rows.filter(function (r) { return !/Маскировка/.test(r); });
-    return rows.join('<n>') + (trail ? '<n>' : '');
-}
-
-// Вызывается из обёртки addDialogInQueue (title/info уже без цветовых кодов)
-window._pravoCloakOnDialogOpen = function (dialogId, style, title, info, content, dialogParams, priority) {
-    var raw = _cloakText(content);
-    if (style === 2 && /Сменить униформу/.test(raw) && /Переодеться/.test(raw)) {
-        // меню раздевалки фракции
-        if (_cloakSkipCapture) { _cloakSkipCapture = false; _cloakStage = 1; return; }
-        _cloakMenu = { params: dialogParams, content: content, priority: priority };
-        _cloakStage = 1;
-        return;
-    }
-    if (_cloakStage === 2 && style === 0 && title.indexOf('Раздевалка') !== -1 && /переодет/i.test(raw + ' ' + info)) {
-        _cloakStage = 3;   // окно «Вы действительно хотите переодеться в … одежду?»
-        return;
-    }
-    if (_cloakStage !== 0 && !_cloakSkipCapture) _cloakStage = 0; // открылось что-то другое — цепочка сорвана
-};
-
-// Вызывается в начале sendClientEventCustom
-window._pravoCloakOnResponse = function (args) {
-    if (!window.PRAVO_CLOAKROOM_KEEP_OPEN || args[0] !== 'OnDialogResponse') return;
-    var resp = parseInt(args[2]), item = parseInt(args[3]);
-    if (_cloakStage === 1) {
-        // «Переодеться» — первый пункт списка
-        _cloakStage = (resp === 1 && item === 0) ? 2 : 0;
-        return;
-    }
-    if (_cloakStage === 3) {
-        _cloakStage = 0;
-        // «Нет» — сервер сам возвращает меню (else ShowPlayerTeamSkinDialog), нам делать нечего
-        if (resp !== 1 || !_cloakMenu) return;
-        clearTimeout(_cloakReopenTO);
-        _cloakReopenTO = setTimeout(function () {
-            try {
-                var q = window.App && window.App.dialogsQueue;
-                if (q && q.length) return; // сервер уже открыл другой диалог — не мешаем
-                _cloakSkipCapture = true;
-                window.addDialogInQueue(_cloakMenu.params, _cloakStripMask(_cloakMenu.content), _cloakMenu.priority);
-            } catch (e) { _cloakSkipCapture = false; }
-        }, 300);
-        return;
-    }
-    if (_cloakStage === 2) _cloakStage = 0;
-};
-// ==================== END РАЗДЕВАЛКА ====================
-
 const _dlgOrigAddDialogInQueue = window.addDialogInQueue;
 window.addDialogInQueue = function(dialogParams, content, priority) {
     try {
@@ -3839,9 +3766,6 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
                 (contentText ? `  Контент:\n${contentText.split('\n').map(l => '    ' + l).join('\n')}\n` : '') +
                 `  Кнопки: [${button1}] [${button2}]`
             );
-
-            // Раздевалка фракции: запоминаем меню / окно подтверждения
-            if (typeof window._pravoCloakOnDialogOpen === 'function') window._pravoCloakOnDialogOpen(dialogId, style, title, info, content, dialogParams, priority);
 
             // Авто-закрытие диалога "Точное время" (открывается после команды /c 60)
             // Закрываем ТОЛЬКО если этот диалог пришёл в ответ на НАШУ команду /c 60,
