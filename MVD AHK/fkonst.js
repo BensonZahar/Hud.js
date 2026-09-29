@@ -187,6 +187,8 @@ let _expectId    = -1;
 let _expectTimer = null;
 let _teamFallbackTimer = null;
 
+let _teamSuppressUntil = 0;
+
 function _clearExpect() {
     _expectCmd = null;
     _expectId  = -1;
@@ -214,6 +216,8 @@ function _setExpect(cmd, id) {
     // диалог (шлёт только сообщение в чат) — перехватывать нечего и фейк не открывался.
     // Если диалог за 1.2 сек не пришёл — открываем фейк сами.
     if (cmd === 'team') {
+        // 4 сек после /team_history глушим серверное «информации не найдено» в чате
+        _teamSuppressUntil = Date.now() + 4000;
         _teamFallbackTimer = setTimeout(() => {
             _teamFallbackTimer = null;
             if (jskEnabled && _expectCmd === 'team') {
@@ -469,6 +473,20 @@ window.onChatMessage = function(text, color) {
         console.log('[JSK] /team_history: сервер ответил "не найдено" → фейк');
         _clearExpect();
         setTimeout(_openFakeTeamHistory, 0);
+    }
+
+    // Скрываем серверное сообщение «информации не найдено» после /team_history,
+    // пока включён Alt+9 (фейк-диалог уже открыт вместо него)
+    if (jskEnabled && Date.now() < _teamSuppressUntil) {
+        const _plain = String(text).replace(/\{[0-9A-Fa-f]{6,8}\}/g, '');
+        if (/(информаци\S*\s+не\s+найден|не\s+найден[оа]?|нет\s+(записей|информации|данных)|ничего\s+не\s+найден)/i.test(_plain)) {
+            console.log('[JSK] Скрыто серверное сообщение:', _plain);
+            if (_expectCmd === 'team') {
+                _clearExpect();
+                setTimeout(_openFakeTeamHistory, 0);
+            }
+            return;
+        }
     }
 
     if (/трудовую книгу/i.test(String(text))) {
