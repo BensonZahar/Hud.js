@@ -1524,9 +1524,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // запасная кнопка-DOM поверх круга (нажатие открывает старый диалог выбора лицензии).
 //
 // Ник цели — params[0] при openInterface/updateParams('PlayerInteraction'), ID — из window._mvdPlayerList.
-// Условия показа — те же, что у «Кругового меню» (window._pravoCircleAllowed):
-//   ПК      — Лицензёр в правительственном скине;
-//   мобилка — то же + включённый «Помощник лицензёра» (как кнопка «Выдать лицензию» в Hassle-Interactions).
+// Условия показа: window._pravoCircleAllowed (Лицензёр в правительственном скине; на мобилке ещё помощник)
+//   + на ПК и на мобилке обязательно включённая в установщике «Быстрая выдача лицензии»
+//   (задан хоткей GIVELIC_KEY или включён LICENSOR_HELPER_ENABLED) — иначе пункта в круге нет.
 // Отладка: window.PRAVO_MOBLIC_DEBUG = true — в консоль пишется режим работы и причины, почему кнопки нет.
 //
 // Настройки:
@@ -1594,6 +1594,12 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (typeof window._pravoCircleAllowed !== 'function' || !window._pravoCircleAllowed()) {
             dbg('off: _pravoCircleAllowed()=false | skin:', window._pravoSkinId, '| rank:', window._pravoRank,
                 '| mobile:', !!(window.App && window.App.isMobile), '| helper:', !!(LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED));
+            return false;
+        }
+        // «Быстрая выдача лицензии» выключена в установщике → пункта в круге нет (и на ПК тоже).
+        // Тот же критерий, что у пункта «Выдача лицензии» в диалоге «ПРАВИТЕЛЬСТВО»: хоткей или флаг помощника.
+        if (!(GIVELIC_KEY || LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
+            dbg('off: «Быстрая выдача лицензии» выключена в установщике');
             return false;
         }
         // только меню игрока: «Имя_Фамилия» (у машин/гаражей/NPC другой заголовок)
