@@ -1826,6 +1826,36 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         // на мобилке долгое нажатие на подпункт перетаскивает его в «избранное» и шлёт серверу его id — для нашего не нужно
         if (typeof oTS === 'function') vm.onTouchStart = function () { if (isOwnSelected(vm)) return; return oTS.apply(this, arguments); };
         if (typeof oTE === 'function') vm.onTouchEnd = function () { if (isOwnSelected(vm)) return; return oTE.apply(this, arguments); };
+        // Баг игры: подсветка сектора считает угол как k*индекс+π/2 БЕЗ приведения к 0..2π. Для сектора 7
+        // (слева сверху) угол = 9π/4, и getCoords переворачивает Y — подсветка рисуется снизу. Нормализуем угол.
+        var oGC = vm.getCoords;
+        if (typeof oGC === 'function') vm.getCoords = function (e, t) {
+            if (typeof t === 'number' && t >= Math.PI * 2) t = t % (Math.PI * 2);
+            return oGC.call(this, e, t);
+        };
+        // Наведение мышью на центр круга: родная формула игры сравнивает углы в разных системах отсчёта и для
+        // дальних секторов выбирает «не тот». Пока в круге есть наш пункт — считаем сектор под курсором честно.
+        var oMM = vm.onMouseMove;
+        if (typeof oMM === 'function') vm.onMouseMove = function (ev) {
+            try {
+                if (hasEntry(vm) && ev && vm.$refs && vm.$refs.inner && vm.k) {
+                    var u = vm.$refs.inner.getBoundingClientRect();
+                    var th = Math.atan2(ev.x - u.x - u.width / 2, -(ev.y - u.y - u.height / 2));   // от верха по часовой
+                    if (th < 0) th += Math.PI * 2;
+                    var j = Math.round(th / vm.k) % (vm.DEFAULT_MENU_COUNT || 8);
+                    var mj = vm.menu[j];
+                    if (mj && mj.title) {
+                        vm.hoveredOption = j;
+                        vm.$nextTick(function () {
+                            var cc = vm.getCoords(vm.innerRadius - vm.convert(48 * 0.9) / 4, (vm.k * j + Math.PI / 2) % (Math.PI * 2));
+                            vm.hoveredSectorX = cc.x; vm.hoveredSectorY = cc.y;
+                        });
+                    }
+                    return;
+                }
+            } catch (er) { dbg('onMouseMove:', er); }
+            return oMM.apply(this, arguments);
+        };
         var ok = vm.selectOption !== oSel && vm.selectLayerOption !== oLay;
         if (ok) patchedFor = vm;
         return ok;
@@ -2043,7 +2073,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
                     hideHover();
                     if (typeof v.resetMainHover === 'function') v.resetMainHover();
                     var r = v.innerRadius - v.convert(48 * 0.9) / 4;   // как в onMouseOver компонента
-                    var cc = v.getCoords(r, v.k * slot + Math.PI / 2);
+                    var cc = v.getCoords(r, (v.k * slot + Math.PI / 2) % (Math.PI * 2));
                     var img = document.createElement('img');
                     img.id = HOV_ID;
                     img.setAttribute(sa, '');
