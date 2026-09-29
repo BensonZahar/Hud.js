@@ -1109,6 +1109,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
     function canIntercept(nick) {
         if (window.PRAVO_CIRCLE_LIC !== true) return false;
+        if (typeof window._pravoQuickGiveOn !== 'function' || !window._pravoQuickGiveOn()) return false;
         if (typeof window._pravoCircleAllowed !== 'function' || !window._pravoCircleAllowed()) return false;
         if (typeof window.showGiveLicTypeDialog !== 'function') return false;
         // только меню игрока «Имя_Фамилия» (у машин/домов/NPC другой заголовок)
@@ -1598,7 +1599,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         }
         // «Быстрая выдача лицензии» выключена в установщике → пункта в круге нет (и на ПК тоже).
         // Тот же критерий, что у пункта «Выдача лицензии» в диалоге «ПРАВИТЕЛЬСТВО»: хоткей или флаг помощника.
-        if (!(GIVELIC_KEY || LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
+        if (typeof window._pravoQuickGiveOn !== 'function' || !window._pravoQuickGiveOn()) {
             dbg('off: «Быстрая выдача лицензии» выключена в установщике');
             return false;
         }
@@ -2510,6 +2511,10 @@ const toggleAutoGrab = () => {
 if (typeof window.PRAVO_CIRCLE_LIC !== 'boolean') window.PRAVO_CIRCLE_LIC = false;
 // Доступность режима: ПК — Лицензёр в правительственном скине (как раньше у E+ПКМ);
 // мобилка — дополнительно нужен помощник лицензёра (как у кнопки в круге).
+// «Быстрая выдача лицензии» включена в установщике: задан хоткей GIVELIC_KEY или включён флаг помощника.
+window._pravoQuickGiveOn = function () {
+    return !!(GIVELIC_KEY || LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED);
+};
 window._pravoCircleAllowed = function () {
     try { if (!pravoSkins.includes(skinId)) return false; } catch (e) { return false; }
     if (typeof _isLicensorRank !== 'function' || !_isLicensorRank()) return false;
@@ -2931,8 +2936,8 @@ window.showMvdSubMenu = (e) => {
     if (_isLicensorRank() && (GIVELIC_KEY || LICENSOR_HELPER_ENABLED || window.LICENSOR_HELPER_ENABLED)) {
         availableSub.push({ name: "Выдача лицензии", id: "givelic" });
     }
-    // «Круговое меню» — после «Выдача лицензии» (ПК: достаточно звания Лицензёр; мобилка: + помощник)
-    if (window._pravoCircleAllowed()) {
+    // «Круговое меню» открывает диалог выдачи лицензии — значит нужна включённая в установщике «Быстрая выдача»
+    if (window._pravoCircleAllowed() && window._pravoQuickGiveOn()) {
         availableSub.push({ name: circleLicName(), id: "circle_lic" });
     }
     // «Просьба о чае» — после «Круговое меню» (те же условия: Лицензёр; на мобилке + помощник)
