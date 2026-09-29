@@ -221,7 +221,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.222 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.111 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1539,6 +1539,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
     var PRAVO_MOBLIC_ICON = '';   // ← сюда свою картинку (URL или data:image/png;base64,...)
     var BTN_ID = 'pravo-moblic-btn';
+    var HOV_ID = 'pravo-moblic-hover';
     var TITLE = 'Выдача лицензии';
     var lastNick = '', busy = false, syncTimer = null;
 
@@ -1628,7 +1629,13 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         return 'data-v-96e76c6f';
     }
 
+    function hideHover() {
+        var h = document.getElementById(HOV_ID);
+        if (h && h.parentNode) h.parentNode.removeChild(h);
+    }
+
     function removeBtn() {
+        hideHover();
         if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
         var old = document.getElementById(BTN_ID);
         if (old && old.parentNode) old.parentNode.removeChild(old);
@@ -1670,6 +1677,47 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         }, 250);
     }
 
+    // ── Иконка: берём за основу «Персонаж» (те же голова и плечи), рядом — карточка-лицензия ──
+    // Сам <svg> клонируем у настоящей кнопки «Персонаж» (классы, data-v-атрибут, размер и цвет — родные),
+    // внутри заменяем содержимое. Маска вырезает зазор вокруг карточки, чтобы силуэт не сливался с ней.
+    var LIC_ICON_INNER =
+        '<defs><mask id="pravoLicMask"><rect width="32" height="32" fill="#fff"/>' +
+        '<rect x="13" y="15" width="21" height="19" rx="3.5" fill="#000"/></mask></defs>' +
+        '<g mask="url(#pravoLicMask)"><g transform="scale(.82)">' +
+        // голова и плечи — ровно из иконки «Персонаж»
+        '<path d="M24 8C24 12.4183 20.4183 16 16 16C11.5817 16 8 12.4183 8 8C8 3.58172 11.5817 0 16 0C20.4183 0 24 3.58172 24 8Z"/>' +
+        '<path d="M26.0113 32H32C32 27.7565 30.3143 23.6869 27.3137 20.6863C24.3131 17.6857 20.2435 16 16 16C11.7565 16 7.68688 17.6857 4.68629 20.6863C1.68571 23.6869 0 27.7565 0 32H6.65881C7.17634 28.7259 8.34695 25.3575 10.3003 23.1111C9.45815 24.9955 8.58027 28.4528 9.12668 32L23.5435 32C24.0899 28.4528 23.212 24.9955 22.3698 23.1111C24.3232 25.3575 25.4938 28.7259 26.0113 32Z"/>' +
+        '</g></g>' +
+        // карточка-лицензия: рамка + две строки
+        '<path fill-rule="evenodd" d="M17 17H29a2 2 0 0 1 2 2V29a2 2 0 0 1-2 2H17a2 2 0 0 1-2-2V19a2 2 0 0 1 2-2zM16.5 18.5v11h13v-11z"/>' +
+        '<rect x="18.2" y="21" width="10" height="1.6"/><rect x="18.2" y="24.6" width="6" height="1.6"/>';
+
+    function buildIcon(vm, box, sa) {
+        var svg = null;
+        try {
+            var items = box.querySelectorAll('.player-interaction__item');
+            var idx = -1;
+            for (var i = 0; i < vm.menu.length; i++) {
+                if (vm.menu[i] && vm.menu[i].icon === 'Character') { idx = i; break; }
+            }
+            var src = (idx >= 0 && items[idx]) ? items[idx].querySelector('svg') : null;
+            if (src) svg = src.cloneNode(false);      // без детей: атрибуты/классы родные
+        } catch (e) {}
+        if (!svg) {                                    // «Персонажа» нет в меню — рисуем сами с теми же классами
+            svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            svg.setAttribute(sa, '');
+        }
+        svg.setAttribute('class', 'player-interaction__icon');   // без _active, даже если «Персонаж» сейчас выбран
+        svg.setAttribute('viewBox', '0 0 32 32');
+        svg.setAttribute('width', '32');
+        svg.setAttribute('height', '32');
+        svg.style.width = '2.96vh';
+        svg.style.height = '2.96vh';
+        svg.style.fill = '#e0bf3e';
+        svg.innerHTML = LIC_ICON_INNER;
+        return svg.outerHTML;
+    }
+
     // Компонент строит секторы асинхронно (после mounted + ответа сервера) — ждём готовности
     function inject(tries) {
         if (!isOpen()) return;
@@ -1698,24 +1746,39 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         b.style.webkitTapHighlightColor = 'transparent';
         var icon = PRAVO_MOBLIC_ICON
             ? '<img ' + sa + ' src="' + PRAVO_MOBLIC_ICON + '" style="width:2.96vh;height:2.96vh;object-fit:contain;display:block">'
-            : '<svg ' + sa + ' class="player-interaction__icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" ' +
-              'style="width:2.96vh;height:2.96vh;fill:#e0bf3e"><path fill-rule="evenodd" ' +
-              'd="M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM4 7v10h16V7H4zM6 9h5v6H6V9zM13 10h5v1.5h-5V10zM13 13h5v1.5h-5V13z"/></svg>';
+            : buildIcon(vm, box, sa);
         b.innerHTML = icon + '<div ' + sa + ' class="player-interaction__title">' + TITLE + '</div>';
         b.addEventListener('click', onClick);
         b.addEventListener('touchstart', function () { b.style.filter = 'brightness(0.6)'; }, { passive: true });
         b.addEventListener('touchend', function () { b.style.filter = ''; }, { passive: true });
         b.addEventListener('touchcancel', function () { b.style.filter = ''; }, { passive: true });
-        // ПК: подсветка при наведении, тёмный «нажат», звук как у секторов круга.
-        // На мобилке не вешаем: после тапа браузер эмулирует mouse-события и подсветка «залипала» бы.
+        // ПК: при наведении подсвечиваем СВОЙ сектор (родной hoveredOption игры про нашу кнопку не знает
+        // и держит подсветку на последней категории), сбрасываем чужую подсветку и играем звук круга.
+        // На мобилке не вешаем: после тапа браузер эмулирует mouse-события.
         if (!(window.App && window.App.isMobile)) {
-            b.addEventListener('mouseenter', function () {
-                b.style.filter = 'brightness(1.35)';
-                try { window.playSound('player_interaction/wheel.mp3'); } catch (er) {}
-            });
-            b.addEventListener('mouseleave', function () { b.style.filter = ''; });
+            var showHover = function () {
+                try {
+                    var v = getVm();
+                    if (!v || v.k == null || v.innerRadius == null) return;
+                    hideHover();
+                    if (typeof v.resetMainHover === 'function') v.resetMainHover();
+                    var r = v.innerRadius - v.convert(48 * 0.9) / 4;   // как в onMouseOver компонента
+                    var cc = v.getCoords(r, v.k * slot + Math.PI / 2);
+                    var img = document.createElement('img');
+                    img.id = HOV_ID;
+                    img.setAttribute(sa, '');
+                    img.className = 'player-interaction__sector';
+                    img.src = v.images['/src/assets/images/player-interaction/option_hover.svg'];
+                    img.style.transform = 'translate(' + cc.x + 'px, ' + cc.y + 'px) rotate(' + (v.k * slot * 180 / Math.PI) + 'deg)';
+                    img.style.pointerEvents = 'none';
+                    box.appendChild(img);
+                    window.playSound('player_interaction/wheel.mp3');
+                } catch (er) { dbg('hover error', er); }
+            };
+            b.addEventListener('mouseenter', showHover);
+            b.addEventListener('mouseleave', hideHover);
             b.addEventListener('mousedown', function () { b.style.filter = 'brightness(0.6)'; });
-            b.addEventListener('mouseup', function () { b.style.filter = 'brightness(1.35)'; });
+            b.addEventListener('mouseup', function () { b.style.filter = ''; });
         }
         box.appendChild(b);
         dbg('кнопка добавлена | слот:', slot, '| ник:', lastNick, '| mobile:', !!(window.App && window.App.isMobile));
