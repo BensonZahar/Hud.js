@@ -1752,6 +1752,11 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         try { list = _GIVE_LIC_TYPES; } catch (e) {}
         var out = [];
         for (var i = 0; i < list.length; i++) out.push({ id: 'pravo_lic_' + i, title: list[i].name, _pravoLicIdx: i });
+        // Порядок веера на экране. Сетка игры кладёт 1-й пункт ПРАВЕЕ всех, а остальные идут по часовой (справа налево),
+        // поэтому при чтении слева направо первой оказывалась «Охота». Разворачиваем массив: слева направо теперь
+        // Права → Проф. права → Оружие → Рыбалка → Охота. Тип лицензии берётся из _pravoLicIdx, так что выдача не путается.
+        // window.PRAVO_MOBLIC_LAYER_REVERSE = false — вернуть прежний порядок (Права справа, Охота слева).
+        if (window.PRAVO_MOBLIC_LAYER_REVERSE !== false) out.reverse();
         return out;
     }
 
