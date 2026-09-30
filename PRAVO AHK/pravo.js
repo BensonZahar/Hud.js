@@ -1775,6 +1775,36 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         return (typeof s === 'number') ? s : 4;
     }
 
+    // Сдвиг внешнего слоя (типы лицензий) по кругу, в секторах по 22.5°. Положительное значение двигает веер ВПРАВО
+    // (против часовой на экране). Штатная сетка кладёт первый тип в сектор сразу справа от низа, и веер уходит влево;
+    // при слоте 4 по умолчанию сдвигаем на 2 сектора. Переопределить: window.PRAVO_MOBLIC_LAYER_SHIFT = 0..3 (0 = без сдвига).
+    // Сдвиг включается, только если удалось подменить вычисляемый угол подсветки (shiftOn), иначе подсветка разъедется с пунктами.
+    var shiftOn = false;
+    function layerShift() {
+        var n = window.PRAVO_MOBLIC_LAYER_SHIFT;
+        if (typeof n === 'number') return n;
+        return configuredSlot() === 4 ? 2 : 0;
+    }
+    function patchLayerRotation(vm) {
+        var ctx = vm.$ && vm.$.ctx;
+        if (!ctx) { dbg('layer shift: нет vm.$.ctx'); return false; }
+        var d = Object.getOwnPropertyDescriptor(ctx, 'hoveredLayerRotation');
+        if (!d || typeof d.get !== 'function') { dbg('layer shift: нет hoveredLayerRotation'); return false; }
+        if (d.get.__pravoShift) return true;
+        var og = d.get;
+        var ng = function () {
+            var r = og.apply(this, arguments);
+            try {
+                var n = layerShift();
+                if (shiftOn && n && isOwnSelected(vm)) r -= n * (vm.k / 2) * 180 / Math.PI;
+            } catch (er) {}
+            return r;
+        };
+        ng.__pravoShift = true;
+        Object.defineProperty(ctx, 'hoveredLayerRotation', { enumerable: d.enumerable, configurable: true, get: ng, set: d.set });
+        return true;
+    }
+
     function targetSlot(vm, total) {
         var len = vm.menu.length;
         var want = configuredSlot();
@@ -1891,6 +1921,41 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (typeof oGC === 'function') vm.getCoords = function (e, t) {
             if (typeof t === 'number' && t >= Math.PI * 2) t = t % (Math.PI * 2);
             return oGC.call(this, e, t);
+        };
+        //  Сдвиг веера типов лицензий: пункты, подсветка (позиция + угол) считаем со сдвигом на layerShift() секторов
+        shiftOn = false;
+        try { shiftOn = patchLayerRotation(vm); } catch (er) { dbg('layer shift:', er); }
+        var oSOP = vm.setOptionsPositions, oOML = vm.onMouseOverLayer;
+        if (typeof oSOP === 'function') vm.setOptionsPositions = function (e, t) {
+            try {
+                var n = layerShift();
+                if (shiftOn && n && typeof e === 'number' && t && t.length && t[0] && typeof t[0]._pravoLicIdx === 'number') {
+                    //  +полный оборот (DEFAULT_FIRST_LAYER_SECTORS «пунктов» = 2π), чтобы угол не ушёл в минус; 1 пункт = 2 сектора
+                    return oSOP.call(this, e + (vm.DEFAULT_FIRST_LAYER_SECTORS || 8) - n / 2, t);
+                }
+            } catch (er) { dbg('setOptionsPositions:', er); }
+            return oSOP.apply(this, arguments);
+        };
+        if (typeof oOML === 'function') vm.onMouseOverLayer = function (e) {
+            var r = oOML.apply(this, arguments);
+            try {
+                var n = layerShift();
+                if (shiftOn && n && isOwnSelected(vm)) {
+                    vm.$nextTick(function () {   //  выполняется сразу после штатного $nextTick оригинала и перезаписывает X/Y
+                        try {
+                            if (vm.hoveredLayerOption !== e || !isOwnSelected(vm)) return;
+                            var rad = vm.$refs.container.getBoundingClientRect().height / 2 + vm.convert(vm.defaultMenuGap);
+                            var s = Math.PI * 2 / ((vm.DEFAULT_FIRST_LAYER_SECTORS || 8) * 2);
+                            var a = s * (e + vm.selectedOption * 2 - n) + s / 2 + Math.PI * 3 / 8;
+                            a = ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+                            var c = vm.getCoords(rad, a);
+                            vm.hoveredLayerSectorX = +c.x;
+                            vm.hoveredLayerSectorY = +c.y;
+                        } catch (er2) { dbg('hover shift:', er2); }
+                    });
+                }
+            } catch (er) { dbg('onMouseOverLayer:', er); }
+            return r;
         };
         // Наведение мышью на центр круга: родная формула игры сравнивает углы в разных системах отсчёта и для
         // дальних секторов выбирает «не тот». Пока в круге есть наш пункт — считаем сектор под курсором честно.
