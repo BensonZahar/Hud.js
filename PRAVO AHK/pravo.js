@@ -2223,9 +2223,10 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 //
 // Настройки:
 //   window.PRAVO_CHAT_UNDIM = false — вернуть как в игре (чат гаснет и затемняется).
-//   По умолчанию затемнение круга полностью отключено (:after и bg14.png скрыты).
-//   window.PRAVO_CHAT_UNDIM_KEEP_BG = true — оставить bg14.png (кольцо вокруг круга), убрать только затемнение.
-//   window.PRAVO_CHAT_UNDIM_MODE = 'window' — старый вариант: затемнение есть, но с «окном» под чат.
+//   По умолчанию ('above') затемнение остаётся, но рисуется в слое Hud ПОД чатом: чат выше затемнения, ниже круга.
+//   window.PRAVO_CHAT_UNDIM_MODE = 'off' — затемнение круга убрать совсем (:after и bg14.png скрыты);
+//     window.PRAVO_CHAT_UNDIM_KEEP_BG = true — в режиме 'off' оставить bg14.png (кольцо вокруг круга).
+//   window.PRAVO_CHAT_UNDIM_MODE = 'window' — старый вариант: затемнение над чатом, но с «окном» под чат.
 //   window.PRAVO_CHAT_UNDIM_FEATHER — ширина плавного перехода, vh (по умолчанию 3).
 //   window.PRAVO_CHAT_UNDIM_PAD — поле вокруг чата, vh (по умолчанию 0.8).
 // На мобилке (Hassle) чат в этом меню прячет сама игра (hideChat: "mobile") — не трогаем.
@@ -2309,17 +2310,85 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         } catch (e) {}
     }
 
+    // ── Режим по умолчанию ('above'): затемнение рисуем сами, но в слое Hud — ПОД чатом. ──────────
+    // Слой PlayerInteraction целиком выше Hud, поэтому родные :after (тёмная подложка) и :before (bg14.png)
+    // всегда накрывают чат. Скрываем их и рисуем такие же в слое Hud (z-index 0, чат — 1): чат оказывается
+    // выше затемнения, но по-прежнему ниже круга и его пунктов.
+    var UNDER_ID = 'pravo-pi-under', bgUrl = '';
+
+    function removeLayers(instant) {
+        var u = document.getElementById(UNDER_ID);
+        if (!u) return;
+        if (instant) { if (u.parentNode) u.parentNode.removeChild(u); return; }
+        if (u.__closing) return;
+        u.__closing = true;
+        u.style.opacity = '0';
+        setTimeout(function () { if (u.parentNode) u.parentNode.removeChild(u); }, 300);
+    }
+
+    function tickAbove(box, cr) {
+        var chatEl = document.querySelector('.radmir-chat');
+        if (!chatEl || !chatEl.parentNode) return;                 // чата нет — оставляем родное затемнение
+        if (!bgUrl) {                                              // адрес bg14.png читаем до того, как скроем :before
+            var bi = getComputedStyle(box, '::before').backgroundImage || '';
+            var m = /url\((['"]?)(.*?)\1\)/.exec(bi);
+            if (m) bgUrl = m[2];
+        }
+        if (!box.classList.contains(CLS)) box.classList.add(CLS);   // прячет родной :after
+        var nobg = !!bgUrl;                                         // родной bg14 прячем, только если можем перерисовать
+        if (box.classList.contains('pravo-pi-nobg') !== nobg) box.classList.toggle('pravo-pi-nobg', nobg);
+
+        var u = document.getElementById(UNDER_ID);
+        if (u && (u.__closing || u.parentNode !== chatEl.parentNode)) { removeLayers(true); u = null; }
+        if (!u) {
+            u = document.createElement('div');
+            u.id = UNDER_ID;
+            u.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;overflow:hidden;pointer-events:none;' +
+                'z-index:0;opacity:0;transition:opacity .25s ease';
+            u.innerHTML = '<div style="position:absolute;left:0;top:0;right:0;bottom:0"></div><div style="position:absolute"></div>';
+            chatEl.parentNode.insertBefore(u, chatEl);
+            lastSig = '';
+            dbg('затемнение перенесено под чат');
+            requestAnimationFrame(function () { u.style.opacity = '1'; });
+        }
+        // если у предка есть transform, fixed считается от него — компенсируем сдвиг
+        var ur = u.getBoundingClientRect();
+        if (Math.abs(ur.left) > 0.5 || Math.abs(ur.top) > 0.5) {
+            u.style.left = ((parseFloat(u.style.left) || 0) - ur.left) + 'px';
+            u.style.top = ((parseFloat(u.style.top) || 0) - ur.top) + 'px';
+        }
+
+        var vhp = window.innerHeight / 100;
+        var cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
+        var R = Math.round(cr.width * 3);                           // как у родного градиента
+        var bW = 106.5 * vhp;
+        var sig = ['a', Math.round(cx), Math.round(cy), R, window.innerWidth, window.innerHeight, bgUrl.length].join(',');
+        if (sig === lastSig) return;
+        lastSig = sig;
+
+        u.firstChild.style.background = 'radial-gradient(circle ' + R + 'px at ' + cx + 'px ' + cy + 'px,' +
+            '#141414e6 30%,#141414cc 40%,#141414b3 50%,#14141499 60%,#14141480 70%)';
+        var b = u.lastChild;
+        if (bgUrl) {
+            b.style.cssText = 'position:absolute;left:' + (cx - bW / 2) + 'px;top:' + (cy - bW / 2) + 'px;width:' + bW + 'px;height:' + bW +
+                'px;background:url("' + bgUrl + '") 50% 50%/cover no-repeat';
+        } else b.style.display = 'none';
+        dbg('затемнение под чатом:', Math.round(cx) + ',' + Math.round(cy), '| bg14:', bgUrl ? 'да' : 'не найден (родной оставлен)');
+    }
+
     function tick() {
-        if (!enabled() || !isOpen()) { lastSig = ''; return; }
+        if (!enabled() || !isOpen()) { lastSig = ''; removeLayers(); return; }
         keepChatActive();
         var box = document.querySelector('.player-interaction__container');
         if (!box) return;
         var cr = box.getBoundingClientRect();
         if (!cr.width || !cr.height) return;
 
-        // Режим по умолчанию: затемнение круга выключено совсем (родной :after и bg14.png скрыты, своей подложки нет).
-        // window.PRAVO_CHAT_UNDIM_MODE = 'window' — вернуть прежний вариант с «окном» под чат.
-        if (window.PRAVO_CHAT_UNDIM_MODE !== 'window') {
+        var mode = window.PRAVO_CHAT_UNDIM_MODE;
+        if (mode !== 'window' && mode !== 'off') { tickAbove(box, cr); return; }
+        removeLayers(true);
+        // 'off': затемнение круга выключено совсем (родной :after и bg14.png скрыты, своей подложки нет).
+        if (mode === 'off') {
             if (!box.classList.contains(CLS)) { box.classList.add(CLS); dbg('затемнение круга отключено'); }
             var keepBg = window.PRAVO_CHAT_UNDIM_KEEP_BG === true;
             if (box.classList.contains('pravo-pi-nobg') === keepBg) box.classList.toggle('pravo-pi-nobg', !keepBg);
