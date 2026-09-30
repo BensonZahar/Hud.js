@@ -222,7 +222,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.665 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -1654,6 +1654,10 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (old && old.parentNode) old.parentNode.removeChild(old);
     }
     function cleanup() {
+        if (window.__pravoLicPick === true) {
+            window.__pravoLicPick = false;
+            if (typeof window.__pravoChatSync === 'function') window.__pravoChatSync();
+        }
         window.__pravoLicPick = false;
         releaseLabels();
         stopSync();
@@ -1728,7 +1732,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     function syncLabels(vm) {
         var want = false, pick = false;
         try { pick = isOpen() && isOwnSelected(vm); } catch (er) {}
+        var prevPick = window.__pravoLicPick === true;
         window.__pravoLicPick = pick;   // выбор лицензии раскрыт — по нему же чат выводится над затемнением (блок ниже)
+        if (pick !== prevPick && typeof window.__pravoChatSync === 'function') window.__pravoChatSync();   // подмена затемнения в этом же кадре
         try { want = window.PRAVO_MOBLIC_LABELS !== false && pick; } catch (er) {}
         if (want === labelsOn) return;
         if (want) { setLabels(true); return; }
@@ -2241,8 +2247,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 
     var DIM_ID = 'pravo-pi-dim', STYLE_ID = 'pravo-pi-undim-css', HTML_CLS = 'pravo-pi-undim';
     var Z_DIM = 4000, Z_CHAT = 4001;   // Hud-овские z-index ≤ 10 (кроме окна помощи 9999) — оба выше остального Hud
-    var FADE_MS = 250;                 // как у fade-перехода интерфейсов
-    var bgUrl = null, lastSig = '', removeTimer = null;
+    var bgUrl = null, lastSig = '';
 
     function dbg() {
         if (!window.PRAVO_MOBLIC_DEBUG) return;
@@ -2276,9 +2281,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             // чат поднимаем над нашим слоем; z-index из transition:all не анимируем, чтобы чат не «проныривал» под слой
             'html.' + HTML_CLS + ' .radmir-chat{z-index:' + Z_CHAT + '!important;' +
                 'transition-property:opacity,left,top,transform!important}' +
+            // без fade: подмена штатной подложки нашей должна произойти в одном кадре, иначе видно «провал» затемнения
             '#' + DIM_ID + '{position:fixed;left:0;top:0;width:100vw;height:100vh;overflow:hidden;' +
-                'pointer-events:none;z-index:' + Z_DIM + ';opacity:0;transition:opacity ' + FADE_MS + 'ms ease}' +
-            '#' + DIM_ID + '.pravo-on{opacity:1}' +
+                'pointer-events:none;z-index:' + Z_DIM + '}' +
             '#' + DIM_ID + ' .pravo-pi-bg{position:absolute}';
         (document.head || document.documentElement).appendChild(st);
     })();
@@ -2302,29 +2307,22 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         } catch (e) { return null; }
     }
 
+    // Убираем наш слой и возвращаем штатные :before/:after в ТОМ ЖЕ кадре — без промежутка без затемнения
     function teardown() {
         var dim = document.getElementById(DIM_ID);
-        if (!dim) { html().classList.remove(HTML_CLS); lastSig = ''; return; }
-        dim.classList.remove('pravo-on');            // плавно гасим вместе с fade-ом самого меню
-        if (removeTimer) clearTimeout(removeTimer);
-        removeTimer = setTimeout(function () {
-            removeTimer = null;
-            if (enabled()) return;                   // успели раскрыть выбор заново — tick всё вернёт
-            var d = document.getElementById(DIM_ID);
-            if (d && d.parentNode) d.parentNode.removeChild(d);
-            html().classList.remove(HTML_CLS);
-            lastSig = '';
-            // вернулись в круг (меню открыто) — чат снова «неактивный», как в игре
-            if (isOpen() && !isMobile() && window.PRAVO_CHAT_UNDIM !== false && typeof window.setChatIsInactive === 'function') {
-                try { window.setChatIsInactive(true); } catch (e) {}
-            }
-            dbg('слой убран');
-        }, FADE_MS + 60);
+        if (dim && dim.parentNode) dim.parentNode.removeChild(dim);
+        html().classList.remove(HTML_CLS);
+        lastSig = '';
+        // вернулись в круг (меню открыто) — чат снова «неактивный», как в игре
+        if (isOpen() && !isMobile() && window.PRAVO_CHAT_UNDIM !== false && typeof window.setChatIsInactive === 'function') {
+            try { window.setChatIsInactive(true); } catch (e) {}
+        }
+        dbg('слой убран');
     }
 
     function tick() {
         if (!enabled()) {
-            if (document.getElementById(DIM_ID) && !removeTimer) teardown();
+            if (document.getElementById(DIM_ID) || html().classList.contains(HTML_CLS)) teardown();
             return;
         }
         keepChatActive();
@@ -2348,15 +2346,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             lastSig = '';
             dbg('слой создан');
         }
-        if (removeTimer) { clearTimeout(removeTimer); removeTimer = null; }
-        html().classList.add(HTML_CLS);
-        if (!dim.classList.contains('pravo-on')) {
-            // включаем на следующем кадре, чтобы сработал transition opacity
-            requestAnimationFrame(function () { requestAnimationFrame(function () {
-                var d = document.getElementById(DIM_ID);
-                if (d && !removeTimer && enabled()) d.classList.add('pravo-on');
-            }); });
-        }
+        html().classList.add(HTML_CLS);              // штатные :before/:after прячутся тем же кадром, в котором уже есть наш слой (ниже стили считаются синхронно)
 
         var vh = window.innerHeight, vhp = vh / 100;
         var cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
@@ -2398,6 +2388,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         wrapped.__pravoUndim = true;
         window.setChatIsInactive = wrapped;
     })();
+
+    // Мгновенная подмена: её дёргает блок кнопки лицензии в момент, когда выбор раскрылся / закрылся
+    window.__pravoChatSync = function () { try { lastSig = ''; tick(); } catch (e) { dbg('sync:', e); } };
 
     // Быстрые тики сразу после открытия меню (контейнер строится асинхронно), дальше — по интервалу
     var _oi = window.openInterface;
