@@ -83,8 +83,64 @@ def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
     except AttributeError:
-        base_path = os.path.abspath(".")
+        base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
+
+
+# ── Логотип и шрифты с GitHub ────────────────────────────────────────────────
+# Файлы лежат прямо в репозитории в папке HassleB: logo.png и шрифты .ttf
+# (можно и в подпапке fonts - пробуются оба варианта).
+# При первом запуске скачиваются в %LOCALAPPDATA%\HassleBot\assets и дальше берутся
+# из кэша. Нет сети / файла на GitHub -> используются локальные (рядом со скриптом / из exe).
+ASSETS_BASE = "https://raw.githubusercontent.com/BensonZahar/Hud.js/main/HassleB/"
+ASSET_FILES = [
+    "logo.png",
+    "fonts/OpenSans-Regular.ttf",
+    "fonts/OpenSans-SemiBold.ttf",
+    "fonts/OpenSansCondensed-SemiBoldItalic.ttf",
+    "fonts/OpenSansCondensed-BoldItalic.ttf",
+]
+
+
+def _assets_cache_dir():
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "HassleBot", "assets")
+
+
+def ensure_assets():
+    """Докачивает недостающие файлы в кэш. Любые сетевые ошибки не критичны."""
+    cache = _assets_cache_dir()
+    for rel in ASSET_FILES:
+        dst = os.path.join(cache, *rel.split("/"))
+        if os.path.exists(dst):
+            continue
+        data = None
+        # сначала HassleB/fonts/имя.ttf, затем HassleB/имя.ttf
+        for name in dict.fromkeys((rel, os.path.basename(rel))):
+            try:
+                r = requests.get(ASSETS_BASE + name, timeout=5)
+            except Exception:
+                return  # нет сети - не ждём таймауты по каждому файлу
+            if r.status_code == 200 and r.content:
+                data = r.content
+                break
+        if data is None:
+            continue
+        try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            tmp = dst + ".tmp"
+            with open(tmp, "wb") as f:
+                f.write(data)
+            os.replace(tmp, dst)
+        except Exception:
+            continue
+
+
+def asset_path(rel):
+    """Сначала кэш с GitHub, иначе локальный файл (resource_path)."""
+    cached = os.path.join(_assets_cache_dir(), *rel.split("/"))
+    return cached if os.path.exists(cached) else resource_path(rel)
+
 
 class MEmuHudManager:
     def __init__(self):
@@ -188,6 +244,7 @@ class MEmuHudManager:
             pass
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        ensure_assets()
         self._init_fonts()
         self._chrome_borderless()
         self._build_shell(W, H)
@@ -345,12 +402,16 @@ class MEmuHudManager:
         try:
             import ctypes
             import tkinter.font as tkfont
-            fdir = resource_path("fonts")
-            if not os.path.isdir(fdir):
+            font_files = {}
+            for d in (resource_path("fonts"), os.path.join(_assets_cache_dir(), "fonts")):
+                if os.path.isdir(d):
+                    for fn in sorted(os.listdir(d)):
+                        if fn.lower().endswith((".ttf", ".otf")):
+                            font_files[fn] = os.path.join(d, fn)  # кэш с GitHub перекрывает локальные
+            if not font_files:
                 return
-            for fn in sorted(os.listdir(fdir)):
-                if fn.lower().endswith((".ttf", ".otf")):
-                    ctypes.windll.gdi32.AddFontResourceExW(os.path.join(fdir, fn), 0x10, 0)
+            for path in font_files.values():
+                ctypes.windll.gdi32.AddFontResourceExW(path, 0x10, 0)
             fams = {f.lower() for f in tkfont.families(self.root)}
             if "open sans" in fams:
                 self.FAM["body"] = "Open Sans"
@@ -371,7 +432,12 @@ class MEmuHudManager:
         if kind == "cond":
             return (fam, size, "italic")
         if kind == "condb":
-            return (fam, size, "bold italic")
+            # Tk не принимает "bold italic" одной строкой в кортеже -> используем CTkFont
+            key = (fam, size)
+            cache = self.__dict__.setdefault("_condb_cache", {})
+            if key not in cache:
+                cache[key] = ctk.CTkFont(family=fam, size=size, weight="bold", slant="italic")
+            return cache[key]
         return (fam, size)
 
     # ── Окно без рамки ─────────────────────────────────────────────────────────
@@ -436,7 +502,7 @@ class MEmuHudManager:
     def _load_logo(self, height):
         try:
             from PIL import Image
-            p = resource_path("logo.png")
+            p = asset_path("logo.png")
             if not os.path.exists(p):
                 return None
             im = Image.open(p).convert("RGBA")
@@ -466,7 +532,7 @@ class MEmuHudManager:
             glow(W * 0.48, -H * 0.10, W * 0.40, H * 0.95, (22, 44, 96), 0.40)
             glow(0, H * 0.25, W * 0.30, H * 0.90, (110, 52, 24), 0.30)
 
-            lp = resource_path("logo.png")
+            lp = asset_path("logo.png")
             if os.path.exists(lp):
                 logo = Image.open(lp).convert("RGBA")
                 lh = int(H * 1.05)
@@ -486,7 +552,7 @@ class MEmuHudManager:
 
             def font(name, size):
                 try:
-                    return ImageFont.truetype(resource_path("fonts/" + name), size * S)
+                    return ImageFont.truetype(asset_path("fonts/" + name), size * S)
                 except Exception:
                     return ImageFont.load_default()
 
@@ -772,7 +838,7 @@ class MEmuHudManager:
             hover_color=C["card2"], text_color=idle,
             corner_radius=6, height=36, command=command,
         )
-        btn.place(x=10, y=2, relwidth=1.0, width=-20)
+        btn.pack(fill="x", padx=10, pady=2)
         ind = ctk.CTkFrame(row, width=3, height=18, corner_radius=2,
                            fg_color=C["red"] if danger else C["accent"])
         if active:
@@ -1136,7 +1202,7 @@ class MEmuHudManager:
             variable=self.conn_var,
             row=2,
         )
-        self.conn_var.trace("w", self.detect_app_folders)
+        self.conn_var.trace_add("write", self.detect_app_folders)
         self.conn_var.trace_add("write", self._refresh_hero_sub)
 
         self._field_label(dev, "ПАПКА ПРИЛОЖЕНИЯ", row=3)
@@ -2036,7 +2102,7 @@ class MEmuHudManager:
         def on_search(*_):
             render_list(search_var.get())
 
-        search_var.trace("w", on_search)
+        search_var.trace_add("write", on_search)
 
         def populate(files):
             all_files.clear()
