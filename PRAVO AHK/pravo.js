@@ -2385,10 +2385,68 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (name === 'PlayerInteraction') {
             lastSig = '';
             [30, 120, 300].forEach(function (ms) { setTimeout(tick, ms); });
+            if (window.PRAVO_MOBLIC_DEBUG) setTimeout(function () { if (isOpen()) window.pravoChatProbe(); }, 700);
         }
         return r;
     };
     setInterval(tick, 250);
+
+    // ── Диагностика: что реально затемняет чат ────────────────────────────────────────────────
+    // window.pravoChatProbe() — вручную; при window.PRAVO_MOBLIC_DEBUG = true запускается сама через 700 мс
+    // после открытия круга. Всё пишется в консоль с префиксом [PRAVO][PROBE].
+    function nm(el) {
+        var c = el.className && el.className.baseVal !== undefined ? el.className.baseVal : el.className;
+        return el.tagName.toLowerCase() + (el.id ? '#' + el.id : '') + (c ? '.' + String(c).trim().split(/\s+/).slice(0, 3).join('.') : '');
+    }
+    function pseudoInfo(el, which) {
+        var x = getComputedStyle(el, which);
+        if (!x || x.content === 'none' || x.content === 'normal') return '';
+        return ' ' + which + '{disp=' + x.display + ' z=' + x.zIndex + ' op=' + x.opacity +
+            ' bg=' + (x.backgroundImage !== 'none' ? x.backgroundImage.slice(0, 36) : x.backgroundColor) +
+            ' mask=' + (((x.webkitMaskImage || x.maskImage) || 'none') !== 'none' ? 'да' : 'нет') + '}';
+    }
+    window.pravoChatProbe = function () {
+        try {
+            var L = function () { console.log.apply(console, ['[PRAVO][PROBE]'].concat([].slice.call(arguments))); };
+            var cr = chatRect();
+            if (!cr) { L('чат не найден'); return; }
+            var c = getChat(), box = document.querySelector('.player-interaction__container');
+            var dim = document.getElementById(DIM_ID);
+            L('чат rect:', [cr.left, cr.top, cr.right, cr.bottom].map(Math.round).join(','), '| экран:', innerWidth + 'x' + innerHeight);
+            L('круг открыт:', isOpen(), '| box найден:', !!box, '| класс undim на box:', !!(box && box.classList.contains(CLS)),
+              '| isInactive:', c && c.isInactive);
+            if (box) {
+                L('box::after display =', getComputedStyle(box, '::after').display, '| box::before mask =',
+                  ((getComputedStyle(box, '::before').webkitMaskImage) || 'none') !== 'none' ? 'есть' : 'нет');
+            }
+            if (dim) {
+                var dr = dim.getBoundingClientRect(), dc = getComputedStyle(dim);
+                L('наша подложка rect:', [dr.left, dr.top, dr.right, dr.bottom].map(Math.round).join(','),
+                  '| mask:', ((dc.webkitMaskImage || dc.maskImage) || 'none') !== 'none' ? 'есть' : 'НЕТ', '| z=' + dc.zIndex);
+            } else L('нашей подложки НЕТ в DOM');
+            // цепочка предков чата: всё, что может его гасить или затемнять
+            var el = document.querySelector('.radmir-chat'), chain = [];
+            while (el && el !== document.documentElement) {
+                var cs = getComputedStyle(el);
+                if (cs.opacity !== '1' || cs.filter !== 'none' || cs.visibility !== 'visible' || cs.zIndex !== 'auto' || cs.mixBlendMode !== 'normal')
+                    chain.push(nm(el) + '{op=' + cs.opacity + ' z=' + cs.zIndex + (cs.filter !== 'none' ? ' filter=' + cs.filter : '') +
+                        (cs.visibility !== 'visible' ? ' vis=' + cs.visibility : '') + '}');
+                el = el.parentElement;
+            }
+            L('предки чата (opacity/z/filter):', chain.join(' <- ') || 'ничего особенного');
+            // что лежит над чатом по hit-test (pointer-events:none элементы сюда не попадают)
+            [[cr.left + 30, cr.top + 14], [cr.left + cr.width * 0.25, cr.top + cr.height * 0.5]].forEach(function (p) {
+                var els = document.elementsFromPoint(p[0], p[1]);
+                L('точка ' + Math.round(p[0]) + ',' + Math.round(p[1]) + ' сверху вниз:');
+                els.slice(0, 12).forEach(function (e, i) {
+                    var cs = getComputedStyle(e);
+                    L('  ' + i + ' ' + nm(e) + ' pos=' + cs.position + ' z=' + cs.zIndex + ' op=' + cs.opacity +
+                      ' bg=' + (cs.backgroundImage !== 'none' ? cs.backgroundImage.slice(0, 36) : cs.backgroundColor) +
+                      pseudoInfo(e, '::before') + pseudoInfo(e, '::after'));
+                });
+            });
+        } catch (e) { try { console.log('[PRAVO][PROBE] ошибка:', e); } catch (_) {} }
+    };
 
     console.log('[PRAVO] ✅ Чат при радиальном меню (не гаснет и не затемняется) установлен');
 })();
