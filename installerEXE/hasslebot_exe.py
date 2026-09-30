@@ -192,6 +192,9 @@ class MEmuHudManager:
         self.load_commit_info = ""
         self.script_commit_info = ""
         self.skip_warning_file = self.script_dir / "skip_warning.json"
+        # какой номер аккаунта выбран для какой папки: {игрок: {тип подключения: {папка: "N"}}}
+        self.folder_accounts_file = self.local_accounts_file.parent / "folder_accounts.json"
+        self.folder_accounts = self._load_folder_accounts()
         self.skip_warning = self.load_skip_warning()
         self.hwid = None
 
@@ -273,6 +276,80 @@ class MEmuHudManager:
                 json.dump({'skip': skip}, f)
         except Exception:
             pass
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Запомненные номера аккаунтов по папкам + автовставка
+    # ──────────────────────────────────────────────────────────────────────────
+    def _load_folder_accounts(self):
+        try:
+            if self.folder_accounts_file.exists():
+                data = json.loads(self.folder_accounts_file.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+        return {}
+
+    def get_folder_account(self, folder):
+        """Номер аккаунта, который раньше выбирали для этой папки (или None)."""
+        user = self.selected_code_name
+        if not user:
+            return None
+        acc = self.folder_accounts.get(user, {}).get(self.conn_var.get(), {}).get(folder)
+        return str(acc) if acc else None
+
+    def remember_folder_account(self, folder, acc):
+        user = self.selected_code_name
+        if not user or not folder or not acc:
+            return
+        self.folder_accounts.setdefault(user, {}).setdefault(self.conn_var.get(), {})[folder] = str(acc)
+        try:
+            self.folder_accounts_file.write_text(
+                json.dumps(self.folder_accounts, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            self.log(f"[!] Не удалось сохранить номера папок: {e}")
+
+    def auto_insert_all(self):
+        """АВТОВСТАВКА: ставит код во все папки, для которых запомнен номер аккаунта."""
+        def run():
+            if not self.launch_allowed:
+                self.log("[X] Ошибка: Нет разрешения на запуск")
+                return
+            if not self.selected_code_name:
+                self.log("[X] Ошибка: Пользователь не выбран")
+                return
+            if not self.select_connection():
+                self.log("[X] Ошибка: Устройство не подключено")
+                return
+            folders = self.get_hassle_folders()
+            if not folders:
+                self.log("[X] Папки com.hassle.online* не найдены")
+                return
+            plan = []
+            for f in folders:
+                acc = self.get_folder_account(f)
+                if not acc:
+                    self.log(f"[!] {f}: номер не запомнен — пропуск (установите код вручную один раз)")
+                    continue
+                token = self.get_local_account_token(self.selected_code_name, acc) or ""
+                if not re.fullmatch(self.TOKEN_RE, token):
+                    self.log(f"[!] {f}: нет токена для аккаунта #{acc} — пропуск")
+                    continue
+                plan.append((f, acc))
+            if not plan:
+                self.log("[X] Нечего вставлять: ни для одной папки нет запомненного номера с токеном")
+                return
+            prev = self.selected_account_number
+            try:
+                for i, (f, acc) in enumerate(plan, 1):
+                    self.log(f"[→] {i}/{len(plan)}: {f} → аккаунт #{acc}")
+                    self.selected_account_number = acc
+                    self._run_on_targets(self.replace_with_code, f)
+            finally:
+                self.selected_account_number = prev
+            self.log(f"[√] Автовставка завершена: {len(plan)} из {len(folders)} папок")
+
+        threading.Thread(target=lambda: self._with_progress(run), daemon=True).start()
 
     # ──────────────────────────────────────────────────────────────────────────
     # Локальное хранилище токенов
@@ -1207,8 +1284,10 @@ class MEmuHudManager:
 
         self._field_label(dev, "ПАПКА ПРИЛОЖЕНИЯ", row=3)
         self.app_var = ctk.StringVar(value="")
-        self.app_menu = self._combo(dev, values=[], variable=self.app_var, row=4, pad_bottom=16)
+        self.app_menu = self._combo(dev, values=[], variable=self.app_var, row=4, pad_bottom=8)
         self.app_var.trace_add("write", self._refresh_hero_sub)
+        self.auto_btn = self._btn_ghost(dev, "АВТОВСТАВКА ВО ВСЕ ПАПКИ", self.auto_insert_all, height=36)
+        self.auto_btn.grid(row=5, column=0, padx=16, pady=(0, 16), sticky="ew")
 
         # ── Карточка: Профиль ──────────────────────────────────
         prof = self._card(self.left_col, 0, 1, title="ПРОФИЛЬ", pad_top=4, padx=(6, 0))
@@ -1367,6 +1446,7 @@ class MEmuHudManager:
             w.destroy()
 
         self._nav_item(self.nav, "Установить код", lambda: self.execute_action("1"), active=True)
+        self._nav_item(self.nav, "Автовставка", self.auto_insert_all)
         self._nav_item(self.nav, "Убрать код", lambda: self.execute_action("2"))
         self._nav_item(self.nav, "Проверить файлы", lambda: self.execute_action("3"))
         self._nav_item(self.nav, "Токены аккаунтов", self.open_local_account_manager)
@@ -1953,7 +2033,8 @@ class MEmuHudManager:
         acc_rows = max(1, (len(acc_nums) + 7) // 8)
         DW, DH = 420, 268 + 48 * (acc_rows - 1)
         dialog, body = self._dialog(
-            "Выбор аккаунта", DW, DH, sub=f"игрок: {self.selected_code_name or '—'}"
+            "Выбор аккаунта", DW, DH,
+            sub=f"игрок: {self.selected_code_name or '—'} · {app_folder}"
         )
 
         ctk.CTkLabel(
@@ -1961,10 +2042,14 @@ class MEmuHudManager:
             text_color=C["subtext"],
         ).pack(pady=(20, 10))
 
-        acc_var = ctk.StringVar(
-            value=self.selected_account_number
-            if self.selected_account_number in acc_nums else ''
-        )
+        remembered = self.get_folder_account(app_folder)
+        if remembered in acc_nums:
+            default_acc = remembered          # для этой папки номер уже выбирали
+        elif self.selected_account_number in acc_nums:
+            default_acc = self.selected_account_number
+        else:
+            default_acc = ''
+        acc_var = ctk.StringVar(value=default_acc)
         grid = ctk.CTkFrame(body, fg_color="transparent")
         grid.pack()
         acc_buttons = {}
@@ -2013,6 +2098,7 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Номер аккаунта не выбран")
                 return
             self.selected_account_number = chosen
+            self.remember_folder_account(app_folder, chosen)
             dialog.destroy()
             threading.Thread(
                 target=lambda: self._with_progress(
