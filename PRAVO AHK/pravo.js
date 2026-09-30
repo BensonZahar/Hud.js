@@ -2223,6 +2223,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 //
 // Настройки:
 //   window.PRAVO_CHAT_UNDIM = false — вернуть как в игре (чат гаснет и затемняется).
+//   По умолчанию затемнение круга полностью отключено (:after и bg14.png скрыты).
+//   window.PRAVO_CHAT_UNDIM_KEEP_BG = true — оставить bg14.png (кольцо вокруг круга), убрать только затемнение.
+//   window.PRAVO_CHAT_UNDIM_MODE = 'window' — старый вариант: затемнение есть, но с «окном» под чат.
 //   window.PRAVO_CHAT_UNDIM_FEATHER — ширина плавного перехода, vh (по умолчанию 3).
 //   window.PRAVO_CHAT_UNDIM_PAD — поле вокруг чата, vh (по умолчанию 0.8).
 // На мобилке (Hassle) чат в этом меню прячет сама игра (hideChat: "mobile") — не трогаем.
@@ -2256,6 +2259,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         st.textContent =
             // родную подложку прячем — вместо неё наша (с окном под чат)
             '.player-interaction__container.' + CLS + ':after{display:none!important}' +
+            '.player-interaction__container.' + CLS + '.pravo-pi-nobg:before{display:none!important}' +
             // bg14.png: окно вырезаем маской из CSS-переменных, которые выставляет tick()
             '.player-interaction__container.' + CLS + ':before{' +
                 '-webkit-mask-image:var(--pravo-mb-i);mask-image:var(--pravo-mb-i);' +
@@ -2312,6 +2316,19 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (!box) return;
         var cr = box.getBoundingClientRect();
         if (!cr.width || !cr.height) return;
+
+        // Режим по умолчанию: затемнение круга выключено совсем (родной :after и bg14.png скрыты, своей подложки нет).
+        // window.PRAVO_CHAT_UNDIM_MODE = 'window' — вернуть прежний вариант с «окном» под чат.
+        if (window.PRAVO_CHAT_UNDIM_MODE !== 'window') {
+            if (!box.classList.contains(CLS)) { box.classList.add(CLS); dbg('затемнение круга отключено'); }
+            var keepBg = window.PRAVO_CHAT_UNDIM_KEEP_BG === true;
+            if (box.classList.contains('pravo-pi-nobg') === keepBg) box.classList.toggle('pravo-pi-nobg', !keepBg);
+            var old = document.getElementById(DIM_ID);
+            if (old && old.parentNode) old.parentNode.removeChild(old);
+            box.style.removeProperty('--pravo-mb-i');
+            return;
+        }
+        box.classList.remove('pravo-pi-nobg');
 
         var vw = window.innerWidth, vh = window.innerHeight, vhp = vh / 100;
         var cx = cr.left + cr.width / 2, cy = cr.top + cr.height / 2;
