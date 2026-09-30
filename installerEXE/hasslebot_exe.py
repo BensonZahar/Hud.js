@@ -139,38 +139,43 @@ class MEmuHudManager:
         self.skip_warning = self.load_skip_warning()
         self.hwid = None
 
-        # ── Палитра: современная тёмная (чёрно-серая, без синего) ─
+        # ── Палитра: как у лаунчера RADMIR 3.2.1 ─────────────────
+        # (полупрозрачные белые слои лаунчера заранее «запечены» поверх #010106,
+        #  потому что tkinter не умеет прозрачность)
         self.C = {
-            # Фоны — чистые тёмные, нейтральные
-            "bg":      "#0A0A0A",   # почти чёрный
-            "surface": "#111111",   # тёмная поверхность
-            "card":    "#1A1A1A",   # карточка
-            # Границы
-            "border":  "#2A2A2A",   # разделитель
-            # Акценты — янтарь и зелёный (без синего)
-            "accent":  "#FFAA0D",   # янтарь
-            "accent2": "#4FAA7A",   # зелёный
-            # Текст
-            "text":    "#F0F0F0",   # основной
-            "subtext": "#909090",   # вторичный
-            "muted":   "#606060",   # приглушённый
-            # Семантика
-            "red":     "#CE6565",
-            "green":   "#4FAA7A",
-            # Кнопка на янтарном фоне
-            "btntext": "#0A0A0A",
-            # Хром
-            "chrome":  "#555555",
+            "bg":          "#010106",   # --background-color лаунчера
+            "panel":       "#05050A",   # сайдбар / шапка / нижняя панель
+            "surface":     "#09090E",
+            "card":        "#0C0C11",   # rgba(255,255,255,.04)
+            "card2":       "#111116",   # rgba(255,255,255,.06)
+            "hover":       "#17171C",   # rgba(255,255,255,.08)
+            "border":      "#1A1A1E",   # --window-border-color
+            "border2":     "#2A2A30",
+            "accent":      "#F9B701",   # янтарь (начало градиента кнопки)
+            "accent2":     "#FDA02F",   # середина градиента
+            "accent3":     "#FF9446",   # конец градиента
+            "accent_dark": "#794E2F",   # нижняя кромка оранжевой кнопки
+            "green":       "#0A9947",   # --green-color
+            "green_dark":  "#065C2B",
+            "red":         "#E25544",
+            "red_dark":    "#883329",
+            "text":        "#FFFFFF",
+            "subtext":     "#9A9AA0",   # белый 60%
+            "muted":       "#66666D",   # белый 40%
+            "btntext":     "#010106",
+            "chrome":      "#555555",
         }
+        self._busy = False
+        self._prog = 0.0
+        self._run_errors = False
+        self._minimized = False
 
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
-
-        W, H = 760, 500
+        W, H = 1000, 620
+        self.SIDE_W = 232
         self.root = ctk.CTk()
         self.root.title("HassleBot")
         self.root.resizable(False, False)
-        self.root.configure(fg_color=self.C["bg"])
+        self.root.configure(fg_color=self.C["border"])
         self.root.update_idletasks()
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
@@ -183,97 +188,12 @@ class MEmuHudManager:
             pass
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        self.root.grid_columnconfigure(0, weight=1)
-        self.root.grid_rowconfigure(0, weight=1)
-
-        self.main_frame = ctk.CTkFrame(
-            self.root,
-            fg_color=self.C["bg"],
-            corner_radius=0,
-        )
-        self.main_frame.grid(sticky="nsew")
-        # 3 колонки: левая (фиксированная) | разделитель | правая (расширяется)
-        self.main_frame.grid_columnconfigure(0, weight=0, minsize=318)
-        self.main_frame.grid_columnconfigure(1, weight=0, minsize=1)
-        self.main_frame.grid_columnconfigure(2, weight=1)
-        self.main_frame.grid_rowconfigure(0, weight=0)   # шапка
-        self.main_frame.grid_rowconfigure(1, weight=1)   # контент
-
-        # ── Шапка (на всю ширину, оба столбца) ────────────────
-        C = self.C
-        hdr = ctk.CTkFrame(
-            self.main_frame,
-            fg_color=C["surface"],
-            corner_radius=0,
-            height=48,
-            border_width=0,
-        )
-        hdr.grid(row=0, column=0, columnspan=3, sticky="ew")
-        hdr.grid_columnconfigure(1, weight=1)
-        hdr.grid_propagate(False)
-
-        # Янтарная полоса слева
-        accent_bar = ctk.CTkFrame(hdr, width=4, height=48, corner_radius=0,
-                                   fg_color=C["accent"])
-        accent_bar.grid(row=0, column=0, padx=(0, 0), pady=0, sticky="ns")
-        accent_bar.grid_propagate(False)
-
-        ctk.CTkLabel(
-            hdr,
-            text="HASSLE BOT",
-            font=("Segoe UI", 14, "bold"),   # Maven Pro feel
-            text_color=C["text"],
-        ).grid(row=0, column=1, padx=(14, 6), sticky="w")
-
-        ctk.CTkLabel(
-            hdr,
-            text="by konst2",
-            font=("Segoe UI", 10),
-            text_color=C["subtext"],
-        ).grid(row=0, column=2, padx=(0, 16))
-
-        # Статус-точка (зелёная = ready, как .node--newIndicator на сайте)
-        self._status_dot = ctk.CTkFrame(
-            hdr, width=8, height=8, corner_radius=4,
-            fg_color=C["muted"],
-        )
-        self._status_dot.grid(row=0, column=3, padx=(0, 16), pady=20)
-        self._status_dot.grid_propagate(False)
-
-        # ── Левая колонка (настройки) ──────────────────────────
-        self.left_col = ctk.CTkScrollableFrame(
-            self.main_frame,
-            fg_color=C["bg"],
-            corner_radius=0,
-            scrollbar_button_color=C["border"],
-            scrollbar_button_hover_color=C["accent"],
-        )
-        self.left_col.grid(row=1, column=0, sticky="nsew")
-        self.left_col.grid_columnconfigure(0, weight=1)
-
-        # ── Вертикальный разделитель ────────────────────────────
-        ctk.CTkFrame(
-            self.main_frame, width=1, corner_radius=0, fg_color=C["border"]
-        ).grid(row=1, column=1, sticky="nsew")
-
-        # ── Правая колонка (уведомления + действия) ────────────
-        self.right_col = ctk.CTkFrame(
-            self.main_frame,
-            fg_color=C["bg"],
-            corner_radius=0,
-        )
-        self.right_col.grid(row=1, column=2, sticky="nsew")
-        self.right_col.grid_columnconfigure(0, weight=1)
-        self.right_col.grid_rowconfigure(0, weight=0)   # уведомления (авто-высота)
-        self.right_col.grid_rowconfigure(1, weight=1)   # действия (занимают всё)
-        self.right_col.grid_rowconfigure(2, weight=0)   # кнопка выхода
-
-        # ── Компактные уведомления сверху ───────────────────────
-        self._notif_strip = ctk.CTkFrame(
-            self.right_col, fg_color="transparent",
-        )
-        self._notif_strip.grid(row=0, column=0, sticky="ew", padx=8, pady=(6, 0))
-        self._notif_strip.grid_columnconfigure(0, weight=1)
+        self._init_fonts()
+        self._chrome_borderless()
+        self._build_shell(W, H)
+        self._show_loading()
+        self.root.update()
+        self._fix_taskbar()
 
         self.activate_launch_permission()
 
@@ -411,6 +331,596 @@ class MEmuHudManager:
             count += 1
         return count
 
+    def _init_fonts(self):
+        # Open Sans / Open Sans Condensed — шрифты лаунчера (лежат в папке fonts рядом со скриптом)
+        self.FAM = {
+            "body": "Segoe UI",
+            "semi": "Segoe UI Semibold",
+            "cond": "Segoe UI Semibold",
+            "condb": "Segoe UI",
+            "mono": "Consolas",
+        }
+        if platform.system() != "Windows":
+            return
+        try:
+            import ctypes
+            import tkinter.font as tkfont
+            fdir = resource_path("fonts")
+            if not os.path.isdir(fdir):
+                return
+            for fn in sorted(os.listdir(fdir)):
+                if fn.lower().endswith((".ttf", ".otf")):
+                    ctypes.windll.gdi32.AddFontResourceExW(os.path.join(fdir, fn), 0x10, 0)
+            fams = {f.lower() for f in tkfont.families(self.root)}
+            if "open sans" in fams:
+                self.FAM["body"] = "Open Sans"
+            if "open sans semibold" in fams:
+                self.FAM["semi"] = "Open Sans SemiBold"
+            if "open sans condensed semibold" in fams:
+                self.FAM["cond"] = "Open Sans Condensed SemiBold"
+            if "open sans condensed" in fams:
+                self.FAM["condb"] = "Open Sans Condensed"
+        except Exception:
+            pass
+
+    def F(self, kind="body", size=11):
+        # body / semi / bold / cond (курсив, как заголовки лаунчера) / condb / mono
+        fam = self.FAM.get(kind, self.FAM["body"])
+        if kind == "bold":
+            return (self.FAM["body"], size, "bold")
+        if kind == "cond":
+            return (fam, size, "italic")
+        if kind == "condb":
+            return (fam, size, "bold italic")
+        return (fam, size)
+
+    # ── Окно без рамки ─────────────────────────────────────────────────────────
+    def _chrome_borderless(self):
+        try:
+            self.root.overrideredirect(True)
+        except Exception:
+            pass
+        self.root.bind("<Map>", self._on_map, add="+")
+
+    def _on_map(self, e):
+        if e.widget is self.root and self._minimized:
+            self._minimized = False
+            self.root.after(20, self._restore_borderless)
+
+    def _restore_borderless(self):
+        try:
+            self.root.overrideredirect(True)
+            self._fix_taskbar()
+        except Exception:
+            pass
+
+    def _fix_taskbar(self):
+        # Без рамки окно пропадает с панели задач — возвращаем; заодно скругление на Windows 11
+        if platform.system() != "Windows":
+            return
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
+            style = (style & ~0x00000080) | 0x00040000
+            ctypes.windll.user32.SetWindowLongW(hwnd, -20, style)
+            try:
+                pref = ctypes.c_int(2)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(pref), ctypes.sizeof(pref))
+            except Exception:
+                pass
+            self.root.withdraw()
+            self.root.after(20, self.root.deiconify)
+        except Exception:
+            pass
+
+    def _minimize(self):
+        try:
+            self._minimized = True
+            self.root.overrideredirect(False)
+            self.root.iconify()
+        except Exception:
+            self._minimized = False
+
+    def _bind_drag(self, widget, target=None):
+        target = target or self.root
+        def _start(e):
+            self._dx = e.x_root - target.winfo_x()
+            self._dy = e.y_root - target.winfo_y()
+        def _move(e):
+            target.geometry(f"+{e.x_root - self._dx}+{e.y_root - self._dy}")
+        widget.bind("<ButtonPress-1>", _start, add="+")
+        widget.bind("<B1-Motion>", _move, add="+")
+
+    # ── Картинки ───────────────────────────────────────────────────────────────
+    def _load_logo(self, height):
+        try:
+            from PIL import Image
+            p = resource_path("logo.png")
+            if not os.path.exists(p):
+                return None
+            im = Image.open(p).convert("RGBA")
+            w = int(im.width * height / im.height)
+            return ctk.CTkImage(light_image=im, dark_image=im, size=(w, height))
+        except Exception:
+            return None
+
+    def _make_hero(self, w, h, kicker, title):
+        # Баннер в духе лаунчера: тёмный фон, тёплое свечение справа, логотип, заголовок Open Sans Condensed
+        try:
+            from PIL import Image, ImageDraw, ImageFont, ImageChops
+        except Exception:
+            return None
+        try:
+            S = 2
+            W, H = w * S, h * S
+            bg = (1, 1, 6)
+            img = Image.new("RGB", (W, H), bg)
+
+            def glow(cx, cy, rx, ry, color, strength):
+                g = Image.radial_gradient("L").resize((int(rx * 2), int(ry * 2)))
+                g = ImageChops.invert(g).point(lambda v: int(((v / 255.0) ** 2) * 255 * strength))
+                img.paste(Image.new("RGB", g.size, color), (int(cx - rx), int(cy - ry)), g)
+
+            glow(W * 0.86, H * 0.30, W * 0.42, H * 1.05, (255, 148, 70), 0.34)
+            glow(W * 0.48, -H * 0.10, W * 0.40, H * 0.95, (22, 44, 96), 0.40)
+            glow(0, H * 0.25, W * 0.30, H * 0.90, (110, 52, 24), 0.30)
+
+            lp = resource_path("logo.png")
+            if os.path.exists(lp):
+                logo = Image.open(lp).convert("RGBA")
+                lh = int(H * 1.05)
+                lw = int(logo.width * lh / logo.height)
+                big = logo.resize((lw, lh), Image.LANCZOS)
+                big.putalpha(big.split()[3].point(lambda v: int(v * 0.10)))
+                img.paste(big, (int(W - lw * 0.92), int(H * 0.02)), big)
+                sh_ = int(H * 0.50)
+                sw_ = int(logo.width * sh_ / logo.height)
+                sm = logo.resize((sw_, sh_), Image.LANCZOS)
+                img.paste(sm, (int(W - sw_ - 40 * S), int(H * 0.16)), sm)
+
+            fade = Image.linear_gradient("L").resize((W, H)).point(lambda v: int(((v / 255.0) ** 2.2) * 255))
+            img.paste(Image.new("RGB", (W, H), bg), (0, 0), fade)
+
+            d = ImageDraw.Draw(img)
+
+            def font(name, size):
+                try:
+                    return ImageFont.truetype(resource_path("fonts/" + name), size * S)
+                except Exception:
+                    return ImageFont.load_default()
+
+            d.rectangle([28 * S, 34 * S, 31 * S, 50 * S], fill=(249, 183, 1))
+            d.text((40 * S, 32 * S), kicker, font=font("OpenSansCondensed-SemiBoldItalic.ttf", 15), fill=(253, 160, 47))
+            d.text((28 * S, 54 * S), title, font=font("OpenSansCondensed-BoldItalic.ttf", 40), fill=(255, 255, 255))
+            return img.resize((w, h), Image.LANCZOS)
+        except Exception:
+            return None
+
+    # ── Каркас окна ────────────────────────────────────────────────────────────
+    def _build_shell(self, W, H):
+        C = self.C
+        self.window = ctk.CTkFrame(self.root, fg_color=C["bg"], corner_radius=0)
+        self.window.pack(fill="both", expand=True, padx=1, pady=1)
+        self.main_frame = self.window
+        self.window.grid_columnconfigure(0, weight=1)
+        self.window.grid_rowconfigure(1, weight=1)
+
+        # Шапка (перетаскивание, свернуть, закрыть)
+        tb = ctk.CTkFrame(self.window, fg_color=C["panel"], corner_radius=0, height=40)
+        tb.grid(row=0, column=0, sticky="ew")
+        tb.pack_propagate(False)
+        self._bind_drag(tb)
+
+        ctk.CTkFrame(tb, width=3, height=16, corner_radius=2, fg_color=C["accent"]).pack(side="left", padx=(16, 10))
+        t1 = ctk.CTkLabel(tb, text="HASSLE BOT", font=self.F("condb", 15), text_color=C["text"])
+        t1.pack(side="left")
+        t2 = ctk.CTkLabel(tb, text="by konst2", font=self.F("body", 10), text_color=C["muted"])
+        t2.pack(side="left", padx=(10, 0), pady=(3, 0))
+        self._bind_drag(t1)
+        self._bind_drag(t2)
+
+        ctk.CTkButton(
+            tb, text="✕", width=44, height=40, corner_radius=0, font=self.F("body", 12),
+            fg_color="transparent", hover_color=C["red"], text_color=C["subtext"],
+            command=self.on_close,
+        ).pack(side="right")
+        ctk.CTkButton(
+            tb, text="—", width=44, height=40, corner_radius=0, font=self.F("body", 12),
+            fg_color="transparent", hover_color=C["hover"], text_color=C["subtext"],
+            command=self._minimize,
+        ).pack(side="right")
+
+        self._status_txt = ctk.CTkLabel(tb, text="ЗАГРУЗКА", font=self.F("cond", 12), text_color=C["muted"])
+        self._status_txt.pack(side="right", padx=(0, 14))
+        self._status_dot = ctk.CTkFrame(tb, width=8, height=8, corner_radius=4, fg_color=C["muted"])
+        self._status_dot.pack(side="right", padx=(0, 8))
+        self._status_dot.pack_propagate(False)
+
+        # Тело: сайдбар | линия | контент
+        body = ctk.CTkFrame(self.window, fg_color=C["bg"], corner_radius=0)
+        body.grid(row=1, column=0, sticky="nsew")
+        body.grid_columnconfigure(0, weight=0, minsize=self.SIDE_W)
+        body.grid_columnconfigure(1, weight=0, minsize=1)
+        body.grid_columnconfigure(2, weight=1)
+        body.grid_rowconfigure(0, weight=1)
+
+        # ── Сайдбар ───────────────────────────────────────────
+        self.sidebar = ctk.CTkFrame(body, fg_color=C["panel"], corner_radius=0, width=self.SIDE_W)
+        self.sidebar.grid(row=0, column=0, sticky="nsew")
+        self.sidebar.grid_propagate(False)
+        self.sidebar.pack_propagate(False)
+
+        self.side_bottom = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        self.side_bottom.pack(side="bottom", fill="x", padx=10, pady=(0, 12))
+
+        head = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        head.pack(fill="x", padx=18, pady=(22, 0))
+        self._logo_img = self._load_logo(58)
+        if self._logo_img is not None:
+            ctk.CTkLabel(head, text="", image=self._logo_img).pack(anchor="w")
+        else:
+            ctk.CTkLabel(head, text="HB", font=self.F("condb", 30), text_color=C["accent"]).pack(anchor="w")
+
+        ctk.CTkLabel(head, text="ПРОФИЛЬ", font=self.F("cond", 12), text_color=C["muted"],
+                     anchor="w").pack(fill="x", pady=(16, 0))
+        self._side_name = ctk.CTkLabel(head, text="—", font=self.F("condb", 22), text_color=C["accent2"], anchor="w")
+        self._side_name.pack(fill="x")
+        self._side_role = ctk.CTkLabel(head, text="ПРОВЕРКА ДОСТУПА", font=self.F("cond", 13),
+                                       text_color=C["muted"], anchor="w")
+        self._side_role.pack(fill="x", pady=(0, 0))
+
+        ctk.CTkFrame(self.sidebar, height=1, fg_color=C["border"], corner_radius=0).pack(
+            fill="x", padx=18, pady=(16, 10))
+
+        self.nav = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        self.nav.pack(fill="x", padx=10)
+
+        ctk.CTkFrame(body, width=1, corner_radius=0, fg_color=C["border"]).grid(row=0, column=1, sticky="nsew")
+
+        # ── Контент ───────────────────────────────────────────
+        self.main = ctk.CTkFrame(body, fg_color=C["bg"], corner_radius=0)
+        self.main.grid(row=0, column=2, sticky="nsew")
+        self.main.grid_columnconfigure(0, weight=1)
+        self.main.grid_rowconfigure(2, weight=1)
+
+        hw = W - 2 - self.SIDE_W - 1
+        hh = 150
+        hero_img = self._make_hero(hw, hh, "HASSLE BOT  ·  ПАНЕЛЬ УСТАНОВКИ", "УСТАНОВКА КОДА")
+        if hero_img is not None:
+            self._hero_ctk = ctk.CTkImage(light_image=hero_img, dark_image=hero_img, size=(hw, hh))
+            self.hero = ctk.CTkLabel(self.main, text="", image=self._hero_ctk, fg_color=C["bg"],
+                                     width=hw, height=hh)
+        else:
+            self.hero = ctk.CTkLabel(self.main, text="УСТАНОВКА КОДА", font=self.F("condb", 34),
+                                     text_color=C["text"], fg_color=C["bg"], anchor="w", height=hh)
+        self.hero.grid(row=0, column=0, sticky="ew")
+
+        self.hero_sub = ctk.CTkLabel(self.main, text="", font=self.F("cond", 14),
+                                     text_color=C["subtext"], anchor="w")
+        self.hero_sub.grid(row=1, column=0, sticky="ew", padx=28, pady=(0, 6))
+
+        self.left_col = ctk.CTkScrollableFrame(
+            self.main, fg_color=C["bg"], corner_radius=0,
+            scrollbar_button_color=C["border2"],
+            scrollbar_button_hover_color=C["accent"],
+        )
+        self.left_col.grid(row=2, column=0, sticky="nsew", padx=(18, 8))
+        self.left_col.grid_columnconfigure(0, weight=1)
+
+        self.bottom_bar = ctk.CTkFrame(self.main, fg_color=C["panel"], corner_radius=0, height=88)
+        self.bottom_bar.grid(row=3, column=0, sticky="ew")
+        self.bottom_bar.grid_propagate(False)
+
+        # Всплывающие уведомления — поверх контента, справа снизу
+        self._notif_strip = ctk.CTkFrame(self.main, fg_color="transparent", width=380, height=1)
+        self._notif_strip.place(relx=1.0, rely=1.0, x=-20, y=-100, anchor="se")
+
+    def _show_loading(self):
+        C = self.C
+        self._set_state("ПРОВЕРКА ДОСТУПА", C["accent"])
+        box = ctk.CTkFrame(self.left_col, fg_color="transparent")
+        box.grid(row=0, column=0, pady=(30, 0))
+        ctk.CTkLabel(box, text="ПРОВЕРКА ДОСТУПА", font=self.F("condb", 24), text_color=C["text"]).pack()
+        ctk.CTkLabel(box, text="Подключение к серверу…", font=self.F("body", 11),
+                     text_color=C["subtext"]).pack(pady=(4, 12))
+        bar = ctk.CTkProgressBar(box, width=320, height=14, corner_radius=3, border_width=1,
+                                 border_color=C["border"], fg_color=C["card2"], progress_color=C["green"])
+        bar.set(0.35)
+        bar.pack()
+        self.bottom_bar.grid_remove()
+
+    # ── Состояния ──────────────────────────────────────────────────────────────
+    def _set_state(self, text, color):
+        try:
+            self._status_dot.configure(fg_color=color)
+            self._status_txt.configure(text=text, text_color=color)
+        except Exception:
+            pass
+
+    def _set_ready(self):
+        self._set_state("ГОТОВ", self.C["green"])
+
+    def _update_side_head(self):
+        C = self.C
+        try:
+            self._side_name.configure(text=self.selected_code_name or "—")
+            if self.launch_allowed:
+                if self.debug_allowed:
+                    self._side_role.configure(text="ОТЛАДКА", text_color=C["accent"])
+                else:
+                    self._side_role.configure(text="ДОСТУП РАЗРЕШЁН", text_color=C["green"])
+            else:
+                self._side_role.configure(text="НЕТ ДОСТУПА", text_color=C["red"])
+        except Exception:
+            pass
+
+    def _refresh_hero_sub(self, *_):
+        try:
+            parts = []
+            if self.selected_code_name:
+                parts.append(f"ИГРОК: {self.selected_code_name}")
+            if hasattr(self, "conn_var"):
+                parts.append(f"УСТРОЙСТВО: {self.conn_var.get()}")
+            if hasattr(self, "app_var") and self.app_var.get():
+                parts.append(self.app_var.get())
+            self.hero_sub.configure(text="   ·   ".join(parts))
+        except Exception:
+            pass
+
+    # ── Прогресс и статус в нижней панели ──────────────────────────────────────
+    def _set_status(self, text, level="info"):
+        lbl = getattr(self, "_status_lbl", None)
+        if lbl is None:
+            return
+        C = self.C
+        col = {"ok": C["green"], "err": C["red"], "warn": C["accent"]}.get(level, C["subtext"])
+        text = text.upper()
+        if len(text) > 62:
+            text = text[:61] + "…"
+        try:
+            lbl.configure(text=text, text_color=col)
+        except Exception:
+            pass
+
+    def _progress_start(self):
+        self._busy = True
+        self._prog = 0.04
+        self._run_errors = False
+        try:
+            self._progress.configure(progress_color=self.C["green"])
+            self._progress.set(self._prog)
+        except Exception:
+            pass
+        self._progress_tick()
+
+    def _progress_tick(self):
+        if not self._busy:
+            return
+        self._prog += (0.93 - self._prog) * 0.04
+        try:
+            self._progress.set(self._prog)
+        except Exception:
+            return
+        self.root.after(80, self._progress_tick)
+
+    def _progress_done(self):
+        self._busy = False
+        try:
+            self._progress.configure(progress_color=self.C["red"] if self._run_errors else self.C["green"])
+            self._progress.set(1.0)
+            self.root.after(2500, self._progress_reset)
+        except Exception:
+            pass
+
+    def _progress_reset(self):
+        if self._busy:
+            return
+        try:
+            self._progress.set(0)
+            self._progress.configure(progress_color=self.C["green"])
+        except Exception:
+            pass
+
+    def _with_progress(self, fn):
+        self.root.after(0, self._progress_start)
+        try:
+            fn()
+        finally:
+            self.root.after(0, self._progress_done)
+
+    # ── Кнопки, пункты меню, поля ──────────────────────────────────────────────
+    def _btn_primary(self, parent, text, command, height=44, width=None, size=15):
+        # Оранжевая кнопка лаунчера: янтарная заливка + тёмная нижняя кромка
+        C = self.C
+        outer = ctk.CTkFrame(parent, fg_color=C["accent_dark"], corner_radius=7)
+        btn = ctk.CTkButton(
+            outer, text=text, command=command, font=self.F("condb", size),
+            fg_color=C["accent"], hover_color=C["accent2"],
+            text_color=C["btntext"], text_color_disabled="#7A6A2A",
+            height=height, corner_radius=6,
+        )
+        if width:
+            outer.configure(width=width, height=height + 3)
+            outer.pack_propagate(False)
+        btn.pack(fill="x", pady=(0, 3))
+        outer.btn = btn
+        return outer
+
+    def _btn_ghost(self, parent, text, command, height=36, width=None, danger=False, green=False):
+        C = self.C
+        base = C["red"] if danger else (C["green"] if green else C["subtext"])
+        kw = {"width": width} if width else {}
+        return ctk.CTkButton(
+            parent, text=text, command=command, font=self.F("cond", 14),
+            fg_color=C["card2"], hover_color=C["red_dark"] if danger else C["hover"],
+            text_color=base, height=height, corner_radius=6,
+            border_width=1, border_color=C["border2"], **kw,
+        )
+
+    def _nav_item(self, parent, text, command, active=False, danger=False, green=False):
+        # Пункт бокового меню: слева появляется янтарная полоска (как .navbar-item в лаунчере)
+        C = self.C
+        row = ctk.CTkFrame(parent, fg_color="transparent", height=40, corner_radius=0)
+        row.pack(fill="x", pady=1)
+        row.pack_propagate(False)
+        idle = C["red"] if danger else (C["green"] if green else (C["text"] if active else C["subtext"]))
+        hov = C["red"] if danger else (C["green"] if green else C["text"])
+        btn = ctk.CTkButton(
+            row, text=text.upper(), anchor="w", font=self.F("cond", 15),
+            fg_color=C["hover"] if active else "transparent",
+            hover_color=C["card2"], text_color=idle,
+            corner_radius=6, height=36, command=command,
+        )
+        btn.place(x=10, y=2, relwidth=1.0, width=-20)
+        ind = ctk.CTkFrame(row, width=3, height=18, corner_radius=2,
+                           fg_color=C["red"] if danger else C["accent"])
+        if active:
+            ind.place(x=0, rely=0.5, anchor="w")
+
+        def _enter(_e=None):
+            ind.place(x=0, rely=0.5, anchor="w")
+            btn.configure(text_color=hov)
+
+        def _leave(_e=None):
+            if not active:
+                ind.place_forget()
+            btn.configure(text_color=idle)
+
+        btn.bind("<Enter>", _enter, add="+")
+        btn.bind("<Leave>", _leave, add="+")
+        return row
+
+    def _entry(self, parent, placeholder="", height=36, **kw):
+        C = self.C
+        e = ctk.CTkEntry(
+            parent, placeholder_text=placeholder,
+            fg_color=C["card2"], border_color=C["border2"], border_width=1,
+            text_color=C["text"], placeholder_text_color=C["muted"],
+            font=self.F("body", 11), height=height, corner_radius=6, **kw,
+        )
+        e.bind("<FocusIn>", lambda ev: e.configure(border_color=C["accent"]), add="+")
+        e.bind("<FocusOut>", lambda ev: e.configure(border_color=C["border2"]), add="+")
+        return e
+
+    def _card(self, parent, row=0, col=0, title=None, colspan=1, pad_top=6, pad_bot=6, padx=(0, 0)):
+        C = self.C
+        f = ctk.CTkFrame(parent, fg_color=C["card"], corner_radius=10,
+                         border_width=1, border_color=C["border"])
+        f.grid(row=row, column=col, columnspan=colspan, padx=padx, pady=(pad_top, pad_bot), sticky="nsew")
+        f.grid_columnconfigure(0, weight=1)
+        if title:
+            self._card_title(f, title)
+        return f
+
+    def _card_title(self, parent, text, row=0):
+        C = self.C
+        wrap = ctk.CTkFrame(parent, fg_color="transparent")
+        wrap.grid(row=row, column=0, sticky="ew", padx=16, pady=(12, 2))
+        ctk.CTkFrame(wrap, width=3, height=16, corner_radius=2, fg_color=C["accent"]).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(wrap, text=text, font=self.F("condb", 15), text_color=C["text"]).pack(side="left")
+
+    def _section_label(self, parent, text, row=0):
+        self._card_title(parent, text, row=row)
+
+    def _field_label(self, parent, text, row):
+        ctk.CTkLabel(
+            parent, text=text, font=self.F("cond", 12),
+            text_color=self.C["muted"], anchor="w",
+        ).grid(row=row, column=0, padx=16, pady=(8, 3), sticky="w")
+
+    def _info_row(self, parent, label, value, row, color=None, mono=False):
+        self._field_label(parent, label, row)
+        ctk.CTkLabel(
+            parent, text=value,
+            font=self.F("mono", 11) if mono else self.F("semi", 12),
+            text_color=color or self.C["text"], anchor="w",
+        ).grid(row=row + 1, column=0, padx=16, pady=(0, 2), sticky="w")
+
+    def _combo(self, parent, values, variable, row, command=None, pad_bottom=12):
+        C = self.C
+        kw = dict(
+            values=values, variable=variable,
+            fg_color=C["card2"], border_color=C["border2"], border_width=1,
+            button_color=C["hover"], button_hover_color=C["accent"],
+            dropdown_fg_color=C["card"], dropdown_hover_color=C["hover"],
+            dropdown_text_color=C["text"], text_color=C["text"],
+            font=self.F("body", 11), dropdown_font=self.F("body", 11),
+            height=36, corner_radius=6,
+        )
+        if command:
+            kw["command"] = command
+        w = ctk.CTkComboBox(parent, **kw)
+        w.grid(row=row, column=0, padx=16, pady=(0, pad_bottom), sticky="ew")
+        return w
+
+    # ── Диалоги в стиле лаунчера ───────────────────────────────────────────────
+    def _dialog(self, title, w, h, sub=None):
+        C = self.C
+        dlg = ctk.CTkToplevel(self.root)
+        dlg.withdraw()
+        dlg.title(title or "HassleBot")
+        dlg.resizable(False, False)
+        dlg.configure(fg_color=C["border2"])
+        try:
+            dlg.overrideredirect(True)
+        except Exception:
+            pass
+        dlg.transient(self.root)
+        self.root.update_idletasks()
+        rx = self.root.winfo_rootx() + (self.root.winfo_width() - w) // 2
+        ry = self.root.winfo_rooty() + (self.root.winfo_height() - h) // 2
+        dlg.geometry(f"{w}x{h}+{max(rx, 0)}+{max(ry, 0)}")
+
+        body = ctk.CTkFrame(dlg, fg_color=C["bg"], corner_radius=0)
+        body.pack(fill="both", expand=True, padx=1, pady=1)
+
+        hdr = ctk.CTkFrame(body, fg_color=C["panel"], corner_radius=0, height=42)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        ctk.CTkFrame(hdr, width=3, height=16, corner_radius=2, fg_color=C["accent"]).pack(side="left", padx=(16, 10))
+        tl = ctk.CTkLabel(hdr, text=(title or "").upper(), font=self.F("condb", 15), text_color=C["text"])
+        tl.pack(side="left")
+        if sub:
+            sl = ctk.CTkLabel(hdr, text=sub, font=self.F("body", 10), text_color=C["muted"])
+            sl.pack(side="left", padx=(10, 0), pady=(3, 0))
+            self._bind_drag(sl, dlg)
+        ctk.CTkButton(
+            hdr, text="✕", width=42, height=42, corner_radius=0, font=self.F("body", 12),
+            fg_color="transparent", hover_color=C["red"], text_color=C["subtext"],
+            command=dlg.destroy,
+        ).pack(side="right")
+        self._bind_drag(hdr, dlg)
+        self._bind_drag(tl, dlg)
+
+        dlg.deiconify()
+        dlg.lift()
+        try:
+            dlg.wait_visibility()
+            dlg.grab_set()
+            dlg.focus_force()
+        except Exception:
+            pass
+        return dlg, body
+
+    def _msgbox(self, kind, title, text):
+        C = self.C
+        color = {"error": C["red"], "warning": C["accent"], "info": C["green"]}.get(kind, C["accent"])
+        lines = sum(max(1, len(s) // 46 + 1) for s in str(text).split("\n"))
+        h = min(170 + 19 * lines, 460)
+        dlg, body = self._dialog(title, 440, h)
+        ctk.CTkFrame(body, height=3, corner_radius=0, fg_color=color).pack(fill="x")
+        ctk.CTkLabel(
+            body, text=str(text), font=self.F("body", 11), text_color=C["text"],
+            wraplength=390, justify="left", anchor="w",
+        ).pack(fill="x", padx=24, pady=(20, 12))
+        ok = self._btn_primary(body, "ОК", dlg.destroy, height=38, width=140, size=15)
+        ok.pack(side="bottom", anchor="e", padx=24, pady=(0, 18))
+        try:
+            self.root.wait_window(dlg)
+        except Exception:
+            pass
+
     def open_local_account_manager(self):
         user = self.selected_code_name
         if not user:
@@ -418,36 +928,15 @@ class MEmuHudManager:
             return
 
         C = self.C
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Локальные токены")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self.root)
-        dialog.configure(fg_color=C["bg"])
-        dialog.update_idletasks()
-
-        DW, DH = 680, 520
-        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
-        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
-        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
-        dialog.lift()
-
-        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=44)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-        accent_bar = ctk.CTkFrame(hdr, width=4, height=44, corner_radius=0, fg_color=C["accent"])
-        accent_bar.pack(side="left")
-        ctk.CTkLabel(
-            hdr, text=f"🔐 Локальные токены — {user}",
-            font=("Segoe UI", 12, "bold"), text_color=C["text"],
-        ).pack(side="left", padx=12, pady=10)
+        dialog, body = self._dialog("Локальные токены", 640, 590, sub=f"игрок: {user}")
 
         list_frame = ctk.CTkScrollableFrame(
-            dialog, fg_color=C["card"], corner_radius=8,
-            scrollbar_button_color=C["border"],
+            body, fg_color=C["card"], corner_radius=10,
+            border_width=1, border_color=C["border"],
+            scrollbar_button_color=C["border2"],
             scrollbar_button_hover_color=C["accent"],
         )
-        list_frame.pack(fill="both", expand=True, padx=12, pady=(10, 4))
+        list_frame.pack(fill="both", expand=True, padx=16, pady=(14, 6))
 
         def mask_token(token: str) -> str:
             if not token:
@@ -464,61 +953,46 @@ class MEmuHudManager:
             notes = cfg.get("NOTES", {})
             if not tokens:
                 ctk.CTkLabel(
-                    list_frame, text="Локальные токены ещё не добавлены",
-                    font=("Segoe UI", 11), text_color=C["subtext"],
-                ).pack(pady=12)
+                    list_frame, text="ЛОКАЛЬНЫЕ ТОКЕНЫ ЕЩЁ НЕ ДОБАВЛЕНЫ",
+                    font=self.F("cond", 14), text_color=C["muted"],
+                ).pack(pady=18)
                 return
             for acc in sorted(tokens.keys(), key=lambda x: int(x) if str(x).isdigit() else x):
                 token = tokens.get(acc, "")
                 note = notes.get(acc, "")
-                row = ctk.CTkFrame(list_frame, fg_color=C["surface"], corner_radius=8)
-                row.pack(fill="x", pady=3, padx=4)
+                row = ctk.CTkFrame(list_frame, fg_color=C["card2"], corner_radius=8,
+                                   border_width=1, border_color=C["border"])
+                row.pack(fill="x", pady=3, padx=2)
                 row.grid_columnconfigure(1, weight=1)
                 ctk.CTkLabel(
-                    row, text=f"#{acc}",
-                    font=("Segoe UI", 12, "bold"), text_color=C["accent"], width=42,
+                    row, text=f"#{acc}", font=self.F("condb", 16),
+                    text_color=C["accent2"], width=46,
                 ).grid(row=0, column=0, padx=(10, 6), pady=8)
                 txt = mask_token(token)
                 if note:
-                    txt += f"  •  {note}"
+                    txt += f"   ·   {note}"
                 ctk.CTkLabel(
-                    row, text=txt,
-                    font=("Consolas", 11), text_color=C["text"], anchor="w",
+                    row, text=txt, font=self.F("mono", 11),
+                    text_color=C["text"], anchor="w",
                 ).grid(row=0, column=1, padx=6, pady=8, sticky="ew")
                 ctk.CTkButton(
-                    row, text="✕", width=32, height=28,
-                    font=("Segoe UI", 11),
-                    fg_color=C["card"], hover_color=C["red"],
+                    row, text="✕", width=32, height=28, font=self.F("body", 11),
+                    fg_color="transparent", hover_color=C["red"],
                     text_color=C["subtext"], corner_radius=6,
                     command=lambda a=acc: (self.delete_local_account(user, a), refresh()),
                 ).grid(row=0, column=2, padx=(6, 10), pady=8)
 
-        form = ctk.CTkFrame(dialog, fg_color="transparent")
-        form.pack(fill="x", padx=12, pady=(6, 10))
+        form = ctk.CTkFrame(body, fg_color="transparent")
+        form.pack(fill="x", padx=16, pady=(6, 14))
         form.grid_columnconfigure(1, weight=1)
 
-        ctk.CTkLabel(form, text="№", font=("Segoe UI", 11), text_color=C["subtext"]).grid(
-            row=0, column=0, padx=(0, 6), pady=4)
-        acc_entry = ctk.CTkEntry(
-            form, placeholder_text="Например: 9",
-            fg_color=C["card"], border_color=C["border"],
-            text_color=C["text"], placeholder_text_color=C["muted"],
-            height=32, corner_radius=6, width=80,
-        )
+        ctk.CTkLabel(form, text="№", font=self.F("cond", 13), text_color=C["muted"]).grid(
+            row=0, column=0, padx=(0, 8), pady=4)
+        acc_entry = self._entry(form, "Например: 9", height=34, width=90)
         acc_entry.grid(row=0, column=1, sticky="w", pady=4)
-        token_entry = ctk.CTkEntry(
-            form, placeholder_text="Токен бота от @BotFather",
-            fg_color=C["card"], border_color=C["border"],
-            text_color=C["text"], placeholder_text_color=C["muted"],
-            height=32, corner_radius=6,
-        )
+        token_entry = self._entry(form, "Токен бота от @BotFather", height=34)
         token_entry.grid(row=1, column=0, columnspan=3, sticky="ew", pady=4)
-        note_entry = ctk.CTkEntry(
-            form, placeholder_text="Комментарий, например @hb_z09_bot",
-            fg_color=C["card"], border_color=C["border"],
-            text_color=C["text"], placeholder_text_color=C["muted"],
-            height=32, corner_radius=6,
-        )
+        note_entry = self._entry(form, "Комментарий, например @hb_z09_bot", height=34)
         note_entry.grid(row=2, column=0, columnspan=3, sticky="ew", pady=4)
 
         def add_account():
@@ -526,11 +1000,11 @@ class MEmuHudManager:
             token = token_entry.get().strip()
             note = note_entry.get().strip()
             if not re.match(r"^\d{1,3}$", acc):
-                messagebox.showerror("Ошибка", "Номер аккаунта должен быть числом, например 9")
+                self._msgbox("error", "Ошибка", "Номер аккаунта должен быть числом, например 9")
                 return
             if not re.match(r"^\d{8,10}:[A-Za-z0-9_-]{30,70}$", token):
-                messagebox.showerror(
-                    "Ошибка",
+                self._msgbox(
+                    "error", "Ошибка",
                     "Токен бота похож на неверный.\n\nПример формата:\n1234567890:AAE..."
                 )
                 return
@@ -540,14 +1014,6 @@ class MEmuHudManager:
             note_entry.delete(0, "end")
             refresh()
 
-        ctk.CTkButton(
-            form, text="＋ Добавить токен",
-            font=("Segoe UI", 11, "bold"),
-            fg_color=C["accent"], hover_color="#E09500",
-            text_color=C["btntext"], height=34, corner_radius=8,
-            command=add_account,
-        ).grid(row=3, column=0, columnspan=3, pady=(8, 0), sticky="ew")
-
         def import_clipboard():
             try:
                 text = self.root.clipboard_get()
@@ -555,88 +1021,25 @@ class MEmuHudManager:
                 text = ""
             n = self.import_accounts_from_text(user, text)
             if n:
-                messagebox.showinfo("Готово", f"Импортировано токенов: {n}")
+                self._msgbox("info", "Готово", f"Импортировано токенов: {n}")
             else:
-                messagebox.showwarning(
-                    "Ничего не найдено",
+                self._msgbox(
+                    "warning", "Ничего не найдено",
                     "В буфере обмена не найдено пар «номер + токен».\n\n"
                     "Скопируйте текст вида:\n1: 1234567890:AAE...\n2: 1234567891:AAF..."
                 )
             refresh()
 
-        ctk.CTkButton(
-            form, text="📥  Импорт из буфера обмена",
-            font=("Segoe UI", 11),
-            fg_color=C["card"], hover_color=C["border"],
-            text_color=C["subtext"], height=32, corner_radius=8,
-            border_width=1, border_color=C["border"],
-            command=import_clipboard,
-        ).grid(row=4, column=0, columnspan=3, pady=(6, 0), sticky="ew")
+        btns = ctk.CTkFrame(form, fg_color="transparent")
+        btns.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        btns.grid_columnconfigure(0, weight=1)
+        btns.grid_columnconfigure(1, weight=1)
+        self._btn_ghost(btns, "ИМПОРТ ИЗ БУФЕРА", import_clipboard, height=44).grid(
+            row=0, column=0, sticky="ew", padx=(0, 6))
+        self._btn_primary(btns, "ДОБАВИТЬ ТОКЕН", add_account, height=41, size=15).grid(
+            row=0, column=1, sticky="ew", padx=(6, 0))
 
         refresh()
-
-
-    def _section_label(self, parent, text, row=0):
-        """Заголовок секции — янтарная полоса + текст."""
-        C = self.C
-        wrap = ctk.CTkFrame(parent, fg_color=C["card"], corner_radius=0, height=34)
-        wrap.grid(row=row, column=0, columnspan=2, sticky="ew", padx=0, pady=(0, 6))
-        wrap.grid_propagate(False)
-        wrap.grid_columnconfigure(1, weight=1)
-        ctk.CTkFrame(wrap, width=3, height=34, corner_radius=0,
-                     fg_color=C["accent"]).grid(row=0, column=0, sticky="ns")
-        ctk.CTkLabel(
-            wrap, text=text,
-            font=("Segoe UI", 9, "bold"),
-            text_color=C["accent"],
-        ).grid(row=0, column=1, padx=(10, 0), sticky="w")
-
-    def _card(self, parent, row, pad_top=6, pad_bot=6):
-        """Карточка секции — одна колонка, полная ширина."""
-        C = self.C
-        f = ctk.CTkFrame(
-            parent,
-            fg_color=C["surface"],
-            corner_radius=12,
-            border_width=1,
-            border_color=C["border"],
-        )
-        f.grid(row=row, column=0, padx=12, pady=(pad_top, pad_bot), sticky="ew")
-        f.grid_columnconfigure(0, weight=1)
-        return f
-
-    def _field_label(self, parent, text, row):
-        """Метка поля над комбо — маленькая, приглушённая."""
-        ctk.CTkLabel(
-            parent,
-            text=text,
-            font=("Segoe UI", 9, "bold"),
-            text_color=self.C["muted"],
-            anchor="w",
-        ).grid(row=row, column=0, padx=14, pady=(8, 2), sticky="w")
-
-    def _combo(self, parent, values, variable, row, command=None, pad_bottom=10):
-        """Выпадающий список — полная ширина, метка над ним."""
-        C = self.C
-        kw = dict(
-            values=values,
-            variable=variable,
-            fg_color=C["card"],
-            button_color=C["accent"],
-            border_color=C["border"],
-            dropdown_fg_color=C["surface"],
-            dropdown_hover_color=C["border"],
-            dropdown_text_color=C["text"],
-            text_color=C["text"],
-            font=("Segoe UI", 11),
-            height=34,
-            corner_radius=8,
-        )
-        if command:
-            kw["command"] = command
-        w = ctk.CTkComboBox(parent, **kw)
-        w.grid(row=row, column=0, padx=12, pady=(0, pad_bottom), sticky="ew")
-        return w
 
     # ──────────────────────────────────────────────────────────────────────────
     # Загрузка конфигураций
@@ -717,73 +1120,84 @@ class MEmuHudManager:
     # GUI — основной экран
     # ──────────────────────────────────────────────────────────────────────────
     def setup_gui(self):
+        C = self.C
         for w in list(self.left_col.winfo_children()):
             w.destroy()
-
-        C = self.C
+        self.left_col.grid_columnconfigure((0, 1), weight=1, uniform="cols")
 
         # ── Карточка: Устройство ───────────────────────────────
-        sect1 = self._card(self.left_col, row=0, pad_top=10)
-        self._section_label(sect1, "УСТРОЙСТВО")
+        dev = self._card(self.left_col, 0, 0, title="УСТРОЙСТВО", pad_top=4, padx=(0, 6))
 
-        self._field_label(sect1, "ТИП ПОДКЛЮЧЕНИЯ", row=1)
+        self._field_label(dev, "ТИП ПОДКЛЮЧЕНИЯ", row=1)
         self.conn_var = ctk.StringVar(value="Физическое")
         self.conn_menu = self._combo(
-            sect1,
+            dev,
             values=["Физическое", "Клон (999)", "MEmu", "NOX"],
             variable=self.conn_var,
             row=2,
         )
         self.conn_var.trace("w", self.detect_app_folders)
+        self.conn_var.trace_add("write", self._refresh_hero_sub)
 
-        self._field_label(sect1, "ПАПКА ПРИЛОЖЕНИЯ", row=3)
+        self._field_label(dev, "ПАПКА ПРИЛОЖЕНИЯ", row=3)
         self.app_var = ctk.StringVar(value="")
-        self.app_menu = self._combo(sect1, values=[], variable=self.app_var, row=4, pad_bottom=12)
+        self.app_menu = self._combo(dev, values=[], variable=self.app_var, row=4, pad_bottom=16)
+        self.app_var.trace_add("write", self._refresh_hero_sub)
 
-        # ── NOX-секция ─────────────────────────────────────────
-        self.nox_sect = ctk.CTkFrame(
-            self.left_col,
-            fg_color=C["surface"],
-            corner_radius=12,
-            border_width=1,
-            border_color=C["border"],
-        )
-        self.nox_sect.grid_columnconfigure(0, weight=1)
-
-        # ── Карточка: Профиль (только для владельца) ───────────
+        # ── Карточка: Профиль ──────────────────────────────────
+        prof = self._card(self.left_col, 0, 1, title="ПРОФИЛЬ", pad_top=4, padx=(6, 0))
         if self.debug_allowed and self.code_files:
             user_names = [f.get('user', f['name'].replace('.js', '')) for f in self.code_files]
-            sect_u = self._card(self.left_col, row=2)
-            self._section_label(sect_u, "ПРОФИЛЬ")
-
-            self._field_label(sect_u, "ИГРОК", row=1)
+            self._field_label(prof, "ИГРОК", row=1)
             self.owner_user_var = ctk.StringVar(
                 value=self.selected_code_name or user_names[0]
             )
             self._combo(
-                sect_u,
+                prof,
                 values=user_names,
                 variable=self.owner_user_var,
                 row=2,
                 command=self._on_owner_user_change,
-                pad_bottom=12,
+                pad_bottom=4,
             )
             self._on_owner_user_change(self.owner_user_var.get())
+            nxt = 3
+        else:
+            self._info_row(prof, "ИГРОК", self.selected_code_name or "—", row=1, color=C["accent2"])
+            nxt = 3
+        self._info_row(
+            prof, "ДОСТУП",
+            "Отладка" if self.debug_allowed else "Обычный",
+            row=nxt, color=C["green"],
+        )
+        self._info_row(prof, "HWID", self.hwid or "UNKNOWN", row=nxt + 2, mono=True)
+        ctk.CTkFrame(prof, height=10, fg_color="transparent").grid(row=nxt + 4, column=0)
+
+        # ── NOX-секция (показывается только при 2+ экземплярах) ─
+        self.nox_sect = ctk.CTkFrame(
+            self.left_col, fg_color=C["card"], corner_radius=10,
+            border_width=1, border_color=C["border"],
+        )
+        self.nox_sect.grid_columnconfigure(0, weight=1)
 
         # ── Инфо о коммите ─────────────────────────────────────
         if self.full_logging and self.last_commit_info:
             ctk.CTkLabel(
                 self.left_col,
                 text=f"↑ {self.last_commit_info}",
-                font=("Segoe UI", 9),
+                font=self.F("body", 9),
                 text_color=C["muted"],
-                wraplength=270, justify="left",
-            ).grid(row=3, column=0, padx=12, pady=(0, 4), sticky="w")
+                wraplength=680, justify="left", anchor="w",
+            ).grid(row=2, column=0, columnspan=2, padx=4, pady=(2, 8), sticky="w")
 
+        self._update_side_head()
+        self._refresh_hero_sub()
         self.update_gui()
 
     def _on_owner_user_change(self, value):
         self.selected_code_name = value
+        self._update_side_head()
+        self._refresh_hero_sub()
 
     def _update_nox_selector(self):
         if not hasattr(self, 'nox_sect'):
@@ -794,8 +1208,8 @@ class MEmuHudManager:
             w.destroy()
 
         if self.conn_var.get() == "NOX" and len(self.nox_active_devices) >= 2:
-            self.nox_sect.grid(row=1, column=0, padx=12, pady=(0, 6), sticky="ew")
-            self._section_label(self.nox_sect, "NOX — ВЫБОР ЭКЗЕМПЛЯРА")
+            self.nox_sect.grid(row=1, column=0, columnspan=2, pady=(6, 6), sticky="ew")
+            self._card_title(self.nox_sect, "NOX — ВЫБОР ЭКЗЕМПЛЯРА")
 
             if not hasattr(self, 'nox_target_var') or self.nox_target_var is None:
                 self.nox_target_var = ctk.StringVar(value="Оба сразу")
@@ -813,16 +1227,16 @@ class MEmuHudManager:
 
             self._field_label(self.nox_sect, "ЦЕЛЬ", row=1)
             self._combo(self.nox_sect, labels, self.nox_target_var, row=2,
-                        command=_on_nox_target)
+                        command=_on_nox_target, pad_bottom=6)
 
-            ports_text = "  ".join(
+            ports_text = "   ".join(
                 f"{d['label']}: порт {d['port']}" for d in self.nox_active_devices
             )
             ctk.CTkLabel(
                 self.nox_sect, text=ports_text,
-                font=("Segoe UI", 9), text_color=C["muted"],
+                font=self.F("mono", 10), text_color=C["muted"],
                 anchor="w",
-            ).grid(row=3, column=0, padx=14, pady=(0, 10), sticky="w")
+            ).grid(row=3, column=0, padx=16, pady=(0, 14), sticky="w")
 
             _on_nox_target(self.nox_target_var.get())
         else:
@@ -878,134 +1292,55 @@ class MEmuHudManager:
     # GUI — блок действий
     # ──────────────────────────────────────────────────────────────────────────
     def update_gui(self):
-        for w in list(self.right_col.winfo_children()):
-            info = w.grid_info()
-            if info and info.get('row', 0) > 0:   # оставляем лог (row=0)
-                w.destroy()
-
         C = self.C
 
-        # ── Карточка: Действия ──────────────────────────────────
-        acts = ctk.CTkFrame(
-            self.right_col,
-            fg_color=C["surface"],
-            corner_radius=12,
-            border_width=1,
-            border_color=C["border"],
-        )
-        acts.grid(row=1, column=0, padx=10, pady=(4, 4), sticky="nsew")
-        acts.grid_columnconfigure((0, 1), weight=1)
-        acts.grid_rowconfigure(7, weight=1)
+        # ── Боковое меню ────────────────────────────────────────
+        for w in list(self.nav.winfo_children()):
+            w.destroy()
+        for w in list(self.side_bottom.winfo_children()):
+            w.destroy()
 
-        # Заголовок (columnspan=2 чтоб перекрыл обе колонки кнопок)
-        C2 = self.C
-        hdr_wrap = ctk.CTkFrame(acts, fg_color=C2["card"], corner_radius=0, height=34)
-        hdr_wrap.grid(row=0, column=0, columnspan=2, sticky="ew", padx=0, pady=(0, 8))
-        hdr_wrap.grid_propagate(False)
-        hdr_wrap.grid_columnconfigure(1, weight=1)
-        ctk.CTkFrame(hdr_wrap, width=3, height=34, corner_radius=0,
-                     fg_color=C2["accent"]).grid(row=0, column=0, sticky="ns")
-        ctk.CTkLabel(hdr_wrap, text="ДЕЙСТВИЯ", font=("Segoe UI", 9, "bold"),
-                     text_color=C2["accent"]).grid(row=0, column=1, padx=(10, 0), sticky="w")
-
-        # ── Главная кнопка ──────────────────────────────────────
-        ctk.CTkButton(
-            acts,
-            text="▶  Установить код",
-            font=("Segoe UI", 12, "bold"),
-            fg_color=C["accent"],
-            hover_color="#E09500",
-            text_color=C["btntext"],
-            height=42,
-            corner_radius=10,
-            command=lambda: self.execute_action("1"),
-        ).grid(row=1, column=0, columnspan=2, padx=12, pady=(0, 8), sticky="ew")
-
-        # ── Разделитель ─────────────────────────────────────────
-        ctk.CTkFrame(acts, height=1, fg_color=C["border"]).grid(
-            row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8)
-        )
-
-        # ── Вторичные кнопки ────────────────────────────────────
-        ctk.CTkButton(
-            acts,
-            text="✕  Убрать код",
-            font=("Segoe UI", 11),
-            fg_color=C["card"],
-            hover_color=C["border"],
-            text_color=C["subtext"],
-            height=36, corner_radius=8,
-            border_width=1, border_color=C["border"],
-            command=lambda: self.execute_action("2"),
-        ).grid(row=3, column=0, padx=(12, 4), pady=(0, 6), sticky="ew")
-
-        ctk.CTkButton(
-            acts,
-            text="⟳  Проверить",
-            font=("Segoe UI", 11),
-            fg_color=C["card"],
-            hover_color=C["border"],
-            text_color=C["subtext"],
-            height=36, corner_radius=8,
-            border_width=1, border_color=C["border"],
-            command=lambda: self.execute_action("3"),
-        ).grid(row=3, column=1, padx=(4, 12), pady=(0, 6), sticky="ew")
-
-        ctk.CTkButton(
-            acts,
-            text="🔐  Токены аккаунтов",
-            font=("Segoe UI", 11),
-            fg_color=C["card"], hover_color=C["border"],
-            text_color=C["subtext"], height=36, corner_radius=8,
-            border_width=1, border_color=C["border"],
-            command=self.open_local_account_manager,
-        ).grid(row=4, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
-
+        self._nav_item(self.nav, "Установить код", lambda: self.execute_action("1"), active=True)
+        self._nav_item(self.nav, "Убрать код", lambda: self.execute_action("2"))
+        self._nav_item(self.nav, "Проверить файлы", lambda: self.execute_action("3"))
+        self._nav_item(self.nav, "Токены аккаунтов", self.open_local_account_manager)
         if self.full_logging:
-            ctk.CTkButton(
-                acts,
-                text="↓  Скачать Hud.js",
-                font=("Segoe UI", 11),
-                fg_color=C["card"], hover_color=C["border"],
-                text_color=C["subtext"], height=36, corner_radius=8,
-                border_width=1, border_color=C["border"],
-                command=lambda: self.execute_action("4"),
-            ).grid(row=5, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
-
-            ctk.CTkButton(
-                acts,
-                text="📂  Скачать .js файлы",
-                font=("Segoe UI", 11),
-                fg_color=C["card"], hover_color=C["border"],
-                text_color=C["subtext"], height=36, corner_radius=8,
-                border_width=1, border_color=C["border"],
-                command=self.open_js_downloader,
-            ).grid(row=6, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
-
+            self._nav_item(self.nav, "Скачать Hud.js", lambda: self.execute_action("4"))
+            self._nav_item(self.nav, "Скачать .js файлы", self.open_js_downloader)
         if self.debug_allowed:
-            ctk.CTkButton(
-                acts,
-                text="🛠  Включить отладку",
-                font=("Segoe UI", 11),
-                fg_color=C["card"],
-                hover_color=C["border"],
-                text_color=C["accent2"],
-                height=36, corner_radius=8,
-                border_width=1, border_color=C["accent2"],
-                command=self.activate_debug_mode,
-            ).grid(row=7, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+            self._nav_item(self.nav, "Включить отладку", self.activate_debug_mode, green=True)
 
-        # ── Кнопка выхода ──────────────────────────────────────
-        ctk.CTkButton(
-            self.right_col,
-            text="Выход",
-            font=("Segoe UI", 10),
-            fg_color="transparent",
-            hover_color=C["surface"],
-            text_color=C["muted"],
-            height=28, corner_radius=6,
-            command=self.on_close,
-        ).grid(row=2, column=0, padx=10, pady=(0, 8), sticky="e")
+        self._nav_item(self.side_bottom, "Выход", self.on_close, danger=True)
+
+        # ── Нижняя панель: статус + прогресс + главная кнопка ──
+        bb = self.bottom_bar
+        for w in list(bb.winfo_children()):
+            w.destroy()
+        bb.grid()
+        bb.grid_columnconfigure(0, weight=1)
+        bb.grid_columnconfigure(1, weight=0)
+        bb.grid_rowconfigure(0, weight=1)
+
+        left = ctk.CTkFrame(bb, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="ew", padx=(28, 20))
+        self._status_lbl = ctk.CTkLabel(
+            left, text="ГОТОВ К УСТАНОВКЕ", font=self.F("cond", 16),
+            text_color=C["subtext"], anchor="w",
+        )
+        self._status_lbl.pack(fill="x", pady=(0, 7))
+        self._progress = ctk.CTkProgressBar(
+            left, height=14, corner_radius=3, border_width=1,
+            border_color=C["border"], fg_color=C["card2"],
+            progress_color=C["green"],
+        )
+        self._progress.set(0)
+        self._progress.pack(fill="x")
+
+        self.install_btn = self._btn_primary(
+            bb, "УСТАНОВИТЬ КОД", lambda: self.execute_action("1"),
+            height=50, width=240, size=18,
+        )
+        self.install_btn.grid(row=0, column=1, padx=(0, 28), pady=16)
 
     # ──────────────────────────────────────────────────────────────────────────
     # Telegram
@@ -1342,14 +1677,14 @@ class MEmuHudManager:
         nox_found = self.check_nox_installation()
         if memu_found or nox_found:
             if not self.download_and_extract_adb():
-                messagebox.showerror("Ошибка", "ADB не готов. Перезапустите программу.")
+                self._msgbox("error", "Ошибка", "ADB не готов. Перезапустите программу.")
                 return
         else:
             if not self.download_and_extract_adb():
-                messagebox.showerror("Ошибка", "ADB не готов. Перезапустите программу.")
+                self._msgbox("error", "Ошибка", "ADB не готов. Перезапустите программу.")
                 return
         if not self.check_adb_exists():
-            messagebox.showerror("Ошибка", "ADB не найден. Перезапустите программу.")
+            self._msgbox("error", "Ошибка", "ADB не найден. Перезапустите программу.")
             return
         try:
             subprocess.run(
@@ -1361,8 +1696,7 @@ class MEmuHudManager:
         except Exception:
             pass
         self.log("[√] Система готова")
-        if hasattr(self, '_status_dot'):
-            self._status_dot.configure(fg_color=self.C["accent"])
+        self._set_ready()
         # Авто-определение папок при запуске
         self.root.after(200, self.detect_app_folders)
 
@@ -1426,109 +1760,80 @@ class MEmuHudManager:
         return None, None
 
     def show_no_access_screen(self, extra_msg=None):
-        """Показать экран 'нет доступа' с возможностью скопировать HWID."""
-        # Очистить обе колонки
+        # Экран 'нет доступа' с возможностью скопировать HWID
         for w in list(self.left_col.winfo_children()):
             w.destroy()
-        for w in list(self.right_col.winfo_children()):
+        for w in list(self.nav.winfo_children()):
             w.destroy()
+        for w in list(self.side_bottom.winfo_children()):
+            w.destroy()
+        try:
+            self.bottom_bar.grid_remove()
+        except Exception:
+            pass
 
         C = self.C
+        self._set_state("НЕТ ДОСТУПА", C["red"])
+        self._update_side_head()
+        try:
+            self.hero_sub.configure(text="ДОСТУП ОГРАНИЧЕН")
+        except Exception:
+            pass
 
-        # Центральная карточка в правой колонке
-        self.right_col.grid_rowconfigure(0, weight=1)
-        wrap = ctk.CTkFrame(self.right_col, fg_color="transparent")
-        wrap.grid(row=0, column=0, sticky="nsew", padx=24, pady=24)
-        wrap.grid_columnconfigure(0, weight=1)
-        wrap.grid_rowconfigure(0, weight=1)
-
+        self.left_col.grid_columnconfigure((0, 1), weight=1, uniform="cols")
         card = ctk.CTkFrame(
-            wrap,
-            fg_color=C["surface"],
-            corner_radius=14,
-            border_width=1,
-            border_color=C["red"],
+            self.left_col, fg_color=C["card"], corner_radius=10,
+            border_width=1, border_color=C["red_dark"],
         )
-        card.grid(row=0, column=0, sticky="nsew")
+        card.grid(row=0, column=0, columnspan=2, padx=70, pady=(6, 10), sticky="ew")
         card.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(
-            card, text="🚫",
-            font=("Segoe UI", 36),
-        ).grid(row=0, column=0, pady=(28, 4))
+        ctk.CTkFrame(card, height=3, corner_radius=0, fg_color=C["red"]).grid(
+            row=0, column=0, sticky="ew", padx=1, pady=(1, 0))
 
         ctk.CTkLabel(
-            card, text="НЕТ ДОСТУПА",
-            font=("Segoe UI", 16, "bold"),
-            text_color=C["red"],
-        ).grid(row=1, column=0, pady=(0, 6))
+            card, text="НЕТ ДОСТУПА", font=self.F("condb", 30), text_color=C["red"],
+        ).grid(row=1, column=0, pady=(18, 4))
 
         if extra_msg:
             ctk.CTkLabel(
-                card, text=extra_msg,
-                font=("Segoe UI", 10),
-                text_color=C["subtext"],
-            ).grid(row=2, column=0, pady=(0, 10))
+                card, text=extra_msg, font=self.F("body", 11), text_color=C["subtext"],
+            ).grid(row=2, column=0, pady=(0, 8))
 
         ctk.CTkLabel(
-            card,
-            text="Ваш HWID для получения доступа:",
-            font=("Segoe UI", 10),
-            text_color=C["subtext"],
-        ).grid(row=3, column=0, pady=(0, 6))
+            card, text="ВАШ HWID ДЛЯ ПОЛУЧЕНИЯ ДОСТУПА", font=self.F("cond", 13),
+            text_color=C["muted"],
+        ).grid(row=3, column=0, pady=(6, 6))
 
-        hwid_box = ctk.CTkFrame(card, fg_color=C["card"], corner_radius=8)
-        hwid_box.grid(row=4, column=0, padx=24, pady=(0, 14), sticky="ew")
+        hwid_box = ctk.CTkFrame(card, fg_color=C["card2"], corner_radius=8,
+                                border_width=1, border_color=C["border2"])
+        hwid_box.grid(row=4, column=0, padx=60, pady=(0, 14), sticky="ew")
         hwid_box.grid_columnconfigure(0, weight=1)
-
         ctk.CTkLabel(
-            hwid_box,
-            text=self.hwid or "UNKNOWN",
-            font=("Consolas", 14, "bold"),
-            text_color=C["accent"],
-        ).grid(row=0, column=0, padx=14, pady=12)
+            hwid_box, text=self.hwid or "UNKNOWN",
+            font=self.F("mono", 18), text_color=C["accent2"],
+        ).grid(row=0, column=0, padx=14, pady=14)
 
-        copy_btn = ctk.CTkButton(
-            card,
-            text="📋  Скопировать HWID",
-            font=("Segoe UI", 11, "bold"),
-            fg_color=C["accent"],
-            hover_color="#E09500",
-            text_color=C["btntext"],
-            height=38,
-            corner_radius=8,
-        )
+        copy_holder = {}
 
         def _copy():
             self.root.clipboard_clear()
             self.root.clipboard_append(self.hwid or "")
-            copy_btn.configure(text="✓  Скопировано!")
-            self.root.after(2000, lambda: copy_btn.configure(text="📋  Скопировать HWID"))
+            b = copy_holder["b"].btn
+            b.configure(text="СКОПИРОВАНО ✓")
+            self.root.after(2000, lambda: b.configure(text="СКОПИРОВАТЬ HWID"))
 
-        copy_btn.configure(command=_copy)
-        copy_btn.grid(row=5, column=0, padx=24, pady=(0, 8), sticky="ew")
+        copy_btn = self._btn_primary(card, "СКОПИРОВАТЬ HWID", _copy, height=44, size=16)
+        copy_holder["b"] = copy_btn
+        copy_btn.grid(row=5, column=0, padx=60, pady=(0, 10), sticky="ew")
 
         ctk.CTkLabel(
             card,
             text="Скопируйте HWID и отправьте его владельцу для получения доступа",
-            font=("Segoe UI", 9),
-            text_color=C["muted"],
-            wraplength=260,
-        ).grid(row=6, column=0, pady=(0, 22))
+            font=self.F("body", 10), text_color=C["muted"], wraplength=420,
+        ).grid(row=6, column=0, pady=(0, 20))
 
-        # Кнопка выхода
-        ctk.CTkButton(
-            self.right_col,
-            text="Выход",
-            font=("Segoe UI", 10),
-            fg_color="transparent",
-            hover_color=C["surface"],
-            text_color=C["muted"],
-            height=28, corner_radius=6,
-            command=self.on_close,
-        ).grid(row=2, column=0, padx=10, pady=(0, 8), sticky="e")
-        # Сброс ссылки на старый notif_strip
-        self._notif_strip = None
+        self._nav_item(self.side_bottom, "Выход", self.on_close, danger=True)
 
     def activate_launch_permission(self):
         self.hwid = self.get_hwid()
@@ -1578,58 +1883,23 @@ class MEmuHudManager:
     # ──────────────────────────────────────────────────────────────────────────
     def show_replace_warning(self, app_folder):
         C = self.C
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self.root)
-        dialog.configure(fg_color=C["bg"])
-        dialog.update_idletasks()
-
         acc_nums = self.get_local_account_numbers(self.selected_code_name)
         acc_rows = max(1, (len(acc_nums) + 7) // 8)
-        DW, DH = 360, 240 + 42 * (acc_rows - 1)
-        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
-        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
-        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
-        dialog.lift()
-
-        # Шапка диалога — янтарная полоса как в основном окне
-        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=44)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-
-        accent_bar = ctk.CTkFrame(hdr, width=4, height=44, corner_radius=0,
-                                   fg_color=C["accent"])
-        accent_bar.pack(side="left")
+        DW, DH = 420, 268 + 48 * (acc_rows - 1)
+        dialog, body = self._dialog(
+            "Выбор аккаунта", DW, DH, sub=f"игрок: {self.selected_code_name or '—'}"
+        )
 
         ctk.CTkLabel(
-            hdr,
-            text="Выбор аккаунта",
-            font=("Segoe UI", 12, "bold"),
-            text_color=C["text"],
-        ).pack(side="left", padx=12, pady=10)
-
-        ctk.CTkLabel(
-            hdr,
-            text=f"игрок: {self.selected_code_name or '—'}",
-            font=("Segoe UI", 10),
+            body, text="ВЫБЕРИТЕ НОМЕР АККАУНТА", font=self.F("cond", 14),
             text_color=C["subtext"],
-        ).pack(side="right", padx=14)
-
-        # Описание
-        ctk.CTkLabel(
-            dialog,
-            text="Выберите номер аккаунта",
-            font=("Segoe UI", 11),
-            text_color=C["subtext"],
-        ).pack(pady=(14, 8))
+        ).pack(pady=(20, 10))
 
         acc_var = ctk.StringVar(
             value=self.selected_account_number
             if self.selected_account_number in acc_nums else ''
         )
-        grid = ctk.CTkFrame(dialog, fg_color="transparent")
+        grid = ctk.CTkFrame(body, fg_color="transparent")
         grid.pack()
         acc_buttons = {}
 
@@ -1638,44 +1908,38 @@ class MEmuHudManager:
             for num, btn in acc_buttons.items():
                 sel = (num == n)
                 btn.configure(
-                    fg_color=C["accent"] if sel else C["card"],
+                    fg_color=C["accent"] if sel else C["card2"],
                     text_color=C["btntext"] if sel else C["subtext"],
-                    border_color=C["accent"] if sel else C["border"],
+                    border_color=C["accent"] if sel else C["border2"],
                 )
 
         if not acc_nums:
             ctk.CTkLabel(
                 grid, text="Токены аккаунтов ещё не добавлены",
-                font=("Segoe UI", 11), text_color=C["muted"],
-            ).grid(row=0, column=0, pady=(0, 8))
-            ctk.CTkButton(
-                grid, text="🔐  Добавить токены", height=34,
-                font=("Segoe UI", 11, "bold"),
-                fg_color=C["accent"], hover_color="#E09500",
-                text_color=C["btntext"], corner_radius=8,
-                command=lambda: (dialog.destroy(), self.open_local_account_manager()),
+                font=self.F("body", 11), text_color=C["muted"],
+            ).grid(row=0, column=0, pady=(0, 10))
+            self._btn_primary(
+                grid, "ДОБАВИТЬ ТОКЕНЫ",
+                lambda: (dialog.destroy(), self.open_local_account_manager()),
+                height=38, size=15,
             ).grid(row=1, column=0)
 
         for idx, n in enumerate(acc_nums):
             is_sel = (n == acc_var.get())
             btn = ctk.CTkButton(
                 grid, text=f"#{n}",
-                width=36, height=36,
-                font=("Segoe UI", 12, "bold"),
-                fg_color=C["accent"] if is_sel else C["card"],
-                hover_color="#E09500",
+                width=40, height=40,
+                font=self.F("condb", 15),
+                fg_color=C["accent"] if is_sel else C["card2"],
+                hover_color=C["accent2"],
                 text_color=C["btntext"] if is_sel else C["subtext"],
                 border_width=1,
-                border_color=C["accent"] if is_sel else C["border"],
-                corner_radius=8,
+                border_color=C["accent"] if is_sel else C["border2"],
+                corner_radius=6,
                 command=lambda x=n: select_acc(x),
             )
             btn.grid(row=idx // 8, column=idx % 8, padx=3, pady=3)
             acc_buttons[n] = btn
-
-        # Нижние кнопки
-        bot = ctk.CTkFrame(dialog, fg_color="transparent")
-        bot.pack(pady=(16, 0))
 
         def on_start():
             chosen = acc_var.get()
@@ -1685,27 +1949,19 @@ class MEmuHudManager:
             self.selected_account_number = chosen
             dialog.destroy()
             threading.Thread(
-                target=lambda: self._run_on_targets(self.replace_with_code, app_folder),
+                target=lambda: self._with_progress(
+                    lambda: self._run_on_targets(self.replace_with_code, app_folder)),
                 daemon=True,
             ).start()
 
-        ctk.CTkButton(
-            bot, text="Отмена", width=120, height=34,
-            font=("Segoe UI", 11),
-            fg_color="transparent", hover_color=C["surface"],
-            text_color=C["muted"], corner_radius=8,
-            command=dialog.destroy,
-        ).grid(row=0, column=0, padx=6)
-
-        ctk.CTkButton(
-            bot, text="▶  Установить", width=150, height=34,
-            font=("Segoe UI", 11, "bold"),
-            fg_color=C["accent"], hover_color="#E09500",
-            text_color=C["btntext"], corner_radius=8,
-            command=on_start,
-        ).grid(row=0, column=1, padx=6)
-
-        dialog.update_idletasks()
+        bot = ctk.CTkFrame(body, fg_color="transparent")
+        bot.pack(side="bottom", fill="x", padx=24, pady=(0, 20))
+        bot.grid_columnconfigure(0, weight=1)
+        bot.grid_columnconfigure(1, weight=1)
+        self._btn_ghost(bot, "ОТМЕНА", dialog.destroy, height=44).grid(
+            row=0, column=0, sticky="ew", padx=(0, 6))
+        self._btn_primary(bot, "УСТАНОВИТЬ", on_start, height=41, size=16).grid(
+            row=0, column=1, sticky="ew", padx=(6, 0))
 
     # ──────────────────────────────────────────────────────────────────────────
     # Диалог скачивания .js (переработан)
@@ -1720,81 +1976,34 @@ class MEmuHudManager:
             return
 
         C = self.C
-        dialog = ctk.CTkToplevel(self.root)
-        dialog.title("Скачать .js файлы")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.transient(self.root)
-        dialog.configure(fg_color=C["bg"])
-        dialog.update_idletasks()
-
-        DW, DH = 380, 460
-        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
-        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
-        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
-        dialog.lift()
-
-        # Шапка
-        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=44)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-        accent_bar = ctk.CTkFrame(hdr, width=4, height=44, corner_radius=0,
-                                   fg_color=C["accent"])
-        accent_bar.pack(side="left")
-        ctk.CTkLabel(
-            hdr, text="📂  Выбор .js файлов",
-            font=("Segoe UI", 12, "bold"),
-            text_color=C["text"],
-        ).pack(side="left", padx=12, pady=10)
+        import tkinter as tk
+        dialog, body = self._dialog("Скачать .js файлы", 480, 560)
 
         # Поиск
-        search_frame = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=40)
-        search_frame.pack(fill="x")
-        search_frame.pack_propagate(False)
-        ctk.CTkLabel(
-            search_frame, text="🔍",
-            font=("Segoe UI", 12), text_color=C["muted"],
-        ).pack(side="left", padx=(12, 4), pady=6)
-
-        import tkinter as tk
         search_var = tk.StringVar()
-        ctk.CTkEntry(
-            search_frame,
-            textvariable=search_var,
-            placeholder_text="Поиск файла...",
-            fg_color=C["card"],
-            border_color=C["border"],
-            text_color=C["text"],
-            placeholder_text_color=C["muted"],
-            font=("Segoe UI", 11),
-            height=28, corner_radius=6, border_width=1,
-        ).pack(side="left", fill="x", expand=True, padx=(0, 12), pady=6)
+        sf = ctk.CTkFrame(body, fg_color="transparent")
+        sf.pack(fill="x", padx=16, pady=(14, 0))
+        self._entry(sf, "Поиск файла…", height=36, textvariable=search_var).pack(fill="x")
 
         # Список файлов
         list_frame = ctk.CTkScrollableFrame(
-            dialog, fg_color=C["card"], corner_radius=8,
-            scrollbar_button_color=C["border"],
+            body, fg_color=C["card"], corner_radius=10,
+            border_width=1, border_color=C["border"],
+            scrollbar_button_color=C["border2"],
             scrollbar_button_hover_color=C["accent"],
         )
-        list_frame.pack(fill="both", expand=True, padx=12, pady=(8, 4))
+        list_frame.pack(fill="both", expand=True, padx=16, pady=(10, 4))
 
         status_lbl = ctk.CTkLabel(
-            dialog, text="Загрузка списка файлов...",
-            font=("Segoe UI", 10), text_color=C["subtext"],
+            body, text="Загрузка списка файлов…",
+            font=self.F("cond", 13), text_color=C["subtext"],
         )
-        status_lbl.pack(pady=(2, 0))
+        status_lbl.pack(pady=(4, 2))
 
-        # Кнопка скачивания — янтарная
-        dl_btn = ctk.CTkButton(
-            dialog,
-            text="↓  Скачать выбранные",
-            font=("Segoe UI", 12, "bold"),
-            fg_color=C["accent"], hover_color="#E09500",
-            text_color=C["btntext"],
-            height=38, corner_radius=10,
-            state="disabled",
-        )
-        dl_btn.pack(fill="x", padx=12, pady=(4, 12))
+        dl_holder = self._btn_primary(body, "СКАЧАТЬ ВЫБРАННЫЕ", None, height=46, size=17)
+        dl_holder.pack(fill="x", padx=16, pady=(4, 16))
+        dl_btn = dl_holder.btn
+        dl_btn.configure(state="disabled")
 
         check_vars = {}
         all_files = []
@@ -1807,9 +2016,9 @@ class MEmuHudManager:
             if not visible:
                 ctk.CTkLabel(
                     list_frame,
-                    text="Ничего не найдено" if query else "Файлы .js не найдены",
-                    font=("Segoe UI", 11), text_color=C["subtext"],
-                ).pack(pady=10)
+                    text="НИЧЕГО НЕ НАЙДЕНО" if query else "ФАЙЛЫ .JS НЕ НАЙДЕНЫ",
+                    font=self.F("cond", 14), text_color=C["muted"],
+                ).pack(pady=14)
                 return
             for fname in visible:
                 if fname not in check_vars:
@@ -1818,9 +2027,10 @@ class MEmuHudManager:
                 row_f.pack(fill="x", pady=2)
                 ctk.CTkCheckBox(
                     row_f, text=fname, variable=check_vars[fname],
-                    font=("Consolas", 11), text_color=C["text"],
-                    fg_color=C["accent"], hover_color="#E09500",
-                    checkmark_color=C["btntext"], border_color=C["border"],
+                    font=self.F("mono", 11), text_color=C["text"],
+                    fg_color=C["accent"], hover_color=C["accent2"],
+                    checkmark_color=C["btntext"], border_color=C["border2"],
+                    corner_radius=4, checkbox_width=20, checkbox_height=20,
                 ).pack(side="left", padx=6)
 
         def on_search(*_):
@@ -1833,10 +2043,10 @@ class MEmuHudManager:
             all_files.extend(files)
             check_vars.clear()
             if not files:
-                status_lbl.configure(text="Файлы не найдены")
+                status_lbl.configure(text="ФАЙЛЫ НЕ НАЙДЕНЫ")
                 render_list()
                 return
-            status_lbl.configure(text=f"Найдено файлов: {len(files)}")
+            status_lbl.configure(text=f"НАЙДЕНО ФАЙЛОВ: {len(files)}")
             render_list(search_var.get())
             dl_btn.configure(state="normal")
 
@@ -1851,7 +2061,7 @@ class MEmuHudManager:
                 )
                 if result.returncode != 0:
                     dialog.after(0, lambda: status_lbl.configure(
-                        text="[X] Ошибка: не удалось получить список файлов"))
+                        text="ОШИБКА: НЕ УДАЛОСЬ ПОЛУЧИТЬ СПИСОК ФАЙЛОВ"))
                     return
                 files = sorted([
                     f.strip() for f in result.stdout.splitlines()
@@ -1859,14 +2069,14 @@ class MEmuHudManager:
                 ])
                 dialog.after(0, lambda: populate(files))
             except Exception as e:
-                dialog.after(0, lambda: status_lbl.configure(text=f"[X] Ошибка: {e}"))
+                dialog.after(0, lambda: status_lbl.configure(text=f"ОШИБКА: {e}"))
 
         def do_download():
             selected = [fname for fname, var in check_vars.items() if var.get()]
             if not selected:
-                status_lbl.configure(text="Выберите хотя бы один файл")
+                status_lbl.configure(text="ВЫБЕРИТЕ ХОТЯ БЫ ОДИН ФАЙЛ")
                 return
-            dl_btn.configure(state="disabled", text="Скачивание...")
+            dl_btn.configure(state="disabled", text="СКАЧИВАНИЕ…")
             threading.Thread(
                 target=lambda: self.download_js_files(
                     app_folder, selected, status_lbl, dl_btn, dialog),
@@ -1885,7 +2095,7 @@ class MEmuHudManager:
         ok = 0
         for i, fname in enumerate(files, 1):
             dialog.after(0, lambda i=i, f=fname: status_lbl.configure(
-                text=f"Скачивание {i}/{total}: {f}"))
+                text=f"СКАЧИВАНИЕ {i}/{total}: {f}"))
             remote_file = f"{remote_base}/{fname}"
             local_file = save_dir / fname
             try:
@@ -1904,8 +2114,8 @@ class MEmuHudManager:
                 self.log(f"[X] Ошибка {fname}: {e}")
 
         def finish():
-            status_lbl.configure(text=f"[√] Готово: {ok}/{total} файлов → {save_dir}")
-            dl_btn.configure(state="normal", text="↓  Скачать выбранные")
+            status_lbl.configure(text=f"ГОТОВО: {ok}/{total} ФАЙЛОВ")
+            dl_btn.configure(state="normal", text="СКАЧАТЬ ВЫБРАННЫЕ")
             self.log(f"[√] JsDownload: скачано {ok}/{total} файлов в {save_dir}")
 
         dialog.after(0, finish)
@@ -2227,7 +2437,13 @@ class MEmuHudManager:
             elif action == "4":
                 self.simple_download(app_folder)
 
-        threading.Thread(target=run_action, daemon=True).start()
+        def _wrapped():
+            if action == "1":
+                run_action()          # для установки прогресс запускается после выбора аккаунта
+            else:
+                self._with_progress(run_action)
+
+        threading.Thread(target=_wrapped, daemon=True).start()
 
     def get_hassle_folders(self, param=None, storage=None):
         param = param or self.device_param
@@ -2566,7 +2782,7 @@ class MEmuHudManager:
         self.root.after(0, lambda msg=message: self._log_gui(msg))
 
     def _log_gui(self, message):
-        """Исполняется только на главном потоке (через root.after)."""
+        # Исполняется только на главном потоке (через root.after)
         try:
             if not self._notif_strip.winfo_exists():
                 return
@@ -2575,46 +2791,50 @@ class MEmuHudManager:
 
         C = self.C
         if message.startswith('[√]'):
-            bar, icon, clean = C["green"],  "●", message[4:].strip()
+            bar, level, clean = C["green"], "ok", message[4:].strip()
         elif message.startswith('[X]'):
-            bar, icon, clean = C["red"],    "●", message[4:].strip()
+            bar, level, clean = C["red"], "err", message[4:].strip()
+            self._run_errors = True
         elif message.startswith('[!]'):
-            bar, icon, clean = C["accent"], "●", message[4:].strip()
+            bar, level, clean = C["accent"], "warn", message[4:].strip()
         else:
-            bar, icon, clean = C["muted"],  "○", message.strip()
+            bar, level, clean = C["muted"], "info", message.strip()
 
+        # Статус в нижней панели (как строка состояния в лаунчере)
+        self._set_status(clean, level)
+
+        # Не больше 4 уведомлений одновременно
+        try:
+            kids = self._notif_strip.winfo_children()
+            while len(kids) >= 4:
+                kids[0].destroy()
+                kids = self._notif_strip.winfo_children()
+        except Exception:
+            pass
+
+        shown = clean if len(clean) <= 54 else clean[:53] + "…"
         card = ctk.CTkFrame(
-            self._notif_strip,
-            fg_color=C["surface"],
-            corner_radius=6,
-            border_width=1,
-            border_color=bar,
-            height=26,
+            self._notif_strip, fg_color=C["card2"], corner_radius=8,
+            border_width=1, border_color=C["border2"], height=34,
         )
-        card.pack(fill="x", pady=(0, 2))
+        card.pack(fill="x", pady=(0, 4))
         card.pack_propagate(False)
-        card.grid_columnconfigure(2, weight=1)
 
-        ctk.CTkLabel(
-            card, text=icon,
-            font=("Segoe UI", 7),
-            text_color=bar, width=14,
-        ).grid(row=0, column=0, padx=(6, 0))
-
+        ctk.CTkFrame(card, width=3, corner_radius=2, fg_color=bar).pack(
+            side="left", fill="y", padx=(7, 0), pady=7)
         ctk.CTkLabel(
             card, text=datetime.now().strftime('%H:%M:%S'),
-            font=("Consolas", 9),
-            text_color=C["muted"], width=54, anchor="w",
-        ).grid(row=0, column=1, padx=(3, 4))
-
+            font=self.F("mono", 9), text_color=C["muted"], width=54, anchor="w",
+        ).pack(side="left", padx=(8, 0))
         ctk.CTkLabel(
-            card, text=clean,
-            font=("Segoe UI", 10),
-            text_color=bar if bar != C["muted"] else C["subtext"],
-            anchor="w",
-        ).grid(row=0, column=2, padx=(0, 8), sticky="ew")
+            card, text=shown, font=self.F("body", 10),
+            text_color=C["text"] if level != "info" else C["subtext"], anchor="w",
+        ).pack(side="left", fill="x", expand=True, padx=(4, 10))
 
-        # root.update() здесь НЕ нужен — мы уже на main-thread
+        try:
+            self._notif_strip.lift()
+        except Exception:
+            pass
 
         def _dismiss():
             try:
