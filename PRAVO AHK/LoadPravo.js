@@ -249,33 +249,40 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
 // Как работает:
 //  1. Перехватываем window.openInterface: в момент, когда сервер открывает
 //     "Authorization" со страницей "auth", СРАЗУ (синхронно, до отрисовки)
-//     прячем окно CSS-классом и шлём на сервер OnAuthorizationStart с паролем —
-//     ровно то же, что делает кнопка «Войти» (Login.play()). Ни ввода в поле,
-//     ни setTimeout, ни ожидания Vue — форма даже не успевает показаться.
-//  2. Если что-то пошло не так (неверный пароль, окно кода 2FA, регистрация,
-//     сервер не ответил за AUTO_PASSWORD_REVEAL_MS) — окно сразу показывается,
-//     чтобы можно было войти руками. После неверного пароля повторов нет.
-//  3. Запасной путь: если openInterface перехватить не вышло (окно открыли
-//     иначе), срабатывает MutationObserver по полю пароля — тоже без задержек.
+//     прячем окно (visibility:hidden) и шлём на сервер OnAuthorizationStart
+//     с паролем — ровно то же, что делает кнопка «Войти» (Login.play()).
+//  2. Окно прячется ТОЛЬКО через visibility — анимации появления идут под
+//     скрытием и к моменту показа уже закончены, поэтому окно возвращается
+//     мгновенно, без повторного fade.
+//  3. Ошибка пароля / окно кода 2FA приходят с сервера как вызов методов
+//     Login.setError / Login.setStage. Мы оборачиваем их: окно показывается
+//     СИНХРОННО ПЕРЕД тем, как Vue отрисует ошибку, и текст ошибки
+//     появляется точно так же, как в оригинале.
+//  4. Если сервер после нашей отправки просто переоткрыл окно авторизации —
+//     оно показывается сразу (без скрытия и без повторной отправки).
+//  5. Запасные пути: MutationObserver по ошибке/полю пароля и таймер
+//     AUTO_PASSWORD_REVEAL_MS. После ошибки повторов нет (RETRY_BLOCK_MS).
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {
         var AUTO_PASSWORD_REVEAL_MS = 8000;   // не дождались закрытия окна — показать его
         var RETRY_BLOCK_MS          = 60000;  // после ошибки пароля авто-вход отключён на это время
         var MIN_GAP_MS              = 3000;   // защита от спама попытками
+        var REOPEN_FAIL_MS          = 20000;  // окно переоткрыто так быстро после отправки — вход не прошёл
         var HIDE_CLASS = 'pravo-autologin';
 
-        var sent = false, blockUntil = 0, lastSend = 0, revealTimer = null, errObs = null;
+        var sent = false, blockUntil = 0, lastSend = 0, revealTimer = null, errObs = null, hideToken = 0;
+        var patched = (typeof WeakSet === 'function') ? new WeakSet() : null;
 
-        // CSS: окно скрыто и без анимаций, пока идёт авто-вход
+        // CSS: только visibility. Анимации/переходы НЕ трогаем — иначе при показе
+        // они проигрываются заново и окно «возвращается» с задержкой.
         var st = document.createElement('style');
         st.textContent =
             'html.' + HIDE_CLASS + ' .authorization,' +
-            'html.' + HIDE_CLASS + ' .authorization *{' +
-            'visibility:hidden!important;opacity:0!important;' +
-            'transition:none!important;animation:none!important}';
+            'html.' + HIDE_CLASS + ' .authorization *{visibility:hidden!important}';
         (document.head || document.documentElement).appendChild(st);
 
-        function hideUI() { document.documentElement.classList.add(HIDE_CLASS); }
+        function isHidden() { return document.documentElement.classList.contains(HIDE_CLASS); }
+        function hideUI() { hideToken++; document.documentElement.classList.add(HIDE_CLASS); }
 
         function showUI() {
             document.documentElement.classList.remove(HIDE_CLASS);
@@ -283,10 +290,57 @@ if (AUTO_PASSWORD) {
             if (errObs) { errObs.disconnect(); errObs = null; }
         }
 
-        // Следим за проблемами: ошибка пароля / окно кода / регистрация → показать окно
+        // Снять скрытие после закрытия окна (успешный вход) — когда его DOM уже исчез
+        function releaseWhenGone() {
+            var token = hideToken, t0 = Date.now();
+            (function chk() {
+                if (token !== hideToken) return;
+                if (!document.querySelector('.authorization') || Date.now() - t0 > 1500) { showUI(); return; }
+                setTimeout(chk, 16);
+            })();
+        }
+
+        // Сервер сообщил о проблеме (ошибка пароля, код 2FA) — показать окно СРАЗУ
+        function onServerProblem(why) {
+            if (!isHidden() && !sent) return;
+            blockUntil = Date.now() + RETRY_BLOCK_MS;
+            showUI();
+            console.log('[PRAVO AHK AUTO-PWD] ' + why + ' — окно показано');
+        }
+
+        // Оборачиваем методы компонента Login: setError / setStage вызывает сервер
+        function patchAuth(c) {
+            try {
+                var inst = c && c.$refs && c.$refs.auth;
+                if (!inst) return;
+                if (patched) { if (patched.has(inst)) return; patched.add(inst); }
+                else { if (inst.__pravoP) return; inst.__pravoP = true; }
+
+                var oe = inst.setError;
+                if (typeof oe === 'function') {
+                    inst.setError = function() {
+                        onServerProblem('Ошибка от сервера');   // ДО отрисовки ошибки
+                        return oe.apply(this, arguments);
+                    };
+                }
+                var os = inst.setStage;
+                if (typeof os === 'function') {
+                    inst.setStage = function(stage) {
+                        if (stage > 1) onServerProblem('Требуется код');
+                        return os.apply(this, arguments);
+                    };
+                }
+            } catch (e) { console.error('[PRAVO AHK AUTO-PWD] patch error:', e); }
+        }
+        function tryPatch() {
+            try { var c = window.interface && window.interface('Authorization'); if (c) patchAuth(c); } catch (e) {}
+        }
+
+        // Запасной наблюдатель: ошибка / код / регистрация появились в DOM → показать окно
         function watchProblems() {
             if (errObs) errObs.disconnect();
             errObs = new MutationObserver(function() {
+                tryPatch();
                 var hasErr = document.querySelector('.authorization-field__error');
                 if (hasErr || document.querySelector('.login-code, .registration')) {
                     if (hasErr) blockUntil = Date.now() + RETRY_BLOCK_MS;
@@ -336,15 +390,35 @@ if (AUTO_PASSWORD) {
             });
         }
 
+        // Любое обращение к window.interface('Authorization') (в т.ч. от сервера) — патчим Login
+        hook('interface', function(orig) {
+            return function(name) {
+                var c = orig.apply(this, arguments);
+                if (name === 'Authorization' && c) patchAuth(c);
+                return c;
+            };
+        });
+
         hook('openInterface', function(orig) {
             return function(name, params) {
                 var go = false;
                 if (name === 'Authorization' && !window.getInterfaceStatus('Authorization') &&
-                    isLoginParams(params) && canAuto()) {
-                    go = true;
-                    hideUI(); // ДО открытия — первый кадр уже без окна
+                    isLoginParams(params)) {
+                    if (lastSend && (Date.now() - lastSend) < REOPEN_FAIL_MS) {
+                        // Сервер переоткрыл окно сразу после отправки → вход не прошёл.
+                        // Показываем окно сразу, как в оригинале, без повторов.
+                        blockUntil = Date.now() + RETRY_BLOCK_MS;
+                        showUI();
+                    } else if (canAuto()) {
+                        go = true;
+                        hideUI(); // ДО открытия — первый кадр уже без окна
+                    }
                 }
                 var r = orig.apply(this, arguments);
+                if (name === 'Authorization') {
+                    tryPatch();
+                    setTimeout(tryPatch, 0);
+                }
                 if (go) fire();
                 return r;
             };
@@ -352,7 +426,12 @@ if (AUTO_PASSWORD) {
 
         hook('closeInterface', function(orig) {
             return function(name) {
-                if (name === 'Authorization') { sent = false; showUI(); }
+                if (name === 'Authorization') {
+                    sent = false;
+                    var r = orig.apply(this, arguments);
+                    if (isHidden()) releaseWhenGone(); else showUI();
+                    return r;
+                }
                 return orig.apply(this, arguments);
             };
         });
@@ -363,6 +442,7 @@ if (AUTO_PASSWORD) {
             if (document.querySelector('.authorization-field__input[type="password"]')) {
                 hideUI();
                 fire();
+                tryPatch();
             }
         }
         var observer = new MutationObserver(fallbackCheck);
