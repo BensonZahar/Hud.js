@@ -2357,98 +2357,10 @@ function createButton(text, command, style) {
     if (style) btn.style = style;
     return btn;
 }
-// ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: TG PRIVATE TOPIC                                ║
-// ║  Описание: один общий чат на всех. Сообщения бота уходят ║
-// ║             в тему пользователя (TG_TOPIC_ID) и видны    ║
-// ║             только ему (Ephemeral Messages, Bot API      ║
-// ║             10.2+, TG_USER_ID). Входящие фильтруются     ║
-// ║             по теме и по автору.                         ║
-// ║  Зависимости: config, debugLog                           ║
-// ╚══════════════════════════════════════════════════════════╝
-// START TG PRIVATE TOPIC MODULE //
-const _TG_SEND_METHODS = ['sendMessage', 'sendPhoto', 'sendDocument', 'sendVideo', 'sendAnimation',
-    'sendAudio', 'sendVoice', 'sendSticker', 'sendVideoNote', 'sendLocation', 'sendVenue', 'sendContact'];
-// Обычный метод правки/удаления → его ephemeral-аналог
-const _TG_EDIT_MAP = {
-    editMessageText:        'editEphemeralMessageText',
-    editMessageReplyMarkup: 'editEphemeralMessageReplyMarkup',
-    editMessageCaption:     'editEphemeralMessageCaption',
-    editMessageMedia:       'editEphemeralMessageMedia',
-    deleteMessage:          'deleteEphemeralMessage'
-};
-function _tgPrivateOn()   { return !!window.TG_USER_ID; }
-function _tgEphemeralOn() { return _tgPrivateOn() && window.TG_EPHEMERAL !== false; }
-function _tgIsOurChat(chatId) {
-    return chatId !== undefined && chatId !== null && config.chatIds.includes(String(chatId));
-}
-// У ephemeral-сообщений message_id = 0, поэтому внутри скрипта их id хранится как -ephemeral_message_id
-function _tgEphId(msgId) { return (typeof msgId === 'number' && msgId < 0) ? -msgId : null; }
-
-// Исходящие: добавляем тему и ephemeral-параметры, правки/удаления переводим на ephemeral-методы.
-// Функция идемпотентна (tgApi может вызвать её повторно при ретрае).
-function _tgPrepare(method, payload) {
-    if (!_tgPrivateOn() || !payload || !_tgIsOurChat(payload.chat_id)) return { method, payload };
-    const p = Object.assign({}, payload);
-    const receiver = Number(window.TG_USER_ID);
-    const isSend = _TG_SEND_METHODS.indexOf(method) !== -1;
-    if ((isSend || method === 'sendChatAction') && window.TG_TOPIC_ID && p.message_thread_id === undefined) {
-        p.message_thread_id = Number(window.TG_TOPIC_ID);
-    }
-    if (isSend && _tgEphemeralOn() && !p.ephemeral_message_parameters) {
-        p.ephemeral_message_parameters = { receiver_user_id: receiver };
-    }
-    const ephId = _tgEphId(p.message_id);
-    if (ephId !== null && _TG_EDIT_MAP[method]) {
-        delete p.message_id;
-        p.receiver_user_id = receiver;
-        p.ephemeral_message_id = ephId;
-        return { method: _TG_EDIT_MAP[method], payload: p };
-    }
-    return { method, payload: p };
-}
-// Ответ на отправку: подставляем отрицательный message_id, чтобы остальной код мог править/удалять сообщение
-function _tgFixEphemeralResult(data) {
-    try {
-        const r = data && data.result;
-        if (r && typeof r === 'object' && !r.message_id && r.ephemeral_message_id) {
-            r.message_id = -Number(r.ephemeral_message_id);
-        }
-    } catch (e) {}
-    return data;
-}
-// Входящие: нормализуем ephemeral id и отбрасываем чужое (другая тема / другой автор).
-// true = обрабатывать как обычно, false = пропустить.
-function _tgIngestUpdate(u) {
-    if (!_tgPrivateOn()) return true;
-    const m = u.message || (u.callback_query && u.callback_query.message);
-    if (!m || !m.chat || !_tgIsOurChat(m.chat.id)) return true; // channel_post и чужие чаты — как раньше
-    const fixMsg = x => { if (x && !x.message_id && x.ephemeral_message_id) x.message_id = -Number(x.ephemeral_message_id); };
-    fixMsg(m);
-    fixMsg(m.reply_to_message);
-    const from = u.message ? u.message.from : (u.callback_query && u.callback_query.from);
-    const fromId = from ? String(from.id) : '';
-    // Сообщение от имени анонимного админа (sender_chat = сам чат) тоже считаем своим
-    const anonAdmin = !!(u.message && u.message.sender_chat && String(u.message.sender_chat.id) === String(m.chat.id));
-    if (fromId !== String(window.TG_USER_ID) && !anonAdmin) {
-        debugLog(`[TG] Пропущено обновление ${u.update_id}: автор ${fromId || '?'} не ${window.TG_USER_ID}`);
-        return false;
-    }
-    if (window.TG_TOPIC_ID && u.message && String(m.message_thread_id || '') !== String(window.TG_TOPIC_ID)) {
-        debugLog(`[TG] Пропущено обновление ${u.update_id}: тема ${m.message_thread_id || 'General'} не ${window.TG_TOPIC_ID}`);
-        return false;
-    }
-    return true;
-}
-// END TG PRIVATE TOPIC MODULE //
-
 // Универсальная функция для всех запросов к Telegram Bot API
 // FIX: обработка 429 Too Many Requests — повтор через retry_after секунд
 function tgApi(method, payload, onSuccess, onError, _retryCount) {
     _retryCount = _retryCount || 0;
-    // TG PRIVATE TOPIC: тема пользователя + ephemeral (см. модуль выше); идемпотентно при ретраях
-    { const _prep = _tgPrepare(method, payload); method = _prep.method; payload = _prep.payload; }
-    if (onSuccess) { const _okOrig = onSuccess; onSuccess = d => _okOrig(_tgFixEphemeralResult(d)); }
     // FIX: общий backoff — после 429 все запросы (кроме answerCallbackQuery) ждут вместе,
     // а не бьют по API каждый со своим таймером
     if (method !== 'answerCallbackQuery') {
@@ -4177,8 +4089,7 @@ function checkTelegramCommands() {
                 for (const u of data.result) {
                     const cq = u.callback_query;
                     if (cq && cq.message && cq.message.chat &&
-                        config.chatIds.includes(String(cq.message.chat.id)) &&
-                        _tgIngestUpdate(u)) {
+                        config.chatIds.includes(String(cq.message.chat.id))) {
                         answerCallbackQuery(cq.id);
                     }
                 }
@@ -4186,7 +4097,7 @@ function checkTelegramCommands() {
                 // не обрывает пачку и не даёт update «застрять» в очереди
                 for (const u of data.result) {
                     try {
-                        if (_tgIngestUpdate(u)) processUpdates([u]);
+                        processUpdates([u]);
                     } catch (e) {
                         debugLog(`Ошибка обработки update ${u.update_id}: ${e && e.message}`);
                     }
@@ -4200,7 +4111,7 @@ function checkTelegramCommands() {
             if (xhr.status === 409) delay = 3000;
             else if (xhr.status === 401 || xhr.status === 404) {
                 delay = 60000;
-                debugLog(`[POLL] Токен отклонён (HTTP ${xhr.status}) — проверьте токен аккаунта в лончере («Токены аккаунтов») и переустановите код. Повтор через 60с`);
+                debugLog(`[POLL] Токен отклонён (HTTP ${xhr.status}) — проверьте BOT_TOKENS в List.js. Повтор через 60с`);
             } else if (xhr.status === 429) {
                 delay = 5000;
                 try { delay = (JSON.parse(xhr.responseText).parameters.retry_after || 5) * 1000; } catch (e) {}

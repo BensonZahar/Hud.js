@@ -212,11 +212,6 @@ function applyUserConfig() {
     window.RECONNECT_ENABLED_DEFAULT = userConfig.RECONNECT_ENABLED_DEFAULT;
     window.BROADCAST_CHANNEL_ID = userConfig.BROADCAST_CHANNEL_ID || null;
 
-    // Общий чат: сообщения бота уходят в тему пользователя и видны только ему (ephemeral)
-    window.TG_USER_ID  = userConfig.TG_USER_ID  || null;   // Telegram ID получателя/владельца
-    window.TG_TOPIC_ID = userConfig.TG_TOPIC_ID || null;   // ID темы (message_thread_id) в общем чате
-    window.TG_EPHEMERAL = userConfig.TG_EPHEMERAL !== false; // false = писать в тему открыто, без скрытия
-
     window.ACCOUNT_NUMBER = accountNumber;
     const userBotTokens = userConfig.BOT_TOKENS || {}; // старый формат (fallback), в новом List.js токенов нет
     if (accountToken) {

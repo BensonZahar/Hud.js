@@ -5,9 +5,6 @@ const USER_CONFIGS = {
         HWID: '27CD4831A665E671',   // 16-символьный HWID из HassleBot
         DEBUG: true,                   // true = полная отладка + владелец
         CHAT_IDS: ['-1003040555627'],
-        TG_USER_ID: '1046461621',      // Telegram ID Захара — только он видит сообщения своих ботов
-        TG_TOPIC_ID: '153670',         // тема Захара в общем чате (t.me/c/3040555627/153670)
-        TG_EPHEMERAL: true,            // true = сообщения скрыты от остальных; false = открыто в теме
         BROADCAST_CHANNEL_ID: '-1003865576448', // HAS TEST — приватный broadcast-канал (все боты — админы)
         PASSWORD: 'zahar2007',
         RECONNECT_ENABLED_DEFAULT: true
@@ -16,10 +13,6 @@ const USER_CONFIGS = {
         HWID: 'ВСТАВЬ_HWID_КОЛИ',     // 16-символьный HWID из HassleBot
         DEBUG: false,                  // false = без отладки
         CHAT_IDS: ['-1003102212423'],
-        // Когда пришлёшь данные Коли — заменить CHAT_IDS на ['-1003040555627'] и раскомментировать:
-        // TG_USER_ID: 'ID_КОЛИ',
-        // TG_TOPIC_ID: 'ТЕМА_КОЛИ',
-        // TG_EPHEMERAL: true,
         BROADCAST_CHANNEL_ID: '-100YYYYYYYYYY', // ← свой канал для Коли
         PASSWORD: 'kol16052011',
         RECONNECT_ENABLED_DEFAULT: true
