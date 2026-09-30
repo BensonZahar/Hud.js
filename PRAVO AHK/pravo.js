@@ -1541,6 +1541,11 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 //                              Если сектор занят категорией сервера — она и следующие сдвигаются на один.
 //   window.PRAVO_MOBLIC_NATIVE = false — не встраивать в круг, сразу использовать запасную DOM-кнопку.
 //   window.PRAVO_MOBLIC_BTN_ENABLED = false — отключить кнопку совсем.
+//   window.PRAVO_MOBLIC_LABELS = false — не показывать ники над игроками при раскрытом выборе лицензии.
+//
+// Ники над игроками: PlayerInteraction в игре открывается с hideLabels (ники скрыты). Пока в круге раскрыт
+// выбор типа лицензии нашего пункта — включаем ники (setDrawLabelStatus(true)); вернулись «Назад», выбрали
+// другую категорию или закрыли меню — снова скрываем / игра сама возвращает ники при закрытии меню.
 // ══════════════════════════════════════════════════════════════════════════════
 (function _pravoMobileLicenseButton() {
     if (window.__pravoMobLicBtn) return;
@@ -1555,6 +1560,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     var TITLE = 'Выдача лицензии';
     var SVG_NS = 'http://www.w3.org/2000/svg';
     var lastNick = '', busy = false, syncTimer = null, mode = '', patchedFor = null, capBox = null, warned = false;
+    var labelsOn = false, watchedFor = null;   // labelsOn — мы сами включили ники (setDrawLabelStatus(true))
 
     function norm(s) { return String(s).trim().split(' ').join('_').toLowerCase(); }
 
@@ -1648,6 +1654,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (old && old.parentNode) old.parentNode.removeChild(old);
     }
     function cleanup() {
+        releaseLabels();
         stopSync();
         removeBtn();
         detachCapture();
@@ -1702,6 +1709,32 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     }
     function isOwnSelected(vm) {
         try { var m = vm.menu[vm.selectedOption]; return !!(m && m._pravoLic); } catch (e) { return false; }
+    }
+
+    // ── Ники над игроками ─────────────────────────────────────────────────────────────────────
+    // Игра открывает PlayerInteraction с hideLabels → ники скрыты. Показываем их только пока раскрыт
+    // выбор типа лицензии нашего пункта. Счётчики игры (Wa в openInterface/closeInterface) не трогаем:
+    // при закрытии меню игра сама шлёт setDrawLabelStatus(true).
+    function setLabels(on) {
+        if (labelsOn === on) return;
+        labelsOn = on;
+        try {
+            if (typeof window.setDrawLabelStatus === 'function') window.setDrawLabelStatus(on);
+            dbg('ники над игроками:', on ? 'показаны (выбор лицензии раскрыт)' : 'скрыты (вернулись в круг)');
+        } catch (er) { dbg('setLabels:', er); }
+    }
+    // Привести ники в соответствие с состоянием круга (идемпотентно, можно дёргать сколько угодно)
+    function syncLabels(vm) {
+        var want = false;
+        try { want = window.PRAVO_MOBLIC_LABELS !== false && isOpen() && isOwnSelected(vm); } catch (er) {}
+        if (want === labelsOn) return;
+        if (want) { setLabels(true); return; }
+        // гасим только если меню всё ещё открыто; если закрыто — игра уже вернула ники сама
+        if (isOpen()) setLabels(false); else labelsOn = false;
+    }
+    function releaseLabels() {
+        if (!labelsOn) return;
+        if (isOpen()) setLabels(false); else labelsOn = false;
     }
 
     // Подпункты кольца — типы лицензий из _GIVE_LIC_TYPES (Права, Проф. права, Оружие, Рыбалка, Охота)
@@ -1794,6 +1827,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         var m = vm.menu[t];
         if (!m) return;
         vm.onSelectOption(m.id);
+        syncLabels(vm);                                // выбор раскрылся — показываем ники над игроками
     }
 
     // Выбор типа лицензии в кольце: закрываем меню и отправляем /givelic
@@ -1864,6 +1898,16 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             } catch (er) { dbg('onMouseMove:', er); }
             return oMM.apply(this, arguments);
         };
+        // Ники: следим за selectedOption — «Назад»/ESC, выбор другой категории и т.п. меняют его не через наши методы
+        if (watchedFor !== vm) {
+            try {
+                if (typeof vm.$watch === 'function') {
+                    try { vm.$watch('selectedOption', function () { syncLabels(vm); }, { flush: 'sync' }); }
+                    catch (er0) { vm.$watch('selectedOption', function () { syncLabels(vm); }); }
+                    watchedFor = vm;
+                }
+            } catch (er) { dbg('watch selectedOption:', er); }
+        }
         var ok = vm.selectOption !== oSel && vm.selectLayerOption !== oLay;
         if (ok) patchedFor = vm;
         return ok;
@@ -1971,6 +2015,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
                 patchVm(v);
                 addEntry(v);                                   // сервер пересобрал меню — возвращаем пункт
             }
+            syncLabels(v);                                     // страховка: если $watch недоступен или ники сбросил кто-то ещё
             decorate(v);
         } catch (er) { dbg('sync:', er); }
     }
