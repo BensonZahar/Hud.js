@@ -222,7 +222,7 @@ function _showAccessDenied(nick) {
 // ── ВСЁ ЧТО НИЖЕ ВЫПОЛНЯЕТСЯ ТОЛЬКО ЕСЛИ НИК ПРОШЁЛ ПРОВЕРКУ ──
 
 // PRAVO AHK VERSION: 1.0
-console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.665 ЗАГРУЖЕН ===");
+console.log("[INIT] === ПРАВИТЕЛЬСТВО AHK v0.999 ЗАГРУЖЕН ===");
 // ── ПОКАЗ "AHK by konstt" при первом загрузке ──────────────────────
 (function showStartupGameText() {
     var attempts = 0;
@@ -2218,7 +2218,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // ══════════════════════════════════════════════════════════════════════════════
 
 // ══════════════════════════════════════════════════════════════════════════════
-// ЧАТ ПРИ ОТКРЫТОМ РАДИАЛЬНОМ МЕНЮ (PlayerInteraction) — только ПК (Radmir).
+// ЧАТ ПРИ ОТКРЫТОМ РАДИАЛЬНОМ МЕНЮ (PlayerInteraction) — Radmir (ПК) и Hassle (мобилка).
 //
 // Почему чат был тёмным: Hud и PlayerInteraction — два соседних .interface (оба z-index:1), а
 // PlayerInteraction в DOM позже, поэтому весь его слой (тёмная подложка круга :after на 600% экрана
@@ -2237,9 +2237,12 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 //   3) чат не даём погасить (isInactive), пока меню открыто.
 // Никаких файлов игры не трогаем — только pravo.js.
 //
+// Hassle (мобилка): чат — другой компонент (.chat-container > .chat), и игра вообще прячет его, пока открыт
+// PlayerInteraction (hideChat: "mobile" → Hud.setChatStatus(false)). На время выбора лицензии чат
+// показываем обратно (Hud.setChatStatus(true)), при возврате в круг — прячем, как в игре.
+//
 // Настройки:
-//   window.PRAVO_CHAT_UNDIM = false — вернуть как в игре (чат затемняется и гаснет).
-// На мобилке (Hassle) чат в этом меню прячет сама игра (hideChat: "mobile") — не трогаем.
+//   window.PRAVO_CHAT_UNDIM = false — вернуть как в игре (чат затемняется / на мобилке скрыт).
 // ══════════════════════════════════════════════════════════════════════════════
 (function _pravoChatUnderRadial() {
     if (window.__pravoChatUndim) return;
@@ -2256,17 +2259,44 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     function isMobile() { return !!(window.App && window.App.isMobile); }
     function isOpen() { try { return !!window.getInterfaceStatus('PlayerInteraction'); } catch (e) { return false; } }
     // только пока в круге раскрыт выбор типа лицензии (тот же момент, когда включаются ники)
-    function enabled() { return window.PRAVO_CHAT_UNDIM !== false && !isMobile() && window.__pravoLicPick === true && isOpen(); }
+    function enabled() { return window.PRAVO_CHAT_UNDIM !== false && window.__pravoLicPick === true && isOpen(); }
     function getChat() {
         try {
             var hud = window.interface && window.interface('Hud');
             return (hud && hud.$refs && hud.$refs.chat) || null;
         } catch (e) { return null; }
     }
+    function getHud() {
+        try { return (window.interface && window.interface('Hud')) || null; } catch (e) { return null; }
+    }
+    // корневой элемент чата: Radmir — .radmir-chat, Hassle — .chat-container (внутри .chat)
+    function chatEl() {
+        var c = getChat();
+        return (c && c.$el && c.$el.nodeType === 1 && c.$el) ||
+            document.querySelector('.radmir-chat') || document.querySelector('.chat-container');
+    }
     // .interface-обёртка Hud: в ней лежат и чат, и остальной Hud (.hud без z-index контекст не создаёт)
     function hudLayer() {
-        var el = document.querySelector('.radmir-chat');
+        var el = chatEl();
         return el ? el.closest('.interface') : null;
+    }
+    // Hassle (мобилка): игра скрыла чат (hideChat:"mobile") — на время выбора лицензии показываем
+    var chatForced = false;
+    function forceChatShown() {
+        if (!isMobile()) return;
+        var hud = getHud();
+        if (!hud || typeof hud.setChatStatus !== 'function') return;
+        if (hud.chatStatus === false) {
+            try { hud.setChatStatus(true); chatForced = true; dbg('чат показан (Hassle)'); } catch (e) {}
+        }
+    }
+    function restoreChatHidden() {
+        if (!chatForced) return;
+        chatForced = false;
+        // вернулись в круг (меню открыто) — прячем чат, как это делает игра; если меню закрыто, чат вернёт сама игра
+        if (!isOpen()) return;
+        var hud = getHud();
+        try { if (hud && typeof hud.setChatStatus === 'function') hud.setChatStatus(false); } catch (e) {}
     }
     function html() { return document.documentElement; }
 
@@ -2281,6 +2311,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             // чат поднимаем над нашим слоем; z-index из transition:all не анимируем, чтобы чат не «проныривал» под слой
             'html.' + HTML_CLS + ' .radmir-chat{z-index:' + Z_CHAT + '!important;' +
                 'transition-property:opacity,left,top,transform!important}' +
+            'html.' + HTML_CLS + ' .chat-container>.chat{z-index:' + Z_CHAT + '!important}' +
             // без fade: подмена штатной подложки нашей должна произойти в одном кадре, иначе видно «провал» затемнения
             '#' + DIM_ID + '{position:fixed;left:0;top:0;width:100vw;height:100vh;overflow:hidden;' +
                 'pointer-events:none;z-index:' + Z_DIM + '}' +
@@ -2313,8 +2344,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (dim && dim.parentNode) dim.parentNode.removeChild(dim);
         html().classList.remove(HTML_CLS);
         lastSig = '';
+        restoreChatHidden();
         // вернулись в круг (меню открыто) — чат снова «неактивный», как в игре
-        if (isOpen() && !isMobile() && window.PRAVO_CHAT_UNDIM !== false && typeof window.setChatIsInactive === 'function') {
+        if (isOpen() && !chatForced && !isMobile() && window.PRAVO_CHAT_UNDIM !== false && typeof window.setChatIsInactive === 'function') {
             try { window.setChatIsInactive(true); } catch (e) {}
         }
         dbg('слой убран');
@@ -2326,6 +2358,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             return;
         }
         keepChatActive();
+        forceChatShown();
         var box = document.querySelector('.player-interaction__container');
         var host = hudLayer();
         if (!box || !host) return;                   // чата/круга ещё нет — остаётся штатное поведение игры
@@ -2420,12 +2453,15 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     window.pravoChatProbe = function () {
         try {
             var L = function () { console.log.apply(console, ['[PRAVO][PROBE]'].concat([].slice.call(arguments))); };
-            var chat = document.querySelector('.radmir-chat'), dim = document.getElementById(DIM_ID);
+            var chat = chatEl(), dim = document.getElementById(DIM_ID);
             var box = document.querySelector('.player-interaction__container');
             var cs = chat && getComputedStyle(chat);
             L('круг открыт:', isOpen(), '| выбор лицензии раскрыт:', window.__pravoLicPick === true, '| html-класс:', html().classList.contains(HTML_CLS),
               '| bg14:', bgUrl ? 'url найден' : 'url НЕ найден', '| isInactive:', (getChat() || {}).isInactive);
-            L('чат: z=' + (cs ? cs.zIndex : '—'), 'opacity=' + (cs ? cs.opacity : '—'),
+            var chatZ = chat && (chat.querySelector(':scope > .chat') || chat);
+            L('платформа:', isMobile() ? 'Hassle (мобилка)' : 'ПК', '| чат:', chat ? chat.className : 'НЕ НАЙДЕН',
+              '| chatStatus:', (getHud() || {}).chatStatus, '| показан нами:', chatForced);
+            L('чат: z=' + (chatZ ? getComputedStyle(chatZ).zIndex : '—'), 'opacity=' + (cs ? cs.opacity : '—'),
               '| в .interface:', !!(chat && chat.closest('.interface')));
             if (dim) {
                 var dc = getComputedStyle(dim);
@@ -2434,7 +2470,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             } else L('нашего слоя НЕТ в DOM');
             if (box) L('штатные :before/:after круга скрыты:',
                 getComputedStyle(box, '::before').display === 'none' && getComputedStyle(box, '::after').display === 'none');
-            if (chat) {
+            if (chat && chat.getBoundingClientRect().width > 1) {
                 var r = chat.getBoundingClientRect();
                 var els = document.elementsFromPoint(r.left + 30, r.top + 14);
                 L('сверху вниз над чатом:', els.slice(0, 8).map(function (e) {
@@ -2445,7 +2481,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         } catch (e) { try { console.log('[PRAVO][PROBE] ошибка:', e); } catch (_) {} }
     };
 
-    console.log('[PRAVO] ✅ Чат над затемнением радиального меню (bg14 и подложка — под чатом) установлен');
+    console.log('[PRAVO] ✅ Чат над затемнением радиального меню при выборе лицензии (Radmir + Hassle) установлен');
 })();
 // ══════════════════════════════════════════════════════════════════════════════
 
