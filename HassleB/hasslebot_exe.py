@@ -390,10 +390,27 @@ class MEmuHudManager:
         elif tokens:
             self.user_token_counts[user] = len(tokens)
 
+    def get_local_account_numbers(self, user):
+        """Отсортированный список номеров аккаунтов, для которых сохранён токен."""
+        tokens = self.get_local_user_config(user).get("BOT_TOKENS", {})
+        return sorted((str(k) for k in tokens if str(k).isdigit()), key=int)
+
+    TOKEN_RE = r"\d{8,10}:[A-Za-z0-9_-]{30,70}"
+
+    def import_accounts_from_text(self, user, text):
+        """Разбирает текст вида  1: 123456789:AAE...  /  '1': '123456789:AAE...'  /  1 123456789:AAE...
+        Возвращает количество добавленных/обновлённых токенов."""
+        pairs = re.findall(
+            r"(?<![\w:])['\"]?(\d{1,3})['\"]?\s*[:=\s]\s*['\"]?(" + self.TOKEN_RE + r")",
+            text or ""
+        )
+        count = 0
+        for acc, token in pairs:
+            self.add_local_account(user, acc, token)
+            count += 1
+        return count
+
     def open_local_account_manager(self):
-        if not self.debug_allowed:
-            self.log("[X] Ошибка: управление токенами доступно только владельцу/отладчику")
-            return
         user = self.selected_code_name
         if not user:
             self.log("[X] Ошибка: пользователь не выбран")
@@ -530,6 +547,31 @@ class MEmuHudManager:
             command=add_account,
         ).grid(row=3, column=0, columnspan=3, pady=(8, 0), sticky="ew")
 
+        def import_clipboard():
+            try:
+                text = self.root.clipboard_get()
+            except Exception:
+                text = ""
+            n = self.import_accounts_from_text(user, text)
+            if n:
+                messagebox.showinfo("Готово", f"Импортировано токенов: {n}")
+            else:
+                messagebox.showwarning(
+                    "Ничего не найдено",
+                    "В буфере обмена не найдено пар «номер + токен».\n\n"
+                    "Скопируйте текст вида:\n1: 1234567890:AAE...\n2: 1234567891:AAF..."
+                )
+            refresh()
+
+        ctk.CTkButton(
+            form, text="📥  Импорт из буфера обмена",
+            font=("Segoe UI", 11),
+            fg_color=C["card"], hover_color=C["border"],
+            text_color=C["subtext"], height=32, corner_radius=8,
+            border_width=1, border_color=C["border"],
+            command=import_clipboard,
+        ).grid(row=4, column=0, columnspan=3, pady=(6, 0), sticky="ew")
+
         refresh()
 
     def _section_label(self, parent, text, row=0):
@@ -614,20 +656,10 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Пользователи не найдены в List.js")
                 return False
 
-            self.user_token_counts = {}
-            for user in users:
-                user_pos = list_content.find(f"'{user}'")
-                if user_pos == -1:
-                    user_pos = list_content.find(f'"{user}"')
-                chunk = list_content[user_pos:user_pos + 1200]
-                import re as _re
-                m = _re.search(r"BOT_TOKENS\s*:\s*\{([^}]+)\}", chunk, _re.DOTALL)
-                if m:
-                    keys = _re.findall(r"['\"](\d+)['\"]", m.group(1))
-                    self.user_token_counts[user] = len(keys) if keys else 8
-                else:
-                    self.user_token_counts[user] = 8
-
+            # Токены больше не хранятся в List.js — берём количество из локального хранилища
+            self.user_token_counts = {
+                user: len(self.get_local_account_numbers(user)) for user in users
+            }
 
             self.code_files = []
             for idx, user in enumerate(users):
@@ -905,6 +937,16 @@ class MEmuHudManager:
             command=lambda: self.execute_action("3"),
         ).grid(row=3, column=1, padx=(4, 12), pady=(0, 6), sticky="ew")
 
+        ctk.CTkButton(
+            acts,
+            text="🔐  Токены аккаунтов",
+            font=("Segoe UI", 11),
+            fg_color=C["card"], hover_color=C["border"],
+            text_color=C["subtext"], height=36, corner_radius=8,
+            border_width=1, border_color=C["border"],
+            command=self.open_local_account_manager,
+        ).grid(row=4, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+
         if self.full_logging:
             ctk.CTkButton(
                 acts,
@@ -914,7 +956,7 @@ class MEmuHudManager:
                 text_color=C["subtext"], height=36, corner_radius=8,
                 border_width=1, border_color=C["border"],
                 command=lambda: self.execute_action("4"),
-            ).grid(row=4, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+            ).grid(row=5, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
 
             ctk.CTkButton(
                 acts,
@@ -924,7 +966,7 @@ class MEmuHudManager:
                 text_color=C["subtext"], height=36, corner_radius=8,
                 border_width=1, border_color=C["border"],
                 command=self.open_js_downloader,
-            ).grid(row=5, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+            ).grid(row=6, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
 
         if self.debug_allowed:
             ctk.CTkButton(
@@ -937,7 +979,7 @@ class MEmuHudManager:
                 height=36, corner_radius=8,
                 border_width=1, border_color=C["accent2"],
                 command=self.activate_debug_mode,
-            ).grid(row=6, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+            ).grid(row=7, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
 
         # ── Кнопка выхода ──────────────────────────────────────
         ctk.CTkButton(
@@ -1042,9 +1084,9 @@ class MEmuHudManager:
             f"Выберите номер аккаунта для пользователя {self.selected_code_name}:\n"
             f"(каждый аккаунт = отдельный Telegram-бот)"
         )
-        acc_count = self.user_token_counts.get(self.selected_code_name, 8)
-        buttons = [{"text": f"#{i}", "callback_data": f"account_{i}"} for i in range(1, acc_count + 1)]
-        keyboard = [buttons[:4], buttons[4:]] if len(buttons) > 4 else [buttons]
+        acc_nums = self.get_local_account_numbers(self.selected_code_name)
+        buttons = [{"text": f"#{n}", "callback_data": f"account_{n}"} for n in acc_nums]
+        keyboard = [buttons[i:i + 4] for i in range(0, len(buttons), 4)] or [[]]
         url = f"https://api.telegram.org/bot{self.bot_token}/editMessageText"
         payload = {
             "chat_id": self.chat_id,
@@ -1530,7 +1572,9 @@ class MEmuHudManager:
         dialog.configure(fg_color=C["bg"])
         dialog.update_idletasks()
 
-        DW, DH = 360, 240
+        acc_nums = self.get_local_account_numbers(self.selected_code_name)
+        acc_rows = max(1, (len(acc_nums) + 7) // 8)
+        DW, DH = 360, 240 + 42 * (acc_rows - 1)
         rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
         ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
         dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
@@ -1567,8 +1611,10 @@ class MEmuHudManager:
             text_color=C["subtext"],
         ).pack(pady=(14, 8))
 
-        acc_count = self.user_token_counts.get(self.selected_code_name, 8)
-        acc_var = ctk.StringVar(value=self.selected_account_number or '')
+        acc_var = ctk.StringVar(
+            value=self.selected_account_number
+            if self.selected_account_number in acc_nums else ''
+        )
         grid = ctk.CTkFrame(dialog, fg_color="transparent")
         grid.pack()
         acc_buttons = {}
@@ -1583,8 +1629,20 @@ class MEmuHudManager:
                     border_color=C["accent"] if sel else C["border"],
                 )
 
-        for i in range(1, acc_count + 1):
-            n = str(i)
+        if not acc_nums:
+            ctk.CTkLabel(
+                grid, text="Токены аккаунтов ещё не добавлены",
+                font=("Segoe UI", 11), text_color=C["muted"],
+            ).grid(row=0, column=0, pady=(0, 8))
+            ctk.CTkButton(
+                grid, text="🔐  Добавить токены", height=34,
+                font=("Segoe UI", 11, "bold"),
+                fg_color=C["accent"], hover_color="#E09500",
+                text_color=C["btntext"], corner_radius=8,
+                command=lambda: (dialog.destroy(), self.open_local_account_manager()),
+            ).grid(row=1, column=0)
+
+        for idx, n in enumerate(acc_nums):
             is_sel = (n == acc_var.get())
             btn = ctk.CTkButton(
                 grid, text=f"#{n}",
@@ -1598,7 +1656,7 @@ class MEmuHudManager:
                 corner_radius=8,
                 command=lambda x=n: select_acc(x),
             )
-            btn.grid(row=0, column=i-1, padx=3)
+            btn.grid(row=idx // 8, column=idx % 8, padx=3, pady=3)
             acc_buttons[n] = btn
 
         # Нижние кнопки
@@ -2216,6 +2274,14 @@ class MEmuHudManager:
             acc_num = self.selected_account_number or ''
             load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
             load_code = load_code.replace("const accountNumber = '';", f"const accountNumber = '{acc_num}';")
+            acc_token = self.get_local_account_token(user_name, acc_num) or ''
+            if not re.fullmatch(self.TOKEN_RE, acc_token):
+                acc_token = ''
+            if acc_token:
+                self.log(f"[√] Токен аккаунта #{acc_num} взят из локального хранилища")
+            else:
+                self.log(f"[!] Локальный токен для аккаунта #{acc_num} не найден — добавьте его в «Токены аккаунтов»")
+            load_code = load_code.replace("const accountToken = '';", f"const accountToken = '{acc_token}';")
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
                 self.log("Поиск и удаление старого кода по маркерам...")

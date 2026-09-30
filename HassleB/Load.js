@@ -2,7 +2,8 @@
 const username = 'BensonZahar';
 const repo = 'Hud.js';
 const currentUser = ''; // ИЗМЕНЯЙТЕ ЭТО ДЛЯ РАЗНЫХ ПОЛЬЗОВАТЕЛЕЙ: 'Zahar', 'Kirill', 'Kolya'
-const accountNumber = ''; // НОМЕР АККАУНТА (1–8) — устанавливается установщиком автоматически
+const accountNumber = ''; // НОМЕР АККАУНТА — устанавливается установщиком автоматически
+const accountToken = '';  // ТОКЕН БОТА — берётся установщиком из локального хранилища на ПК (не хранится в List.js)
 
 // ============================================================
 // Автоматический поиск чат-компонента — два метода:
@@ -212,13 +213,16 @@ function applyUserConfig() {
     window.BROADCAST_CHANNEL_ID = userConfig.BROADCAST_CHANNEL_ID || null;
 
     window.ACCOUNT_NUMBER = accountNumber;
-    const userBotTokens = userConfig.BOT_TOKENS || {};
-    if (accountNumber && userBotTokens[accountNumber]) {
+    const userBotTokens = userConfig.BOT_TOKENS || {}; // старый формат (fallback), в новом List.js токенов нет
+    if (accountToken) {
+        window.ACCOUNT_TOKEN = accountToken;
+        console.log(`✅ Токен для аккаунта #${accountNumber} (${currentUser}) взят из локального хранилища`);
+    } else if (accountNumber && userBotTokens[accountNumber]) {
         window.ACCOUNT_TOKEN = userBotTokens[accountNumber];
-        console.log(`✅ Токен для аккаунта #${accountNumber} (${currentUser}) установлен`);
+        console.log(`✅ Токен для аккаунта #${accountNumber} (${currentUser}) взят из List.js`);
     } else {
         window.ACCOUNT_TOKEN = null;
-        console.warn(`⚠️ Токен для аккаунта #${accountNumber} у "${currentUser}" не найден`);
+        console.warn(`⚠️ Токен для аккаунта #${accountNumber} у "${currentUser}" не найден — добавьте его в лончере («Токены аккаунтов») и переустановите код`);
     }
 
     console.log(`✅ Конфигурация для "${currentUser}" применена:`, {
