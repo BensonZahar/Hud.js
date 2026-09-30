@@ -977,136 +977,300 @@ function handleGlobalBroadcastCommand(cmd, val, fromBroadcast = false) {
 // ║               sendToTelegram, showScreenNotification     ║
 // ╚══════════════════════════════════════════════════════════╝
 // START AUTO LOGIN MODULE //
-// Настройка автовхода
+// Мгновенный автовход (как в LoadPravo): при открытии окна Authorization оно СРАЗУ
+// прячется (visibility), на сервер уходит OnAuthorizationStart с паролем — то же,
+// что делает кнопка «Войти». Ошибка пароля / код 2FA приходят с сервера через
+// Login.setError / Login.setStage — мы оборачиваем эти методы и показываем окно
+// синхронно ПЕРЕД отрисовкой ошибки. После ошибки повторов нет (RETRY_BLOCK_MS).
+// autoLoginConfig.enabled по-прежнему главный выключатель (AFK-циклы, /rec 5 и т.д.):
+// пока он false — окно авторизации открывается как обычно и не трогается.
 const autoLoginConfig = {
     password: PASSWORD, // Ваш пароль
-    enabled: true, // Флаг активации автовхода
-    maxAttempts: 10, // Максимум попыток
-    attemptInterval: 1000 // Интервал между попытками (мс)
+    enabled: true       // Флаг активации автовхода
 };
-// Функция для автоматического ввода пароля
-let _autoLoginRunning = false;
 
-function setupAutoLogin(attempt = 1) {
-    if (!autoLoginConfig.enabled) {
-        debugLog('Автовход отключен');
-        _autoLoginRunning = false;
-        return;
+// При перезагрузке скрипта снимаем хуки/наблюдатели прошлой копии
+if (window.__hassleAL && typeof window.__hassleAL.dispose === 'function') {
+    try { window.__hassleAL.dispose(); } catch (e) {}
+}
+const _AL = {
+    REVEAL_MS: 8000,        // не дождались закрытия окна — показать его
+    RETRY_BLOCK_MS: 60000,  // после ошибки пароля авто-вход отключён на это время
+    MIN_GAP_MS: 3000,       // защита от спама попытками
+    REOPEN_FAIL_MS: 20000,  // окно переоткрыто так быстро после отправки — вход не прошёл
+    HIDE_CLASS: 'hassle-autologin',
+    sent: false, problem: false, manualWindow: false, dead: false,
+    blockUntil: 0, lastSend: 0, lastOkNotify: 0,
+    revealTimer: null, errObs: null, fallbackObs: null, styleEl: null, hideToken: 0,
+    patched: (typeof WeakSet === 'function') ? new WeakSet() : null,
+    hooks: {}
+};
+
+// CSS: только visibility. Анимации/переходы НЕ трогаем — иначе при показе
+// они проигрываются заново и окно «возвращается» с задержкой.
+try {
+    _AL.styleEl = document.createElement('style');
+    _AL.styleEl.textContent =
+        'html.' + _AL.HIDE_CLASS + ' .authorization,' +
+        'html.' + _AL.HIDE_CLASS + ' .authorization *{visibility:hidden!important}';
+    (document.head || document.documentElement).appendChild(_AL.styleEl);
+} catch (e) {}
+
+function _alIsHidden() { return document.documentElement.classList.contains(_AL.HIDE_CLASS); }
+function _alHideUI() { _AL.hideToken++; document.documentElement.classList.add(_AL.HIDE_CLASS); }
+function _alShowUI() {
+    document.documentElement.classList.remove(_AL.HIDE_CLASS);
+    clearTimeout(_AL.revealTimer); _AL.revealTimer = null;
+    if (_AL.errObs) { _AL.errObs.disconnect(); _AL.errObs = null; }
+}
+// Снять скрытие после закрытия окна (успешный вход) — когда его DOM уже исчез
+function _alReleaseWhenGone() {
+    const token = _AL.hideToken, t0 = Date.now();
+    (function chk() {
+        if (_AL.dead || token !== _AL.hideToken) return;
+        if (!document.querySelector('.authorization') || Date.now() - t0 > 1500) { _alShowUI(); return; }
+        setTimeout(chk, 16);
+    })();
+}
+
+// Сервер сообщил о проблеме (ошибка пароля, код 2FA) — показать окно СРАЗУ
+function _alOnServerProblem(why) {
+    if (_AL.dead) return;
+    if (!_alIsHidden() && !_AL.sent) return;
+    const wasSent = _AL.sent;
+    _AL.problem = true;
+    _AL.blockUntil = Date.now() + _AL.RETRY_BLOCK_MS;
+    _alShowUI();
+    debugLog(`[AUTOLOGIN] ${why} — окно показано`);
+    if (wasSent) {
+        try {
+            sendToTelegram(`❌ <b>Автовход не удался (${displayName})</b>\n${why}\nНужен ручной ввод`, false, null);
+        } catch (e) {}
     }
-    // Мьютекс: только одна цепочка одновременно
-    if (attempt === 1) {
-        if (_autoLoginRunning) {
-            debugLog('[AUTOLOGIN] Цепочка уже активна — дубль пропущен');
-            return;
+}
+
+// Оборачиваем методы компонента Login: setError / setStage вызывает сервер
+function _alPatchAuth(c) {
+    try {
+        const inst = c && c.$refs && c.$refs.auth;
+        if (!inst) return;
+        if (_AL.patched) { if (_AL.patched.has(inst)) return; _AL.patched.add(inst); }
+        else { if (inst.__hassleALP) return; inst.__hassleALP = true; }
+
+        const oe = inst.setError;
+        if (typeof oe === 'function') {
+            inst.setError = function() {
+                _alOnServerProblem('Ошибка от сервера (пароль?)');   // ДО отрисовки ошибки
+                return oe.apply(this, arguments);
+            };
         }
-        _autoLoginRunning = true;
-    }
-    if (attempt > autoLoginConfig.maxAttempts) {
-        _autoLoginRunning = false;
-        const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить автовход после ${autoLoginConfig.maxAttempts} попыток`;
+        const os = inst.setStage;
+        if (typeof os === 'function') {
+            inst.setStage = function(stage) {
+                if (stage > 1) _alOnServerProblem('Требуется код');
+                return os.apply(this, arguments);
+            };
+        }
+    } catch (e) { debugLog('[AUTOLOGIN] patch error: ' + e.message); }
+}
+function _alTryPatch() {
+    if (_AL.dead) return;
+    try { const c = window.interface && window.interface('Authorization'); if (c) _alPatchAuth(c); } catch (e) {}
+}
+
+// Запасной наблюдатель: ошибка / код / регистрация появились в DOM → показать окно
+function _alWatchProblems() {
+    if (_AL.errObs) _AL.errObs.disconnect();
+    _AL.errObs = new MutationObserver(function() {
+        _alTryPatch();
+        const hasErr = document.querySelector('.authorization-field__error');
+        if (hasErr || document.querySelector('.login-code, .registration')) {
+            if (hasErr) _AL.blockUntil = Date.now() + _AL.RETRY_BLOCK_MS;
+            _AL.problem = true;
+            _alShowUI();
+            debugLog('[AUTOLOGIN] Нужен ручной ввод — окно показано');
+        }
+    });
+    _AL.errObs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+}
+
+function _alCanAuto() {
+    const now = Date.now();
+    return autoLoginConfig.enabled && !!autoLoginConfig.password &&
+           !_AL.sent && now >= _AL.blockUntil && (now - _AL.lastSend) >= _AL.MIN_GAP_MS &&
+           typeof window.sendClientEvent === 'function' && !!window.gm;
+}
+
+function _alFire() {
+    try {
+        _AL.sent = true; _AL.problem = false; _AL.lastSend = Date.now();
+        _alWatchProblems();
+        _AL.revealTimer = setTimeout(_alShowUI, _AL.REVEAL_MS);
+        window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', autoLoginConfig.password);
+        debugLog(`[AUTOLOGIN][${displayName}] Пароль отправлен мгновенно`);
+        // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
+        // hpLastValue = null означает: следующий тик после спавна
+        // только запишет baseline, без сравнения — как при первом входе.
+        // Grace period сбрасывается здесь тоже — trackPlayerHp запустит его заново.
+        globalState.hpLastValue       = null;
+        globalState._hpGraceUntil     = null;
+        globalState._hpGraceActive    = false;
+        globalState.hpLastHitTime     = null;
+        globalState.hpAlertMessageIds = [];
+        // Сброс флага спавна и профиля для нового входа
+        globalState._spawnProfileLoaded = false;
+        try { config.accountInfo.profile.loaded = false; } catch (e) {}
+    } catch (err) {
+        _AL.sent = false;
+        _AL.blockUntil = Date.now() + _AL.RETRY_BLOCK_MS; // без цикла повторов
+        _alShowUI();
+        const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
         debugLog(errorMsg);
-        sendToTelegram(errorMsg, false, null);
-        return;
+        try { sendToTelegram(errorMsg, false, null); } catch (e) {}
     }
-    // Проверяем, открыт ли интерфейс Authorization
-    if (!window.getInterfaceStatus("Authorization")) {
-        debugLog(`Попытка ${attempt}: Интерфейс Authorization не открыт, повтор через ${autoLoginConfig.attemptInterval}мс`);
-        setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-        return;
-    }
-    // Получаем экземпляр Authorization
-    const authInstance = window.interface("Authorization");
-    if (!authInstance) {
-        debugLog(`Попытка ${attempt}: Экземпляр Authorization не найден, повтор через ${autoLoginConfig.attemptInterval}мс`);
-        setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-        return;
-    }
-    // Получаем экземпляр Login через getInstance("auth")
-    const loginInstance = authInstance.getInstance("auth");
-    if (!loginInstance) {
-        debugLog(`Попытка ${attempt}: Экземпляр Login не найден, повтор через ${autoLoginConfig.attemptInterval}мс`);
-        setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-        return;
-    }
-    // Устанавливаем пароль
-    debugLog(`[${displayName}] Автоввод пароля: ${autoLoginConfig.password}`);
-    loginInstance.password.value = autoLoginConfig.password;
-    // Ждем обновления DOM и эмулируем нажатие кнопки "Войти"
-    setTimeout(() => {
-        if (loginInstance.password.value === autoLoginConfig.password) {
-            debugLog(`[${displayName}] Эмуляция нажатия кнопки "Войти"`);
-            try {
-                loginInstance.onClickEvent("play");
-                _autoLoginRunning = false; // освобождаем мьютекс после клика
-                sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
-                // /rec 5 уже сбросил isPlayerConnected → false через перехватчик.
-                // hpLastValue = null означает: следующий тик после спавна
-                // только запишет baseline, без сравнения — как при первом входе.
-                // Grace period сбрасывается здесь тоже — trackPlayerHp запустит его заново.
-                globalState.hpLastValue       = null;
-                globalState._hpGraceUntil     = null;
-                globalState._hpGraceActive    = false;
-                globalState.hpLastHitTime     = null;
-                globalState.hpAlertMessageIds = [];
-                // Сброс флага спавна и профиля для нового входа
-                globalState._spawnProfileLoaded = false;
-                config.accountInfo.profile.loaded = false;
-                // Уведомление через 3 секунды после успешного входа
-                setTimeout(() => {
-                    showScreenNotification(
-                        "HASSLE", 
-                        "Скрипт загружен.<br>Меню /hb или Телеграмм.", 
-                        "FFFF00",   // жёлтый цвет
-                        6000        // видно 6 секунд (можно изменить)
-                    );
-                }, 3000);
-                // /c 60 теперь отправляется только через кнопку «Отыгровка 27 мин» в Telegram
+}
 
-            } catch (err) {
-                _autoLoginRunning = false;
-                const errorMsg = `❌ <b>Ошибка ${displayName}</b>\nНе удалось выполнить вход\n<code>${err.message}</code>`;
-                debugLog(errorMsg);
-                sendToTelegram(errorMsg, false, null);
-                setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-            }
-        } else {
-            debugLog(`[${displayName}] Ошибка: пароль не установлен, повтор через ${autoLoginConfig.attemptInterval}мс`);
-            setTimeout(() => setupAutoLogin(attempt + 1), autoLoginConfig.attemptInterval);
-        }
-    }, 100);
+// Окно Authorization закрылось после нашей отправки без ошибок → вход прошёл
+function _alOnLoginSuccess() {
+    const now = Date.now();
+    if (now - _AL.lastOkNotify < 5000) return;
+    _AL.lastOkNotify = now;
+    sendToTelegram(`✅ Автовход выполнен для ${displayName}`, true, null); // Без звука
+    // Уведомление через 3 секунды после успешного входа
+    setTimeout(() => {
+        showScreenNotification(
+            "HASSLE",
+            "Скрипт загружен.<br>Меню /hb или Телеграмм.",
+            "FFFF00",   // жёлтый цвет
+            6000        // видно 6 секунд (можно изменить)
+        );
+    }, 3000);
+    // /c 60 теперь отправляется только через кнопку «Отыгровка 27 мин» в Telegram
 }
-// Функция инициализации автовхода
-function initializeAutoLogin() {
-    if (!autoLoginConfig.enabled) {
-        debugLog('Автовход отключен в конфигурации');
+
+function _alIsLoginParams(params) {
+    let p = params;
+    if (typeof p === 'string') {
+        try { p = JSON.parse(p.replace(/\n/, '\\n')); } catch (e) { return false; }
+    }
+    return !!p && p[0] === 'auth';
+}
+
+// Вызывается ДО оригинального openInterface('Authorization'): true → прятать и слать пароль
+function _alBeforeOpen(params) {
+    if (_AL.dead || !_alIsLoginParams(params)) return false;
+    const now = Date.now();
+    if (_AL.lastSend && (now - _AL.lastSend) < _AL.REOPEN_FAIL_MS) {
+        // Сервер переоткрыл окно сразу после отправки → вход не прошёл.
+        // Показываем окно сразу, как в оригинале, без повторов.
+        const wasSent = _AL.sent;
+        _AL.blockUntil = now + _AL.RETRY_BLOCK_MS;
+        _alShowUI();
+        if (wasSent) {
+            _AL.sent = false;
+            try {
+                sendToTelegram(`❌ <b>Автовход не прошёл (${displayName})</b>\nСервер снова открыл окно авторизации\nНужен ручной ввод`, false, null);
+            } catch (e) {}
+        }
+        return false;
+    }
+    if (!autoLoginConfig.enabled) { _AL.manualWindow = true; return false; } // окно для ручного входа
+    _AL.manualWindow = false;
+    if (_alCanAuto()) {
+        _alHideUI(); // ДО открытия — первый кадр уже без окна
+        return true;
+    }
+    return false;
+}
+
+// Ставим обёртку на window[prop]; если функция ещё не определена — ждём присвоения
+function _alHook(prop, factory) {
+    const cur = window[prop];
+    if (typeof cur === 'function') {
+        const w = factory(cur);
+        window[prop] = w;
+        _AL.hooks[prop] = { orig: cur, wrapper: w };
         return;
     }
-    // Только реагируем на уже открытый движком интерфейс.
-    // Скрипт НЕ должен сам открывать Authorization — это вызывает
-    // конфликт с тем, что движок открывает его параллельно после /rec.
-    if (window.getInterfaceStatus("Authorization")) {
-        debugLog('Интерфейс Authorization уже открыт, запускаем автовход');
-        setupAutoLogin();
-    } else {
-        debugLog('[AUTOLOGIN] Authorization ещё не открыт движком — ждём хука openInterface');
-    }
+    let val;
+    Object.defineProperty(window, prop, {
+        configurable: true, enumerable: true,
+        get: function() { return val; },
+        set: function(v) { val = (typeof v === 'function') ? factory(v) : v; }
+    });
 }
+
+// Любое обращение к window.interface('Authorization') (в т.ч. от сервера) — патчим Login
+_alHook('interface', function(orig) {
+    return function(name) {
+        const c = orig.apply(this, arguments);
+        if (!_AL.dead && name === 'Authorization' && c) _alPatchAuth(c);
+        return c;
+    };
+});
+
+_alHook('closeInterface', function(orig) {
+    return function(name) {
+        if (!_AL.dead && name === 'Authorization') {
+            const wasSent = _AL.sent, hadProblem = _AL.problem;
+            _AL.sent = false;
+            _AL.manualWindow = false;
+            const r = orig.apply(this, arguments);
+            if (_alIsHidden()) _alReleaseWhenGone(); else _alShowUI();
+            if (wasSent && !hadProblem) { try { _alOnLoginSuccess(); } catch (e) {} }
+            return r;
+        }
+        return orig.apply(this, arguments);
+    };
+});
+
+// Запасной путь (окно появилось не через openInterface, либо скрипт загрузился
+// уже при открытом окне). Если окно открыто при выключенном автовходе — не трогаем его,
+// пока оно не закроется (как раньше).
+function _alFallbackCheck() {
+    if (_AL.dead || _AL.sent) return;
+    if (!document.querySelector('.authorization-field__input[type="password"]')) return;
+    if (!autoLoginConfig.enabled) { _AL.manualWindow = true; return; }
+    if (_AL.manualWindow || !_alCanAuto()) return;
+    _alHideUI();
+    _alFire();
+    _alTryPatch();
+}
+_AL.fallbackObs = new MutationObserver(_alFallbackCheck);
+function _alStartObserver() {
+    _AL.fallbackObs.observe(document.body, { childList: true, subtree: true });
+    _alFallbackCheck();
+}
+if (document.body) _alStartObserver();
+else document.addEventListener('DOMContentLoaded', _alStartObserver);
+
+window.__hassleAL = {
+    dispose: function() {
+        _AL.dead = true;
+        try { _AL.fallbackObs && _AL.fallbackObs.disconnect(); } catch (e) {}
+        try { _AL.errObs && _AL.errObs.disconnect(); } catch (e) {}
+        clearTimeout(_AL.revealTimer);
+        try { document.documentElement.classList.remove(_AL.HIDE_CLASS); } catch (e) {}
+        try { _AL.styleEl && _AL.styleEl.remove(); } catch (e) {}
+        ['interface', 'closeInterface'].forEach(function(p) {
+            const h = _AL.hooks[p];
+            if (h && window[p] === h.wrapper) window[p] = h.orig;
+        });
+    }
+};
+
 // Перехват window.openInterface для автоматического входа (хуком)
 // FIX: берём оригинал из сохранённого _hassleOrig_openInterface,
 // чтобы не захватить уже обёрнутую версию от applyMainMenuTabPatch.
 // Это гарантирует, что цепочка обёрток не растёт при перезагрузках.
 const originalOpenInterface = window._hassleOrig_openInterface || window.openInterface;
-let _authHookScheduled = false;
 window.openInterface = function(interfaceName, params, additionalParams) {
+    const _alGo = (interfaceName === "Authorization") ? _alBeforeOpen(params) : false;
     const result = originalOpenInterface.call(this, interfaceName, params, additionalParams);
-    if (interfaceName === "Authorization" && !_authHookScheduled) {
-        _authHookScheduled = true;
-        debugLog(`[${displayName}] Открыт интерфейс Authorization, инициализация автовхода`);
-        setTimeout(() => {
-            _authHookScheduled = false;
-            initializeAutoLogin();
-        }, 500); // Дебаунс: даже если Authorization откроется несколько раз подряд,
-                 // initializeAutoLogin вызовется только один раз
+    if (interfaceName === "Authorization") {
+        _alTryPatch();
+        setTimeout(_alTryPatch, 0);
+        if (_alGo) _alFire();
     }
     // ── INTERACTIONS LOGGER ──────────────────────────────────────
     if (interfaceName === "Interactions") {
