@@ -245,63 +245,133 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
     xhr.send();
 }
 
-// ── АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────────
+// ── АВТО-ВВОД ПАРОЛЯ (мгновенный, без показа окна авторизации) ─────────
+// Как работает:
+//  1. Перехватываем window.openInterface: в момент, когда сервер открывает
+//     "Authorization" со страницей "auth", СРАЗУ (синхронно, до отрисовки)
+//     прячем окно CSS-классом и шлём на сервер OnAuthorizationStart с паролем —
+//     ровно то же, что делает кнопка «Войти» (Login.play()). Ни ввода в поле,
+//     ни setTimeout, ни ожидания Vue — форма даже не успевает показаться.
+//  2. Если что-то пошло не так (неверный пароль, окно кода 2FA, регистрация,
+//     сервер не ответил за AUTO_PASSWORD_REVEAL_MS) — окно сразу показывается,
+//     чтобы можно было войти руками. После неверного пароля повторов нет.
+//  3. Запасной путь: если openInterface перехватить не вышло (окно открыли
+//     иначе), срабатывает MutationObserver по полю пароля — тоже без задержек.
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {
-        var _filling = false; // защита от двойного срабатывания за одно появление
+        var AUTO_PASSWORD_REVEAL_MS = 8000;   // не дождались закрытия окна — показать его
+        var RETRY_BLOCK_MS          = 60000;  // после ошибки пароля авто-вход отключён на это время
+        var MIN_GAP_MS              = 3000;   // защита от спама попытками
+        var HIDE_CLASS = 'pravo-autologin';
 
-        function tryFill() {
-            if (_filling) return;
+        var sent = false, blockUntil = 0, lastSend = 0, revealTimer = null, errObs = null;
 
-            var passInput = document.querySelector('.authorization-field__input[type="password"]');
-            if (!passInput) return;
+        // CSS: окно скрыто и без анимаций, пока идёт авто-вход
+        var st = document.createElement('style');
+        st.textContent =
+            'html.' + HIDE_CLASS + ' .authorization,' +
+            'html.' + HIDE_CLASS + ' .authorization *{' +
+            'visibility:hidden!important;opacity:0!important;' +
+            'transition:none!important;animation:none!important}';
+        (document.head || document.documentElement).appendChild(st);
 
-            _filling = true;
+        function hideUI() { document.documentElement.classList.add(HIDE_CLASS); }
 
-            // Нативный setter — Vue увидит изменение v-model
-            var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-            nativeSetter.call(passInput, AUTO_PASSWORD);
-
-            // input event — обновляет v-model
-            passInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-            // Enter на форме — Vue слушает @keydown там
-            setTimeout(function() {
-                var form = document.querySelector('.login-form');
-                var target = form || passInput;
-                target.dispatchEvent(new KeyboardEvent('keydown', {
-                    key: 'Enter', code: 'Enter',
-                    keyCode: 13, which: 13,
-                    bubbles: true, cancelable: true
-                }));
-                console.log('[PRAVO AHK AUTO-PWD] Enter отправлен');
-
-                // После Enter ждём пока форма исчезнет — тогда сбрасываем флаг
-                // чтобы при следующем /rec снова сработало
-                var waitGone = setInterval(function() {
-                    if (!document.querySelector('.authorization-field__input[type="password"]')) {
-                        _filling = false;
-                        clearInterval(waitGone);
-                        console.log('[PRAVO AHK AUTO-PWD] Форма закрылась — готов к следующей авторизации');
-                    }
-                }, 300);
-            }, 150);
+        function showUI() {
+            document.documentElement.classList.remove(HIDE_CLASS);
+            clearTimeout(revealTimer); revealTimer = null;
+            if (errObs) { errObs.disconnect(); errObs = null; }
         }
 
-        // Observer живёт вечно — не делаем disconnect()
-        var observer = new MutationObserver(function() {
-            tryFill();
-        });
+        // Следим за проблемами: ошибка пароля / окно кода / регистрация → показать окно
+        function watchProblems() {
+            if (errObs) errObs.disconnect();
+            errObs = new MutationObserver(function() {
+                var hasErr = document.querySelector('.authorization-field__error');
+                if (hasErr || document.querySelector('.login-code, .registration')) {
+                    if (hasErr) blockUntil = Date.now() + RETRY_BLOCK_MS;
+                    showUI();
+                    console.log('[PRAVO AHK AUTO-PWD] Нужен ручной ввод — окно показано');
+                }
+            });
+            errObs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        }
 
-        if (document.body) {
-            observer.observe(document.body, { childList: true, subtree: true });
-            tryFill(); // на случай если форма уже есть при загрузке
-        } else {
-            document.addEventListener('DOMContentLoaded', function() {
-                observer.observe(document.body, { childList: true, subtree: true });
-                tryFill();
+        function canAuto() {
+            var now = Date.now();
+            return !sent && now >= blockUntil && (now - lastSend) >= MIN_GAP_MS &&
+                   typeof window.sendClientEvent === 'function' && window.gm;
+        }
+
+        function fire() {
+            try {
+                sent = true; lastSend = Date.now();
+                watchProblems();
+                revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS);
+                window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', AUTO_PASSWORD);
+                console.log('[PRAVO AHK AUTO-PWD] Пароль отправлен мгновенно');
+            } catch (e) {
+                showUI();
+                console.error('[PRAVO AHK AUTO-PWD] Ошибка авто-входа:', e);
+            }
+        }
+
+        function isLoginParams(params) {
+            var p = params;
+            if (typeof p === 'string') {
+                try { p = JSON.parse(p.replace(/\n/, '\\n')); } catch (e) { return false; }
+            }
+            return !!p && p[0] === 'auth';
+        }
+
+        // Ставим обёртку на window[prop]; если функция ещё не определена — ждём присвоения
+        function hook(prop, factory) {
+            var cur = window[prop];
+            if (typeof cur === 'function') { window[prop] = factory(cur); return; }
+            var val;
+            Object.defineProperty(window, prop, {
+                configurable: true, enumerable: true,
+                get: function() { return val; },
+                set: function(v) { val = (typeof v === 'function') ? factory(v) : v; }
             });
         }
+
+        hook('openInterface', function(orig) {
+            return function(name, params) {
+                var go = false;
+                if (name === 'Authorization' && !window.getInterfaceStatus('Authorization') &&
+                    isLoginParams(params) && canAuto()) {
+                    go = true;
+                    hideUI(); // ДО открытия — первый кадр уже без окна
+                }
+                var r = orig.apply(this, arguments);
+                if (go) fire();
+                return r;
+            };
+        });
+
+        hook('closeInterface', function(orig) {
+            return function(name) {
+                if (name === 'Authorization') { sent = false; showUI(); }
+                return orig.apply(this, arguments);
+            };
+        });
+
+        // Запасной путь (окно появилось не через openInterface)
+        function fallbackCheck() {
+            if (sent || !canAuto()) return;
+            if (document.querySelector('.authorization-field__input[type="password"]')) {
+                hideUI();
+                fire();
+            }
+        }
+        var observer = new MutationObserver(fallbackCheck);
+        function startObserver() {
+            observer.observe(document.body, { childList: true, subtree: true });
+            fallbackCheck();
+        }
+        if (document.body) startObserver();
+        else document.addEventListener('DOMContentLoaded', startObserver);
     })();
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
