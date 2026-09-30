@@ -186,63 +186,213 @@ function loadScriptFromGitHub(username, repo, folder, filename, retries = 5, onS
     xhr.send();
 }
 
-// ── АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────────
+// ── АВТО-ВВОД ПАРОЛЯ (мгновенный, без показа окна авторизации) ─────────
+// Как работает:
+//  1. Перехватываем window.openInterface: в момент, когда сервер открывает
+//     "Authorization" со страницей "auth", СРАЗУ (синхронно, до отрисовки)
+//     прячем окно (visibility:hidden) и шлём на сервер OnAuthorizationStart
+//     с паролем — ровно то же, что делает кнопка «Войти» (Login.play()).
+//  2. Окно прячется ТОЛЬКО через visibility — анимации появления идут под
+//     скрытием и к моменту показа уже закончены, поэтому окно возвращается
+//     мгновенно, без повторного fade.
+//  3. Ошибка пароля / окно кода 2FA приходят с сервера как вызов методов
+//     Login.setError / Login.setStage. Мы оборачиваем их: окно показывается
+//     СИНХРОННО ПЕРЕД тем, как Vue отрисует ошибку, и текст ошибки
+//     появляется точно так же, как в оригинале.
+//  4. Если сервер после нашей отправки просто переоткрыл окно авторизации —
+//     оно показывается сразу (без скрытия и без повторной отправки).
+//  5. Запасные пути: MutationObserver по ошибке/полю пароля и таймер
+//     AUTO_PASSWORD_REVEAL_MS. После ошибки повторов нет (RETRY_BLOCK_MS).
 if (AUTO_PASSWORD) {
     (function setupAutoPassword() {
-        var _filling = false; // защита от двойного срабатывания за одно появление
+        var AUTO_PASSWORD_REVEAL_MS = 8000;   // не дождались закрытия окна — показать его
+        var RETRY_BLOCK_MS          = 60000;  // после ошибки пароля авто-вход отключён на это время
+        var MIN_GAP_MS              = 3000;   // защита от спама попытками
+        var REOPEN_FAIL_MS          = 20000;  // окно переоткрыто так быстро после отправки — вход не прошёл
+        var HIDE_CLASS = 'fsb-autologin';
 
-        function tryFill() {
-            if (_filling) return;
+        var sent = false, blockUntil = 0, lastSend = 0, revealTimer = null, errObs = null, hideToken = 0;
+        var patched = (typeof WeakSet === 'function') ? new WeakSet() : null;
 
-            var passInput = document.querySelector('.authorization-field__input[type="password"]');
-            if (!passInput) return;
+        // CSS: только visibility. Анимации/переходы НЕ трогаем — иначе при показе
+        // они проигрываются заново и окно «возвращается» с задержкой.
+        var st = document.createElement('style');
+        st.textContent =
+            'html.' + HIDE_CLASS + ' .authorization,' +
+            'html.' + HIDE_CLASS + ' .authorization *{visibility:hidden!important}';
+        (document.head || document.documentElement).appendChild(st);
 
-            _filling = true;
+        function isHidden() { return document.documentElement.classList.contains(HIDE_CLASS); }
+        function hideUI() { hideToken++; document.documentElement.classList.add(HIDE_CLASS); }
 
-            // Нативный setter — Vue увидит изменение v-model
-            var nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-            nativeSetter.call(passInput, AUTO_PASSWORD);
-
-            // input event — обновляет v-model
-            passInput.dispatchEvent(new Event('input', { bubbles: true }));
-
-            // Enter на форме — Vue слушает @keydown там
-            setTimeout(function() {
-                var form = document.querySelector('.login-form');
-                var target = form || passInput;
-                target.dispatchEvent(new KeyboardEvent('keydown', {
-                    key: 'Enter', code: 'Enter',
-                    keyCode: 13, which: 13,
-                    bubbles: true, cancelable: true
-                }));
-                console.log('[AHK AUTO-PWD] Enter отправлен');
-
-                // После Enter ждём пока форма исчезнет — тогда сбрасываем флаг
-                // чтобы при следующем /rec снова сработало
-                var waitGone = setInterval(function() {
-                    if (!document.querySelector('.authorization-field__input[type="password"]')) {
-                        _filling = false;
-                        clearInterval(waitGone);
-                        console.log('[AHK AUTO-PWD] Форма закрылась — готов к следующей авторизации');
-                    }
-                }, 300);
-            }, 150);
+        function showUI() {
+            document.documentElement.classList.remove(HIDE_CLASS);
+            clearTimeout(revealTimer); revealTimer = null;
+            if (errObs) { errObs.disconnect(); errObs = null; }
         }
 
-        // Observer живёт вечно — не делаем disconnect()
-        var observer = new MutationObserver(function() {
-            tryFill();
-        });
+        // Снять скрытие после закрытия окна (успешный вход) — когда его DOM уже исчез
+        function releaseWhenGone() {
+            var token = hideToken, t0 = Date.now();
+            (function chk() {
+                if (token !== hideToken) return;
+                if (!document.querySelector('.authorization') || Date.now() - t0 > 1500) { showUI(); return; }
+                setTimeout(chk, 16);
+            })();
+        }
 
-        if (document.body) {
-            observer.observe(document.body, { childList: true, subtree: true });
-            tryFill(); // на случай если форма уже есть при загрузке
-        } else {
-            document.addEventListener('DOMContentLoaded', function() {
-                observer.observe(document.body, { childList: true, subtree: true });
-                tryFill();
+        // Сервер сообщил о проблеме (ошибка пароля, код 2FA) — показать окно СРАЗУ
+        function onServerProblem(why) {
+            if (!isHidden() && !sent) return;
+            blockUntil = Date.now() + RETRY_BLOCK_MS;
+            showUI();
+            console.log('[FSB AHK AUTO-PWD] ' + why + ' — окно показано');
+        }
+
+        // Оборачиваем методы компонента Login: setError / setStage вызывает сервер
+        function patchAuth(c) {
+            try {
+                var inst = c && c.$refs && c.$refs.auth;
+                if (!inst) return;
+                if (patched) { if (patched.has(inst)) return; patched.add(inst); }
+                else { if (inst.__fsbP) return; inst.__fsbP = true; }
+
+                var oe = inst.setError;
+                if (typeof oe === 'function') {
+                    inst.setError = function() {
+                        onServerProblem('Ошибка от сервера');   // ДО отрисовки ошибки
+                        return oe.apply(this, arguments);
+                    };
+                }
+                var os = inst.setStage;
+                if (typeof os === 'function') {
+                    inst.setStage = function(stage) {
+                        if (stage > 1) onServerProblem('Требуется код');
+                        return os.apply(this, arguments);
+                    };
+                }
+            } catch (e) { console.error('[FSB AHK AUTO-PWD] patch error:', e); }
+        }
+        function tryPatch() {
+            try { var c = window.interface && window.interface('Authorization'); if (c) patchAuth(c); } catch (e) {}
+        }
+
+        // Запасной наблюдатель: ошибка / код / регистрация появились в DOM → показать окно
+        function watchProblems() {
+            if (errObs) errObs.disconnect();
+            errObs = new MutationObserver(function() {
+                tryPatch();
+                var hasErr = document.querySelector('.authorization-field__error');
+                if (hasErr || document.querySelector('.login-code, .registration')) {
+                    if (hasErr) blockUntil = Date.now() + RETRY_BLOCK_MS;
+                    showUI();
+                    console.log('[FSB AHK AUTO-PWD] Нужен ручной ввод — окно показано');
+                }
+            });
+            errObs.observe(document.body || document.documentElement, { childList: true, subtree: true });
+        }
+
+        function canAuto() {
+            var now = Date.now();
+            return !sent && now >= blockUntil && (now - lastSend) >= MIN_GAP_MS &&
+                   typeof window.sendClientEvent === 'function' && window.gm;
+        }
+
+        function fire() {
+            try {
+                sent = true; lastSend = Date.now();
+                watchProblems();
+                revealTimer = setTimeout(showUI, AUTO_PASSWORD_REVEAL_MS);
+                window.sendClientEvent(window.gm.EVENT_EXECUTE_PUBLIC, 'OnAuthorizationStart', AUTO_PASSWORD);
+                console.log('[FSB AHK AUTO-PWD] Пароль отправлен мгновенно');
+            } catch (e) {
+                showUI();
+                console.error('[FSB AHK AUTO-PWD] Ошибка авто-входа:', e);
+            }
+        }
+
+        function isLoginParams(params) {
+            var p = params;
+            if (typeof p === 'string') {
+                try { p = JSON.parse(p.replace(/\n/, '\\n')); } catch (e) { return false; }
+            }
+            return !!p && p[0] === 'auth';
+        }
+
+        // Ставим обёртку на window[prop]; если функция ещё не определена — ждём присвоения
+        function hook(prop, factory) {
+            var cur = window[prop];
+            if (typeof cur === 'function') { window[prop] = factory(cur); return; }
+            var val;
+            Object.defineProperty(window, prop, {
+                configurable: true, enumerable: true,
+                get: function() { return val; },
+                set: function(v) { val = (typeof v === 'function') ? factory(v) : v; }
             });
         }
+
+        // Любое обращение к window.interface('Authorization') (в т.ч. от сервера) — патчим Login
+        hook('interface', function(orig) {
+            return function(name) {
+                var c = orig.apply(this, arguments);
+                if (name === 'Authorization' && c) patchAuth(c);
+                return c;
+            };
+        });
+
+        hook('openInterface', function(orig) {
+            return function(name, params) {
+                var go = false;
+                if (name === 'Authorization' && !window.getInterfaceStatus('Authorization') &&
+                    isLoginParams(params)) {
+                    if (lastSend && (Date.now() - lastSend) < REOPEN_FAIL_MS) {
+                        // Сервер переоткрыл окно сразу после отправки → вход не прошёл.
+                        // Показываем окно сразу, как в оригинале, без повторов.
+                        blockUntil = Date.now() + RETRY_BLOCK_MS;
+                        showUI();
+                    } else if (canAuto()) {
+                        go = true;
+                        hideUI(); // ДО открытия — первый кадр уже без окна
+                    }
+                }
+                var r = orig.apply(this, arguments);
+                if (name === 'Authorization') {
+                    tryPatch();
+                    setTimeout(tryPatch, 0);
+                }
+                if (go) fire();
+                return r;
+            };
+        });
+
+        hook('closeInterface', function(orig) {
+            return function(name) {
+                if (name === 'Authorization') {
+                    sent = false;
+                    var r = orig.apply(this, arguments);
+                    if (isHidden()) releaseWhenGone(); else showUI();
+                    return r;
+                }
+                return orig.apply(this, arguments);
+            };
+        });
+
+        // Запасной путь (окно появилось не через openInterface)
+        function fallbackCheck() {
+            if (sent || !canAuto()) return;
+            if (document.querySelector('.authorization-field__input[type="password"]')) {
+                hideUI();
+                fire();
+                tryPatch();
+            }
+        }
+        var observer = new MutationObserver(fallbackCheck);
+        function startObserver() {
+            observer.observe(document.body, { childList: true, subtree: true });
+            fallbackCheck();
+        }
+        if (document.body) startObserver();
+        else document.addEventListener('DOMContentLoaded', startObserver);
     })();
 }
 // ── END АВТО-ВВОД ПАРОЛЯ ──────────────────────────────────────
