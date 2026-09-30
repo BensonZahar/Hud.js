@@ -1654,6 +1654,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (old && old.parentNode) old.parentNode.removeChild(old);
     }
     function cleanup() {
+        window.__pravoLicPick = false;
         releaseLabels();
         stopSync();
         removeBtn();
@@ -1725,8 +1726,10 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     }
     // Привести ники в соответствие с состоянием круга (идемпотентно, можно дёргать сколько угодно)
     function syncLabels(vm) {
-        var want = false;
-        try { want = window.PRAVO_MOBLIC_LABELS !== false && isOpen() && isOwnSelected(vm); } catch (er) {}
+        var want = false, pick = false;
+        try { pick = isOpen() && isOwnSelected(vm); } catch (er) {}
+        window.__pravoLicPick = pick;   // выбор лицензии раскрыт — по нему же чат выводится над затемнением (блок ниже)
+        try { want = window.PRAVO_MOBLIC_LABELS !== false && pick; } catch (er) {}
         if (want === labelsOn) return;
         if (want) { setLabels(true); return; }
         // гасим только если меню всё ещё открыто; если закрыто — игра уже вернула ники сама
@@ -2216,6 +2219,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
 // и картинка bg14.png в :before) лежит ВЫШЕ всего Hud, включая чат. Кроме того, при открытии меню
 // игра ставит чату «неактивное» состояние (setChatIsInactive(true)) и он выцветает.
 //
+// Работает ТОЛЬКО пока в круге раскрыт выбор типа лицензии нашего пункта (ровно тогда же, когда
+// включаются ники); в остальных меню и в самом круге всё как в игре.
+//
 // Что делаем:
 //   1) штатные :before (bg14) и :after (подложка) круга прячем и рисуем ровно то же самое сами —
 //      отдельным слоем ВНУТРИ Hud (в том же .interface, что и чат);
@@ -2243,8 +2249,9 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         try { console.log.apply(console, ['[PRAVO][CHAT]'].concat([].slice.call(arguments))); } catch (e) {}
     }
     function isMobile() { return !!(window.App && window.App.isMobile); }
-    function enabled() { return window.PRAVO_CHAT_UNDIM !== false && !isMobile(); }
     function isOpen() { try { return !!window.getInterfaceStatus('PlayerInteraction'); } catch (e) { return false; } }
+    // только пока в круге раскрыт выбор типа лицензии (тот же момент, когда включаются ники)
+    function enabled() { return window.PRAVO_CHAT_UNDIM !== false && !isMobile() && window.__pravoLicPick === true && isOpen(); }
     function getChat() {
         try {
             var hud = window.interface && window.interface('Hud');
@@ -2302,17 +2309,21 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (removeTimer) clearTimeout(removeTimer);
         removeTimer = setTimeout(function () {
             removeTimer = null;
-            if (isOpen() && enabled()) return;       // успели открыть заново — tick всё вернёт
+            if (enabled()) return;                   // успели раскрыть выбор заново — tick всё вернёт
             var d = document.getElementById(DIM_ID);
             if (d && d.parentNode) d.parentNode.removeChild(d);
             html().classList.remove(HTML_CLS);
             lastSig = '';
+            // вернулись в круг (меню открыто) — чат снова «неактивный», как в игре
+            if (isOpen() && !isMobile() && window.PRAVO_CHAT_UNDIM !== false && typeof window.setChatIsInactive === 'function') {
+                try { window.setChatIsInactive(true); } catch (e) {}
+            }
             dbg('слой убран');
         }, FADE_MS + 60);
     }
 
     function tick() {
-        if (!enabled() || !isOpen()) {
+        if (!enabled()) {
             if (document.getElementById(DIM_ID) && !removeTimer) teardown();
             return;
         }
@@ -2343,7 +2354,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             // включаем на следующем кадре, чтобы сработал transition opacity
             requestAnimationFrame(function () { requestAnimationFrame(function () {
                 var d = document.getElementById(DIM_ID);
-                if (d && !removeTimer && isOpen()) d.classList.add('pravo-on');
+                if (d && !removeTimer && enabled()) d.classList.add('pravo-on');
             }); });
         }
 
@@ -2375,7 +2386,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
         if (typeof orig !== 'function' || orig.__pravoUndim) return;
         var wrapped = function (e) {
             try {
-                if (e && enabled() && isOpen()) {
+                if (e && enabled()) {
                     var r = orig.call(this, false);
                     var c = getChat();
                     if (c && typeof c.clearInactiveTimeout === 'function') c.clearInactiveTimeout();
@@ -2419,7 +2430,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
             var chat = document.querySelector('.radmir-chat'), dim = document.getElementById(DIM_ID);
             var box = document.querySelector('.player-interaction__container');
             var cs = chat && getComputedStyle(chat);
-            L('круг открыт:', isOpen(), '| html-класс:', html().classList.contains(HTML_CLS),
+            L('круг открыт:', isOpen(), '| выбор лицензии раскрыт:', window.__pravoLicPick === true, '| html-класс:', html().classList.contains(HTML_CLS),
               '| bg14:', bgUrl ? 'url найден' : 'url НЕ найден', '| isInactive:', (getChat() || {}).isInactive);
             L('чат: z=' + (cs ? cs.zIndex : '—'), 'opacity=' + (cs ? cs.opacity : '—'),
               '| в .interface:', !!(chat && chat.closest('.interface')));
