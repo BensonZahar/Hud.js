@@ -3160,85 +3160,6 @@ function handlePayDayTimeMessage() {
 // END AFK MODULE //
 
 // ╔══════════════════════════════════════════════════════════╗
-// ║  MODULE: AFK PAUSE FLASH  (/afk)                         ║
-// ║  Описание: Команда /afk — каждую секунду открывает и     ║
-// ║             закрывает PauseMenu, бесконечно.             ║
-// ║             Повторный /afk — останавливает.              ║
-// ║  Зависимости: openInterface, closeInterface,             ║
-// ║               getInterfaceStatus, sendToTelegram,        ║
-// ║               debugLog                                   ║
-// ╚══════════════════════════════════════════════════════════╝
-// START AFK PAUSE FLASH MODULE //
-const AFK_FLASH_INTERVAL_MS = 1000; // период переключения паузы (мс)
-
-// FIX: если скрипт перезагружен (/reload) — гасим старый таймер, иначе они накапливаются
-if (window._hassleAfkFlashTimer) {
-    clearInterval(window._hassleAfkFlashTimer);
-    window._hassleAfkFlashTimer = null;
-}
-
-function isPauseMenuOpen() {
-    try {
-        return !!window.getInterfaceStatus('PauseMenu');
-    } catch (e) {
-        return false;
-    }
-}
-
-function isAfkFlashActive() {
-    return !!window._hassleAfkFlashTimer;
-}
-
-function startAfkFlash() {
-    if (isAfkFlashActive()) return;
-    window._hassleAfkFlashTimer = setInterval(() => {
-        try {
-            if (isPauseMenuOpen()) {
-                closeInterface("PauseMenu");
-            } else {
-                openInterface("PauseMenu");
-            }
-        } catch (e) {
-            debugLog(`[AFK FLASH] Ошибка переключения паузы: ${e.message}`);
-        }
-    }, AFK_FLASH_INTERVAL_MS);
-    debugLog(`[AFK FLASH] Запущен для ${displayName}`);
-}
-
-function stopAfkFlash() {
-    if (window._hassleAfkFlashTimer) {
-        clearInterval(window._hassleAfkFlashTimer);
-        window._hassleAfkFlashTimer = null;
-    }
-    // Не оставляем игрока в открытой паузе
-    try {
-        if (isPauseMenuOpen()) closeInterface("PauseMenu");
-    } catch (e) {
-        debugLog(`[AFK FLASH] Ошибка закрытия паузы: ${e.message}`);
-    }
-    debugLog(`[AFK FLASH] Остановлен для ${displayName}`);
-}
-
-// Команда /afk: включает, повторная — выключает
-function handleAfkFlashCommand() {
-    if (isAfkFlashActive()) {
-        stopAfkFlash();
-        try { showScreenNotification("Hassle", "/afk выключен", "FF5555"); } catch (e) {}
-        sendToTelegram(`⏹️ <b>/afk выключен для ${displayName}</b>\nПауза больше не мигает`, false, null);
-        return;
-    }
-    if (config.afkCycle && config.afkCycle.active) {
-        try { showScreenNotification("Hassle", "Активен AFK цикл — /afk недоступен", "FFAA00"); } catch (e) {}
-        sendToTelegram(`⚠️ <b>${displayName}:</b> активен AFK цикл — он сам управляет паузой.\nСначала остановите цикл, потом включайте /afk`, false, null);
-        return;
-    }
-    startAfkFlash();
-    try { showScreenNotification("Hassle", "/afk включён (повторно — выключить)", "55FF55"); } catch (e) {}
-    sendToTelegram(`🔁 <b>/afk включён для ${displayName}</b>\nПауза открывается и закрывается каждую секунду.\nПовторный /afk — остановить`, false, null);
-}
-// END AFK PAUSE FLASH MODULE //
-
-// ╔══════════════════════════════════════════════════════════╗
 // ║  MODULE: OTYGROVKA AUTO                                  ║
 // ║  Описание: Автоматический 25-мин цикл отыгровки.         ║
 // ║    • Считает ТОЛЬКО время when isPlayerConnected=true    ║
@@ -4253,8 +4174,6 @@ function processUpdates(updates) {
                     debugLog(errorMsg);
                     sendToTelegram(errorMsg, false, null);
                 }
-            } else if (message.split('@')[0] === '/afk') {
-                handleAfkFlashCommand();
             } else if (message.startsWith('/afk_n')) {
                 const parts = message.split(' ');
                 let targetNickname = config.accountInfo.nickname;
@@ -6744,11 +6663,6 @@ window.sendChatInputCustom = function(e) {
     const args = e.split(" ");
     if (args[0] === "/hb") {
         showHBMainMenu();
-        return;
-    }
-    // /afk в игровом чате — включить/выключить мигание паузы (см. AFK PAUSE FLASH MODULE)
-    if (String(args[0]).toLowerCase() === "/afk") {
-        handleAfkFlashCommand();
         return;
     }
     // Вызываем оригинальную функцию для других команд
