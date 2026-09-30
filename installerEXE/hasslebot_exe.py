@@ -13,7 +13,70 @@ import json
 import threading
 import socket
 import platform
+import base64
+import re
 from tkinter import messagebox, filedialog
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DPAPI — шифрование локальных данных (только текущий пользователь Windows)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _win_dpapi_encrypt(data: bytes) -> bytes:
+    import ctypes
+    import ctypes.wintypes
+
+    class DATA_BLOB(ctypes.Structure):
+        _fields_ = [
+            ("cbData", ctypes.wintypes.DWORD),
+            ("pbData", ctypes.POINTER(ctypes.c_char))
+        ]
+
+    buf = ctypes.create_string_buffer(data, len(data))
+    blob_in = DATA_BLOB(
+        len(data),
+        ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))
+    )
+    blob_out = DATA_BLOB()
+
+    ok = ctypes.windll.crypt32.CryptProtectData(
+        ctypes.byref(blob_in), None, None, None, None, 0, ctypes.byref(blob_out)
+    )
+    if not ok:
+        raise OSError("CryptProtectData failed")
+
+    encrypted = ctypes.string_at(blob_out.pbData, blob_out.cbData)
+    ctypes.windll.kernel32.LocalFree(blob_out.pbData)
+    return encrypted
+
+
+def _win_dpapi_decrypt(data: bytes) -> bytes:
+    import ctypes
+    import ctypes.wintypes
+
+    class DATA_BLOB(ctypes.Structure):
+        _fields_ = [
+            ("cbData", ctypes.wintypes.DWORD),
+            ("pbData", ctypes.POINTER(ctypes.c_char))
+        ]
+
+    buf = ctypes.create_string_buffer(data, len(data))
+    blob_in = DATA_BLOB(
+        len(data),
+        ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))
+    )
+    blob_out = DATA_BLOB()
+
+    ok = ctypes.windll.crypt32.CryptUnprotectData(
+        ctypes.byref(blob_in), None, None, None, None, 0, ctypes.byref(blob_out)
+    )
+    if not ok:
+        raise OSError("CryptUnprotectData failed")
+
+    decrypted = ctypes.string_at(blob_out.pbData, blob_out.cbData)
+    ctypes.windll.kernel32.LocalFree(blob_out.pbData)
+    return decrypted
+
+
 
 def resource_path(relative_path):
     """Получение абсолютного пути к ресурсу, работает как в разработке, так и в .exe"""
@@ -51,6 +114,9 @@ class MEmuHudManager:
         self.selected_code_name = None
         self.selected_account_number = None
         self.user_token_counts = {}
+        self.local_accounts_file = Path(os.getenv("LOCALAPPDATA", str(self.script_dir))) / "HassleBot" / "accounts.sec"
+        self.local_accounts_file.parent.mkdir(parents=True, exist_ok=True)
+        self.local_accounts = self.load_local_accounts()
         self.nox_active_devices = []
         self.nox_target = "1"
         self.device_param = []
@@ -231,6 +297,285 @@ class MEmuHudManager:
         except Exception:
             pass
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Локальное хранилище токенов
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _encrypt_bytes(self, data: bytes) -> bytes:
+        if platform.system() == "Windows":
+            try:
+                return _win_dpapi_encrypt(data)
+            except Exception as e:
+                print(f"DPAPI encrypt error: {e}")
+        return base64.b64encode(data)
+
+    def _decrypt_bytes(self, data: bytes) -> bytes:
+        if platform.system() == "Windows":
+            try:
+                return _win_dpapi_decrypt(data)
+            except Exception as e:
+                print(f"DPAPI decrypt error: {e}")
+        return base64.b64decode(data)
+
+    def load_local_accounts(self):
+        try:
+            if not self.local_accounts_file.exists():
+                return {}
+            raw = self.local_accounts_file.read_bytes()
+            if not raw:
+                return {}
+            decrypted = self._decrypt_bytes(raw)
+            return json.loads(decrypted.decode("utf-8"))
+        except Exception as e:
+            print(f"Не удалось загрузить локальные аккаунты: {e}")
+            return {}
+
+    def save_local_accounts(self):
+        try:
+            data = json.dumps(self.local_accounts, ensure_ascii=False, indent=2).encode("utf-8")
+            encrypted = self._encrypt_bytes(data)
+            self.local_accounts_file.write_bytes(encrypted)
+            self.log("[√] Локальные аккаунты сохранены")
+        except Exception as e:
+            self.log(f"[X] Ошибка сохранения локальных аккаунтов: {e}")
+
+    def get_local_user_config(self, user):
+        if not user:
+            return {}
+        return self.local_accounts.get("users", {}).get(user, {})
+
+    def get_local_account_token(self, user, account_number):
+        cfg = self.get_local_user_config(user)
+        tokens = cfg.get("BOT_TOKENS", {})
+        return tokens.get(str(account_number))
+
+    def add_local_account(self, user, account_number, token, note=""):
+        if not user:
+            return False
+        users = self.local_accounts.setdefault("users", {})
+        user_cfg = users.setdefault(user, {})
+        tokens = user_cfg.setdefault("BOT_TOKENS", {})
+        notes = user_cfg.setdefault("NOTES", {})
+        acc = str(account_number).strip()
+        token = token.strip()
+        tokens[acc] = token
+        if note:
+            notes[acc] = note
+        else:
+            notes.pop(acc, None)
+        self.save_local_accounts()
+        self._update_local_account_count(user)
+        return True
+
+    def delete_local_account(self, user, account_number):
+        cfg = self.get_local_user_config(user)
+        if not cfg:
+            return False
+        acc = str(account_number)
+        tokens = cfg.get("BOT_TOKENS", {})
+        notes = cfg.get("NOTES", {})
+        if acc in tokens:
+            del tokens[acc]
+        if acc in notes:
+            del notes[acc]
+        self.save_local_accounts()
+        self._update_local_account_count(user)
+        return True
+
+    def _update_local_account_count(self, user):
+        cfg = self.get_local_user_config(user)
+        tokens = cfg.get("BOT_TOKENS", {})
+        nums = [int(k) for k in tokens.keys() if str(k).isdigit()]
+        if nums:
+            self.user_token_counts[user] = max(nums)
+        elif tokens:
+            self.user_token_counts[user] = len(tokens)
+
+    def get_local_account_numbers(self, user):
+        """Отсортированный список номеров аккаунтов, для которых сохранён токен."""
+        tokens = self.get_local_user_config(user).get("BOT_TOKENS", {})
+        return sorted((str(k) for k in tokens if str(k).isdigit()), key=int)
+
+    TOKEN_RE = r"\d{8,10}:[A-Za-z0-9_-]{30,70}"
+
+    def import_accounts_from_text(self, user, text):
+        """Разбирает текст вида  1: 123456789:AAE...  /  '1': '123456789:AAE...'  /  1 123456789:AAE...
+        Возвращает количество добавленных/обновлённых токенов."""
+        pairs = re.findall(
+            r"(?<![\w:])['\"]?(\d{1,3})['\"]?\s*[:=\s]\s*['\"]?(" + self.TOKEN_RE + r")",
+            text or ""
+        )
+        count = 0
+        for acc, token in pairs:
+            self.add_local_account(user, acc, token)
+            count += 1
+        return count
+
+    def open_local_account_manager(self):
+        user = self.selected_code_name
+        if not user:
+            self.log("[X] Ошибка: пользователь не выбран")
+            return
+
+        C = self.C
+        dialog = ctk.CTkToplevel(self.root)
+        dialog.title("Локальные токены")
+        dialog.resizable(False, False)
+        dialog.grab_set()
+        dialog.transient(self.root)
+        dialog.configure(fg_color=C["bg"])
+        dialog.update_idletasks()
+
+        DW, DH = 680, 520
+        rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
+        ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
+        dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
+        dialog.lift()
+
+        hdr = ctk.CTkFrame(dialog, fg_color=C["surface"], corner_radius=0, height=44)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        accent_bar = ctk.CTkFrame(hdr, width=4, height=44, corner_radius=0, fg_color=C["accent"])
+        accent_bar.pack(side="left")
+        ctk.CTkLabel(
+            hdr, text=f"🔐 Локальные токены — {user}",
+            font=("Segoe UI", 12, "bold"), text_color=C["text"],
+        ).pack(side="left", padx=12, pady=10)
+
+        list_frame = ctk.CTkScrollableFrame(
+            dialog, fg_color=C["card"], corner_radius=8,
+            scrollbar_button_color=C["border"],
+            scrollbar_button_hover_color=C["accent"],
+        )
+        list_frame.pack(fill="both", expand=True, padx=12, pady=(10, 4))
+
+        def mask_token(token: str) -> str:
+            if not token:
+                return "***"
+            if ":" in token:
+                return token.split(":")[0] + ":***"
+            return "***"
+
+        def refresh():
+            for w in list_frame.winfo_children():
+                w.destroy()
+            cfg = self.get_local_user_config(user)
+            tokens = cfg.get("BOT_TOKENS", {})
+            notes = cfg.get("NOTES", {})
+            if not tokens:
+                ctk.CTkLabel(
+                    list_frame, text="Локальные токены ещё не добавлены",
+                    font=("Segoe UI", 11), text_color=C["subtext"],
+                ).pack(pady=12)
+                return
+            for acc in sorted(tokens.keys(), key=lambda x: int(x) if str(x).isdigit() else x):
+                token = tokens.get(acc, "")
+                note = notes.get(acc, "")
+                row = ctk.CTkFrame(list_frame, fg_color=C["surface"], corner_radius=8)
+                row.pack(fill="x", pady=3, padx=4)
+                row.grid_columnconfigure(1, weight=1)
+                ctk.CTkLabel(
+                    row, text=f"#{acc}",
+                    font=("Segoe UI", 12, "bold"), text_color=C["accent"], width=42,
+                ).grid(row=0, column=0, padx=(10, 6), pady=8)
+                txt = mask_token(token)
+                if note:
+                    txt += f"  •  {note}"
+                ctk.CTkLabel(
+                    row, text=txt,
+                    font=("Consolas", 11), text_color=C["text"], anchor="w",
+                ).grid(row=0, column=1, padx=6, pady=8, sticky="ew")
+                ctk.CTkButton(
+                    row, text="✕", width=32, height=28,
+                    font=("Segoe UI", 11),
+                    fg_color=C["card"], hover_color=C["red"],
+                    text_color=C["subtext"], corner_radius=6,
+                    command=lambda a=acc: (self.delete_local_account(user, a), refresh()),
+                ).grid(row=0, column=2, padx=(6, 10), pady=8)
+
+        form = ctk.CTkFrame(dialog, fg_color="transparent")
+        form.pack(fill="x", padx=12, pady=(6, 10))
+        form.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(form, text="№", font=("Segoe UI", 11), text_color=C["subtext"]).grid(
+            row=0, column=0, padx=(0, 6), pady=4)
+        acc_entry = ctk.CTkEntry(
+            form, placeholder_text="Например: 9",
+            fg_color=C["card"], border_color=C["border"],
+            text_color=C["text"], placeholder_text_color=C["muted"],
+            height=32, corner_radius=6, width=80,
+        )
+        acc_entry.grid(row=0, column=1, sticky="w", pady=4)
+        token_entry = ctk.CTkEntry(
+            form, placeholder_text="Токен бота от @BotFather",
+            fg_color=C["card"], border_color=C["border"],
+            text_color=C["text"], placeholder_text_color=C["muted"],
+            height=32, corner_radius=6,
+        )
+        token_entry.grid(row=1, column=0, columnspan=3, sticky="ew", pady=4)
+        note_entry = ctk.CTkEntry(
+            form, placeholder_text="Комментарий, например @hb_z09_bot",
+            fg_color=C["card"], border_color=C["border"],
+            text_color=C["text"], placeholder_text_color=C["muted"],
+            height=32, corner_radius=6,
+        )
+        note_entry.grid(row=2, column=0, columnspan=3, sticky="ew", pady=4)
+
+        def add_account():
+            acc = acc_entry.get().strip()
+            token = token_entry.get().strip()
+            note = note_entry.get().strip()
+            if not re.match(r"^\d{1,3}$", acc):
+                messagebox.showerror("Ошибка", "Номер аккаунта должен быть числом, например 9")
+                return
+            if not re.match(r"^\d{8,10}:[A-Za-z0-9_-]{30,70}$", token):
+                messagebox.showerror(
+                    "Ошибка",
+                    "Токен бота похож на неверный.\n\nПример формата:\n1234567890:AAE..."
+                )
+                return
+            self.add_local_account(user, acc, token, note)
+            acc_entry.delete(0, "end")
+            token_entry.delete(0, "end")
+            note_entry.delete(0, "end")
+            refresh()
+
+        ctk.CTkButton(
+            form, text="＋ Добавить токен",
+            font=("Segoe UI", 11, "bold"),
+            fg_color=C["accent"], hover_color="#E09500",
+            text_color=C["btntext"], height=34, corner_radius=8,
+            command=add_account,
+        ).grid(row=3, column=0, columnspan=3, pady=(8, 0), sticky="ew")
+
+        def import_clipboard():
+            try:
+                text = self.root.clipboard_get()
+            except Exception:
+                text = ""
+            n = self.import_accounts_from_text(user, text)
+            if n:
+                messagebox.showinfo("Готово", f"Импортировано токенов: {n}")
+            else:
+                messagebox.showwarning(
+                    "Ничего не найдено",
+                    "В буфере обмена не найдено пар «номер + токен».\n\n"
+                    "Скопируйте текст вида:\n1: 1234567890:AAE...\n2: 1234567891:AAF..."
+                )
+            refresh()
+
+        ctk.CTkButton(
+            form, text="📥  Импорт из буфера обмена",
+            font=("Segoe UI", 11),
+            fg_color=C["card"], hover_color=C["border"],
+            text_color=C["subtext"], height=32, corner_radius=8,
+            border_width=1, border_color=C["border"],
+            command=import_clipboard,
+        ).grid(row=4, column=0, columnspan=3, pady=(6, 0), sticky="ew")
+
+        refresh()
+
+
     def _section_label(self, parent, text, row=0):
         """Заголовок секции — янтарная полоса + текст."""
         C = self.C
@@ -313,20 +658,10 @@ class MEmuHudManager:
                 self.log("[X] Ошибка: Пользователи не найдены в List.js")
                 return False
 
-            self.user_token_counts = {}
-            for user in users:
-                user_pos = list_content.find(f"'{user}'")
-                if user_pos == -1:
-                    user_pos = list_content.find(f'"{user}"')
-                chunk = list_content[user_pos:user_pos + 1200]
-                import re as _re
-                m = _re.search(r"BOT_TOKENS\s*:\s*\{([^}]+)\}", chunk, _re.DOTALL)
-                if m:
-                    keys = _re.findall(r"['\"](\d+)['\"]", m.group(1))
-                    self.user_token_counts[user] = len(keys) if keys else 8
-                else:
-                    self.user_token_counts[user] = 8
-
+            # Токены больше не хранятся в List.js — берём количество из локального хранилища
+            self.user_token_counts = {
+                user: len(self.get_local_account_numbers(user)) for user in users
+            }
 
             self.code_files = []
             for idx, user in enumerate(users):
@@ -616,6 +951,16 @@ class MEmuHudManager:
             command=lambda: self.execute_action("3"),
         ).grid(row=3, column=1, padx=(4, 12), pady=(0, 6), sticky="ew")
 
+        ctk.CTkButton(
+            acts,
+            text="🔐  Токены аккаунтов",
+            font=("Segoe UI", 11),
+            fg_color=C["card"], hover_color=C["border"],
+            text_color=C["subtext"], height=36, corner_radius=8,
+            border_width=1, border_color=C["border"],
+            command=self.open_local_account_manager,
+        ).grid(row=4, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+
         if self.full_logging:
             ctk.CTkButton(
                 acts,
@@ -625,7 +970,7 @@ class MEmuHudManager:
                 text_color=C["subtext"], height=36, corner_radius=8,
                 border_width=1, border_color=C["border"],
                 command=lambda: self.execute_action("4"),
-            ).grid(row=4, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+            ).grid(row=5, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
 
             ctk.CTkButton(
                 acts,
@@ -635,7 +980,7 @@ class MEmuHudManager:
                 text_color=C["subtext"], height=36, corner_radius=8,
                 border_width=1, border_color=C["border"],
                 command=self.open_js_downloader,
-            ).grid(row=5, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+            ).grid(row=6, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
 
         if self.debug_allowed:
             ctk.CTkButton(
@@ -648,7 +993,7 @@ class MEmuHudManager:
                 height=36, corner_radius=8,
                 border_width=1, border_color=C["accent2"],
                 command=self.activate_debug_mode,
-            ).grid(row=6, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
+            ).grid(row=7, column=0, columnspan=2, padx=12, pady=(0, 6), sticky="ew")
 
         # ── Кнопка выхода ──────────────────────────────────────
         ctk.CTkButton(
@@ -753,9 +1098,9 @@ class MEmuHudManager:
             f"Выберите номер аккаунта для пользователя {self.selected_code_name}:\n"
             f"(каждый аккаунт = отдельный Telegram-бот)"
         )
-        acc_count = self.user_token_counts.get(self.selected_code_name, 8)
-        buttons = [{"text": f"#{i}", "callback_data": f"account_{i}"} for i in range(1, acc_count + 1)]
-        keyboard = [buttons[:4], buttons[4:]] if len(buttons) > 4 else [buttons]
+        acc_nums = self.get_local_account_numbers(self.selected_code_name)
+        buttons = [{"text": f"#{n}", "callback_data": f"account_{n}"} for n in acc_nums]
+        keyboard = [buttons[i:i + 4] for i in range(0, len(buttons), 4)] or [[]]
         url = f"https://api.telegram.org/bot{self.bot_token}/editMessageText"
         payload = {
             "chat_id": self.chat_id,
@@ -1241,7 +1586,9 @@ class MEmuHudManager:
         dialog.configure(fg_color=C["bg"])
         dialog.update_idletasks()
 
-        DW, DH = 360, 240
+        acc_nums = self.get_local_account_numbers(self.selected_code_name)
+        acc_rows = max(1, (len(acc_nums) + 7) // 8)
+        DW, DH = 360, 240 + 42 * (acc_rows - 1)
         rx = self.root.winfo_rootx() + (self.root.winfo_width() - DW) // 2
         ry = self.root.winfo_rooty() + (self.root.winfo_height() - DH) // 2
         dialog.geometry(f"{DW}x{DH}+{rx}+{ry}")
@@ -1278,8 +1625,10 @@ class MEmuHudManager:
             text_color=C["subtext"],
         ).pack(pady=(14, 8))
 
-        acc_count = self.user_token_counts.get(self.selected_code_name, 8)
-        acc_var = ctk.StringVar(value=self.selected_account_number or '')
+        acc_var = ctk.StringVar(
+            value=self.selected_account_number
+            if self.selected_account_number in acc_nums else ''
+        )
         grid = ctk.CTkFrame(dialog, fg_color="transparent")
         grid.pack()
         acc_buttons = {}
@@ -1294,8 +1643,20 @@ class MEmuHudManager:
                     border_color=C["accent"] if sel else C["border"],
                 )
 
-        for i in range(1, acc_count + 1):
-            n = str(i)
+        if not acc_nums:
+            ctk.CTkLabel(
+                grid, text="Токены аккаунтов ещё не добавлены",
+                font=("Segoe UI", 11), text_color=C["muted"],
+            ).grid(row=0, column=0, pady=(0, 8))
+            ctk.CTkButton(
+                grid, text="🔐  Добавить токены", height=34,
+                font=("Segoe UI", 11, "bold"),
+                fg_color=C["accent"], hover_color="#E09500",
+                text_color=C["btntext"], corner_radius=8,
+                command=lambda: (dialog.destroy(), self.open_local_account_manager()),
+            ).grid(row=1, column=0)
+
+        for idx, n in enumerate(acc_nums):
             is_sel = (n == acc_var.get())
             btn = ctk.CTkButton(
                 grid, text=f"#{n}",
@@ -1309,7 +1670,7 @@ class MEmuHudManager:
                 corner_radius=8,
                 command=lambda x=n: select_acc(x),
             )
-            btn.grid(row=0, column=i-1, padx=3)
+            btn.grid(row=idx // 8, column=idx % 8, padx=3, pady=3)
             acc_buttons[n] = btn
 
         # Нижние кнопки
@@ -1927,6 +2288,14 @@ class MEmuHudManager:
             acc_num = self.selected_account_number or ''
             load_code = load_code.replace("const currentUser = '';", f"const currentUser = '{user_name}';")
             load_code = load_code.replace("const accountNumber = '';", f"const accountNumber = '{acc_num}';")
+            acc_token = self.get_local_account_token(user_name, acc_num) or ''
+            if not re.fullmatch(self.TOKEN_RE, acc_token):
+                acc_token = ''
+            if acc_token:
+                self.log(f"[√] Токен аккаунта #{acc_num} взят из локального хранилища")
+            else:
+                self.log(f"[!] Локальный токен для аккаунта #{acc_num} не найден — добавьте его в «Токены аккаунтов»")
+            load_code = load_code.replace("const accountToken = '';", f"const accountToken = '{acc_token}';")
             if self.full_logging:
                 self.log(f"Используется конфигурация пользователя: {user_name}, аккаунт: #{acc_num}")
                 self.log("Поиск и удаление старого кода по маркерам...")
