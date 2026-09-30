@@ -1767,9 +1767,17 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     }
 
     // Куда ставим пункт. Порядок секторов: 0 — сверху, дальше по часовой (3 — справа снизу, 7 — слева сверху).
+    // Слот кнопки по умолчанию: 4 = низ по центру (под персонажем, по часовой от верха: 0 верх, 2 право, 4 низ, 6 лево).
+    // Внешний слой с типами лицензий раскрывается снизу, и чат (сверху-слева) его не перекрывает.
+    // Переопределить: window.PRAVO_MOBLIC_SLOT = 0..7; значение -1 вернёт прежнее поведение (рядом с «Персонаж», см. SIDE).
+    function configuredSlot() {
+        var s = window.PRAVO_MOBLIC_SLOT;
+        return (typeof s === 'number') ? s : 4;
+    }
+
     function targetSlot(vm, total) {
         var len = vm.menu.length;
-        var want = window.PRAVO_MOBLIC_SLOT;
+        var want = configuredSlot();
         if (typeof want === 'number' && want >= 0 && want < total) return want;
         var ch = characterIndex(vm);
         if (ch < 0) return len;                                   // «Персонажа» нет — как раньше, за последней категорией
@@ -2057,7 +2065,7 @@ window._pravoHookInteractionsSetInfo = _pravoHookInteractionsSetInfo;
     // выбор сектора: явный PRAVO_MOBLIC_SLOT, иначе самый левый свободный
     function pickSlot(vm) {
         var total = vm.DEFAULT_MENU_COUNT || 8;
-        var slot = window.PRAVO_MOBLIC_SLOT;
+        var slot = configuredSlot();
         if (typeof slot === 'number' && slot >= 0 && slot < total) return slot;
         var want = targetSlot(vm, total);                     // «слева от Персонажа», если сектор свободен (сдвигать в DOM-режиме нельзя)
         if (want >= vm.menu.length && want < total) return want;
