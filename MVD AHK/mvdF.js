@@ -2799,13 +2799,8 @@ window.addDialogInQueue = function(dialogParams, content, priority) {
 
             // ── Авто-снаряжение МВД: LIST "Полицейская служба" (id=0) ──
             if (style === 2 && dialogId === 0 && title.includes('Полицейская служба') && window.AUTO_GRAB && typeof window.autoGrab === 'function') {
-                if (window._mvdGrabProcessing || Date.now() < (window._mvdGrabIgnoreUntil || 0)) {
-                    // Это сервер сам переоткрыл меню после нашего взятия (например «не хватает на складе») —
-                    // НЕ запускаем авто-снаряжение повторно, а лишнее меню закрываем.
-                    console.log('[MVD-GRAB] меню переоткрыто сервером — повторный запуск подавлен');
-                    if (!window._mvdGrabProcessing) setTimeout(() => { try { window._mvdCloseTopPolice && window._mvdCloseTopPolice(); } catch(e) {} }, 60);
-                } else {
-                    console.log('[MVD-GRAB] === v2.3 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
+                if (!window._mvdGrabProcessing) {
+                    console.log('[MVD-GRAB] === v2.1 🎯 ТРИГГЕР СРАБОТАЛ — Полицейская служба ===');
                     setTimeout(() => window.autoGrab(), 150);
                 }
             }
@@ -3141,56 +3136,11 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
      sendClientEvent(gm.EVENT_EXECUTE_PUBLIC, "OnPlayerClientSideKey", 18);
  }
 
- // ==================== НЕХВАТКА НА СКЛАДЕ / ЛИШНЕЕ МЕНЮ ====================
- let _grabCollecting = false;
- const _grabShortages = [];
- (function hookGrabChat() {
-     try {
-         const orig = window.onChatMessage;
-         if (typeof orig !== 'function' || orig.__mvdGrabHooked) return;
-         const wrapped = function(message, args) {
-             try {
-                 if (_grabCollecting) {
-                     const t = String(message).replace(/\{[A-Fa-f0-9]{6}\}/g, '');
-                     const m = t.match(/На складе не хватает предмета\s*["«]([^"»]+)["»]/);
-                     if (m) _grabShortages.push(m[1]);
-                 }
-             } catch(e) {}
-             return orig.apply(this, arguments);
-         };
-         wrapped.__mvdGrabHooked = true;
-         window.onChatMessage = wrapped;
-     } catch(e) {}
- })();
-
- // Закрывает меню «Полицейская служба», если оно сейчас верхнее (чужие диалоги не трогает)
- function closeTopPolice() {
-     try {
-         const app = window.App;
-         for (let i = 0; i < 3; i++) {
-             const q = app && app.dialogsQueue;
-             if (!q || !q.length) return;
-             const comp = app.components['Window' + q[0][0]];
-             const p = comp && comp.open && comp.open.params;
-             if (Array.isArray(p) && parseInt(p[0]) === DIALOG_ID && String(p[2] || '').includes('Полицейская служба')) {
-                 window.closeLastDialog();
-             } else return;
-         }
-     } catch(e) {}
- }
- window._mvdCloseTopPolice = closeTopPolice;
-
  // ==================== ОСНОВНАЯ ЛОГИКА ====================
  async function autoGrab() {
      if (typeof autoGrabEnabled !== 'undefined' && !autoGrabEnabled) return;
      if (isProcessing) return;
-     // Предохранитель от зацикливания: не больше 3 запусков за 8 секунд
-     const _runNow = Date.now();
-     window._mvdGrabRuns = (window._mvdGrabRuns || []).filter(t => _runNow - t < 8000);
-     if (window._mvdGrabRuns.length >= 3) { console.warn('[MVD-GRAB] слишком частые запуски — пропуск'); return; }
-     window._mvdGrabRuns.push(_runNow);
      isProcessing = true;
-     let tookItems = false;
 
      // ── ПАТЧИ: скрываем визуал инвентаря на ВЕСЬ авто-граб ──
      const _grabOrigPlaySound         = window.playSound;
@@ -3223,36 +3173,24 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          window.setDrawLabelStatus = _grabOrigSetDrawLabel;
      }
 
-     const _hiddenEls = new Map();
-     function hideEl(el) {
-         if (!el || _hiddenEls.has(el)) return;
-         _hiddenEls.set(el, { v: el.style.visibility, p: el.style.pointerEvents, o: el.style.opacity });
-         el.style.visibility = 'hidden';
-         el.style.pointerEvents = 'none';
-         el.style.opacity = '0';
-     }
-     function restoreHidden() {
-         for (const [el, s] of _hiddenEls) {
-             try { el.style.visibility = s.v; el.style.pointerEvents = s.p; el.style.opacity = s.o; } catch(e) {}
-         }
-         _hiddenEls.clear();
-         // страховка: ни один диалог не должен остаться некликабельным
-         try {
-             document.querySelectorAll('.interface--dialog, .dialog-container').forEach(el => {
-                 if (el.style.pointerEvents === 'none') el.style.pointerEvents = '';
-                 if (el.style.visibility === 'hidden') el.style.visibility = '';
-                 if (el.style.opacity === '0') el.style.opacity = '';
-             });
-         } catch(e) {}
-     }
-
      function hideInventoryUI() {
          const id = setInterval(() => {
              const el = document.querySelector('.iface-container.inventory')
                      || document.querySelector('.inventory')
-                     || document.querySelector('[class*="InventoryNew"]');
-             if (el) hideEl(el);
-             document.querySelectorAll('.interface--dialog, .dialog-container').forEach(hideEl);
+                     || document.querySelector('[class*="InventoryNew"]')
+                     || document.querySelector('.iface-container');
+             if (el && el.style.visibility !== 'hidden') {
+                 el.style.visibility = 'hidden';
+                 el.style.pointerEvents = 'none';
+                 el.style.opacity = '0';
+             }
+             const dlg = document.querySelector('.dialog-container')
+                      || document.querySelector('[class*="Dialog"]');
+             if (dlg && dlg.style.visibility !== 'hidden') {
+                 dlg.style.visibility = 'hidden';
+                 dlg.style.pointerEvents = 'none';
+                 dlg.style.opacity = '0';
+             }
          }, 10);
          return id;
      }
@@ -3362,33 +3300,19 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
          if (need.remington)   toTake.push({ name: "Remington 870",                           idx: MENU.REMINGTON });
          if (need.ammo1270)    toTake.push({ name: `Патроны 12x70 (есть: ${has.ammo1270})`,   idx: MENU.AMMO_1270 });
 
-         tookItems = true;
-         window._mvdGrabIgnoreUntil = Date.now() + 3000;
-         _grabShortages.length = 0;
-         _grabCollecting = true;
-
-         // Каждый предмет запрашивается ОДИН раз. Если на складе чего-то не хватает,
-         // сервер просто откажет по этому предмету и мы идём дальше к остальным.
          for (let i = 0; i < toTake.length; i++) {
              console.log(`[MVD-GRAB] → беру: ${toTake[i].name} (idx=${toTake[i].idx}) [МОМЕНТАЛЬНО]`);
              take(toTake[i].idx);
+             // Микро-задержка 20мс на случай жесткого анти-флуда на сервере.
+             // Для глаза это выглядит как мгновенное выполнение.
              await sleep(20); 
          }
 
          // ⚠️ ВАЖНО: Закрываем меню принудительно, чтобы сервер не переоткрывал диалог
          closeMenu();
 
-         // Ждём ответы сервера (отказы «не хватает на складе» приходят чуть позже)
-         await sleep(350);
-         _grabCollecting = false;
-         const missing = [...new Set(_grabShortages)];
-
          const notifyNames = toTake.map(t => t.name.replace(/ \(есть: \d+\)/, ''));
-         if (missing.length) {
-             notify("МВД", `Запрошено: ${notifyNames.join(", ")}. На складе не хватает: ${missing.join(", ")}`, "FFAA00");
-         } else {
-             notify("МВД", notifyNames.join(", "), "00FF00");
-         }
+         notify("МВД", notifyNames.join(", "), "00FF00");
          window.playSound("inventory/take_light.mp3");
 
      } catch (err) {
@@ -3397,12 +3321,13 @@ window.AUTO_GRAB = true; // гарантируем что window.AUTO_GRAB = tru
      } finally {
          // ── Гарантированное восстановление при ЛЮБОМ выходе ──
          clearInterval(hideInterval);
-         _grabCollecting = false;
-         restoreHidden();
-         if (tookItems) {
-             window._mvdGrabIgnoreUntil = Date.now() + 1500;
-             closeTopPolice();
-         }
+         try {
+             document.querySelectorAll('.iface-container.inventory, .inventory, [class*="InventoryNew"], .dialog-container, [class*="Dialog"]').forEach(el => {
+                 el.style.visibility = '';
+                 el.style.pointerEvents = '';
+                 el.style.opacity = '';
+             });
+         } catch(e) {}
          restoreGrabPatches();
          isProcessing = false;
          console.log('[MVD-GRAB] готов (моментальный + закрытие меню)');
